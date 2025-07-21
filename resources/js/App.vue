@@ -1,11 +1,9 @@
 <template>
-    <div class="min-h-screen bg-gray-100">
-        <Header/>
-        <Sidebar/>
-    </div>
+    <DefaultLayout>
+        <router-view />
+    </DefaultLayout>
 </template>
 
 <script setup>
-import Header from "./components/Header.vue";
-import Sidebar from "./components/Sidebar.vue";
+import DefaultLayout from './layouts/DefaultLayout.vue';
 </script>
