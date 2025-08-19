@@ -1,13 +1,14 @@
 <template>
-    <div class="flex h-screen bg-gray-100">
+    <div class="flex min-h-screen bg-gray-100">
         <!-- Sidebar -->
-        <Sidebar />
+        <aside class="fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-50">
+            <Sidebar />
+        </aside>
+
         <!-- Main Content -->
-        <div class="flex-1 flex flex-col">
-            <main class="flex-1 p-4 bg-gray-100 overflow-y-auto">
-                <Dashboard />
-            </main>
-        </div>
+        <main class="flex-1 ml-64 p-6">
+            <Dashboard />
+        </main>
     </div>
 </template>
 

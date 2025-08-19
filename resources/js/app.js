@@ -6,6 +6,7 @@ import { OhVueIcon, addIcons } from "oh-vue-icons";
 import {
     MdRouterRound,
     MdDashboardOutlined,
+    PrUser,
     PrUsers,
     PrUserPlus,
     RiMapPinUserLine,
@@ -22,11 +23,14 @@ import {
     BiSun,
     BiMoon,
     MdScreenshotmonitor,
+    MdLogoutTwotone,
+    HiWifi,
 } from "oh-vue-icons/icons";
 
 addIcons(
     MdRouterRound,
     MdDashboardOutlined,
+    PrUser,
     PrUsers,
     PrUserPlus,
     RiMapPinUserLine,
@@ -42,7 +46,9 @@ addIcons(
     HiChevronDown,
     BiSun,
     BiMoon,
-    MdScreenshotmonitor
+    MdScreenshotmonitor,
+    MdLogoutTwotone,
+    HiWifi,
 );
 
 
