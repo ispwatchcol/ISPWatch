@@ -3,7 +3,7 @@
         <!-- Encabezado -->
         <div class="flex items-center justify-between">
             <div>
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+            <h1 class="text-3xl font-semibold text-gray-700 dark:text-white">
                 Dashboard
             </h1>
             <p class="text-gray-600 dark:text-gray-400 mt-1">Bienvenido de vuelta, {{user.name}}</p>
@@ -14,7 +14,7 @@
                 <p>Sistema Activo</p>
             </div>
             <button variant="outline" size="sm" class="flex items-center space-x-2">
-                <v-icon name="fa-regular-bell" class="h-4 w-4 mr-1" />
+                <v-icon name="fa-regular-bell" class="h-4 w-4" />
                 <p>Notificaciones</p>
             </button>
             </div>
@@ -30,12 +30,12 @@
                 <div class="p-6">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h3 class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ card.title }}</h3>
-                            <p class="text-2xl font-bold text-gray-900 dark:text-white m-2 ml-0">{{ card.value }}</p>
+                            <h3 class="text-sm text-muted-foreground font-medium text-gray-600 dark:text-gray-400">{{ card.title }}</h3>
+                            <p class="text-2xl font-semibold text-gray-700 dark:text-white m-2 ml-0">{{ card.value }}</p>
                             <p class="text-xs text-muted-foreground">{{ card.description }}</p>
                         </div>
                         <div class="p-3 rounded-full bg-gray-100 dark:bg-gray-800">
-                            <v-icon :name="card.icon" class="w-6 h-6" />
+                            <v-icon :name="card.icon" class="w-6 h-6 text-blue-600" />
                         </div>
                     </div>
                 </div>
@@ -46,7 +46,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="rounded-lg border-none bg-card text-card-foreground shadow-sm lg:col-span-2">
                 <div class="flex flex-col space-y-1.5 p-6">
-                    <h3 class="text-2xl font-semibold leading-none tracking-tight flex items-center space-x-2">
+                    <h3 class="text-2xl font-semibold text-gray-700 dark:text-white leading-none tracking-tight flex items-center space-x-2">
                         <v-icon name="ri-settings-4-line" class="w-5 h-5" />
                         <span>Acciones rápidas</span>
                     </h3>
@@ -57,7 +57,7 @@
                         <div
                         v-for="action in actions"
                         :key="action.id"
-                        class="w-full h-auto justify-start hover:bg-blue-50 hover:border-blue-200 transition-colors bg-transparent"
+                        class="w-full h-auto justify-start rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors bg-transparent"
                         >
                             <a href="">
                                 <button class="inline-flex items-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border-none border-input hover:text-accent-foreground w-full h-auto p-4 justify-start hover:bg-blue-50 hover:border-blue-200 transition-colors bg-transparent">
@@ -74,7 +74,7 @@
             <!-- last activities -->
             <div class="rounded-lg border-none bg-card text-card-foreground shadow-sm">
                 <div class="flex flex-col space-y-1.5 p-4">
-                    <h3 class="text-2xl font-semibold leading-none tracking-tight flex items-center space-x-2">
+                    <h3 class="text-2xl font-semibold text-gray-700 dark:text-white leading-none tracking-tight flex items-center space-x-2">
                         <v-icon name="bi-activity" class="w-5 h-5" />
                         <span>Últimas Actividades</span>
                     </h3>
@@ -115,7 +115,7 @@
         <!-- system status -->
         <div class="rounded-lg border-none bg-card text-card-foreground shadow-sm">
             <div class="flex flex-col space-y-1.5 p-6">
-                <h3 class="text-2xl font-semibold leading-none tracking-tight flex items-center space-x-2">
+                <h3 class="text-2xl font-semibold text-gray-700 dark:text-white leading-none tracking-tight flex items-center space-x-2">
                     <v-icon name="hi-wifi" class="w-5 h-5" />
                     <span>Estado del Sistema</span>
                 </h3>

@@ -2,11 +2,11 @@
   <li>
     <button
       @click="isOpen = !isOpen"
-      class="flex items-center justify-between w-full p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+      class="flex items-center justify-between w-full p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
     >
       <div class="flex items-center gap-3">
-        <v-icon :name="icon" class="w-5 h-5 mr-3" />
-        <span>{{ title }}</span>
+        <v-icon :name="icon" class="w-5 h-5 mr-1" />
+        <span class="text-sm pt-1">{{ title }}</span>
       </div>
       <v-icon
         name="hi-chevron-down"
@@ -22,7 +22,7 @@
       <li v-for="item in items" 
         :key="item.name"
         :class="[
-          'rounded',
+          'text-sm rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200',
           $route.path === item.to
             ? 'bg-blue-500 text-white'
             : 'text-gray-600 hover:bg-gray-200'

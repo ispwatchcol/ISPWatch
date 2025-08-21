@@ -3,8 +3,9 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "vite build",
-        "dev": "vite"
+        "dev": "concurrently \"php artisan serve\" \"npm run vite\"",
+        "vite": "vite",
+        "build": "vite build"
     },
     "devDependencies": {
         "@vitejs/plugin-vue": "^6.0.0",

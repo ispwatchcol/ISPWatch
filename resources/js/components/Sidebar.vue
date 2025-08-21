@@ -20,10 +20,10 @@
                 <v-icon name="pr-user" class="h-4 w-4 text-gray-600 dark:text-gray-300" />
             </div>
             <div class="ml-3 flex-1">
-                <p class="text-sm font-medium text-gray-900 dark:text-gray-100">Admin</p>
-                <strong variant="outline" class="text-xs">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">Admin</p>
+                <p variant="outline" class="text-xs font-bold text-gray-700 dark:text-gray-100">
                 Administrador principal
-                </strong>
+                </p>
             </div>
         </div>
     </div>
@@ -34,11 +34,11 @@
         <ul class="p-2">
             <li>
                 <RouterLink
-                to="/dashboard"
-                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                to="/"
+                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
-                <v-icon name="md-dashboard-outlined" class="w-5 h-5 mr-3" />
-                <span>Dashboard</span>
+                <v-icon name="md-dashboard-outlined" class="w-5 h-5 mr-1" />
+                <span class="text-sm pt-1">Dashboard</span>
                 </RouterLink>
             </li>
 
@@ -83,40 +83,40 @@
             <li>
                 <RouterLink
                 to="/Staff"
-                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
-                <v-icon name="pr-users" class="w-5 h-5 mr-3" />
-                <span>Staff</span>
+                <v-icon name="pr-users" class="w-5 h-5 mr-1" />
+                <span class="text-sm pt-1">Staff</span>
                 </RouterLink>
             </li>
 
             <li>
                 <RouterLink
                 to="/soporte"
-                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
-                <v-icon name="fa-headphones-alt" class="w-5 h-5 mr-3" />
-                <span>Soporte</span>
+                <v-icon name="fa-headphones-alt" class="w-5 h-5 mr-1" />
+                <span class="text-sm pt-1">Soporte</span>
                 </RouterLink>
             </li>
 
             <li>
                 <RouterLink
                 to="/configuracion"
-                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
-                <v-icon name="ri-settings-4-line" class="w-5 h-5 mr-3" />
-                <span>Configuración</span>
+                <v-icon name="ri-settings-4-line" class="w-5 h-5 mr-1" />
+                <span class="text-sm pt-1">Configuración</span>
                 </RouterLink>
             </li>
 
             <li>
                 <RouterLink
                 to="/manual"
-                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
-                <v-icon name="hi-book-open" class="w-5 h-5 mr-3" />
-                <span>Manual de Usuario</span>
+                <v-icon name="hi-book-open" class="w-5 h-5 mr-1" />
+                <span class="text-sm pt-1">Manual de Usuario</span>
                 </RouterLink>
             </li>
         </ul>
@@ -129,7 +129,7 @@
         <div class="grid grid-cols-3 gap-2">
         <button class="flex items-center justify-center"
         >
-            <v-icon name="bi-sun" class="h-4 w-4" />
+            <v-icon name="bi-sun backgr" class="h-4 w-4" />
         </button>
         <button class="flex items-center justify-center"
         >
