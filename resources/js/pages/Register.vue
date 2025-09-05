@@ -1,0 +1,142 @@
+<template>
+  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 px-4">
+    <div class="bg-white shadow-2xl rounded-3xl p-10 w-full max-w-md">
+      
+      <!-- Logo -->
+      <div class="flex justify-center mb-6">
+        <img src="../assets/logo.png" alt="Logo" class="h-20 w-20 animate-bounce" />
+      </div>
+
+      <!-- Título -->
+      <h2 class="text-3xl font-extrabold text-center text-gray-900 mb-2">Crear cuenta</h2>
+      <p class="text-center text-gray-500 mb-8">Regístrate para comenzar</p>
+
+      <!-- Mensaje de error -->
+      <div v-if="errorMessage" class="mb-4 text-red-500 text-center text-sm">
+        {{ errorMessage }}
+      </div>
+
+      <!-- Formulario -->
+      <form @submit.prevent="handleRegister" class="space-y-5">
+
+        <!-- Nombre -->
+        <div>
+          <label for="name" class="block text-gray-700 font-medium mb-1">Nombre completo</label>
+          <input
+            type="text"
+            id="name"
+            v-model="name"
+            placeholder="Tu nombre completo"
+            class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
+            required
+          />
+        </div>
+
+        <!-- Correo electrónico -->
+        <div>
+          <label for="email" class="block text-gray-700 font-medium mb-1">Correo electrónico</label>
+          <input
+            type="email"
+            id="email"
+            v-model="email"
+            placeholder="you@example.com"
+            class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
+            required
+          />
+        </div>
+
+        <!-- Contraseña -->
+        <div>
+          <label for="password" class="block text-gray-700 font-medium mb-1">Contraseña</label>
+          <input
+            type="password"
+            id="password"
+            v-model="password"
+            placeholder="********"
+            class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
+            required
+          />
+        </div>
+
+        <!-- Botón de registro -->
+        <button
+          type="submit"
+          :disabled="loading"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-2xl transition duration-300 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {{ loading ? "Creando cuenta..." : "Registrarse" }}
+        </button>
+      </form>
+
+      <!-- Separador -->
+      <div class="flex items-center my-6">
+        <hr class="flex-1 border-gray-300" />
+        <span class="px-3 text-gray-400 font-medium">o</span>
+        <hr class="flex-1 border-gray-300" />
+      </div>
+
+      <!-- Botón para ir a Login -->
+      <button
+        @click="$router.push('/')"
+        class="w-full border border-gray-300 text-gray-700 py-3 rounded-2xl hover:bg-gray-50 transition duration-300 font-medium shadow-sm"
+      >
+        Iniciar sesión
+      </button>
+    </div>
+  </div>
+</template>
+
+<script>
+import { supabase } from '../supabase';
+
+export default {
+  name: "Register",
+  data() {
+    return {
+      name: "",
+      email: "",
+      password: "",
+      loading: false,
+      errorMessage: ""
+    };
+  },
+  methods: {
+    async handleRegister() {
+      this.loading = true;
+      this.errorMessage = "";
+
+      try {
+        // Registro en Supabase
+        const { data, error } = await supabase.from("user").insert([
+          {
+            user_name: this.email,
+            password: this.password,
+            email: this.email,
+            tenant_id: 1, // ⚠️ Ajusta esto según tu lógica
+            role_id: 2    // ⚠️ Ajusta el rol por defecto
+          }
+        ]);
+
+        if (error) {
+          this.errorMessage = "Error al registrarse: " + error.message;
+          return;
+        }
+
+        console.log("Usuario registrado:", data);
+        this.$router.push("/");
+      } catch (err) {
+        console.error(err);
+        this.errorMessage = "Ocurrió un error inesperado. Intenta de nuevo.";
+      } finally {
+        this.loading = false;
+      }
+    }
+  }
+};
+</script>
+
+<style scoped>
+body {
+  font-family: 'Inter', sans-serif;
+}
+</style>
