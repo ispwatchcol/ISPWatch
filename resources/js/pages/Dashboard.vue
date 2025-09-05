@@ -1,268 +1,291 @@
 <template>
-    <div class="container mx-auto p-6 space-y-6">
-        <!-- Encabezado -->
-        <div class="flex items-center justify-between">
+  <div class="flex h-screen bg-gray-100">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white shadow-lg border-r border-gray-200 flex flex-col">
+      <!-- Logo / Branding -->
+      <div class="flex items-center justify-center h-16 border-b border-gray-200">
+        <h1 class="text-xl font-bold text-blue-600">Colombia Net</h1>
+      </div>
+
+      <!-- Usuario -->
+        <div class="p-4 border-b border-gray-200">
+            <p class="text-gray-800 font-semibold">{{ user.name }} {{ user.last_name }}</p>
+            <p class="text-gray-500 text-sm">{{ user.role }}</p>
+        </div>
+
+      <!-- Menú principal -->
+      <nav class="flex-1 p-4 space-y-2">
+        <div
+          v-for="item in menuItems"
+          :key="item.name"
+          @click="navigate(item.route)"
+          class="flex items-center px-3 py-2 rounded-lg cursor-pointer text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition"
+        >
+          <v-icon :name="item.icon" class="w-5 h-5 mr-3" />
+          <span>{{ item.name }}</span>
+        </div>
+      </nav>
+
+      <!-- Cerrar sesión -->
+      <div class="p-4 border-t border-gray-200">
+        <button
+          @click="logout"
+          class="w-full flex items-center justify-center px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+        >
+          <v-icon name="oi-alert" class="w-5 h-5 mr-2" />
+          <span>Cerrar sesión</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Contenido principal -->
+    <main class="flex-1 overflow-y-auto p-6 bg-gray-100 min-h-screen">
+      <!-- Encabezado -->
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
+        <p class="text-gray-500">
+            Bienvenido de vuelta, {{ user.name }} {{ user.last_name }}
+        </p>
+      </div>
+
+      <!-- Estado superior -->
+      <div class="flex items-center space-x-4 mb-6">
+        <!-- Estado del sistema -->
+        <div
+          class="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"
+        >
+          <v-icon name="bi-activity" class="h-4 w-4" />
+          <span>Sistema Activo</span>
+        </div>
+
+        <!-- Notificaciones -->
+        <button
+          class="flex items-center px-3 py-1 rounded-full border border-gray-300 hover:bg-gray-100 transition"
+        >
+          <v-icon name="fa-regular-bell" class="h-4 w-4 mr-2 text-gray-700" />
+          <span class="text-gray-700 text-sm">Notificaciones</span>
+        </button>
+
+        <!-- Logout rápido -->
+        <button
+          @click="logout"
+          class="flex items-center px-3 py-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+        >
+          <v-icon name="oi-alert" class="h-4 w-4 mr-2" />
+          <span class="text-sm">Cerrar Sesión</span>
+        </button>
+      </div>
+
+      <!-- Cards de métricas -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div
+          v-for="card in cards"
+          :key="card.title"
+          class="rounded-xl bg-white shadow-md hover:shadow-lg transition p-5 border border-gray-100"
+        >
+          <div class="flex items-center justify-between">
             <div>
-            <h1 class="text-3xl font-semibold text-gray-700 dark:text-white">
-                Dashboard
-            </h1>
-            <p class="text-gray-600 dark:text-gray-400 mt-1">Bienvenido de vuelta, {{user.name}}</p>
+              <h3 class="text-sm text-gray-500 font-medium">{{ card.title }}</h3>
+              <p class="text-2xl font-bold text-gray-800 mt-2">{{ card.value }}</p>
+              <p class="text-xs text-gray-400 mt-1">{{ card.description }}</p>
             </div>
-            <div class="flex items-center space-x-2">
-            <div variant="outline" class="flex items-center space-x-2 bg-green-50 text-green-700 border-green-200">
-                <v-icon name="bi-activity" class="h-3 w-3 mr-1" />
-                <p>Sistema Activo</p>
+            <div class="p-3 rounded-full bg-blue-50">
+              <v-icon :name="card.icon" class="w-6 h-6 text-blue-600" />
             </div>
-            <button variant="outline" size="sm" class="flex items-center space-x-2">
-                <v-icon name="fa-regular-bell" class="h-4 w-4" />
-                <p>Notificaciones</p>
-            </button>
-            </div>
+          </div>
         </div>
+      </div>
 
-        <!-- cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <!-- Acciones rápidas y últimas actividades -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <!-- Acciones rápidas -->
+        <div class="rounded-xl bg-white shadow-md lg:col-span-2 border border-gray-100">
+          <div class="p-6 border-b border-gray-100">
+            <h3 class="text-xl font-semibold text-gray-800 flex items-center space-x-2">
+              <v-icon name="ri-settings-4-line" class="w-5 h-5 text-blue-600" />
+              <span>Acciones rápidas</span>
+            </h3>
+            <p class="text-sm text-gray-500 mt-1">
+              Accede rápidamente a las funciones más utilizadas
+            </p>
+          </div>
+          <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div
-                v-for="card in cards"
-                :key="card.title"
-                class="rounded-lg border-none bg-card text-card-foreground shadow-sm hover:shadow-lg transition-shadow"
-                >
-                <div class="p-6">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-sm text-muted-foreground font-medium text-gray-600 dark:text-gray-400">{{ card.title }}</h3>
-                            <p class="text-2xl font-semibold text-gray-700 dark:text-white m-2 ml-0">{{ card.value }}</p>
-                            <p class="text-xs text-muted-foreground">{{ card.description }}</p>
-                        </div>
-                        <div class="p-3 rounded-full bg-gray-100 dark:bg-gray-800">
-                            <v-icon :name="card.icon" class="w-6 h-6 text-blue-600" />
-                        </div>
-                    </div>
-                </div>
+              v-for="action in actions"
+              :key="action.id"
+              class="group flex items-center p-4 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition cursor-pointer"
+            >
+              <v-icon :name="action.icon" class="w-5 h-5 mr-3 text-blue-600" />
+              <span class="text-gray-800 group-hover:text-blue-700">{{ action.name }}</span>
             </div>
+          </div>
         </div>
 
-        <!-- quick actions -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class="rounded-lg border-none bg-card text-card-foreground shadow-sm lg:col-span-2">
-                <div class="flex flex-col space-y-1.5 p-6">
-                    <h3 class="text-2xl font-semibold text-gray-700 dark:text-white leading-none tracking-tight flex items-center space-x-2">
-                        <v-icon name="ri-settings-4-line" class="w-5 h-5" />
-                        <span>Acciones rápidas</span>
-                    </h3>
-                    <p class="text-sm text-muted-foreground">Accede rápidamente a las funciones más utilizadas</p>
-                </div>
-                <div class="p-6 pt-0">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div
-                        v-for="action in actions"
-                        :key="action.id"
-                        class="w-full h-auto justify-start rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors bg-transparent"
-                        >
-                            <a href="">
-                                <button class="inline-flex items-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border-none border-input hover:text-accent-foreground w-full h-auto p-4 justify-start hover:bg-blue-50 hover:border-blue-200 transition-colors bg-transparent">
-                                    <v-icon :name="action.icon" class="w-5 h-5 mr-3 text-blue-600" />
-                                    <span>{{ action.name }}</span>
-                                <span class="text-sm text-muted-foreground">{{ action.date }}</span>
-                                </button>
-                            </a>
-                        </div>
-                    </div>
-                </div>
+        <!-- Últimas actividades -->
+        <div class="rounded-xl bg-white shadow-md border border-gray-100">
+          <div class="p-6 border-b border-gray-100">
+            <h3 class="text-xl font-semibold text-gray-800 flex items-center space-x-2">
+              <v-icon name="bi-activity" class="w-5 h-5 text-green-600" />
+              <span>Últimas Actividades</span>
+            </h3>
+            <p class="text-sm text-gray-500 mt-1">Últimas acciones en el sistema</p>
+          </div>
+          <div class="p-6 space-y-4">
+            <div
+              v-for="(activity, index) in activities"
+              :key="index"
+              class="flex items-start space-x-3"
+            >
+              <div
+                class="w-3 h-3 rounded-full mt-2"
+                :class="{
+                  'bg-green-500': activity.type === 'success',
+                  'bg-yellow-500': activity.type === 'warning',
+                  'bg-red-500': activity.type === 'error',
+                }"
+              ></div>
+              <div class="flex-1">
+                <p class="text-sm font-semibold text-gray-800">
+                  {{ activity.action }}
+                </p>
+                <p class="text-sm text-gray-600">{{ activity.user }}</p>
+                <p class="text-xs text-gray-400 mt-1">{{ activity.time }}</p>
+              </div>
             </div>
-
-            <!-- last activities -->
-            <div class="rounded-lg border-none bg-card text-card-foreground shadow-sm">
-                <div class="flex flex-col space-y-1.5 p-4">
-                    <h3 class="text-2xl font-semibold text-gray-700 dark:text-white leading-none tracking-tight flex items-center space-x-2">
-                        <v-icon name="bi-activity" class="w-5 h-5" />
-                        <span>Últimas Actividades</span>
-                    </h3>
-                    <p class="text-sm text-muted-foreground">Últimas acciones en el sistema</p>
-                </div>
-                <div class="p-6 pt-0">
-                    <div 
-                        v-for="(activity, index) in activities"
-                        :key="index"
-                        class="flex items-start space-x-3"
-                    >
-                        <!-- estilo del punto -->
-                        <div
-                            class="w-2 h-2 rounded-full mt-2"
-                            :class="{
-                                'bg-green-500': activity.type === 'success',
-                                'bg-yellow-500': activity.type === 'warning',
-                                'bg-red-500': activity.type === 'error',
-                            }"
-                        />
-                        <!-- mostrar la información de la actividad -->
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ activity.action }}
-                            </p>
-                            <p class="text-sm text-gray-600 dark:text-gray-400">
-                                {{ activity.user }}
-                            </p>
-                            <p class="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                                {{ activity.time }}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+          </div>
         </div>
+      </div>
 
-        <!-- system status -->
-        <div class="rounded-lg border-none bg-card text-card-foreground shadow-sm">
-            <div class="flex flex-col space-y-1.5 p-6">
-                <h3 class="text-2xl font-semibold text-gray-700 dark:text-white leading-none tracking-tight flex items-center space-x-2">
-                    <v-icon name="hi-wifi" class="w-5 h-5" />
-                    <span>Estado del Sistema</span>
-                </h3>
-                <p class="text-sm text-muted-foreground">Monitoreo en tiempo real de la infraestructura</p>
-            </div>
-            <div class="p-6 pt-0">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="text-center">
-                        <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <v-icon name="hi-wifi" class="h-8 w-8 text-green-600" />
-                        </div>
-                        <h3 class="font-semibold text-gray-900 dark:text-white">Red Principal</h3>
-                        <p class="text-sm text-green-600 mt-1">Operativa</p>
-                        <p class="text-xs text-gray-500 mt-1">99.9% uptime</p>
-                    </div>
-                    <div class="text-center">
-                        <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <v-icon name="bi-activity" class="h-8 w-8 text-blue-600" />
-                        </div>
-                        <h3 class="font-semibold text-gray-900 dark:text-white">Servidores</h3>
-                        <p class="text-sm text-blue-600 mt-1">Estables</p>
-                        <p class="text-xs text-gray-500 mt-1">CPU: 45% | RAM: 62%</p>
-                    </div>
-
-                    <div class="text-center">
-                        <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <v-icon name="ri-map-pin-line" class="h-8 w-8 text-purple-600" />
-                        </div>
-                        <h3 class="font-semibold text-gray-900 dark:text-white">Cobertura</h3>
-                        <p class="text-sm text-purple-600 mt-1">Óptima</p>
-                        <p class="text-xs text-gray-500 mt-1">5 antenas activas</p>
-                    </div>
-                </div>
-            </div>
+      <!-- Estado del sistema -->
+      <div class="rounded-xl bg-white shadow-md border border-gray-100">
+        <div class="p-6 border-b border-gray-100">
+          <h3 class="text-xl font-semibold text-gray-800 flex items-center space-x-2">
+            <v-icon name="hi-wifi" class="w-5 h-5 text-green-600" />
+            <span>Estado del Sistema</span>
+          </h3>
+          <p class="text-sm text-gray-500 mt-1">
+            Monitoreo en tiempo real de la infraestructura
+          </p>
         </div>
+        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="text-center">
+            <div
+              class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3"
+            >
+              <v-icon name="hi-wifi" class="h-8 w-8 text-green-600" />
+            </div>
+            <h3 class="font-semibold text-gray-800">Red Principal</h3>
+            <p class="text-sm text-green-600 mt-1">Operativa</p>
+            <p class="text-xs text-gray-500 mt-1">99.9% uptime</p>
+          </div>
 
-    </div>
+          <div class="text-center">
+            <div
+              class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3"
+            >
+              <v-icon name="bi-activity" class="h-8 w-8 text-blue-600" />
+            </div>
+            <h3 class="font-semibold text-gray-800">Servidores</h3>
+            <p class="text-sm text-blue-600 mt-1">Estables</p>
+            <p class="text-xs text-gray-500 mt-1">CPU: 45% | RAM: 62%</p>
+          </div>
+
+          <div class="text-center">
+            <div
+              class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3"
+            >
+              <v-icon name="ri-map-pin-line" class="h-8 w-8 text-purple-600" />
+            </div>
+            <h3 class="font-semibold text-gray-800">Cobertura</h3>
+            <p class="text-sm text-purple-600 mt-1">Óptima</p>
+            <p class="text-xs text-gray-500 mt-1">5 antenas activas</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
+import axios from "axios";
 import { OhVueIcon, addIcons } from "oh-vue-icons";
 import {
-    PrUsers,
-    FaDollarSign,
-    OiAlert,
-    HiTrendingUp,
-    BiActivity,
-    RiMapPinLine,
-    RiSettings4Line,
-    FaRegularBell,
-    IoCalendar,
+  OiAlert,
+  BiActivity,
+  PrUsers,
+  FaDollarSign,
+  RiSettings4Line,
+  RiMapPinLine,
+  FaRegularBell,
 } from "oh-vue-icons/icons";
 
 addIcons(
-    PrUsers,
-    FaDollarSign,
-    OiAlert,
-    HiTrendingUp,
-    BiActivity,
-    RiMapPinLine,
-    RiSettings4Line,
-    FaRegularBell,
-    IoCalendar,
+  OiAlert,
+  BiActivity,
+  PrUsers,
+  FaDollarSign,
+  RiSettings4Line,
+  RiMapPinLine,
+  FaRegularBell
 );
 
-// Registrar componente global localmente
+// Información dinámica del usuario
 const user = ref({
-    name: "David Gómez",
+  name: "",
+  last_name: "",
+  role: "",
 });
 
-const cards = ref([
-    {
-        title: "Total Usuarios",
-        icon: "pr-users",
-        value: "1,243",
-        description: "+12% vs mes anterior",
-    },
-    {
-        title: "Ingresos Mensuales",
-        icon: "fa-dollar-sign",
-        value: "$45,678",
-        description: "+8% vs mes anterior",
-    },
-    {
-        title: "Equipos Activos",
-        icon: "ri-settings-4-line",
-        value: "856",
-        description: "+5% vs mes anterior",
-    },
-    {
-        title: "Tickets Abiertos",
-        icon: "oi-alert",
-        value: "23",
-        description: "-15% vs mes anterior",
-    },
+const fetchUserProfile = async () => {
+  try {
+    const response = await axios.get("/api/user-profile", {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+    user.value = response.data;
+  } catch (error) {
+    console.error("Error al cargar el perfil del usuario:", error);
+  }
+};
+
+onMounted(() => {
+  fetchUserProfile();
+});
+
+// Menú lateral
+const menuItems = ref([
+  { name: "Dashboard", icon: "bi-activity", route: "/dashboard" },
+  { name: "Clientes", icon: "pr-users", route: "/clientes" },
+  { name: "Finanzas", icon: "fa-dollar-sign", route: "/finanzas" },
+  { name: "Sistema", icon: "ri-settings-4-line", route: "/sistema" },
+  { name: "Fichas HotSpot", icon: "ri-map-pin-line", route: "/hotspot" },
+  { name: "Soporte Técnico", icon: "oi-alert", route: "/soporte" },
+  { name: "Almacén", icon: "fa-regular-bell", route: "/almacen" },
+  { name: "Staff", icon: "pr-users", route: "/staff" },
+  { name: "Ajustes", icon: "ri-settings-4-line", route: "/ajustes" },
+  { name: "Mi Empresa", icon: "fa-regular-bell", route: "/empresa" },
+  { name: "Afiliado", icon: "fa-regular-bell", route: "/afiliado" },
+  { name: "Manual", icon: "fa-regular-bell", route: "/manual" },
+  { name: "Recursos Adicionales", icon: "fa-regular-bell", route: "/recursos" },
 ]);
 
-    const actions = ref([
-    { id: 1, name: "Ver mapa de usuarios", icon: "ri-map-pin-line" },
-    { id: 2, name: "Gestionar staff", icon: "pr-users" },
-    { id: 3, name: "Configuración", icon: "ri-settings-4-line" },
-    { id: 4, name: "Reportes financieros", icon: "fa-dollar-sign" },
-]);
+// Navegar entre rutas
+const navigate = (route) => {
+  window.location.href = route;
+};
 
-    const activities = ref([
-    { 
-        type: "success",
-        action: "Usuario registrado",
-        user: "Juan Pérez",
-        time: "Hace 2 horas",
-    },
-    { 
-        type: "success",
-        action: "Pago registrado",
-        user: "Hernan Suárez",
-        time: "Hace 2 horas",
-    },
-    { 
-        type: "error",
-        action: "Usuario no se registró",
-        user: "Almeida Juarez",
-        time: "Hace 3 horas",
-    },
-    {
-        type: "warning",
-        action: "Pago pendiente",
-        user: "María López",
-        time: "Hace 5 horas",
-    },
-    {
-        type: "error",
-        action: "Error en el sistema",
-        user: "Carlos Ramírez",
-        time: "Hace 1 día",
-    },
-]);
+// Logout
+const logout = () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  window.location.href = "/";
+};
 </script>
 
 <style scoped>
-    /* Colores de texto personalizados para simular muted-foreground */
-    .text-muted-foreground {
-        color: #6b7280;
-    }
-
-    /* Fondo de tarjeta */
-    .bg-card {
-        background-color: white;
-    }
+body {
+  font-family: "Inter", sans-serif;
+}
 </style>
