@@ -84,7 +84,7 @@ export default {
   name: "Login",
   data() {
     return {
-      email: "",       // Aquí usaremos "user_name" como identificador
+      email: "",       // Aquí usaremos "email" como identificador
       password: "",
       remember: false,
       loading: false,
@@ -97,11 +97,11 @@ export default {
       this.errorMessage = "";
 
       try {
-        // 1. Buscar al usuario por user_name
+        // 1. Buscar al usuario por email
         const { data: users, error } = await supabase
           .from('user')
-          .select('id, user_name, password')
-          .eq('user_name', this.email)
+          .select('id, email, password')
+          .eq('email', this.email)
           .single(); // Esperamos solo un resultado
 
         if (error || !users) {
@@ -117,7 +117,7 @@ export default {
         }
 
         // 3. Guardar "Recordarme"
-        const userData = { id: users.id, user_name: users.user_name };
+        const userData = { id: users.id, email: users.email };
 
         if (this.remember) {
           localStorage.setItem("isLoggedIn", "true");

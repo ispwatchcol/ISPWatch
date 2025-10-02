@@ -1,55 +1,17 @@
 <template>
   <div class="flex h-screen bg-gray-100">
-    <!-- Sidebar -->
-    <aside class="w-64 bg-white shadow-lg border-r border-gray-200 flex flex-col">
-      <!-- Logo / Branding -->
-      <div class="flex items-center justify-center h-16 border-b border-gray-200">
-        <h1 class="text-xl font-bold text-blue-600">Colombia Net</h1>
-      </div>
-
-      <!-- Usuario -->
-        <div class="p-4 border-b border-gray-200">
-            <p class="text-gray-800 font-semibold">{{ user.name }} {{ user.last_name }}</p>
-            <p class="text-gray-500 text-sm">{{ user.role }}</p>
-        </div>
-
-      <!-- Menú principal -->
-      <nav class="flex-1 p-4 space-y-2">
-        <div
-          v-for="item in menuItems"
-          :key="item.name"
-          @click="navigate(item.route)"
-          class="flex items-center px-3 py-2 rounded-lg cursor-pointer text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition"
-        >
-          <v-icon :name="item.icon" class="w-5 h-5 mr-3" />
-          <span>{{ item.name }}</span>
-        </div>
-      </nav>
-
-      <!-- Cerrar sesión -->
-      <div class="p-4 border-t border-gray-200">
-        <button
-          @click="logout"
-          class="w-full flex items-center justify-center px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-        >
-          <v-icon name="oi-alert" class="w-5 h-5 mr-2" />
-          <span>Cerrar sesión</span>
-        </button>
-      </div>
-    </aside>
-
     <!-- Contenido principal -->
     <main class="flex-1 overflow-y-auto p-6 bg-gray-100 min-h-screen">
       <!-- Encabezado -->
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
+      <div class="block items-center justify-center mb-6">
+        <h1 class="text-3xl font-bold mb-2 text-gray-800">Dashboard</h1>
         <p class="text-gray-500">
-            Bienvenido de vuelta, {{ user.name }} {{ user.last_name }}
+          Bienvenido de vuelta, {{ user.name || 'Usuario' }} {{ user.last_name || '' }}
         </p>
       </div>
 
       <!-- Estado superior -->
-      <div class="flex items-center space-x-4 mb-6">
+      <div class="flex items-center justify-between space-x-4 mb-6">
         <!-- Estado del sistema -->
         <div
           class="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"

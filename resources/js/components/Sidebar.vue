@@ -16,13 +16,11 @@
     <!-- info rápida del usuario actual -->
     <div class="p-4 border-b border-gray-200 dark:border-gray-700">
         <div class="flex items-center">
-            <div class="w-8 h-8 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center">
-                <v-icon name="pr-user" class="h-4 w-4 text-gray-600 dark:text-gray-300" />
-            </div>
+            <v-icon name="pr-user" class="h-6 w-6 text-gray-800 dark:text-gray-300 z-10" />
             <div class="ml-3 flex-1">
-                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">Admin</p>
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">Rol</p>
                 <p variant="outline" class="text-xs font-bold text-gray-700 dark:text-gray-100">
-                Administrador principal
+                Nombre Usuario
                 </p>
             </div>
         </div>
@@ -95,7 +93,7 @@
                 to="/soporte"
                 class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
-                <v-icon name="fa-headphones-alt" class="w-5 h-5 mr-1" />
+                <v-icon name="md-supportagent-round" class="w-5 h-5 mr-1" />
                 <span class="text-sm pt-1">Soporte</span>
                 </RouterLink>
             </li>
@@ -127,22 +125,22 @@
     <div class="space-y-3">
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Tema</label>
         <div class="grid grid-cols-3 gap-2">
-        <button class="flex items-center justify-center"
+        <button class="flex items-center justify-center text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
         >
-            <v-icon name="bi-sun backgr" class="h-4 w-4" />
+            <v-icon name="bi-sun" class="h-4 w-4" />
         </button>
-        <button class="flex items-center justify-center"
+        <button class="flex items-center justify-center text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
         >
             <v-icon name="bi-moon" class="h-4 w-4" />
         </button>
-        <button class="flex items-center justify-center"
+        <button class="flex items-center justify-center text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
         >
             <v-icon name="md-screenshotmonitor" class="h-4 w-4" />
         </button>
         </div>
     </div>
         <button
-            class="w-full justify-start text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent"
+            class="w-full p-2 rounded-lg justify-start text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent"
         >
         <v-icon name="md-logout-twotone" class="w-4 h-4 mr-2" />
         Cerrar sesión
