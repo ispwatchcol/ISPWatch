@@ -3,7 +3,7 @@
         class="flex flex-col h-screen bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 w-64"
     >
 <!-- Logo -->
-    <div class="flex items-center gap-2 px-6 py-4 border-b border-gray-200">
+    <div class="flex items-center gap-2 px-6 py-8 border-b dark:border-gray-600">
         <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
             <v-icon name="md-router-round" class="h-6 w-6 text-white" />
         </div>
@@ -125,22 +125,22 @@
     <div class="space-y-3">
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Tema</label>
         <div class="grid grid-cols-3 gap-2">
-        <button class="flex items-center justify-center text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
+        <button class="flex items-center justify-center p-2 rounded-full text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
         >
             <v-icon name="bi-sun" class="h-4 w-4" />
         </button>
-        <button class="flex items-center justify-center text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
+        <button class="flex items-center justify-center p-2 rounded-full text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
         >
             <v-icon name="bi-moon" class="h-4 w-4" />
         </button>
-        <button class="flex items-center justify-center text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
+        <button class="flex items-center justify-center p-2 rounded-full text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
         >
             <v-icon name="md-screenshotmonitor" class="h-4 w-4" />
         </button>
         </div>
     </div>
         <button
-            class="w-full p-2 rounded-lg justify-start text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent"
+            class="w-full p-2 rounded-full justify-start text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent"
         >
         <v-icon name="md-logout-twotone" class="w-4 h-4 mr-2" />
         Cerrar sesión
