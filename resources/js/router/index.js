@@ -4,11 +4,15 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Login from '../pages/Login.vue';
 import Register from '../pages/Register.vue';
 import Dashboard from '../pages/Dashboard.vue';
+import Staff from '../pages/Staff.vue';
+import StaffNew from '@/pages/StaffNew.vue'
 
 const routes = [
   { path: '/', name: 'Login', component: Login },
   { path: '/register', name: 'Register', component: Register },
   { path: '/dashboard', name: 'Dashboard', component: Dashboard, meta: { requiresAuth: true } },
+  { path: '/staff', name: 'Staff', component: Staff, meta: { requiresAuth: true } },
+  { path: '/staff/new', component: StaffNew, name: 'StaffNew', meta: { requiresAuth: true } },
 ];
 
 const router = createRouter({
