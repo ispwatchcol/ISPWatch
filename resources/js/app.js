@@ -10,7 +10,10 @@ import "../css/app.css"; // Importa tus estilos globales
 // -------------------------------
 import { OhVueIcon, addIcons } from "oh-vue-icons";
 import {
+  PrUser,
   PrUsers,
+  PrUserPlus,
+  RiMapPinUserLine,
   FaDollarSign,
   OiAlert,
   HiTrendingUp,
@@ -19,12 +22,29 @@ import {
   RiSettings4Line,
   FaRegularBell,
   IoCalendar,
-  HiWifi
+  HiWifi,
+  BiSun,
+  BiMoon,
+  MdScreenshotmonitor,
+  MdLogoutTwotone,
+  MdDashboardOutlined,
+  BiRouter,
+  OiDiffAdded,
+  OiPackage,
+  RiMoneyDollarCircleLine,
+  FaHeadphonesAlt,
+  HiBookOpen,
+  MdRouterRound,
+  MdSupportagentRound,
+  HiChevronDown,
 } from "oh-vue-icons/icons";
 
 // Registramos los íconos que vamos a usar
 addIcons(
+  PrUser,
   PrUsers,
+  PrUserPlus,
+  RiMapPinUserLine,
   FaDollarSign,
   OiAlert,
   HiTrendingUp,
@@ -33,7 +53,21 @@ addIcons(
   RiSettings4Line,
   FaRegularBell,
   IoCalendar,
-  HiWifi
+  HiWifi,
+  BiSun,
+  BiMoon,
+  MdScreenshotmonitor,
+  MdLogoutTwotone,
+  MdDashboardOutlined,
+  BiRouter,
+  OiDiffAdded,
+  OiPackage,
+  RiMoneyDollarCircleLine,
+  FaHeadphonesAlt,
+  HiBookOpen,
+  MdRouterRound,
+  MdSupportagentRound,
+  HiChevronDown,
 );
 
 // -------------------------------

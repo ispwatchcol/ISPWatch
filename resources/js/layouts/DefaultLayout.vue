@@ -6,13 +6,13 @@
         </aside>
 
         <!-- Main Content -->
-        <main class="flex-1 ml-64 p-6">
-            <Dashboard />
+        <main class="flex-1 ml-64">
+            <router-view />
         </main>
     </div>
 </template>
 
 <script setup>
 import Sidebar from '../components/Sidebar.vue';
-import Dashboard from '../pages/Dashboard.vue';
+import { RouterView } from 'vue-router';
 </script>
