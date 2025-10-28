@@ -37,9 +37,11 @@ import {
   MdRouterRound,
   MdSupportagentRound,
   HiChevronDown,
+  FaArrowLeft,
+  FaUserEdit, // ✅ Icono de edición de usuario existente
 } from "oh-vue-icons/icons";
 
-// Registramos los íconos que vamos a usar
+// REGISTRAR ICONOS
 addIcons(
   PrUser,
   PrUsers,
@@ -51,6 +53,7 @@ addIcons(
   BiActivity,
   RiMapPinLine,
   RiSettings4Line,
+  FaUserEdit, // ✅ Registrado correctamente
   FaRegularBell,
   IoCalendar,
   HiWifi,
@@ -68,6 +71,7 @@ addIcons(
   MdRouterRound,
   MdSupportagentRound,
   HiChevronDown,
+  FaArrowLeft
 );
 
 // -------------------------------
@@ -86,4 +90,3 @@ app.use(router);
 
 // Montar la aplicación
 app.mount("#app");
-
