@@ -53,6 +53,7 @@
                 <th class="py-3 px-4 text-left">Cargo</th>
                 <th class="py-3 px-4 text-left">Creado</th>
                 <th class="py-3 px-4 text-left">Último Acceso</th>
+                <th class="py-3 px-4 text-left">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -77,6 +78,30 @@
                 <td class="py-3 px-4 text-gray-500 dark:text-gray-400">
                   {{ member.last_access ? formatDate(member.last_access) : '—' }}
                 </td>
+                <td class="py-3 px-4 flex gap-2">
+                <!-- Botón Editar -->
+                <button
+                  class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                        bg-blue-50 text-blue-700 border border-blue-200
+                        hover:bg-blue-100 hover:scale-[1.03] transition-all
+                        dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
+                >
+                  <v-icon name="pr-edit" class="w-3.5 h-3.5" />
+                  Editar
+                </button>
+
+                <!-- Botón Eliminar -->
+                <button
+                  @click="deleteUser(member.id)"
+                  class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                        bg-red-50 text-red-700 border border-red-200
+                        hover:bg-red-100 hover:scale-[1.03] transition-all
+                        dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-800/50"
+                >
+                  <v-icon name="pr-trash" class="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+              </td>
               </tr>
             </tbody>
           </table>
@@ -93,68 +118,94 @@ import { supabase } from '@/supabase.js'
 // Estados
 const search = ref('')
 const staff = ref([])
+const tenantId = ref(null) // 🔹 Mantenemos el tenant en un estado global del componente
 
 // Cargar datos del staff desde Supabase
 const loadStaff = async () => {
-  const sessionData = JSON.parse(localStorage.getItem("userData")) || JSON.parse(sessionStorage.getItem("userData"));
-  const tenantId = sessionData?.tenant_id;
+  const sessionData =
+    JSON.parse(localStorage.getItem("userData")) ||
+    JSON.parse(sessionStorage.getItem("userData"));
 
-  if (!tenantId) {
+  tenantId.value = sessionData?.tenant_id;
+
+  if (!tenantId.value) {
     console.error("❌ No se encontró tenant_id en la sesión del usuario.");
     return;
   }
 
   const { data, error } = await supabase
-    .from('user')
-    .select('id, user_name, user_lastname, email_tenant, create_at, last_access, role:role_id (name)')
-    .eq('tenant_id', tenantId) // 🔹 Solo los del mismo tenant
+    .from("user")
+    .select('id, user_name, user_lastname, email_tenant, create_at, last_access, tenant_id, role:role_id (name)')
+    .eq('tenant_id', tenantId.value)
+    .eq('status', true) // 🔹 Solo usuarios activos
     .order('id', { ascending: true });
 
 
   if (error) {
-    console.error('❌ Error al cargar staff:', error.message)
-    return
+    console.error('❌ Error al cargar staff:', error.message);
+    return;
   }
 
-  // Mapear roles correctamente
   staff.value = data.map(u => ({
     ...u,
     role_name: u.role?.name || 'Sin rol'
-  }))
-}
+  }));
+};
 
-onMounted(loadStaff)
+onMounted(loadStaff);
 
-// Filtrar búsqueda
+// ✅ Filtro corregido
 const filteredStaff = computed(() =>
   staff.value.filter(member =>
     [member.user_name, member.user_lastname, member.email_tenant, member.role_name]
       .filter(Boolean)
       .some(f => f.toLowerCase().includes(search.value.toLowerCase()))
   )
-)
+);
 
-const clearSearch = () => (search.value = '')
+// Limpiar búsqueda
+const clearSearch = () => (search.value = '');
 
 // Colores por rol
 const getRoleColor = role => {
   switch (role) {
     case 'Administrador':
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300';
     case 'Finanzas':
-      return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300'
+      return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300';
     case 'Técnico':
-      return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+      return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300';
     default:
-      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
   }
-}
+};
+
+const deleteUser = async (id) => {
+  const confirmDelete = confirm("¿Seguro que deseas desactivar este usuario?");
+  if (!confirmDelete) return;
+
+  const { error } = await supabase
+    .from("user")
+    .update({
+      status: false,
+      deleted_at: new Date().toISOString()
+    })
+    .eq("id", id);
+
+  if (error) {
+    console.error("❌ Error al desactivar usuario:", error.message);
+    return;
+  }
+
+  alert("✅ Usuario desactivado correctamente.");
+  await loadStaff(); // Recargar la lista
+};
 
 // Formato de fecha
 const formatDate = dateStr => {
-  if (!dateStr) return '—'
-  const date = new Date(dateStr)
-  return date.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
-}
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  return date.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+};
 </script>
 
