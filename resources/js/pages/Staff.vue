@@ -62,7 +62,7 @@
                 class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all"
               >
                 <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">{{ member.user_name }} {{ member.user_lastname }}</td>
-                <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ member.email }}</td>
+                <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ member.email_tenant }}</td>
                 <td>
                   <span
                     class="inline-block px-3 py-1 text-xs font-semibold rounded-full"
@@ -96,10 +96,20 @@ const staff = ref([])
 
 // Cargar datos del staff desde Supabase
 const loadStaff = async () => {
+  const sessionData = JSON.parse(localStorage.getItem("userData")) || JSON.parse(sessionStorage.getItem("userData"));
+  const tenantId = sessionData?.tenant_id;
+
+  if (!tenantId) {
+    console.error("❌ No se encontró tenant_id en la sesión del usuario.");
+    return;
+  }
+
   const { data, error } = await supabase
     .from('user')
-    .select('id, user_name, user_lastname, email, create_at, last_access, role:role_id (name)')
-    .order('id', { ascending: true })
+    .select('id, user_name, user_lastname, email_tenant, create_at, last_access, role:role_id (name)')
+    .eq('tenant_id', tenantId) // 🔹 Solo los del mismo tenant
+    .order('id', { ascending: true });
+
 
   if (error) {
     console.error('❌ Error al cargar staff:', error.message)
@@ -118,7 +128,7 @@ onMounted(loadStaff)
 // Filtrar búsqueda
 const filteredStaff = computed(() =>
   staff.value.filter(member =>
-    [member.user_name, member.user_lastname, member.email, member.role_name]
+    [member.user_name, member.user_lastname, member.email_tenant, member.role_name]
       .filter(Boolean)
       .some(f => f.toLowerCase().includes(search.value.toLowerCase()))
   )
