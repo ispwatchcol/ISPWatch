@@ -96,7 +96,7 @@ export default {
       this.errorMessage = "";
 
       try {
-        // 🔹 Buscar usuario en Supabase por email_tenant
+        // 🔹 Buscar usuario por email_tenant
         const { data: user, error } = await supabase
           .from('user')
           .select('id, email_tenant, password, tenant_id, role_id')
@@ -114,7 +114,19 @@ export default {
           return;
         }
 
-        // 🔹 Guardar información completa del usuario
+        // 🔹 Actualizar fecha de último acceso
+        const { error: updateError } = await supabase
+          .from('user')
+          .update({ last_access: new Date().toISOString() })
+          .eq('id', user.id);
+
+        if (updateError) {
+          console.error("⚠️ No se pudo actualizar last_access:", updateError.message);
+        } else {
+          console.log("🕓 Último acceso actualizado correctamente.");
+        }
+
+        // 🔹 Guardar información del usuario
         const userData = {
           id: user.id,
           email_tenant: user.email_tenant,
@@ -122,7 +134,7 @@ export default {
           role_id: user.role_id,
         };
 
-        // 🔹 Guardar sesión en local o session storage
+        // 🔹 Guardar sesión en localStorage o sessionStorage
         if (this.remember) {
           localStorage.setItem("isLoggedIn", "true");
           localStorage.setItem("userData", JSON.stringify(userData));
@@ -136,7 +148,7 @@ export default {
         await this.$router.push({ name: "Dashboard" });
 
       } catch (err) {
-        console.error("Error en login:", err);
+        console.error("❌ Error en login:", err);
         this.errorMessage = "Ocurrió un error inesperado. Intenta de nuevo.";
       } finally {
         this.loading = false;
