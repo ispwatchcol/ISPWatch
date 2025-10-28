@@ -45,6 +45,11 @@ const routes = [
         component: StaffNew,
         meta: { requiresAuth: true },
       },
+      {
+        path: '/editstaff/:id',
+        name: 'EditStaff',
+        component: () => import('@/pages/EditStaff.vue'),
+      },
     ],
   },
 ];

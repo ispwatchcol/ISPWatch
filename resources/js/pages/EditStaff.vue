@@ -1,16 +1,14 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
-    <Sidebar />
-
     <main class="flex-1 p-6 md:p-10 overflow-y-auto">
       <div class="flex items-center justify-between mb-8">
         <div>
-          <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <v-icon name="pr-user-plus" class="text-blue-600 w-7 h-7" />
-            Registrar nuevo usuario del Staff
-          </h1>
+            <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <v-icon name="fa-user-edit" class="text-blue-800 text-3xl" style="transform: scale(1.5);" />
+            Editar usuario del Staff
+            </h1>
           <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            Crea un nuevo usuario y asigna permisos de acceso al sistema.
+            Modifica la información del usuario y sus permisos.
           </p>
         </div>
 
@@ -35,7 +33,7 @@
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Nombre de usuario</label>
             <div class="flex border rounded-lg overflow-hidden dark:border-gray-600">
               <input
-                v-model="newMember.username"
+                v-model="editMember.username"
                 type="text"
                 class="flex-1 p-2 bg-white dark:bg-gray-700 focus:outline-none"
                 placeholder="usuario"
@@ -49,7 +47,7 @@
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Contraseña</label>
             <input
-              v-model="newMember.password"
+              v-model="editMember.password"
               type="password"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
               placeholder="••••••••"
@@ -59,7 +57,7 @@
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Correo electrónico</label>
             <input
-              v-model="newMember.email"
+              v-model="editMember.email"
               type="email"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
               placeholder="usuario@colombia-net.com"
@@ -69,7 +67,7 @@
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Teléfono celular</label>
             <input
-              v-model="newMember.phone"
+              v-model="editMember.phone"
               type="text"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
               placeholder="+57 300 123 4567"
@@ -79,7 +77,7 @@
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Nombre</label>
             <input
-              v-model="newMember.name"
+              v-model="editMember.name"
               type="text"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
               placeholder="Nombre"
@@ -89,7 +87,7 @@
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Apellido</label>
             <input
-              v-model="newMember.lastname"
+              v-model="editMember.lastname"
               type="text"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
               placeholder="Apellido"
@@ -98,7 +96,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Tipo de usuario</label>
-            <select v-model="newMember.role_id" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
+            <select v-model="editMember.role_id" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
               <option disabled value="">Selecciona un rol</option>
               <option v-for="role in roles" :key="role.id" :value="role.id">
                 {{ role.name }}
@@ -108,7 +106,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Operar todas las zonas</label>
-            <select v-model="newMember.allZones" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
+            <select v-model="editMember.allZones" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
               <option>Sí</option>
               <option>No</option>
             </select>
@@ -116,12 +114,13 @@
 
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Autenticación de dos pasos</label>
-            <select v-model="newMember.twoFA" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
+            <select v-model="editMember.twoFA" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
               <option>No</option>
               <option>Sí</option>
             </select>
           </div>
         </div>
+
         <!-- Permisos -->
         <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Permisos</h2>
         <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -139,10 +138,10 @@
         <!-- Botón -->
         <div class="mt-8 text-right">
           <button
-            @click="saveUser"
+            @click="updateUser"
             class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow transition-all"
           >
-            Guardar Usuario
+            Guardar Cambios
           </button>
         </div>
       </div>
@@ -152,9 +151,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '@/supabase.js'
 
-const newMember = ref({
+const route = useRoute()
+const router = useRouter()
+const userId = route.params.id
+
+const editMember = ref({
   username: '',
   password: '',
   email: '',
@@ -170,24 +174,52 @@ const tenant = ref('')
 const roles = ref([])
 
 onMounted(async () => {
+  await loadRoles()
+  await loadUserData()
+})
+
+const loadUserData = async () => {
+  const { data, error } = await supabase
+    .from('user')
+    .select('id, user_name, user_lastname, email, email_tenant, tel, role_id, password')
+    .eq('id', userId)
+    .single()
+
+  if (error) {
+    console.error('❌ Error al cargar el usuario:', error)
+    alert('No se pudo cargar la información del usuario.')
+    return
+  }
+
+  editMember.value = {
+    username: data.user_name,
+    password: data.password || '',
+    email: data.email || '',
+    phone: data.tel || '',
+    name: data.user_name,
+    lastname: data.user_lastname,
+    role_id: data.role_id,
+    allZones: 'Sí',
+    twoFA: 'No',
+  }
+
+  // Obtener dominio del tenant actual
   const userData =
     JSON.parse(localStorage.getItem('userData')) ||
     JSON.parse(sessionStorage.getItem('userData'))
 
   if (userData?.tenant_id) {
-    const { data: tenantData, error } = await supabase
+    const { data: tenantData } = await supabase
       .from('tenant')
-      .select('id, domain')
+      .select('domain')
       .eq('id', userData.tenant_id)
       .single()
 
-    tenant.value = error || !tenantData ? '@sin-tenant' : `@${tenantData.domain}`
+    tenant.value = tenantData ? `@${tenantData.domain}` : '@sin-tenant'
   } else {
     tenant.value = '@sin-tenant'
   }
-
-  await loadRoles()
-})
+}
 
 const permissions = ref([
   {
@@ -235,46 +267,33 @@ const loadRoles = async () => {
   if (!error && data) roles.value = data
 }
 
-const saveUser = async () => {
+const updateUser = async () => {
   try {
-    const userData =
-      JSON.parse(localStorage.getItem('userData')) ||
-      JSON.parse(sessionStorage.getItem('userData'))
-
-    if (!userData?.tenant_id) {
-      alert('❌ No se encontró información del tenant. Inicia sesión nuevamente.')
-      return
-    }
-
-    const userInsert = {
-      user_name: newMember.value.username,
-      user_lastname: newMember.value.lastname,
-      password: newMember.value.password,
-      tenant_id: userData.tenant_id,
-      role_id: newMember.value.role_id,
-      tel: newMember.value.phone,
-      email_tenant: `${newMember.value.username}${tenant.value}`,
-      email: newMember.value.email,
-    }
-
-    const { data, error } = await supabase.from('user').insert([userInsert])
+    const { error } = await supabase
+      .from('user')
+      .update({
+        user_name: editMember.value.username,
+        user_lastname: editMember.value.lastname,
+        email: editMember.value.email,
+        tel: editMember.value.phone,
+        password: editMember.value.password || undefined,
+        role_id: editMember.value.role_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId)
 
     if (error) {
       console.error('❌ Error de Supabase:', error)
-      alert(`❌ Error al registrar usuario: ${error.message}`)
+      alert(`❌ Error al actualizar usuario: ${error.message}`)
       return
     }
 
-    alert('✅ Usuario registrado correctamente.')
-
-    // 🔹 Redirigir automáticamente a /staff
-    window.location.href = '/staff' // o usa $router.push si estás en contexto de Vue Router
-    // this.$router.push('/staff') → si usas Option API
-    // router.push('/staff') → si importas el router
-
+    alert('✅ Usuario actualizado correctamente.')
+    router.push('/staff')
   } catch (err) {
     console.error('⚠️ Error general:', err)
-    alert('❌ Error inesperado al guardar usuario.')
+    alert('❌ Error inesperado al actualizar usuario.')
   }
 }
 </script>
+

@@ -16,11 +16,12 @@
             Gestión del personal y control de accesos.
           </p>
         </div>
+        <!-- Botón Crear nuevo Staff -->
         <button
           @click="$router.push('/staff/new')"
           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
-          <v-icon name="pr-plus" class="w-4 h-4" />
+          <icon-lucide-user-plus class="w-4 h-4" />
           Nuevo Staff
         </button>
       </div>
@@ -79,29 +80,30 @@
                   {{ member.last_access ? formatDate(member.last_access) : '—' }}
                 </td>
                 <td class="py-3 px-4 flex gap-2">
-                <!-- Botón Editar -->
-                <button
-                  class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
-                        bg-blue-50 text-blue-700 border border-blue-200
-                        hover:bg-blue-100 hover:scale-[1.03] transition-all
-                        dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
-                >
-                  <v-icon name="pr-edit" class="w-3.5 h-3.5" />
-                  Editar
-                </button>
+                  <!-- Botón Editar -->
+                  <button
+                    @click="$router.push(`/editstaff/${member.id}`)"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                          bg-blue-50 text-blue-700 border border-blue-200
+                          hover:bg-blue-100 hover:scale-[1.03] transition-all
+                          dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
+                  >
+                    <icon-lucide-pencil class="w-4 h-4" />
+                    Editar
+                  </button>
 
-                <!-- Botón Eliminar -->
-                <button
-                  @click="deleteUser(member.id)"
-                  class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
-                        bg-red-50 text-red-700 border border-red-200
-                        hover:bg-red-100 hover:scale-[1.03] transition-all
-                        dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-800/50"
-                >
-                  <v-icon name="pr-trash" class="w-3.5 h-3.5" />
-                  Eliminar
-                </button>
-              </td>
+                  <!-- Botón Eliminar -->
+                  <button
+                    @click="deleteUser(member.id)"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                          bg-red-50 text-red-700 border border-red-200
+                          hover:bg-red-100 hover:scale-[1.03] transition-all
+                          dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-800/50"
+                  >
+                    <icon-lucide-trash-2 class="w-4 h-4" />
+                    Eliminar
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
