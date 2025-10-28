@@ -18,7 +18,6 @@
 
       <!-- Formulario -->
       <form @submit.prevent="handleLogin" class="space-y-5">
-        
         <div>
           <label for="email" class="block text-gray-700 font-medium mb-1">Correo electrónico</label>
           <input
@@ -84,7 +83,7 @@ export default {
   name: "Login",
   data() {
     return {
-      email: "",       // Aquí usaremos "email" como identificador
+      email: "",
       password: "",
       remember: false,
       loading: false,
@@ -97,42 +96,44 @@ export default {
       this.errorMessage = "";
 
       try {
-        // 1. Buscar al usuario por email
-        const { data: users, error } = await supabase
+        // 🔹 Buscar usuario en Supabase por email_tenant
+        const { data: user, error } = await supabase
           .from('user')
-          .select('id, email, password')
-          .eq('email', this.email)
-          .single(); // Esperamos solo un resultado
+          .select('id, email_tenant, password, tenant_id, role_id')
+          .eq('email_tenant', this.email)
+          .single();
 
-        if (error || !users) {
+        if (error || !user) {
           this.errorMessage = "Usuario no encontrado.";
           return;
         }
 
-        // 2. Validar la contraseña
-        // ⚠️ Esto asume que la contraseña está guardada en texto plano (no recomendado)
-        if (users.password !== this.password) {
+        // 🔹 Validar contraseña
+        if (user.password !== this.password) {
           this.errorMessage = "Contraseña incorrecta.";
           return;
         }
 
-        // 3. Guardar "Recordarme"
-        const userData = { id: users.id, email: users.email };
+        // 🔹 Guardar información completa del usuario
+        const userData = {
+          id: user.id,
+          email_tenant: user.email_tenant,
+          tenant_id: user.tenant_id,
+          role_id: user.role_id,
+        };
 
+        // 🔹 Guardar sesión en local o session storage
         if (this.remember) {
           localStorage.setItem("isLoggedIn", "true");
           localStorage.setItem("userData", JSON.stringify(userData));
-          localStorage.setItem("userEmail", this.email);
         } else {
           sessionStorage.setItem("isLoggedIn", "true");
           sessionStorage.setItem("userData", JSON.stringify(userData));
-          localStorage.removeItem("userEmail");
         }
 
-        // 4. Redirigir al Dashboard
-        console.log("Login exitoso, redirigiendo al dashboard...");
+        // 🔹 Redirigir al dashboard
+        console.log("✅ Login exitoso:", userData);
         await this.$router.push({ name: "Dashboard" });
-
 
       } catch (err) {
         console.error("Error en login:", err);
