@@ -117,97 +117,116 @@
 import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/supabase.js'
 
-// Estados
+// 🔹 Estados reactivos
 const search = ref('')
 const staff = ref([])
-const tenantId = ref(null) // 🔹 Mantenemos el tenant en un estado global del componente
+const tenantId = ref(null)
 
-// Cargar datos del staff desde Supabase
+// 🔹 Cargar datos del staff desde Supabase
 const loadStaff = async () => {
-  const sessionData =
-    JSON.parse(localStorage.getItem("userData")) ||
-    JSON.parse(sessionStorage.getItem("userData"));
+  try {
+    // Obtener la sesión del usuario desde localStorage o sessionStorage
+    const sessionData =
+      JSON.parse(localStorage.getItem("userData")) ||
+      JSON.parse(sessionStorage.getItem("userData"))
 
-  tenantId.value = sessionData?.tenant_id;
+    tenantId.value = sessionData?.tenant_id
 
-  if (!tenantId.value) {
-    console.error("❌ No se encontró tenant_id en la sesión del usuario.");
-    return;
+    if (!tenantId.value) {
+      console.error("❌ No se encontró tenant_id en la sesión del usuario.")
+      return
+    }
+
+    // Consulta filtrando por tenant_id y usuarios activos
+    const { data, error } = await supabase
+      .from("user")
+      .select(`
+        id,
+        user_name,
+        user_lastname,
+        email_tenant,
+        create_at,
+        last_access,
+        tenant_id,
+        status,
+        role:role_id (name)
+      `)
+      .eq("tenant_id", tenantId.value)
+      .eq("status", true)
+      .order("id", { ascending: true })
+
+    if (error) {
+      console.error("❌ Error al cargar staff:", error.message)
+      return
+    }
+
+    // Mapear resultados agregando nombre del rol
+    staff.value = data.map(u => ({
+      ...u,
+      role_name: u.role?.name || "Sin rol",
+    }))
+  } catch (err) {
+    console.error("⚠️ Error al procesar sesión o cargar staff:", err)
   }
+}
 
-  const { data, error } = await supabase
-    .from("user")
-    .select('id, user_name, user_lastname, email_tenant, create_at, last_access, tenant_id, role:role_id (name)')
-    .eq('tenant_id', tenantId.value)
-    .eq('status', true) // 🔹 Solo usuarios activos
-    .order('id', { ascending: true });
+onMounted(loadStaff)
 
-
-  if (error) {
-    console.error('❌ Error al cargar staff:', error.message);
-    return;
-  }
-
-  staff.value = data.map(u => ({
-    ...u,
-    role_name: u.role?.name || 'Sin rol'
-  }));
-};
-
-onMounted(loadStaff);
-
-// ✅ Filtro corregido
+// 🔹 Filtro de búsqueda
 const filteredStaff = computed(() =>
   staff.value.filter(member =>
     [member.user_name, member.user_lastname, member.email_tenant, member.role_name]
       .filter(Boolean)
       .some(f => f.toLowerCase().includes(search.value.toLowerCase()))
   )
-);
+)
 
-// Limpiar búsqueda
-const clearSearch = () => (search.value = '');
+// 🔹 Limpiar búsqueda
+const clearSearch = () => (search.value = "")
 
-// Colores por rol
-const getRoleColor = role => {
+// 🔹 Colores dinámicos por rol
+const getRoleColor = (role) => {
   switch (role) {
-    case 'Administrador':
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300';
-    case 'Finanzas':
-      return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300';
-    case 'Técnico':
-      return 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300';
+    case "Administrador":
+      return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+    case "Finanzas":
+      return "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300"
+    case "Técnico":
+      return "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
     default:
-      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+      return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
   }
-};
+}
 
+// 🔹 Desactivar usuario (soft delete)
 const deleteUser = async (id) => {
-  const confirmDelete = confirm("¿Seguro que deseas desactivar este usuario?");
-  if (!confirmDelete) return;
+  if (!confirm("¿Seguro que deseas desactivar este usuario?")) return
 
   const { error } = await supabase
     .from("user")
     .update({
       status: false,
-      deleted_at: new Date().toISOString()
+      deleted_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
 
   if (error) {
-    console.error("❌ Error al desactivar usuario:", error.message);
-    return;
+    console.error("❌ Error al desactivar usuario:", error.message)
+    alert("Error al desactivar usuario.")
+    return
   }
 
-  alert("✅ Usuario desactivado correctamente.");
-  await loadStaff(); // Recargar la lista
-};
+  alert("✅ Usuario desactivado correctamente.")
+  await loadStaff() // Recargar lista después de desactivar
+}
 
-// Formato de fecha
-const formatDate = dateStr => {
-  if (!dateStr) return '—';
-  const date = new Date(dateStr);
-  return date.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
-};
+// 🔹 Formato de fecha legible
+const formatDate = (dateStr) => {
+  if (!dateStr) return "—"
+  const date = new Date(dateStr)
+  return date.toLocaleString("es-CO", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })
+}
 </script>
-

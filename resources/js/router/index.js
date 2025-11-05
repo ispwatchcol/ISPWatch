@@ -1,5 +1,3 @@
-// resources/js/router/index.js
-
 import { createRouter, createWebHistory } from 'vue-router';
 
 // Páginas
@@ -8,6 +6,8 @@ import Register from '@/pages/Register.vue';
 import Dashboard from '@/pages/Dashboard.vue';
 import Staff from '@/pages/Staff.vue';
 import StaffNew from '@/pages/StaffNew.vue';
+import Routers from '@/pages/Routers.vue';
+// import RouterCreate from '@/pages/RouterCreate.vue'; // si tienes página para crear router
 
 // Layouts
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
@@ -50,6 +50,20 @@ const routes = [
         name: 'EditStaff',
         component: () => import('@/pages/EditStaff.vue'),
       },
+
+      // 🆕 Agregamos las rutas de Routers
+      {
+        path: '/routers',
+        name: 'Routers',
+        component: Routers,
+        meta: { requiresAuth: true },
+      },
+      // {
+      //   path: '/routers/create',
+      //   name: 'RouterCreate',
+      //   component: RouterCreate,
+      //   meta: { requiresAuth: true },
+      // },
     ],
   },
 ];
@@ -64,12 +78,10 @@ router.beforeEach((to, from, next) => {
     localStorage.getItem('isLoggedIn') === 'true' ||
     sessionStorage.getItem('isLoggedIn') === 'true';
 
-  // 🔒 Bloquea rutas protegidas si no hay sesión iniciada
   if (to.meta.requiresAuth && !isLoggedIn) {
     return next({ name: 'Login' });
   }
 
-  // 🚫 Evita volver al login si el usuario ya está autenticado
   if (to.name === 'Login' && isLoggedIn) {
     return next({ name: 'Dashboard' });
   }
