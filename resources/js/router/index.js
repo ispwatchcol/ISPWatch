@@ -7,9 +7,6 @@ import Dashboard from '@/pages/Dashboard.vue';
 import Staff from '@/pages/Staff.vue';
 import StaffNew from '@/pages/StaffNew.vue';
 import Routers from '@/pages/Routers.vue';
-// import RouterCreate from '@/pages/RouterCreate.vue'; // si tienes página para crear router
-
-// Layouts
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
 
 const routes = [
@@ -23,6 +20,7 @@ const routes = [
     name: 'Register',
     component: Register,
   },
+
   {
     path: '/dashboard',
     component: DefaultLayout,
@@ -34,37 +32,36 @@ const routes = [
         component: Dashboard,
       },
       {
-        path: '/staff',
+        path: 'staff',
         name: 'Staff',
         component: Staff,
         meta: { requiresAuth: true },
       },
       {
-        path: '/staff/new',
+        path: 'staff/new',
         name: 'StaffNew',
         component: StaffNew,
         meta: { requiresAuth: true },
       },
       {
-        path: '/editstaff/:id',
+        path: 'editstaff/:id',
         name: 'EditStaff',
         component: () => import('@/pages/EditStaff.vue'),
       },
-
-      // 🆕 Agregamos las rutas de Routers
       {
-        path: '/routers',
+        path: 'routers',
         name: 'Routers',
         component: Routers,
         meta: { requiresAuth: true },
       },
-      // {
-      //   path: '/routers/create',
-      //   name: 'RouterCreate',
-      //   component: RouterCreate,
-      //   meta: { requiresAuth: true },
-      // },
     ],
+  },
+
+  // ✅ Ruta 404
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/pages/NotFound.vue'),
   },
 ];
 
@@ -73,6 +70,7 @@ const router = createRouter({
   routes,
 });
 
+// ✅ Protección de rutas
 router.beforeEach((to, from, next) => {
   const isLoggedIn =
     localStorage.getItem('isLoggedIn') === 'true' ||

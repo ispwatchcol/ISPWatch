@@ -18,7 +18,7 @@
         </div>
         <!-- Botón Crear nuevo Staff -->
         <button
-          @click="$router.push('/staff/new')"
+          @click="$router.push('/dashboard/staff/new')"
           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
           <icon-lucide-user-plus class="w-4 h-4" />
@@ -82,7 +82,7 @@
                 <td class="py-3 px-4 flex gap-2">
                   <!-- Botón Editar -->
                   <button
-                    @click="$router.push(`/editstaff/${member.id}`)"
+                    @click="$router.push(`/dashboard/editstaff/${member.id}`)"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-blue-50 text-blue-700 border border-blue-200
                           hover:bg-blue-100 hover:scale-[1.03] transition-all
