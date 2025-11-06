@@ -18,10 +18,14 @@
         <div class="flex items-center">
             <v-icon name="pr-user" class="h-6 w-6 text-gray-800 dark:text-gray-300 z-10" />
             <div class="ml-3 flex-1">
-                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">Rol</p>
-                <p variant="outline" class="text-xs font-bold text-gray-700 dark:text-gray-100">
-                Nombre Usuario
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">
+                {{ user?.role_name }}
                 </p>
+
+                <p class="text-xs font-bold text-gray-700 dark:text-gray-100">
+                {{ user?.user_name }} {{ user?.user_lastname }}
+                </p>
+
             </div>
         </div>
     </div>
@@ -151,21 +155,28 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from "vue"
 import { useRouter } from 'vue-router'
 import SubmenuItem from "./SubmenuItem.vue";
 
 const router = useRouter()
+const user = ref(null)
+
+onMounted(() => {
+  const data =
+    JSON.parse(localStorage.getItem("userData")) ??
+    JSON.parse(sessionStorage.getItem("userData"));
+
+  user.value = data
+})
 
 const logout = () => {
-  // Borrar session/local storage
   localStorage.removeItem('isLoggedIn')
   localStorage.removeItem('userData')
-
   sessionStorage.removeItem('isLoggedIn')
   sessionStorage.removeItem('userData')
-
-  // Redirigir al login
   router.push('/')
 }
 </script>
+
 

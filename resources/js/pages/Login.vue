@@ -97,11 +97,20 @@ export default {
 
       try {
         // 🔹 Buscar usuario por email_tenant
-        const { data: user, error } = await supabase
-          .from('user')
-          .select('id, email_tenant, password, tenant_id, role_id')
-          .eq('email_tenant', this.email)
-          .single();
+      const { data: user, error } = await supabase
+        .from('user')
+        .select(`
+          id,
+          email_tenant,
+          password,
+          tenant_id,
+          role_id,
+          user_name,
+          user_lastname,
+          role:role_id ( name )
+        `)
+        .eq('email_tenant', this.email)
+        .single();
 
         if (error || !user) {
           this.errorMessage = "Usuario no encontrado.";
@@ -132,7 +141,11 @@ export default {
           email_tenant: user.email_tenant,
           tenant_id: user.tenant_id,
           role_id: user.role_id,
+          user_name: user.user_name,
+          user_lastname: user.user_lastname,
+          role_name: user.role?.name ?? "Sin rol"
         };
+
 
         // 🔹 Guardar sesión en localStorage o sessionStorage
         if (this.remember) {
