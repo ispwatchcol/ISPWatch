@@ -140,15 +140,32 @@
         </div>
     </div>
         <button
-            class="w-full p-2 rounded-full justify-start text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent"
-        >
-        <v-icon name="md-logout-twotone" class="w-4 h-4 mr-2" />
-        Cerrar sesión
+            @click="logout"
+            class="w-full p-2 rounded-full justify-start text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent flex items-center"
+            >
+            <v-icon name="md-logout-twotone" class="w-4 h-4 mr-2" />
+            Cerrar sesión
         </button>
     </div>
     </aside>
 </template>
 
 <script setup>
+import { useRouter } from 'vue-router'
 import SubmenuItem from "./SubmenuItem.vue";
+
+const router = useRouter()
+
+const logout = () => {
+  // Borrar session/local storage
+  localStorage.removeItem('isLoggedIn')
+  localStorage.removeItem('userData')
+
+  sessionStorage.removeItem('isLoggedIn')
+  sessionStorage.removeItem('userData')
+
+  // Redirigir al login
+  router.push('/')
+}
 </script>
+
