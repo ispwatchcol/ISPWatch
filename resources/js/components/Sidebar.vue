@@ -18,10 +18,14 @@
         <div class="flex items-center">
             <v-icon name="pr-user" class="h-6 w-6 text-gray-800 dark:text-gray-300 z-10" />
             <div class="ml-3 flex-1">
-                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">Rol</p>
-                <p variant="outline" class="text-xs font-bold text-gray-700 dark:text-gray-100">
-                Nombre Usuario
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-100">
+                {{ user?.role_name }}
                 </p>
+
+                <p class="text-xs font-bold text-gray-700 dark:text-gray-100">
+                {{ user?.user_name }} {{ user?.user_lastname }}
+                </p>
+
             </div>
         </div>
     </div>
@@ -56,7 +60,7 @@
                 icon="bi-router"
                 title="Routers"
                 :items="[
-                { name: 'Lista de routers', to: '/routers', icon: 'bi-router' },
+                { name: 'Lista de routers', to: '/dashboard/routers', icon: 'bi-router' },
                 { name: 'Agregar router', to: '/routers/create', icon: 'oi-diff-added' }
                 ]"
             />
@@ -80,7 +84,7 @@
 
             <li>
                 <RouterLink
-                to="/staff"
+                to="/dashboard/staff"
                 class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                 >
                 <v-icon name="pr-users" class="w-5 h-5 mr-1" />
@@ -140,15 +144,39 @@
         </div>
     </div>
         <button
-            class="w-full p-2 rounded-full justify-start text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent"
-        >
-        <v-icon name="md-logout-twotone" class="w-4 h-4 mr-2" />
-        Cerrar sesión
+            @click="logout"
+            class="w-full p-2 rounded-full justify-start text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 bg-transparent flex items-center"
+            >
+            <v-icon name="md-logout-twotone" class="w-4 h-4 mr-2" />
+            Cerrar sesión
         </button>
     </div>
     </aside>
 </template>
 
 <script setup>
+import { ref, onMounted } from "vue"
+import { useRouter } from 'vue-router'
 import SubmenuItem from "./SubmenuItem.vue";
+
+const router = useRouter()
+const user = ref(null)
+
+onMounted(() => {
+  const data =
+    JSON.parse(localStorage.getItem("userData")) ??
+    JSON.parse(sessionStorage.getItem("userData"));
+
+  user.value = data
+})
+
+const logout = () => {
+  localStorage.removeItem('isLoggedIn')
+  localStorage.removeItem('userData')
+  sessionStorage.removeItem('isLoggedIn')
+  sessionStorage.removeItem('userData')
+  router.push('/')
+}
 </script>
+
+
