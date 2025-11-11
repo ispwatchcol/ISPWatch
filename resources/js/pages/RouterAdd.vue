@@ -8,7 +8,7 @@
           <v-icon name="pr-server" class="text-blue-600 w-7 h-7" />
           Agregar Router
         </h1>
-
+        
         <button
           @click="goBack"
           class="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 
@@ -45,13 +45,19 @@
 
             <!-- FAILOVER -->
             <div class="col-span-2">
-                <label class="label flex items-center gap-2">
-                Failover
-                <icon-lucide-help-circle class="w-4 h-4 text-gray-500"/>
-                <icon-lucide-refresh-cw class="w-4 h-4 text-blue-600 cursor-pointer"/>
-                </label>
-                <input v-model="form.failover" type="text" placeholder="Ej: IP Mikrotik Cloud" class="input"/>
-                <p class="hint">Para usar esta función debes agregar las IP de los servidores de WispHub.</p>
+              <label class="label flex items-center justify-between">
+                <span class="flex items-center gap-2">
+                  Failover
+                  <icon-lucide-help-circle class="w-4 h-4 text-gray-500" />
+                  <icon-lucide-refresh-cw class="w-4 h-4 text-blue-600 cursor-pointer" />
+                </span>
+              </label>
+
+              <input v-model="form.failover" type="text"
+                placeholder="Ej: IP Mikrotik Cloud"
+                class="input" />
+
+              <p class="hint">Para usar esta función debes agregar las IP de los servidores de WispHub.</p>
             </div>
 
             <!-- COORDENADAS -->
@@ -59,47 +65,55 @@
                 <label class="label">Coordenadas</label>
                 <input v-model="form.coordenadas" type="text" placeholder="Ej: 21.150168,-86.875023" class="input"/>
             </div>
-
             <!-- VERSION -->
             <div>
-                <label class="label">Versión</label>
-                <select v-model="form.version" class="input">
-                <option value="" disabled>Elija una opción</option>
-                <option>v6</option>
-                <option>v7</option>
-                <option>Beta</option>
-                <option>Otro</option>
-                </select>
-            </div>
+            <label class="label text-gray-700 dark:text-gray-200">
+              Versión del firmware
+            </label>
+
+            <select v-model="form.version" class="input">
+              <option :value="null" disabled class="text-gray-400 dark:text-gray-300">
+                Seleccione una versión…
+              </option>
+
+              <option
+                v-for="v in scriptVersions"
+                :key="v.id"
+                :value="v.id"
+              >
+                {{ v.version }}
+              </option>
+            </select>
+          </div>
 
             <!-- EXTERNAL ID -->
             <div>
-                <label class="label">External ID</label>
-                <input v-model="form.external_id" class="input" placeholder="Ej: 000123"/>
+              <label class="label">External ID</label>
+              <input v-model="form.external_id" class="input" placeholder="Ej: 000123" />
             </div>
 
             <!-- USUARIO RB -->
             <div>
-                <label class="label">Usuario del RB</label>
-                <input v-model="form.usuario" type="text" placeholder="Ej: admin" class="input"/>
+              <label class="label">Usuario del RB</label>
+              <input v-model="form.usuario" type="text" placeholder="Ej: admin" class="input" />
             </div>
 
             <!-- PASSWORD RB -->
             <div>
-                <label class="label">Password del RB</label>
-                <input v-model="form.password" type="password" placeholder="Ej: 123456" class="input"/>
+              <label class="label">Password del RB</label>
+              <input v-model="form.password" type="password" placeholder="Ej: 123456" class="input" />
             </div>
 
             <!-- PUERTO API -->
             <div>
-                <label class="label">Puerto API</label>
-                <input v-model="form.puerto_api" type="number" placeholder="8728" class="input"/>
+              <label class="label">Puerto API</label>
+              <input v-model="form.puerto_api" type="number" placeholder="8728" class="input" />
             </div>
 
             <!-- PUERTO WWW -->
             <div>
-                <label class="label">Puerto WWW</label>
-                <input v-model="form.puerto_www" type="number" placeholder="80" class="input"/>
+              <label class="label">Puerto WWW</label>
+              <input v-model="form.puerto_www" type="number" placeholder="80" class="input" />
             </div>
 
             <!-- INTERFAZ LAN -->
@@ -113,32 +127,274 @@
                 <label class="label">Rangos IP</label>
                 <textarea v-model="form.rangos_ip" rows="5" placeholder="Ej. 192.168.1.0/24 uno por línea" class="textarea"></textarea>
             </div>
-
+            
             <!-- SELECT: TIPO DE CORTE -->
-            <div class="col-span-2">
-                <label class="label">Tipo de corte de servicio</label>
-                <select v-model="form.tipo_corte" class="input">
-                <option value="" disabled>Seleccione una opción</option>
-                <option>Corte por Address List moroso</option>
-                <option>Corte por simple queue</option>
-                <option>Corte por hotspot</option>
-                <option>Sin corte automático</option>
-                </select>
+            <div class="col-span-2 mb-2">
+              <label class="label text-gray-700 dark:text-gray-200">
+                Tipo de corte de servicio
+              </label>
+
+              <select v-model="form.tipo_corte" class="input">
+                <!-- placeholder visible en light/dark; value null para que Vue lo seleccione si modelo es null -->
+                <option :value="null" disabled class="text-gray-400 dark:text-gray-300">
+                  Seleccione una opción
+                </option>
+
+                <!-- usamos :value="t.id" (número) — form.tipo_corte debe ser null o número -->
+                <option
+                  v-for="t in tiposCorte"
+                  :key="t.id"
+                  :value="t.id"
+                >
+                  {{ t.name }}
+                </option>
+              </select>
             </div>
 
-            <!-- SWITCHES DE SISTEMA -->
-            <div class="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Switch label="Agregar Cliente en Mikrotik" v-model="form.agregar_cliente_mkt"/>
-                <Switch label="Historial de Tráfico" v-model="form.historial_trafico"/>
-                <Switch label="Control Simple Queue" v-model="form.simple_queue"/>
-                <Switch label="Control PCQ + Address-list" v-model="form.control_pcq"/>
-                <Switch label="Control HotSpot" v-model="form.hotspot"/>
-                <Switch label="Control PPPOE" v-model="form.pppoe"/>
-                <Switch label="IP Bindings" v-model="form.ip_bindings"/>
-                <Switch label="Amarre IP/MAC" v-model="form.amarre"/>
-                <Switch label="DHCP Leases" v-model="form.dhcp_leases"/>
-                <Switch label="Falla General" v-model="form.falla_general"/>
+            <div class="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+              <!-- Agregar Cliente en Mikrotik -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Agregar Cliente en Mikrotik</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Añadir clientes automáticamente al RB</div>
+                </div>
+
+                <input type="checkbox" v-model="form.agregar_cliente_mkt" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.agregar_cliente_mkt
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.agregar_cliente_mkt = !form.agregar_cliente_mkt"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.agregar_cliente_mkt ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- Historial de Tráfico -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Historial de Tráfico</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Guardar métricas de tráfico</div>
+                </div>
+
+                <input type="checkbox" v-model="form.historial_trafico" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.historial_trafico
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.historial_trafico = !form.historial_trafico"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.historial_trafico ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- Simple Queue -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Control Simple Queue</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Habilitar control por queues</div>
+                </div>
+
+                <input type="checkbox" v-model="form.simple_queue" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.simple_queue
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.simple_queue = !form.simple_queue"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.simple_queue ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- Control PCQ -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Control PCQ + Address-list</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">PCQ y listas de direcciones</div>
+                </div>
+
+                <input type="checkbox" v-model="form.control_pcq" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.control_pcq
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.control_pcq = !form.control_pcq"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.control_pcq ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- HotSpot -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Control HotSpot</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Gestionar usuarios HotSpot</div>
+                </div>
+
+                <input type="checkbox" v-model="form.hotspot" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.hotspot
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.hotspot = !form.hotspot"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.hotspot ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- PPPOE -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Control PPPOE</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Gestión de PPPOE</div>
+                </div>
+
+                <input type="checkbox" v-model="form.pppoe" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.pppoe
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.pppoe = !form.pppoe"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.pppoe ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- IP Bindings -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">IP Bindings</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Forzar IP a MAC</div>
+                </div>
+
+                <input type="checkbox" v-model="form.ip_bindings" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.ip_bindings
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.ip_bindings = !form.ip_bindings"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.ip_bindings ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- Amarre -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Amarre IP/MAC</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Bloqueo por pares IP-MAC</div>
+                </div>
+
+                <input type="checkbox" v-model="form.amarre" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.amarre
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.amarre = !form.amarre"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.amarre ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- DHCP Leases -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">DHCP Leases</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Control de leases DHCP</div>
+                </div>
+
+                <input type="checkbox" v-model="form.dhcp_leases" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.dhcp_leases
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.dhcp_leases = !form.dhcp_leases"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.dhcp_leases ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
+              <!-- Falla General -->
+              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                <div class="text-sm">
+                  <div class="font-medium text-gray-700 dark:text-gray-200">Falla General</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Activar estado de falla</div>
+                </div>
+
+                <input type="checkbox" v-model="form.falla_general" class="sr-only" />
+
+                <span
+                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.falla_general
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.falla_general = !form.falla_general"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.falla_general ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+              </label>
+
             </div>
+
 
             <!-- COMENTARIOS -->
             <div class="col-span-2">
@@ -146,11 +402,21 @@
                 <textarea v-model="form.comentarios" rows="3" class="textarea"></textarea>
             </div>
 
-            <!-- ACTIVO -->
-            <div class="col-span-2 flex items-center gap-3">
+              <!-- ACTIVO -->
+              <div class="col-span-2 flex items-center gap-3">
                 <span class="label">Activo</span>
-                <Switch v-model="form.activo"/>
-            </div>
+
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" v-model="form.activo" class="sr-only peer" />
+                  <div
+                    class="w-11 h-6 bg-gray-300 peer dark:bg-gray-700 peer-checked:bg-blue-600 rounded-full transition"
+                  ></div>
+                  <div
+                    class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full
+                          peer-checked:translate-x-5 transition"
+                  ></div>
+                </label>
+              </div>
 
             <!-- BOTÓN -->
             <div class="col-span-2 mt-4">
@@ -166,19 +432,48 @@
 </template>
 
 <script setup>
-import { reactive } from "vue"
+import { ref, reactive, onMounted } from "vue"
 import { useRouter } from "vue-router"
 import { supabase } from "@/supabase.js"
 
+// Datos dinámicos
+const tiposCorte = ref([])
+const scriptVersions = ref([])
+
+onMounted(async () => {
+  // --- Cargar tipos de corte ---
+  const { data: cortes, error: cortesError } = await supabase
+    .from("cut_type")
+    .select("*")
+
+  if (!cortesError) tiposCorte.value = cortes
+  else console.error("Error cargando tipos de corte:", cortesError.message)
+
+  // --- Cargar versiones del script ---
+  const { data: versions, error: versionError } = await supabase
+    .from("script_version")  // ✅ tabla correcta
+    .select("*")
+
+  if (!versionError) {
+    scriptVersions.value = versions
+    console.log("Script versions cargadas:", versions)
+  } else {
+    console.error("Error cargando script_version:", versionError.message)
+  }
+})
+
+
+
 const router = useRouter()
 
+// ✅ Formulario reactivo
 const form = reactive({
   nombre: "",
   ip: "",
   ipv6: "",
   failover: "",
   coordenadas: "",
-  version: "",
+  version: null,   // ✅ antes estaba como string, ahora es INT
   external_id: "",
   usuario: "",
   password: "",
@@ -186,7 +481,7 @@ const form = reactive({
   puerto_www: 80,
   interfaz_lan: "",
   rangos_ip: "",
-  tipo_corte: "",
+  tipo_corte: null,
   agregar_cliente_mkt: false,
   historial_trafico: false,
   simple_queue: false,
@@ -201,10 +496,56 @@ const form = reactive({
   activo: true
 })
 
+// Asume que `session` ya fue obtenido arriba con:
+// const { data } = await supabase.auth.getSession()
+// const session = data?.session ?? null
+
 const saveRouter = async () => {
-  const { error } = await supabase.from("router").insert([form])
+
+  // Obtener el tenant
+  const userData =
+    JSON.parse(localStorage.getItem("userData")) ??
+    JSON.parse(sessionStorage.getItem("userData"))
+
+  const tenantId = userData?.tenant_id ?? null
+
+  if (!tenantId) {
+    alert("Error: No se encontró tenant_id del usuario autenticado.")
+    return
+  }
+
+  // Convertir coordenadas a Geography(Point)
+  let coordinates = null
+  if (form.coordenadas) {
+    const [lat, lng] = form.coordenadas.split(",").map(v => parseFloat(v.trim()))
+    if (!isNaN(lat) && !isNaN(lng)) {
+      coordinates = `SRID=4326;POINT(${lng} ${lat})`
+    }
+  }
+
+  // ✅ Payload EXACTO que espera la tabla router
+  const payload = {
+    name: form.nombre,
+    ip: form.ip,
+    user_rb: form.usuario,
+    password_rb: form.password,
+    lan_interface: form.interfaz_lan,
+    comments: form.comentarios,
+
+    cut_type_id: form.tipo_corte,           // ✅ INT
+    firmware_version: form.version,         // ✅ INT → ID de script_version
+
+    billing_router_id: null,
+    coordinates,
+    status: form.activo ? 1 : 0,
+    tenant_id: tenantId
+  }
+
+  // ✅ Insert
+  const { error } = await supabase.from("router").insert([payload])
 
   if (error) {
+    console.error(error)
     alert("Error al guardar router: " + error.message)
     return
   }
@@ -214,6 +555,9 @@ const saveRouter = async () => {
 
 const goBack = () => router.back()
 </script>
+
+
+
 <style scoped>
 /* ✅ Placeholders blancos en dark mode */
 .dark ::placeholder {
