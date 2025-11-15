@@ -9,10 +9,9 @@ use App\Http\Controllers\UserController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
-Route::apiResource('customers', CustomerProfileController::class);
-
-Route::apiResource('routers', RouterController::class);
-
-Route::apiResource('inventory/devices', InventoryDeviceController::class);
-
-Route::apiResource('users', UserController::class);
+Route::apiResources([
+    'customers' => CustomerProfileController::class,
+    'routers' => RouterController::class,
+    'inventory/devices' => InventoryDeviceController::class,
+    'users' => UserController::class,
+]);

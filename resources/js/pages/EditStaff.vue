@@ -14,7 +14,7 @@
 
         <div class="mb-6">
           <button
-            @click="$router.push('/dashboard/staff')"
+            @click="$router.push('/staff')"
             class="flex items-center gap-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 
                   dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 
                   dark:text-gray-100 transition-all"
@@ -23,6 +23,10 @@
             Volver a Staff
           </button>
         </div>
+      </div>
+      <!-- Loading state -->
+      <div v-if="loading" class="text-center py-8">
+        <p class="text-gray-500 dark:text-gray-400">Cargando información del usuario</p>
       </div>
 
       <!-- Tarjeta principal -->
@@ -50,7 +54,7 @@
               v-model="editMember.password"
               type="password"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="••••••••"
+              placeholder="Dejar vacío para no cambiar"
             />
           </div>
 
@@ -60,7 +64,7 @@
               v-model="editMember.email"
               type="email"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="usuario@colombia-net.com"
+              placeholder="usuario@ejemplo.com"
             />
           </div>
 
@@ -70,7 +74,7 @@
               v-model="editMember.phone"
               type="text"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="+57 300 123 4567"
+              placeholder="Número de celular"
             />
           </div>
 
@@ -141,7 +145,7 @@
             @click="updateUser"
             class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow transition-all"
           >
-            Guardar Cambios
+            {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
           </button>
         </div>
       </div>
@@ -152,7 +156,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { supabase } from '@/supabase.js'
+import api from '../services/api.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -172,6 +176,8 @@ const editMember = ref({
 
 const tenant = ref('')
 const roles = ref([])
+const loading = ref(false)
+const saving = ref(false)
 
 onMounted(async () => {
   await loadRoles()
@@ -179,45 +185,42 @@ onMounted(async () => {
 })
 
 const loadUserData = async () => {
-  const { data, error } = await supabase
-    .from('user')
-    .select('id, user_name, user_lastname, email, email_tenant, tel, role_id, password')
-    .eq('id', userId)
-    .single()
+  loading.value = true
+  try {
+    // api call to get user data
+    const response = await api.staff.getOne(userId)
 
-  if (error) {
-    console.error('❌ Error al cargar el usuario:', error)
+    if (response.data.success) {
+      const data = response.data.data
+
+      editMember.value = {
+        username: data.user_name,
+        password: '',
+        email: data.email || '',
+        phone: data.tel || '',
+        name: data.user_name,
+        lastname: data.user_lastname,
+        role_id: data.role_id,
+        allZones: 'Sí',
+        twoFA: 'No',
+      }
+      // get tenant domain
+      const userData =
+        JSON.parse(localStorage.getItem('userData')) ||
+        JSON.parse(sessionStorage.getItem('userData'))
+  
+      if (userData?.tenant_id) {
+        tenant.value = `@${userData.tenant_domain}`
+      } else {
+        tenant.value = '@sin-tenant'
+      }
+    }
+  } catch (eror) {
+    console.error('❌ Error al cargar el usuario:', error.response?.data || error)
     alert('No se pudo cargar la información del usuario.')
-    return
-  }
-
-  editMember.value = {
-    username: data.user_name,
-    password: data.password || '',
-    email: data.email || '',
-    phone: data.tel || '',
-    name: data.user_name,
-    lastname: data.user_lastname,
-    role_id: data.role_id,
-    allZones: 'Sí',
-    twoFA: 'No',
-  }
-
-  // Obtener dominio del tenant actual
-  const userData =
-    JSON.parse(localStorage.getItem('userData')) ||
-    JSON.parse(sessionStorage.getItem('userData'))
-
-  if (userData?.tenant_id) {
-    const { data: tenantData } = await supabase
-      .from('tenant')
-      .select('domain')
-      .eq('id', userData.tenant_id)
-      .single()
-
-    tenant.value = tenantData ? `@${tenantData.domain}` : '@sin-tenant'
-  } else {
-    tenant.value = '@sin-tenant'
+    router.push('/staff')
+  } finally {
+    loading.value = false
   }
 }
 
@@ -263,36 +266,62 @@ const permissions = ref([
 ])
 
 const loadRoles = async () => {
-  const { data, error } = await supabase.from('role').select('id, name')
-  if (!error && data) roles.value = data
+  try {
+  const response = await api.roles.getAll()
+  if (response.data.success) {
+    roles.value = response.data.data
+  } else if (response.data && Array.isArray(response.data)) {
+    roles.value = response.data
+  }
+  } catch (error) {
+    console.error('❌ Error al cargar roles:', error)
+  }
 }
 
 const updateUser = async () => {
+  saving.value = true
   try {
-    const { error } = await supabase
-      .from('user')
-      .update({
+    // basic validation
+    if (!editMember.value.name || !editMember.value.lastname) {
+      alert('⚠️ Por favor completa el nombre y apellido')
+      return
+    }
+
+    if (!editMember.value.email) {
+      alert('⚠️ Por favor completa el email')
+      return
+    }
+
+    if (!editMember.value.role_id) {
+      alert('⚠️ Por favor selecciona un rol')
+      return
+    }
+
+    const updateData = {
         user_name: editMember.value.username,
         user_lastname: editMember.value.lastname,
         email: editMember.value.email,
         tel: editMember.value.phone,
-        password: editMember.value.password || undefined,
         role_id: editMember.value.role_id,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', userId)
+      }
 
-    if (error) {
-      console.error('❌ Error de Supabase:', error)
-      alert(`❌ Error al actualizar usuario: ${error.message}`)
-      return
+    if (response.data.success) {
+      alert('✅ Usuario actualizado correctamente.')
+      router.push('/staff')
     }
+  } catch (error) {
+    console.error('⚠️ Error al actualizar usuario:', error.response?.data || error)
 
-    alert('✅ Usuario actualizado correctamente.')
-    router.push('/staff')
-  } catch (err) {
-    console.error('⚠️ Error general:', err)
-    alert('❌ Error inesperado al actualizar usuario.')
+    // show validation errors from API
+    if (error.response?.data?.errors) {
+      const errors = Object.values(error.response.data.errors).flat()
+      alert(`❌ Errores de validación:\n${errors.join('\n')}`)
+    } else {
+      alert(`❌ Error al actualizar usuario: ${error.response?.data?.message || error.message}`)
+    }
+  } finally {
+    saving.value = false
   }
 }
 </script>

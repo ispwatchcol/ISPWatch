@@ -18,7 +18,7 @@
         </div>
         <!-- Botón Crear nuevo Staff -->
         <button
-          @click="$router.push('/dashboard/staff/new')"
+          @click="$router.push('/staff/create')"
           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
           <icon-lucide-user-plus class="w-4 h-4" />
@@ -33,7 +33,7 @@
           <input
             v-model="search"
             type="text"
-            placeholder="Buscar por nombre, usuario o nivel..."
+            placeholder="Buscar por nombre, usuario o rol"
             class="border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-2 w-80 focus:ring-2 focus:ring-blue-300 outline-none dark:bg-gray-900 dark:text-white"
           />
           <button
@@ -44,6 +44,11 @@
           </button>
         </div>
 
+        <!-- Loading state -->
+        <div v-if="loading" class="text-center py-8">
+          <p class="text-gray-500 dark:text-gray-400">Cargando personal...</p>
+        </div>
+
         <!-- Tabla -->
         <div class="overflow-x-auto">
           <table class="min-w-full border-collapse">
@@ -51,7 +56,7 @@
               <tr class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
                 <th class="py-3 px-4 text-left">Nombre</th>
                 <th class="py-3 px-4 text-left">Usuario</th>
-                <th class="py-3 px-4 text-left">Cargo</th>
+                <th class="py-3 px-4 text-left">Rol</th>
                 <th class="py-3 px-4 text-left">Creado</th>
                 <th class="py-3 px-4 text-left">Último Acceso</th>
                 <th class="py-3 px-4 text-left">Acciones</th>
@@ -82,7 +87,7 @@
                 <td class="py-3 px-4 flex gap-2">
                   <!-- Botón Editar -->
                   <button
-                    @click="$router.push(`/dashboard/editstaff/${member.id}`)"
+                    @click="$router.push(`/staff/${member.id}/edit`)"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-blue-50 text-blue-700 border border-blue-200
                           hover:bg-blue-100 hover:scale-[1.03] transition-all
@@ -107,6 +112,10 @@
               </tr>
             </tbody>
           </table>
+          <!-- empty state -->
+          <div v-if="filteredStaff.length === 0" class="text-center py-8">
+            <p class="text-gray-500 dark:text-gray-400">No se encontraron resultados</p>
+          </div>
         </div>
       </div>
     </main>
@@ -115,17 +124,18 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
+import api from '../services/api'
 
-// 🔹 Estados reactivos
+//  reactive states
 const search = ref('')
 const staff = ref([])
 const tenantId = ref(null)
+const loading = ref(false)
 
-// 🔹 Cargar datos del staff desde Supabase
+// load staff data from API
 const loadStaff = async () => {
   try {
-    // Obtener la sesión del usuario desde localStorage o sessionStorage
+    // get user sesion from localStorage or sessionStorage
     const sessionData =
       JSON.parse(localStorage.getItem("userData")) ||
       JSON.parse(sessionStorage.getItem("userData"))
@@ -134,45 +144,30 @@ const loadStaff = async () => {
 
     if (!tenantId.value) {
       console.error("❌ No se encontró tenant_id en la sesión del usuario.")
+      alert("No se encontró información del tenant. Por favor inicia sesión nuevamente.")
       return
     }
 
-    // Consulta filtrando por tenant_id y usuarios activos
-    const { data, error } = await supabase
-      .from("user")
-      .select(`
-        id,
-        user_name,
-        user_lastname,
-        email_tenant,
-        create_at,
-        last_access,
-        tenant_id,
-        status,
-        role:role_id (name)
-      `)
-      .eq("tenant_id", tenantId.value)
-      .eq("status", true)
-      .order("id", { ascending: true })
+    // call API to get staff data
+    const response = await api.staff.getAll({ tenant_id: tenantId.value })
 
-    if (error) {
-      console.error("❌ Error al cargar staff:", error.message)
-      return
+    if (response.data.success) {
+      staff.value = response.data.data
+    } else {
+      console.error("Error en respuesta: ", response.data)
+      alert("Error al cargar el personal")
     }
-
-    // Mapear resultados agregando nombre del rol
-    staff.value = data.map(u => ({
-      ...u,
-      role_name: u.role?.name || "Sin rol",
-    }))
-  } catch (err) {
-    console.error("⚠️ Error al procesar sesión o cargar staff:", err)
+  } catch (error) {
+    console.error("⚠️ Error al cargar staff:", error.response?.data || error.message)
+    alert("Error al cargar el personal. Por favor intenta nuevamente.")
+  } finally {
+    loading.value = false
   }
 }
 
 onMounted(loadStaff)
 
-// 🔹 Filtro de búsqueda
+// search filter
 const filteredStaff = computed(() =>
   staff.value.filter(member =>
     [member.user_name, member.user_lastname, member.email_tenant, member.role_name]
@@ -181,10 +176,10 @@ const filteredStaff = computed(() =>
   )
 )
 
-// 🔹 Limpiar búsqueda
+// clear search input
 const clearSearch = () => (search.value = "")
 
-// 🔹 Colores dinámicos por rol
+// dynamic role color classes
 const getRoleColor = (role) => {
   switch (role) {
     case "Administrador":
@@ -198,29 +193,24 @@ const getRoleColor = (role) => {
   }
 }
 
-// 🔹 Desactivar usuario (soft delete)
+// disable user (soft delete)
 const deleteUser = async (id) => {
   if (!confirm("¿Seguro que deseas desactivar este usuario?")) return
+  
+  try {
+    const response = await api.staff.delete(id)
 
-  const { error } = await supabase
-    .from("user")
-    .update({
-      status: false,
-      deleted_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-
-  if (error) {
-    console.error("❌ Error al desactivar usuario:", error.message)
-    alert("Error al desactivar usuario.")
-    return
+    if (response.data.success) {
+      alert("✅ Usuario desactivado correctamente.")
+      await loadStaff() // reload staff list after deletion
+    }
+  } catch (erorr) {
+      console.error("❌ Error al desactivar usuario:", error.response?.data || error.message)
+      alert("Error al desactivar el usuario. Por favor intenta nuevamente.")
   }
-
-  alert("✅ Usuario desactivado correctamente.")
-  await loadStaff() // Recargar lista después de desactivar
 }
 
-// 🔹 Formato de fecha legible
+// readable date format
 const formatDate = (dateStr) => {
   if (!dateStr) return "—"
   const date = new Date(dateStr)

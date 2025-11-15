@@ -1,5 +1,7 @@
 <?php
 
+/** @noinspection PhpUndefinedVariableInspection */
+
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
@@ -13,13 +15,14 @@ class RouterController extends Controller
     public function index()
     {
         $routers = Router::select(
-            'id', 
-            'name', 
-            'ip', 
-            'firmware_version', 
-            'status', 
-            'created_at')->get();
-        
+            'id',
+            'name',
+            'ip',
+            'firmware_version',
+            'status',
+            'created_at'
+        )->get();
+
         return response()->json($routers);
     }
 

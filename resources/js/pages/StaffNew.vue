@@ -16,7 +16,7 @@
 
         <div class="mb-6">
           <button
-            @click="$router.push('/dashboard/staff')"
+            @click="$router.push('/staff')"
             class="flex items-center gap-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 
                   dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 
                   dark:text-gray-100 transition-all"
@@ -38,7 +38,7 @@
                 v-model="newMember.username"
                 type="text"
                 class="flex-1 p-2 bg-white dark:bg-gray-700 focus:outline-none"
-                placeholder="usuario"
+                placeholder="Usuario"
               />
               <span class="px-3 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 flex items-center text-sm border-l dark:border-gray-600">
                 {{ tenant }}
@@ -62,7 +62,7 @@
               v-model="newMember.email"
               type="email"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="usuario@colombia-net.com"
+              placeholder="user@example.com"
             />
           </div>
 
@@ -70,9 +70,9 @@
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Teléfono celular</label>
             <input
               v-model="newMember.phone"
-              type="text"
+              type="tel"
               class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="+57 300 123 4567"
+              placeholder="Número de celular"
             />
           </div>
 
@@ -142,7 +142,7 @@
             @click="saveUser"
             class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow transition-all"
           >
-            Guardar Usuario
+            {{ saving ? 'Guardando..' : 'Guardar Usuario'}}
           </button>
         </div>
       </div>
@@ -152,7 +152,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
+import { useRouter } from 'vue-router'
+import api from '../services/api.js'
+
+const router = useRouter()
 
 const newMember = ref({
   username: '',
@@ -167,20 +170,18 @@ const newMember = ref({
 })
 
 const tenant = ref('')
+const tenantId = ref('')
 const roles = ref([])
+const saving = ref(false)
 
 onMounted(async () => {
   const userData =
     JSON.parse(localStorage.getItem('userData')) ||
     JSON.parse(sessionStorage.getItem('userData'))
 
-  if (userData?.tenant_id) {
-    const { data: tenantData, error } = await supabase
-      .from('tenant')
-      .select('id, domain')
-      .eq('id', userData.tenant_id)
-      .single()
+  tenantId.value = userData?.tenant_id
 
+  if (userData?.tenant_id) {
     tenant.value = error || !tenantData ? '@sin-tenant' : `@${tenantData.domain}`
   } else {
     tenant.value = '@sin-tenant'
@@ -231,18 +232,41 @@ const permissions = ref([
 ])
 
 const loadRoles = async () => {
-  const { data, error } = await supabase.from('role').select('id, name')
-  if (!error && data) roles.value = data
+  try {
+    const response = await api.roles.getAll()
+    if (response.data.success) {
+      roles.value = response.data.data
+    } else if (response.data && Array.isArray(response.data)) {
+      // Fallback if API returns an array directly
+      roles.value = response.data
+    }
+  } catch (error) {
+    console.error('❌ Error al cargar roles:', error)
+    alert('Eror al cargar los roles disponibles')
+  }
 }
 
 const saveUser = async () => {
+  saving.value = true
   try {
-    const userData =
-      JSON.parse(localStorage.getItem('userData')) ||
-      JSON.parse(sessionStorage.getItem('userData'))
-
-    if (!userData?.tenant_id) {
+    if (!tenantId.value) {
       alert('❌ No se encontró información del tenant. Inicia sesión nuevamente.')
+      return
+    }
+
+    // basic validation
+    if (!newMember.value.name) {
+      alert('⚠️ Por favor ingrese un nombre.')
+      return
+    }
+
+    if (!newMember.value.email || !newMember.value.password) {
+      alert('⚠️ Por favor ingrese un correo electrónico y/o contraseña.')
+      return
+    } 
+
+    if (!newMember.value.role_id) {
+      alert('⚠️ Por favor seleccione un rol.')
       return
     }
 
@@ -257,24 +281,24 @@ const saveUser = async () => {
       email: newMember.value.email,
     }
 
-    const { data, error } = await supabase.from('user').insert([userInsert])
+    const response = await api.staff.create(userInsert)
 
-    if (error) {
-      console.error('❌ Error de Supabase:', error)
-      alert(`❌ Error al registrar usuario: ${error.message}`)
-      return
+    if (response.data.success) {
+      alert('✅ Usuario registrado correctamente.')
+      router.push('/staff')
     }
+  } catch (error) {
+    console.error('⚠️ Error al registrar usuario:', error.response?.data || error)
 
-    alert('✅ Usuario registrado correctamente.')
-
-    // 🔹 Redirigir automáticamente a /staff
-    window.location.href = '/staff' // o usa $router.push si estás en contexto de Vue Router
-    // this.$router.push('/staff') → si usas Option API
-    // router.push('/staff') → si importas el router
-
-  } catch (err) {
-    console.error('⚠️ Error general:', err)
-    alert('❌ Error inesperado al guardar usuario.')
+    // show specific error from API if available
+    if (error.response?.data?.errors) {
+      const errors = Object.values(error.response.data.errors).flat()
+      alert(`❌ Errores de validacón: ${error.response?.data?.message || error.message}`)
+    } else {
+      alert(`❌ Error al registrar usuario: ${error.response?.data?.message || error.message}`)
+    }
+  } finally {
+    saving.value = false
   }
 }
 </script>
