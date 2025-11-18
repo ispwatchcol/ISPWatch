@@ -128,6 +128,60 @@
                 <textarea v-model="form.rangos_ip" rows="5" placeholder="Ej. 192.168.1.0/24 uno por línea" class="textarea"></textarea>
             </div>
             
+            <!-- FACTURACIÓN -->
+            <div class="flex items-center justify-between mb-4">
+              <span class="font-medium text-gray-700 dark:text-gray-200">Facturación del Router</span>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" v-model="form.facturacion_activa" class="sr-only peer" />
+                <div class="w-11 h-6 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-blue-600 transition">
+                  <div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+                </div>
+              </label>
+            </div>
+
+            <!-- BLOQUE CONDICIONAL -->
+            <div v-if="form.facturacion_activa" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label">Día de corte</label>
+                <input v-model="form.billing.dia_corte" type="number" class="input" placeholder="Ej: 5" />
+              </div>
+
+              <div>
+                <label class="label">Día de suspensión</label>
+                <input v-model="form.billing.dia_suspension" type="number" class="input" placeholder="Ej: 10" />
+              </div>
+
+              <div>
+                <label class="label">Monto base</label>
+                <input v-model="form.billing.monto_base" type="number" class="input" placeholder="Ej: 25000" />
+              </div>
+
+              <div>
+                <label class="label">Método de cobro</label>
+                <select v-model="form.billing.metodo" class="input">
+                  <option value="" disabled>Seleccione…</option>
+                  <option value="manual">Manual</option>
+                  <option value="auto">Automático</option>
+                </select>
+              </div>
+
+              <label class="flex items-center gap-3 col-span-2">
+                <input type="checkbox" v-model="form.billing.notificar_wpp" class="sr-only" />
+                <span
+                  class="relative inline-flex h-6 w-11 rounded-full transition-colors duration-200"
+                  :class="form.billing.notificar_wpp ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  @click.stop="form.billing.notificar_wpp = !form.billing.notificar_wpp"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                    :style="{ transform: form.billing.notificar_wpp ? 'translateX(20px)' : 'translateX(0)' }"
+                  ></span>
+                </span>
+                Notificar por WhatsApp
+              </label>
+            </div>
+
+
             <!-- SELECT: TIPO DE CORTE -->
             <div class="col-span-2 mb-2">
               <label class="label text-gray-700 dark:text-gray-200">
@@ -436,7 +490,9 @@ import { ref, reactive, onMounted } from "vue"
 import { useRouter } from "vue-router"
 import { supabase } from "@/supabase.js"
 
-// Datos dinámicos
+const router = useRouter()
+
+// === Datos dinámicos ===
 const tiposCorte = ref([])
 const scriptVersions = ref([])
 
@@ -451,7 +507,7 @@ onMounted(async () => {
 
   // --- Cargar versiones del script ---
   const { data: versions, error: versionError } = await supabase
-    .from("script_version")  // ✅ tabla correcta
+    .from("script_version")
     .select("*")
 
   if (!versionError) {
@@ -462,18 +518,14 @@ onMounted(async () => {
   }
 })
 
-
-
-const router = useRouter()
-
-// ✅ Formulario reactivo
+// === Formulario reactivo ===
 const form = reactive({
   nombre: "",
   ip: "",
   ipv6: "",
   failover: "",
   coordenadas: "",
-  version: null,   // ✅ antes estaba como string, ahora es INT
+  version: null,
   external_id: "",
   usuario: "",
   password: "",
@@ -493,16 +545,22 @@ const form = reactive({
   dhcp_leases: false,
   falla_general: false,
   comentarios: "",
-  activo: true
+  activo: true,
+
+  // === Facturación ===
+  facturacion_activa: false,
+  billing: {
+    dia_corte: "",
+    dia_suspension: "",
+    monto_base: "",
+    metodo: "",
+    notificar_wpp: false,
+  },
 })
 
-// Asume que `session` ya fue obtenido arriba con:
-// const { data } = await supabase.auth.getSession()
-// const session = data?.session ?? null
-
+// === Guardar router ===
 const saveRouter = async () => {
-
-  // Obtener el tenant
+  // Obtener tenant desde el almacenamiento local
   const userData =
     JSON.parse(localStorage.getItem("userData")) ??
     JSON.parse(sessionStorage.getItem("userData"))
@@ -523,7 +581,7 @@ const saveRouter = async () => {
     }
   }
 
-  // ✅ Payload EXACTO que espera la tabla router
+  // Crear payload para tabla `router`
   const payload = {
     name: form.nombre,
     ip: form.ip,
@@ -532,16 +590,15 @@ const saveRouter = async () => {
     lan_interface: form.interfaz_lan,
     comments: form.comentarios,
 
-    cut_type_id: form.tipo_corte,           // ✅ INT
-    firmware_version: form.version,         // ✅ INT → ID de script_version
+    cut_type_id: form.tipo_corte,
+    firmware_version: form.version,
 
-    billing_router_id: null,
+    billing_router_id: null, // podrías asociarlo luego
     coordinates,
     status: form.activo ? 1 : 0,
-    tenant_id: tenantId
+    tenant_id: tenantId,
   }
 
-  // ✅ Insert
   const { error } = await supabase.from("router").insert([payload])
 
   if (error) {
@@ -555,8 +612,6 @@ const saveRouter = async () => {
 
 const goBack = () => router.back()
 </script>
-
-
 
 <style scoped>
 /* ✅ Placeholders blancos en dark mode */

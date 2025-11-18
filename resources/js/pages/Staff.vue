@@ -139,7 +139,7 @@ const loadStaff = async () => {
 
     // Consulta filtrando por tenant_id y usuarios activos
     const { data, error } = await supabase
-      .from("user")
+      .from("users")
       .select(`
         id,
         user_name,
@@ -203,7 +203,7 @@ const deleteUser = async (id) => {
   if (!confirm("¿Seguro que deseas desactivar este usuario?")) return
 
   const { error } = await supabase
-    .from("user")
+    .from("users")
     .update({
       status: false,
       deleted_at: new Date().toISOString(),
