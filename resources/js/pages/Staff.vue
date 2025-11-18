@@ -1,7 +1,5 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-    <!-- Sidebar -->
-    <Sidebar />
 
     <!-- Contenido principal -->
     <main class="flex-1 p-6 overflow-y-auto">
@@ -18,7 +16,7 @@
         </div>
         <!-- Botón Crear nuevo Staff -->
         <button
-          @click="$router.push('/staff/create')"
+          @click="$router.push('/dashboard/staff/new')"
           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
           <icon-lucide-user-plus class="w-4 h-4" />
@@ -124,7 +122,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import api from '../services/api'
+import api from '../services/api.js'
 
 //  reactive states
 const search = ref('')

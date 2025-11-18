@@ -13,5 +13,5 @@ Route::apiResources([
     'customers' => CustomerProfileController::class,
     'routers' => RouterController::class,
     'inventory/devices' => InventoryDeviceController::class,
-    'users' => UserController::class,
+    'staff' => UserController::class,
 ]);
