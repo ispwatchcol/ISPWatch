@@ -1,13 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
 // Páginas
-import Login from '@/pages/Login.vue';
-import Register from '@/pages/Register.vue';
-import Dashboard from '@/pages/Dashboard.vue';
-import Staff from '@/pages/Staff.vue';
-import StaffNew from '@/pages/StaffNew.vue';
-import Routers from '@/pages/Routers.vue';
-import DefaultLayout from '@/layouts/DefaultLayout.vue';
+import Login from '../pages/Login.vue';
+import Register from '../pages/Register.vue';
+import Dashboard from '../pages/Dashboard.vue';
+import Staff from '../pages/Staff.vue';
+import StaffNew from '../pages/StaffNew.vue';
+import Routers from '../pages/Routers.vue';
+import DefaultLayout from '../layouts/DefaultLayout.vue';
 
 const routes = [
   {
@@ -44,9 +44,9 @@ const routes = [
         meta: { requiresAuth: true },
       },
       {
-        path: 'editstaff/:id',
+        path: '/staff/:id/edit',
         name: 'EditStaff',
-        component: () => import('@/pages/EditStaff.vue'),
+        component: () => import('../pages/EditStaff.vue'),
       },
       {
         path: 'routers',
@@ -61,7 +61,7 @@ const routes = [
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: () => import('@/pages/NotFound.vue'),
+    component: () => import('../pages/NotFound.vue'),
   },
 ];
 

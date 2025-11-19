@@ -306,9 +306,15 @@ const updateUser = async () => {
         updated_at: new Date().toISOString(),
       }
 
+    if (editMember.value.password && editMember.value.password.trim() !== '') {
+      updateData.password = editMember.value.password
+    }
+
+    const response = await api.staff.update(userId, updateData)
+
     if (response.data.success) {
       alert('✅ Usuario actualizado correctamente.')
-      router.push('/staff')
+      router.push('/dashboard/staff')
     }
   } catch (error) {
     console.error('⚠️ Error al actualizar usuario:', error.response?.data || error)

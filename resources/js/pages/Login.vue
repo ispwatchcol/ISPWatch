@@ -98,7 +98,7 @@ export default {
       try {
         // 🔹 Buscar usuario por email_tenant
       const { data: user, error } = await supabase
-        .from('user')
+        .from('users')
         .select(`
           id,
           email_tenant,
