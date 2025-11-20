@@ -129,9 +129,12 @@
             </div>
             
             <!-- FACTURACIÓN -->
-            <div class="flex items-center justify-between mb-4">
-              <span class="font-medium text-gray-700 dark:text-gray-200">Facturación del Router</span>
-              <label class="relative inline-flex items-center cursor-pointer">
+            <div class="flex items-center mb-4">
+              <span class="font-medium text-gray-700 dark:text-gray-200">
+                Facturación del Router
+              </span>
+
+              <label class="relative inline-flex items-center cursor-pointer ml-4">
                 <input type="checkbox" v-model="form.facturacion_activa" class="sr-only peer" />
                 <div class="w-11 h-6 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-blue-600 transition">
                   <div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
@@ -139,48 +142,137 @@
               </label>
             </div>
 
-            <!-- BLOQUE CONDICIONAL -->
-            <div v-if="form.facturacion_activa" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="label">Día de corte</label>
-                <input v-model="form.billing.dia_corte" type="number" class="input" placeholder="Ej: 5" />
-              </div>
-
-              <div>
-                <label class="label">Día de suspensión</label>
-                <input v-model="form.billing.dia_suspension" type="number" class="input" placeholder="Ej: 10" />
-              </div>
-
-              <div>
-                <label class="label">Monto base</label>
-                <input v-model="form.billing.monto_base" type="number" class="input" placeholder="Ej: 25000" />
-              </div>
-
-              <div>
-                <label class="label">Método de cobro</label>
-                <select v-model="form.billing.metodo" class="input">
-                  <option value="" disabled>Seleccione…</option>
-                  <option value="manual">Manual</option>
-                  <option value="auto">Automático</option>
-                </select>
-              </div>
-
-              <label class="flex items-center gap-3 col-span-2">
-                <input type="checkbox" v-model="form.billing.notificar_wpp" class="sr-only" />
-                <span
-                  class="relative inline-flex h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.billing.notificar_wpp ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.billing.notificar_wpp = !form.billing.notificar_wpp"
-                >
-                  <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.billing.notificar_wpp ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-                Notificar por WhatsApp
-              </label>
+            <!-- GRID PRINCIPAL -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <!-- Aquí tus campos -->
             </div>
 
+            <!-- PANEL FACTURACIÓN FULL WIDTH -->
+            <div v-if="form.facturacion_activa" class="mt-0 col-span-2">
+              <div class="border border-gray-300 dark:border-gray-700 rounded-xl p-6 
+                          bg-white dark:bg-gray-900 shadow-md w-full transition-colors">
+
+                <!-- Título -->
+                <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">
+                  Facturación del Router
+                </h3>
+
+                <!-- SUBGRID -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <!-- Crear factura automáticamente -->
+                  <div class="col-span-2">
+                    <div class="flex items-center justify-between">
+                      <label class="text-gray-800 dark:text-gray-300 font-medium">
+                        Crear Factura Automáticamente
+                      </label>
+
+                      <div class="w-full">
+                        <DayPicker
+                          v-model="form.billing.create_invoice"
+                          class="w-full"
+                        />
+                      </div>
+                    </div>
+
+                    <p class="text-xs text-gray-500 mt-1">
+                      Selecciona el día del mes en el que se generará la factura automáticamente.
+                    </p>
+                  </div>
+
+
+                  <!-- Día de corte -->
+                  <div>
+                    <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">Día de corte</label>
+                    <DayPicker v-model="form.billing.cut_day" />
+                  </div>
+
+                  <!-- Día límite -->
+                  <div>
+                    <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">Día límite de pago</label>
+                    <DayPicker v-model="form.billing.pay_day" />
+                  </div>
+
+                  <!-- Recordatorio -->
+                  <div class="w-full">
+                    <div class="flex items-center justify-between mb-1">
+                      <label class="text-gray-800 dark:text-gray-300 font-medium">Recordatorio de pago</label>
+
+                      <button
+                        type="button"
+                        @click="form.billing.notificar_wpp = !form.billing.notificar_wpp"
+                        :class="form.billing.notificar_wpp ? 'bg-blue-600' : 'bg-gray-400 dark:bg-gray-600'"
+                        class="relative inline-flex h-6 w-11 rounded-full transition-colors duration-300"
+                      >
+                        <span
+                          class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-300"
+                          :class="form.billing.notificar_wpp ? 'translate-x-5' : ''"
+                        ></span>
+                      </button>
+                    </div>
+
+                    <DayPicker v-model="form.billing.remember_day" />
+                  </div>
+
+                  <!-- Facturas vencidas -->
+                  <div>
+                    <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">Suspender tras X facturas vencidas</label>
+                    <input 
+                      v-model="form.billing.overdue_invoices"
+                      type="number"
+                      class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 
+                            border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
+                            focus:ring focus:ring-blue-500 transition-colors"
+                      placeholder="Ej: 2"
+                    />
+                  </div>
+
+                  <!-- Monto base -->
+                  <div>
+                    <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">Monto base mensual</label>
+                    <input 
+                      v-model="form.billing.amount"
+                      type="number"
+                      class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 
+                            border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
+                            focus:ring focus:ring-blue-500 transition-colors"
+                      placeholder="Ej: 25000"
+                    />
+                  </div>
+
+                  <!-- Método de cobro -->
+                  <div>
+                    <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">Método de cobro</label>
+                    <select
+                      v-model="form.billing.metodo"
+                      class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 
+                            border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
+                            focus:ring focus:ring-blue-500 transition-colors"
+                    >
+                      <option value="" disabled>Seleccione…</option>
+                      <option 
+                        v-for="t in types"
+                        :key="t.id"
+                        :value="t.id"
+                      >
+                        {{ t.type }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="col-span-1 md:col-span-2 mt-0">
+                    <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">Comentarios</label>
+                    <textarea 
+                      v-model="form.comentarios"
+                      rows="3"
+                      class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 
+                            border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
+                            focus:ring focus:ring-blue-500 transition-colors"
+                      placeholder="Notas sobre la instalación, configuración especial, etc."
+                    ></textarea>
+                  </div>
+                </div> 
+              </div>
+            </div>
 
             <!-- SELECT: TIPO DE CORTE -->
             <div class="col-span-2 mb-2">
@@ -453,7 +545,7 @@
             <!-- COMENTARIOS -->
             <div class="col-span-2">
                 <label class="label">Comentarios</label>
-                <textarea v-model="form.comentarios" rows="3" class="textarea"></textarea>
+                <textarea v-model="form.comentarios_router" rows="3" class="textarea"></textarea>
             </div>
 
               <!-- ACTIVO -->
@@ -489,44 +581,53 @@
 import { ref, reactive, onMounted } from "vue"
 import { useRouter } from "vue-router"
 import { supabase } from "@/supabase.js"
+import DayPicker from "@/components/DayPicker.vue"
 
 const router = useRouter()
 
-// === Datos dinámicos ===
+/* ============================
+   FUNCIONES DE LIMPIEZA
+============================ */
+const convertDay = (v) => {
+  if (!v) return null
+  const num = Number(v)
+  if (isNaN(num)) return null
+  if (num < 1 || num > 31) return null
+  return num
+}
+
+const toNumberOrNull = (v) => {
+  if (v === "" || v === null || v === undefined) return null
+  const n = Number(v)
+  return isNaN(n) ? null : n
+}
+
+/* ============================
+   DATOS DESDE DB
+============================ */
 const tiposCorte = ref([])
 const scriptVersions = ref([])
+const types = ref([])
 
 onMounted(async () => {
-  // --- Cargar tipos de corte ---
-  const { data: cortes, error: cortesError } = await supabase
-    .from("cut_type")
-    .select("*")
+  const { data: cortes } = await supabase.from("cut_type").select("*")
+  tiposCorte.value = cortes ?? []
 
-  if (!cortesError) tiposCorte.value = cortes
-  else console.error("Error cargando tipos de corte:", cortesError.message)
+  const { data: versions } = await supabase.from("script_version").select("*")
+  scriptVersions.value = versions ?? []
 
-  // --- Cargar versiones del script ---
-  const { data: versions, error: versionError } = await supabase
-    .from("script_version")
-    .select("*")
-
-  if (!versionError) {
-    scriptVersions.value = versions
-    console.log("Script versions cargadas:", versions)
-  } else {
-    console.error("Error cargando script_version:", versionError.message)
-  }
+  const { data: tipos } = await supabase.from("type_billing").select("id, type")
+  types.value = tipos ?? []
 })
 
-// === Formulario reactivo ===
+/* ============================
+        FORMULARIO
+============================ */
 const form = reactive({
   nombre: "",
   ip: "",
-  ipv6: "",
-  failover: "",
   coordenadas: "",
   version: null,
-  external_id: "",
   usuario: "",
   password: "",
   puerto_api: 8728,
@@ -544,35 +645,82 @@ const form = reactive({
   amarre: false,
   dhcp_leases: false,
   falla_general: false,
-  comentarios: "",
+  comentarios_router: "",
   activo: true,
 
-  // === Facturación ===
   facturacion_activa: false,
   billing: {
-    dia_corte: "",
-    dia_suspension: "",
-    monto_base: "",
+    create_invoice: null,
+    payment_day: null,
+    cut_day: null,
+    overdue_invoices: "",
+    amount: null,
+    comentarios: "",
     metodo: "",
     notificar_wpp: false,
-  },
+    remember_day: null,
+    pay_day: null
+  }
 })
 
-// === Guardar router ===
+/* ============================
+      INSERT EN BILLING
+============================ */
+const cleanInt = (val) => {
+  if (val === undefined || val === null || val === "" || val === false || val === "false") {
+    return null
+  }
+  const n = Number(val)
+  return isNaN(n) ? null : n
+}
+
+const cleanDay = (val) => {
+  if (!val || val === "false" || val === false) return null
+  return String(val).padStart(2, "0")
+}
+
+const saveBilling = async () => {
+  const payload = {
+    create_invoice: cleanDay(form.billing.create_invoice),
+    cut_day: cleanDay(form.billing.cut_day),
+    payment_day: cleanDay(form.billing.pay_day),
+    remember_day: cleanDay(form.billing.remember_day),
+    overdue_invoices: cleanInt(form.billing.overdue_invoices),
+    amount: cleanInt(form.billing.amount),
+    type: cleanInt(form.billing.metodo),
+    commit: form.comentarios,
+  }
+
+  console.log("payload facturación FINAL:", payload)
+
+  const { data, error } = await supabase
+    .from("billing")
+    .insert(payload)
+    .select()
+    .single()
+
+  if (error) {
+    console.error("❌ Error insertando billing:", error)
+    return null
+  }
+
+  return data
+}
+
+/* ============================
+  INSERT EN ROUTER PRINCIPAL
+============================ */
 const saveRouter = async () => {
-  // Obtener tenant desde el almacenamiento local
   const userData =
     JSON.parse(localStorage.getItem("userData")) ??
     JSON.parse(sessionStorage.getItem("userData"))
 
-  const tenantId = userData?.tenant_id ?? null
-
+  const tenantId = userData?.tenant_id
   if (!tenantId) {
-    alert("Error: No se encontró tenant_id del usuario autenticado.")
+    alert("Error: No se encontró tenant_id.")
     return
   }
 
-  // Convertir coordenadas a Geography(Point)
   let coordinates = null
   if (form.coordenadas) {
     const [lat, lng] = form.coordenadas.split(",").map(v => parseFloat(v.trim()))
@@ -581,28 +729,32 @@ const saveRouter = async () => {
     }
   }
 
-  // Crear payload para tabla `router`
+  // === Billing con fallback ===
+  let billingId = 1 // Default
+  if (form.facturacion_activa) {
+    const billingRow = await saveBilling()
+    if (billingRow?.id) billingId = billingRow.id
+  }
+
   const payload = {
     name: form.nombre,
     ip: form.ip,
     user_rb: form.usuario,
     password_rb: form.password,
     lan_interface: form.interfaz_lan,
-    comments: form.comentarios,
-
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,
-
-    billing_router_id: null, // podrías asociarlo luego
+    billing_router_id: billingId,
+    comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 1 : 0,
-    tenant_id: tenantId,
+    tenant_id: tenantId
   }
 
   const { error } = await supabase.from("router").insert([payload])
 
   if (error) {
-    console.error(error)
+    console.error("❌ Error guardando router:", error)
     alert("Error al guardar router: " + error.message)
     return
   }
@@ -612,6 +764,7 @@ const saveRouter = async () => {
 
 const goBack = () => router.back()
 </script>
+
 
 <style scoped>
 /* ✅ Placeholders blancos en dark mode */
