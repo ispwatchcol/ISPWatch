@@ -9,6 +9,9 @@ import StaffNew from '../pages/StaffNew.vue';
 import EditStaff from '../pages/EditStaff.vue';
 import Routers from '../pages/Routers.vue';
 import DefaultLayout from '../layouts/DefaultLayout.vue';
+import Customers from '../pages/Customers.vue';
+import CustomerAdd from '../pages/CustomerAdd.vue';
+import CustomerEdit from '../pages/CustomerEdit.vue';
 
 const routes = [
   {
@@ -67,6 +70,29 @@ const routes = [
         name: 'Routers',
         component: Routers,
       },
+    ],
+  },
+
+  {
+    path: '/customers',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Customers',
+        component: Customers,
+      },
+      {
+        path: 'create',
+        name: 'CustomerAdd',
+        component: CustomerAdd,
+      },
+      {
+        path: ':id/edit',
+        name: 'CustomerEdit',
+        component: CustomerEdit,
+      }
     ],
   },
 
