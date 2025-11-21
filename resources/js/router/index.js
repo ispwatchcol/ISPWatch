@@ -7,6 +7,7 @@ import Dashboard from '@/pages/Dashboard.vue';
 import Staff from '@/pages/Staff.vue';
 import StaffNew from '@/pages/StaffNew.vue';
 import Routers from '@/pages/Routers.vue';
+import RouterAdd from '@/pages/RouterAdd.vue';
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
 
 const routes = [
@@ -53,6 +54,11 @@ const routes = [
         name: 'Routers',
         component: Routers,
         meta: { requiresAuth: true },
+      },
+      {
+        path: "/routers/add",
+        name: "RouterAdd",
+        component: () => import("@/pages/RouterAdd.vue"),
       },
     ],
   },

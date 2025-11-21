@@ -6,23 +6,22 @@
       <!-- Encabezado -->
       <div class="flex items-center justify-between mb-8">
         <div>
-          <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <v-icon name="pr-server" class="text-blue-600 w-7 h-7" />
-            Routers del Sistema
-          </h1>
-          <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            Gestión de routers y configuración por zonas.
-          </p>
+            <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <v-icon name="pr-server" class="text-blue-600 w-7 h-7" />
+              Routers del Sistema
+            </h1>
+            <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
+              Gestión de routers y configuración por zonas.
+            </p>
         </div>
-
         <!-- Botón Agregar Router -->
-        <button
-          @click="goToAddRouter"
-          class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
-        >
-          <icon-lucide-plus class="w-4 h-4" />
-          Agregar Router
-        </button>
+          <button
+            @click="goToAddRouter"
+            class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
+          >
+            <icon-lucide-plus class="w-4 h-4" />
+            Agregar Router
+          </button>
       </div>
 
       <!-- Tarjeta principal -->
@@ -132,40 +131,44 @@ import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/supabase.js'
 import { useRouter } from 'vue-router'
 
-const routerView = useRouter()
+const router = useRouter()
 const search = ref('')
 const routers = ref([])
 
 // 🔹 Navegar a la vista de agregar router
 const goToAddRouter = () => {
-  routerView.push('/router/new')
+  router.push('/routers/add')
 }
 
-// 🔹 Cargar routers desde Supabase
+
 // 🔹 Cargar routers desde Supabase filtrados por tenant
 const loadRouters = async () => {
-  // Obtener tenant_id del usuario autenticado
-  const tenant_id =
-    localStorage.getItem('tenant_id') || sessionStorage.getItem('tenant_id')
+  // Obtener los datos del usuario almacenados
+  const userData =
+    JSON.parse(localStorage.getItem("userData")) ??
+    JSON.parse(sessionStorage.getItem("userData"))
 
-  if (!tenant_id) {
-    console.error('⚠️ No se encontró tenant_id del usuario autenticado.')
+  if (!userData || !userData.tenant_id) {
+    console.error("⚠️ No se encontró tenant_id del usuario autenticado.")
     return
   }
 
-  // Consultar solo routers de ese tenant
+  const tenant_id = userData.tenant_id
+
+  // Consultar routers por tenant
   const { data, error } = await supabase
-    .from('router')
-    .select('id, name, ip, user_rb, lan_interface, firmware_version, status')
-    .eq('tenant_id', tenant_id)
+    .from("router")
+    .select("id, name, ip, user_rb, lan_interface, firmware_version, status")
+    .eq("tenant_id", tenant_id)
 
   if (error) {
-    console.error('❌ Error al cargar routers:', error.message)
+    console.error("❌ Error al cargar routers:", error.message)
     return
   }
 
   routers.value = data || []
 }
+
 
 onMounted(loadRouters)
 

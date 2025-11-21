@@ -9,6 +9,7 @@ import "../css/app.css"; // Importa tus estilos globales
 // CONFIGURACIÓN DE OH-VUE-ICONS
 // -------------------------------
 import { OhVueIcon, addIcons } from "oh-vue-icons";
+
 import {
   PrUser,
   PrUsers,
@@ -38,7 +39,8 @@ import {
   MdSupportagentRound,
   HiChevronDown,
   FaArrowLeft,
-  FaUserEdit, // ✅ Icono de edición de usuario existente
+  FaUserEdit,
+  PrServer    // ✅ Aquí está correctamente importado SOLO UNA VEZ
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -53,7 +55,7 @@ addIcons(
   BiActivity,
   RiMapPinLine,
   RiSettings4Line,
-  FaUserEdit, // ✅ Registrado correctamente
+  FaUserEdit,
   FaRegularBell,
   IoCalendar,
   HiWifi,
@@ -71,7 +73,8 @@ addIcons(
   MdRouterRound,
   MdSupportagentRound,
   HiChevronDown,
-  FaArrowLeft
+  FaArrowLeft,
+  PrServer    // ✅ Registrado aquí también
 );
 
 // -------------------------------
