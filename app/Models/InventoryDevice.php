@@ -21,7 +21,7 @@ class InventoryDevice extends Model
 
     public function stock()
     {
-        return $this->belogsTo(InventoryStock::class, 'stock_id');
+        return $this->belongsTo(InventoryStock::class, 'stock_id');
     }
 
     public function provider()

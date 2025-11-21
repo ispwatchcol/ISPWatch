@@ -15,7 +15,7 @@
 
         <div class="mb-6">
           <button
-            @click="$router.push('/dashboard/staff')"
+            @click="$router.push('/staff')"
             class="flex items-center gap-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 
                   dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 
                   dark:text-gray-100 transition-all"
@@ -301,7 +301,7 @@ const saveUser = async () => {
 
     if (response.data.success) {
       alert('✅ Usuario registrado correctamente.')
-      router.push('/dashboard/staff')
+      router.push('/staff')
     }
   } catch (error) {
     console.error('⚠️ Error al registrar usuario:', error.response?.data || error)

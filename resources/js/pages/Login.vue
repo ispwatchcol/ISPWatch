@@ -23,7 +23,7 @@
           <input
             type="email"
             id="email"
-            v-model="email"
+            v-model="loginData.email"
             placeholder="you@example.com"
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
             required
@@ -35,7 +35,7 @@
           <input
             type="password"
             id="password"
-            v-model="password"
+            v-model="loginData.password"
             placeholder="********"
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
             required
@@ -43,8 +43,8 @@
         </div>
 
         <div class="flex items-center justify-between text-sm">
-          <label class="flex items-center gap-2 text-gray-600">
-            <input type="checkbox" v-model="remember" class="form-checkbox text-blue-600 rounded" /> Recordarme
+          <label for="remember" class="flex items-center gap-2 text-gray-600">
+            <input type="checkbox" id="remember" v-model="loginData.remember" class="form-checkbox text-blue-600 rounded" /> Recordarme
           </label>
           <a href="#" class="text-blue-600 hover:underline font-medium">¿Olvidaste tu contraseña?</a>
         </div>
@@ -76,99 +76,70 @@
   </div>
 </template>
 
-<script>
-import { supabase } from '../supabase';
+<script setup>
+import { ref } from "vue";
+import { useRouter } from "vue-router";
+import api from "../services/api.js";
 
-export default {
-  name: "Login",
-  data() {
-    return {
-      email: "",
-      password: "",
-      remember: false,
-      loading: false,
-      errorMessage: ""
-    };
-  },
-  methods: {
-    async handleLogin() {
-      this.loading = true;
-      this.errorMessage = "";
+const router = useRouter();
 
-      try {
-        // 🔹 Buscar usuario por email_tenant
-      const { data: user, error } = await supabase
-        .from('users')
-        .select(`
-          id,
-          email_tenant,
-          password,
-          tenant_id,
-          role_id,
-          user_name,
-          user_lastname,
-          role:role_id ( name )
-        `)
-        .eq('email_tenant', this.email)
-        .single();
+const loginData = ref({
+  email: '',
+  password: '',
+  remember: false
+})
 
-        if (error || !user) {
-          this.errorMessage = "Usuario no encontrado.";
-          return;
-        }
+const loading = ref(false)
+const errorMessage = ref('')
 
-        // 🔹 Validar contraseña
-        if (user.password !== this.password) {
-          this.errorMessage = "Contraseña incorrecta.";
-          return;
-        }
+const handleLogin = async () => {
+  loading.value = true
+  errorMessage.value = ''
 
-        // 🔹 Actualizar fecha de último acceso
-        const { error: updateError } = await supabase
-          .from('user')
-          .update({ last_access: new Date().toISOString() })
-          .eq('id', user.id);
+  try {
+    console.log('Intentando login con:', loginData.value.email)
 
-        if (updateError) {
-          console.error("⚠️ No se pudo actualizar last_access:", updateError.message);
-        } else {
-          console.log("🕓 Último acceso actualizado correctamente.");
-        }
+    const response = await api.auth.login({
+      email: loginData.value.email,
+      password: loginData.value.password
+    })
 
-        // 🔹 Guardar información del usuario
-        const userData = {
-          id: user.id,
-          email_tenant: user.email_tenant,
-          tenant_id: user.tenant_id,
-          role_id: user.role_id,
-          user_name: user.user_name,
-          user_lastname: user.user_lastname,
-          role_name: user.role?.name ?? "Sin rol"
-        };
+    console.log('Respuesta del servidor:', response.data)
 
+    if (response.data.success) {
+      // save user data
+      const userData = response.data.data
+      console.log('Datos del usuario:', userData)
 
-        // 🔹 Guardar sesión en localStorage o sessionStorage
-        if (this.remember) {
-          localStorage.setItem("isLoggedIn", "true");
-          localStorage.setItem("userData", JSON.stringify(userData));
-        } else {
-          sessionStorage.setItem("isLoggedIn", "true");
-          sessionStorage.setItem("userData", JSON.stringify(userData));
-        }
-
-        // 🔹 Redirigir al dashboard
-        console.log("✅ Login exitoso:", userData);
-        await this.$router.push({ name: "Dashboard" });
-
-      } catch (err) {
-        console.error("❌ Error en login:", err);
-        this.errorMessage = "Ocurrió un error inesperado. Intenta de nuevo.";
-      } finally {
-        this.loading = false;
+      // if remember me is checked
+      if (loginData.value.remember) {
+        localStorage.setItem('userData', JSON.stringify(userData))
+        localStorage.setItem('isLoggedIn', 'true')
+      } else {
+        sessionStorage.setItem('userData', JSON.stringify(userData))
+        sessionStorage.setItem('isLoggedIn', 'true')
       }
-    },
-  },
-};
+
+      console.log('Login exitoso, redirigiendo a dashboard...')
+
+      // redirect to dashboard
+      router.push('/dashboard')
+    } else {
+      errorMessage.value = response.data.message || 'Error de login. Intenta de nuevo.'
+    }
+  } catch (error) {
+    console.error('Error de login: ', error)
+    console.error('Respuesta del error: ', error.response)
+
+    if (error.response?.status === 401) {
+      errorMessage.value = 'Credenciales incorrectas.'
+    } else {
+      errorMessage.value = 'Ocurrió un error inesperado. Intenta de nuevo.'
+    }
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <style scoped>

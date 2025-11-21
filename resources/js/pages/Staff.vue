@@ -16,7 +16,7 @@
         </div>
         <!-- Botón Crear nuevo Staff -->
         <button
-          @click="$router.push('/dashboard/staff/new')"
+          @click="$router.push('/staff/create')"
           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
           <icon-lucide-user-plus class="w-4 h-4" />

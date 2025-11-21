@@ -13,11 +13,11 @@ class CustomerProfileController extends Controller
     public function index()
     {
         $customers = CustomerProfile::select(
-            'id', 
-            'user_name', 
-            'email', 
-            'role_id', 
-            'created_at')->get();
+            'user_id',
+            'name',
+            'department',
+            'position'
+        )->get();
 
         return response()->json($customers);
     }
@@ -37,7 +37,8 @@ class CustomerProfileController extends Controller
 
         return response()->json([
             'message' => 'Cliente creado correctamente. ✅',
-            'customer' => $customer], 201);
+            'customer' => $customer
+        ], 201);
     }
 
     /**

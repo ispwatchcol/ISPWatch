@@ -6,6 +6,7 @@ import Register from '../pages/Register.vue';
 import Dashboard from '../pages/Dashboard.vue';
 import Staff from '../pages/Staff.vue';
 import StaffNew from '../pages/StaffNew.vue';
+import EditStaff from '../pages/EditStaff.vue';
 import Routers from '../pages/Routers.vue';
 import DefaultLayout from '../layouts/DefaultLayout.vue';
 
@@ -31,28 +32,40 @@ const routes = [
         name: 'Dashboard',
         component: Dashboard,
       },
+    ],
+  },
+  {
+    path: '/staff',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
       {
-        path: 'staff',
+        path: '',
         name: 'Staff',
         component: Staff,
-        meta: { requiresAuth: true },
       },
       {
-        path: 'staff/new',
+        path: 'create',
         name: 'StaffNew',
         component: StaffNew,
-        meta: { requiresAuth: true },
       },
       {
-        path: '/staff/:id/edit',
-        name: 'EditStaff',
-        component: () => import('../pages/EditStaff.vue'),
+        path: ':id/edit',
+        name: 'StaffEdit',
+        component: EditStaff,
       },
+    ],
+  },
+
+  {
+    path: '/routers',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
       {
-        path: 'routers',
+        path: '',
         name: 'Routers',
         component: Routers,
-        meta: { requiresAuth: true },
       },
     ],
   },
