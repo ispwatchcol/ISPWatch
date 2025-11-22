@@ -14,7 +14,7 @@
 
         <div class="mb-6">
           <button
-            @click="$router.push('/dashboard/staff')"
+            @click="$router.push('/staff')"
             class="flex items-center gap-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 
                   dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 
                   dark:text-gray-100 transition-all"
@@ -305,6 +305,12 @@ const updateUser = async () => {
         role_id: editMember.value.role_id,
         updated_at: new Date().toISOString(),
       }
+
+    if (editMember.value.password && editMember.value.password.trim() !== '') {
+      updateData.password = editMember.value.password
+    }
+
+    const response = await api.staff.update(userId, updateData)
 
     if (response.data.success) {
       alert('✅ Usuario actualizado correctamente.')

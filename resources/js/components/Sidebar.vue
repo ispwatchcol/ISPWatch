@@ -167,6 +167,7 @@ const user = ref(null)
 const theme = ref('system')
 
 onMounted(() => {
+<<<<<<< HEAD
   const data =
     JSON.parse(localStorage.getItem("userData")) ??
     JSON.parse(sessionStorage.getItem("userData"))
@@ -175,6 +176,13 @@ onMounted(() => {
   // Cargar tema guardado o usar el sistema
   const savedTheme = localStorage.getItem('theme') || 'system'
   setTheme(savedTheme)
+=======
+    const data =
+        JSON.parse(localStorage.getItem("userData")) ??
+        JSON.parse(sessionStorage.getItem("userData"));
+
+    user.value = data
+>>>>>>> 33ad77677cb9389a92d3b05b5960d607731ee22d
 })
 
 const setTheme = (mode) => {
@@ -197,10 +205,11 @@ const setTheme = (mode) => {
 }
 
 const logout = () => {
-  localStorage.removeItem('isLoggedIn')
-  localStorage.removeItem('userData')
-  sessionStorage.removeItem('isLoggedIn')
-  sessionStorage.removeItem('userData')
-  router.push('/')
+    localStorage.removeItem('isLoggedIn')
+    localStorage.removeItem('userData')
+    sessionStorage.removeItem('isLoggedIn')
+    sessionStorage.removeItem('userData')
+
+    router.push('/')
 }
 </script>

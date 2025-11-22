@@ -13,18 +13,24 @@ class InventoryDeviceController extends Controller
     public function index()
     {
         $devices = InventoryDevice::with(['stock', 'provider', 'branch'])->select(
-            'id', 'serial', 'mac', 'stock_id', 'provider_id', 'branch_id')->get()->map(function($device){
-                return [
-                    'id' => $device->id,
-                    'serial' => $device->serial,
-                    'mac' => $device->mac,
-                    'brand' => $device->stock->brand ?? '-',
-                    'model'=> $device->stock->model ?? '-',
-                    'provider' => $device->provider->name,
-                    'branch' => $device->branch->name,
-                    'created_at' => $device->created_at->format('Y-m-d'),
-                ];
-            });
+            'id',
+            'serial',
+            'mac',
+            'stock_id',
+            'provider_id',
+            'branch_id'
+        )->get()->map(function ($device) {
+            return [
+                'id' => $device->id,
+                'serial' => $device->serial,
+                'mac' => $device->mac,
+                'brand' => $device->stock->brand ?? '-',
+                'model' => $device->stock->model ?? '-',
+                'provider' => $device->provider->name,
+                'branch' => $device->branch->name,
+                'created_at' => $device->created_at,
+            ];
+        });
 
         return response()->json($devices);
     }

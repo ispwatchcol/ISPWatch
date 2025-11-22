@@ -13,11 +13,12 @@ class CustomerProfileController extends Controller
     public function index()
     {
         $customers = CustomerProfile::select(
-            'id', 
-            'user_name', 
-            'email', 
-            'role_id', 
-            'created_at')->get();
+            'user_id',
+            'name',
+            'last_name',
+            'department',
+            'position'
+        )->get();
 
         return response()->json($customers);
     }
@@ -28,16 +29,21 @@ class CustomerProfileController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'user_name' => 'required|string|max:255',
-            'email' => 'required|email|unique:customer_profile,email',
-            'role_id' => 'required|integer',
+            'name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'department' => 'nullable|string|max:255',
+            'position' => 'nullable|string|max:255',
         ]);
+
+        $lastUserId = CustomerProfile::max('user_id') ?? 0;
+        $data['user_id'] = $lastUserId + 1;
 
         $customer = CustomerProfile::create($data);
 
         return response()->json([
             'message' => 'Cliente creado correctamente. ✅',
-            'customer' => $customer], 201);
+            'customer' => $customer
+        ], 201);
     }
 
     /**
@@ -54,9 +60,10 @@ class CustomerProfileController extends Controller
     public function update(Request $request, CustomerProfile $customer)
     {
         $data = $request->validate([
-            'user_name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|email|unique:customer_profile,email,' . $customer->id,
-            'role_id' => 'sometimes|integer',
+            'name' => 'sometimes|required|string|max:255',
+            'last_name' => 'sometimes|required|string|max:255',
+            'department' => 'sometimes|nullable|string|max:255',
+            'position' => 'sometimes|nullable|string|max:255',
         ]);
 
         $customer->update($data);

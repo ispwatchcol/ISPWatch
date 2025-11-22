@@ -37,6 +37,28 @@ const apiClient = axios.create({
 // )
 
 export default {
+    auth: {
+        login(credentials) {
+            return apiClient.post('/login', credentials)
+        },
+    },
+    customers: {
+        getAll(params) {
+            return apiClient.get('/customers', { params })
+        },
+        getOne(id) {
+            return apiClient.get(`/customers/${id}`)
+        },
+        create(data) {
+            return apiClient.post('/customers', data)
+        },
+        update(id, data) {
+            return apiClient.put(`/customers/${id}`, data)
+        },
+        delete(id) {
+            return apiClient.delete(`/customers/${id}`)
+        },
+    },
     staff: { // users
         getAll(params) {
             return apiClient.get('/staff', { params })
@@ -54,14 +76,70 @@ export default {
             return apiClient.delete(`/staff/${id}`)
         }
     },
+    tenant: {
+        getOne(id) {
+            return apiClient.get(`/tenants/${id}`)
+        }
+    },
     roles: {
         getAll() {
             return apiClient.get('/roles')
         }
     },
-    tenant: {
+    customers : {
+        getAll(params) {
+            return apiClient.get('/customers', { params })
+        },
         getOne(id) {
-            return apiClient.get(`/tenants/${id}`)
+            return apiClient.get(`/customers/${id}`)
+        },
+        create(data) {
+            return apiClient.post('/customers', data)
+        },
+        update(id, data) {
+            return apiClient.put(`/customers/${id}`, data)
+        },
+        delete(id) {
+            return apiClient.delete(`/customers/${id}`)
+        }
+    },
+    routers : {
+        getAll(params) {
+            return apiClient.get('/routers', { params })
+        },
+        getOne(id) {
+            return apiClient.get(`/routers/${id}`)
+        },
+        create(data) {
+            return apiClient.post('/routers', data)
+        },
+        update(id, data) {
+            return apiClient.put(`/routers/${id}`, data)
+        },
+        delete(id) {
+            return apiClient.delete(`/routers/${id}`)
+        }
+    },
+    inventory: {
+        getAll(params) {
+            return apiClient.get('/inventory/devices', { params })
+        },
+        getOne(id) {
+            return apiClient.get(`/inventory/devices/${id}`)
+        },
+        create(data) {
+            return apiClient.post('/inventory/devices', data)
+        },
+        update(id, data) {
+            return apiClient.put(`/inventory/devices/${id}`, data)
+        },
+        delete(id) {
+            return apiClient.delete(`/inventory/devices/${id}`)
+        }
+    },
+    sectorials: {
+        getAll() {
+            return apiClient.get('/sectorials')
         }
     },
 }

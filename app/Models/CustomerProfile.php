@@ -7,11 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 class CustomerProfile extends Model
 {
     protected $table = 'customer_profile';
+    protected $primaryKey = 'user_id';
+    public $incrementing = false;
+    public $timestamps = false;
+
     protected $fillable = [
-        'user_id', 
-        'name', 
-        'last_name', 
-        'department', 
+        'user_id',
+        'name',
+        'last_name',
+        'department',
         'position'
     ];
 

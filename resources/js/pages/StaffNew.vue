@@ -15,7 +15,7 @@
 
         <div class="mb-6">
           <button
-            @click="$router.push('/dashboard/staff')"
+            @click="$router.push('/staff')"
             class="flex items-center gap-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 
                   dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 
                   dark:text-gray-100 transition-all"
@@ -180,14 +180,29 @@ onMounted(async () => {
 
   tenantId.value = userData?.tenant_id
 
-  if (userData?.tenant_id) {
-    tenant.value = error || !tenantData ? '@sin-tenant' : `@${tenantData.domain}`
+  if (tenantId.value) {
+    await loadTenantDomain()
   } else {
     tenant.value = '@sin-tenant'
   }
 
   await loadRoles()
 })
+
+const loadTenantDomain = async () => {
+  try {
+    const response = await api.tenant.getOne(tenantId.value)
+    
+    if (response.data.success) {
+      tenant.value = `@${response.data.data.domain}`
+    } else {
+      tenant.value = '@sin-tenant'
+    }
+  } catch (error) {
+    console.error('❌ Error al cargar dominio del tenant:', error)
+    tenant.value = '@sin-tenant'
+  }
+}
 
 const permissions = ref([
   {
@@ -232,16 +247,18 @@ const permissions = ref([
 
 const loadRoles = async () => {
   try {
+    console.log('Cargando roles...')
     const response = await api.roles.getAll()
+    console.log('Roles recibidos:', response.data)
     if (response.data.success) {
       roles.value = response.data.data
     } else if (response.data && Array.isArray(response.data)) {
-      // Fallback if API returns an array directly
+      // fallback if API returns an array directly
       roles.value = response.data
     }
   } catch (error) {
     console.error('❌ Error al cargar roles:', error)
-    alert('Eror al cargar los roles disponibles')
+    alert('Error al cargar los roles disponibles')
   }
 }
 
@@ -273,7 +290,7 @@ const saveUser = async () => {
       user_name: newMember.value.username,
       user_lastname: newMember.value.lastname,
       password: newMember.value.password,
-      tenant_id: userData.tenant_id,
+      tenant_id: tenantId.value,
       role_id: newMember.value.role_id,
       tel: newMember.value.phone,
       email_tenant: `${newMember.value.username}${tenant.value}`,

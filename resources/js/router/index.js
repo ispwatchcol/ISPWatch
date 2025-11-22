@@ -32,28 +32,40 @@ const routes = [
         name: 'Dashboard',
         component: Dashboard,
       },
+    ],
+  },
+  {
+    path: '/staff',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
       {
-        path: 'staff',
+        path: '',
         name: 'Staff',
         component: Staff,
-        meta: { requiresAuth: true },
       },
       {
-        path: 'staff/new',
+        path: 'create',
         name: 'StaffNew',
         component: StaffNew,
-        meta: { requiresAuth: true },
       },
       {
-        path: 'editstaff/:id',
-        name: 'EditStaff',
-        component: () => import('@/pages/EditStaff.vue'),
+        path: ':id/edit',
+        name: 'StaffEdit',
+        component: EditStaff,
       },
+    ],
+  },
+
+  {
+    path: '/routers',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
       {
-        path: 'routers',
+        path: '',
         name: 'Routers',
         component: Routers,
-        meta: { requiresAuth: true },
       },
       {
         path: "/routers/add",
@@ -63,11 +75,34 @@ const routes = [
     ],
   },
 
+  {
+    path: '/customers',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Customers',
+        component: Customers,
+      },
+      {
+        path: 'create',
+        name: 'CustomerAdd',
+        component: CustomerAdd,
+      },
+      {
+        path: ':id/edit',
+        name: 'CustomerEdit',
+        component: CustomerEdit,
+      }
+    ],
+  },
+
   // ✅ Ruta 404
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: () => import('@/pages/NotFound.vue'),
+    component: () => import('../pages/NotFound.vue'),
   },
 ];
 

@@ -3,47 +3,41 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Models\User;
 
 class AuthController extends Controller
 {
     public function login(Request $request)
     {
-        // Validar datos que vienen del frontend
         $request->validate([
-            'user_name' => 'required|string',
+            'email' => 'required|string|email',
             'password' => 'required|string',
         ]);
 
-        // Buscar el usuario en la tabla 'user'
-        $user = DB::table('user')
-            ->where('user_name', $request->user_name)
+        $user = User::where('email', $request->email)
+            ->orWhere('email_tenant', $request->email)
             ->first();
 
         if (!$user) {
             return response()->json([
-                'status' => 'error',
-                'message' => 'Usuario no encontrado.'
-            ], 404);
-        }
-
-        // ⚠️ Comparación en texto plano (NO recomendado en producción)
-        if ($user->password !== $request->password) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Contraseña incorrecta.'
+                'success' => false,
+                'message' => 'Credenciales incorrectas.'
             ], 401);
         }
 
-        // Retornar datos si el login es correcto
+        $user->update(['last_access' => now()]);
+
         return response()->json([
-            'status' => 'success',
-            'user' => [
+            'success' => true,
+            'data' => [
                 'id' => $user->id,
                 'user_name' => $user->user_name,
-                'email' => $user->email ?? null,
-                'role' => $user->role ?? 'user',
+                'role_id' => $user->role_id,
+                'role_name' => optional($user->role)->name ?? 'Sin rol',
+                'tenant_id' => $user->tenant_id,
+                'email' => $user->email,
+                'email_tenant' => $user->email_tenant,
             ]
-        ], 200);
+        ]);
     }
 }
