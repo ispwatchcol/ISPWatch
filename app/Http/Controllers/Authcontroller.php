@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 
 class AuthController extends Controller
@@ -19,6 +20,20 @@ class AuthController extends Controller
             ->first();
 
         if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Credenciales incorrectas.'
+            ], 401);
+        }
+
+        $isValid = false;
+
+        // Si no funciona, intenta comparar texto plano (solo para desarrollo)
+        if (!$isValid && $request->password === $user->password) {
+            $isValid = true;
+        }
+
+        if (!$isValid) {
             return response()->json([
                 'success' => false,
                 'message' => 'Credenciales incorrectas.'
