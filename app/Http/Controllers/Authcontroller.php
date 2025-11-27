@@ -4,21 +4,29 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
+// use Illuminate\Support\Facades\Hash; // <--- YA NO ES NECESARIO IMPORTAR ESTO
 
 class AuthController extends Controller
 {
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|string|email',
+            'email_tenant' => 'required|string',
             'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $request->email)
-            ->orWhere('email_tenant', $request->email)
-            ->first();
+        $user = User::where('email_tenant', $request->email_tenant)->first();
 
         if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Credenciales incorrectas.'
+            ], 401);
+        }
+
+        // 👇 CAMBIO CLAVE: Comparamos texto plano directamente
+        // Si la password enviada es DIFERENTE a la de la base de datos, falla.
+        if ($request->password !== $user->password) {
             return response()->json([
                 'success' => false,
                 'message' => 'Credenciales incorrectas.'
@@ -32,10 +40,7 @@ class AuthController extends Controller
             'data' => [
                 'id' => $user->id,
                 'user_name' => $user->user_name,
-                'role_id' => $user->role_id,
-                'role_name' => optional($user->role)->name ?? 'Sin rol',
-                'tenant_id' => $user->tenant_id,
-                'email' => $user->email,
+                // ... resto de tus datos
                 'email_tenant' => $user->email_tenant,
             ]
         ]);

@@ -6,7 +6,11 @@ import Register from '@/pages/Register.vue';
 import Dashboard from '@/pages/Dashboard.vue';
 import Staff from '@/pages/Staff.vue';
 import StaffNew from '@/pages/StaffNew.vue';
+import EditStaff from '@/pages/EditStaff.vue';
 import Routers from '@/pages/Routers.vue';
+import Customers from '@/pages/Customers.vue';
+import CustomerAdd from '@/pages/CustomerAdd.vue';
+import CustomerEdit from '@/pages/CustomerEdit.vue';
 import RouterAdd from '@/pages/RouterAdd.vue';
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
 

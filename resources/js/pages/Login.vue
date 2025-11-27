@@ -22,11 +22,11 @@
         <div>
           <label for="email" class="block text-gray-700 font-medium mb-1">Correo electrónico</label>
           <input
-            type="email"
-            id="email"
-            v-model="loginData.email"
-            placeholder="you@example.com"
-            class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
+            type="text"
+            id="email_tenant"
+            v-model="loginData.email_tenant"
+            placeholder="usuario de ingreso"
+            class="w-full p-4 border border-gray-300 rounded-2xl"
             required
           />
         </div>
@@ -38,9 +38,9 @@
             <input
               :type="showPassword ? 'text' : 'password'"
               id="password"
-              v-model="password"
+              v-model="loginData.password"
               placeholder="********"
-              class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm pr-12"
+              class="w-full p-4 border border-gray-300 rounded-2xl"
               required
             />
             <button
