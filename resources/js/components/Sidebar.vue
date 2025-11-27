@@ -160,17 +160,28 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { useRouter } from 'vue-router'
-import SubmenuItem from "./SubmenuItem.vue"
+// import SubmenuItem from "./SubmenuItem.vue" // Descomenta si lo usas
 
 const router = useRouter()
-const user = ref(null)
+const user = ref({}) // 👈 INICIALIZAR COMO OBJETO VACÍO {} para evitar errores user?.role_name
 const theme = ref('system')
 
 onMounted(() => {
-  const data =
-    JSON.parse(localStorage.getItem("userData")) ??
-    JSON.parse(sessionStorage.getItem("userData"))
-  user.value = data
+  // 👇 Lógica mejorada para leer el usuario
+  const localData = localStorage.getItem("userData");
+  const sessionData = sessionStorage.getItem("userData");
+  
+  const storedJson = localData || sessionData;
+
+  if (storedJson) {
+      try {
+          user.value = JSON.parse(storedJson);
+          console.log("Usuario cargado en Sidebar:", user.value); // 👈 PARA DEPURAR
+      } catch (e) {
+          console.error("Error parseando userData:", e);
+          user.value = {}; 
+      }
+  }
 
   // Cargar tema guardado o usar el sistema
   const savedTheme = localStorage.getItem('theme') || 'system'
@@ -187,7 +198,6 @@ const setTheme = (mode) => {
   } else if (mode === 'light') {
     root.classList.remove('dark')
   } else if (mode === 'system') {
-    // Detectar preferencia del sistema
     if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
       root.classList.add('dark')
     } else {
@@ -205,3 +215,4 @@ const logout = () => {
     router.push('/')
 }
 </script>
+

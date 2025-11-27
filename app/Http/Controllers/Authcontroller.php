@@ -9,40 +9,38 @@ use App\Models\User;
 class AuthController extends Controller
 {
     public function login(Request $request)
-    {
-        $request->validate([
-            'email_tenant' => 'required|string',
-            'password' => 'required|string',
-        ]);
+        {
+            $request->validate([
+                'email_tenant' => 'required|string',
+                'password' => 'required|string',
+            ]);
 
-        $user = User::where('email_tenant', $request->email_tenant)->first();
+            // Asegúrate de cargar la relación 'role' con "with('role')"
+            $user = User::with('role')->where('email_tenant', $request->email_tenant)->first();
 
-        if (!$user) {
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'Credenciales incorrectas.'], 401);
+            }
+
+            // Verificación de contraseña (texto plano temporalmente)
+            if ($request->password !== $user->password) {
+                return response()->json(['success' => false, 'message' => 'Credenciales incorrectas.'], 401);
+            }
+
+            $user->update(['last_access' => now()]);
+
+            // 👇 AQUÍ ESTÁ LA CLAVE: Construir manualmente la respuesta con role_name
             return response()->json([
-                'success' => false,
-                'message' => 'Credenciales incorrectas.'
-            ], 401);
+                'success' => true,
+                'data' => [
+                    'id' => $user->id,
+                    'user_name' => $user->user_name,
+                    'user_lastname' => $user->user_lastname, // Agrega esto si lo usas
+                    'email_tenant' => $user->email_tenant,
+                    'role_id' => $user->role_id,
+                    // Usamos optional() por si el rol es null
+                    'role_name' => optional($user->role)->name ?? 'Sin rol', 
+                ]
+            ]);
         }
-
-        // 👇 CAMBIO CLAVE: Comparamos texto plano directamente
-        // Si la password enviada es DIFERENTE a la de la base de datos, falla.
-        if ($request->password !== $user->password) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Credenciales incorrectas.'
-            ], 401);
-        }
-
-        $user->update(['last_access' => now()]);
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'id' => $user->id,
-                'user_name' => $user->user_name,
-                // ... resto de tus datos
-                'email_tenant' => $user->email_tenant,
-            ]
-        ]);
-    }
 }

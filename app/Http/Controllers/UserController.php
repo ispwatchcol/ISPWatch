@@ -94,7 +94,7 @@ class UserController extends Controller
                 'user_name' => $user->user_name,
                 'user_lastname' => $user->user_lastname,
                 'email' => $user->email,
-                'email_tenant' => $user->email_tenant,
+                'email_tenant' => $user->email_tenant ?? $user->email,
                 'tel' => $user->tel,
                 'role_id' => $user->role_id,
                 'role_name' => $user->role->name ?? 'Sin rol',
