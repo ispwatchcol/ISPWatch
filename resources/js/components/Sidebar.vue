@@ -56,8 +56,8 @@
                     icon="bi-router"
                     title="Routers"
                     :items="[
-                        { name: 'Lista de routers', to: '/dashboard/routers', icon: 'bi-router' },
-                        { name: 'Agregar router', to: '/routers/create', icon: 'oi-diff-added' }
+                        { name: 'Lista de routers', to: '/routers', icon: 'bi-router' },
+                        { name: 'Agregar router', to: '/routers/add', icon: 'oi-diff-added' }
                     ]"
                 />
 
@@ -80,7 +80,7 @@
 
                 <li>
                     <RouterLink
-                        to="/dashboard/staff"
+                        to="/staff"
                         class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
                     >
                         <v-icon name="pr-users" class="w-5 h-5 mr-1" />
@@ -160,14 +160,13 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { useRouter } from 'vue-router'
-// import SubmenuItem from "./SubmenuItem.vue" // Descomenta si lo usas
+import SubmenuItem from "./SubmenuItem.vue" 
 
 const router = useRouter()
-const user = ref({}) // 👈 INICIALIZAR COMO OBJETO VACÍO {} para evitar errores user?.role_name
+const user = ref({})
 const theme = ref('system')
 
 onMounted(() => {
-  // 👇 Lógica mejorada para leer el usuario
   const localData = localStorage.getItem("userData");
   const sessionData = sessionStorage.getItem("userData");
   
@@ -176,7 +175,7 @@ onMounted(() => {
   if (storedJson) {
       try {
           user.value = JSON.parse(storedJson);
-          console.log("Usuario cargado en Sidebar:", user.value); // 👈 PARA DEPURAR
+          console.log("Usuario cargado en Sidebar:", user.value);
       } catch (e) {
           console.error("Error parseando userData:", e);
           user.value = {}; 

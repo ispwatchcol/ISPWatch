@@ -145,50 +145,43 @@ const handleLogin = async () => {
   errorMessage.value = ''
 
   try {
-    console.log('Intentando login con:', loginData.value.email_tenant)
-
     const response = await api.auth.login({
       email_tenant: loginData.value.email_tenant,
       password: loginData.value.password
     })
 
-    console.log('Respuesta del servidor:', response.data)
-
     if (response.data.success) {
-      // save user data
-      const userData = response.data.data
-      console.log('Datos del usuario:', userData)
 
-      // if remember me is checked
+      // ⚠️ EXTRAER CORRECTAMENTE EL USUARIO
+      const user = response.data.data.user ?? response.data.data
+
+      console.log("Usuario que se va a guardar:", user)
+
       if (loginData.value.remember) {
-        localStorage.setItem('userData', JSON.stringify(userData))
-        localStorage.setItem('isLoggedIn', 'true')
+        localStorage.setItem("userData", JSON.stringify(user))
+        localStorage.setItem("isLoggedIn", "true")
       } else {
-        sessionStorage.setItem('userData', JSON.stringify(userData))
-        sessionStorage.setItem('isLoggedIn', 'true')
+        sessionStorage.setItem("userData", JSON.stringify(user))
+        sessionStorage.setItem("isLoggedIn", "true")
       }
 
-      console.log('Login exitoso, redirigiendo a dashboard...')
-
-      // redirect to dashboard
       router.push('/dashboard')
     } else {
-      errorMessage.value = response.data.message || 'Error de login. Intenta de nuevo.'
+      errorMessage.value = response.data.message || 'Error de login.'
     }
   } catch (error) {
-    console.error('Error de login: ', error)
-    console.error('Respuesta del error: ', error.response)
-
+    console.error(error)
     if (error.response?.status === 401) {
       errorMessage.value = 'Credenciales incorrectas.'
     } else {
-      errorMessage.value = 'Ocurrió un error inesperado. Intenta de nuevo.'
+      errorMessage.value = 'Ocurrió un error inesperado.'
     }
   } finally {
     loading.value = false
   }
 }
 </script>
+
 
 <style scoped>
 body {

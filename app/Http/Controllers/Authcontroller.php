@@ -38,6 +38,7 @@ class AuthController extends Controller
                     'user_lastname' => $user->user_lastname, // Agrega esto si lo usas
                     'email_tenant' => $user->email_tenant,
                     'role_id' => $user->role_id,
+                    'tenant_id' => $user->tenant_id,
                     // Usamos optional() por si el rol es null
                     'role_name' => optional($user->role)->name ?? 'Sin rol', 
                 ]

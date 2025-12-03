@@ -39,6 +39,7 @@ class UserController extends Controller
                     'tel' => $user->tel,
                     'role_name' => $user->role->name ?? 'Sin rol',
                     'role_id' => $user->role_id,
+                    'tenant_id' => $user->tenant_id,
                     'create_at' => $user->created_at,
                     'last_access' => $user->last_access ?? null,
                     'status' => $user->status,
