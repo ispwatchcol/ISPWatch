@@ -156,6 +156,7 @@ import api from '../services/api.js'
 
 const router = useRouter()
 
+// Modelo del formulario
 const newMember = ref({
   username: '',
   password: '',
@@ -168,42 +169,81 @@ const newMember = ref({
   twoFA: 'No',
 })
 
+// Estados reactivos
 const tenant = ref('')
 const tenantId = ref('')
 const roles = ref([])
 const saving = ref(false)
 
+// 👇 LÓGICA UNIFICADA Y SEGURA (Igual que en Staff List)
 onMounted(async () => {
-  const userData =
-    JSON.parse(localStorage.getItem('userData')) ||
-    JSON.parse(sessionStorage.getItem('userData'))
+  console.log("🔄 Iniciando StaffNew...")
 
+  // 1. Leer datos del storage (Local o Session)
+  const userData =
+    JSON.parse(localStorage.getItem("userData")) ||
+    JSON.parse(sessionStorage.getItem("userData"))
+
+  // 2. Extraer tenant_id
   tenantId.value = userData?.tenant_id
 
+  console.log("🔍 Tenant ID recuperado:", tenantId.value)
+
+  // 3. Lógica de carga
   if (tenantId.value) {
     await loadTenantDomain()
   } else {
+    console.warn("⚠️ No se encontró tenant_id en el Storage. Usuario posiblemente desconectado.")
     tenant.value = '@sin-tenant'
   }
 
+  // 4. Cargar roles siempre
   await loadRoles()
 })
 
+// Cargar dominio del tenant
 const loadTenantDomain = async () => {
   try {
+    console.log("🔍 Buscando dominio para Tenant ID:", tenantId.value)
+
+    // 1. INTENTO DE API
     const response = await api.tenant.getOne(tenantId.value)
     
+    // Verificamos la estructura de la respuesta en consola
+    console.log("📦 Respuesta API Tenant:", response.data)
+
     if (response.data.success) {
-      tenant.value = `@${response.data.data.domain}`
-    } else {
-      tenant.value = '@sin-tenant'
-    }
+      // Caso ideal: La API responde bien
+      const domain = response.data.data?.domain || response.data.domain; // Probamos ambas rutas
+      tenant.value = `@${domain}`
+      console.log("✅ Dominio cargado desde API:", tenant.value)
+      return; // Salimos si tuvo éxito
+    } 
   } catch (error) {
-    console.error('❌ Error al cargar dominio del tenant:', error)
-    tenant.value = '@sin-tenant'
+    console.error('⚠️ Error API tenant.getOne:', error)
   }
+
+  // 2. PLAN B: Si la API falla, intentamos leerlo del localStorage (userData)
+  // El login suele guardar el email completo (ej: usuario@midominio.com)
+  const userData = JSON.parse(localStorage.getItem("userData") || sessionStorage.getItem("userData"))
+  
+  if (userData?.email_tenant) {
+      // Extraemos lo que está después del @
+      const parts = userData.email_tenant.split('@');
+      if (parts.length > 1) {
+          tenant.value = `@${parts[1]}`;
+          console.log("✅ Dominio recuperado de userData (Plan B):", tenant.value);
+          return;
+      }
+  }
+
+  // 3. Si todo falla
+  console.error("❌ No se pudo obtener el dominio de ninguna forma.")
+  tenant.value = '@sin-tenant'
 }
 
+
+// Lista de permisos (Estática para la UI)
 const permissions = ref([
   {
     title: 'Clientes',
@@ -245,39 +285,41 @@ const permissions = ref([
   },
 ])
 
+// Cargar lista de roles disponibles
 const loadRoles = async () => {
   try {
-    console.log('Cargando roles...')
+    console.log('📥 Cargando roles...')
     const response = await api.roles.getAll()
-    console.log('Roles recibidos:', response.data)
+    
     if (response.data.success) {
       roles.value = response.data.data
     } else if (response.data && Array.isArray(response.data)) {
-      // fallback if API returns an array directly
       roles.value = response.data
     }
+    console.log('✅ Roles cargados:', roles.value.length)
   } catch (error) {
     console.error('❌ Error al cargar roles:', error)
-    alert('Error al cargar los roles disponibles')
+    // No bloqueamos la UI con alert, solo log
   }
 }
 
+// Guardar nuevo usuario
 const saveUser = async () => {
   saving.value = true
   try {
     if (!tenantId.value) {
-      alert('❌ No se encontró información del tenant. Inicia sesión nuevamente.')
+      alert('❌ No se encontró información del tenant. Por favor, cierra e inicia sesión nuevamente.')
       return
     }
 
-    // basic validation
+    // Validaciones básicas
     if (!newMember.value.name) {
       alert('⚠️ Por favor ingrese un nombre.')
       return
     }
 
     if (!newMember.value.email || !newMember.value.password) {
-      alert('⚠️ Por favor ingrese un correo electrónico y/o contraseña.')
+      alert('⚠️ Por favor ingrese un correo electrónico y una contraseña.')
       return
     } 
 
@@ -286,6 +328,7 @@ const saveUser = async () => {
       return
     }
 
+    // Preparar objeto para enviar
     const userInsert = {
       user_name: newMember.value.username,
       user_lastname: newMember.value.lastname,
@@ -293,23 +336,25 @@ const saveUser = async () => {
       tenant_id: tenantId.value,
       role_id: newMember.value.role_id,
       tel: newMember.value.phone,
-      email_tenant: `${newMember.value.username}${tenant.value}`,
+      email_tenant: `${newMember.value.username}${tenant.value}`, // Concatenar usuario + dominio
       email: newMember.value.email,
     }
+
+    console.log("📤 Enviando usuario:", userInsert)
 
     const response = await api.staff.create(userInsert)
 
     if (response.data.success) {
       alert('✅ Usuario registrado correctamente.')
-      router.push('/staff')
+      router.push('/staff') // Redirigir a la lista
     }
   } catch (error) {
     console.error('⚠️ Error al registrar usuario:', error.response?.data || error)
 
-    // show specific error from API if available
+    // Mostrar mensaje de error específico si existe
     if (error.response?.data?.errors) {
       const errors = Object.values(error.response.data.errors).flat()
-      alert(`❌ Errores de validacón: ${error.response?.data?.message || error.message}`)
+      alert(`❌ Errores de validación: ${error.response?.data?.message || error.message}`)
     } else {
       alert(`❌ Error al registrar usuario: ${error.response?.data?.message || error.message}`)
     }
