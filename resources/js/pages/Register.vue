@@ -107,7 +107,7 @@ export default {
 
       try {
         // Registro en Supabase
-        const { data, error } = await supabase.from("user").insert([
+        const { data, error } = await supabase.from("users").insert([
           {
             user_name: this.email,
             password: this.password,

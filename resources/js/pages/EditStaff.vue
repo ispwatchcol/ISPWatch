@@ -187,35 +187,45 @@ onMounted(async () => {
 const loadUserData = async () => {
   loading.value = true
   try {
-    // api call to get user data
+    // 1. Cargar datos del usuario a editar desde la API
     const response = await api.staff.getOne(userId)
 
     if (response.data.success) {
       const data = response.data.data
 
+      // Rellenar el formulario
       editMember.value = {
         username: data.user_name,
         password: '',
         email: data.email || '',
         phone: data.tel || '',
-        name: data.user_name,
+        name: data.user_name, // Ajusta si tienes campo separado para nombre real
         lastname: data.user_lastname,
         role_id: data.role_id,
         allZones: 'Sí',
         twoFA: 'No',
       }
-      // get tenant domain
-      const userData =
-        JSON.parse(localStorage.getItem('userData')) ||
-        JSON.parse(sessionStorage.getItem('userData'))
-  
-      if (userData?.tenant_id) {
-        tenant.value = `@${userData.tenant_domain}`
-      } else {
-        tenant.value = '@sin-tenant'
+
+      // 2. LOGICA PARA OBTENER EL DOMINIO DEL TENANT (Igual que en StaffNew)
+      const userData = JSON.parse(localStorage.getItem('userData') || sessionStorage.getItem('userData'))
+
+      // Intento 1: Extraer del email_tenant guardado en sesión
+      if (userData?.email_tenant) {
+          const parts = userData.email_tenant.split('@');
+          if (parts.length > 1) {
+              tenant.value = `@${parts[1]}`;
+          } else {
+              tenant.value = '@sin-tenant';
+          }
+      } 
+      // Intento 2: Si tienes el ID, podrías llamar a la API (Opcional, el método 1 es más rápido)
+      else {
+         tenant.value = '@sin-tenant';
       }
+      
+      console.log("✅ Dominio cargado en Edit:", tenant.value);
     }
-  } catch (eror) {
+  } catch (error) {
     console.error('❌ Error al cargar el usuario:', error.response?.data || error)
     alert('No se pudo cargar la información del usuario.')
     router.push('/staff')

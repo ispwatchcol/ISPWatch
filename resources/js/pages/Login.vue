@@ -18,30 +18,77 @@
 
       <!-- Formulario -->
       <form @submit.prevent="handleLogin" class="space-y-5">
+        <!-- EMAIL -->
         <div>
           <label for="email" class="block text-gray-700 font-medium mb-1">Correo electrónico</label>
           <input
-            type="email"
-            id="email"
-            v-model="loginData.email"
-            placeholder="you@example.com"
-            class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
+            type="text"
+            id="email_tenant"
+            v-model="loginData.email_tenant"
+            placeholder="usuario de ingreso"
+            class="w-full p-4 border border-gray-300 rounded-2xl"
             required
           />
         </div>
 
+        <!-- PASSWORD con ojito -->
         <div>
           <label for="password" class="block text-gray-700 font-medium mb-1">Contraseña</label>
-          <input
-            type="password"
-            id="password"
-            v-model="loginData.password"
-            placeholder="********"
-            class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
-            required
-          />
+          <div class="relative">
+            <input
+              :type="showPassword ? 'text' : 'password'"
+              id="password"
+              v-model="loginData.password"
+              placeholder="********"
+              class="w-full p-4 border border-gray-300 rounded-2xl"
+              required
+            />
+            <button
+              type="button"
+              @click="showPassword = !showPassword"
+              class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+            >
+              <svg
+                v-if="!showPassword"
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                />
+              </svg>
+              <svg
+                v-else
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.973 9.973 0 012.878-4.642m3.743-2.39A9.969 9.969 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.031M3 3l18 18"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
+        <!-- RECORDAR -->
         <div class="flex items-center justify-between text-sm">
           <label for="remember" class="flex items-center gap-2 text-gray-600">
             <input type="checkbox" id="remember" v-model="loginData.remember" class="form-checkbox text-blue-600 rounded" /> Recordarme
@@ -49,6 +96,7 @@
           <a href="#" class="text-blue-600 hover:underline font-medium">¿Olvidaste tu contraseña?</a>
         </div>
 
+        <!-- BOTÓN LOGIN -->
         <button
           type="submit"
           :disabled="loading"
@@ -58,14 +106,14 @@
         </button>
       </form>
 
-      <!-- Separador -->
+      <!-- SEPARADOR -->
       <div class="flex items-center my-6">
         <hr class="flex-1 border-gray-300" />
         <span class="px-3 text-gray-400 font-medium">o</span>
         <hr class="flex-1 border-gray-300" />
       </div>
 
-      <!-- Botón de registro -->
+      <!-- BOTÓN REGISTRO -->
       <button
         @click="$router.push('/register')"
         class="w-full border border-gray-300 text-gray-700 py-3 rounded-2xl hover:bg-gray-50 transition duration-300 font-medium shadow-sm"
@@ -84,7 +132,7 @@ import api from "../services/api.js";
 const router = useRouter();
 
 const loginData = ref({
-  email: '',
+  email_tenant: '',
   password: '',
   remember: false
 })
@@ -97,50 +145,43 @@ const handleLogin = async () => {
   errorMessage.value = ''
 
   try {
-    console.log('Intentando login con:', loginData.value.email)
-
     const response = await api.auth.login({
-      email: loginData.value.email,
+      email_tenant: loginData.value.email_tenant,
       password: loginData.value.password
     })
 
-    console.log('Respuesta del servidor:', response.data)
-
     if (response.data.success) {
-      // save user data
-      const userData = response.data.data
-      console.log('Datos del usuario:', userData)
 
-      // if remember me is checked
+      // ⚠️ EXTRAER CORRECTAMENTE EL USUARIO
+      const user = response.data.data.user ?? response.data.data
+
+      console.log("Usuario que se va a guardar:", user)
+
       if (loginData.value.remember) {
-        localStorage.setItem('userData', JSON.stringify(userData))
-        localStorage.setItem('isLoggedIn', 'true')
+        localStorage.setItem("userData", JSON.stringify(user))
+        localStorage.setItem("isLoggedIn", "true")
       } else {
-        sessionStorage.setItem('userData', JSON.stringify(userData))
-        sessionStorage.setItem('isLoggedIn', 'true')
+        sessionStorage.setItem("userData", JSON.stringify(user))
+        sessionStorage.setItem("isLoggedIn", "true")
       }
 
-      console.log('Login exitoso, redirigiendo a dashboard...')
-
-      // redirect to dashboard
       router.push('/dashboard')
     } else {
-      errorMessage.value = response.data.message || 'Error de login. Intenta de nuevo.'
+      errorMessage.value = response.data.message || 'Error de login.'
     }
   } catch (error) {
-    console.error('Error de login: ', error)
-    console.error('Respuesta del error: ', error.response)
-
+    console.error(error)
     if (error.response?.status === 401) {
       errorMessage.value = 'Credenciales incorrectas.'
     } else {
-      errorMessage.value = 'Ocurrió un error inesperado. Intenta de nuevo.'
+      errorMessage.value = 'Ocurrió un error inesperado.'
     }
   } finally {
     loading.value = false
   }
 }
 </script>
+
 
 <style scoped>
 body {
