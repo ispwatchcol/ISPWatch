@@ -76,6 +76,11 @@ const routes = [
         name: "RouterAdd",
         component: () => import("@/pages/RouterAdd.vue"),
       },
+      {
+      path: ':id/edit', 
+      name: 'RouterEdit',
+      component: () => import("@/pages/RouterEdit.vue"),
+      },
     ],
   },
 

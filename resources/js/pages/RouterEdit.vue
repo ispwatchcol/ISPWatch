@@ -6,7 +6,7 @@
       <div class="flex items-center justify-between mb-10">
         <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
           <v-icon name="pr-server" class="text-blue-600 w-7 h-7" />
-          Agregar Router
+          Editar Router
         </h1>
         
         <button
@@ -65,6 +65,7 @@
                 <label class="label">Coordenadas</label>
                 <input v-model="form.coordenadas" type="text" placeholder="Ej: 21.150168,-86.875023" class="input"/>
             </div>
+            
             <!-- VERSION -->
             <div>
             <label class="label text-gray-700 dark:text-gray-200">
@@ -142,13 +143,9 @@
               </label>
             </div>
 
-            <!-- GRID PRINCIPAL -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <!-- Aquí tus otros campos -->
-            </div>
-
             <!-- PANEL DE FACTURACIÓN MODULARIZADO -->
             <BillingPanel
+              v-if="form.facturacion_activa"
               :active="form.facturacion_activa"
               :billing="form.billing"
               :types="types"
@@ -161,12 +158,10 @@
               </label>
 
               <select v-model="form.tipo_corte" class="input">
-                <!-- placeholder visible en light/dark; value null para que Vue lo seleccione si modelo es null -->
                 <option :value="null" disabled class="text-gray-400 dark:text-gray-300">
                   Seleccione una opción
                 </option>
 
-                <!-- usamos :value="t.id" (número) — form.tipo_corte debe ser null o número -->
                 <option
                   v-for="t in tiposCorte"
                   :key="t.id"
@@ -421,7 +416,6 @@
 
             </div>
 
-
             <!-- COMENTARIOS -->
             <div class="col-span-2">
                 <label class="label">Comentarios</label>
@@ -447,7 +441,7 @@
             <!-- BOTÓN -->
             <div class="col-span-2 mt-4">
                 <button type="submit" class="btn-primary w-full">
-                Guardar Router
+                  {{ loading ? 'Guardando...' : 'Guardar Cambios' }}
                 </button>
             </div>
 
@@ -456,41 +450,92 @@
     </main>
   </div>
 </template>
-
 <script setup>
 import { ref, reactive, onMounted } from "vue"
-import { useRouter } from "vue-router"
+import { useRouter, useRoute } from "vue-router"
 import { supabase } from "@/supabase.js"
-import DayPicker from "@/components/DayPicker.vue"
 import BillingPanel from "@/components/BillingPanel.vue"
 
 const router = useRouter()
+const route = useRoute()
+const routerId = route.params.id // ID del router a editar
+const loading = ref(false)
 
 /* ============================
-   FUNCIONES DE LIMPIEZA
+   FUNCIONES DE LIMPIEZA (Billing)
 ============================ */
-const convertDay = (v) => {
-  if (!v) return null
-  const num = Number(v)
-  if (isNaN(num)) return null
-  if (num < 1 || num > 31) return null
-  return num
-}
-
-const toNumberOrNull = (v) => {
-  if (v === "" || v === null || v === undefined) return null
-  const n = Number(v)
+const cleanInt = (val) => {
+  if (val === undefined || val === null || val === "" || val === false || val === "false") return null
+  const n = Number(val)
   return isNaN(n) ? null : n
 }
 
+const cleanDay = (val) => {
+  if (!val || val === "false" || val === false) return null
+  return String(val).padStart(2, "0")
+}
+
 /* ============================
-   DATOS DESDE DB
+   PARSEO HEX ROBUSTO (EWKB PostGIS)
+============================ */
+const parseWKB = (hex) => {
+    if (!hex || typeof hex !== 'string') return null;
+    
+    // Limpieza básica
+    hex = hex.trim();
+    
+    try {
+        // 1. Convertir string hex a DataView
+        // Cada 2 caracteres hex son 1 byte.
+        const buffer = new Uint8Array(hex.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16))).buffer;
+        const view = new DataView(buffer);
+        
+        // Verificamos si es Little Endian (01)
+        const isLittleEndian = view.getUint8(0) === 1;
+        
+        // Leemos el tipo de geometría (bytes 1-4)
+        const geomType = view.getUint32(1, isLittleEndian);
+        
+        // Posición donde empiezan las coordenadas X (Longitud)
+        let offset = 5; 
+        
+        // Si el flag SRID está activo (0x20000000), hay 4 bytes extra para el SRID
+        if ((geomType & 0x20000000) !== 0) { 
+            // Tiene SRID, saltamos 4 bytes más
+            offset += 4; 
+        }
+        
+        // Si por alguna razón no detectamos flags pero el string es largo,
+        // intentamos forzar el offset estándar de PostGIS (byte 9)
+        if (offset === 5 && hex.length > 40) offset = 9;
+
+        // Leemos coordenadas
+        const lng = view.getFloat64(offset, isLittleEndian);
+        const lat = view.getFloat64(offset + 8, isLittleEndian);
+        
+        // Validar que sean números reales y dentro de rangos terrestres lógicos
+        if (isNaN(lat) || isNaN(lng)) return null;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+             console.warn("Coordenadas fuera de rango, posible error de parseo", {lat, lng});
+             return null;
+        }
+
+        return { lat: lat.toFixed(6), lng: lng.toFixed(6) };
+
+    } catch (e) {
+        console.warn("Fallo parseWKB:", e, hex);
+        return null;
+    }
+}
+
+/* ============================
+   DATOS DESDE DB (Selects)
 ============================ */
 const tiposCorte = ref([])
 const scriptVersions = ref([])
 const types = ref([])
 
-onMounted(async () => {
+const loadInitialData = async () => {
   const { data: cortes } = await supabase.from("cut_type").select("*")
   tiposCorte.value = cortes ?? []
 
@@ -499,7 +544,7 @@ onMounted(async () => {
 
   const { data: tipos } = await supabase.from("type_billing").select("id, type")
   types.value = tipos ?? []
-})
+}
 
 /* ============================
         FORMULARIO
@@ -507,8 +552,11 @@ onMounted(async () => {
 const form = reactive({
   nombre: "",
   ip: "",
+  ipv6: "",
+  failover: "",
   coordenadas: "",
   version: null,
+  external_id: "",
   usuario: "",
   password: "",
   puerto_api: 8728,
@@ -531,8 +579,9 @@ const form = reactive({
 
   facturacion_activa: false,
   billing: {
+    id: null, 
     create_invoice: null,
-    payment_day: null,
+    pay_day: null,
     cut_day: null,
     overdue_invoices: "",
     amount: null,
@@ -540,26 +589,86 @@ const form = reactive({
     metodo: "",
     notificar_wpp: false,
     remember_day: null,
-    pay_day: null
   }
 })
 
 /* ============================
-      INSERT EN BILLING
+   CARGAR DATOS DEL ROUTER (EDIT)
 ============================ */
-const cleanInt = (val) => {
-  if (val === undefined || val === null || val === "" || val === false || val === "false") {
-    return null
+const loadRouterData = async () => {
+  loading.value = true
+  try {
+    const { data, error } = await supabase
+      .from('router')
+      .select(`*, billing:billing_router_id (*)`)
+      .eq('id', routerId)
+      .single()
+
+    if (error) throw error
+
+    form.nombre = data.name || ""
+    form.ip = data.ip || ""
+    form.ipv6 = data.ipv6 || ""
+    form.failover = data.failover || ""
+    form.external_id = data.external_id || ""
+    form.usuario = data.user_rb || ""
+    form.password = data.password_rb || ""
+    form.puerto_api = data.puerto_api || 8728
+    form.puerto_www = data.puerto_www || 80
+    form.interfaz_lan = data.lan_interface || ""
+    form.rangos_ip = data.rangos_ip || ""
+    form.tipo_corte = data.cut_type_id || null
+    form.version = data.firmware_version || null
+    form.comentarios_router = data.comments || ""
+    form.activo = data.status === 1
+    
+    // Mapeo de Checkboxes
+    form.agregar_cliente_mkt = !!data.agregar_cliente_mkt
+    form.historial_trafico = !!data.historial_trafico
+    form.simple_queue = !!data.simple_queue
+    form.control_pcq = !!data.control_pcq
+    form.hotspot = !!data.hotspot
+    form.pppoe = !!data.pppoe
+    form.ip_bindings = !!data.ip_bindings
+    form.amarre = !!data.amarre
+    form.dhcp_leases = !!data.dhcp_leases
+    form.falla_general = !!data.falla_general
+
+    // 👇 COORDENADAS
+    if (data.coordinates) {
+        const coords = parseWKB(data.coordinates);
+        if (coords) {
+            form.coordenadas = `${coords.lat}, ${coords.lng}`
+            console.log("✅ Coordenadas parseadas:", form.coordenadas)
+        }
+    }
+
+    // Mapear Billing
+    if (data.billing) {
+        form.facturacion_activa = true
+        form.billing.id = data.billing.id
+        form.billing.create_invoice = Number(data.billing.create_invoice) || null
+        form.billing.cut_day = Number(data.billing.cut_day) || null
+        form.billing.pay_day = Number(data.billing.payment_day) || null
+        form.billing.remember_day = Number(data.billing.remember_day) || null
+        form.billing.overdue_invoices = data.billing.overdue_invoices
+        form.billing.amount = data.billing.amount
+        form.billing.metodo = data.billing.type 
+        form.billing.comentarios = data.billing.commit 
+    }
+
+  } catch (e) {
+    console.error("Error cargando router:", e)
+    alert("Error al cargar datos")
+    router.push('/routers')
+  } finally {
+    loading.value = false
   }
-  const n = Number(val)
-  return isNaN(n) ? null : n
 }
 
-const cleanDay = (val) => {
-  if (!val || val === "false" || val === false) return null
-  return String(val).padStart(2, "0")
-}
-
+/* ============================
+   GUARDAR BILLING
+============================ */
 const saveBilling = async () => {
   const payload = {
     create_invoice: cleanDay(form.billing.create_invoice),
@@ -569,39 +678,36 @@ const saveBilling = async () => {
     overdue_invoices: cleanInt(form.billing.overdue_invoices),
     amount: cleanInt(form.billing.amount),
     type: cleanInt(form.billing.metodo),
-    commit: form.comentarios,
+    commit: form.billing.comentarios,
   }
 
-  console.log("payload facturación FINAL:", payload)
+  let result = null
 
-  const { data, error } = await supabase
-    .from("billing")
-    .insert(payload)
-    .select()
-    .single()
-
-  if (error) {
-    console.error("❌ Error insertando billing:", error)
-    return null
+  if (form.billing.id) {
+      const { data, error } = await supabase
+        .from("billing")
+        .update(payload)
+        .eq('id', form.billing.id)
+        .select()
+        .single()
+      if (!error) result = data
+  } else {
+      const { data, error } = await supabase
+        .from("billing")
+        .insert(payload)
+        .select()
+        .single()
+      if (!error) result = data
   }
-
-  return data
+  return result
 }
 
 /* ============================
-  INSERT EN ROUTER PRINCIPAL
+   GUARDAR ROUTER (UPDATE)
 ============================ */
 const saveRouter = async () => {
-  const userData =
-    JSON.parse(localStorage.getItem("userData")) ??
-    JSON.parse(sessionStorage.getItem("userData"))
-
-  const tenantId = userData?.tenant_id
-  if (!tenantId) {
-    alert("Error: No se encontró tenant_id.")
-    return
-  }
-
+  const userData = JSON.parse(localStorage.getItem("userData")) ?? JSON.parse(sessionStorage.getItem("userData"))
+  
   let coordinates = null
   if (form.coordenadas) {
     const [lat, lng] = form.coordenadas.split(",").map(v => parseFloat(v.trim()))
@@ -610,14 +716,13 @@ const saveRouter = async () => {
     }
   }
 
-  // === Billing con fallback ===
-  let billingId = 1 // Default
+  let billingId = form.billing.id || null 
   if (form.facturacion_activa) {
     const billingRow = await saveBilling()
     if (billingRow?.id) billingId = billingRow.id
   }
 
-  const payload = {
+const payload = {
     name: form.nombre,
     ip: form.ip,
     user_rb: form.usuario,
@@ -629,64 +734,47 @@ const saveRouter = async () => {
     comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 1 : 0,
-    tenant_id: tenantId
   }
 
-  const { error } = await supabase.from("router").insert([payload])
+
+  const { error } = await supabase
+    .from("router")
+    .update(payload)
+    .eq('id', routerId)
 
   if (error) {
-    console.error("❌ Error guardando router:", error)
-    alert("Error al guardar router: " + error.message)
+    console.error("❌ Error actualizando router:", error)
+    alert("Error al actualizar router: " + error.message)
     return
   }
 
+  alert("Router actualizado correctamente")
   router.push("/routers")
 }
 
 const goBack = () => router.back()
+
+onMounted(async () => {
+  await loadInitialData()
+  await loadRouterData()
+})
 </script>
 
 
 <style scoped>
-/* ✅ Placeholders blancos en dark mode */
-.dark ::placeholder {
-  color: rgb(220 220 220 / 0.7) !important;
-}
-
-/* ✅ Label */
 .label {
   @apply block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1;
 }
-
-/* ✅ Inputs */
-.input {
-  @apply w-full px-4 py-2.5 rounded-xl border 
-         border-gray-300 dark:border-gray-700
-         bg-white dark:bg-gray-800
-         text-gray-800 dark:text-gray-100
-         placeholder-gray-400 dark:placeholder-gray-300
-         focus:ring-2 focus:ring-blue-500 outline-none;
+.input, .textarea {
+  @apply w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 
+         text-gray-900 dark:text-gray-100 rounded-lg p-2.5 focus:ring-blue-500 focus:border-blue-500;
 }
-
-/* ✅ Textareas */
-.textarea {
-  @apply w-full px-4 py-2.5 rounded-xl border
-         border-gray-300 dark:border-gray-700
-         bg-white dark:bg-gray-800
-         text-gray-800 dark:text-gray-100
-         placeholder-gray-400 dark:placeholder-gray-300
-         focus:ring-2 focus:ring-blue-500 outline-none;
-}
-
-/* ✅ Tip */
-.hint {
-  @apply text-xs text-gray-500 dark:text-gray-400 mt-1;
-}
-
-/* ✅ Botón primario */
 .btn-primary {
-  @apply bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl shadow transition-all;
+  @apply text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 
+         font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 
+         focus:outline-none dark:focus:ring-blue-800 transition-colors;
+}
+.hint {
+    @apply mt-1 text-xs text-gray-500 dark:text-gray-400;
 }
 </style>
-
-
