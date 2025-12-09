@@ -40,7 +40,13 @@ import {
   HiChevronDown,
   FaArrowLeft,
   FaUserEdit,
-  PrServer    // ✅ Aquí está correctamente importado SOLO UNA VEZ
+  PrServer,
+  BiSpeedometer2,
+  BiWifi,
+  BiBroadcastPin,
+  BiListTask,      
+  BiDiagram3,     
+  BiHddNetwork
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -65,6 +71,10 @@ addIcons(
   MdLogoutTwotone,
   MdDashboardOutlined,
   BiRouter,
+  BiListTask, 
+  BiWifi,   
+  BiDiagram3,      
+  BiHddNetwork,
   OiDiffAdded,
   OiPackage,
   RiMoneyDollarCircleLine,
@@ -74,7 +84,9 @@ addIcons(
   MdSupportagentRound,
   HiChevronDown,
   FaArrowLeft,
-  PrServer    // ✅ Registrado aquí también
+  PrServer,
+  BiSpeedometer2,
+  BiBroadcastPin,
 );
 
 // -------------------------------
