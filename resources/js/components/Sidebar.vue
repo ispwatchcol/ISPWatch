@@ -54,10 +54,11 @@
 
                 <SubmenuItem
                     icon="bi-router"
-                    title="Routers"
+                    title="Gestión"
                     :items="[
-                        { name: 'Lista de routers', to: '/routers', icon: 'bi-router' },
-                        { name: 'Agregar router', to: '/routers/add', icon: 'oi-diff-added' }
+                        { name: 'Lista de Routers', to: '/routers', icon: 'bi-router' },
+                        { name: 'Plan de Internet', to: '/planes', icon: 'bi-speedometer2' }, 
+                        { name: 'Sectoriales', to: '/sectoriales', icon: 'bi-broadcast-pin' } 
                     ]"
                 />
 
