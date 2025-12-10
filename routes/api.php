@@ -16,6 +16,7 @@ Route::apiResources([
     'routers' => RouterController::class,
     'inventory' => InventoryDeviceController::class,
     'staff' => UserController::class,
+    'sectorials' => SectorialController::class,
 ]);
 
 Route::get('/roles', [RoleController::class, 'index']);
