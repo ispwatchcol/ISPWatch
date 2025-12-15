@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
-// Páginas
 import Login from '@/pages/Login.vue';
 import Register from '@/pages/Register.vue';
 import Dashboard from '@/pages/Dashboard.vue';
@@ -39,6 +38,8 @@ const routes = [
       },
     ],
   },
+  
+  // STAFF
   {
     path: '/staff',
     component: DefaultLayout,
@@ -62,6 +63,7 @@ const routes = [
     ],
   },
 
+  // ROUTERS
   {
     path: '/routers',
     component: DefaultLayout,
@@ -73,18 +75,46 @@ const routes = [
         component: Routers,
       },
       {
-        path: "/routers/add",
+        path: "add", // Corregido: "add" relativo, no "/routers/add" absoluto
         name: "RouterAdd",
         component: () => import("@/pages/RouterAdd.vue"),
       },
       {
-      path: ':id/edit', 
-      name: 'RouterEdit',
-      component: () => import("@/pages/RouterEdit.vue"),
+        path: ':id/edit', 
+        name: 'RouterEdit',
+        component: () => import("@/pages/RouterEdit.vue"),
       },
     ],
   },
 
+  // 👇 AQUÍ ESTÁN LAS NUEVAS RUTAS DE PLANES
+  {
+    path: '/planes',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'PlanList',
+        // Asegúrate de crear este archivo con el código que te di antes
+        component: () => import('@/pages/PlanList.vue'),
+      },
+      {
+        path: 'create',
+        name: 'PlanCreate',
+        // Crea este archivo cuando estés listo para el formulario de crear
+        component: () => import('@/pages/PlanCreate.vue'),
+      },
+      {
+        path: ':id/edit',
+        name: 'PlanEdit',
+        // Crea este archivo cuando estés listo para editar
+        component: () => import('@/pages/PlanEdit.vue'),
+      }
+    ]
+  },
+
+  // CUSTOMERS
   {
     path: '/customers',
     component: DefaultLayout,
