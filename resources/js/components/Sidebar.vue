@@ -53,12 +53,12 @@
                 />
 
                 <SubmenuItem
-                    icon="bi-router"
+                    icon="ri-list-settings-line"
                     title="Gestión"
                     :items="[
                         { name: 'Lista de Routers', to: '/routers', icon: 'bi-router' },
                         { name: 'Plan de Internet', to: '/planes', icon: 'bi-speedometer2' }, 
-                        { name: 'Sectoriales', to: '/sectoriales', icon: 'bi-broadcast-pin' } 
+                        { name: 'Sectoriales', to: '/sectorials', icon: 'bi-broadcast-pin' } 
                     ]"
                 />
 
@@ -168,42 +168,42 @@ const user = ref({})
 const theme = ref('system')
 
 onMounted(() => {
-  const localData = localStorage.getItem("userData");
-  const sessionData = sessionStorage.getItem("userData");
-  
-  const storedJson = localData || sessionData;
+    const localData = localStorage.getItem("userData");
+    const sessionData = sessionStorage.getItem("userData");
+    
+    const storedJson = localData || sessionData;
 
-  if (storedJson) {
-      try {
-          user.value = JSON.parse(storedJson);
-          console.log("Usuario cargado en Sidebar:", user.value);
-      } catch (e) {
-          console.error("Error parseando userData:", e);
-          user.value = {}; 
-      }
-  }
+    if (storedJson) {
+        try {
+            user.value = JSON.parse(storedJson);
+            console.log("Usuario cargado en Sidebar:", user.value);
+        } catch (e) {
+            console.error("Error parseando userData:", e);
+            user.value = {}; 
+        }
+    }
 
   // Cargar tema guardado o usar el sistema
-  const savedTheme = localStorage.getItem('theme') || 'system'
-  setTheme(savedTheme)
+    const savedTheme = localStorage.getItem('theme') || 'system'
+    setTheme(savedTheme)
 })
 
 const setTheme = (mode) => {
-  theme.value = mode
-  localStorage.setItem('theme', mode)
+    theme.value = mode
+    localStorage.setItem('theme', mode)
 
-  const root = document.documentElement
-  if (mode === 'dark') {
-    root.classList.add('dark')
-  } else if (mode === 'light') {
-    root.classList.remove('dark')
-  } else if (mode === 'system') {
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
+    const root = document.documentElement
+    if (mode === 'dark') {
+        root.classList.add('dark')
+    } else if (mode === 'light') {
+        root.classList.remove('dark')
+    } else if (mode === 'system') {
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark')
+        } else {
+        root.classList.remove('dark')
+        }
     }
-  }
 }
 
 const logout = () => {

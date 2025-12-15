@@ -10,8 +10,9 @@ import Routers from '@/pages/Routers.vue';
 import Customers from '@/pages/Customers.vue';
 import CustomerAdd from '@/pages/CustomerAdd.vue';
 import CustomerEdit from '@/pages/CustomerEdit.vue';
-// Importamos el layout
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
+import Sectorial from '@/pages/Sectorial.vue';
+import SectorialAdd from '../pages/SectorialAdd.vue';
 
 const routes = [
   {
@@ -133,6 +134,29 @@ const routes = [
         path: ':id/edit',
         name: 'CustomerEdit',
         component: CustomerEdit,
+      }
+    ],
+  },
+
+  {
+    path: '/sectorials',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Sectorials',
+        component: Sectorial,
+      },
+      {
+        path: 'create',
+        name: 'SectorialAdd',
+        component: SectorialAdd,
+      },
+      {
+        path: ':id/edit',
+        name: 'SectorialEdit',
+        component: () => import('@/pages/SectorialEdit.vue'),
       }
     ],
   },

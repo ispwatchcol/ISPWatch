@@ -46,7 +46,8 @@ import {
   BiBroadcastPin,
   BiListTask,      
   BiDiagram3,     
-  BiHddNetwork
+  BiHddNetwork,
+  RiListSettingsLine,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -87,6 +88,7 @@ addIcons(
   PrServer,
   BiSpeedometer2,
   BiBroadcastPin,
+  RiListSettingsLine,
 );
 
 // -------------------------------
