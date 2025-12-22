@@ -58,6 +58,12 @@ export default {
         delete(id) {
             return apiClient.delete(`/customers/${id}`)
         },
+        getStatistics() {
+            return apiClient.get('/customers/statistics')
+        },
+        getMapData() {
+            return apiClient.get('/customers/map')
+        }
     },
     staff: { // users
         getAll(params) {
@@ -84,23 +90,6 @@ export default {
     roles: {
         getAll() {
             return apiClient.get('/roles')
-        }
-    },
-    customers : {
-        getAll(params) {
-            return apiClient.get('/customers', { params })
-        },
-        getOne(id) {
-            return apiClient.get(`/customers/${id}`)
-        },
-        create(data) {
-            return apiClient.post('/customers', data)
-        },
-        update(id, data) {
-            return apiClient.put(`/customers/${id}`, data)
-        },
-        delete(id) {
-            return apiClient.delete(`/customers/${id}`)
         }
     },
     routers : {

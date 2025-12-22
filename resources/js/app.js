@@ -48,6 +48,7 @@ import {
   BiDiagram3,     
   BiHddNetwork,
   RiListSettingsLine,
+  IoSearch,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -89,6 +90,7 @@ addIcons(
   BiSpeedometer2,
   BiBroadcastPin,
   RiListSettingsLine,
+  IoSearch,
 );
 
 // -------------------------------

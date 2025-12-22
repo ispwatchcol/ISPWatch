@@ -13,6 +13,8 @@ import CustomerEdit from '@/pages/CustomerEdit.vue';
 import DefaultLayout from '@/layouts/DefaultLayout.vue';
 import Sectorial from '@/pages/Sectorial.vue';
 import SectorialAdd from '../pages/SectorialAdd.vue';
+import CustomerStatistics from '@/pages/CustomerStatistics.vue';
+
 
 const routes = [
   {
@@ -134,6 +136,16 @@ const routes = [
         path: ':id/edit',
         name: 'CustomerEdit',
         component: CustomerEdit,
+      },
+      {
+        path: 'statistics',
+        name: 'CustomerStatistics',
+        component: CustomerStatistics,
+      },
+      {
+        path: 'map',
+        name: 'CustomerMap',
+        component: () => import('@/pages/CustomerMap.vue'),
       }
     ],
   },

@@ -11,6 +11,12 @@ use App\Http\Controllers\SectorialController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
+// Custom routes that need to be before apiResources
+Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
+Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
+
+
+
 Route::apiResources([
     'customers' => CustomerProfileController::class,
     'routers' => RouterController::class,
