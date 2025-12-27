@@ -160,6 +160,19 @@ const routes = [
       }
     ],
   },
+  {
+    path: '/manual',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Manual',
+        component: () => import('@/pages/Manual.vue'),
+      }
+    ]
+  },
+
 
   // ✅ Ruta 404
   {
