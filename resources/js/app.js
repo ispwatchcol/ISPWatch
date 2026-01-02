@@ -48,13 +48,7 @@ import {
   BiDiagram3,
   BiHddNetwork,
   RiListSettingsLine,
-  BiPeopleFill,
-  FaFileInvoiceDollar,
-  RiAdminFill,
-  BiHeadset,
-  HiChevronRight,
-  HiLightBulb,
-  IoClose,
+  IoSearch,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -96,13 +90,7 @@ addIcons(
   BiSpeedometer2,
   BiBroadcastPin,
   RiListSettingsLine,
-  BiPeopleFill,
-  FaFileInvoiceDollar,
-  RiAdminFill,
-  BiHeadset,
-  HiChevronRight,
-  HiLightBulb,
-  IoClose,
+  IoSearch,
 );
 
 // -------------------------------

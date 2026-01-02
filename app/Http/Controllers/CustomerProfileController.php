@@ -14,16 +14,141 @@ class CustomerProfileController extends Controller
      */
     public function index()
     {
-        $customers = CustomerProfile::select(
-            'user_id',
-            'name',
-            'last_name',
-            'department',
-            'position'
-        )->get();
+        $customers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->select(
+                'customer_profile.user_id',
+                'customer_profile.name',
+                'customer_profile.last_name',
+                'customer_profile.department',
+                'customer_profile.position',
+                'users.email'
+            )
+            ->get();
 
         return response()->json($customers);
     }
+
+    /**
+     * Get customer statistics and analytics.
+     */
+    public function statistics()
+    {
+        $totalCustomers = CustomerProfile::count();
+
+        // Get customers from this month
+        $startOfMonth = now()->startOfMonth();
+        $newThisMonth = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.created_at', '>=', $startOfMonth)
+            ->count();
+
+        // Get customers from last month for growth calculation
+        $startOfLastMonth = now()->subMonth()->startOfMonth();
+        $endOfLastMonth = now()->subMonth()->endOfMonth();
+        $lastMonthCustomers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->whereBetween('users.created_at', [$startOfLastMonth, $endOfLastMonth])
+            ->count();
+
+        // Calculate growth rate
+        $growthRate = $lastMonthCustomers > 0
+            ? round((($newThisMonth - $lastMonthCustomers) / $lastMonthCustomers) * 100, 1)
+            : 0;
+
+        // Active customers (assuming all are active for now, can be refined with activity tracking)
+        $activeCustomers = $totalCustomers;
+
+        // Distribution by department
+        $byDepartment = CustomerProfile::select('department', \DB::raw('count(*) as count'))
+            ->groupBy('department')
+            ->orderBy('count', 'desc')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'department' => $item->department ?: 'Sin departamento',
+                    'count' => $item->count
+                ];
+            });
+
+        // Distribution by position
+        $byPosition = CustomerProfile::select('position', \DB::raw('count(*) as count'))
+            ->groupBy('position')
+            ->orderBy('count', 'desc')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'position' => $item->position ?: 'Sin posición',
+                    'count' => $item->count
+                ];
+            });
+
+        // Monthly trend for last 6 months
+        $monthlyTrend = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $monthStart = now()->subMonths($i)->startOfMonth();
+            $monthEnd = now()->subMonths($i)->endOfMonth();
+
+            $count = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+                ->where('users.created_at', '<=', $monthEnd)
+                ->count();
+
+            $monthlyTrend[] = [
+                'month' => $monthStart->locale('es')->format('M'),
+                'count' => $count
+            ];
+        }
+
+        // Recent customers (last 5)
+        $recentCustomers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->select(
+                'customer_profile.user_id',
+                'customer_profile.name',
+                'customer_profile.last_name',
+                'customer_profile.department',
+                'users.email'
+            )
+            ->orderBy('users.created_at', 'desc')
+            ->limit(5)
+            ->get();
+
+        return response()->json([
+            'total_customers' => $totalCustomers,
+            'new_this_month' => $newThisMonth,
+            'growth_rate' => $growthRate,
+            'active_customers' => $activeCustomers,
+            'by_department' => $byDepartment,
+            'by_position' => $byPosition,
+            'monthly_trend' => $monthlyTrend,
+            'recent_customers' => $recentCustomers
+        ]);
+    }
+
+    /**
+     * Get customer locations for map display.
+     */
+    public function mapData()
+    {
+        $customers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->select(
+                'customer_profile.user_id',
+                'customer_profile.name',
+                'customer_profile.last_name',
+                'customer_profile.department',
+                'customer_profile.position',
+                'customer_profile.address',
+                'customer_profile.city',
+                'customer_profile.state',
+                'customer_profile.country',
+                'customer_profile.latitude',
+                'customer_profile.longitude',
+                'users.email'
+            )
+            ->whereNotNull('customer_profile.latitude')
+            ->whereNotNull('customer_profile.longitude')
+            ->get();
+
+        return response()->json($customers);
+    }
+
+
 
     /**
      * Store a newly created customer in storage.
@@ -88,7 +213,18 @@ class CustomerProfileController extends Controller
     public function show($id)
     {
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
-        return response()->json($customer);
+        $user = User::findOrFail($id);
+
+        return response()->json([
+            'user_id' => $customer->user_id,
+            'name' => $customer->name,
+            'last_name' => $customer->last_name,
+            'department' => $customer->department,
+            'position' => $customer->position,
+            'email' => $user->email,
+            'tel' => $user->tel,
+            'email_tenant' => $user->email_tenant,
+        ]);
     }
 
     /**

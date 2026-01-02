@@ -16,7 +16,14 @@ class CustomerProfile extends Model
         'name',
         'last_name',
         'department',
-        'position'
+        'position',
+        'address',
+        'city',
+        'state',
+        'postal_code',
+        'country',
+        'latitude',
+        'longitude'
     ];
 
     public function user()
