@@ -507,6 +507,5 @@ const savePlan = async () => {
     loading.value = false
   }
 }
-
 </script>
 
