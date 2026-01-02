@@ -108,10 +108,10 @@ const routes = [
         component: () => import('@/pages/PlanCreate.vue'),
       },
       {
-        path: ':id/edit',
-        name: 'PlanEdit',
-        // Crea este archivo cuando estés listo para editar
+        path: '/planes/:id/edit', 
+        name: 'plan-edit',
         component: () => import('@/pages/PlanEdit.vue'),
+        props: true // Opcional, pero recomendado
       }
     ]
   },
@@ -172,6 +172,19 @@ const routes = [
       }
     ],
   },
+  {
+    path: '/manual',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Manual',
+        component: () => import('@/pages/Manual.vue'),
+      }
+    ]
+  },
+
 
   // ✅ Ruta 404
   {

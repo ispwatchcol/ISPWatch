@@ -8,22 +8,40 @@ use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SectorialController;
+use App\Http\Controllers\PlanController;
 
+/*
+|--------------------------------------------------------------------------
+| AUTH
+|--------------------------------------------------------------------------
+*/
 Route::post('/login', [AuthController::class, 'login']);
 
-// Custom routes that need to be before apiResources
+/*
+|--------------------------------------------------------------------------
+| RUTAS PERSONALIZADAS (Deben ir ANTES de apiResources)
+|--------------------------------------------------------------------------
+*/
 Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
 Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
 
-
-
+/*
+|--------------------------------------------------------------------------
+| API RESOURCES (CRUD Completo: index, show, store, update, destroy)
+|--------------------------------------------------------------------------
+*/
 Route::apiResources([
-    'customers' => CustomerProfileController::class,
-    'routers' => RouterController::class,
-    'inventory' => InventoryDeviceController::class,
-    'staff' => UserController::class,
-    'sectorials' => SectorialController::class,
+    'customers'  => CustomerProfileController::class,
+    'routers'    => RouterController::class,
+    'inventory'  => InventoryDeviceController::class,
+    'staff'      => UserController::class,
+    'plans'      => PlanController::class,      
+    'sectorials' => SectorialController::class, 
 ]);
 
+/*
+|--------------------------------------------------------------------------
+| CATALOGOS / LISTAS SIMPLES
+|--------------------------------------------------------------------------
+*/
 Route::get('/roles', [RoleController::class, 'index']);
-Route::get('/sectorials', [SectorialController::class, 'index']);
