@@ -82,7 +82,7 @@
                   <div class="relative">
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 font-medium pointer-events-none">$</span>
                     <input 
-                      v-model="form.price"
+                      v-model="form.cost_product"
                       type="number" 
                       placeholder="0" 
                       class="w-full h-11 pl-7 pr-4 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 
@@ -109,7 +109,7 @@
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Descripción <span class="text-gray-400 font-normal">(Opcional)</span></label>
                 <textarea 
-                  v-model="form.description"
+                  v-model="form.commit"
                   rows="3"
                   class="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 
                          text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500
@@ -136,7 +136,7 @@
                 </label>
                 <div class="flex h-11 rounded-xl shadow-sm">
                   <input 
-                    v-model="form.download_speed"
+                    v-model="form.speed_down"
                     type="number" 
                     class="flex-1 min-w-0 px-4 h-full rounded-l-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 
                            text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500
@@ -164,7 +164,7 @@
                 </label>
                 <div class="flex h-11 rounded-xl shadow-sm">
                   <input 
-                    v-model="form.upload_speed"
+                    v-model="form.speed_up"
                     type="number" 
                     class="flex-1 min-w-0 px-4 h-full rounded-l-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 
                            text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500
@@ -285,8 +285,7 @@
                         background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((form.priority - 1) * 100) / 7}%, #e5e7eb ${((form.priority - 1) * 100) / 7}%, #e5e7eb 100%)` 
                     }"
                     />
-                    <!-- Nota: En modo oscuro el color de fondo vacío cambia en el CSS, aquí lo manejo en línea para la parte reactiva -->
-                    
+                  
                     <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow-sm transition-all"
                         :class="{'ring-2 ring-blue-500 border-blue-500': true}">
                     <span class="font-bold text-gray-700 dark:text-white text-sm">{{ form.priority }}</span>
@@ -340,7 +339,7 @@
            <div class="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800">
              <h3 class="text-sm font-bold text-blue-800 dark:text-blue-300 mb-1">Resumen del Plan</h3>
              <p class="text-xs text-blue-600 dark:text-blue-400 leading-relaxed">
-               Se creará un perfil <strong>{{ currentConfig.shortLabel }}</strong> con {{ form.download_speed || '0' }}{{ form.download_unit }} de bajada y {{ form.upload_speed || '0' }}{{ form.upload_unit }} de subida.
+               Se creará un perfil <strong>{{ currentConfig.shortLabel }}</strong> con {{ form.speed_down || '0' }}{{ form.download_unit }} de bajada y {{ form.speed_up || '0' }}{{ form.upload_unit }} de subida.
              </p>
            </div>
         </div>
@@ -364,7 +363,7 @@
           <v-icon v-else name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
         </button>
       </div>
-      <!-- Spacer para móvil -->
+
       <div class="h-24 sm:hidden"></div>
 
     </main>
@@ -372,140 +371,92 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-
-// 1. IMPORTANTE: Importa tu cliente de Supabase aquí
-// Ajusta la ruta '../supabase' según donde tengas tu archivo de configuración (ej: '@/lib/supabase')
-import { supabase } from '../supabase' 
+import api from '@/services/api' // 👈 tu axios client
 
 const router = useRouter()
 const route = useRoute()
 
-// 1. Detección del tipo de plan desde la URL
 const planType = computed(() => route.query.type || 'queue')
 
-// 2. Configuración Visual Dinámica
 const configMap = {
-  queue: { 
-    label: 'Simple Queue', 
-    shortLabel: 'Queue',
-    badgeClass: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
-    icon: 'bi-list-task',
-    iconBg: 'bg-blue-100 dark:bg-blue-900/30',
-    iconColor: 'text-blue-600 dark:text-blue-400'
-  },
-  pppoe: { 
-    label: 'PPPoE Profile', 
-    shortLabel: 'PPPoE',
-    badgeClass: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800',
-    icon: 'bi-hdd-network',
-    iconBg: 'bg-purple-100 dark:bg-purple-900/30',
-    iconColor: 'text-purple-600 dark:text-purple-400'
-  },
-  hotspot: { 
-    label: 'HotSpot Profile', 
-    shortLabel: 'HotSpot',
-    badgeClass: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800',
-    icon: 'bi-wifi',
-    iconBg: 'bg-orange-100 dark:bg-orange-900/30',
-    iconColor: 'text-orange-600 dark:text-orange-400'
-  },
-  pcq: { 
-    label: 'PCQ Type', 
-    shortLabel: 'PCQ',
-    badgeClass: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800',
-    icon: 'bi-diagram-3',
-    iconBg: 'bg-green-100 dark:bg-green-900/30',
-    iconColor: 'text-green-600 dark:text-green-400'
-  }
+  queue: { label: 'Simple Queue', shortLabel: 'Queue' },
+  pppoe: { label: 'PPPoE Profile', shortLabel: 'PPPoE' },
+  hotspot: { label: 'HotSpot Profile', shortLabel: 'HotSpot' },
+  pcq: { label: 'PCQ Type', shortLabel: 'PCQ' }
 }
 
-const currentConfig = computed(() => configMap[planType.value] || configMap.queue)
+const currentConfig = computed(
+  () => configMap[planType.value] || configMap.queue
+)
 
-// 3. Estado del Formulario
 const loading = ref(false)
-const showAdvancedSpeed = ref(false)
+
+const typePlanMap = {
+  queue: 1,
+  pppoe: 2,
+  hotspot: 3,
+  pcq: 4
+}
 
 const form = ref({
   name: '',
-  description: '',
-  price: '',
-  download_speed: '',
+  cost_product: '',
+  commit: '',
+  speed_down: '',
   download_unit: 'M',
-  upload_speed: '',
-  upload_unit: 'M',
-  burst_download: '',
-  burst_upload: '',
-  
-  // Específicos
-  priority: 8,
-  parent_queue_enabled: false,
-  pppoe_pool: '',
-  local_address: '',
-  shared_users: 1,
-  session_timeout: '',
-  idle_timeout: '',
-  pcq_rate: 0,
-  address_mask: '32'
+  speed_up: '',
+  upload_unit: 'M'
 })
 
-// 4. Lógica de Guardado REAL
+
 const savePlan = async () => {
-  // Validación básica
-  if (!form.value.name || !form.value.price) {
-    alert('Por favor completa los campos obligatorios.')
+  if (!form.value.name || !form.value.cost_product) {
+    alert('⚠️ Nombre y precio son obligatorios')
     return
   }
-  
+
   loading.value = true
-  
+
   try {
-    // PREPARACIÓN DE DATOS PARA SUPABASE
-    
-    const payload = {
-      // --- CORRECCIÓN AQUÍ ---
-      // Tu BD obliga a que sea 'queues' (plural), pero el frontend usa 'queue' (singular).
-      // Esta línea hace la conversión automática solo para ese caso.
-      type: planType.value === 'queue' ? 'queues' : planType.value,
-      
-      name: form.value.name,
-      price: Number(form.value.price),
-      commit: form.value.description || null,
-      speed_down: `${form.value.download_speed}${form.value.download_unit}`, 
-      speed_up: `${form.value.upload_speed}${form.value.upload_unit}`,
-      
-      // Si tienes la columna metadata descomenta esto:
-      /*
-      metadata: {
-        burst_download: form.value.burst_download,
-        burst_upload: form.value.burst_upload,
-        priority: planType.value === 'queue' ? form.value.priority : null,
-      }
-      */
+    const userData =
+      JSON.parse(localStorage.getItem('userData')) ||
+      JSON.parse(sessionStorage.getItem('userData'))
+
+    if (!userData?.tenant_id) {
+      alert('❌ No se encontró el tenant')
+      return
     }
 
-    console.log('Enviando a Supabase:', payload)
-    
-    // --- LLAMADA A SUPABASE ---
-    const { data, error } = await supabase
-      .from('service_plan') 
-      .insert([payload])
-      .select()
+const payload = {
+  name: form.value.name,
+  cost_product: Number(form.value.cost_product),
+  commit: form.value.commit || null,
+  speed_down: `${form.value.speed_down}${form.value.download_unit}`,
+  speed_up: `${form.value.speed_up}${form.value.upload_unit}`,
+  type: planType.value,
+  type_plan_id: typePlanMap[planType.value],
+  tenant_id: userData.tenant_id
+}
 
-    if (error) throw error
 
-    // Si llegamos aquí, todo salió bien
-    alert(`Plan ${currentConfig.value.shortLabel} guardado exitosamente.`)
-    router.push('/planes') 
+
+    console.log('📦 Enviando a API:', payload)
+
+    await api.plan.create(payload)
+
+    alert(`✅ Plan ${currentConfig.value.shortLabel} creado`)
+    router.push('/planes')
 
   } catch (error) {
-    console.error('Error al guardar:', error)
-    // Mostramos el error real
-    alert('Error al guardar: ' + (error.message || error))
+    console.error(error)
+    alert(
+      error.response?.data?.message ||
+      '❌ Error al crear el plan'
+    )
   } finally {
     loading.value = false
   }
 }
 </script>
-

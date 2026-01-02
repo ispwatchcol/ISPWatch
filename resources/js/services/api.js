@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-// axios instance
+// =========================
+// AXIOS INSTANCE
+// =========================
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
   headers: {
@@ -9,19 +11,47 @@ const apiClient = axios.create({
   }
 })
 
+/* =====================================
+   🔐 INTERCEPTOR: INYECTAR TENANT
+   - Lee tenant_id desde localStorage o sessionStorage
+   - Lo agrega automáticamente como ?tenant=
+===================================== */
+apiClient.interceptors.request.use(
+  config => {
+    const userData =
+      JSON.parse(localStorage.getItem('userData')) ||
+      JSON.parse(sessionStorage.getItem('userData'))
+
+    if (userData?.tenant_id) {
+      config.params = {
+        ...(config.params || {}),
+        tenant: userData.tenant_id
+      }
+    }
+
+    return config
+  },
+  error => Promise.reject(error)
+)
+
 // =========================
 // API MODULES
 // =========================
 export default {
+  // =========================
   // AUTH
+  // =========================
   auth: {
     login(credentials) {
       return apiClient.post('/login', credentials)
     },
   },
-  
+
+  // =========================
+  // PLANS
+  // =========================
   plan: {
-    getAll(params) {
+    getAll(params = {}) {
       return apiClient.get('/plans', { params })
     },
     getOne(id) {
@@ -38,9 +68,11 @@ export default {
     },
   },
 
+  // =========================
   // CUSTOMERS
+  // =========================
   customers: {
-    getAll(params) {
+    getAll(params = {}) {
       return apiClient.get('/customers', { params })
     },
     getOne(id) {
@@ -57,9 +89,11 @@ export default {
     },
   },
 
+  // =========================
   // STAFF / USERS
+  // =========================
   staff: {
-    getAll(params) {
+    getAll(params = {}) {
       return apiClient.get('/staff', { params })
     },
     getOne(id) {
@@ -73,19 +107,23 @@ export default {
     },
     delete(id) {
       return apiClient.delete(`/staff/${id}`)
-    }
+    },
   },
 
+  // =========================
   // ROLES
+  // =========================
   roles: {
     getAll() {
       return apiClient.get('/roles')
-    }
+    },
   },
 
+  // =========================
   // ROUTERS
+  // =========================
   routers: {
-    getAll(params) {
+    getAll(params = {}) {
       return apiClient.get('/routers', { params })
     },
     getOne(id) {
@@ -99,12 +137,14 @@ export default {
     },
     delete(id) {
       return apiClient.delete(`/routers/${id}`)
-    }
+    },
   },
 
-  // INVENTORY ✅ RUTA CORRECTA
+  // =========================
+  // INVENTORY
+  // =========================
   inventory: {
-    getAll(params) {
+    getAll(params = {}) {
       return apiClient.get('/inventory', { params })
     },
     getOne(id) {
@@ -118,13 +158,15 @@ export default {
     },
     delete(id) {
       return apiClient.delete(`/inventory/${id}`)
-    }
+    },
   },
 
+  // =========================
   // SECTORIALS
+  // =========================
   sectorials: {
     getAll() {
       return apiClient.get('/sectorials')
-    }
+    },
   },
 }

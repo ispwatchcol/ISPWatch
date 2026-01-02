@@ -385,13 +385,33 @@ const createPlan = () =>
     query: { type: currentTab.value } // queue, pcq, hotspot, pppoe
   })
 
-const editPlan = (plan) =>
-  router.push(`/planes/${plan.id}/edit`)
+const editPlan = (plan) => {
+  router.push({
+    name: 'plan-edit',
+    params: { id: plan.id },
+    query: { type: plan.type }
+  })
+}
+
+
 
 const loadPlans = async () => {
   loading.value = true
   try {
-    const response = await api.plan.getAll()
+    const userData =
+      JSON.parse(localStorage.getItem('userData')) ||
+      JSON.parse(sessionStorage.getItem('userData'))
+
+    if (!userData?.tenant_id) {
+      console.warn('⚠️ No tenant, no se cargan planes')
+      allPlans.value = []
+      return
+    }
+
+    const response = await api.plan.getAll({
+      tenant: userData.tenant_id
+    })
+
     allPlans.value = response.data.data
   } catch (error) {
     console.error('Error cargando planes:', error)

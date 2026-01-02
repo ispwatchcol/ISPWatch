@@ -19,34 +19,28 @@ class Plan extends Model
         'type_plan_id',
     ];
 
-    /**
-     * Relación con tipo de plan
-     */
+    protected $appends = ['active_clients_count'];
+
     public function typePlan()
     {
         return $this->belongsTo(TypePlan::class, 'type_plan_id');
     }
 
-    /**
-     * Usuarios asociados al plan
-     */
-    public function users()
+    public function activeClients()
     {
-        return $this->hasMany(User::class, 'service_id');
+        return $this->hasMany(User::class, 'service_id')
+            ->where('role_id', 3)
+            ->where('status', true);
     }
 
-    /**
-     * Scope para traer el conteo de clientes activos
-     */
-    protected static function booted()
+
+    public function getActiveClientsCountAttribute()
     {
-        static::addGlobalScope('active_clients_count', function ($query) {
-            $query->withCount([
-                'users as active_clients_count' => function ($q) {
-                    $q->where('role_id', 3)
-                      ->where('status', true);
-                }
-            ]);
-        });
+        return $this->activeClients()->count();
+    }
+
+    public function scopeByTenant($query, $tenantId)
+    {
+        return $query->where('tenant_id', $tenantId);
     }
 }
