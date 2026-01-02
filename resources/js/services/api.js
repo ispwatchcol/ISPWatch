@@ -50,23 +50,27 @@ export default {
   // =========================
   // PLANS
   // =========================
-  plan: {
-    getAll(params = {}) {
-      return apiClient.get('/plans', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/plans/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/plans', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/plans/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/plans/${id}`)
-    },
+plan: {
+  getAll(params = {}) {
+    return apiClient.get('/plans', { params })
   },
+  getOne(id) {
+    return apiClient.get(`/plans/${id}`)
+  },
+  // 👇 Agrega esto si quieres que 'show' funcione también
+  show(id) {
+    return this.getOne(id)
+  },
+  create(data) {
+    return apiClient.post('/plans', data)
+  },
+  update(id, data) {
+    return apiClient.put(`/plans/${id}`, data)
+  },
+  delete(id) {
+    return apiClient.delete(`/plans/${id}`)
+  },
+},
 
   // =========================
   // CUSTOMERS

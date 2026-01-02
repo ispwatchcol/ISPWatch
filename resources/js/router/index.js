@@ -105,9 +105,10 @@ const routes = [
         component: () => import('@/pages/PlanCreate.vue'),
       },
       {
-        path: '/planes/editar/:id',
+        path: '/planes/:id/edit', 
         name: 'plan-edit',
-        component: () => import('@/pages/PlanEdit.vue')
+        component: () => import('@/pages/PlanEdit.vue'),
+        props: true // Opcional, pero recomendado
       }
     ]
   },

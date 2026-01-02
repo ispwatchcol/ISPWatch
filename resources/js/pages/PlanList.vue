@@ -386,10 +386,12 @@ const createPlan = () =>
   })
 
 const editPlan = (plan) => {
+  const typeCode = plan.type_plan?.code || plan.type || currentTab.value
+
   router.push({
-    name: 'plan-edit',
+    name: 'plan-edit', 
     params: { id: plan.id },
-    query: { type: plan.type }
+    query: { type: typeCode }
   })
 }
 
