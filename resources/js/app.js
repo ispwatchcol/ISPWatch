@@ -45,10 +45,16 @@ import {
   BiWifi,
   BiBroadcastPin,
   BiListTask,      
-  BiDiagram3,     
+  BiDiagram3,
   BiHddNetwork,
   RiListSettingsLine,
-  IoSearch,
+  BiPeopleFill,
+  FaFileInvoiceDollar,
+  RiAdminFill,
+  BiHeadset,
+  HiChevronRight,
+  HiLightBulb,
+  IoClose,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -90,7 +96,13 @@ addIcons(
   BiSpeedometer2,
   BiBroadcastPin,
   RiListSettingsLine,
-  IoSearch,
+  BiPeopleFill,
+  FaFileInvoiceDollar,
+  RiAdminFill,
+  BiHeadset,
+  HiChevronRight,
+  HiLightBulb,
+  IoClose,
 );
 
 // -------------------------------
