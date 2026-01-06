@@ -25,18 +25,22 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
 Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
 
+// VPN Routes
+Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
+Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
+
 /*
 |--------------------------------------------------------------------------
 | API RESOURCES (CRUD Completo: index, show, store, update, destroy)
 |--------------------------------------------------------------------------
 */
 Route::apiResources([
-    'customers'  => CustomerProfileController::class,
-    'routers'    => RouterController::class,
-    'inventory'  => InventoryDeviceController::class,
-    'staff'      => UserController::class,
-    'plans'      => PlanController::class,      
-    'sectorials' => SectorialController::class, 
+    'customers' => CustomerProfileController::class,
+    'routers' => RouterController::class,
+    'inventory' => InventoryDeviceController::class,
+    'staff' => UserController::class,
+    'plans' => PlanController::class,
+    'sectorials' => SectorialController::class,
 ]);
 
 /*

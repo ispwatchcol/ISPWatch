@@ -151,6 +151,86 @@
               :types="types"
             />
 
+            <!-- SCRIPT PANEL -->
+            <div class="col-span-2 flex items-center mb-4">
+              <span class="font-medium text-gray-700 dark:text-gray-200">
+                Activar Script
+              </span>
+
+              <label class="relative inline-flex items-center cursor-pointer ml-4">
+                <input type="checkbox" v-model="form.script_activo" class="sr-only peer" />
+                <div class="w-11 h-6 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-blue-600 transition">
+                  <div class="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+                </div>
+              </label>
+            </div>
+
+            <!-- MINI TERMINAL -->
+            <div v-if="form.script_activo" class="col-span-2 mb-6">
+              <div class="bg-gray-900 rounded-lg shadow-lg overflow-hidden border border-gray-700">
+                <!-- Terminal Header -->
+                <div class="bg-gray-800 px-4 py-2 flex items-center justify-between border-b border-gray-700">
+                  <div class="flex items-center gap-2">
+                    <div class="flex gap-1.5">
+                      <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                      <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                      <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <span class="text-xs text-gray-400 ml-2">VPN-L2TP-Client.rsc</span>
+                  </div>
+                  
+                  <!-- Copy Button -->
+                  <button
+                    @click="copyScript"
+                    class="flex items-center gap-1.5 px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 
+                           text-white rounded transition-colors"
+                    :disabled="loadingScript"
+                  >
+                    <icon-lucide-copy v-if="!copied" class="w-3 h-3" />
+                    <icon-lucide-check v-else class="w-3 h-3" />
+                    {{ copied ? 'Copiado!' : 'Copiar Script' }}
+                  </button>
+                </div>
+                
+                <!-- Terminal Content -->
+                <div class="p-4 font-mono text-sm">
+                  <pre v-if="loadingScript" class="text-yellow-400">Cargando script...</pre>
+                  <pre v-else-if="vpnScript" class="text-green-400"><code>{{ vpnScript }}</code></pre>
+                  <pre v-else class="text-red-400">Error al cargar el script</pre>
+                </div>
+
+                <!-- Connection Status -->
+                <div v-if="connectionStatus" class="px-4 py-3 border-t border-gray-700 bg-gray-800">
+                  <div class="flex items-center gap-2">
+                    <div 
+                      class="w-2 h-2 rounded-full"
+                      :class="{
+                        'bg-green-500 animate-pulse': connectionStatus.connected,
+                        'bg-red-500': !connectionStatus.connected && !verifyingConnection,
+                        'bg-yellow-500 animate-pulse': verifyingConnection
+                      }"
+                    ></div>
+                    <span class="text-xs text-gray-300">{{ connectionStatus.message }}</span>
+                  </div>
+                </div>
+
+                <!-- Verify Connection Button -->
+                <div class="px-4 py-3 border-t border-gray-700 bg-gray-800">
+                  <button
+                    @click="verifyConnection"
+                    class="w-full flex items-center justify-center gap-2 px-4 py-2 
+                           bg-green-600 hover:bg-green-700 text-white rounded-lg 
+                           transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    :disabled="verifyingConnection || loadingScript"
+                  >
+                    <icon-lucide-wifi v-if="!verifyingConnection" class="w-4 h-4" />
+                    <icon-lucide-loader-2 v-else class="w-4 h-4 animate-spin" />
+                    {{ verifyingConnection ? 'Verificando...' : 'Comprobar Conexión' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <!-- SELECT: TIPO DE CORTE -->
             <div class="col-span-2 mb-2">
               <label class="label text-gray-700 dark:text-gray-200">
@@ -451,7 +531,7 @@
   </div>
 </template>
 <script setup>
-import { ref, reactive, onMounted } from "vue"
+import { ref, reactive, onMounted, watch } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import { supabase } from "@/supabase.js"
 import BillingPanel from "@/components/BillingPanel.vue"
@@ -460,6 +540,13 @@ const router = useRouter()
 const route = useRoute()
 const routerId = route.params.id // ID del router a editar
 const loading = ref(false)
+
+// VPN Script variables
+const vpnScript = ref("")
+const loadingScript = ref(false)
+const copied = ref(false)
+const verifyingConnection = ref(false)
+const connectionStatus = ref(null)
 
 /* ============================
    FUNCIONES DE LIMPIEZA (Billing)
@@ -576,6 +663,7 @@ const form = reactive({
   falla_general: false,
   comentarios_router: "",
   activo: true,
+  script_activo: false,
 
   facturacion_activa: false,
   billing: {
@@ -752,11 +840,93 @@ const payload = {
   router.push("/routers")
 }
 
+/* ============================
+   VPN SCRIPT FUNCTIONS
+============================ */
+const loadVpnScript = async () => {
+  if (!form.script_activo) return
+  
+  loadingScript.value = true
+  try {
+    const response = await fetch(`/api/routers/${routerId}/vpn-script`)
+    const data = await response.json()
+    
+    if (data.success) {
+      vpnScript.value = data.script
+    } else {
+      vpnScript.value = ""
+      console.error("Error loading VPN script")
+    }
+  } catch (error) {
+    console.error("Error fetching VPN script:", error)
+    vpnScript.value = ""
+  } finally {
+    loadingScript.value = false
+  }
+}
+
+const copyScript = async () => {
+  if (!vpnScript.value) return
+  
+  try {
+    await navigator.clipboard.writeText(vpnScript.value)
+    copied.value = true
+    setTimeout(() => {
+      copied.value = false
+    }, 2000)
+  } catch (error) {
+    console.error("Error copying to clipboard:", error)
+    alert("Error al copiar el script")
+  }
+}
+
+const verifyConnection = async () => {
+  verifyingConnection.value = true
+  connectionStatus.value = null
+  
+  try {
+    const response = await fetch(`/api/routers/${routerId}/verify-vpn`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    const data = await response.json()
+    
+    connectionStatus.value = {
+      connected: data.connected,
+      message: data.message,
+      assigned_ip: data.assigned_ip,
+    }
+  } catch (error) {
+    console.error("Error verifying connection:", error)
+    connectionStatus.value = {
+      connected: false,
+      message: "Error al verificar la conexión",
+      assigned_ip: null,
+    }
+  } finally {
+    verifyingConnection.value = false
+  }
+}
+
 const goBack = () => router.back()
+
+// Watch for script activation to load VPN script
+watch(() => form.script_activo, (newValue) => {
+  if (newValue) {
+    loadVpnScript()
+  }
+})
 
 onMounted(async () => {
   await loadInitialData()
   await loadRouterData()
+  
+  // Load VPN script if already activated
+  if (form.script_activo) {
+    await loadVpnScript()
+  }
 })
 </script>
 

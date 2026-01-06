@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Router;
+use App\Services\VpnService;
 
 class RouterController extends Controller
 {
@@ -98,5 +99,31 @@ class RouterController extends Controller
         return response()->json([
             'message' => 'Router eliminado exitosamente. ✅',
         ]);
+    }
+
+    /**
+     * Generate VPN script for the router
+     */
+    public function generateVpnScript(Router $router)
+    {
+        $vpnService = new VpnService();
+        $script = $vpnService->generateScript($router);
+
+        return response()->json([
+            'success' => true,
+            'script' => $script,
+            'server_ip' => $vpnService->getServerPublicIp(),
+        ]);
+    }
+
+    /**
+     * Verify VPN connection status
+     */
+    public function verifyVpnConnection(Router $router)
+    {
+        $vpnService = new VpnService();
+        $result = $vpnService->verifyConnection($router);
+
+        return response()->json($result);
     }
 }
