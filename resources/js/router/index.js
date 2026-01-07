@@ -217,6 +217,18 @@ const routes = [
     ]
   },
   {
+    path: '/settings',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Settings',
+        component: () => import('@/pages/Settings.vue'),
+      }
+    ]
+  },
+  {
     path: '/manual',
     component: DefaultLayout,
     meta: { requiresAuth: true },
