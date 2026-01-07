@@ -5,13 +5,13 @@
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+          <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
             <div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-xl">
               <v-icon name="la-file-invoice-dollar-solid" class="text-green-600 dark:text-green-400 w-6 h-6 md:w-7 md:h-7" />
             </div>
             {{ isEdit ? 'Editar Factura' : 'Nueva Factura' }}
           </h1>
-          <p class="text-sm md:text-base text-gray-600 dark:text-gray-400 mt-1">
+          <p class="text-sm md:text-base text-gray-600 dark:text-gray-300 mt-1">
             {{ isEdit ? 'Actualiza la información de la factura' : 'Completa el formulario para crear una nueva factura' }}
           </p>
         </div>
@@ -22,7 +22,7 @@
                  px-4 py-2.5 rounded-xl flex items-center gap-2 hover:bg-gray-300 
                  dark:hover:bg-gray-600 transition-all shadow-md w-full sm:w-auto justify-center"
         >
-          <icon-lucide-arrow-left class="w-4 h-4" />
+          <v-icon name="md-arrowback" class="w-4 h-4" />
           Volver
         </button>
       </div>
@@ -45,7 +45,7 @@
           
           <!-- Section: Información Básica -->
           <div class="mb-8">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <div class="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
                 <span class="text-blue-600 dark:text-blue-400 font-bold text-sm">1</span>
               </div>
@@ -56,7 +56,7 @@
               <!-- Router Selection -->
               <div class="md:col-span-2">
                 <label class="label">
-                  <icon-lucide-router class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-router" class="w-4 h-4 mr-1 inline" />
                   Router / Cliente *
                 </label>
                 <select
@@ -80,13 +80,13 @@
               <!-- Amount -->
               <div>
                 <label class="label">
-                  <icon-lucide-dollar-sign class="inline w-4 h-4 mr-1" />
+                  <v-icon name="md-attachmoney" class="w-4 h-4 mr-1 inline" />
                   Monto *
                 </label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 font-bold text-lg">
-                    $
-                  </span>
+                  <div class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
+                     <span class="text-gray-500 dark:text-gray-400 font-bold text-lg">$</span>
+                  </div>
                   <input
                     v-model.number="form.amount"
                     type="number"
@@ -104,7 +104,7 @@
               <!-- Billing Type -->
               <div>
                 <label class="label">
-                  <icon-lucide-tag class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-tag" class="w-4 h-4 mr-1 inline" />
                   Tipo de Facturación *
                 </label>
                 <select
@@ -129,7 +129,7 @@
 
           <!-- Section: Fechas -->
           <div class="mb-8">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <div class="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
                 <span class="text-purple-600 dark:text-purple-400 font-bold text-sm">2</span>
               </div>
@@ -140,7 +140,7 @@
               <!-- Invoice Date -->
               <div>
                 <label class="label">
-                  <icon-lucide-calendar-plus class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-calendar-plus" class="w-4 h-4 mr-1 inline" />
                   Fecha de Emisión *
                 </label>
                 <input
@@ -156,7 +156,7 @@
               <!-- Payment Day -->
               <div>
                 <label class="label">
-                  <icon-lucide-calendar-clock class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-calendar-event" class="w-4 h-4 mr-1 inline" />
                   Fecha de Vencimiento *
                 </label>
                 <input
@@ -172,7 +172,7 @@
               <!-- Cut Day -->
               <div>
                 <label class="label">
-                  <icon-lucide-calendar-x class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-calendar-x" class="w-4 h-4 mr-1 inline" />
                   Fecha de Corte
                 </label>
                 <input
@@ -187,7 +187,7 @@
               <!-- Payment Reminder -->
               <div>
                 <label class="label">
-                  <icon-lucide-bell class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-bell" class="w-4 h-4 mr-1 inline" />
                   Recordatorio de Pago
                 </label>
                 <input
@@ -203,7 +203,7 @@
 
           <!-- Section: Configuración Adicional -->
           <div class="mb-8">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <div class="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
                 <span class="text-orange-600 dark:text-orange-400 font-bold text-sm">3</span>
               </div>
@@ -214,7 +214,7 @@
               <!-- Overdue Invoices -->
               <div>
                 <label class="label">
-                  <icon-lucide-alert-triangle class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-exclamation-triangle" class="w-4 h-4 mr-1 inline" />
                   Facturas Vencidas Permitidas
                 </label>
                 <input
@@ -232,20 +232,25 @@
               <!-- Status -->
               <div>
                 <label class="label">
-                  <icon-lucide-activity class="inline w-4 h-4 mr-1" />
+                  <v-icon name="bi-activity" class="w-4 h-4 mr-1 inline" />
                   Estado de la Factura *
                 </label>
-                <select
-                  v-model="form.status"
-                  required
-                  class="input"
-                  :disabled="loading"
-                >
-                  <option value="pending">⏳ Pendiente</option>
-                  <option value="paid">✅ Pagado</option>
-                  <option value="overdue">⚠️ Vencido</option>
-                  <option value="cancelled">❌ Cancelado</option>
-                </select>
+                <div class="relative">
+                    <select
+                    v-model="form.status"
+                    required
+                    class="input appearance-none"
+                    :disabled="loading"
+                    >
+                    <option value="pending">⏳ Pendiente</option>
+                    <option value="paid">✅ Pagado</option>
+                    <option value="overdue">⚠️ Vencido</option>
+                    <option value="cancelled">❌ Cancelado</option>
+                    </select>
+                    <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
+                         <v-icon name="md-keyboardarrowdown" />
+                    </div>
+                </div>
                 <p class="hint">Estado actual de esta factura</p>
               </div>
             </div>
@@ -256,7 +261,7 @@
                class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 
                       rounded-xl p-6 mb-8 border border-blue-200 dark:border-blue-800">
             <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-              <icon-lucide-info class="w-4 h-4" />
+              <v-icon name="bi-info-circle" class="w-4 h-4" />
               Resumen de la Factura
             </h4>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -268,13 +273,13 @@
               </div>
               <div>
                 <p class="text-xs text-gray-600 dark:text-gray-400">Estado</p>
-                <p class="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">
+                <p class="text-sm font-semibold text-gray-900 dark:text-white mt-1">
                   {{ getStatusLabel(form.status) }}
                 </p>
               </div>
               <div>
                 <p class="text-xs text-gray-600 dark:text-gray-400">Vencimiento</p>
-                <p class="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">
+                <p class="text-sm font-semibold text-gray-900 dark:text-white mt-1">
                   {{ form.payment_day || 'No definido' }}
                 </p>
               </div>
@@ -291,7 +296,7 @@
                      transition-all font-medium flex items-center justify-center gap-2"
               :disabled="loading"
             >
-              <icon-lucide-x class="w-5 h-5" />
+              <v-icon name="md-close" class="w-5 h-5" />
               Cancelar
             </button>
             <button
@@ -304,8 +309,8 @@
                      flex items-center justify-center gap-2"
               :disabled="loading"
             >
-              <icon-lucide-loader-2 v-if="loading" class="w-5 h-5 animate-spin" />
-              <icon-lucide-check v-else class="w-5 h-5" />
+              <v-icon v-if="loading" name="bi-arrow-clockwise" animation="spin" class="w-5 h-5" />
+              <v-icon v-else name="md-check" class="w-5 h-5" />
               {{ loading ? 'Guardando...' : (isEdit ? 'Actualizar Factura' : 'Crear Factura') }}
             </button>
           </div>

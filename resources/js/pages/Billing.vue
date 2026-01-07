@@ -5,13 +5,13 @@
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+          <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
             <div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-xl">
               <v-icon name="la-money-bill-wave-solid" class="text-green-600 dark:text-green-400 w-6 h-6 md:w-7 md:h-7" />
             </div>
             Facturación
           </h1>
-          <p class="text-sm md:text-base text-gray-600 dark:text-gray-400 mt-1">Gestiona todas las facturas de tus clientes</p>
+          <p class="text-sm md:text-base text-gray-600 dark:text-gray-300 mt-1">Gestiona todas las facturas de tus clientes</p>
         </div>
         
         <button
@@ -21,7 +21,7 @@
                  transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5
                  font-medium w-full sm:w-auto"
         >
-          <icon-lucide-plus class="w-5 h-5" />
+          <v-icon name="md-add" class="w-5 h-5 fill-current" />
           <span>Nueva Factura</span>
         </button>
       </div>
@@ -58,66 +58,78 @@
       </div>
 
       <!-- Filters and Search -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 mb-6">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 mb-6 text-gray-700 dark:text-gray-200">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <!-- Search -->
           <div class="md:col-span-2">
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              <icon-lucide-search class="inline w-4 h-4 mr-1" />
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+              <v-icon name="md-search" class="w-4 h-4 mr-1" />
               Buscar
             </label>
-            <div class="relative">
-              <icon-lucide-search class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <div class="relative text-gray-600 dark:text-gray-400">
+              <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                 <v-icon name="md-search" class="w-5 h-5" />
+              </div>
               <input
                 v-model="filters.search"
                 type="text"
                 placeholder="Buscar por cliente, router, ID..."
                 class="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 
-                       rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                       rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                       transition-all"
+                       transition-all outline-none"
               />
             </div>
           </div>
 
           <!-- Status Filter -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              <icon-lucide-filter class="inline w-4 h-4 mr-1" />
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+              <v-icon name="bi-filter" class="w-4 h-4 mr-1" />
               Estado
             </label>
-            <select
-              v-model="filters.status"
-              class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 
-                     rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 transition-all"
-            >
-              <option value="">Todos</option>
-              <option value="pending">Pendiente</option>
-              <option value="paid">Pagado</option>
-              <option value="overdue">Vencido</option>
-              <option value="cancelled">Cancelado</option>
-            </select>
+            <div class="relative">
+                <select
+                v-model="filters.status"
+                class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 
+                        rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                        focus:ring-2 focus:ring-blue-500 transition-all outline-none appearance-none"
+                >
+                <option value="">Todos</option>
+                <option value="pending">Pendiente</option>
+                <option value="paid">Pagado</option>
+                <option value="overdue">Vencido</option>
+                <option value="cancelled">Cancelado</option>
+                </select>
+                <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
+                    <v-icon name="md-keyboardarrowdown" />
+                </div>
+            </div>
           </div>
 
           <!-- Date Range -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              <icon-lucide-calendar class="inline w-4 h-4 mr-1" />
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+              <v-icon name="bi-calendar" class="w-4 h-4 mr-1" />
               Período
             </label>
-            <select
-              v-model="filters.period"
-              class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 
-                     rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 transition-all"
-            >
-              <option value="all">Todos</option>
-              <option value="today">Hoy</option>
-              <option value="week">Esta Semana</option>
-              <option value="month">Este Mes</option>
-              <option value="year">Este Año</option>
-            </select>
+            <div class="relative">
+                <select
+                v-model="filters.period"
+                class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 
+                        rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                        focus:ring-2 focus:ring-blue-500 transition-all outline-none appearance-none"
+                >
+                <option value="all">Todos</option>
+                <option value="today">Hoy</option>
+                <option value="week">Esta Semana</option>
+                <option value="month">Este Mes</option>
+                <option value="year">Este Año</option>
+                </select>
+                <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
+                    <v-icon name="md-keyboardarrowdown" />
+                </div>
+            </div>
           </div>
         </div>
       </div>
@@ -126,26 +138,14 @@
       <div class="hidden lg:block bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full">
-            <thead class="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-750">
+            <thead class="bg-gray-100 dark:bg-gray-700">
               <tr>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                  ID
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                  Cliente / Router
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                  Monto
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                  Fechas
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                  Acciones
-                </th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Cliente / Router</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Monto</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Fechas</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Estado</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
@@ -163,7 +163,7 @@
                       <v-icon name="pr-user" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     </div>
                     <div>
-                      <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      <div class="text-sm font-medium text-gray-800 dark:text-white">
                         {{ bill.customer_name || 'N/A' }}
                       </div>
                       <div class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
@@ -174,18 +174,18 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class="text-base font-bold text-gray-900 dark:text-gray-100">
+                  <span class="text-base font-bold text-gray-800 dark:text-white">
                     {{ formatCurrency(bill.amount) }}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-xs">
                     <div class="text-gray-700 dark:text-gray-300 flex items-center gap-1">
-                      <icon-lucide-calendar-plus class="w-3 h-3" />
+                      <v-icon name="bi-calendar-plus" class="w-3 h-3" />
                       {{ formatDate(bill.create_invoice) }}
                     </div>
-                    <div class="text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
-                      <icon-lucide-calendar-clock class="w-3 h-3" />
+                    <div class="text-gray-500 dark:text-gray-500 mt-1 flex items-center gap-1">
+                       <v-icon name="bi-calendar-event" class="w-3 h-3" />
                       Vence: {{ formatDate(bill.payment_day) }}
                     </div>
                   </div>
@@ -207,7 +207,7 @@
                              rounded-lg transition-all hover:scale-110"
                       title="Editar"
                     >
-                      <icon-lucide-edit class="w-4 h-4" />
+                      <v-icon name="md-edit" class="w-4 h-4 fill-current" />
                     </button>
                     <button
                       v-if="bill.status === 'pending'"
@@ -216,7 +216,7 @@
                              rounded-lg transition-all hover:scale-110"
                       title="Marcar como pagado"
                     >
-                      <icon-lucide-check-circle class="w-4 h-4" />
+                      <v-icon name="md-checkcircle" class="w-4 h-4 fill-current" />
                     </button>
                   </div>
                 </td>
@@ -241,7 +241,7 @@
               class="mt-6 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
                      transition-colors text-sm font-medium inline-flex items-center gap-2"
             >
-              <icon-lucide-plus class="w-4 h-4" />
+              <v-icon name="md-add" class="w-4 h-4 fill-current" />
               Crear Primera Factura
             </button>
           </div>
@@ -264,7 +264,7 @@
                      disabled:opacity-50 disabled:cursor-not-allowed transition-all
                      flex items-center gap-2"
             >
-              <icon-lucide-chevron-left class="w-4 h-4" />
+              <v-icon name="md-chevronleft" class="w-4 h-4" />
               <span class="hidden sm:inline">Anterior</span>
             </button>
             <button
@@ -276,7 +276,7 @@
                      flex items-center gap-2"
             >
               <span class="hidden sm:inline">Siguiente</span>
-              <icon-lucide-chevron-right class="w-4 h-4" />
+              <v-icon name="md-chevronright" class="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -297,7 +297,7 @@
               </div>
               <div>
                 <span class="text-xs font-bold text-blue-600 dark:text-blue-400">#{{ bill.id }}</span>
-                <p class="text-sm font-medium text-gray-900 dark:text-gray-100 mt-0.5">
+                <p class="text-sm font-medium text-gray-800 dark:text-white mt-0.5">
                   {{ bill.customer_name || 'N/A' }}
                 </p>
               </div>
@@ -311,9 +311,9 @@
           </div>
 
           <!-- Amount -->
-          <div class="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 
-                      rounded-lg p-3 mb-3">
-            <p class="text-xs text-gray-600 dark:text-gray-400 mb-1">Monto</p>
+          <div class="bg-gray-50 dark:bg-gray-700/50 
+                      rounded-lg p-3 mb-3 border border-gray-100 dark:border-gray-700">
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Monto</p>
             <p class="text-2xl font-bold text-green-600 dark:text-green-400">
               {{ formatCurrency(bill.amount) }}
             </p>
@@ -323,19 +323,20 @@
           <div class="grid grid-cols-2 gap-3 mb-3">
             <div>
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Router</p>
-              <p class="text-sm text-gray-900 dark:text-gray-100 font-medium truncate">
+              <p class="text-sm text-gray-800 dark:text-gray-200 font-medium truncate flex items-center gap-1">
+                <v-icon name="bi-router" class="w-3 h-3" />
                 {{ bill.router_name || 'Sin router' }}
               </p>
             </div>
             <div>
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Emisión</p>
-              <p class="text-sm text-gray-900 dark:text-gray-100">
+              <p class="text-sm text-gray-800 dark:text-gray-200">
                 {{ formatDate(bill.create_invoice) }}
               </p>
             </div>
             <div class="col-span-2">
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Vencimiento</p>
-              <p class="text-sm text-gray-900 dark:text-gray-100">
+              <p class="text-sm text-gray-800 dark:text-gray-200">
                 {{ formatDate(bill.payment_day) }}
               </p>
             </div>
@@ -348,7 +349,7 @@
               class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
                      transition-colors text-sm font-medium flex items-center justify-center gap-2"
             >
-              <icon-lucide-edit class="w-4 h-4" />
+              <v-icon name="md-edit" class="w-4 h-4 fill-current" />
               Editar
             </button>
             <button
@@ -357,7 +358,7 @@
               class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg
                      transition-colors text-sm font-medium flex items-center justify-center gap-2"
             >
-              <icon-lucide-check-circle class="w-4 h-4" />
+              <v-icon name="md-checkcircle" class="w-4 h-4 fill-current" />
               Pagado
             </button>
           </div>
@@ -380,7 +381,7 @@
             class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
                    transition-colors text-sm font-medium flex items-center justify-center gap-2"
           >
-            <icon-lucide-plus class="w-4 h-4" />
+            <v-icon name="md-add" class="w-4 h-4 fill-current" />
             Crear Factura
           </button>
         </div>
@@ -402,7 +403,7 @@
                      disabled:opacity-50 disabled:cursor-not-allowed transition-all
                      flex items-center justify-center gap-2 font-medium"
             >
-              <icon-lucide-chevron-left class="w-4 h-4" />
+              <v-icon name="md-chevronleft" class="w-4 h-4" />
               Anterior
             </button>
             <button
@@ -414,7 +415,7 @@
                      flex items-center justify-center gap-2 font-medium"
             >
               Siguiente
-              <icon-lucide-chevron-right class="w-4 h-4" />
+              <v-icon name="md-chevronright" class="w-4 h-4" />
             </button>
           </div>
         </div>
