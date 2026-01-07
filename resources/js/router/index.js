@@ -195,6 +195,28 @@ const routes = [
     ]
   },
   {
+    path: '/inventory',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Inventory',
+        component: () => import('@/pages/Inventory.vue'),
+      },
+      {
+        path: 'create',
+        name: 'InventoryCreate',
+        component: () => import('@/pages/InventoryForm.vue'),
+      },
+      {
+        path: ':id/edit',
+        name: 'InventoryEdit',
+        component: () => import('@/pages/InventoryForm.vue'),
+      }
+    ]
+  },
+  {
     path: '/manual',
     component: DefaultLayout,
     meta: { requiresAuth: true },
