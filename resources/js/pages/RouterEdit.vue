@@ -708,7 +708,7 @@ const loadRouterData = async () => {
     form.tipo_corte = data.cut_type_id || null
     form.version = data.firmware_version || null
     form.comentarios_router = data.comments || ""
-    form.activo = data.status === 1
+    form.activo = data.status === 'active'
     
     // Mapeo de Checkboxes
     form.agregar_cliente_mkt = !!data.agregar_cliente_mkt
@@ -821,7 +821,7 @@ const payload = {
     billing_router_id: billingId,
     comments: form.comentarios_router,
     coordinates,
-    status: form.activo ? 1 : 0,
+    status: form.activo ? 'active' : 'inactive',
   }
 
 

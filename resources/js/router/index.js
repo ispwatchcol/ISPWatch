@@ -40,7 +40,7 @@ const routes = [
       },
     ],
   },
-  
+
   // STAFF
   {
     path: '/staff',
@@ -82,7 +82,7 @@ const routes = [
         component: () => import("@/pages/RouterAdd.vue"),
       },
       {
-        path: ':id/edit', 
+        path: ':id/edit',
         name: 'RouterEdit',
         component: () => import("@/pages/RouterEdit.vue"),
       },
@@ -108,7 +108,7 @@ const routes = [
         component: () => import('@/pages/PlanCreate.vue'),
       },
       {
-        path: '/planes/:id/edit', 
+        path: '/planes/:id/edit',
         name: 'plan-edit',
         component: () => import('@/pages/PlanEdit.vue'),
         props: true // Opcional, pero recomendado
@@ -171,6 +171,28 @@ const routes = [
         component: () => import('@/pages/SectorialEdit.vue'),
       }
     ],
+  },
+  {
+    path: '/billing',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Billing',
+        component: () => import('@/pages/Billing.vue'),
+      },
+      {
+        path: 'create',
+        name: 'BillingCreate',
+        component: () => import('@/pages/BillingForm.vue'),
+      },
+      {
+        path: ':id/edit',
+        name: 'BillingEdit',
+        component: () => import('@/pages/BillingForm.vue'),
+      }
+    ]
   },
   {
     path: '/manual',

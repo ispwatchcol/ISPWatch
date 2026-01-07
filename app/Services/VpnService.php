@@ -17,14 +17,13 @@ class VpnService
 
     // IP local → SOLO para la API (Laravel está en la LAN)
     private string $apiHost = '192.168.88.1';
-    private int    $apiPort = 8728;
+    private int $apiPort = 8728;
 
     /**
      * ==============================
      * CREDENCIALES VPN
      * ==============================
      */
-    private string $vpnUsername = 'core-isp-001';
     private string $vpnPassword = 'claveSegura';
     private string $ipsecSecret = 'ISPWATCH_SECRET';
 
@@ -38,18 +37,36 @@ class VpnService
 
     /**
      * =========================================================
+     * GENERA USERNAME VPN ÚNICO POR ROUTER
+     * =========================================================
+     */
+    private function getVpnUsername(Router $router): string
+    {
+        // Usar external_id si existe, sino usar el ID del router
+        $identifier = $router->external_id ?? $router->id;
+        return "core-isp-{$identifier}";
+    }
+
+    /**
+     * =========================================================
      * GENERA SCRIPT L2TP CLIENTE (PARA CORE REMOTO)
      * =========================================================
      */
+    public function getServerPublicIp(): string
+    {
+        return $this->vpnPublicIp;
+    }
+
     public function generateScript(Router $router): string
     {
         $routerName = $this->sanitizeName($router->name);
+        $vpnUsername = $this->getVpnUsername($router);
 
         return <<<SCRIPT
 /interface l2tp-client
 add name=ISPWatch-VPN-{$routerName} \\
     connect-to={$this->vpnPublicIp} \\
-    user={$this->vpnUsername} \\
+    user={$vpnUsername} \\
     password={$this->vpnPassword} \\
     use-ipsec=yes \\
     ipsec-secret={$this->ipsecSecret} \\
@@ -109,24 +126,26 @@ SCRIPT;
          * VERIFICACIÓN REAL
          * ==============================
          */
+        $vpnUsername = $this->getVpnUsername($router);
+
         foreach ($pppActive as $conn) {
             if (
-                isset($conn['user']) &&
-                $conn['user'] === $this->vpnUsername
+                isset($conn['name']) &&
+                $conn['name'] === $vpnUsername
             ) {
                 return [
-                    'success'     => true,
-                    'connected'   => true,
-                    'message'     => '✅ VPN ACTIVA (PPP activo en CORE)',
+                    'success' => true,
+                    'connected' => true,
+                    'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
                     'assigned_ip' => $conn['address'] ?? null,
                 ];
             }
         }
 
         return [
-            'success'     => true,
-            'connected'   => false,
-            'message'     => '❌ VPN CAÍDA (no existe sesión PPP activa)',
+            'success' => true,
+            'connected' => false,
+            'message' => '❌ VPN CAÍDA (no existe sesión PPP activa)',
             'assigned_ip' => null,
         ];
     }
@@ -178,9 +197,11 @@ SCRIPT;
         $response = [];
         while (true) {
             $word = $this->readWord($socket);
-            if ($word === '') break;
+            if ($word === '')
+                break;
             $response[] = $word;
-            if ($word === '!done' || $word === '!trap') break;
+            if ($word === '!done' || $word === '!trap')
+                break;
         }
         return $response;
     }
@@ -214,7 +235,8 @@ SCRIPT;
     private function readWord($socket): string
     {
         $c = ord(fread($socket, 1));
-        if ($c === 0) return '';
+        if ($c === 0)
+            return '';
 
         if ($c < 0x80) {
             $len = $c;
@@ -233,9 +255,9 @@ SCRIPT;
     private function error(string $msg): array
     {
         return [
-            'success'     => false,
-            'connected'   => false,
-            'message'     => "❌ $msg",
+            'success' => false,
+            'connected' => false,
+            'message' => "❌ $msg",
             'assigned_ip' => null,
         ];
     }
