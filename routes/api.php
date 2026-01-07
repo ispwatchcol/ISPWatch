@@ -29,6 +29,10 @@ Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
 Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
 Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
 
+// Router Interfaces Routes
+Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
+Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
+
 /*
 |--------------------------------------------------------------------------
 | API RESOURCES (CRUD Completo: index, show, store, update, destroy)
