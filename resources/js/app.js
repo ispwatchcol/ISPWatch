@@ -55,6 +55,11 @@ import {
   HiChevronRight,
   HiLightBulb,
   IoClose,
+  IoTicketOutline,
+  LaMoneyBillWaveSolid,
+  PrPaperclip,
+  IoSearch,
+  PrFile,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -103,6 +108,11 @@ addIcons(
   HiChevronRight,
   HiLightBulb,
   IoClose,
+  IoTicketOutline,
+  LaMoneyBillWaveSolid,
+  PrPaperclip,
+  IoSearch,
+  PrFile,
 );
 
 // -------------------------------

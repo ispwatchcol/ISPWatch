@@ -29,6 +29,14 @@ apiClient.interceptors.request.use(
       }
     }
 
+    // INYECTAR USER_ID PARA PERMISOS (Fix para mock auth)
+    if (userData?.id) {
+      config.params = {
+        ...(config.params || {}),
+        user_id: userData.id
+      }
+    }
+
     return config
   },
   error => Promise.reject(error)
@@ -190,6 +198,47 @@ export default {
     },
     delete(id) {
       return apiClient.delete(`/sectorials/${id}`)
+    }
+  },
+
+  // =========================
+  // SUPPORT
+  // =========================
+  support: {
+    getAll(params = {}) {
+      return apiClient.get('/support', { params })
+    },
+    getOne(id) {
+      return apiClient.get(`/support/${id}`)
+    },
+    create(formData, userId = 1) {
+      // Agregar user_id al FormData si no existe
+      if (!formData.has('user_id')) {
+        formData.append('user_id', userId)
+      }
+      // Usar FormData para enviar archivos
+      return apiClient.post('/support', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+    },
+    update(id, data) {
+      return apiClient.put(`/support/${id}`, data)
+    },
+    delete(id) {
+      return apiClient.delete(`/support/${id}`)
+    },
+    getStatistics() {
+      return apiClient.get('/support/statistics')
+    },
+    addMessage(ticketId, message, isInternal = false, userId = 1) {
+      return apiClient.post(`/support/${ticketId}/message`, { 
+        message, 
+        is_internal: isInternal,
+        user_id: userId  // Agregar user_id al request
+      })
+    },
+    updateStatus(ticketId, status) {
+      return apiClient.patch(`/support/${ticketId}/status`, { status })
     }
   },
 }
