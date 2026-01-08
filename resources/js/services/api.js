@@ -80,6 +80,13 @@ export default {
     },
   },
 
+  // Alias para compatibilidad
+  plans: {
+    getAll(params = {}) {
+      return apiClient.get('/plans', { params })
+    },
+  },
+
   // =========================
   // CUSTOMERS
   // =========================
@@ -105,6 +112,18 @@ export default {
     },
     getMapData() {
       return apiClient.get('/customers/map')
+    },
+    provision(id) {
+      return apiClient.post(`/customers/${id}/provision`)
+    },
+    bulkProvision(customerIds) {
+      return apiClient.post('/customers/bulk-provision', { customer_ids: customerIds })
+    },
+    suspend(id) {
+      return apiClient.post(`/customers/${id}/suspend`)
+    },
+    activate(id) {
+      return apiClient.post(`/customers/${id}/activate`)
     }
   },
 

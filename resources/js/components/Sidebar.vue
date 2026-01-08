@@ -114,13 +114,13 @@
                     :items="[
                         {
                             name: 'Lista de equipos',
-                            to: '/inventory/devices',
-                            icon: 'oi-package',
+                            to: '/inventory',
+                            icon: 'bi-box-seam',
                         },
                         {
                             name: 'Agregar equipo',
-                            to: '/inventory/devices/create',
-                            icon: 'oi-diff-added',
+                            to: '/inventory/create',
+                            icon: 'md-add',
                         },
                     ]"
                 />
