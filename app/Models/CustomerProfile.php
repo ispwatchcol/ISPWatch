@@ -27,10 +27,17 @@ class CustomerProfile extends Model
         'ip_user',
         'service_id',
         'sectorial_id',
+        'router_id',
+        'status',
     ];
 
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function router()
+    {
+        return $this->belongsTo(Router::class, 'router_id');
     }
 }

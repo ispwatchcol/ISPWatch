@@ -24,6 +24,10 @@ Route::post('/login', [AuthController::class, 'login']);
 */
 Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
 Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
+Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision']);
+Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision']);
+Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend']);
+Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
 
 // VPN Routes
 Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);

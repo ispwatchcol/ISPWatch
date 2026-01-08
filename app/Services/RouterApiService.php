@@ -114,8 +114,21 @@ class RouterApiService
         ]);
 
         // Obtener IP del portal (IP del servidor Laravel)
-        // Por ahora usamos la IP del router principal, pero debería configurarse
-        $portalIp = request()->ip(); // IP del servidor Laravel donde está corriendo
+        // Puede configurarse en .env como PORTAL_IP=192.168.1.100
+        $portalIp = env('PORTAL_IP');
+
+        if (!$portalIp) {
+            // Fallback: intentar detectar IP del servidor
+            $portalIp = request()->server('SERVER_ADDR');
+
+            if (!$portalIp || $portalIp === '127.0.0.1' || $portalIp === '::1') {
+                // Si no se puede detectar, registrar advertencia
+                Log::warning('[RouterAPI] No se pudo determinar IP del portal. Configure PORTAL_IP en .env');
+                return $this->error('Configure PORTAL_IP en .env para habilitar la redirección al portal');
+            }
+        }
+
+        Log::info('[RouterAPI] Portal IP configurada', ['portal_ip' => $portalIp]);
 
         // Conexión al router
         $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
@@ -205,6 +218,267 @@ class RouterApiService
             ]);
             @fclose($socket);
             return $this->error('Error al aplicar reglas: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Sincronizar cliente con el router (Simple Queue)
+     */
+    public function syncCustomer(Router $router, $customer, $servicePlan): array
+    {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return $this->error('Router sin credenciales configuradas');
+        }
+
+        if (!$customer->ip_user) {
+            return $this->error('Cliente sin IP asignada');
+        }
+
+        if (!$servicePlan) {
+            return $this->error('Cliente sin plan de servicio asignado');
+        }
+
+        Log::info('[RouterAPI] Sincronizando cliente', [
+            'router_id' => $router->id,
+            'customer_id' => $customer->user_id,
+            'ip' => $customer->ip_user,
+            'plan_down' => $servicePlan->speed_down,
+            'plan_up' => $servicePlan->speed_up,
+        ]);
+
+        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+
+        if (!$socket) {
+            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
+            return $this->error("No se pudo conectar al router: $errstr");
+        }
+
+        stream_set_timeout($socket, $this->timeout);
+
+        try {
+            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+                fclose($socket);
+                return $this->error('Error de autenticación en el router');
+            }
+
+            // Construir max-limit (uplink/downlink)
+            // Normalizar velocidades: si no tienen sufijo, asumir que son megas y agregar 'M'
+            $speedUp = $servicePlan->speed_up;
+            $speedDown = $servicePlan->speed_down;
+
+            // Si el valor es solo numérico, agregar 'M' para megabits
+            if (is_numeric($speedUp)) {
+                $speedUp = $speedUp . 'M';
+            }
+            if (is_numeric($speedDown)) {
+                $speedDown = $speedDown . 'M';
+            }
+
+            $maxLimit = "{$speedUp}/{$speedDown}";
+            $target = $customer->ip_user;
+            $name = "Client - {$customer->name} {$customer->last_name}";
+
+            Log::info('[RouterAPI] Configurando queue', [
+                'name' => $name,
+                'target' => $target,
+                'max_limit' => $maxLimit,
+            ]);
+
+            // 1. Verificar si ya existe la queue usando la IP (target)
+            // Nota: Mikrotik find devuelve ID interno, no registro completo
+            $this->sendCommand($socket, '/queue/simple/print', [
+                '?target=' . $target . '/32',  // Intentar match exacto con máscara /32 implícita o explicita
+                '=.proplist=.id'
+            ]);
+
+            // Si no encuentra exacto, buscamos por nombre
+            $records = $this->readAllRecords($socket);
+            $existingId = null;
+
+            if (!empty($records)) {
+                $existingId = $records[0]['.id'] ?? null;
+            } else {
+                // Intentar buscar por nombre si no encontró por target
+                $this->sendCommand($socket, '/queue/simple/print', [
+                    '?name=' . $name,
+                    '=.proplist=.id'
+                ]);
+                $records = $this->readAllRecords($socket);
+                if (!empty($records)) {
+                    $existingId = $records[0]['.id'] ?? null;
+                }
+            }
+
+            if ($existingId) {
+                // UPDATE
+                Log::info('[RouterAPI] Actualizando Simple Queue existente', ['id' => $existingId]);
+                $this->sendCommand($socket, '/queue/simple/set', [
+                    '=.id=' . $existingId,
+                    '=name=' . $name,
+                    '=target=' . $target,
+                    '=max-limit=' . $maxLimit,
+                    '=comment=ISPWatch Auto-Provisioned',
+                ]);
+            } else {
+                // CREATE
+                Log::info('[RouterAPI] Creando nueva Simple Queue');
+                $this->sendCommand($socket, '/queue/simple/add', [
+                    '=name=' . $name,
+                    '=target=' . $target,
+                    '=max-limit=' . $maxLimit,
+                    '=comment=ISPWatch Auto-Provisioned',
+                ]);
+            }
+
+            $this->readUntilDone($socket);
+            fclose($socket);
+
+            return [
+                'success' => true,
+                'message' => 'Cliente sincronizado correctamente en el router',
+                'details' => "Queue '$name' configurada con límite $maxLimit para $target"
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[RouterAPI] Error sincronizando cliente', [
+                'error' => $e->getMessage()
+            ]);
+            @fclose($socket);
+            return $this->error('Error al sincronizar cliente: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Add customer IP to suspended address-list
+     */
+    public function addSuspendedIp(Router $router, string $ip, string $customerName): array
+    {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return $this->error('Router sin credenciales configuradas');
+        }
+
+        if (!$ip) {
+            return $this->error('IP del cliente no especificada');
+        }
+
+        Log::info('[RouterAPI] Suspendiendo cliente', [
+            'router_id' => $router->id,
+            'customer_ip' => $ip,
+            'customer_name' => $customerName,
+        ]);
+
+        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+
+        if (!$socket) {
+            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
+            return $this->error("No se pudo conectar al router: $errstr");
+        }
+
+        stream_set_timeout($socket, $this->timeout);
+
+        try {
+            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+                fclose($socket);
+                return $this->error('Error de autenticación en el router');
+            }
+
+            // Agregar IP a la address-list
+            $this->sendCommand($socket, '/ip/firewall/address-list/add', [
+                '=list=ISPWATCH_SUSPENDIDOS',
+                '=address=' . $ip,
+                '=comment=Cliente: ' . $customerName,
+            ]);
+            $this->readUntilDone($socket);
+
+            fclose($socket);
+
+            return [
+                'success' => true,
+                'message' => "Cliente suspendido - IP agregada a lista de bloqueados",
+                'details' => "IP {$ip} agregada a ISPWATCH_SUSPENDIDOS"
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[RouterAPI] Error suspendiendo cliente', ['error' => $e->getMessage()]);
+            @fclose($socket);
+            return $this->error('Error al suspender cliente: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Remove customer IP from suspended address-list
+     */
+    public function removeSuspendedIp(Router $router, string $ip): array
+    {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return $this->error('Router sin credenciales configuradas');
+        }
+
+        if (!$ip) {
+            return $this->error('IP del cliente no especificada');
+        }
+
+        Log::info('[RouterAPI] Activando cliente', [
+            'router_id' => $router->id,
+            'customer_ip' => $ip,
+        ]);
+
+        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+
+        if (!$socket) {
+            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
+            return $this->error("No se pudo conectar al router: $errstr");
+        }
+
+        stream_set_timeout($socket, $this->timeout);
+
+        try {
+            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+                fclose($socket);
+                return $this->error('Error de autenticación en el router');
+            }
+
+            // Buscar la entrada en address-list
+            $this->sendCommand($socket, '/ip/firewall/address-list/print', [
+                '?list=ISPWATCH_SUSPENDIDOS',
+                '?address=' . $ip,
+                '=.proplist=.id'
+            ]);
+
+            $records = $this->readAllRecords($socket);
+
+            if (empty($records)) {
+                fclose($socket);
+                return [
+                    'success' => true,
+                    'message' => 'Cliente ya estaba activo',
+                    'details' => "IP {$ip} no encontrada en lista de suspendidos"
+                ];
+            }
+
+            // Eliminar cada entrada encontrada (puede haber duplicados)
+            foreach ($records as $record) {
+                $id = $record['.id'] ?? null;
+                if ($id) {
+                    $this->sendCommand($socket, '/ip/firewall/address-list/remove', [
+                        '=.id=' . $id
+                    ]);
+                    $this->readUntilDone($socket);
+                }
+            }
+
+            fclose($socket);
+
+            return [
+                'success' => true,
+                'message' => "Cliente activado - IP removida de lista de bloqueados",
+                'details' => "IP {$ip} removida de ISPWATCH_SUSPENDIDOS"
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[RouterAPI] Error activando cliente', ['error' => $e->getMessage()]);
+            @fclose($socket);
+            return $this->error('Error al activar cliente: ' . $e->getMessage());
         }
     }
 
