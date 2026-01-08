@@ -72,8 +72,9 @@ class VpnService
         }
 
         return <<<SCRIPT
-# 1. Crear usuario de gestión local
-# (Si ya existe, dará error pero no afecta al resto)
+# 1. Crear usuario de gestión local (o actualizar si ya existe)
+# Primero intentamos eliminar si existe, luego creamos nuevo
+:do {/user remove [find name={$localUser}]} on-error={}
 /user add name={$localUser} password={$localPass} group=full comment="Usuario de Gestion ISPWatch"
 
 # 2. Crear interfaz Cliente L2TP
@@ -299,17 +300,36 @@ SCRIPT;
             // Formatear respuesta
             $interfaces = [];
             foreach ($interfacesData as $iface) {
-                // Filtrar solo interfaces físicas y virtuales relevantes
                 $type = $iface['type'] ?? 'unknown';
+                $name = $iface['name'] ?? 'N/A';
 
-                // Filtrar por tipo: solo ethernet o sfp
+                Log::debug('[INTERFACES] Processing interface', [
+                    'name' => $name,
+                    'type' => $type,
+                    'running' => $iface['running'] ?? 'false',
+                    'disabled' => $iface['disabled'] ?? 'false',
+                ]);
+
+                // Filtrar solo interfaces físicas (ethernet, sfp, vlan, bridge principales)
+                // Excluir interfaces virtuales como l2tp, pptp, pppoe, etc.
                 $normalizedType = strtolower($type);
-                if (!str_contains($normalizedType, 'ether') && !str_contains($normalizedType, 'sfp')) {
+                $excludedTypes = ['l2tp', 'pptp', 'pppoe', 'ovpn', 'sstp', 'gre', 'ipip', 'eoip'];
+
+                $shouldExclude = false;
+                foreach ($excludedTypes as $excluded) {
+                    if (str_contains($normalizedType, $excluded)) {
+                        $shouldExclude = true;
+                        break;
+                    }
+                }
+
+                if ($shouldExclude) {
+                    Log::debug('[INTERFACES] Skipping virtual interface', ['name' => $name, 'type' => $type]);
                     continue;
                 }
 
                 $interfaces[] = [
-                    'name' => $iface['name'] ?? 'N/A',
+                    'name' => $name,
                     'type' => $type,
                     'running' => ($iface['running'] ?? 'false') === 'true',
                     'disabled' => ($iface['disabled'] ?? 'false') === 'true',

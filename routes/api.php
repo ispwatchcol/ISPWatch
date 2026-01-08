@@ -33,6 +33,9 @@ Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpn
 Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
 Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
 
+// Firewall Block Rules
+Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
+
 /*
 |--------------------------------------------------------------------------
 | API RESOURCES (CRUD Completo: index, show, store, update, destroy)

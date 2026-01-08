@@ -129,11 +129,12 @@ class RouterController extends Controller
 
     /**
      * Get interfaces from the client router
+     * Usa RouterApiService para conexión directa al router
      */
     public function getInterfaces(Router $router)
     {
-        $vpnService = new VpnService();
-        $result = $vpnService->getInterfaces($router);
+        $routerApi = new \App\Services\RouterApiService();
+        $result = $routerApi->getInterfaces($router);
 
         return response()->json($result);
     }
@@ -156,5 +157,16 @@ class RouterController extends Controller
             'message' => 'Interfaz WAN configurada correctamente',
             'wan_interface' => $router->wan_interface,
         ]);
+    }
+
+    /**
+     * Apply firewall block rules for delinquent users
+     */
+    public function applyBlockRules(Router $router)
+    {
+        $routerApi = new \App\Services\RouterApiService();
+        $result = $routerApi->applyBlockRules($router);
+
+        return response()->json($result);
     }
 }

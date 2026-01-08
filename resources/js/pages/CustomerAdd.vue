@@ -136,6 +136,60 @@
             </div>
             </div>
 
+            <!-- Sección: Configuración del Servicio -->
+            <div class="mb-8">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
+                Configuración del Servicio
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- IP del Usuario -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    IP del Usuario
+                </label>
+                <input
+                    v-model="form.ip_user"
+                    type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                    placeholder="Ej: 192.168.1.100"
+                />
+                </div>
+
+                <!-- Plan/Servicio -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Plan de Servicio
+                </label>
+                <select
+                    v-model="form.service_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                >
+                    <option :value="null">Seleccionar plan...</option>
+                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">
+                        {{ plan.name }}
+                    </option>
+                </select>
+                </div>
+
+                <!-- Sectorial -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Sectorial
+                </label>
+                <select
+                    v-model="form.sectorial_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                >
+                    <option :value="null">Seleccionar sectorial...</option>
+                    <option v-for="sectorial in sectorials" :key="sectorial.id" :value="sectorial.id">
+                        {{ sectorial.name }}
+                    </option>
+                </select>
+                </div>
+            </div>
+            </div>
+
             <!-- Error -->
             <div v-if="error" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
             {{ error }}
@@ -164,7 +218,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 
@@ -182,10 +236,37 @@ const form = ref({
     last_name: '',
     department: '',
     position: '',
+
+    // configuración del servicio
+    ip_user: '',
+    service_id: null,
+    sectorial_id: null,
 })
 
 const loading = ref(false)
 const error = ref('')
+
+// Datos para selects
+const plans = ref([])
+const sectorials = ref([])
+
+// Cargar catálogos
+const loadCatalogs = async () => {
+    try {
+        const [plansRes, sectorialsRes] = await Promise.all([
+            api.plans.getAll(),
+            api.sectorials.getAll(),
+        ])
+        // PlanController devuelve { data: [...] }
+        plans.value = plansRes.data.data || []
+        // SectorialController devuelve [...]
+        sectorials.value = sectorialsRes.data || []
+    } catch (err) {
+        console.error('Error al cargar catálogos:', err)
+    }
+}
+
+onMounted(loadCatalogs)
 
 const handleSubmit = async () => {
     loading.value = true

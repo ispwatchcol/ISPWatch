@@ -15,13 +15,20 @@ class CustomerProfileController extends Controller
     public function index()
     {
         $customers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->leftJoin('service_plan', 'customer_profile.service_id', '=', 'service_plan.id')
+            ->leftJoin('sectorial', 'customer_profile.sectorial_id', '=', 'sectorial.id')
             ->select(
                 'customer_profile.user_id',
                 'customer_profile.name',
                 'customer_profile.last_name',
                 'customer_profile.department',
                 'customer_profile.position',
-                'users.email'
+                'customer_profile.ip_user',
+                'customer_profile.service_id',
+                'customer_profile.sectorial_id',
+                'users.email',
+                'service_plan.name as service_name',
+                'sectorial.name as sectorial_name'
             )
             ->get();
 
@@ -164,6 +171,10 @@ class CustomerProfileController extends Controller
             'last_name' => 'required|string|max:255',
             'department' => 'nullable|string|max:255',
             'position' => 'nullable|string|max:255',
+            // nuevos campos de servicio
+            'ip_user' => 'nullable|string|max:45',
+            'service_id' => 'nullable|integer|exists:service_plan,id',
+            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
         ]);
 
         DB::beginTransaction();
@@ -189,6 +200,9 @@ class CustomerProfileController extends Controller
                 'last_name' => $data['last_name'],
                 'department' => $data['department'] ?? null,
                 'position' => $data['position'] ?? null,
+                'ip_user' => $data['ip_user'] ?? null,
+                'service_id' => $data['service_id'] ?? null,
+                'sectorial_id' => $data['sectorial_id'] ?? null,
             ]);
 
             DB::commit();
@@ -221,6 +235,9 @@ class CustomerProfileController extends Controller
             'last_name' => $customer->last_name,
             'department' => $customer->department,
             'position' => $customer->position,
+            'ip_user' => $customer->ip_user,
+            'service_id' => $customer->service_id,
+            'sectorial_id' => $customer->sectorial_id,
             'email' => $user->email,
             'tel' => $user->tel,
             'email_tenant' => $user->email_tenant,
@@ -247,6 +264,10 @@ class CustomerProfileController extends Controller
             'last_name' => 'sometimes|required|string|max:255',
             'department' => 'nullable|string|max:255',
             'position' => 'nullable|string|max:255',
+            // nuevos campos de servicio
+            'ip_user' => 'nullable|string|max:45',
+            'service_id' => 'nullable|integer|exists:service_plan,id',
+            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
         ]);
 
         DB::beginTransaction();
@@ -273,6 +294,9 @@ class CustomerProfileController extends Controller
                 'last_name' => $data['last_name'] ?? $customer->last_name,
                 'department' => $data['department'] ?? $customer->department,
                 'position' => $data['position'] ?? $customer->position,
+                'ip_user' => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
+                'service_id' => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
+                'sectorial_id' => array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
             ]);
 
             DB::commit();

@@ -23,7 +23,10 @@ class CustomerProfile extends Model
         'postal_code',
         'country',
         'latitude',
-        'longitude'
+        'longitude',
+        'ip_user',
+        'service_id',
+        'sectorial_id',
     ];
 
     public function user()

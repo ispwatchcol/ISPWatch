@@ -72,6 +72,13 @@ export default {
     },
   },
 
+  // Alias para compatibilidad
+  plans: {
+    getAll(params = {}) {
+      return apiClient.get('/plans', { params })
+    },
+  },
+
   // =========================
   // CUSTOMERS
   // =========================

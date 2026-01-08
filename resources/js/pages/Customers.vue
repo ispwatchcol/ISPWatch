@@ -56,6 +56,9 @@
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nombre</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Apellido</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Email</th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">IP</th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Plan</th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Sectorial</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Departamento</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Posición</th>
                 <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
@@ -67,6 +70,9 @@
                 <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">{{ customer.name }}</td>
                 <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">{{ customer.last_name }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.email }}</td>
+                <td class="px-6 py-4 text-sm font-mono text-gray-600 dark:text-gray-300">{{ customer.ip_user || '-' }}</td>
+                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.service_name || '-' }}</td>
+                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.sectorial_name || '-' }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.department || '-' }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.position || '-' }}</td>
                 <td class="px-6 py-4 text-center">
@@ -96,7 +102,7 @@
                 </tr>
 
                 <tr v-if="filteredCustomers.length === 0 && !loading">
-                <td colspan="7" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                <td colspan="10" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                     {{ searchQuery ? 'No se encontraron resultados' : 'No hay clientes registrados' }}
                 </td>
                 </tr>
@@ -132,12 +138,14 @@ const filteredCustomers = computed(() => {
         const email = customer.email?.toLowerCase() || ''
         const department = customer.department?.toLowerCase() || ''
         const position = customer.position?.toLowerCase() || ''
+        const ip = customer.ip_user?.toLowerCase() || ''
 
         return (
         fullName.includes(query) ||
         email.includes(query) ||
         department.includes(query) ||
-        position.includes(query)
+        position.includes(query) ||
+        ip.includes(query)
         )
     })
 })
