@@ -34,12 +34,21 @@
             placeholder="Buscar por nombre, IP o usuario..."
             class="border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-2 w-80 focus:ring-2 focus:ring-blue-300 outline-none dark:bg-gray-900 dark:text-white"
           />
-          <button
-            @click="clearSearch"
-            class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
-          >
-            Limpiar
-          </button>
+          <div class="flex gap-2">
+            <button
+              @click="clearSearch"
+              class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+            >
+              Limpiar
+            </button>
+            <button
+              @click="openBlockRulesInfo"
+              class="text-sm bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-md"
+            >
+              <icon-lucide-shield-ban class="w-4 h-4" />
+              Configurar Reglas de Bloqueo
+            </button>
+          </div>
         </div>
 
         <!-- Tabla -->
@@ -89,6 +98,19 @@
                     <icon-lucide-pencil class="w-4 h-4" />
                     Editar
                   </button>
+
+                  <!-- Botón Configurar WAN -->
+                  <button
+                    @click="openWanModal(router)"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                          bg-purple-50 text-purple-700 border border-purple-200
+                          hover:bg-purple-100 hover:scale-[1.03] transition-all
+                          dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800 dark:hover:bg-purple-800/50"
+                  >
+                    <icon-lucide-network class="w-4 h-4" />
+                    WAN
+                  </button>
+
                   <!-- Botón Detalles -->
                   <button
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
@@ -122,6 +144,290 @@
           </table>
         </div>
       </div>
+
+      <!-- Modal Configurar WAN -->
+      <div
+        v-if="showWanModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        @click.self="closeWanModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-2xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <icon-lucide-network class="w-6 h-6 text-purple-600" />
+                Configurar Interfaz WAN
+              </h2>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {{ selectedRouter?.name }} - {{ selectedRouter?.ip }}
+              </p>
+            </div>
+            <button
+              @click="closeWanModal"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <icon-lucide-x class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Contenido -->
+          <div class="space-y-4">
+            <!-- Cargando -->
+            <div v-if="loadingInterfaces" class="flex flex-col items-center justify-center py-12">
+              <icon-lucide-loader-2 class="w-12 h-12 text-purple-600 animate-spin mb-4" />
+              <p class="text-gray-600 dark:text-gray-300">Obteniendo interfaces del router...</p>
+            </div>
+
+            <!-- Error -->
+            <div v-else-if="interfacesError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-red-800 dark:text-red-300">Error al obtener interfaces</h4>
+                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ interfacesError }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Lista de Interfaces -->
+            <div v-else-if="interfaces.length > 0" class="space-y-3">
+              <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Selecciona la interfaz WAN (conexión a internet):
+              </div>
+
+              <div class="max-h-96 overflow-y-auto space-y-2">
+                <label
+                  v-for="iface in interfaces"
+                  :key="iface.name"
+                  class="flex items-center justify-between p-4 border rounded-lg cursor-pointer transition-all"
+                  :class="[
+                    selectedWan === iface.name
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-700',
+                    !iface.running || iface.disabled ? 'opacity-50' : ''
+                  ]"
+                >
+                  <div class="flex items-center gap-3 flex-1">
+                    <input
+                      type="radio"
+                      :value="iface.name"
+                      v-model="selectedWan"
+                      :disabled="!iface.running || iface.disabled"
+                      class="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                    />
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-gray-800 dark:text-gray-100">{{ iface.name }}</span>
+                        <span
+                          v-if="iface.name === currentWan"
+                          class="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                        >
+                          WAN Actual
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        <span class="capitalize">{{ iface.type }}</span>
+                        <span v-if="iface.comment" class="text-gray-400">• {{ iface.comment }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span
+                      v-if="iface.running"
+                      class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                    >
+                      Activa
+                    </span>
+                    <span
+                      v-else
+                      class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                    >
+                      Inactiva
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Sin interfaces -->
+            <div v-else class="text-center py-8 text-gray-500 dark:text-gray-400">
+              No se encontraron interfaces disponibles
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeWanModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              @click="saveWanInterface"
+              :disabled="!selectedWan || savingWan"
+              class="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <icon-lucide-loader-2 v-if="savingWan" class="w-4 h-4 animate-spin" />
+              <icon-lucide-save v-else class="w-4 h-4" />
+              {{ savingWan ? 'Guardando...' : 'Guardar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Configurar Reglas de Bloqueo -->
+      <div
+        v-if="showBlockRulesModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        @click.self="closeBlockRulesModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-3xl p-6 m-4">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-2xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <icon-lucide-shield-ban class="w-6 h-6 text-orange-600" />
+                Configurar Reglas de Bloqueo
+              </h2>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Selecciona un router para aplicar reglas de firewall de bloqueo
+              </p>
+            </div>
+            <button
+              @click="closeBlockRulesModal"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <icon-lucide-x class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div class="space-y-4">
+            <!-- Info Alert -->
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <icon-lucide-info class="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-blue-800 dark:text-blue-300">¿Qué son las reglas de bloqueo?</h4>
+                  <p class="text-sm text-blue-600 dark:text-blue-400 mt-1">
+                    Se configurarán reglas de firewall en MikroTik que redirigen el tráfico HTTP/HTTPS de usuarios morosos 
+                    a un portal de pago. Se creará una address-list "ISPWATCH_SUSPENDIDOS" y reglas NAT que redirigen 
+                    a los morosos al portal, bloqueando el resto del tráfico.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Router Selection -->
+            <div v-if="!selectedBlockRouter" class="space-y-3">
+              <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Selecciona el router donde deseas configurar las reglas:
+              </div>
+
+              <div class="max-h-96 overflow-y-auto space-y-2">
+                <button
+                  v-for="router in routers"
+                  :key="router.id"
+                  @click="selectRouterForBlock(router)"
+                  class="w-full flex items-center justify-between p-4 border rounded-lg cursor-pointer transition-all hover:border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 border-gray-200 dark:border-gray-700"
+                >
+                  <div class="flex items-center gap-3 flex-1">
+                    <icon-lucide-server class="w-5 h-5 text-gray-500" />
+                    <div class="text-left">
+                      <div class="font-medium text-gray-800 dark:text-gray-100">{{ router.name }}</div>
+                      <div class="text-sm text-gray-500 dark:text-gray-400">
+                        {{ router.ip }} • WAN: {{ router.wan_interface || 'No configurada' }}
+                      </div>
+                    </div>
+                  </div>
+                  <icon-lucide-chevron-right class="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Router Selected - Configuration -->
+            <div v-else class="space-y-4">
+              <!-- Selected Router Info -->
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 flex items-center justify-between">
+                <div>
+                  <div class="font-medium text-gray-800 dark:text-gray-100">{{ selectedBlockRouter.name }}</div>
+                  <div class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ selectedBlockRouter.ip }} • WAN: {{ selectedBlockRouter.wan_interface || 'No configurada' }}
+                  </div>
+                </div>
+                <button
+                  @click="selectedBlockRouter = null"
+                  class="text-sm text-orange-600 hover:text-orange-700 dark:text-orange-400"
+                >
+                  Cambiar router
+                </button>
+              </div>
+
+              <!-- Warning if WAN not configured -->
+              <div
+                v-if="!selectedBlockRouter.wan_interface"
+                class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4"
+              >
+                <div class="flex items-start gap-3">
+                  <icon-lucide-alert-triangle class="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 class="font-medium text-yellow-800 dark:text-yellow-300">WAN no configurada</h4>
+                    <p class="text-sm text-yellow-600 dark:text-yellow-400 mt-1">
+                      Este router no tiene una interfaz WAN configurada. Por favor configúrala primero usando el botón "WAN".
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Rules Configuration -->
+              <div v-else class="space-y-4">
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                  <h4 class="font-medium text-gray-800 dark:text-gray-100 mb-3">Reglas que se aplicarán:</h4>
+                  <ul class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                    <li class="flex items-start gap-2">
+                      <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                      <span>Crear address-list "ISPWATCH_SUSPENDIDOS" para gestionar usuarios morosos</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                      <span>Regla NAT para redirigir HTTP (puerto 80) al portal de pago</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                      <span>Regla NAT para redirigir HTTPS (puerto 443) al portal de pago</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                      <span>Regla de firewall para bloquear todo el resto del tráfico hacia {{ selectedBlockRouter.wan_interface }}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Apply Button -->
+                <div class="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <button
+                    @click="closeBlockRulesModal"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    @click="applyBlockRules"
+                    :disabled="applyingRules"
+                    class="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  >
+                    <icon-lucide-loader-2 v-if="applyingRules" class="w-4 h-4 animate-spin" />
+                    <icon-lucide-shield-check v-else class="w-4 h-4" />
+                    {{ applyingRules ? 'Aplicando...' : 'Aplicar Reglas' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -134,6 +440,21 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 const search = ref('')
 const routers = ref([])
+
+// Estados del modal WAN
+const showWanModal = ref(false)
+const selectedRouter = ref(null)
+const interfaces = ref([])
+const selectedWan = ref(null)
+const currentWan = ref(null)
+const loadingInterfaces = ref(false)
+const interfacesError = ref(null)
+const savingWan = ref(false)
+
+// Estados del modal Reglas de Bloqueo
+const showBlockRulesModal = ref(false)
+const selectedBlockRouter = ref(null)
+const applyingRules = ref(false)
 
 // 🔹 Navegar a la vista de agregar router
 const goToAddRouter = () => {
@@ -158,7 +479,7 @@ const loadRouters = async () => {
   // Consultar routers por tenant
   const { data, error } = await supabase
     .from("router")
-    .select("id, name, ip, user_rb, lan_interface, firmware_version, status")
+    .select("id, name, ip, user_rb, lan_interface, wan_interface, firmware_version, status")
     .eq("tenant_id", tenant_id)
 
   if (error) {
@@ -198,4 +519,141 @@ const filteredRouters = computed(() =>
 )
 
 const clearSearch = () => (search.value = '')
+
+// ==============================
+// FUNCIONES MODAL WAN
+// ==============================
+
+// Abrir modal y cargar interfaces
+const openWanModal = async (routerData) => {
+  selectedRouter.value = routerData
+  showWanModal.value = true
+  interfaces.value = []
+  selectedWan.value = null
+  currentWan.value = null
+  interfacesError.value = null
+  loadingInterfaces.value = true
+
+  try {
+    const response = await fetch(`/api/routers/${routerData.id}/interfaces`)
+    const data = await response.json()
+
+    if (data.success) {
+      interfaces.value = data.interfaces
+      currentWan.value = data.current_wan
+      // Pre-seleccionar la WAN actual si existe
+      if (data.current_wan) {
+        selectedWan.value = data.current_wan
+      }
+    } else {
+      interfacesError.value = data.message || 'Error al obtener interfaces'
+    }
+  } catch (error) {
+    console.error('Error al cargar interfaces:', error)
+    interfacesError.value = 'Error de conexión al obtener interfaces'
+  } finally {
+    loadingInterfaces.value = false
+  }
+}
+
+// Cerrar modal
+const closeWanModal = () => {
+  showWanModal.value = false
+  selectedRouter.value = null
+  interfaces.value = []
+  selectedWan.value = null
+  currentWan.value = null
+  interfacesError.value = null
+}
+
+// Guardar interfaz WAN seleccionada
+const saveWanInterface = async () => {
+  if (!selectedWan.value || !selectedRouter.value) return
+
+  savingWan.value = true
+
+  try {
+    const response = await fetch(`/api/routers/${selectedRouter.value.id}/set-wan-interface`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        wan_interface: selectedWan.value,
+      }),
+    })
+
+    const data = await response.json()
+
+    if (data.success) {
+      alert('✅ Interfaz WAN configurada correctamente')
+      closeWanModal()
+      // Recargar lista de routers para actualizar datos
+      await loadRouters()
+    } else {
+      alert('❌ Error al guardar: ' + (data.message || 'Error desconocido'))
+    }
+  } catch (error) {
+    console.error('Error al guardar WAN:', error)
+    alert('❌ Error de conexión al guardar')
+  } finally {
+    savingWan.value = false
+  }
+}
+
+// ==============================
+// FUNCIONES MODAL REGLAS DE BLOQUEO
+// ==============================
+
+// Abrir modal de reglas de bloqueo
+const openBlockRulesInfo = () => {
+  showBlockRulesModal.value = true
+  selectedBlockRouter.value = null
+}
+
+// Cerrar modal de reglas de bloqueo
+const closeBlockRulesModal = () => {
+  showBlockRulesModal.value = false
+  selectedBlockRouter.value = null
+}
+
+// Seleccionar router para aplicar reglas
+const selectRouterForBlock = (routerData) => {
+  selectedBlockRouter.value = routerData
+}
+
+// Aplicar reglas de bloqueo al router
+const applyBlockRules = async () => {
+  if (!selectedBlockRouter.value || !selectedBlockRouter.value.wan_interface) return
+
+  if (!confirm(`¿Estás seguro de aplicar las reglas de bloqueo en ${selectedBlockRouter.value.name}? Esto configurará el firewall para bloquear usuarios morosos.`)) {
+    return
+  }
+
+  applyingRules.value = true
+
+  try {
+    const response = await fetch(`/api/routers/${selectedBlockRouter.value.id}/apply-block-rules`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const data = await response.json()
+
+    if (data.success) {
+      alert('✅ Reglas de bloqueo aplicadas correctamente')
+      closeBlockRulesModal()
+    } else {
+      alert('❌ Error al aplicar reglas: ' + (data.message || 'Error desconocido'))
+    }
+  } catch (error) {
+    console.error('Error al aplicar reglas de bloqueo:', error)
+    alert('❌ Error de conexión al aplicar reglas')
+  } finally {
+    applyingRules.value = false
+  }
+}
+
 </script>

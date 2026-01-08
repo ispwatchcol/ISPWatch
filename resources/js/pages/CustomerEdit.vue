@@ -1,27 +1,27 @@
 <template>
-    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-3 sm:p-6">
         <!-- Header -->
-        <div class="flex items-center gap-4 mb-6">
+        <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
         <button
             @click="router.push({ name: 'Customers' })"
             class="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white transition"
         >
-            <icon-mdi-arrow-left class="w-6 h-6" />
+            <icon-mdi-arrow-left class="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
         <div>
-            <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Editar Cliente</h1>
-            <p class="text-gray-500 dark:text-gray-400 mt-1">Modifica los datos del cliente</p>
+            <h1 class="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 dark:text-gray-100">Editar Cliente</h1>
+            <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Modifica los datos del cliente</p>
         </div>
         </div>
 
         <!-- Loading -->
         <div v-if="loadingData" class="text-center py-12">
         <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-        <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando datos...</p>
+        <p class="text-gray-500 dark:text-gray-400 mt-4 text-sm sm:text-base">Cargando datos...</p>
         </div>
 
         <!-- Formulario -->
-        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
         <form @submit.prevent="handleSubmit">
             
             <!-- Sección: Datos del Usuario -->
@@ -128,24 +128,93 @@
             </div>
             </div>
 
+            <!-- Sección: Configuración del Servicio -->
+            <div class="mb-8">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
+                Configuración del Servicio
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- IP del Usuario -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    IP del Usuario
+                </label>
+                <input
+                    v-model="form.ip_user"
+                    type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                    placeholder="Ej: 192.168.1.100"
+                />
+                </div>
+
+                <!-- Plan/Servicio -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Plan de Servicio
+                </label>
+                <select
+                    v-model="form.service_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                >
+                    <option :value="null">Seleccionar plan...</option>
+                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">
+                        {{ plan.name }}
+                    </option>
+                </select>
+                </div>
+
+                <!-- Sectorial -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Sectorial
+                </label>
+                <select
+                    v-model="form.sectorial_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                >
+                    <option :value="null">Seleccionar sectorial...</option>
+                    <option v-for="sectorial in sectorials" :key="sectorial.id" :value="sectorial.id">
+                        {{ sectorial.name }}
+                    </option>
+                </select>
+                </div>
+                <!-- Router (Nuevo) -->
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Router
+                </label>
+                <select
+                    v-model="form.router_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                >
+                    <option :value="null">Seleccionar router...</option>
+                    <option v-for="router in routers" :key="router.id" :value="router.id">
+                        {{ router.name }}
+                    </option>
+                </select>
+                </div>
+            </div>
+            </div>
+
             <!-- Error -->
             <div v-if="error" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
             {{ error }}
             </div>
 
             <!-- Botones -->
-            <div class="flex gap-4">
+            <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <button
                 type="submit"
                 :disabled="loading"
-                class="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white py-3 rounded-lg font-medium transition"
+                class="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white py-2.5 sm:py-3 rounded-lg font-medium transition text-sm sm:text-base"
             >
                 {{ loading ? 'Guardando...' : 'Actualizar Cliente' }}
             </button>
             <button
                 type="button"
                 @click="router.push({ name: 'Customers' })"
-                class="px-8 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-3 rounded-lg transition"
+                class="px-6 sm:px-8 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-2.5 sm:py-3 rounded-lg transition text-sm sm:text-base"
             >
                 Cancelar
             </button>
@@ -171,12 +240,41 @@ const form = ref({
     name: '',
     last_name: '',
     department: '',
-    position: ''
+    position: '',
+    // configuración del servicio
+    ip_user: '',
+    service_id: null,
+    sectorial_id: null,
+    router_id: null,
 })
 
 const loading = ref(false)
 const loadingData = ref(true)
 const error = ref('')
+
+// Datos para selects
+const plans = ref([])
+const sectorials = ref([])
+const routers = ref([])
+
+// Cargar catálogos
+const loadCatalogs = async () => {
+    try {
+        const [plansRes, sectorialsRes, routersRes] = await Promise.all([
+            api.plans.getAll(),
+            api.sectorials.getAll(),
+            api.routers.getAll(),
+        ])
+        // PlanController devuelve { data: [...] }
+        plans.value = plansRes.data.data || []
+        // SectorialController devuelve [...]
+        sectorials.value = sectorialsRes.data || []
+        // RouterController devuelve directamente un array
+        routers.value = routersRes.data || []
+    } catch (err) {
+        console.error('Error al cargar catálogos:', err)
+    }
+}
 
 const loadCustomer = async () => {
     try {
@@ -189,7 +287,12 @@ const loadCustomer = async () => {
             email: response.data.email,
             tel: response.data.tel || '',
             email_tenant: response.data.email_tenant || '',
-            password: ''
+            password: '',
+            // datos del servicio
+            ip_user: response.data.ip_user || '',
+            service_id: response.data.service_id || null,
+            sectorial_id: response.data.sectorial_id || null,
+            router_id: response.data.router_id || null,
         }
     } catch (err) {
         console.error('Error al cargar cliente:', err)
@@ -222,6 +325,7 @@ const handleSubmit = async () => {
 }
 
 onMounted(() => {
+    loadCatalogs()
     loadCustomer()
 })
 </script>

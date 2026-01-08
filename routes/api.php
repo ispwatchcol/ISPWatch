@@ -24,10 +24,21 @@ Route::post('/login', [AuthController::class, 'login']);
 */
 Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
 Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
+Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision']);
+Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision']);
+Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend']);
+Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
 
 // VPN Routes
 Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
 Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
+
+// Router Interfaces Routes
+Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
+Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
+
+// Firewall Block Rules
+Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
 
 /*
 |--------------------------------------------------------------------------

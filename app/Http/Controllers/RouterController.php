@@ -126,4 +126,47 @@ class RouterController extends Controller
 
         return response()->json($result);
     }
+
+    /**
+     * Get interfaces from the client router
+     * Usa RouterApiService para conexión directa al router
+     */
+    public function getInterfaces(Router $router)
+    {
+        $routerApi = new \App\Services\RouterApiService();
+        $result = $routerApi->getInterfaces($router);
+
+        return response()->json($result);
+    }
+
+    /**
+     * Set WAN interface for the router
+     */
+    public function setWanInterface(Request $request, Router $router)
+    {
+        $data = $request->validate([
+            'wan_interface' => 'required|string|max:255',
+        ]);
+
+        $router->update([
+            'wan_interface' => $data['wan_interface'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Interfaz WAN configurada correctamente',
+            'wan_interface' => $router->wan_interface,
+        ]);
+    }
+
+    /**
+     * Apply firewall block rules for delinquent users
+     */
+    public function applyBlockRules(Router $router)
+    {
+        $routerApi = new \App\Services\RouterApiService();
+        $result = $routerApi->applyBlockRules($router);
+
+        return response()->json($result);
+    }
 }

@@ -15,13 +15,24 @@ class CustomerProfileController extends Controller
     public function index()
     {
         $customers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->leftJoin('service_plan', 'customer_profile.service_id', '=', 'service_plan.id')
+            ->leftJoin('sectorial', 'customer_profile.sectorial_id', '=', 'sectorial.id')
+            ->leftJoin('router', 'customer_profile.router_id', '=', 'router.id')
             ->select(
                 'customer_profile.user_id',
                 'customer_profile.name',
                 'customer_profile.last_name',
                 'customer_profile.department',
                 'customer_profile.position',
-                'users.email'
+                'customer_profile.ip_user',
+                'customer_profile.service_id',
+                'customer_profile.sectorial_id',
+                'customer_profile.router_id',
+                'customer_profile.status',
+                'users.email',
+                'service_plan.name as service_name',
+                'sectorial.name as sectorial_name',
+                'router.name as router_name'
             )
             ->get();
 
@@ -139,6 +150,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.country',
                 'customer_profile.latitude',
                 'customer_profile.longitude',
+                'customer_profile.router_id',
                 'users.email'
             )
             ->whereNotNull('customer_profile.latitude')
@@ -164,6 +176,11 @@ class CustomerProfileController extends Controller
             'last_name' => 'required|string|max:255',
             'department' => 'nullable|string|max:255',
             'position' => 'nullable|string|max:255',
+            // nuevos campos de servicio
+            'ip_user' => 'nullable|string|max:45',
+            'service_id' => 'nullable|integer|exists:service_plan,id',
+            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
+            'router_id' => 'nullable|integer|exists:router,id',
         ]);
 
         DB::beginTransaction();
@@ -189,6 +206,10 @@ class CustomerProfileController extends Controller
                 'last_name' => $data['last_name'],
                 'department' => $data['department'] ?? null,
                 'position' => $data['position'] ?? null,
+                'ip_user' => $data['ip_user'] ?? null,
+                'service_id' => $data['service_id'] ?? null,
+                'sectorial_id' => $data['sectorial_id'] ?? null,
+                'router_id' => $data['router_id'] ?? null,
             ]);
 
             DB::commit();
@@ -221,9 +242,204 @@ class CustomerProfileController extends Controller
             'last_name' => $customer->last_name,
             'department' => $customer->department,
             'position' => $customer->position,
+            'ip_user' => $customer->ip_user,
+            'service_id' => $customer->service_id,
+            'sectorial_id' => $customer->sectorial_id,
+            'router_id' => $customer->router_id,
             'email' => $user->email,
             'tel' => $user->tel,
             'email_tenant' => $user->email_tenant,
+        ]);
+    }
+
+    /**
+     * Provision customer to Mikrotik Router.
+     */
+    public function provision($id, \App\Services\RouterApiService $routerApi)
+    {
+        $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+
+        if (!$customer->router_id) {
+            return response()->json([
+                'message' => 'El cliente no tiene un router asignado.',
+            ], 400);
+        }
+
+        if (!$customer->service_id) {
+            return response()->json([
+                'message' => 'El cliente no tiene un plan de servicio asignado.',
+            ], 400);
+        }
+
+        $router = \App\Models\Router::find($customer->router_id);
+        $servicePlan = \App\Models\Plan::find($customer->service_id);
+
+        if (!$router) {
+            return response()->json([
+                'message' => 'Router asignado no encontrado.',
+            ], 404);
+        }
+
+        $result = $routerApi->syncCustomer($router, $customer, $servicePlan);
+
+        if ($result['success']) {
+            return response()->json($result);
+        } else {
+            return response()->json($result, 500);
+        }
+    }
+
+    /**
+     * Bulk provision multiple customers to their assigned Mikrotik Routers.
+     */
+    public function bulkProvision(Request $request, \App\Services\RouterApiService $routerApi)
+    {
+        $data = $request->validate([
+            'customer_ids' => 'required|array',
+            'customer_ids.*' => 'integer|exists:customer_profile,user_id',
+        ]);
+
+        $results = [];
+        $successCount = 0;
+        $failCount = 0;
+
+        foreach ($data['customer_ids'] as $customerId) {
+            $customer = CustomerProfile::where('user_id', $customerId)->first();
+
+            if (!$customer) {
+                $results[] = [
+                    'customer_id' => $customerId,
+                    'success' => false,
+                    'message' => 'Cliente no encontrado',
+                ];
+                $failCount++;
+                continue;
+            }
+
+            if (!$customer->router_id || !$customer->service_id) {
+                $results[] = [
+                    'customer_id' => $customerId,
+                    'customer_name' => "{$customer->name} {$customer->last_name}",
+                    'success' => false,
+                    'message' => 'Cliente sin router o plan asignado',
+                ];
+                $failCount++;
+                continue;
+            }
+
+            $router = \App\Models\Router::find($customer->router_id);
+            $servicePlan = \App\Models\Plan::find($customer->service_id);
+
+            if (!$router) {
+                $results[] = [
+                    'customer_id' => $customerId,
+                    'customer_name' => "{$customer->name} {$customer->last_name}",
+                    'success' => false,
+                    'message' => 'Router no encontrado',
+                ];
+                $failCount++;
+                continue;
+            }
+
+            $result = $routerApi->syncCustomer($router, $customer, $servicePlan);
+
+            $results[] = [
+                'customer_id' => $customerId,
+                'customer_name' => "{$customer->name} {$customer->last_name}",
+                'success' => $result['success'],
+                'message' => $result['message'],
+                'details' => $result['details'] ?? null,
+            ];
+
+            if ($result['success']) {
+                $successCount++;
+            } else {
+                $failCount++;
+            }
+        }
+
+        return response()->json([
+            'success' => $failCount === 0,
+            'summary' => "Provisionados: {$successCount}, Fallidos: {$failCount}",
+            'success_count' => $successCount,
+            'fail_count' => $failCount,
+            'results' => $results,
+        ]);
+    }
+
+    /**
+     * Suspend a customer (set status to false and add IP to router block list).
+     */
+    public function suspend($id, \App\Services\RouterApiService $routerApi)
+    {
+        $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+
+        if ($customer->status === false) {
+            return response()->json([
+                'message' => 'El cliente ya está suspendido.',
+            ], 400);
+        }
+
+        // Update status
+        $customer->update(['status' => false]);
+
+        // If router assigned, add IP to block list
+        if ($customer->router_id && $customer->ip_user) {
+            $router = \App\Models\Router::find($customer->router_id);
+            if ($router) {
+                $result = $routerApi->addSuspendedIp(
+                    $router,
+                    $customer->ip_user,
+                    "{$customer->name} {$customer->last_name}"
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Cliente suspendido correctamente.',
+                    'router_result' => $result,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cliente suspendido (sin router asignado).',
+        ]);
+    }
+
+    /**
+     * Activate a customer (set status to true and remove IP from router block list).
+     */
+    public function activate($id, \App\Services\RouterApiService $routerApi)
+    {
+        $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+
+        if ($customer->status === true) {
+            return response()->json([
+                'message' => 'El cliente ya está activo.',
+            ], 400);
+        }
+
+        // Update status
+        $customer->update(['status' => true]);
+
+        // If router assigned, remove IP from block list
+        if ($customer->router_id && $customer->ip_user) {
+            $router = \App\Models\Router::find($customer->router_id);
+            if ($router) {
+                $result = $routerApi->removeSuspendedIp($router, $customer->ip_user);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Cliente activado correctamente.',
+                    'router_result' => $result,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cliente activado (sin router asignado).',
         ]);
     }
 
@@ -247,6 +463,11 @@ class CustomerProfileController extends Controller
             'last_name' => 'sometimes|required|string|max:255',
             'department' => 'nullable|string|max:255',
             'position' => 'nullable|string|max:255',
+            // nuevos campos de servicio
+            'ip_user' => 'nullable|string|max:45',
+            'service_id' => 'nullable|integer|exists:service_plan,id',
+            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
+            'router_id' => 'nullable|integer|exists:router,id',
         ]);
 
         DB::beginTransaction();
@@ -273,6 +494,10 @@ class CustomerProfileController extends Controller
                 'last_name' => $data['last_name'] ?? $customer->last_name,
                 'department' => $data['department'] ?? $customer->department,
                 'position' => $data['position'] ?? $customer->position,
+                'ip_user' => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
+                'service_id' => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
+                'sectorial_id' => array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
+                'router_id' => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
             ]);
 
             DB::commit();

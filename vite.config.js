@@ -27,5 +27,14 @@ export default defineConfig({
       autoInstall: true, // instala los íconos automáticamente
     }),
   ],
+
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
+    hmr: {
+      host: 'localhost', // For local development, use localhost for HMR
+    },
+  },
 })
 
