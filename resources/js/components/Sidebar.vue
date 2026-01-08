@@ -147,18 +147,12 @@
                     </RouterLink>
                 </li>
 
-                <li>
-                    <RouterLink
-                        to="/support"
-                        class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
-                    >
-                        <v-icon
-                            name="md-supportagent-round"
-                            class="w-5 h-5 mr-1"
-                        />
-                        <span class="text-sm pt-1">Soporte</span>
-                    </RouterLink>
-                </li>
+                <SubmenuItem
+                    v-if="supportItems.length > 0"
+                    icon="md-supportagent-round"
+                    title="Soporte"
+                    :items="supportItems"
+                />
 
                 <li>
                     <RouterLink
@@ -228,13 +222,44 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import SubmenuItem from "./SubmenuItem.vue";
+import { hasPermission } from "../services/auth";
 
 const router = useRouter();
 const user = ref({});
 const theme = ref("system");
+
+const supportItems = computed(() => {
+    const items = [];
+    
+    if (hasPermission('support.view') || hasPermission('support.view.own')) {
+        items.push({
+            name: 'Tickets',
+            to: '/support',
+            icon: 'io-ticket-outline',
+        });
+    }
+    
+    if (hasPermission('support.create')) {
+        items.push({
+            name: 'Nuevo Ticket',
+            to: '/support/create',
+            icon: 'oi-diff-added',
+        });
+    }
+    
+    if (hasPermission('support.statistics')) {
+        items.push({
+            name: 'Estadísticas',
+            to: '/support/statistics',
+            icon: 'md-dashboard-outlined',
+        });
+    }
+    
+    return items;
+});
 
 onMounted(() => {
     const localData = localStorage.getItem("userData");

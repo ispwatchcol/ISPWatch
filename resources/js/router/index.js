@@ -172,6 +172,45 @@ const routes = [
       }
     ],
   },
+  
+  // SUPPORT
+  {
+    path: '/support',
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Support',
+        component: () => import('@/pages/Support.vue'),
+        meta: { permission: 'support.view' } // Added permission
+      },
+      {
+        path: 'create',
+        name: 'SupportCreate',
+        component: () => import('@/pages/SupportCreate.vue'),
+        meta: { permission: 'support.create' }
+      },
+      {
+        path: ':id',
+        name: 'SupportDetail',
+        component: () => import('@/pages/SupportDetail.vue'),
+        // No strict permission here, handled in component (view own or all)
+      },
+      {
+        path: ':id/edit',
+        name: 'SupportEdit',
+        component: () => import('@/pages/SupportEdit.vue'),
+        meta: { permission: 'support.update' } // Admin/Staff only
+      },
+      {
+        path: 'statistics',
+        name: 'SupportStatistics',
+        component: () => import('@/pages/SupportStatistics.vue'),
+        meta: { permission: 'support.statistics' } // Admin/Staff only
+      },
+    ],
+  },
   {
     path: '/billing',
     component: DefaultLayout,
@@ -255,18 +294,31 @@ const router = createRouter({
   routes,
 });
 
+import { hasPermission } from '../services/auth';
+
 // ✅ Protección de rutas
 router.beforeEach((to, from, next) => {
   const isLoggedIn =
     localStorage.getItem('isLoggedIn') === 'true' ||
     sessionStorage.getItem('isLoggedIn') === 'true';
 
+  // 1. Check Login
   if (to.meta.requiresAuth && !isLoggedIn) {
     return next({ name: 'Login' });
   }
 
+  // 2. Redirect logged in users from Login page
   if (to.name === 'Login' && isLoggedIn) {
     return next({ name: 'Dashboard' });
+  }
+
+  // 3. Check Permissions
+  if (to.meta.permission) {
+    if (!hasPermission(to.meta.permission)) {
+      // Redirect to dashboard or unauthorized page
+        alert('No tienes permisos para acceder a esta sección.');
+        return next({ name: 'Dashboard' });
+    }
   }
 
   next();

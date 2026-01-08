@@ -9,6 +9,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SectorialController;
 use App\Http\Controllers\PlanController;
+use App\Http\Controllers\SupportTicketController;
 
 /*
 |--------------------------------------------------------------------------
@@ -40,6 +41,13 @@ Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'se
 // Firewall Block Rules
 Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
 
+// Support routes with permissions
+Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
+    ->middleware('permission:support.statistics');
+Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
+Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
+    ->middleware('permission:support.update');
+
 /*
 |--------------------------------------------------------------------------
 | API RESOURCES (CRUD Completo: index, show, store, update, destroy)
@@ -52,6 +60,7 @@ Route::apiResources([
     'staff' => UserController::class,
     'plans' => PlanController::class,
     'sectorials' => SectorialController::class,
+    'support' => SupportTicketController::class,
 ]);
 
 /*

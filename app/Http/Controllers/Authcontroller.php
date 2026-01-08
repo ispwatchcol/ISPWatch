@@ -41,6 +41,7 @@ class AuthController extends Controller
                 'tenant_id' => $user->tenant_id,
                 // Usamos optional() por si el rol es null
                 'role_name' => optional($user->role)->name ?? 'Sin rol',
+                'permissions' => optional($user->role)->permissions ?? [],
             ]
         ]);
     }
