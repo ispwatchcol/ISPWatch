@@ -320,7 +320,7 @@ const loadTenantTimezone = async () => {
         const response = await axios.get(`http://localhost:8000/api/tenants/${user.value.tenant_id}`);
         
         if (response.data.success && response.data.data) {
-            tenantTimezone.value = response.data.data.timezone || 'America/Bogota';
+            tenantTimezone.value = response.data.data.zone_tenant || 'America/Bogota';
         }
     } catch (error) {
         console.error('Error loading tenant timezone:', error);

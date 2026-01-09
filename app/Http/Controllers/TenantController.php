@@ -90,12 +90,28 @@ class TenantController extends Controller
                 'currency' => 'sometimes|nullable|string|max:10',
             ]);
 
-            // Update tenant
-            $tenant->update($validated);
+            // Map inputs to database columns
+            $updateData = [];
+            if ($request->has('name'))
+                $updateData['name'] = $request->name;
+            if ($request->has('domain'))
+                $updateData['domain'] = $request->domain;
+            if ($request->has('email_tenant'))
+                $updateData['email_tenant'] = $request->email_tenant;
+            if ($request->has('tel'))
+                $updateData['tel_tenant'] = $request->tel;
+            if ($request->has('address'))
+                $updateData['address_tenant'] = $request->address;
+            if ($request->has('timezone'))
+                $updateData['zone_tenant'] = $request->timezone;
+            if ($request->has('currency'))
+                $updateData['currency_tenant'] = $request->currency;
+
+            $tenant->update($updateData);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Tenant actualizado correctamente',
+                'message' => 'Información del tenant actualizada correctamente',
                 'data' => $tenant
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -107,8 +123,7 @@ class TenantController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al actualizar información del tenant',
-                'error' => $e->getMessage()
+                'message' => 'Error al actualizar el tenant: ' . $e->getMessage()
             ], 500);
         }
     }

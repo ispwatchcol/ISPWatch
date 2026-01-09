@@ -551,8 +551,8 @@ const saveAllSettings = async () => {
     
     // Show error notification
     toast.value?.error(
-      'Error al guardar',
-      error.response?.data?.message || error.message || 'No se pudo guardar la configuración'
+      'Ups, algo falló',
+      'No se pudo guardar la configuración. Intenta de nuevo.'
     )
   } finally {
     loading.value = false
@@ -589,10 +589,10 @@ const loadTenantData = async () => {
       settings.value.company_name = tenant.name || ''
       settings.value.domain = tenant.domain || ''
       settings.value.contact_email = tenant.email_tenant || ''
-      settings.value.phone = tenant.tel || ''
-      settings.value.address = tenant.address || ''
-      settings.value.timezone = tenant.timezone || 'America/Bogota'
-      settings.value.currency = tenant.currency || 'COP'
+      settings.value.phone = tenant.tel_tenant || ''
+      settings.value.address = tenant.address_tenant || ''
+      settings.value.timezone = tenant.zone_tenant || 'America/Bogota'
+      settings.value.currency = tenant.currency_tenant || 'COP'
     }
   } catch (error) {
     console.error('Error loading tenant data:', error)
@@ -614,20 +614,19 @@ onMounted(async () => {
   // Load tenant data from API
   await loadTenantData()
   
-  // Load saved settings from localStorage
-  const savedSettings = localStorage.getItem('settings')
-  if (savedSettings) {
+  // Load ONLY UI preferences from localStorage (not tenant data)
+  const savedUIPrefs = localStorage.getItem('uiPreferences')
+  if (savedUIPrefs) {
     try {
-      const parsed = JSON.parse(savedSettings)
-      // Only override non-tenant settings
-      settings.value = { 
-        ...settings.value, 
-        ...parsed,
-        // Keep company_name from tenant data if loaded
-        company_name: settings.value.company_name || parsed.company_name
-      }
+      const prefs = JSON.parse(savedUIPrefs)
+      settings.value.compact_mode = prefs.compact_mode ?? false
+      settings.value.animations_enabled = prefs.animations_enabled ?? true
+      settings.value.email_notifications = prefs.email_notifications ?? true
+      settings.value.push_notifications = prefs.push_notifications ?? true
+      settings.value.overdue_alerts = prefs.overdue_alerts ?? true
+      settings.value.router_offline_alerts = prefs.router_offline_alerts ?? true
     } catch (e) {
-      console.error('Error loading settings:', e)
+      console.error('Error loading UI preferences:', e)
     }
   }
   

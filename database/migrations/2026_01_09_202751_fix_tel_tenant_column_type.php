@@ -11,11 +11,8 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('tenant', function (Blueprint $table) {
-            $table->string('email_tenant')->nullable()->after('domain');
-            $table->string('tel')->nullable()->after('email_tenant');
-            $table->text('address')->nullable()->after('tel');
-            $table->string('timezone')->default('America/Bogota')->after('address');
-            $table->string('currency')->default('COP')->after('timezone');
+            // Change tel_tenant from smallint to string
+            $table->string('tel_tenant', 50)->nullable()->change();
         });
     }
 
@@ -25,7 +22,8 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::table('tenant', function (Blueprint $table) {
-            $table->dropColumn(['email_tenant', 'tel', 'address', 'timezone', 'currency']);
+            // Revert back (though this might cause data loss if non-numeric values exist)
+            $table->smallInteger('tel_tenant')->nullable()->change();
         });
     }
 };
