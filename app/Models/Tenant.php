@@ -10,5 +10,10 @@ class Tenant extends Model
     protected $fillable = [
         'name',
         'domain',
+        'email_tenant',
+        'tel',
+        'address',
+        'timezone',
+        'currency',
     ];
 }

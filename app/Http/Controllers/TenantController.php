@@ -83,6 +83,11 @@ class TenantController extends Controller
             $validated = $request->validate([
                 'name' => 'sometimes|required|string|max:255',
                 'domain' => 'sometimes|required|string|max:255',
+                'email_tenant' => 'sometimes|nullable|email|max:255',
+                'tel' => 'sometimes|nullable|string|max:50',
+                'address' => 'sometimes|nullable|string|max:500',
+                'timezone' => 'sometimes|nullable|string|max:100',
+                'currency' => 'sometimes|nullable|string|max:10',
             ]);
 
             // Update tenant

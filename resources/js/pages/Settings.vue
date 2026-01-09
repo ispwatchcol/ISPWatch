@@ -78,14 +78,32 @@
                 </p>
               </div>
               <div>
+                <label class="label">Dominio</label>
+                <input
+                  v-model="settings.domain"
+                  type="text"
+                  placeholder="ispwatch.com"
+                  class="input"
+                  :disabled="!isAdmin"
+                  @input="hasChanges = true"
+                />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
+              </div>
+              <div>
                 <label class="label">Email de Contacto</label>
                 <input
                   v-model="settings.contact_email"
                   type="email"
                   placeholder="contacto@ispwatch.com"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
               <div>
                 <label class="label">Teléfono</label>
@@ -94,18 +112,26 @@
                   type="tel"
                   placeholder="+57 300 123 4567"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
-              <div>
+              <div class="md:col-span-2">
                 <label class="label">Dirección</label>
                 <input
                   v-model="settings.address"
                   type="text"
                   placeholder="Calle 123 #45-67"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
             </div>
           </SettingsSection>
@@ -433,20 +459,21 @@ const tabs = [
 ]
 
 const settings = ref({
-  // General
+  // General (from tenant)
   company_name: '',
-  contact_email: 'contacto@ispwatch.com',
-  phone: '+57 300 123 4567',
-  address: 'Calle 123 #45-67',
+  domain: '',
+  contact_email: '',
+  phone: '',
+  address: '',
   timezone: 'America/Bogota',
   currency: 'COP',
   
-  // Appearance
+  // Appearance (localStorage only)
   theme: 'system',
   compact_mode: false,
   animations_enabled: true,
   
-  // Notifications
+  // Notifications (localStorage only)
   email_notifications: true,
   push_notifications: true,
   overdue_alerts: true,
@@ -485,6 +512,12 @@ const saveAllSettings = async () => {
         `http://localhost:8000/api/tenants/${userData.value.tenant_id}`,
         {
           name: settings.value.company_name,
+          domain: settings.value.domain,
+          email_tenant: settings.value.contact_email,
+          tel: settings.value.phone,
+          address: settings.value.address,
+          timezone: settings.value.timezone,
+          currency: settings.value.currency,
           user_id: userData.value.id
         }
       )
@@ -494,8 +527,16 @@ const saveAllSettings = async () => {
       }
     }
     
-    // Save to localStorage
-    localStorage.setItem('settings', JSON.stringify(settings.value))
+    // Save only UI preferences to localStorage
+    const uiPrefs = {
+      compact_mode: settings.value.compact_mode,
+      animations_enabled: settings.value.animations_enabled,
+      email_notifications: settings.value.email_notifications,
+      push_notifications: settings.value.push_notifications,
+      overdue_alerts: settings.value.overdue_alerts,
+      router_offline_alerts: settings.value.router_offline_alerts
+    }
+    localStorage.setItem('uiPreferences', JSON.stringify(uiPrefs))
     localStorage.setItem('theme', currentTheme.value)
     
     hasChanges.value = false
@@ -544,7 +585,14 @@ const loadTenantData = async () => {
     const response = await axios.get(`http://localhost:8000/api/tenants/${userData.value.tenant_id}`)
     
     if (response.data.success && response.data.data) {
-      settings.value.company_name = response.data.data.name || ''
+      const tenant = response.data.data
+      settings.value.company_name = tenant.name || ''
+      settings.value.domain = tenant.domain || ''
+      settings.value.contact_email = tenant.email_tenant || ''
+      settings.value.phone = tenant.tel || ''
+      settings.value.address = tenant.address || ''
+      settings.value.timezone = tenant.timezone || 'America/Bogota'
+      settings.value.currency = tenant.currency || 'COP'
     }
   } catch (error) {
     console.error('Error loading tenant data:', error)

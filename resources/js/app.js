@@ -82,6 +82,7 @@ import {
   MdChevronright,
   BiCheckCircleFill,
   MdError,
+  MdSchedule,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -157,6 +158,7 @@ addIcons(
   MdChevronright,
   BiCheckCircleFill,
   MdError,
+  MdSchedule,
 );
 
 // -------------------------------
