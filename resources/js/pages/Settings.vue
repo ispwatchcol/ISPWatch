@@ -539,6 +539,9 @@ const saveAllSettings = async () => {
     localStorage.setItem('uiPreferences', JSON.stringify(uiPrefs))
     localStorage.setItem('theme', currentTheme.value)
     
+    // Dispatch event for global updates
+    window.dispatchEvent(new CustomEvent('ui-preferences-updated', { detail: uiPrefs }))
+    
     hasChanges.value = false
     
     // Show success notification
