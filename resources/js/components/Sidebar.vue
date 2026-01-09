@@ -45,7 +45,8 @@
         <!-- Menú -->
         <nav class="flex-1 overflow-y-auto p-4">
             <ul class="p-2">
-                <li>
+            <!-- Dashboard - always visible -->
+                <li v-if="canSee.dashboard">
                     <RouterLink
                         to="/"
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
@@ -60,6 +61,7 @@
                 </li>
 
                 <SubmenuItem
+                    v-if="canSee.usuarios"
                     icon="pr-users"
                     title="Usuarios"
                     :items="[
@@ -87,6 +89,7 @@
                 />
 
                 <SubmenuItem
+                    v-if="canSee.gestion"
                     icon="ri-list-settings-line"
                     title="Gestión"
                     :items="[
@@ -109,6 +112,7 @@
                 />
 
                 <SubmenuItem
+                    v-if="canSee.inventarios"
                     icon="oi-package"
                     title="Inventarios"
                     :items="[
@@ -126,6 +130,7 @@
                 />
 
                 <SubmenuItem
+                    v-if="canSee.finanzas"
                     icon="ri-money-dollar-circle-line"
                     title="Finanzas"
                     :items="[
@@ -137,7 +142,8 @@
                     ]"
                 />
 
-                <li>
+                <!-- Staff -->
+                <li v-if="canSee.staff">
                     <RouterLink
                         to="/staff"
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
@@ -149,13 +155,14 @@
                 </li>
 
                 <SubmenuItem
-                    v-if="supportItems.length > 0"
+                    v-if="canSee.soporte && supportItems.length > 0"
                     icon="md-supportagent-round"
                     title="Soporte"
                     :items="supportItems"
                 />
 
-                <li>
+                <!-- Configuración -->
+                <li v-if="canSee.configuracion">
                     <RouterLink
                         to="/settings"
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
@@ -169,7 +176,8 @@
                     </RouterLink>
                 </li>
 
-                <li>
+                <!-- Manual -->
+                <li v-if="canSee.manual">
                     <RouterLink
                         to="/manual"
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
@@ -269,6 +277,105 @@ const supportItems = computed(() => {
     }
     
     return items;
+});
+
+// Role-based menu visibility
+const userRole = computed(() => {
+    // Check both possible property paths for role name
+    const roleName = user.value?.role_name || user.value?.role?.name || '';
+    return roleName.toLowerCase();
+});
+
+const canSee = computed(() => {
+    const role = userRole.value;
+    
+    // Administrador sees everything
+    if (role === 'administrador') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: true,
+            inventarios: true,
+            finanzas: true,
+            staff: true,
+            soporte: true,
+            configuracion: true,
+            manual: true
+        };
+    }
+    
+    // Técnico: Usuarios, Gestión, Soporte (Tickets)
+    if (role === 'tecnico') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: true,
+            inventarios: false,
+            finanzas: false,
+            staff: false,
+            soporte: true,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Contabilidad: Finanzas, Clientes (Usuarios)
+    if (role === 'contabilidad') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: false,
+            inventarios: false,
+            finanzas: true,
+            staff: false,
+            soporte: false,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Almacenista: Inventario, Clientes (Usuarios), Staff
+    if (role === 'almacenista') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: false,
+            inventarios: true,
+            finanzas: false,
+            staff: true,
+            soporte: false,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Staff genérico: acceso limitado
+    if (role === 'staff') {
+        return {
+            dashboard: true,
+            usuarios: false,
+            gestion: false,
+            inventarios: false,
+            finanzas: false,
+            staff: false,
+            soporte: true,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Default: solo dashboard y manual
+    return {
+        dashboard: true,
+        usuarios: false,
+        gestion: false,
+        inventarios: false,
+        finanzas: false,
+        staff: false,
+        soporte: false,
+        configuracion: false,
+        manual: true
+    };
 });
 
 onMounted(() => {
