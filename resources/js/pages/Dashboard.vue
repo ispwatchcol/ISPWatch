@@ -2,40 +2,43 @@
   <div class="flex h-screen bg-gray-100 dark:bg-gray-900">
     <!-- Contenido principal -->
     <main class="flex-1 overflow-y-auto p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
-      <!-- Encabezado -->
-      <div class="block items-center justify-center mb-6">
-        <h1 class="text-3xl font-bold mb-2 text-gray-800 dark:text-gray-100">Dashboard</h1>
-        <p class="text-gray-500 dark:text-gray-400">
-          Bienvenido de vuelta, {{ user.name || 'Usuario' }} {{ user.last_name || '' }}
-        </p>
-      </div>
-
-      <!-- Estado superior -->
-      <div class="flex items-center justify-end space-x-4 mb-6">
-        <!-- Estado del sistema -->
-        <div
-          class="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded-full text-sm"
-        >
-          <v-icon name="bi-activity" class="h-4 w-4" />
-          <span>Sistema Activo</span>
+      <!-- Encabezado y Estado Superior Combinados -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <!-- Título y Bienvenida -->
+        <div>
+          <h1 class="text-3xl font-bold mb-2 text-gray-800 dark:text-gray-100">Dashboard</h1>
+          <p class="text-gray-500 dark:text-gray-400">
+            Bienvenido de vuelta, {{ user.name || 'Usuario' }} {{ user.last_name || '' }}
+          </p>
         </div>
 
-        <!-- Notificaciones -->
-        <button
-          class="flex items-center px-3 py-1 rounded-full border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-        >
-          <v-icon name="fa-regular-bell" class="h-4 w-4 mr-2 text-gray-700 dark:text-gray-300" />
-          <span class="text-gray-700 dark:text-gray-300 text-sm">Notificaciones</span>
-        </button>
+        <!-- Botones de Acción -->
+        <div class="flex flex-wrap items-center gap-4">
+          <!-- Estado del sistema -->
+          <div
+            class="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded-full text-sm"
+          >
+            <v-icon name="bi-activity" class="h-4 w-4" />
+            <span>Sistema Activo</span>
+          </div>
 
-        <!-- Logout rápido -->
-        <button
-          @click="logout"
-          class="flex items-center px-3 py-1 bg-red-500 text-white dark:bg-red-700 dark:text-white rounded-full hover:bg-red-600 dark:hover:bg-red-800 transition"
-        >
-          <v-icon name="oi-alert" class="h-4 w-4 mr-2" />
-          <span class="text-sm">Cerrar Sesión</span>
-        </button>
+          <!-- Notificaciones -->
+          <button
+            class="flex items-center px-3 py-1 rounded-full border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <v-icon name="fa-regular-bell" class="h-4 w-4 mr-2 text-gray-700 dark:text-gray-300" />
+            <span class="text-gray-700 dark:text-gray-300 text-sm">Notificaciones</span>
+          </button>
+
+          <!-- Logout rápido -->
+          <button
+            @click="logout"
+            class="flex items-center px-3 py-1 bg-red-500 text-white dark:bg-red-700 dark:text-white rounded-full hover:bg-red-600 dark:hover:bg-red-800 transition"
+          >
+            <v-icon name="oi-alert" class="h-4 w-4 mr-2" />
+            <span class="text-sm">Cerrar Sesión</span>
+          </button>
+        </div>
       </div>
 
       <!-- Cards de métricas -->
