@@ -67,8 +67,12 @@
                   type="text"
                   placeholder="ISPWatch"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
               <div>
                 <label class="label">Email de Contacto</label>
@@ -404,13 +408,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import SettingsSection from '@/components/SettingsSection.vue'
+import axios from 'axios'
 
 // State
 const activeTab = ref('general')
 const hasChanges = ref(false)
 const currentTheme = ref('system')
+const userData = ref(null)
+const isAdmin = computed(() => userData.value?.role_name?.toLowerCase() === 'administrador')
+const loading = ref(false)
 
 const tabs = [
   { id: 'general', label: 'General', icon: 'md-settings' },
@@ -421,7 +429,7 @@ const tabs = [
 
 const settings = ref({
   // General
-  company_name: 'ISPWatch',
+  company_name: '',
   contact_email: 'contacto@ispwatch.com',
   phone: '+57 300 123 4567',
   address: 'Calle 123 #45-67',
@@ -462,13 +470,37 @@ const setTheme = (theme) => {
   localStorage.setItem('theme', theme)
 }
 
-const saveAllSettings = () => {
-  // Save to localStorage
-  localStorage.setItem('settings', JSON.stringify(settings.value))
-  localStorage.setItem('theme', currentTheme.value)
+const saveAllSettings = async () => {
+  loading.value = true
   
-  hasChanges.value = false
-  alert('✅ Configuración guardada correctamente')
+  try {
+    // Save tenant info to database if user is admin
+    if (isAdmin.value && userData.value?.tenant_id) {
+      const tenantResponse = await axios.put(
+        `http://localhost:8000/api/tenants/${userData.value.tenant_id}`,
+        {
+          name: settings.value.company_name,
+          user_id: userData.value.id
+        }
+      )
+      
+      if (!tenantResponse.data.success) {
+        throw new Error(tenantResponse.data.message || 'Error al guardar tenant')
+      }
+    }
+    
+    // Save to localStorage
+    localStorage.setItem('settings', JSON.stringify(settings.value))
+    localStorage.setItem('theme', currentTheme.value)
+    
+    hasChanges.value = false
+    alert('✅ Configuración guardada correctamente')
+  } catch (error) {
+    console.error('Error saving settings:', error)
+    alert('❌ Error al guardar la configuración: ' + (error.response?.data?.message || error.message))
+  } finally {
+    loading.value = false
+  }
 }
 
 const clearCache = () => {
@@ -482,13 +514,51 @@ const exportData = () => {
   alert('📦 Exportando datos...\nEsta función estará disponible próximamente')
 }
 
+// Load tenant data from API
+const loadTenantData = async () => {
+  try {
+    if (!userData.value?.tenant_id) {
+      console.warn('No tenant_id found in userData')
+      return
+    }
+    
+    const response = await axios.get(`http://localhost:8000/api/tenants/${userData.value.tenant_id}`)
+    
+    if (response.data.success && response.data.data) {
+      settings.value.company_name = response.data.data.name || ''
+    }
+  } catch (error) {
+    console.error('Error loading tenant data:', error)
+  }
+}
+
 // Lifecycle
-onMounted(() => {
-  // Load saved settings
+onMounted(async () => {
+  // Load user data from localStorage
+  const localUserData = localStorage.getItem('userData') || sessionStorage.getItem('userData')
+  if (localUserData) {
+    try {
+      userData.value = JSON.parse(localUserData)
+    } catch (e) {
+      console.error('Error parsing user data:', e)
+    }
+  }
+  
+  // Load tenant data from API
+  await loadTenantData()
+  
+  // Load saved settings from localStorage
   const savedSettings = localStorage.getItem('settings')
   if (savedSettings) {
     try {
-      settings.value = { ...settings.value, ...JSON.parse(savedSettings) }
+      const parsed = JSON.parse(savedSettings)
+      // Only override non-tenant settings
+      settings.value = { 
+        ...settings.value, 
+        ...parsed,
+        // Keep company_name from tenant data if loaded
+        company_name: settings.value.company_name || parsed.company_name
+      }
     } catch (e) {
       console.error('Error loading settings:', e)
     }
