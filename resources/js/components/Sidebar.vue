@@ -3,40 +3,39 @@
         class="flex flex-col h-screen bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 w-64"
     >
         <!-- Logo -->
-        <div
-            class="flex items-center gap-2 px-6 py-8 border-b dark:border-gray-600"
-        >
-            <div
-                class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center"
-            >
-                <v-icon name="md-router-round" class="h-6 w-6 text-white" />
-            </div>
-            <div class="ml-3">
-                <h1 class="text-xl font-bold text-gray-900 dark:text-gray-100">
-                    ISPWATCH
-                </h1>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                    Sistema de Gestión
-                </p>
+        <div class="px-6 py-8 border-b dark:border-gray-800">
+            <div class="flex items-center gap-3">
+                <div class="relative group">
+                    <div class="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-25 group-hover:opacity-50 transition duration-200"></div>
+                    <div class="relative w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+                        <v-icon name="md-router-round" class="h-6 w-6 text-white" />
+                    </div>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300">
+                        ISPWATCH
+                    </h1>
+                    <p class="text-[10px] font-semibold tracking-wider text-gray-500 dark:text-gray-400 uppercase">
+                        Sistema de Gestión
+                    </p>
+                </div>
             </div>
         </div>
 
-        <!-- info rápida del usuario actual -->
-        <div class="p-4 border-b border-gray-200 dark:border-gray-700">
-            <div class="flex items-center">
-                <v-icon
-                    name="pr-user"
-                    class="h-6 w-6 text-gray-800 dark:text-gray-300 z-10"
-                />
-                <div class="ml-3 flex-1">
-                    <p
-                        class="text-sm font-medium text-gray-700 dark:text-gray-100"
-                    >
+        <!-- User Quick Info -->
+        <div class="p-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
+                    <v-icon
+                        name="pr-user"
+                        class="h-5 w-5 text-indigo-600 dark:text-indigo-400"
+                    />
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
                         {{ user?.role_name }}
                     </p>
-                    <p
-                        class="text-xs font-bold text-gray-700 dark:text-gray-100"
-                    >
+                    <p class="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
                         {{ user?.user_name }} {{ user?.user_lastname }}
                     </p>
                 </div>
@@ -46,20 +45,23 @@
         <!-- Menú -->
         <nav class="flex-1 overflow-y-auto p-4">
             <ul class="p-2">
-                <li>
+            <!-- Dashboard - always visible -->
+                <li v-if="canSee.dashboard">
                     <RouterLink
                         to="/"
-                        class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+                        active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
                         <v-icon
                             name="md-dashboard-outlined"
-                            class="w-5 h-5 mr-1"
+                            class="w-5 h-5 group-hover:scale-110 transition-transform duration-200"
                         />
-                        <span class="text-sm pt-1">Dashboard</span>
+                        <span class="text-sm font-medium">Dashboard</span>
                     </RouterLink>
                 </li>
 
                 <SubmenuItem
+                    v-if="canSee.usuarios"
                     icon="pr-users"
                     title="Usuarios"
                     :items="[
@@ -87,6 +89,7 @@
                 />
 
                 <SubmenuItem
+                    v-if="canSee.gestion"
                     icon="ri-list-settings-line"
                     title="Gestión"
                     :items="[
@@ -109,6 +112,7 @@
                 />
 
                 <SubmenuItem
+                    v-if="canSee.inventarios"
                     icon="oi-package"
                     title="Inventarios"
                     :items="[
@@ -126,6 +130,7 @@
                 />
 
                 <SubmenuItem
+                    v-if="canSee.finanzas"
                     icon="ri-money-dollar-circle-line"
                     title="Finanzas"
                     :items="[
@@ -137,73 +142,83 @@
                     ]"
                 />
 
-                <li>
+                <!-- Staff -->
+                <li v-if="canSee.staff">
                     <RouterLink
                         to="/staff"
-                        class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+                        active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
-                        <v-icon name="pr-users" class="w-5 h-5 mr-1" />
-                        <span class="text-sm pt-1">Staff</span>
+                        <v-icon name="pr-users" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200" />
+                        <span class="text-sm font-medium">Staff</span>
                     </RouterLink>
                 </li>
 
                 <SubmenuItem
-                    v-if="supportItems.length > 0"
+                    v-if="canSee.soporte && supportItems.length > 0"
                     icon="md-supportagent-round"
                     title="Soporte"
                     :items="supportItems"
                 />
 
-                <li>
+                <!-- Configuración -->
+                <li v-if="canSee.configuracion">
                     <RouterLink
                         to="/settings"
-                        class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+                        active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
                         <v-icon
                             name="ri-settings-4-line"
-                            class="w-5 h-5 mr-1"
+                            class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 "
                         />
-                        <span class="text-sm pt-1">Configuración</span>
+                        <span class="text-sm font-medium">Configuración</span>
                     </RouterLink>
                 </li>
 
-                <li>
+                <!-- Manual -->
+                <li v-if="canSee.manual">
                     <RouterLink
                         to="/manual"
-                        class="flex items-center gap-3 p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+                        active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
-                        <v-icon name="hi-book-open" class="w-5 h-5 mr-1" />
-                        <span class="text-sm pt-1">Manual de Usuario</span>
+                        <v-icon name="hi-book-open" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200" />
+                        <span class="text-sm font-medium">Manual de Usuario</span>
                     </RouterLink>
                 </li>
             </ul>
         </nav>
 
         <!-- Footer -->
-        <div
-            class="p-4 border-t border-gray-200 dark:border-gray-700 space-y-4"
-        >
+        <div class="px-4 py-4 border-t border-gray-100 dark:border-gray-800 space-y-4 bg-white dark:bg-gray-900">
+            <!-- Timezone Clock -->
+            <TimezoneClock :timezone="tenantTimezone" />
+            
             <div class="space-y-3">
                 <label
                     class="text-sm font-medium text-gray-700 dark:text-gray-300"
                     >Tema</label
                 >
-                <div class="grid grid-cols-3 gap-2">
+                <div class="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-800 p-1 rounded-xl">
                     <button
                         @click="setTheme('light')"
-                        class="flex items-center justify-center p-2 rounded-full text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
+                        class="flex items-center justify-center p-1.5 rounded-lg transition-all duration-200"
+                        :class="theme === 'light' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'"
                     >
                         <v-icon name="bi-sun" class="h-4 w-4" />
                     </button>
                     <button
                         @click="setTheme('dark')"
-                        class="flex items-center justify-center p-2 rounded-full text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
+                        class="flex items-center justify-center p-1.5 rounded-lg transition-all duration-200"
+                        :class="theme === 'dark' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'"
                     >
                         <v-icon name="bi-moon" class="h-4 w-4" />
                     </button>
                     <button
                         @click="setTheme('system')"
-                        class="flex items-center justify-center p-2 rounded-full text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
+                        class="flex items-center justify-center p-1.5 rounded-lg transition-all duration-200"
+                        :class="theme === 'system' ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'"
                     >
                         <v-icon name="md-screenshotmonitor" class="h-4 w-4" />
                     </button>
@@ -225,11 +240,14 @@
 import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import SubmenuItem from "./SubmenuItem.vue";
+import TimezoneClock from "./TimezoneClock.vue";
 import { hasPermission } from "../services/auth";
+import axios from "axios";
 
 const router = useRouter();
 const user = ref({});
 const theme = ref("system");
+const tenantTimezone = ref("America/Bogota");
 
 const supportItems = computed(() => {
     const items = [];
@@ -261,6 +279,105 @@ const supportItems = computed(() => {
     return items;
 });
 
+// Role-based menu visibility
+const userRole = computed(() => {
+    // Check both possible property paths for role name
+    const roleName = user.value?.role_name || user.value?.role?.name || '';
+    return roleName.toLowerCase();
+});
+
+const canSee = computed(() => {
+    const role = userRole.value;
+    
+    // Administrador sees everything
+    if (role === 'administrador') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: true,
+            inventarios: true,
+            finanzas: true,
+            staff: true,
+            soporte: true,
+            configuracion: true,
+            manual: true
+        };
+    }
+    
+    // Técnico: Usuarios, Gestión, Soporte (Tickets)
+    if (role === 'tecnico') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: true,
+            inventarios: false,
+            finanzas: false,
+            staff: false,
+            soporte: true,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Contabilidad: Finanzas, Clientes (Usuarios)
+    if (role === 'contabilidad') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: false,
+            inventarios: false,
+            finanzas: true,
+            staff: false,
+            soporte: false,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Almacenista: Inventario, Clientes (Usuarios), Staff
+    if (role === 'almacenista') {
+        return {
+            dashboard: true,
+            usuarios: true,
+            gestion: false,
+            inventarios: true,
+            finanzas: false,
+            staff: true,
+            soporte: false,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Staff genérico: acceso limitado
+    if (role === 'staff') {
+        return {
+            dashboard: true,
+            usuarios: false,
+            gestion: false,
+            inventarios: false,
+            finanzas: false,
+            staff: false,
+            soporte: true,
+            configuracion: false,
+            manual: true
+        };
+    }
+    
+    // Default: solo dashboard y manual
+    return {
+        dashboard: true,
+        usuarios: false,
+        gestion: false,
+        inventarios: false,
+        finanzas: false,
+        staff: false,
+        soporte: false,
+        configuracion: false,
+        manual: true
+    };
+});
+
 onMounted(() => {
     const localData = localStorage.getItem("userData");
     const sessionData = sessionStorage.getItem("userData");
@@ -280,6 +397,9 @@ onMounted(() => {
     // Cargar tema guardado o usar el sistema
     const savedTheme = localStorage.getItem("theme") || "system";
     setTheme(savedTheme);
+    
+    // Load tenant timezone
+    loadTenantTimezone();
 });
 
 const setTheme = (mode) => {
@@ -300,6 +420,20 @@ const setTheme = (mode) => {
     }
 };
 
+const loadTenantTimezone = async () => {
+    try {
+        if (!user.value?.tenant_id) return;
+        
+        const response = await axios.get(`http://localhost:8000/api/tenants/${user.value.tenant_id}`);
+        
+        if (response.data.success && response.data.data) {
+            tenantTimezone.value = response.data.data.zone_tenant || 'America/Bogota';
+        }
+    } catch (error) {
+        console.error('Error loading tenant timezone:', error);
+    }
+};
+
 const logout = () => {
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("userData");
@@ -309,3 +443,30 @@ const logout = () => {
     router.push("/");
 };
 </script>
+<style scoped>
+/* Custom Scrollbar */
+nav::-webkit-scrollbar {
+    width: 4px;
+}
+
+nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+nav::-webkit-scrollbar-thumb {
+    background-color: #e5e7eb; /* gray-200 */
+    border-radius: 20px;
+}
+
+.dark nav::-webkit-scrollbar-thumb {
+    background-color: #374151; /* gray-700 */
+}
+
+nav:hover::-webkit-scrollbar-thumb {
+    background-color: #d1d5db; /* gray-300 */
+}
+
+.dark nav:hover::-webkit-scrollbar-thumb {
+    background-color: #4b5563; /* gray-600 */
+}
+</style>

@@ -1,5 +1,8 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
+    
     <main class="flex-1 p-4 md:p-8">
       
       <!-- Header -->
@@ -67,8 +70,26 @@
                   type="text"
                   placeholder="ISPWatch"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
+              </div>
+              <div>
+                <label class="label">Dominio</label>
+                <input
+                  v-model="settings.domain"
+                  type="text"
+                  placeholder="ispwatch.com"
+                  class="input"
+                  :disabled="!isAdmin"
+                  @input="hasChanges = true"
+                />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
               <div>
                 <label class="label">Email de Contacto</label>
@@ -77,8 +98,12 @@
                   type="email"
                   placeholder="contacto@ispwatch.com"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
               <div>
                 <label class="label">Teléfono</label>
@@ -87,18 +112,26 @@
                   type="tel"
                   placeholder="+57 300 123 4567"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
-              <div>
+              <div class="md:col-span-2">
                 <label class="label">Dirección</label>
                 <input
                   v-model="settings.address"
                   type="text"
                   placeholder="Calle 123 #45-67"
                   class="input"
+                  :disabled="!isAdmin"
                   @input="hasChanges = true"
                 />
+                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ℹ️ Solo los administradores pueden editar este campo
+                </p>
               </div>
             </div>
           </SettingsSection>
@@ -404,13 +437,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import SettingsSection from '@/components/SettingsSection.vue'
+import NotificationToast from '@/components/NotificationToast.vue'
+import axios from 'axios'
 
 // State
 const activeTab = ref('general')
 const hasChanges = ref(false)
 const currentTheme = ref('system')
+const userData = ref(null)
+const isAdmin = computed(() => userData.value?.role_name?.toLowerCase() === 'administrador')
+const loading = ref(false)
+const toast = ref(null)
 
 const tabs = [
   { id: 'general', label: 'General', icon: 'md-settings' },
@@ -420,20 +459,21 @@ const tabs = [
 ]
 
 const settings = ref({
-  // General
-  company_name: 'ISPWatch',
-  contact_email: 'contacto@ispwatch.com',
-  phone: '+57 300 123 4567',
-  address: 'Calle 123 #45-67',
+  // General (from tenant)
+  company_name: '',
+  domain: '',
+  contact_email: '',
+  phone: '',
+  address: '',
   timezone: 'America/Bogota',
   currency: 'COP',
   
-  // Appearance
+  // Appearance (localStorage only)
   theme: 'system',
   compact_mode: false,
   animations_enabled: true,
   
-  // Notifications
+  // Notifications (localStorage only)
   email_notifications: true,
   push_notifications: true,
   overdue_alerts: true,
@@ -462,35 +502,134 @@ const setTheme = (theme) => {
   localStorage.setItem('theme', theme)
 }
 
-const saveAllSettings = () => {
-  // Save to localStorage
-  localStorage.setItem('settings', JSON.stringify(settings.value))
-  localStorage.setItem('theme', currentTheme.value)
+const saveAllSettings = async () => {
+  loading.value = true
   
-  hasChanges.value = false
-  alert('✅ Configuración guardada correctamente')
-}
-
-const clearCache = () => {
-  if (confirm('¿Deseas limpiar el caché de la aplicación?')) {
-    localStorage.removeItem('cache')
-    alert('✅ Caché limpiado correctamente')
+  try {
+    // Save tenant info to database if user is admin
+    if (isAdmin.value && userData.value?.tenant_id) {
+      const tenantResponse = await axios.put(
+        `http://localhost:8000/api/tenants/${userData.value.tenant_id}`,
+        {
+          name: settings.value.company_name,
+          domain: settings.value.domain,
+          email_tenant: settings.value.contact_email,
+          tel: settings.value.phone,
+          address: settings.value.address,
+          timezone: settings.value.timezone,
+          currency: settings.value.currency,
+          user_id: userData.value.id
+        }
+      )
+      
+      if (!tenantResponse.data.success) {
+        throw new Error(tenantResponse.data.message || 'Error al guardar tenant')
+      }
+    }
+    
+    // Save only UI preferences to localStorage
+    const uiPrefs = {
+      compact_mode: settings.value.compact_mode,
+      animations_enabled: settings.value.animations_enabled,
+      email_notifications: settings.value.email_notifications,
+      push_notifications: settings.value.push_notifications,
+      overdue_alerts: settings.value.overdue_alerts,
+      router_offline_alerts: settings.value.router_offline_alerts
+    }
+    localStorage.setItem('uiPreferences', JSON.stringify(uiPrefs))
+    localStorage.setItem('theme', currentTheme.value)
+    
+    // Dispatch event for global updates
+    window.dispatchEvent(new CustomEvent('ui-preferences-updated', { detail: uiPrefs }))
+    
+    hasChanges.value = false
+    
+    // Show success notification
+    toast.value?.success(
+      'Configuración guardada',
+      'Todos los cambios se guardaron correctamente'
+    )
+  } catch (error) {
+    console.error('Error saving settings:', error)
+    
+    // Show error notification
+    toast.value?.error(
+      'Ups, algo falló',
+      'No se pudo guardar la configuración. Intenta de nuevo.'
+    )
+  } finally {
+    loading.value = false
   }
 }
 
+const clearCache = () => {
+  localStorage.removeItem('cache')
+  toast.value?.success(
+    'Caché limpiado',
+    'El caché de la aplicación se limpió correctamente'
+  )
+}
+
 const exportData = () => {
-  alert('📦 Exportando datos...\nEsta función estará disponible próximamente')
+  toast.value?.info(
+    'Próximamente',
+    'La función de exportación estará disponible pronto'
+  )
+}
+
+// Load tenant data from API
+const loadTenantData = async () => {
+  try {
+    if (!userData.value?.tenant_id) {
+      console.warn('No tenant_id found in userData')
+      return
+    }
+    
+    const response = await axios.get(`http://localhost:8000/api/tenants/${userData.value.tenant_id}`)
+    
+    if (response.data.success && response.data.data) {
+      const tenant = response.data.data
+      settings.value.company_name = tenant.name || ''
+      settings.value.domain = tenant.domain || ''
+      settings.value.contact_email = tenant.email_tenant || ''
+      settings.value.phone = tenant.tel_tenant || ''
+      settings.value.address = tenant.address_tenant || ''
+      settings.value.timezone = tenant.zone_tenant || 'America/Bogota'
+      settings.value.currency = tenant.currency_tenant || 'COP'
+    }
+  } catch (error) {
+    console.error('Error loading tenant data:', error)
+  }
 }
 
 // Lifecycle
-onMounted(() => {
-  // Load saved settings
-  const savedSettings = localStorage.getItem('settings')
-  if (savedSettings) {
+onMounted(async () => {
+  // Load user data from localStorage
+  const localUserData = localStorage.getItem('userData') || sessionStorage.getItem('userData')
+  if (localUserData) {
     try {
-      settings.value = { ...settings.value, ...JSON.parse(savedSettings) }
+      userData.value = JSON.parse(localUserData)
     } catch (e) {
-      console.error('Error loading settings:', e)
+      console.error('Error parsing user data:', e)
+    }
+  }
+  
+  // Load tenant data from API
+  await loadTenantData()
+  
+  // Load ONLY UI preferences from localStorage (not tenant data)
+  const savedUIPrefs = localStorage.getItem('uiPreferences')
+  if (savedUIPrefs) {
+    try {
+      const prefs = JSON.parse(savedUIPrefs)
+      settings.value.compact_mode = prefs.compact_mode ?? false
+      settings.value.animations_enabled = prefs.animations_enabled ?? true
+      settings.value.email_notifications = prefs.email_notifications ?? true
+      settings.value.push_notifications = prefs.push_notifications ?? true
+      settings.value.overdue_alerts = prefs.overdue_alerts ?? true
+      settings.value.router_offline_alerts = prefs.router_offline_alerts ?? true
+    } catch (e) {
+      console.error('Error loading UI preferences:', e)
     }
   }
   
