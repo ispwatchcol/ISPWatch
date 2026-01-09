@@ -44,7 +44,7 @@ import {
   BiSpeedometer2,
   BiWifi,
   BiBroadcastPin,
-  BiListTask,      
+  BiListTask,
   BiDiagram3,
   BiHddNetwork,
   RiListSettingsLine,
@@ -80,6 +80,8 @@ import {
   MdDelete,
   MdDownload,
   MdChevronright,
+  BiCheckCircleFill,
+  MdError,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -104,9 +106,9 @@ addIcons(
   MdLogoutTwotone,
   MdDashboardOutlined,
   BiRouter,
-  BiListTask, 
-  BiWifi,   
-  BiDiagram3,      
+  BiListTask,
+  BiWifi,
+  BiDiagram3,
   BiHddNetwork,
   OiDiffAdded,
   OiPackage,
@@ -153,6 +155,8 @@ addIcons(
   MdDelete,
   MdDownload,
   MdChevronright,
+  BiCheckCircleFill,
+  MdError,
 );
 
 // -------------------------------

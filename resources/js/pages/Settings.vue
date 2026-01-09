@@ -1,5 +1,8 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
+    
     <main class="flex-1 p-4 md:p-8">
       
       <!-- Header -->
@@ -410,6 +413,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import SettingsSection from '@/components/SettingsSection.vue'
+import NotificationToast from '@/components/NotificationToast.vue'
 import axios from 'axios'
 
 // State
@@ -419,6 +423,7 @@ const currentTheme = ref('system')
 const userData = ref(null)
 const isAdmin = computed(() => userData.value?.role_name?.toLowerCase() === 'administrador')
 const loading = ref(false)
+const toast = ref(null)
 
 const tabs = [
   { id: 'general', label: 'General', icon: 'md-settings' },
@@ -494,24 +499,38 @@ const saveAllSettings = async () => {
     localStorage.setItem('theme', currentTheme.value)
     
     hasChanges.value = false
-    alert('✅ Configuración guardada correctamente')
+    
+    // Show success notification
+    toast.value?.success(
+      'Configuración guardada',
+      'Todos los cambios se guardaron correctamente'
+    )
   } catch (error) {
     console.error('Error saving settings:', error)
-    alert('❌ Error al guardar la configuración: ' + (error.response?.data?.message || error.message))
+    
+    // Show error notification
+    toast.value?.error(
+      'Error al guardar',
+      error.response?.data?.message || error.message || 'No se pudo guardar la configuración'
+    )
   } finally {
     loading.value = false
   }
 }
 
 const clearCache = () => {
-  if (confirm('¿Deseas limpiar el caché de la aplicación?')) {
-    localStorage.removeItem('cache')
-    alert('✅ Caché limpiado correctamente')
-  }
+  localStorage.removeItem('cache')
+  toast.value?.success(
+    'Caché limpiado',
+    'El caché de la aplicación se limpió correctamente'
+  )
 }
 
 const exportData = () => {
-  alert('📦 Exportando datos...\nEsta función estará disponible próximamente')
+  toast.value?.info(
+    'Próximamente',
+    'La función de exportación estará disponible pronto'
+  )
 }
 
 // Load tenant data from API
