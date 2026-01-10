@@ -9,6 +9,29 @@
         <!-- Formulario -->
         <div class="max-w-3xl bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
             <form @submit.prevent="handleSubmit">
+                <!-- Selección de Cliente -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Cliente <span class="text-red-500">*</span>
+                    </label>
+                    <v-select
+                        v-model="form.user_id"
+                        :options="customers"
+                        :reduce="customer => customer.user_id"
+                        label="fullname"
+                        placeholder="Buscar cliente..."
+                        class="style-chooser"
+                    >
+                         <template #option="{ fullname, email }">
+                            <div class="flex flex-col">
+                                <span class="font-medium">{{ fullname }}</span>
+                                <span class="text-xs text-gray-500">{{ email }}</span>
+                            </div>
+                        </template>
+                    </v-select>
+                    <p v-if="errors.user_id" class="mt-1 text-sm text-red-500">{{ errors.user_id }}</p>
+                </div>
+
                 <!-- Asunto -->
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -154,10 +177,14 @@ import api from '../services/api'
 const router = useRouter()
 
 const form = ref({
+    user_id: '', // Customer ID
     subject: '',
     description: '',
     category: ''
 })
+
+const customers = ref([])
+const loadingCustomers = ref(false)
 
 const selectedFiles = ref([])
 const errors = ref({})
@@ -218,6 +245,10 @@ const formatFileSize = (bytes) => {
 const validate = () => {
     errors.value = {}
 
+    if (!form.value.user_id) {
+        errors.value.user_id = 'El cliente es requerido'
+    }
+
     if (!form.value.subject || form.value.subject.trim() === '') {
         errors.value.subject = 'El asunto es requerido'
     }
@@ -237,6 +268,7 @@ const handleSubmit = async () => {
 
         // Crear FormData para enviar archivos
         const formData = new FormData()
+        formData.append('user_id', form.value.user_id)
         formData.append('subject', form.value.subject)
         if (form.value.description) {
             formData.append('description', form.value.description)
@@ -263,4 +295,58 @@ const handleSubmit = async () => {
         submitting.value = false
     }
 }
+const loadCustomers = async () => {
+    try {
+        loadingCustomers.value = true
+        const response = await api.customers.getAll()
+        customers.value = response.data.map(c => ({
+            ...c,
+            fullname: `${c.name} ${c.last_name} (${c.email})`
+        }))
+    } catch (err) {
+        console.error('Error al cargar clientes:', err)
+    } finally {
+        loadingCustomers.value = false
+    }
+}
+
+// Cargar clientes al montar
+import { onMounted } from 'vue'
+onMounted(() => {
+    loadCustomers()
+})
 </script>
+
+<style>
+.style-chooser .vs__search::placeholder,
+.style-chooser .vs__dropdown-toggle,
+.style-chooser .vs__dropdown-menu {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    color: #374151;
+    text-transform: lowercase;
+    font-variant: small-caps;
+}
+
+.dark .style-chooser .vs__search::placeholder,
+.dark .style-chooser .vs__dropdown-toggle,
+.dark .style-chooser .vs__dropdown-menu {
+    background: #1f2937;
+    border: 1px solid #4b5563;
+    color: #e5e7eb;
+}
+
+.dark .style-chooser .vs__clear,
+.dark .style-chooser .vs__open-indicator {
+    fill: #9ca3af;
+}
+
+.dark .style-chooser .vs__dropdown-option {
+    color: #e5e7eb;
+}
+
+.dark .style-chooser .vs__dropdown-option--highlight {
+    background: #374151;
+    color: white;
+}
+</style>

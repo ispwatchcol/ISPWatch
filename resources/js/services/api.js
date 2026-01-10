@@ -241,6 +241,11 @@ export default {
       })
     },
     update(id, data) {
+      if (data instanceof FormData) {
+        return apiClient.post(`/support/${id}`, data, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+      }
       return apiClient.put(`/support/${id}`, data)
     },
     delete(id) {

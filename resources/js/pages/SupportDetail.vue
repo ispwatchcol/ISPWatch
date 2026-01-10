@@ -102,6 +102,72 @@
                             </button>
                         </div>
                     </div>
+                   
+                   <!-- Gestión del Ticket (Staff Only) -->
+                    <div v-if="canEdit" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                         <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Gestión del Ticket</h2>
+                         
+                         <div class="space-y-4">
+                            <!-- Cambio de Estado -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Estado</label>
+                                <select 
+                                    v-model="ticket.status" 
+                                    class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+                                >
+                                    <option value="open">Abierto</option>
+                                    <option value="in_progress">En Progreso</option>
+                                    <option value="resolved">Resuelto</option>
+                                    <option value="closed">Cerrado</option>
+                                </select>
+                            </div>
+
+                            <!-- Subir Imágenes de Trabajo -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Evidencia de Trabajo (Imágenes)</label>
+                                <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center">
+                                    <input
+                                        ref="fileInput"
+                                        type="file"
+                                        multiple
+                                        accept="image/*"
+                                        @change="handleFileChange"
+                                        class="hidden"
+                                    />
+                                    <button
+                                        type="button"
+                                        @click="$refs.fileInput.click()"
+                                        class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                                    >
+                                        <v-icon name="pr-images" class="w-5 h-5 inline mr-2" />
+                                        Seleccionar Imágenes
+                                    </button>
+                                </div>
+
+                                <!-- Previsualización -->
+                                <div v-if="selectedFiles.length > 0" class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                    <div v-for="(file, index) in selectedFiles" :key="index" class="relative group">
+                                        <img :src="file.preview" class="w-full h-24 object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
+                                        <button 
+                                            @click="removeFile(index)"
+                                            class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
+                                        >
+                                            <v-icon name="io-close" class="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                @click="updateTicket"
+                                :disabled="updating"
+                                class="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50"
+                            >
+                                <span v-if="!updating">Actualizar Ticket</span>
+                                <span v-else>Guardando...</span>
+                            </button>
+                         </div>
+                    </div>
                 </div>
 
                 <!-- Columna Lateral -->
@@ -146,7 +212,11 @@ const canEdit = computed(() => hasPermission('support.update'))
 
 const ticket = ref({})
 const loading = ref(true)
+const loading = ref(true)
 const newMessage = ref('')
+const selectedFiles = ref([])
+const updating = ref(false)
+const fileInput = ref(null)
 
 const loadTicket = async () => {
     try {
@@ -172,6 +242,71 @@ const sendMessage = async () => {
     } catch (err) {
         console.error('Error al enviar mensaje:', err)
         alert('Error al enviar el mensaje.')
+    }
+}
+
+const handleFileChange = (event) => {
+    const files = Array.from(event.target.files)
+    
+    files.forEach(file => {
+        if (!file.type.startsWith('image/')) return
+
+        const reader = new FileReader()
+        reader.onload = (e) => {
+            selectedFiles.value.push({
+                file,
+                preview: e.target.result
+            })
+        }
+        reader.readAsDataURL(file)
+    })
+    
+    // reset input
+    event.target.value = ''
+}
+
+const removeFile = (index) => {
+    selectedFiles.value.splice(index, 1)
+}
+
+const updateTicket = async () => {
+    try {
+        updating.value = true
+        
+        // Use a generic update method that handles FormData
+        // If api.support.update doesn't support FormData, we might need a specific method or modify the service
+        // Assuming api.support.update(id, data) accepts FormData
+        
+        const formData = new FormData()
+        formData.append('status', ticket.value.status)
+        formData.append('_method', 'PUT') // Method spoofing for Laravel if using POST, but here we likely use PUT directly or POST with spoofing if FormData
+        
+        // Laravel PUT with FormData often requires POST + _method: PUT
+        // Checking api service implementation would be ideal, but standard Laravel way:
+        
+        selectedFiles.value.forEach(f => {
+            formData.append('attachments[]', f.file)
+        })
+
+        // We use a custom call or modify the service to support this. 
+        // For now, assuming the API can handle POST to update or we force POST method if the service supports it.
+        // Let's assume we modify api service or use a raw call if needed. 
+        // Safer to use a dedicated method 'updateWithFiles' or similar if existing update assumes JSON.
+        
+        // Since I cannot see services/api.js, I will try to use a direct axios call pattern or what seems to be available.
+        // If api.support.update expects JSON, sending FormData might fail content-type.
+        // I'll try to use the generic structure.
+        
+        await api.support.update(ticketId, formData) 
+
+        alert('Ticket actualizado correctamente')
+        selectedFiles.value = []
+        loadTicket()
+    } catch (err) {
+        console.error('Error al actualizar ticket:', err)
+        alert('Error al actualizar el ticket')
+    } finally {
+        updating.value = false
     }
 }
 
