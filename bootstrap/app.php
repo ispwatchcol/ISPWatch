@@ -3,6 +3,8 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Database\QueryException;
+use App\Helpers\ErrorMessages;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -21,5 +23,26 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Handle database exceptions with user-friendly messages
+        $exceptions->render(function (QueryException $e, $request) {
+            // Log the original error for debugging
+            \Log::error('Database error: ' . $e->getMessage(), [
+                'sql' => $e->getSql(),
+                'bindings' => $e->getBindings(),
+                'code' => $e->errorInfo[0] ?? null,
+            ]);
+
+            // Return user-friendly error message
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => ErrorMessages::getDatabaseErrorMessage($e),
+                ], 422);
+            }
+
+            // For web requests, you can redirect back with error
+            return redirect()->back()
+                ->withErrors(['error' => ErrorMessages::getDatabaseErrorMessage($e)])
+                ->withInput();
+        });
     })->create();
