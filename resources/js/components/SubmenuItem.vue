@@ -2,37 +2,37 @@
   <li>
     <button
       @click="isOpen = !isOpen"
-      class="flex items-center justify-between w-full p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200"
+      class="group flex items-center justify-between w-full p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+      :class="{ 'bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400': isOpen }"
     >
       <div class="flex items-center gap-3">
-        <v-icon :name="icon" class="w-5 h-5 mr-1" />
-        <span class="text-sm pt-1">{{ title }}</span>
+        <v-icon :name="icon" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
+        <span class="text-sm font-medium">{{ title }}</span>
       </div>
       <v-icon
         name="hi-chevron-down"
-        class="w-4 h-4 transition-transform duration-200"
+        class="w-4 h-4 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400"
         :class="{ 'rotate-180': isOpen }"
       />
     </button>
 
     <ul
-      v-if="isOpen"
+      v-show="isOpen"
       class="pl-4 mt-1 space-y-1"
     >
       <li v-for="item in items" 
         :key="item.name"
-        :class="[
-          'text-sm rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-200',
-          $route.path === item.to
-            ? 'bg-blue-500 text-white'
-            : 'text-gray-600 hover:bg-gray-200'
-        ]"
       >
         <RouterLink
           :to="item.to"
-          class="flex items-center space-x-2 p-2 w-full"
+          class="group flex items-center gap-3 p-2 rounded-lg text-sm font-medium transition-all duration-200"
+          :class="[
+            $route.path === item.to
+              ? 'bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400'
+              : 'text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+          ]"
         >
-          <v-icon v-if="item.icon" :name="item.icon" class="w-4 h-4" />
+          <v-icon v-if="item.icon" :name="item.icon" class="w-4 h-4 dark:text-white dark:group-hover:text-indigo-400" />
           <span>{{ item.name }}</span>
         </RouterLink>
       </li>

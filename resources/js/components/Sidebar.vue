@@ -28,7 +28,7 @@
                 <div class="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
                     <v-icon
                         name="pr-user"
-                        class="h-5 w-5 text-indigo-600 dark:text-indigo-400"
+                        class="h-5 w-5 text-gray-500 dark:text-white"
                     />
                 </div>
                 <div class="flex-1 min-w-0">
@@ -54,7 +54,7 @@
                     >
                         <v-icon
                             name="md-dashboard-outlined"
-                            class="w-5 h-5 group-hover:scale-110 transition-transform duration-200"
+                            class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400"
                         />
                         <span class="text-sm font-medium">Dashboard</span>
                     </RouterLink>
@@ -119,12 +119,12 @@
                         {
                             name: 'Lista de equipos',
                             to: '/inventory',
-                            icon: 'bi-box-seam',
+                            icon: 'bi-hdd-network',
                         },
                         {
                             name: 'Agregar equipo',
                             to: '/inventory/create',
-                            icon: 'md-add',
+                            icon: 'oi-diff-added',
                         },
                     ]"
                 />
@@ -149,7 +149,7 @@
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
                         active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
-                        <v-icon name="pr-users" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200" />
+                        <v-icon name="pr-users" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
                         <span class="text-sm font-medium">Staff</span>
                     </RouterLink>
                 </li>
@@ -170,7 +170,7 @@
                     >
                         <v-icon
                             name="ri-settings-4-line"
-                            class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 "
+                            class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400"
                         />
                         <span class="text-sm font-medium">Configuración</span>
                     </RouterLink>
@@ -183,7 +183,7 @@
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
                         active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
-                        <v-icon name="hi-book-open" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200" />
+                        <v-icon name="hi-book-open" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
                         <span class="text-sm font-medium">Manual de Usuario</span>
                     </RouterLink>
                 </li>
@@ -256,7 +256,7 @@ const supportItems = computed(() => {
         items.push({
             name: 'Tickets',
             to: '/support',
-            icon: 'io-ticket-outline',
+            icon: 'bi-list-task',
         });
     }
     
