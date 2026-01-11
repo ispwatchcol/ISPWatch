@@ -4,14 +4,20 @@
 
 /* Personalization Modes */
 html.compact-mode {
-    font-size: 14px; /* Scales down from default 16px */
+    font-size: 14px;
+    /* Scales down from default 16px */
 }
 
-.no-animations *, 
-.no-animations *::before, 
+.no-animations *,
+.no-animations *::before,
 .no-animations *::after {
     transition: none !important;
     animation: none !important;
     /* Optional: keep basic hover states instant */
     scroll-behavior: auto !important;
+}
+
+/* Select dropdown arrow rotation animation */
+select:focus~.select-arrow {
+    transform: rotate(180deg);
 }

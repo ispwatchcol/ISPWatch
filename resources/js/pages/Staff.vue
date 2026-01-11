@@ -52,17 +52,52 @@
           <table class="min-w-full border-collapse">
             <thead>
               <tr class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
-                <th class="py-3 px-4 text-left">Nombre</th>
-                <th class="py-3 px-4 text-left">Usuario</th>
-                <th class="py-3 px-4 text-left">Rol</th>
-                <th class="py-3 px-4 text-left">Creado</th>
-                <th class="py-3 px-4 text-left">Último Acceso</th>
+                <th @click="sortBy('user_name')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
+                  <div class="flex items-center gap-1">
+                    Nombre
+                    <icon-lucide-arrow-up-down v-if="sortCol !== 'user_name'" class="w-3 h-3 opacity-50" />
+                    <icon-lucide-arrow-up v-if="sortCol === 'user_name' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-down v-if="sortCol === 'user_name' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
+                  </div>
+                </th>
+                <th @click="sortBy('email_tenant')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
+                  <div class="flex items-center gap-1">
+                    Usuario
+                    <icon-lucide-arrow-up-down v-if="sortCol !== 'email_tenant'" class="w-3 h-3 opacity-50" />
+                    <icon-lucide-arrow-up v-if="sortCol === 'email_tenant' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-down v-if="sortCol === 'email_tenant' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
+                  </div>
+                </th>
+                <th @click="sortBy('role_name')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
+                  <div class="flex items-center gap-1">
+                    Rol
+                    <icon-lucide-arrow-up-down v-if="sortCol !== 'role_name'" class="w-3 h-3 opacity-50" />
+                    <icon-lucide-arrow-up v-if="sortCol === 'role_name' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-down v-if="sortCol === 'role_name' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
+                  </div>
+                </th>
+                <th @click="sortBy('create_at')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
+                  <div class="flex items-center gap-1">
+                    Creado
+                    <icon-lucide-arrow-up-down v-if="sortCol !== 'create_at'" class="w-3 h-3 opacity-50" />
+                    <icon-lucide-arrow-up v-if="sortCol === 'create_at' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-down v-if="sortCol === 'create_at' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
+                  </div>
+                </th>
+                <th @click="sortBy('last_access')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
+                  <div class="flex items-center gap-1">
+                    Último Acceso
+                    <icon-lucide-arrow-up-down v-if="sortCol !== 'last_access'" class="w-3 h-3 opacity-50" />
+                    <icon-lucide-arrow-up v-if="sortCol === 'last_access' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-down v-if="sortCol === 'last_access' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
+                  </div>
+                </th>
                 <th class="py-3 px-4 text-left">Acciones</th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="member in filteredStaff"
+                v-for="member in sortedStaff"
                 :key="member.id"
                 class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all"
               >
@@ -111,7 +146,7 @@
             </tbody>
           </table>
           <!-- empty state -->
-          <div v-if="filteredStaff.length === 0" class="text-center py-8">
+          <div v-if="sortedStaff.length === 0" class="text-center py-8">
             <p class="text-gray-500 dark:text-gray-400">No se encontraron resultados</p>
           </div>
         </div>
@@ -129,6 +164,8 @@ const search = ref('')
 const staff = ref([])
 const tenantId = ref(null)
 const loading = ref(false)
+const sortCol = ref('create_at')
+const sortDir = ref('desc')
 
 // load staff data from API
 const loadStaff = async () => {
@@ -174,21 +211,57 @@ const filteredStaff = computed(() =>
   )
 )
 
+// Sorted staff
+const sortedStaff = computed(() => {
+  return [...filteredStaff.value].sort((a, b) => {
+    let valA = a[sortCol.value]
+    let valB = b[sortCol.value]
+
+    // Handle null/undefined values
+    if (valA === null || valA === undefined) valA = ''
+    if (valB === null || valB === undefined) valB = ''
+
+    // Specific logic for name (combine first and last name if needed, but here simple prop)
+    if (sortCol.value === 'user_name') {
+       valA = (a.user_name || '') + ' ' + (a.user_lastname || '')
+       valB = (b.user_name || '') + ' ' + (b.user_lastname || '')
+    }
+
+    if (valA < valB) return sortDir.value === 'asc' ? -1 : 1
+    if (valA > valB) return sortDir.value === 'asc' ? 1 : -1
+    return 0
+  })
+})
+
+// sort toggle function
+const sortBy = (col) => {
+  if (sortCol.value === col) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortCol.value = col
+    sortDir.value = 'asc'
+  }
+}
+
 // clear search input
 const clearSearch = () => (search.value = "")
 
 // dynamic role color classes
 const getRoleColor = (role) => {
-  switch (role) {
-    case "Administrador":
-      return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-    case "Finanzas":
-      return "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300"
-    case "Técnico":
-      return "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
-    default:
-      return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-  }
+  // Normalize role string to lower case for comparison if needed, 
+  // but usually exact match is better for stability if data is consistent.
+  // Using partial match or logical groups.
+  const r = role ? role.toLowerCase() : ''
+
+  if (r.includes('admin')) return "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800"
+  if (r.includes('finanzas') || r.includes('contabil')) return "bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800"
+  if (r.includes('tec') || r.includes('téc')) return "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800"
+  if (r.includes('staff')) return "bg-indigo-100 text-indigo-700 border border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800"
+  if (r.includes('almacen')) return "bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800"
+  if (r.includes('cliente')) return "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800"
+
+  // default
+  return "bg-gray-100 text-gray-700 border border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
 }
 
 // disable user (soft delete)
