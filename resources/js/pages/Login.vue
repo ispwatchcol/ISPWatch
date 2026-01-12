@@ -43,8 +43,12 @@
                         v-model="loginData.email_tenant"
                         placeholder="usuario de ingreso"
                         autocomplete="username"
+                        maxlength="100"
+                        minlength="3"
+                        pattern="^[a-zA-Z0-9@._-]+$"
                         class="w-full p-4 border border-gray-300 rounded-2xl"
                         required
+                        @paste="handlePaste"
                     />
                 </div>
 
@@ -62,6 +66,8 @@
                             v-model="loginData.password"
                             placeholder="********"
                             autocomplete="current-password"
+                            maxlength="100"
+                            minlength="4"
                             class="w-full p-4 border border-gray-300 rounded-2xl"
                             required
                         />
@@ -176,14 +182,131 @@ const showPassword = ref(false);
 const loading = ref(false);
 const errorMessage = ref("");
 
+// ===== FUNCIONES DE SEGURIDAD =====
+
+// Sanitizar entrada: elimina caracteres peligrosos
+const sanitizeInput = (input) => {
+    if (typeof input !== 'string') return '';
+    
+    // Eliminar tags HTML/scripts
+    let sanitized = input.replace(/<[^>]*>/g, '');
+    
+    // Eliminar caracteres de control
+    sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // Escapar caracteres especiales SQL
+    sanitized = sanitized.replace(/['";\\]/g, '');
+    
+    // Eliminar patrones de inyección comunes
+    const dangerousPatterns = [
+        /--/g,                    // SQL comment
+        /\/\*/g,                  // SQL block comment start
+        /\*\//g,                  // SQL block comment end
+        /xp_/gi,                  // SQL Server extended procedure
+        /union\s+select/gi,       // SQL UNION injection
+        /select\s+\*/gi,          // SQL SELECT *
+        /drop\s+table/gi,         // SQL DROP TABLE
+        /insert\s+into/gi,        // SQL INSERT
+        /delete\s+from/gi,        // SQL DELETE
+        /update\s+\w+\s+set/gi,   // SQL UPDATE
+        /<script/gi,              // XSS script tag
+        /javascript:/gi,          // XSS javascript protocol
+        /on\w+\s*=/gi,            // XSS event handlers
+    ];
+    
+    dangerousPatterns.forEach(pattern => {
+        sanitized = sanitized.replace(pattern, '');
+    });
+    
+    return sanitized.trim();
+};
+
+// Manejar pegar contenido - sanitiza al pegar
+const handlePaste = (event) => {
+    event.preventDefault();
+    const pastedText = event.clipboardData.getData('text/plain');
+    const sanitized = sanitizeInput(pastedText);
+    
+    // Insertar texto sanitizado
+    const target = event.target;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const currentValue = target.value;
+    const newValue = currentValue.substring(0, start) + sanitized + currentValue.substring(end);
+    
+    // Actualizar el modelo
+    loginData.value.email_tenant = newValue;
+};
+
+// Validar formato de entrada
+const isValidInput = (input) => {
+    if (!input || typeof input !== 'string') return false;
+    if (input.length > 100) return false; // Max length
+    if (input.length < 3) return false;   // Min length
+    return true;
+};
+
+// Detectar intentos de inyección
+const detectInjectionAttempt = (input) => {
+    if (typeof input !== 'string') return false;
+    
+    const suspiciousPatterns = [
+        /[<>]/,                   // HTML tags
+        /['"]/,                   // Quotes (SQL)
+        /--/,                     // SQL comment
+        /;/,                      // Statement terminator
+        /union/i,                 // SQL UNION
+        /select/i,                // SQL SELECT
+        /drop/i,                  // SQL DROP
+        /insert/i,                // SQL INSERT
+        /delete/i,                // SQL DELETE
+        /update/i,                // SQL UPDATE
+        /script/i,                // XSS script
+        /javascript/i,            // XSS
+        /\$/,                     // Variable injection
+        /\{|\}/,                  // Template injection
+    ];
+    
+    return suspiciousPatterns.some(pattern => pattern.test(input));
+};
+
 const handleLogin = async () => {
     loading.value = true;
     errorMessage.value = "";
 
+    // ===== VALIDACIONES DE SEGURIDAD =====
+    const rawEmail = loginData.value.email_tenant;
+    const rawPassword = loginData.value.password;
+    
+    // 1. Detectar intentos de inyección
+    if (detectInjectionAttempt(rawEmail)) {
+        errorMessage.value = "Entrada no válida detectada.";
+        loading.value = false;
+        console.warn("⚠️ Posible intento de inyección detectado en email");
+        return;
+    }
+    
+    // 2. Sanitizar entradas
+    const sanitizedEmail = sanitizeInput(rawEmail);
+    const sanitizedPassword = rawPassword; // No sanitizar password (puede tener caracteres especiales legítimos)
+    
+    // 3. Validar longitudes y formato
+    if (!isValidInput(sanitizedEmail)) {
+        errorMessage.value = "Usuario debe tener entre 3 y 100 caracteres.";
+        loading.value = false;
+        return;
+    }
+    
+    if (!sanitizedPassword || sanitizedPassword.length < 4 || sanitizedPassword.length > 100) {
+        errorMessage.value = "Contraseña debe tener entre 4 y 100 caracteres.";
+        loading.value = false;
+        return;
+    }
+
     try {
         const response = await api.auth.login({
-            email_tenant: loginData.value.email_tenant,
-            password: loginData.value.password,
+            email_tenant: sanitizedEmail,
+            password: sanitizedPassword,
         });
 
         if (response.data.success) {
