@@ -329,10 +329,28 @@ const handleLogin = async () => {
         }
     } catch (error) {
         console.error(error);
-        if (error.response?.status === 401) {
-            errorMessage.value = "Credenciales incorrectas.";
+        
+        // Manejo específico por código de error HTTP
+        if (error.response) {
+            const status = error.response.status;
+            const data = error.response.data;
+            
+            if (status === 429) {
+                // Rate limit excedido
+                const retryAfter = data.retry_after || 60;
+                errorMessage.value = data.message || `Demasiados intentos. Espera ${retryAfter} segundos.`;
+            } else if (status === 400) {
+                // Entrada sospechosa detectada
+                errorMessage.value = data.message || "Entrada no válida detectada.";
+            } else if (status === 401) {
+                // Credenciales incorrectas
+                errorMessage.value = "Credenciales incorrectas.";
+            } else {
+                // Otros errores
+                errorMessage.value = data.message || "Ocurrió un error inesperado.";
+            }
         } else {
-            errorMessage.value = "Ocurrió un error inesperado.";
+            errorMessage.value = "Error de conexión. Verifica tu red.";
         }
     } finally {
         loading.value = false;
