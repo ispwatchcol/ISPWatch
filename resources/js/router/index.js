@@ -172,7 +172,7 @@ const routes = [
       }
     ],
   },
-  
+
   // SUPPORT
   {
     path: '/support',
@@ -296,19 +296,38 @@ const router = createRouter({
 
 import { hasPermission } from '../services/auth';
 
-// ✅ Protección de rutas
-router.beforeEach((to, from, next) => {
+// Helper: Verificar si la sesión es válida
+const isSessionValid = () => {
   const isLoggedIn =
     localStorage.getItem('isLoggedIn') === 'true' ||
     sessionStorage.getItem('isLoggedIn') === 'true';
 
+  // También verificar que existan los datos del usuario
+  const userData =
+    localStorage.getItem('userData') ||
+    sessionStorage.getItem('userData');
+
+  // Si dice que está logueado pero sin datos, limpiar sesión inválida
+  if (isLoggedIn && !userData) {
+    localStorage.removeItem('isLoggedIn');
+    sessionStorage.removeItem('isLoggedIn');
+    return false;
+  }
+
+  return isLoggedIn && userData;
+};
+
+// ✅ Protección de rutas
+router.beforeEach((to, from, next) => {
+  const isAuthenticated = isSessionValid();
+
   // 1. Check Login
-  if (to.meta.requiresAuth && !isLoggedIn) {
+  if (to.meta.requiresAuth && !isAuthenticated) {
     return next({ name: 'Login' });
   }
 
   // 2. Redirect logged in users from Login page
-  if (to.name === 'Login' && isLoggedIn) {
+  if (to.name === 'Login' && isAuthenticated) {
     return next({ name: 'Dashboard' });
   }
 
@@ -316,8 +335,8 @@ router.beforeEach((to, from, next) => {
   if (to.meta.permission) {
     if (!hasPermission(to.meta.permission)) {
       // Redirect to dashboard or unauthorized page
-        alert('No tienes permisos para acceder a esta sección.');
-        return next({ name: 'Dashboard' });
+      alert('No tienes permisos para acceder a esta sección.');
+      return next({ name: 'Dashboard' });
     }
   }
 
