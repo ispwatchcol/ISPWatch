@@ -18,6 +18,8 @@ class SupportTicketAttachment extends Model
         'mime_type'
     ];
 
+    protected $appends = ['url'];
+
     public function ticket()
     {
         return $this->belongsTo(SupportTicket::class, 'ticket_id');

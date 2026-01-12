@@ -61,7 +61,7 @@ class SupportTicketController extends Controller
         $data = $request->validate([
             'subject' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'category' => 'required|in:technical,billing,services,general',
+            'category' => 'nullable|in:technical,billing,services,general',
             'user_id' => 'required|exists:users,id', // Customer selection required
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
@@ -76,7 +76,7 @@ class SupportTicketController extends Controller
                 'tenant_id' => $request->tenant ?? 1,
                 'subject' => $data['subject'],
                 'description' => $data['description'] ?? null,
-                'category' => $data['category'],
+                'category' => $data['category'] ?? 'general', // Default to 'general' instead of null
                 'priority' => SupportTicket::PRIORITY_MEDIUM, // Default: medium
                 'status' => SupportTicket::STATUS_OPEN, // Pending
             ]);
@@ -107,15 +107,14 @@ class SupportTicketController extends Controller
             // Recargar relaciones
             $ticket->load(['user', 'staff', 'attachments']);
 
-            // Enviar email de notificación
+            // Enviar email de notificación (opcional, no debe fallar la creación)
+            /*
             try {
                 Mail::to($ticket->user->email)->send(new SendTicketNotification($ticket, 'created'));
-                // if ($admin) {
-                //    Mail::to($admin->email)->send(new SendTicketNotification($ticket, 'created'));
-                // }
             } catch (\Exception $e) {
                 \Log::error('Error sending ticket notification email: ' . $e->getMessage());
             }
+            */
 
             return response()->json([
                 'message' => 'Ticket creado correctamente. ✅',
@@ -158,6 +157,7 @@ class SupportTicketController extends Controller
             'category' => 'sometimes|in:technical,billing,services,general',
             'priority' => 'sometimes|in:low,medium,high,urgent',
             'status' => 'sometimes|in:open,in_progress,resolved,closed',
+            'staff_id' => 'sometimes|nullable|exists:users,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
 
@@ -278,8 +278,9 @@ class SupportTicketController extends Controller
             $avgResolutionTime = round($totalDays / $resolvedTickets->count(), 1);
         }
 
-        // Distribución por prioridad
+        // Distribución por prioridad (only if priority exists)
         $byPriority = SupportTicket::select('priority', DB::raw('count(*) as count'))
+            ->whereNotNull('priority')
             ->groupBy('priority')
             ->get()
             ->map(function ($item) {
@@ -300,8 +301,9 @@ class SupportTicketController extends Controller
                 ];
             });
 
-        // Distribución por categoría
+        // Distribución por categoría (only if category exists)
         $byCategory = SupportTicket::select('category', DB::raw('count(*) as count'))
+            ->whereNotNull('category')
             ->groupBy('category')
             ->get()
             ->map(function ($item) {

@@ -55,7 +55,7 @@ import {
   HiChevronRight,
   HiLightBulb,
   IoClose,
-  IoTicketOutline,
+  HiTicket,
   LaMoneyBillWaveSolid,
   PrPaperclip,
   IoSearch,
@@ -88,6 +88,10 @@ import {
   MdDelete,
   MdChevronright,
   MdDownload,
+  PrImages,
+  FaEdit,
+  FaEye,
+  RiArrowGoBackLine,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -136,7 +140,7 @@ addIcons(
   HiChevronRight,
   HiLightBulb,
   IoClose,
-  IoTicketOutline,
+  HiTicket,
   LaMoneyBillWaveSolid,
   PrPaperclip,
   IoSearch,
@@ -169,6 +173,10 @@ addIcons(
   MdDelete,
   MdChevronright,
   MdDownload,
+  PrImages,
+  FaEdit,
+  FaEye,
+  RiArrowGoBackLine,
 );
 
 // -------------------------------

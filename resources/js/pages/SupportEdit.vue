@@ -7,7 +7,7 @@
         </div>
 
         <!-- Loading -->
-        <div v-if="loading" class="max-w-3xl bg-white dark:bg-gray-800 rounded-xl shadow-md p-8">
+        <div v-if="loading" class="max-w-3xl mx-auto rounded-xl p-8">
             <div class="text-center py-8">
                 <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
                 <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando ticket...</p>
@@ -15,7 +15,7 @@
         </div>
 
         <!-- Formulario -->
-        <div v-else class="max-w-3xl bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
+        <div v-else class="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
             <form @submit.prevent="handleSubmit">
                 <!-- Asunto -->
                 <div class="mb-6">
@@ -91,6 +91,22 @@
                     </select>
                 </div>
 
+                <!-- Asignar Staff -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Asignado a
+                    </label>
+                    <select
+                        v-model="form.staff_id"
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="">Sin asignar</option>
+                        <option v-for="member in staffList" :key="member.id" :value="member.id">
+                            {{ member.user_name }} {{ member.user_lastname }} ({{ member.email }})
+                        </option>
+                    </select>
+                </div>
+
                 <!-- Botones -->
                 <div class="flex gap-3">
                     <button
@@ -134,6 +150,7 @@ const form = ref({
     status: ''
 })
 
+const staffList = ref([])
 const loading = ref(true)
 const errors = ref({})
 const submitting = ref(false)
@@ -141,15 +158,24 @@ const submitting = ref(false)
 const loadTicket = async () => {
     try {
         loading.value = true
-        const response = await api.support.getOne(ticketId)
-        const ticket = response.data
+        // Cargar ticket y staff en paralelo
+        const [ticketRes, staffRes] = await Promise.all([
+            api.support.getOne(ticketId),
+            api.staff.getAll()
+        ])
+
+        const ticket = ticketRes.data
+        // Filtrar solo usuarios con rol de Staff (role_id === 2)
+        const allUsers = staffRes.data.data || []
+        staffList.value = allUsers.filter(user => user.role_id === 2)
         
         form.value = {
             subject: ticket.subject,
             description: ticket.description || '',
             category: ticket.category,
             priority: ticket.priority,
-            status: ticket.status
+            status: ticket.status,
+            staff_id: ticket.staff_id || ''
         }
     } catch (err) {
         console.error('Error al cargar ticket:', err)

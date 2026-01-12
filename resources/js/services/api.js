@@ -25,17 +25,13 @@ apiClient.interceptors.request.use(
     if (userData?.tenant_id) {
       config.params = {
         ...(config.params || {}),
-        tenant: userData.tenant_id
+        tenant: userData.tenant_id,
+        tenant_id: userData.tenant_id // Fix for endpoints expecting tenant_id like Users/Staff
       }
     }
 
-    // INYECTAR USER_ID PARA PERMISOS (Fix para mock auth)
-    if (userData?.id) {
-      config.params = {
-        ...(config.params || {}),
-        user_id: userData.id
-      }
-    }
+    // DON'T auto-inject user_id - it was causing support tickets to be filtered incorrectly
+    // Each endpoint should explicitly request user_id if needed
 
     return config
   },
@@ -230,15 +226,9 @@ export default {
     getOne(id) {
       return apiClient.get(`/support/${id}`)
     },
-    create(formData, userId = 1) {
-      // Agregar user_id al FormData si no existe
-      if (!formData.has('user_id')) {
-        formData.append('user_id', userId)
-      }
-      // Usar FormData para enviar archivos
-      return apiClient.post('/support', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+    create(data) {
+      // Support simple JSON data (user_id + subject)
+      return apiClient.post('/support', data)
     },
     update(id, data) {
       if (data instanceof FormData) {

@@ -139,7 +139,8 @@ const loadStatistics = async () => {
         stats.value = response.data
     } catch (err) {
         console.error('Error al cargar estadísticas:', err)
-        alert('Error al cargar las estadísticas.')
+        // Don't show error alert - just show empty stats for better UX
+        // Keep default empty values in stats.value
     } finally {
         loading.value = false
     }

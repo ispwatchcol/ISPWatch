@@ -15,8 +15,8 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        // Asegúrate de cargar la relación 'role' con "with('role')"
-        $user = User::with('role')->where('email_tenant', $request->email_tenant)->first();
+        // Asegúrate de cargar la relación 'role' y 'staffProfile'
+        $user = User::with(['role', 'staffProfile'])->where('email_tenant', $request->email_tenant)->first();
 
         if (!$user) {
             return response()->json(['success' => false, 'message' => 'Credenciales incorrectas.'], 401);
@@ -42,6 +42,7 @@ class AuthController extends Controller
                 // Usamos optional() por si el rol es null
                 'role_name' => optional($user->role)->name ?? 'Sin rol',
                 'permissions' => optional($user->role)->permissions ?? [],
+                'has_staff_profile' => $user->staffProfile !== null,
             ]
         ]);
     }
