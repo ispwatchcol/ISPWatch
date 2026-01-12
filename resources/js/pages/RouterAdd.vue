@@ -71,19 +71,27 @@
               Versión del firmware
             </label>
 
-            <select v-model="form.version" class="input">
-              <option :value="null" disabled class="text-gray-400 dark:text-gray-300">
-                Seleccione una versión…
-              </option>
+            <div class="relative">
+              <select v-model="form.version" 
+                class="input appearance-none bg-white dark:bg-gray-800 cursor-pointer pr-10"
+                style="color-scheme: light dark;">
+                <option :value="null" disabled class="bg-white dark:bg-gray-800 text-gray-400 dark:text-gray-500">
+                  Seleccione una versión…
+                </option>
 
-              <option
-                v-for="v in scriptVersions"
-                :key="v.id"
-                :value="v.id"
-              >
-                {{ v.version }}
-              </option>
-            </select>
+                <option
+                  v-for="v in scriptVersions"
+                  :key="v.id"
+                  :value="v.id"
+                  class="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 py-2"
+                >
+                  {{ v.version }}
+                </option>
+              </select>
+              <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                <icon-lucide-chevron-down class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              </div>
+            </div>
           </div>
 
             <!-- EXTERNAL ID -->
@@ -561,15 +569,16 @@ const cleanDay = (val) => {
 }
 
 const saveBilling = async () => {
+  // Enviar números de día como enteros (1-31)
   const payload = {
-    create_invoice: cleanDay(form.billing.create_invoice),
-    cut_day: cleanDay(form.billing.cut_day),
-    payment_day: cleanDay(form.billing.pay_day),
-    remember_day: cleanDay(form.billing.remember_day),
-    overdue_invoices: cleanInt(form.billing.overdue_invoices),
+    create_invoice: cleanInt(form.billing.create_invoice),
+    cut_day: cleanInt(form.billing.cut_day),
+    payment_day: cleanInt(form.billing.pay_day),
+    payment_reminder: cleanInt(form.billing.remember_day),
+    overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),
-    type: cleanInt(form.billing.metodo),
-    commit: form.comentarios,
+    id_type: cleanInt(form.billing.metodo),
+    status: 'active',
   }
 
   console.log("payload facturación FINAL:", payload)
@@ -610,12 +619,13 @@ const saveRouter = async () => {
     }
   }
 
-  // === Billing con fallback ===
-  let billingId = 1 // Default
-  if (form.facturacion_activa) {
-    const billingRow = await saveBilling()
-    if (billingRow?.id) billingId = billingRow.id
+  // === SIEMPRE crear billing primero ===
+  const billingRow = await saveBilling()
+  if (!billingRow?.id) {
+    alert("Error: No se pudo crear el registro de facturación.")
+    return
   }
+  const billingId = billingRow.id
 
   const payload = {
     name: form.nombre,
@@ -628,7 +638,7 @@ const saveRouter = async () => {
     billing_router_id: billingId,
     comments: form.comentarios_router,
     coordinates,
-    status: form.activo ? 1 : 0,
+    status: form.activo ? 'active' : 'inactive',
     tenant_id: tenantId
   }
 

@@ -27,32 +27,63 @@
       <!-- Tarjeta principal -->
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow p-6">
         <!-- Filtros -->
-        <div class="flex items-center justify-between mb-4">
-          <input
-            v-model="search"
-            type="text"
-            placeholder="Buscar por nombre, IP o usuario..."
-            class="border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-2 w-80 focus:ring-2 focus:ring-blue-300 outline-none dark:bg-gray-900 dark:text-white"
-          />
-          <div class="flex gap-2">
+        <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
+          <!-- Lado Izquierdo: Búsqueda y Limpiar -->
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <input
+              v-model="search"
+              type="text"
+              placeholder="Buscar por nombre, IP o usuario..."
+              class="border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-2 w-full sm:w-80 focus:ring-2 focus:ring-blue-300 outline-none dark:bg-gray-900 dark:text-white"
+            />
             <button
               @click="clearSearch"
-              class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+              class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all whitespace-nowrap"
             >
               Limpiar
             </button>
-            <button
-              @click="openBlockRulesInfo"
-              class="text-sm bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-md"
-            >
-              <icon-lucide-shield-ban class="w-4 h-4" />
-              Configurar Reglas de Bloqueo
-            </button>
           </div>
+
+          <!-- Lado Derecho: Acciones -->
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+               <!-- Export CSV -->
+            <button
+              @click="exportToCSV"
+              class="text-sm bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-2 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
+              title="Exportar archivo CSV puro"
+            >
+              <icon-lucide-file-text class="w-4 h-4" />
+              CSV
+            </button>
+
+             <!-- Export Excel -->
+            <button
+              @click="exportToExcel"
+              class="text-sm bg-green-50 text-green-700 border border-green-200 px-3 py-2 rounded-lg hover:bg-green-100 transition-all flex items-center gap-2 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50"
+              title="Exportar archivo compatible con Excel"
+            >
+              <icon-lucide-file-spreadsheet class="w-4 h-4" />
+              Excel
+            </button>
+
+              <button
+                @click="openBlockRulesInfo"
+                class="text-sm bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-md"
+              >
+                <icon-lucide-shield-ban class="w-4 h-4" />
+                Configurar Reglas de Bloqueo
+              </button>
+            </div>
+        </div>
+
+        <!-- Loading state -->
+        <div v-if="loading" class="text-center py-12">
+          <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+          <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando routers...</p>
         </div>
 
         <!-- Tabla -->
-        <div class="overflow-x-auto">
+        <div v-if="!loading" class="overflow-x-auto">
           <table class="min-w-full border-collapse">
             <thead>
               <tr class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
@@ -436,10 +467,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/supabase.js'
 import { useRouter } from 'vue-router'
+import * as XLSX from 'xlsx'
 
 const router = useRouter()
 const search = ref('')
 const routers = ref([])
+const loading = ref(true)
 
 // Estados del modal WAN
 const showWanModal = ref(false)
@@ -464,6 +497,7 @@ const goToAddRouter = () => {
 
 // 🔹 Cargar routers desde Supabase filtrados por tenant
 const loadRouters = async () => {
+  loading.value = true
   // Obtener los datos del usuario almacenados
   const userData =
     JSON.parse(localStorage.getItem("userData")) ??
@@ -488,6 +522,7 @@ const loadRouters = async () => {
   }
 
   routers.value = data || []
+  loading.value = false
 }
 
 
@@ -519,6 +554,100 @@ const filteredRouters = computed(() =>
 )
 
 const clearSearch = () => (search.value = '')
+
+// Export Helper
+const generateCSV = (withBOM = false) => {
+  if (filteredRouters.value.length === 0) {
+    alert("No hay datos para exportar")
+    return null
+  }
+
+  // Headers
+  const headers = ['Nombre', 'IP', 'Usuario RB', 'Interfaz LAN', 'Interfaz WAN', 'Versión Firmware', 'Estado']
+  
+  // Rows
+  const rows = filteredRouters.value.map(router => [
+    `"${router.name || ''}"`,
+    `"${router.ip || ''}"`,
+    `"${router.user_rb || ''}"`,
+    `"${router.lan_interface || ''}"`,
+    `"${router.wan_interface || ''}"`,
+    `"${router.firmware_version || ''}"`,
+    `"${router.status || ''}"`
+  ])
+
+  // Combine headers and rows
+  const csvContent = [
+    headers.join(','), 
+    ...rows.map(row => row.join(','))
+  ].join('\n')
+
+  return withBOM ? '\uFEFF' + csvContent : csvContent
+}
+
+const downloadFile = (content, filename, mimeType) => {
+  if (!content) return
+  
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+// Export to CSV
+const exportToCSV = () => {
+  const content = generateCSV(false)
+  const date = new Date().toISOString().split('T')[0]
+  downloadFile(content, `routers_list_${date}.csv`, 'text/csv;charset=utf-8;')
+}
+
+// Export to Excel (XLSX)
+const exportToExcel = () => {
+  if (filteredRouters.value.length === 0) {
+    alert("No hay datos para exportar")
+    return
+  }
+
+  // Prepare data for Excel
+  const data = filteredRouters.value.map(router => ({
+    'Nombre': router.name || '',
+    'IP': router.ip || '',
+    'Usuario RB': router.user_rb || '',
+    'Interfaz LAN': router.lan_interface || '',
+    'Interfaz WAN': router.wan_interface || '',
+    'Versión Firmware': router.firmware_version || '',
+    'Estado': router.status || ''
+  }))
+
+  // Create worksheet from data
+  const worksheet = XLSX.utils.json_to_sheet(data)
+  
+  // Set column widths for better readability
+  worksheet['!cols'] = [
+    { wch: 25 }, // Nombre
+    { wch: 15 }, // IP
+    { wch: 15 }, // Usuario
+    { wch: 15 }, // LAN
+    { wch: 15 }, // WAN
+    { wch: 15 }, // Firmware
+    { wch: 10 }  // Estado
+  ]
+
+  // Create workbook and add worksheet
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Routers')
+
+  // Generate filename with current date
+  const date = new Date().toISOString().split('T')[0]
+  const filename = `routers_excel_${date}.xlsx`
+
+  // Write and download file
+  XLSX.writeFile(workbook, filename)
+}
 
 // ==============================
 // FUNCIONES MODAL WAN

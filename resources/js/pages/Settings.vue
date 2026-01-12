@@ -562,12 +562,66 @@ const saveAllSettings = async () => {
   }
 }
 
-const clearCache = () => {
-  localStorage.removeItem('cache')
-  toast.value?.success(
-    'Caché limpiado',
-    'El caché de la aplicación se limpió correctamente'
-  )
+const clearCache = async () => {
+  loading.value = true
+  
+  // 1. Backend Clear (Best effort)
+  try {
+    await axios.post('http://localhost:8000/api/settings/cache/clear')
+  } catch (error) {
+    console.error('Backend cache clear failed:', error)
+    // Continue with frontend clear anyway
+  }
+
+  try {
+    // 2. Frontend Clear (Browser)
+    
+    // Define keys to preserve (Preferences only)
+    const preservedKeys = ['theme', 'uiPreferences']
+    
+    // Clear LocalStorage
+    Object.keys(localStorage).forEach(key => {
+      if (!preservedKeys.includes(key)) {
+        localStorage.removeItem(key)
+      }
+    })
+
+    // Clear SessionStorage
+    Object.keys(sessionStorage).forEach(key => {
+      if (!preservedKeys.includes(key)) {
+        sessionStorage.removeItem(key)
+      }
+    })
+    
+    // Clear Cache API (Service Workers / PWA assets)
+    if ('caches' in window) {
+      try {
+        const cacheNames = await caches.keys()
+        await Promise.all(cacheNames.map(name => caches.delete(name)))
+      } catch (e) {
+        console.error('Cache API clear failed:', e)
+      }
+    }
+    
+    toast.value?.success(
+      'Caché limpiado',
+      'La aplicación se recargará para aplicar los cambios...'
+    )
+    
+    // 3. Force Reload to fetch fresh assets
+    setTimeout(() => {
+      window.location.reload()
+    }, 1500)
+    
+  } catch (error) {
+    console.error('Error clearing frontend cache:', error)
+    toast.value?.error(
+      'Error',
+      'Ocurrió un error al limpiar el caché del navegador'
+    )
+  } finally {
+    loading.value = false
+  }
 }
 
 const exportData = () => {

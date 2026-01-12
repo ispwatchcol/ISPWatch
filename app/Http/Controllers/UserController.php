@@ -60,6 +60,7 @@ class UserController extends Controller
         $data = $request->validate([
             'tenant_id' => 'required|integer|exists:tenant,id',
             'role_id' => 'required|integer|exists:role,id',
+            'name' => 'required|string|max:255',
             'user_name' => 'required|string|max:255',
             'user_lastname' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
