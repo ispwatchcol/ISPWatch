@@ -245,8 +245,8 @@ export default {
       return apiClient.get('/support/statistics')
     },
     addMessage(ticketId, message, isInternal = false, userId = 1) {
-      return apiClient.post(`/support/${ticketId}/message`, { 
-        message, 
+      return apiClient.post(`/support/${ticketId}/message`, {
+        message,
         is_internal: isInternal,
         user_id: userId  // Agregar user_id al request
       })
@@ -254,5 +254,14 @@ export default {
     updateStatus(ticketId, status) {
       return apiClient.patch(`/support/${ticketId}/status`, { status })
     }
+  },
+
+  // =========================
+  // TENANT
+  // =========================
+  tenant: {
+    getOne(id) {
+      return apiClient.get(`/tenants/${id}`)
+    },
   },
 }

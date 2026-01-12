@@ -758,15 +758,16 @@ const loadRouterData = async () => {
    GUARDAR BILLING
 ============================ */
 const saveBilling = async () => {
+  // Usar los mismos nombres de columna que en la BD
   const payload = {
-    create_invoice: cleanDay(form.billing.create_invoice),
-    cut_day: cleanDay(form.billing.cut_day),
-    payment_day: cleanDay(form.billing.pay_day),
-    remember_day: cleanDay(form.billing.remember_day),
-    overdue_invoices: cleanInt(form.billing.overdue_invoices),
+    create_invoice: cleanInt(form.billing.create_invoice),
+    cut_day: cleanInt(form.billing.cut_day),
+    payment_day: cleanInt(form.billing.pay_day),
+    payment_reminder: cleanInt(form.billing.remember_day),
+    overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),
-    type: cleanInt(form.billing.metodo),
-    commit: form.billing.comentarios,
+    id_type: cleanInt(form.billing.metodo),
+    status: 'active',
   }
 
   let result = null
@@ -778,6 +779,9 @@ const saveBilling = async () => {
         .eq('id', form.billing.id)
         .select()
         .single()
+      if (error) {
+        console.error("❌ Error actualizando billing:", error)
+      }
       if (!error) result = data
   } else {
       const { data, error } = await supabase
@@ -785,6 +789,9 @@ const saveBilling = async () => {
         .insert(payload)
         .select()
         .single()
+      if (error) {
+        console.error("❌ Error insertando billing:", error)
+      }
       if (!error) result = data
   }
   return result

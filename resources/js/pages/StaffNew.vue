@@ -95,30 +95,76 @@
             />
           </div>
 
+
           <div>
-            <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Tipo de usuario</label>
-            <select v-model="newMember.role_id" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
-              <option disabled value="">Selecciona un rol</option>
-              <option v-for="role in roles" :key="role.id" :value="role.id">
-                {{ role.name }}
-              </option>
-            </select>
+            <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <v-icon name="md-adminpanelsettings-round" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              Tipo de usuario
+            </label>
+            <div class="relative">
+              <select 
+                v-model="newMember.role_id" 
+                class="w-full pl-3 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg 
+                       bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100
+                       focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                       transition-all duration-200 cursor-pointer appearance-none relative
+                       hover:border-blue-400 dark:hover:border-blue-500"
+              >
+                <option disabled value="">Selecciona un rol</option>
+                <option v-for="role in filteredRoles" :key="role.id" :value="role.id">
+                  {{ role.name }}
+                </option>
+              </select>
+              <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none z-50 transition-transform duration-200 select-arrow">
+                <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              </div>
+            </div>
           </div>
 
           <div>
-            <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Operar todas las zonas</label>
-            <select v-model="newMember.allZones" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
-              <option>Sí</option>
-              <option>No</option>
-            </select>
+            <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <v-icon name="md-publicrounded" class="w-4 h-4 text-green-600 dark:text-green-400" />
+              Operar todas las zonas
+            </label>
+            <div class="relative">
+              <select 
+                v-model="newMember.allZones" 
+                class="w-full pl-3 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg 
+                       bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100
+                       focus:ring-2 focus:ring-green-500 focus:border-transparent
+                       transition-all duration-200 cursor-pointer appearance-none relative
+                       hover:border-green-400 dark:hover:border-green-500"
+              >
+                <option>Sí</option>
+                <option>No</option>
+              </select>
+              <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none z-50 transition-transform duration-200 select-arrow">
+                <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              </div>
+            </div>
           </div>
 
           <div>
-            <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Autenticación de dos pasos</label>
-            <select v-model="newMember.twoFA" class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600">
-              <option>No</option>
-              <option>Sí</option>
-            </select>
+            <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <v-icon name="md-securityrounded" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              Autenticación de dos pasos
+            </label>
+            <div class="relative">
+              <select 
+                v-model="newMember.twoFA" 
+                class="w-full pl-3 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg 
+                       bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100
+                       focus:ring-2 focus:ring-purple-500 focus:border-transparent
+                       transition-all duration-200 cursor-pointer appearance-none relative
+                       hover:border-purple-400 dark:hover:border-purple-500"
+              >
+                <option>No</option>
+                <option>Sí</option>
+              </select>
+              <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none z-50 transition-transform duration-200 select-arrow">
+                <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              </div>
+            </div>
           </div>
         </div>
         <!-- Permisos -->
@@ -150,7 +196,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api.js'
 
@@ -303,6 +349,11 @@ const loadRoles = async () => {
   }
 }
 
+// Computed property to filter out "Cliente" role from staff selection
+const filteredRoles = computed(() => {
+  return roles.value.filter(role => role.name !== 'Cliente')
+})
+
 // Guardar nuevo usuario
 const saveUser = async () => {
   saving.value = true
@@ -330,6 +381,7 @@ const saveUser = async () => {
 
     // Preparar objeto para enviar
     const userInsert = {
+      name: `${newMember.value.name} ${newMember.value.lastname}`.trim(), // Combined name for DB
       user_name: newMember.value.username,
       user_lastname: newMember.value.lastname,
       password: newMember.value.password,
