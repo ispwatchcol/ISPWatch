@@ -7,9 +7,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Router;
 use App\Services\VpnService;
+use App\Traits\FixesSequences;
 
 class RouterController extends Controller
 {
+    use FixesSequences;
     /**
      * Display a listing of the routers.
      */
@@ -46,7 +48,7 @@ class RouterController extends Controller
             'coordinates' => 'nullable',
         ]);
 
-        $router = Router::create($data);
+        $router = $this->createWithSequenceFix(Router::class, $data);
 
         return response()->json([
             'message' => 'Router creado correctamente. ✅',

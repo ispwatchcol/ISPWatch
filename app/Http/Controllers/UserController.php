@@ -6,10 +6,12 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    use FixesSequences;
     /**
      * Display a listing of the users (staff members).
      */
