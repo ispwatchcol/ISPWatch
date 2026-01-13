@@ -52,12 +52,21 @@
 
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Contraseña</label>
-            <input
-              v-model="editMember.password"
-              type="password"
-              class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="Dejar vacío para no cambiar"
-            />
+            <div class="relative">
+              <input
+                v-model="editMember.password"
+                :type="showPassword ? 'text' : 'password'"
+                class="w-full p-2 pr-10 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
+                placeholder="⛔ Contraseña oculta por seguridad (Escribe para cambiar)"
+              />
+              <button
+                type="button"
+                @click="showPassword = !showPassword"
+                class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none"
+              >
+                <v-icon :name="showPassword ? 'fa-eye-slash' : 'fa-eye'" class="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div>
@@ -127,7 +136,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-publicrounded" class="w-4 h-4 text-green-600 dark:text-green-400" />
+              <v-icon name="md-public-round" class="w-4 h-4 text-green-600 dark:text-green-400" />
               Operar todas las zonas
             </label>
             <div class="relative">
@@ -150,7 +159,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-securityrounded" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <v-icon name="md-security-round" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Autenticación de dos pasos
             </label>
             <div class="relative">
@@ -226,6 +235,7 @@ const tenant = ref('')
 const roles = ref([])
 const loading = ref(false)
 const saving = ref(false)
+const showPassword = ref(false)
 const toast = ref(null)
 
 onMounted(async () => {

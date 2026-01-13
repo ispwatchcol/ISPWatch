@@ -125,7 +125,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-publicrounded" class="w-4 h-4 text-green-600 dark:text-green-400" />
+              <v-icon name="md-public-round" class="w-4 h-4 text-green-600 dark:text-green-400" />
               Operar todas las zonas
             </label>
             <div class="relative">
@@ -148,7 +148,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-securityrounded" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <v-icon name="md-security-round" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Autenticación de dos pasos
             </label>
             <div class="relative">

@@ -94,6 +94,11 @@ import {
   MdClose,
   MdAdd,
   MdFilterlist,
+  FaEye,
+  FaEyeSlash,
+  MdAdminpanelsettingsRound,
+  MdPublicRound,
+  MdSecurityRound,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -181,6 +186,11 @@ addIcons(
   MdClose,
   MdAdd,
   MdFilterlist,
+  FaEye,
+  FaEyeSlash,
+  MdAdminpanelsettingsRound,
+  MdPublicRound,
+  MdSecurityRound,
 );
 
 // -------------------------------
