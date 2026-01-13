@@ -1,5 +1,7 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
         <div>
@@ -15,31 +17,50 @@
         </button>
         </div>
 
-        <!-- Buscador -->
-        <div class="mb-6">
-        <div class="relative max-w-md">
-            <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Buscar por nombre, IP o usuario..."
-            class="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white px-4 py-3 pl-11 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-            />
-            <v-icon name="io-search" class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
+        <!-- Filtros y Acciones -->
+        <div class="flex flex-wrap items-center justify-between mb-6 gap-4">
+          <!-- Lado Izquierdo: Buscador y Limpiar -->
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <div class="relative w-full sm:w-80">
+                <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="Buscar por nombre, IP o usuario..."
+                    class="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 px-4 py-2 pl-10 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 shadow-sm"
+                />
+                <v-icon name="io-search" class="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            </div>
+            
             <button
-            v-if="searchQuery"
-            @click="clearSearch"
-            class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              @click="clearSearch"
+              class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all font-medium shadow-sm h-[42px]"
             >
-            ✕
+              Limpiar
             </button>
-        </div>
-        <button
-            v-if="searchQuery"
-            @click="clearSearch"
-            class="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
-        >
-            Limpiar
-        </button>
+          </div>
+
+          <!-- Lado Derecho: Botones Exportar -->
+          <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <!-- Export CSV -->
+            <button
+              @click="exportToCSV"
+              class="text-sm bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-2 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50 shadow-sm h-[42px]"
+              title="Exportar archivo CSV puro"
+            >
+              <icon-lucide-file-text class="w-4 h-4" />
+              CSV
+            </button>
+
+             <!-- Export Excel -->
+            <button
+              @click="exportToExcel"
+              class="text-sm bg-green-50 text-green-700 border border-green-200 px-3 py-2 rounded-lg hover:bg-green-100 transition-all flex items-center gap-2 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50 shadow-sm h-[42px]"
+              title="Exportar archivo compatible con Excel"
+            >
+              <icon-lucide-file-spreadsheet class="w-4 h-4" />
+              Excel
+            </button>
+          </div>
         </div>
 
         <!-- Loading -->
@@ -62,7 +83,7 @@
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nombre</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Tipo</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Usuario RB</th>
-                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Zona ID</th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Router</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Frecuencia</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nodo Torre</th>
                 <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
@@ -73,7 +94,13 @@
                 <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">{{ sectorial.name }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.type || '-' }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.user_rb || '-' }}</td>
-                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.zona_id || '-' }}</td>
+                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
+                    <span v-if="getRouterName(sectorial.zona_id)" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-md text-xs font-medium">
+                        <v-icon name="bi-router" class="w-3 h-3" />
+                        {{ getRouterName(sectorial.zona_id) }}
+                    </span>
+                    <span v-else class="text-gray-400">-</span>
+                </td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.frequency || '-' }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.node_tower || '-' }}</td>
                 <td class="px-6 py-4">
@@ -127,14 +154,19 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { supabase } from '@/supabase.js'
 import api from '../services/api'
+import * as XLSX from 'xlsx'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 
 const sectorials = ref([])
+const routers = ref([])
 const loading = ref(true)
 const error = ref('')
 const searchQuery = ref('')
+const toast = ref(null)
 
 // Computed para filtrar sectoriales
 const filteredSectorials = computed(() => {
@@ -159,6 +191,41 @@ const filteredSectorials = computed(() => {
     })
 })
 
+// Función para obtener el nombre del router por ID
+const getRouterName = (zonaId) => {
+    if (!zonaId) return null
+    const router = routers.value.find(r => r.id === zonaId)
+    return router ? router.name : null
+}
+
+// Cargar routers del tenant actual
+const loadRouters = async () => {
+    try {
+        const userData = 
+            JSON.parse(localStorage.getItem("userData")) ??
+            JSON.parse(sessionStorage.getItem("userData"))
+
+        if (!userData?.tenant_id) {
+            console.error("No se encontró tenant_id")
+            return
+        }
+
+        const { data, error: fetchError } = await supabase
+            .from("router")
+            .select("id, name, ip")
+            .eq("tenant_id", userData.tenant_id)
+
+        if (fetchError) {
+            console.error("Error al cargar routers:", fetchError.message)
+            return
+        }
+
+        routers.value = data || []
+    } catch (err) {
+        console.error('Error al cargar routers:', err)
+    }
+}
+
 const loadSectorials = async () => {
     try {
         loading.value = true
@@ -177,11 +244,17 @@ const deleteSectorial = async (id) => {
 
     try {
         await api.sectorials.delete(id)
-        alert('Sectorial eliminada correctamente')
+        toast.value?.success(
+            'Sectorial eliminada',
+            'La sectorial ha sido eliminada correctamente'
+        )
         loadSectorials()
     } catch (err) {
         console.error('Error al eliminar sectorial:', err)
-        alert('Error al eliminar la sectorial')
+        toast.value?.error(
+            'Error al eliminar',
+            'No se pudo eliminar la sectorial. Intenta de nuevo.'
+        )
     }
 }
 
@@ -189,7 +262,105 @@ const clearSearch = () => {
     searchQuery.value = ''
 }
 
+// Export Helper
+const generateCSV = (withBOM = false) => {
+  if (filteredSectorials.value.length === 0) {
+    toast.value?.warning(
+      'Sin datos',
+      'No hay datos disponibles para exportar'
+    )
+    return null
+  }
+
+  // Headers
+  const headers = ['Nombre', 'Tipo', 'Usuario RB', 'Zona ID', 'Frecuencia', 'Nodo Torre']
+  
+  // Rows
+  const rows = filteredSectorials.value.map(s => [
+    `"${s.name || ''}"`,
+    `"${s.type || ''}"`,
+    `"${s.user_rb || ''}"`,
+    `"${s.zona_id || ''}"`,
+    `"${s.frequency || ''}"`,
+    `"${s.node_tower || ''}"`
+  ])
+
+  // Combine headers and rows
+  const csvContent = [
+    headers.join(','), 
+    ...rows.map(row => row.join(','))
+  ].join('\n')
+
+  return withBOM ? '\uFEFF' + csvContent : csvContent
+}
+
+const downloadFile = (content, filename, mimeType) => {
+  if (!content) return
+  
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+// Export to CSV
+const exportToCSV = () => {
+  const content = generateCSV(false)
+  const date = new Date().toISOString().split('T')[0]
+  downloadFile(content, `sectorials_list_${date}.csv`, 'text/csv;charset=utf-8;')
+}
+
+// Export to Excel (XLSX)
+const exportToExcel = () => {
+  if (filteredSectorials.value.length === 0) {
+    toast.value?.warning(
+      'Sin datos',
+      'No hay datos disponibles para exportar'
+    )
+    return
+  }
+
+  // Prepare data for Excel
+  const data = filteredSectorials.value.map(s => ({
+    'Nombre': s.name || '',
+    'Tipo': s.type || '',
+    'Usuario RB': s.user_rb || '',
+    'Zona ID': s.zona_id || '',
+    'Frecuencia': s.frequency || '',
+    'Nodo Torre': s.node_tower || ''
+  }))
+
+  // Create worksheet from data
+  const worksheet = XLSX.utils.json_to_sheet(data)
+  
+  // Set column widths for better readability
+  worksheet['!cols'] = [
+    { wch: 25 }, // Nombre
+    { wch: 15 }, // Tipo
+    { wch: 15 }, // Usuario
+    { wch: 10 }, // Zona
+    { wch: 15 }, // Frecuencia
+    { wch: 20 }  // Nodo Torre
+  ]
+
+  // Create workbook and add worksheet
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sectoriales')
+
+  // Generate filename with current date
+  const date = new Date().toISOString().split('T')[0]
+  const filename = `sectorials_excel_${date}.xlsx`
+
+  // Write and download file
+  XLSX.writeFile(workbook, filename)
+}
+
 onMounted(() => {
+    loadRouters()
     loadSectorials()
 })
 </script>

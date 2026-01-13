@@ -12,6 +12,7 @@ class Sectorial extends Model
     protected $primaryKey = 'id';
     protected $fillable = [
         'name',
+        'ip',
         'type',
         'user_rb',
         'pass_rb',

@@ -83,6 +83,17 @@ import {
   BiCheckCircleFill,
   MdError,
   MdSchedule,
+  MdRouter,
+  MdWifi,
+  MdPerson,
+  MdLock,
+  MdLocationon,
+  MdDescription,
+  MdArrowback,
+  MdEdit,
+  MdClose,
+  MdAdd,
+  MdFilterlist,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -159,6 +170,17 @@ addIcons(
   BiCheckCircleFill,
   MdError,
   MdSchedule,
+  MdRouter,
+  MdWifi,
+  MdPerson,
+  MdLock,
+  MdLocationon,
+  MdDescription,
+  MdArrowback,
+  MdEdit,
+  MdClose,
+  MdAdd,
+  MdFilterlist,
 );
 
 // -------------------------------

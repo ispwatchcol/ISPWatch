@@ -1,202 +1,313 @@
 <template>
-    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+    <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4 md:p-8">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
+        
         <!-- Header -->
-        <div class="flex items-center gap-4 mb-6">
-        <button
-            @click="router.push('/sectorials')"
-            class="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white transition"
-        >
-            <v-icon name="md-arrowback" class="w-6 h-6" />
-        </button>
-        <div>
-            <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Editar Sectorial</h1>
-            <p class="text-gray-500 dark:text-gray-400 mt-1">Modifica los datos de la sectorial</p>
+        <div class="max-w-5xl mx-auto mb-8">
+            <div class="flex items-center gap-4">
+                <button
+                    @click="router.push('/sectorials')"
+                    class="p-2.5 rounded-xl bg-white dark:bg-gray-800 shadow-md hover:shadow-lg 
+                           text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 
+                           transition-all duration-300 transform hover:-translate-x-1"
+                >
+                    <v-icon name="md-arrowback" class="w-5 h-5" />
+                </button>
+                <div class="flex-1">
+                    <div class="flex items-center gap-3">
+                        <div class="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                            <v-icon name="md-edit" class="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <h1 class="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">
+                                Editar Sectorial
+                            </h1>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">
+                                Modifica los datos del punto de acceso
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
+
+        <!-- Loading State -->
+        <div v-if="loadingData" class="max-w-5xl mx-auto">
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent mb-4"></div>
+                <p class="text-gray-500 dark:text-gray-400">Cargando datos de la sectorial...</p>
+            </div>
         </div>
 
-        <!-- Loading -->
-        <div v-if="loadingData" class="text-center py-12">
-        <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-        <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando datos...</p>
-        </div>
+        <!-- Formulario Principal Unificado -->
+        <div v-else class="max-w-5xl mx-auto">
+            <form @submit.prevent="handleSubmit">
+                <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700 p-6 md:p-8">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        <!-- Nombre -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-info" class="w-4 h-4 text-indigo-500" />
+                                Nombre <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                v-model="form.name"
+                                type="text"
+                                required
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="Ej: Sectorial Norte A"
+                            />
+                        </div>
 
-        <!-- Formulario -->
-        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
-        <form @submit.prevent="handleSubmit">
-            
-            <!-- Información Básica -->
-            <div class="mb-8">
-            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
-                Información Básica
-            </h2>
+                        <!-- IP -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-router" class="w-4 h-4 text-blue-500" />
+                                Dirección IP <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                v-model="form.ip"
+                                type="text"
+                                required
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-blue-500 dark:focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10
+                                       transition-all duration-300 placeholder:text-gray-400 font-mono"
+                                placeholder="192.168.1.100"
+                            />
+                        </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Nombre -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Nombre <span class="text-red-500">*</span>
-                </label>
-                <input
-                    v-model="form.name"
-                    type="text"
-                    required
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Sectorial Norte A"
-                />
+                        <!-- Tipo -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-filterlist" class="w-4 h-4 text-purple-500" />
+                                Tipo
+                            </label>
+                            <div class="relative">
+                                <select
+                                    v-model="form.type"
+                                    class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                           bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                           focus:border-purple-500 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-500/10
+                                           transition-all duration-300 appearance-none cursor-pointer"
+                                >
+                                    <option value="">Seleccione un tipo...</option>
+                                    <option value="Access Point">📡 Access Point</option>
+                                    <option value="Station">📶 Station</option>
+                                    <option value="NAP">🏢 NAP (Nodo de Acceso Principal)</option>
+                                    <option value="Bridge">🌉 Bridge</option>
+                                    <option value="Repeater">🔄 Repeater</option>
+                                    <option value="PTP">↔️ PTP (Punto a Punto)</option>
+                                    <option value="PTMP">🔀 PTMP (Punto Multipunto)</option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Router -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-router" class="w-4 h-4 text-green-500" />
+                                Router <span class="text-red-500">*</span>
+                            </label>
+                            <div class="relative">
+                                <select
+                                    v-model="form.zona_id"
+                                    required
+                                    class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                           bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                           focus:border-green-500 dark:focus:border-green-400 focus:ring-4 focus:ring-green-500/10
+                                           transition-all duration-300 appearance-none cursor-pointer"
+                                >
+                                    <option :value="null" disabled>Seleccione un router...</option>
+                                    <option v-for="router in routers" :key="router.id" :value="router.id">
+                                        {{ router.name }} ({{ router.ip }})
+                                    </option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SSID -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-wifi" class="w-4 h-4 text-cyan-500" />
+                                SSID
+                            </label>
+                            <input
+                                v-model="form.ssid"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="ISPWATCH-5G"
+                            />
+                        </div>
+
+                        <!-- Frecuencia -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="hi-wifi" class="w-4 h-4 text-orange-500" />
+                                Frecuencia (MHz)
+                            </label>
+                            <input
+                                v-model="form.frequency"
+                                type="number"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-orange-500 dark:focus:border-orange-400 focus:ring-4 focus:ring-orange-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="5800"
+                            />
+                        </div>
+
+                        <!-- Nodo Torre -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-settings" class="w-4 h-4 text-teal-500" />
+                                Nodo Torre
+                            </label>
+                            <input
+                                v-model="form.node_tower"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-teal-500 dark:focus:border-teal-400 focus:ring-4 focus:ring-teal-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="Torre Central"
+                            />
+                        </div>
+
+                        <!-- Usuario RB -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-person" class="w-4 h-4 text-emerald-500" />
+                                Usuario RouterBoard
+                            </label>
+                            <input
+                                v-model="form.user_rb"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="admin"
+                            />
+                        </div>
+
+                        <!-- Contraseña RB -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-lock" class="w-4 h-4 text-emerald-500" />
+                                Contraseña RouterBoard
+                            </label>
+                            <input
+                                v-model="form.pass_rb"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="Escribe la contraseña..."
+                            />
+                        </div>
+
+                        <!-- Latitud -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-locationon" class="w-4 h-4 text-rose-500" />
+                                Latitud
+                            </label>
+                            <input
+                                v-model="coordinates.lat"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-rose-500 dark:focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10
+                                       transition-all duration-300 placeholder:text-gray-400 font-mono"
+                                placeholder="4.6097"
+                            />
+                        </div>
+
+                        <!-- Longitud -->
+                        <div class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-locationon" class="w-4 h-4 text-pink-500" />
+                                Longitud
+                            </label>
+                            <input
+                                v-model="coordinates.lng"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-pink-500 dark:focus:border-pink-400 focus:ring-4 focus:ring-pink-500/10
+                                       transition-all duration-300 placeholder:text-gray-400 font-mono"
+                                placeholder="-74.0817"
+                            />
+                        </div>
+
+                        <!-- Comentarios - Full Width -->
+                        <div class="group md:col-span-2 lg:col-span-3">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-description" class="w-4 h-4 text-amber-500" />
+                                Notas adicionales
+                            </label>
+                            <textarea
+                                v-model="form.comments"
+                                rows="3"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-amber-500 dark:focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10
+                                       transition-all duration-300 placeholder:text-gray-400 resize-none"
+                                placeholder="Agrega cualquier información adicional..."
+                            ></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Error Message -->
+                    <div v-if="error" class="mt-6 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-500/50 
+                                text-red-700 dark:text-red-400 px-5 py-4 rounded-xl flex items-center gap-3">
+                        <v-icon name="md-error" class="w-5 h-5 flex-shrink-0" />
+                        <span>{{ error }}</span>
+                    </div>
+
+                    <!-- Botones de Acción -->
+                    <div class="flex flex-col sm:flex-row gap-4 mt-8">
+                        <button
+                            type="submit"
+                            :disabled="loading"
+                            class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 
+                                   disabled:from-gray-400 disabled:to-gray-500 text-white py-4 rounded-xl font-semibold 
+                                   shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 
+                                   transition-all duration-300 flex items-center justify-center gap-2"
+                        >
+                            <v-icon v-if="!loading" name="md-save" class="w-5 h-5" />
+                            <div v-else class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            {{ loading ? 'Guardando...' : 'Actualizar Sectorial' }}
+                        </button>
+                        <button
+                            type="button"
+                            @click="router.push('/sectorials')"
+                            class="px-8 py-4 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 
+                                   text-gray-700 dark:text-gray-200 rounded-xl font-medium transition-all duration-300
+                                   flex items-center justify-center gap-2"
+                        >
+                            <v-icon name="md-close" class="w-5 h-5" />
+                            Cancelar
+                        </button>
+                    </div>
                 </div>
-
-                <!-- Tipo -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Tipo</label>
-                <input
-                    v-model="form.type"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Mikrotik"
-                />
-                </div>
-
-                <!-- Usuario RB -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Usuario RouterBoard</label>
-                <input
-                    v-model="form.user_rb"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: admin"
-                />
-                </div>
-
-                <!-- Contraseña RB -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Contraseña RouterBoard (opcional)
-                </label>
-                <input
-                    v-model="form.pass_rb"
-                    type="password"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Dejar vacío para no cambiar"
-                />
-                </div>
-
-                <!-- Zona ID -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Zona ID</label>
-                <input
-                    v-model="form.zona_id"
-                    type="number"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: 1"
-                />
-                </div>
-
-                <!-- Frecuencia -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Frecuencia (MHz)</label>
-                <input
-                    v-model="form.frequency"
-                    type="number"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: 5800"
-                />
-                </div>
-
-                <!-- Nodo Torre -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Nodo Torre</label>
-                <input
-                    v-model="form.node_tower"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Torre Central"
-                />
-                </div>
-
-                <!-- SSID -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">SSID</label>
-                <input
-                    v-model="form.ssid"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: ISPWATCH-5G"
-                />
-                </div>
-            </div>
-            </div>
-
-            <!-- Comentarios -->
-            <div class="mb-8">
-            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
-                Información Adicional
-            </h2>
-
-            <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Comentarios</label>
-                <textarea
-                v-model="form.comments"
-                rows="4"
-                class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                placeholder="Notas adicionales sobre la sectorial..."
-                ></textarea>
-            </div>
-            </div>
-
-            <!-- Coordenadas (opcional, si lo necesitas) -->
-            <div class="mb-8">
-            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
-                Ubicación (Opcional)
-            </h2>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Latitud -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Latitud</label>
-                <input
-                    v-model="coordinates.lat"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: 4.6097"
-                />
-                </div>
-
-                <!-- Longitud -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Longitud</label>
-                <input
-                    v-model="coordinates.lng"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: -74.0817"
-                />
-                </div>
-            </div>
-            </div>
-
-            <!-- Error -->
-            <div v-if="error" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
-            {{ error }}
-            </div>
-
-            <!-- Botones -->
-            <div class="flex gap-4">
-            <button
-                type="submit"
-                :disabled="loading"
-                class="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white py-3 rounded-lg font-medium transition"
-            >
-                {{ loading ? 'Guardando...' : 'Actualizar Sectorial' }}
-            </button>
-            <button
-                type="button"
-                @click="router.push('/sectorials')"
-                class="px-8 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-3 rounded-lg transition"
-            >
-                Cancelar
-            </button>
-            </div>
-        </form>
+            </form>
         </div>
     </div>
 </template>
@@ -204,13 +315,16 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { supabase } from '@/supabase.js'
 import api from '../services/api'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
 
 const form = ref({
     name: '',
+    ip: '',
     type: '',
     user_rb: '',
     pass_rb: '',
@@ -229,59 +343,79 @@ const coordinates = ref({
 const loading = ref(false)
 const loadingData = ref(true)
 const error = ref('')
+const toast = ref(null)
+const routers = ref([])
+
+const loadRouters = async () => {
+    const userData = 
+        JSON.parse(localStorage.getItem("userData")) ??
+        JSON.parse(sessionStorage.getItem("userData"))
+
+    if (!userData || !userData.tenant_id) {
+        console.error("⚠️ No se encontró tenant_id del usuario autenticado.")
+        return
+    }
+
+    const { data, error: fetchError } = await supabase
+        .from("router")
+        .select("id, name, ip")
+        .eq("tenant_id", userData.tenant_id)
+        .eq("status", "active")
+
+    if (fetchError) {
+        console.error("❌ Error al cargar routers:", fetchError.message)
+        return
+    }
+
+    routers.value = data || []
+}
 
 const loadSectorial = async () => {
     try {
+        console.log('🔍 Cargando sectorial con ID:', route.params.id)
         const response = await api.sectorials.getOne(route.params.id)
+        console.log('📦 Respuesta completa de la API:', response)
+        console.log('📝 Datos de la sectorial:', response.data)
+        
         const sectorial = response.data
 
         form.value = {
-        name: sectorial.name || '',
-        type: sectorial.type || '',
-        user_rb: sectorial.user_rb || '',
-        pass_rb: '', // No cargar la contraseña por seguridad
-        zona_id: sectorial.zona_id || null,
-        frequency: sectorial.frequency || null,
-        node_tower: sectorial.node_tower || '',
-        comments: sectorial.comments || '',
-        ssid: sectorial.ssid || ''
+            name: sectorial.name || '',
+            ip: sectorial.ip || '',
+            type: sectorial.type || '',
+            user_rb: sectorial.user_rb || '',
+            pass_rb: sectorial.pass_rb || '',
+            zona_id: sectorial.zona_id || null,
+            frequency: sectorial.frequency || null,
+            node_tower: sectorial.node_tower || '',
+            comments: sectorial.comments || '',
+            ssid: sectorial.ssid || ''
         }
+        
+        console.log('✅ Formulario cargado con:', form.value)
 
-        // Cargar coordenadas SOLO si existen y son válidas
         if (sectorial.coordinates) {
-        try {
-            let coords = null
-            
-            // Si coordinates es un string, intentar parsearlo
-            if (typeof sectorial.coordinates === 'string') {
-            // Verificar que no esté vacío y sea JSON válido
-            const trimmed = sectorial.coordinates.trim()
-            if (trimmed && trimmed !== '' && trimmed !== 'null') {
-                coords = JSON.parse(trimmed)
+            try {
+                let coords = null
+                if (typeof sectorial.coordinates === 'string') {
+                    const trimmed = sectorial.coordinates.trim()
+                    if (trimmed && trimmed !== '' && trimmed !== 'null') {
+                        coords = JSON.parse(trimmed)
+                    }
+                } else if (typeof sectorial.coordinates === 'object' && sectorial.coordinates !== null) {
+                    coords = sectorial.coordinates
+                }
+                
+                if (coords && (coords.lat || coords.lng)) {
+                    coordinates.value = { lat: coords.lat || '', lng: coords.lng || '' }
+                } else {
+                    coordinates.value = { lat: '', lng: '' }
+                }
+            } catch (e) {
+                coordinates.value = { lat: '', lng: '' }
             }
-            } else if (typeof sectorial.coordinates === 'object' && sectorial.coordinates !== null) {
-            // Si ya es un objeto, usarlo directamente
-            coords = sectorial.coordinates
-            }
-            
-            // Solo asignar si coords es válido y tiene lat/lng
-            if (coords && (coords.lat || coords.lng)) {
-            coordinates.value = {
-                lat: coords.lat || '',
-                lng: coords.lng || ''
-            }
-            } else {
-            // Inicializar vacío si no hay datos válidos
-            coordinates.value = { lat: '', lng: '' }
-            }
-        } catch (e) {
-            console.warn('No se pudieron parsear las coordenadas:', e.message)
-            // Inicializar vacío en caso de error
-            coordinates.value = { lat: '', lng: '' }
-        }
         } else {
-        // Inicializar vacío si no hay coordenadas
-        coordinates.value = { lat: '', lng: '' }
+            coordinates.value = { lat: '', lng: '' }
         }
     } catch (err) {
         console.error('Error al cargar sectorial:', err)
@@ -298,34 +432,33 @@ const handleSubmit = async () => {
     try {
         const dataToSend = { ...form.value }
         
-        // Si no se cambió la contraseña, no enviarla
-        if (!dataToSend.pass_rb) {
-        delete dataToSend.pass_rb
-        }
+        // Coordinates logic handles itself below
 
-        // Solo agregar coordenadas si AMBAS están completas
         if (coordinates.value.lat && coordinates.value.lng) {
-        dataToSend.coordinates = JSON.stringify({
-            lat: parseFloat(coordinates.value.lat),
-            lng: parseFloat(coordinates.value.lng)
-        })
+            dataToSend.coordinates = JSON.stringify({
+                lat: parseFloat(coordinates.value.lat),
+                lng: parseFloat(coordinates.value.lng)
+            })
         } else {
-        // Si están vacías, enviar null o no enviar el campo
-        dataToSend.coordinates = null
+            dataToSend.coordinates = null
         }
 
         await api.sectorials.update(route.params.id, dataToSend)
-        alert('Sectorial actualizada correctamente ✅')
-        router.push('/sectorials')
+        toast.value?.success('Sectorial actualizada', 'Los cambios han sido guardados correctamente')
+        setTimeout(() => {
+            router.push('/sectorials')
+        }, 1500)
     } catch (err) {
         console.error('Error al actualizar sectorial:', err)
         error.value = err.response?.data?.message || 'Error al actualizar la sectorial'
+        toast.value?.error('Error al actualizar', error.value)
     } finally {
         loading.value = false
     }
 }
 
 onMounted(() => {
+    loadRouters()
     loadSectorial()
 })
 </script>
