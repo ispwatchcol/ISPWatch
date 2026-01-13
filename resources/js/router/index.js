@@ -218,18 +218,22 @@ const routes = [
     children: [
       {
         path: '',
-        name: 'Billing',
-        component: () => import('@/pages/Billing.vue'),
+        redirect: '/billing/invoices'
       },
       {
-        path: 'create',
-        name: 'BillingCreate',
-        component: () => import('@/pages/BillingForm.vue'),
+        path: 'invoices',
+        name: 'InvoicesList',
+        component: () => import('@/pages/Billing/InvoicesList.vue'),
       },
       {
-        path: ':id/edit',
-        name: 'BillingEdit',
-        component: () => import('@/pages/BillingForm.vue'),
+        path: 'invoices/:id',
+        name: 'InvoiceDetail',
+        component: () => import('@/pages/Billing/InvoiceDetail.vue'),
+      },
+      {
+        path: 'payments/new',
+        name: 'RegisterPayment',
+        component: () => import('@/pages/Billing/RegisterPayment.vue'),
       }
     ]
   },
