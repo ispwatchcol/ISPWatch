@@ -19,7 +19,7 @@ use App\Http\Controllers\BillingController;
 | AUTH
 |--------------------------------------------------------------------------
 */
-Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 
 /*
 |--------------------------------------------------------------------------
@@ -51,11 +51,13 @@ Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'ap
 |--------------------------------------------------------------------------
 */
 Route::group([], function () {
+    Route::get('/billing/stats', [BillingController::class, 'getStats']);
     Route::get('/billing/invoices', [BillingController::class, 'index']);
     Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
     Route::post('/billing/invoices', [BillingController::class, 'store']);
     Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
     Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
+    Route::get('/billing/payments', [BillingController::class, 'getPayments']);
     Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
     Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
     Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);

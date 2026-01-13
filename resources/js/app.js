@@ -98,6 +98,11 @@ import {
   BiCheckCircleFill,
   MdError,
   MdSchedule,
+  MdPaymentsOutlined,
+  MdFiledownload,
+  MdPrint,
+  MdShare,
+  MdTrendingdown,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -189,6 +194,11 @@ addIcons(
   BiCheckCircleFill,
   MdError,
   MdSchedule,
+  MdPaymentsOutlined,
+  MdFiledownload,
+  MdPrint,
+  MdShare,
+  MdTrendingdown,
 );
 
 // -------------------------------

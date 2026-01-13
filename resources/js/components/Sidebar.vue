@@ -135,9 +135,19 @@
                     title="Finanzas"
                     :items="[
                         {
+                            name: 'Resumen',
+                            to: '/billing/dashboard',
+                            icon: 'md-dashboard-outlined',
+                        },
+                        {
                             name: 'Facturación',
-                            to: '/billing',
+                            to: '/billing/invoices',
                             icon: 'la-money-bill-wave-solid',
+                        },
+                        {
+                            name: 'Pagos / Recaudos',
+                            to: '/billing/payments',
+                            icon: 'md-payments-outlined',
                         },
                     ]"
                 />

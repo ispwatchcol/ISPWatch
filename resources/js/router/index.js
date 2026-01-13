@@ -218,7 +218,13 @@ const routes = [
     children: [
       {
         path: '',
-        redirect: '/billing/invoices'
+        name: 'BillingSummary',
+        component: () => import('@/pages/Billing/BillingDashboard.vue'),
+      },
+      {
+        path: 'dashboard',
+        name: 'BillingDashboard',
+        component: () => import('@/pages/Billing/BillingDashboard.vue'),
       },
       {
         path: 'invoices',
@@ -229,6 +235,11 @@ const routes = [
         path: 'invoices/:id',
         name: 'InvoiceDetail',
         component: () => import('@/pages/Billing/InvoiceDetail.vue'),
+      },
+      {
+        path: 'payments',
+        name: 'PaymentsList',
+        component: () => import('@/pages/Billing/PaymentsList.vue'),
       },
       {
         path: 'payments/new',

@@ -51,23 +51,23 @@
 
 <body>
     <div class="header">
-        <h1>INVOICE</h1>
+        <h1>FACTURA</h1>
         <p>{{ $invoice->tenant->name ?? 'ISP Provider' }}</p>
     </div>
 
     <table class="details">
         <tr>
             <td>
-                <strong>Bill To:</strong><br>
+                <strong>Facturado a:</strong><br>
                 {{ $invoice->customer->name }} {{ $invoice->customer->last_name ?? '' }}<br>
                 {{ $invoice->customer->customerProfile->address ?? '' }}<br>
                 {{ $invoice->customer->email }}
             </td>
             <td style="text-align: right;">
-                <strong>Invoice #:</strong> {{ $invoice->number }}<br>
-                <strong>Date:</strong> {{ $invoice->issue_date->format('Y-m-d') }}<br>
-                <strong>Due Date:</strong> {{ $invoice->due_date->format('Y-m-d') }}<br>
-                <strong>Status:</strong> {{ strtoupper($invoice->status) }}
+                <strong>Factura #:</strong> {{ $invoice->number }}<br>
+                <strong>Fecha:</strong> {{ $invoice->issue_date->format('Y-m-d') }}<br>
+                <strong>Fecha de Vencimiento:</strong> {{ $invoice->due_date->format('Y-m-d') }}<br>
+                <strong>Estado:</strong> {{ strtoupper($invoice->status) }}
             </td>
         </tr>
     </table>
@@ -75,10 +75,10 @@
     <table class="items">
         <thead>
             <tr>
-                <th>Description</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Amount</th>
+                <th>Descripción</th>
+                <th>Cantidad</th>
+                <th>Precio</th>
+                <th>Monto</th>
             </tr>
         </thead>
         <tbody>
@@ -96,12 +96,12 @@
     <div class="total">
         <p><strong>Subtotal:</strong> {{ number_format($invoice->subtotal, 2) }}</p>
         <p><strong>Total:</strong> {{ number_format($invoice->total, 2) }}</p>
-        <p><strong>Balance Due:</strong> {{ number_format($invoice->balance_due, 2) }}</p>
+        <p><strong>Saldo:</strong> {{ number_format($invoice->balance_due, 2) }}</p>
     </div>
 
     @if($invoice->status == 'paid')
         <div style="text-align: center; margin-top: 50px;">
-            <span class="paid">PAID</span>
+            <span class="paid">PAGADO</span>
         </div>
     @endif
 </body>

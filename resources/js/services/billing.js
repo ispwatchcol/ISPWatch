@@ -38,6 +38,15 @@ export default {
     return apiClient.get(`/billing/customers/${customerId}/balance`)
   },
   
+  getStats(tenantId) {
+    return apiClient.get('/billing/stats', { params: { tenant: tenantId } })
+  },
+  
+  // List Payments
+  getPayments(params = {}) {
+    return apiClient.get('/billing/payments', { params })
+  },
+
   // Admin: Run Monthly
   runMonthly(period) {
     return apiClient.post('/billing/run-monthly', { period })
