@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\CustomerProfile;
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\DB;
 
 class CustomerProfileController extends Controller
 {
+    use FixesSequences;
     /**
      * Display a list of customers profiles.
      */
@@ -187,7 +189,7 @@ class CustomerProfileController extends Controller
 
         try {
             // create user in users table
-            $user = User::create([
+            $user = $this->createWithSequenceFix(User::class, [
                 'user_name' => $data['name'],
                 'user_lastname' => $data['last_name'],
                 'email' => $data['email'],
@@ -200,7 +202,7 @@ class CustomerProfileController extends Controller
             ]);
 
             // create customer profile in customer_profiles table
-            $customer = CustomerProfile::create([
+            $customer = $this->createWithSequenceFix(CustomerProfile::class, [
                 'user_id' => $user->id,
                 'name' => $data['name'],
                 'last_name' => $data['last_name'],

@@ -45,7 +45,7 @@
                         autocomplete="username"
                         maxlength="100"
                         minlength="3"
-                        pattern="^[a-zA-Z0-9@._-]+$"
+                        pattern="^[a-zA-Z0-9@._\-]+$"
                         class="w-full p-4 border border-gray-300 rounded-2xl"
                         required
                         @paste="handlePaste"

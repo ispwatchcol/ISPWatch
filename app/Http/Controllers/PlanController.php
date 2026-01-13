@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Plan;
+use App\Traits\FixesSequences;
 use Illuminate\Http\Request;
 
 class PlanController extends Controller
 {
+    use FixesSequences;
     public function index(Request $request)
     {
         $tenantId = $request->query('tenant');
@@ -36,8 +38,8 @@ class PlanController extends Controller
 
         // Buscamos el plan y verificamos que pertenezca al tenant
         $plan = Plan::where('id', $id)
-                    ->where('tenant_id', $tenantId)
-                    ->first();
+            ->where('tenant_id', $tenantId)
+            ->first();
 
         if (!$plan) {
             return response()->json(['message' => 'Plan no encontrado'], 404);
@@ -62,7 +64,7 @@ class PlanController extends Controller
             // 'priority' => 'nullable|integer',
         ]);
 
-        $plan = Plan::create($validated);
+        $plan = $this->createWithSequenceFix(Plan::class, $validated);
 
         return response()->json([
             'success' => true,
@@ -76,8 +78,8 @@ class PlanController extends Controller
         $tenantId = $request->query('tenant');
 
         $plan = Plan::where('id', $id)
-                    ->where('tenant_id', $tenantId)
-                    ->first();
+            ->where('tenant_id', $tenantId)
+            ->first();
 
         if (!$plan) {
             return response()->json(['message' => 'Plan no encontrado'], 404);
@@ -112,13 +114,13 @@ class PlanController extends Controller
     {
         // Es buena práctica validar el tenant también al eliminar
         $tenantId = $request->query('tenant');
-        
+
         $plan = Plan::where('id', $id);
-        
-        if($tenantId) {
+
+        if ($tenantId) {
             $plan->where('tenant_id', $tenantId);
         }
-        
+
         $plan = $plan->firstOrFail();
         $plan->delete();
 

@@ -1,5 +1,7 @@
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors duration-300">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
     
     <!-- LOADING STATE (Overlay) -->
     <div v-if="fetching" class="fixed inset-0 bg-white/80 dark:bg-gray-900/80 z-50 flex items-center justify-center backdrop-blur-sm">
@@ -370,7 +372,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import api from '@/services/api' 
+import api from '@/services/api'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -426,6 +429,8 @@ const form = ref({
   address_mask: '32',
   shared_users: 1
 })
+
+const toast = ref(null)
 
 // Función auxiliar para separar número y unidad (Ej: "50M" -> {val: 50, unit: 'M'})
 const parseSpeed = (speedStr) => {
@@ -491,8 +496,13 @@ const fetchPlanData = async () => {
 
   } catch (error) {
     console.error(error)
-    alert('❌ Error al cargar los datos del plan')
-    router.back()
+    toast.value?.error(
+      'Error al cargar',
+      'No se pudieron cargar los datos del plan. Intenta de nuevo.'
+    )
+    setTimeout(() => {
+      router.back()
+    }, 2000)
   } finally {
     fetching.value = false
   }
@@ -506,7 +516,10 @@ onMounted(() => {
 // 2. ACTUALIZAR DATOS
 const updatePlan = async () => {
   if (!form.value.name || !form.value.cost_product) {
-    alert('⚠️ Nombre y precio son obligatorios')
+    toast.value?.warning(
+      'Datos incompletos',
+      'Por favor ingresa el nombre y precio del plan'
+    )
     return
   }
 
@@ -535,14 +548,20 @@ const updatePlan = async () => {
     // Asumimos endpoint update(id, payload)
     await api.plan.update(planId, payload)
 
-    alert(`✅ Plan actualizado correctamente`)
-    router.push('/planes')
+    toast.value?.success(
+      'Plan actualizado',
+      'El plan ha sido actualizado correctamente'
+    )
+    
+    setTimeout(() => {
+      router.push('/planes')
+    }, 1500)
 
   } catch (error) {
     console.error(error)
-    alert(
-      error.response?.data?.message ||
-      '❌ Error al actualizar el plan'
+    toast.value?.error(
+      'Error al actualizar',
+      error.response?.data?.message || 'No se pudo actualizar el plan. Intenta de nuevo.'
     )
   } finally {
     loading.value = false

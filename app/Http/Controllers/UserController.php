@@ -6,10 +6,12 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    use FixesSequences;
     /**
      * Display a listing of the users (staff members).
      */
@@ -69,11 +71,33 @@ class UserController extends Controller
             'password' => 'required|string|min:6',
         ]);
 
+        // Check if email exists for a disabled user
+        $existingDisabledUser = User::where('email', $data['email'])
+            ->where('status', false)
+            ->first();
+
+        if ($existingDisabledUser) {
+            // Rename the old user's email to free it up
+            $existingDisabledUser->email = $existingDisabledUser->email . '_deleted_' . time();
+            $existingDisabledUser->save();
+        }
+
         $data['password'] = Hash::make($data['password']);
         $data['status'] = true;
         $data['created_at'] = now();
 
-        $user = User::create($data);
+        try {
+            $user = User::create($data);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Check if it's a duplicate key error (sequence out of sync)
+            if (str_contains($e->getMessage(), 'duplicate key') || str_contains($e->getMessage(), 'unique constraint')) {
+                // Auto-fix the sequence and retry
+                $this->fixSequence('users');
+                $user = User::create($data);
+            } else {
+                throw $e;
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -122,6 +146,20 @@ class UserController extends Controller
             'password' => 'nullable|string|min:6',
         ]);
 
+        // Check if email exists for a disabled user (other than the current one)
+        if (isset($data['email'])) {
+            $existingDisabledUser = User::where('email', $data['email'])
+                ->where('status', false)
+                ->where('id', '!=', $user->id) // don't rename our own email if we are disabled
+                ->first();
+
+            if ($existingDisabledUser) {
+                // Rename the old user's email to free it up
+                $existingDisabledUser->email = $existingDisabledUser->email . '_deleted_' . time();
+                $existingDisabledUser->save();
+            }
+        }
+
         if (!empty($data['password'])) {
             $data['password'] = Hash::make($data['password']);
         } else {
@@ -147,6 +185,7 @@ class UserController extends Controller
         $user = User::findOrFail($id);
 
         $user->update([
+            'email' => $user->email . '_deleted_' . time(),
             'status' => false,
             'deleted_at' => now(),
         ]);
@@ -155,5 +194,15 @@ class UserController extends Controller
             'success' => true,
             'message' => 'Usuario desactivado correctamente. ✅',
         ]);
+    }
+
+    /**
+     * Fix PostgreSQL sequence for a table.
+     */
+    private function fixSequence(string $table): void
+    {
+        $maxId = \Illuminate\Support\Facades\DB::table($table)->max('id') ?? 0;
+        $newValue = $maxId + 1;
+        \Illuminate\Support\Facades\DB::statement("SELECT setval('{$table}_id_seq', {$newValue}, false)");
     }
 }
