@@ -10,6 +10,8 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SectorialController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\TenantController;
+use App\Http\Controllers\SettingsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -69,4 +71,12 @@ Route::apiResources([
 | CATALOGOS / LISTAS SIMPLES
 |--------------------------------------------------------------------------
 */
+// Tenant routes
+Route::get('/tenants/{id}', [TenantController::class, 'show']);
+Route::put('/tenants/{id}', [TenantController::class, 'update']);
+
 Route::get('/roles', [RoleController::class, 'index']);
+
+// System Settings
+Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
+
