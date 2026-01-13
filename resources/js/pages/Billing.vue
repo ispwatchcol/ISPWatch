@@ -102,7 +102,7 @@
                 <option value="cancelled">Cancelado</option>
                 </select>
                 <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
+                    <v-icon name="hi-chevron-down" />
                 </div>
             </div>
           </div>
@@ -127,7 +127,7 @@
                 <option value="year">Este Año</option>
                 </select>
                 <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
+                    <v-icon name="hi-chevron-down" />
                 </div>
             </div>
           </div>

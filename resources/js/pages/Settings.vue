@@ -10,7 +10,7 @@
         <div>
           <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
             <div class="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl">
-              <v-icon name="md-settings" class="text-indigo-600 dark:text-indigo-400 w-6 h-6 md:w-7 md:h-7" />
+              <v-icon name="ri-settings-4-line" class="text-indigo-600 dark:text-indigo-400 w-6 h-6 md:w-7 md:h-7" />
             </div>
             Configuración
           </h1>
@@ -153,7 +153,7 @@
                     <option value="America/Buenos_Aires">Argentina (UTC-3)</option>
                   </select>
                   <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
+                    <v-icon name="hi-chevron-down" />
                   </div>
                 </div>
               </div>
@@ -167,7 +167,7 @@
                     <option value="EUR">Euro (EUR)</option>
                   </select>
                   <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
+                    <v-icon name="hi-chevron-down" />
                   </div>
                 </div>
               </div>
@@ -195,7 +195,7 @@
                         : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
                     ]"
                   >
-                    <v-icon name="md-lightmode" class="w-8 h-8 text-yellow-500 mx-auto mb-2" />
+                    <v-icon name="bi-sun" class="w-8 h-8 text-yellow-500 mx-auto mb-2" />
                     <p class="text-sm font-medium text-gray-800 dark:text-gray-200">Modo Claro</p>
                   </button>
                   <button
@@ -207,7 +207,7 @@
                         : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
                     ]"
                   >
-                    <v-icon name="md-nightlight" class="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+                    <v-icon name="bi-moon" class="w-8 h-8 text-indigo-500 mx-auto mb-2" />
                     <p class="text-sm font-medium text-gray-800 dark:text-gray-200">Modo Oscuro</p>
                   </button>
                   <button
@@ -452,7 +452,7 @@ const loading = ref(false)
 const toast = ref(null)
 
 const tabs = [
-  { id: 'general', label: 'General', icon: 'md-settings' },
+  { id: 'general', label: 'General', icon: 'ri-settings-4-line' },
   { id: 'appearance', label: 'Apariencia', icon: 'md-palette' },
   { id: 'notifications', label: 'Notificaciones', icon: 'md-notifications' },
   { id: 'system', label: 'Sistema', icon: 'md-computer' }

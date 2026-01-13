@@ -44,11 +44,12 @@ Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'se
 Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
 
 // Support routes with permissions
-Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
-    ->middleware('permission:support.statistics');
-Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
-Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
-    ->middleware('permission:support.update');
+Route::middleware(['auth:sanctum', 'staff_profile'])->group(function () {
+    Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
+    Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
+    Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
+    // Additional staff-only support routes if needed
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -62,7 +63,7 @@ Route::apiResources([
     'staff' => UserController::class,
     'plans' => PlanController::class,
     'sectorials' => SectorialController::class,
-    'support' => SupportTicketController::class,
+    'support' => SupportTicketController::class, // Most methods likely need staff_profile, check controller constructor or middleware usage
 ]);
 
 /*

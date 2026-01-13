@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Auth;
 use App\Mail\SendTicketNotification;
 
 class SupportTicketController extends Controller
@@ -60,27 +61,24 @@ class SupportTicketController extends Controller
         $data = $request->validate([
             'subject' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'category' => 'required|in:technical,billing,services,general',
-            'user_id' => 'nullable|exists:users,id', // Hacer user_id opcional
+            'category' => 'nullable|in:technical,billing,services,general',
+            'user_id' => 'required|exists:users,id', // Customer selection required
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
 
         DB::beginTransaction();
 
         try {
-            // Buscar el usuario admin@ispwatch.com
-            $admin = User::where('email', 'admin@ispwatch.com')->first();
-
             // Crear el ticket
             $ticket = SupportTicket::create([
-                'user_id' => $data['user_id'] ?? 1, // Default a user_id 1 si no se proporciona
-                'staff_id' => $admin ? $admin->id : null,
+                'user_id' => $data['user_id'], // Required from request
+                'staff_id' => null, // Not assigned on creation
                 'tenant_id' => $request->tenant ?? 1,
                 'subject' => $data['subject'],
                 'description' => $data['description'] ?? null,
-                'category' => $data['category'],
+                'category' => $data['category'] ?? 'general', // Default to 'general' instead of null
                 'priority' => SupportTicket::PRIORITY_MEDIUM, // Default: medium
-                'status' => SupportTicket::STATUS_OPEN,
+                'status' => SupportTicket::STATUS_OPEN, // Pending
             ]);
 
             // Subir archivos adjuntos si existen
@@ -109,15 +107,14 @@ class SupportTicketController extends Controller
             // Recargar relaciones
             $ticket->load(['user', 'staff', 'attachments']);
 
-            // Enviar email de notificación
+            // Enviar email de notificación (opcional, no debe fallar la creación)
+            /*
             try {
                 Mail::to($ticket->user->email)->send(new SendTicketNotification($ticket, 'created'));
-                if ($admin) {
-                    Mail::to($admin->email)->send(new SendTicketNotification($ticket, 'created'));
-                }
             } catch (\Exception $e) {
                 \Log::error('Error sending ticket notification email: ' . $e->getMessage());
             }
+            */
 
             return response()->json([
                 'message' => 'Ticket creado correctamente. ✅',
@@ -160,6 +157,8 @@ class SupportTicketController extends Controller
             'category' => 'sometimes|in:technical,billing,services,general',
             'priority' => 'sometimes|in:low,medium,high,urgent',
             'status' => 'sometimes|in:open,in_progress,resolved,closed',
+            'staff_id' => 'sometimes|nullable|exists:users,id',
+            'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
 
         DB::beginTransaction();
@@ -173,6 +172,27 @@ class SupportTicketController extends Controller
             if (isset($data['status']) && $data['status'] === SupportTicket::STATUS_RESOLVED && $oldStatus !== SupportTicket::STATUS_RESOLVED) {
                 $ticket->resolved_at = now();
                 $ticket->save();
+            }
+
+            // Subir archivos adjuntos si existen en update
+            if ($request->hasFile('attachments')) {
+                foreach ($request->file('attachments') as $file) {
+                    $fileName = time() . '_' . $file->getClientOriginalName();
+                    $filePath = $file->storeAs(
+                        "support_attachments/{$ticket->id}",
+                        $fileName,
+                        'public'
+                    );
+
+                    SupportTicketAttachment::create([
+                        'ticket_id' => $ticket->id,
+                        'user_id' => Auth::id() ?? 1,
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_path' => $filePath,
+                        'file_size' => $file->getSize(),
+                        'mime_type' => $file->getMimeType(),
+                    ]);
+                }
             }
 
             DB::commit();
@@ -258,8 +278,9 @@ class SupportTicketController extends Controller
             $avgResolutionTime = round($totalDays / $resolvedTickets->count(), 1);
         }
 
-        // Distribución por prioridad
+        // Distribución por prioridad (only if priority exists)
         $byPriority = SupportTicket::select('priority', DB::raw('count(*) as count'))
+            ->whereNotNull('priority')
             ->groupBy('priority')
             ->get()
             ->map(function ($item) {
@@ -280,8 +301,9 @@ class SupportTicketController extends Controller
                 ];
             });
 
-        // Distribución por categoría
+        // Distribución por categoría (only if category exists)
         $byCategory = SupportTicket::select('category', DB::raw('count(*) as count'))
+            ->whereNotNull('category')
             ->groupBy('category')
             ->get()
             ->map(function ($item) {

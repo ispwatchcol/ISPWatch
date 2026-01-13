@@ -177,7 +177,7 @@ const routes = [
   {
     path: '/support',
     component: DefaultLayout,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiresStaff: true },
     children: [
       {
         path: '',
@@ -294,7 +294,7 @@ const router = createRouter({
   routes,
 });
 
-import { hasPermission } from '../services/auth';
+import { hasPermission, isStaffOrAdmin } from '../services/auth';
 
 // Helper: Verificar si la sesión es válida
 const isSessionValid = () => {
@@ -331,7 +331,15 @@ router.beforeEach((to, from, next) => {
     return next({ name: 'Dashboard' });
   }
 
-  // 3. Check Permissions
+  // 3. Check Staff Access
+  if (to.meta.requiresStaff) {
+    if (!isStaffOrAdmin()) {
+      alert('No tienes permisos para acceder a esta sección. Solo el personal autorizado puede acceder al módulo de Soporte.');
+      return next({ name: 'Dashboard' });
+    }
+  }
+
+  // 4. Check Permissions
   if (to.meta.permission) {
     if (!hasPermission(to.meta.permission)) {
       // Redirect to dashboard or unauthorized page

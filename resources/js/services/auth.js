@@ -34,3 +34,8 @@ export const isStaffOrAdmin = () => {
     const roleId = getUserRole();
     return roleId == 1 || roleId == 2;
 };
+
+export const hasStaffProfile = () => {
+    const user = getStoredUser();
+    return user ? user.has_staff_profile === true : false;
+};

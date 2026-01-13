@@ -155,7 +155,7 @@
                 </li>
 
                 <SubmenuItem
-                    v-if="canSee.soporte && supportItems.length > 0"
+                    v-if="isStaff && supportItems.length > 0"
                     icon="md-supportagent-round"
                     title="Soporte"
                     :items="supportItems"
@@ -240,14 +240,14 @@
 import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import SubmenuItem from "./SubmenuItem.vue";
-import TimezoneClock from "./TimezoneClock.vue";
-import { hasPermission } from "../services/auth";
-import axios from "axios";
+import { hasPermission, isStaffOrAdmin } from "../services/auth";
 
 const router = useRouter();
 const user = ref({});
 const theme = ref("system");
 const tenantTimezone = ref("America/Bogota");
+
+const isStaff = computed(() => isStaffOrAdmin());
 
 const supportItems = computed(() => {
     const items = [];
@@ -256,7 +256,7 @@ const supportItems = computed(() => {
         items.push({
             name: 'Tickets',
             to: '/support',
-            icon: 'bi-list-task',
+            icon: 'hi-ticket',
         });
     }
     

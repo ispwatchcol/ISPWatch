@@ -98,6 +98,7 @@ class AuthController extends Controller
                 'tenant_id' => $user->tenant_id,
                 'role_name' => optional($user->role)->name ?? 'Sin rol',
                 'permissions' => optional($user->role)->permissions ?? [],
+                'has_staff_profile' => $user->staffProfile !== null,
             ]
         ]);
     }
