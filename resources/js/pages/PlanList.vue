@@ -1,5 +1,7 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
     <!-- CONTENIDO -->
     <main class="flex-1 p-4 sm:p-6 lg:p-10 overflow-y-auto flex flex-col gap-6">
 
@@ -101,8 +103,8 @@
 
         <!-- LOADING STATE -->
         <div v-if="loading" class="text-center py-12">
-          <v-icon name="bi-arrow-repeat" animation="spin" class="text-blue-500 w-8 h-8 mb-2 mx-auto" />
-          <p class="text-gray-500 dark:text-gray-400">Cargando planes...</p>
+          <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+          <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando planes...</p>
         </div>
 
         <!-- TABLA DESKTOP -->
@@ -307,6 +309,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api.js'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 /* ---------------------------
    STATE
@@ -317,6 +320,7 @@ const search = ref('')
 const currentTab = ref('queue')
 const selectedPlans = ref([])
 const allPlans = ref([])
+const toast = ref(null)
 
 /* ---------------------------
    TABS
@@ -429,8 +433,16 @@ const deletePlan = async (id) => {
     await api.plan.delete(id)
     allPlans.value = allPlans.value.filter(p => p.id !== id)
     selectedPlans.value = selectedPlans.value.filter(pId => pId !== id)
+    toast.value?.success(
+      'Plan eliminado',
+      'El plan ha sido eliminado correctamente'
+    )
   } catch (error) {
     console.error('Error eliminando plan:', error)
+    toast.value?.error(
+      'Error al eliminar',
+      error.response?.data?.message || 'No se pudo eliminar el plan. Intenta de nuevo.'
+    )
   }
 }
 

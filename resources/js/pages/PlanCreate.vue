@@ -1,5 +1,7 @@
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors duration-300">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
     <!-- HEADER -->
     <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -374,6 +376,7 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api' // 👈 tu axios client
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -410,10 +413,15 @@ const form = ref({
   upload_unit: 'M'
 })
 
+const toast = ref(null)
+
 
 const savePlan = async () => {
   if (!form.value.name || !form.value.cost_product) {
-    alert('⚠️ Nombre y precio son obligatorios')
+    toast.value?.warning(
+      'Datos incompletos',
+      'Por favor ingresa el nombre y precio del plan'
+    )
     return
   }
 
@@ -425,7 +433,10 @@ const savePlan = async () => {
       JSON.parse(sessionStorage.getItem('userData'))
 
     if (!userData?.tenant_id) {
-      alert('❌ No se encontró el tenant')
+      toast.value?.error(
+        'Error en la configuración del sistema',
+        'No se encontró la información del tenant. Por favor, contacta al administrador.'
+      )
       return
     }
 
@@ -446,15 +457,32 @@ const payload = {
 
     await api.plan.create(payload)
 
-    alert(`✅ Plan ${currentConfig.value.shortLabel} creado`)
-    router.push('/planes')
+    toast.value?.success(
+      'Plan creado',
+      `El plan ${currentConfig.value.shortLabel} ha sido creado correctamente`
+    )
+    
+    setTimeout(() => {
+      router.push('/planes')
+    }, 1500)
 
   } catch (error) {
-    console.error(error)
-    alert(
-      error.response?.data?.message ||
-      '❌ Error al crear el plan'
-    )
+    console.error('Error completo:', error)
+    console.error('Response data:', error.response?.data)
+    console.error('Validation errors:', error.response?.data?.errors)
+    
+    if (error.response?.data?.errors) {
+      const errors = Object.values(error.response.data.errors).flat()
+      toast.value?.error(
+        'Errores de validación',
+        errors.join(', ')
+      )
+    } else {
+      toast.value?.error(
+        'Error al crear',
+        error.response?.data?.message || 'No se pudo crear el plan. Intenta de nuevo.'
+      )
+    }
   } finally {
     loading.value = false
   }
