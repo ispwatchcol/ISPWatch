@@ -1,5 +1,7 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
 
     <main class="flex-1 p-6 md:p-10 overflow-y-auto">
       <div class="flex items-center justify-between mb-8">
@@ -123,7 +125,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-publicrounded" class="w-4 h-4 text-green-600 dark:text-green-400" />
+              <v-icon name="md-public-round" class="w-4 h-4 text-green-600 dark:text-green-400" />
               Operar todas las zonas
             </label>
             <div class="relative">
@@ -146,7 +148,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-securityrounded" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <v-icon name="md-security-round" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Autenticación de dos pasos
             </label>
             <div class="relative">
@@ -199,6 +201,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api.js'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 
@@ -220,6 +223,7 @@ const tenant = ref('')
 const tenantId = ref('')
 const roles = ref([])
 const saving = ref(false)
+const toast = ref(null)
 
 // 👇 LÓGICA UNIFICADA Y SEGURA (Igual que en Staff List)
 onMounted(async () => {
@@ -359,23 +363,35 @@ const saveUser = async () => {
   saving.value = true
   try {
     if (!tenantId.value) {
-      alert('❌ No se encontró información del tenant. Por favor, cierra e inicia sesión nuevamente.')
+      toast.value?.error(
+        'Sesión inválida',
+        'No se encontró información del tenant. Por favor, cierra e inicia sesión nuevamente.'
+      )
       return
     }
 
     // Validaciones básicas
     if (!newMember.value.name) {
-      alert('⚠️ Por favor ingrese un nombre.')
+      toast.value?.warning(
+        'Datos incompletos',
+        'Por favor ingrese un nombre'
+      )
       return
     }
 
     if (!newMember.value.email || !newMember.value.password) {
-      alert('⚠️ Por favor ingrese un correo electrónico y una contraseña.')
+      toast.value?.warning(
+        'Datos incompletos',
+        'Por favor ingrese un correo electrónico y una contraseña'
+      )
       return
     } 
 
     if (!newMember.value.role_id) {
-      alert('⚠️ Por favor seleccione un rol.')
+      toast.value?.warning(
+        'Datos incompletos',
+        'Por favor seleccione un rol'
+      )
       return
     }
 
@@ -397,8 +413,13 @@ const saveUser = async () => {
     const response = await api.staff.create(userInsert)
 
     if (response.data.success) {
-      alert('✅ Usuario registrado correctamente.')
-      router.push('/staff') // Redirigir a la lista
+      toast.value?.success(
+        'Usuario registrado',
+        'El usuario ha sido registrado correctamente'
+      )
+      setTimeout(() => {
+        router.push('/staff') // Redirigir a la lista
+      }, 1500)
     }
   } catch (error) {
     console.error('⚠️ Error al registrar usuario:', error.response?.data || error)
@@ -406,9 +427,15 @@ const saveUser = async () => {
     // Mostrar mensaje de error específico si existe
     if (error.response?.data?.errors) {
       const errors = Object.values(error.response.data.errors).flat()
-      alert(`❌ Errores de validación: ${error.response?.data?.message || error.message}`)
+      toast.value?.error(
+        'Errores de validación',
+        error.response?.data?.message || errors.join(', ')
+      )
     } else {
-      alert(`❌ Error al registrar usuario: ${error.response?.data?.message || error.message}`)
+      toast.value?.error(
+        'Error al registrar',
+        error.response?.data?.message || error.message
+      )
     }
   } finally {
     saving.value = false

@@ -1,5 +1,7 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
     <main class="flex-1 p-6 md:p-10 overflow-y-auto">
       <div class="flex items-center justify-between mb-8">
         <div>
@@ -50,12 +52,21 @@
 
           <div>
             <label class="block text-sm font-medium mb-1 text-gray-600 dark:text-gray-300">Contraseña</label>
-            <input
-              v-model="editMember.password"
-              type="password"
-              class="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
-              placeholder="Dejar vacío para no cambiar"
-            />
+            <div class="relative">
+              <input
+                v-model="editMember.password"
+                :type="showPassword ? 'text' : 'password'"
+                class="w-full p-2 pr-10 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
+                placeholder="⛔ Contraseña oculta por seguridad (Escribe para cambiar)"
+              />
+              <button
+                type="button"
+                @click="showPassword = !showPassword"
+                class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none"
+              >
+                <v-icon :name="showPassword ? 'fa-eye-slash' : 'fa-eye'" class="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div>
@@ -125,7 +136,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-publicrounded" class="w-4 h-4 text-green-600 dark:text-green-400" />
+              <v-icon name="md-public-round" class="w-4 h-4 text-green-600 dark:text-green-400" />
               Operar todas las zonas
             </label>
             <div class="relative">
@@ -148,7 +159,7 @@
 
           <div>
             <label class="block text-sm font-medium mb-2 text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              <v-icon name="md-securityrounded" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <v-icon name="md-security-round" class="w-4 h-4 text-purple-600 dark:text-purple-400" />
               Autenticación de dos pasos
             </label>
             <div class="relative">
@@ -202,6 +213,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api.js'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -223,6 +235,8 @@ const tenant = ref('')
 const roles = ref([])
 const loading = ref(false)
 const saving = ref(false)
+const showPassword = ref(false)
+const toast = ref(null)
 
 onMounted(async () => {
   await loadRoles()
@@ -272,7 +286,10 @@ const loadUserData = async () => {
     }
   } catch (error) {
     console.error('❌ Error al cargar el usuario:', error.response?.data || error)
-    alert('No se pudo cargar la información del usuario.')
+    toast.value?.error(
+      'Error de carga',
+      'No se pudo cargar la información del usuario.'
+    )
     router.push('/staff')
   } finally {
     loading.value = false
@@ -343,17 +360,26 @@ const updateUser = async () => {
   try {
     // basic validation
     if (!editMember.value.name || !editMember.value.lastname) {
-      alert('⚠️ Por favor completa el nombre y apellido')
+      toast.value?.warning(
+        'Datos incompletos',
+        'Por favor completa el nombre y apellido'
+      )
       return
     }
 
     if (!editMember.value.email) {
-      alert('⚠️ Por favor completa el email')
+      toast.value?.warning(
+        'Datos incompletos',
+        'Por favor completa el email'
+      )
       return
     }
 
     if (!editMember.value.role_id) {
-      alert('⚠️ Por favor selecciona un rol')
+      toast.value?.warning(
+        'Datos incompletos',
+        'Por favor selecciona un rol'
+      )
       return
     }
 
@@ -373,8 +399,13 @@ const updateUser = async () => {
     const response = await api.staff.update(userId, updateData)
 
     if (response.data.success) {
-      alert('✅ Usuario actualizado correctamente.')
-      router.push('/staff')
+      toast.value?.success(
+        'Usuario actualizado',
+        'El usuario ha sido actualizado correctamente'
+      )
+      setTimeout(() => {
+        router.push('/staff')
+      }, 1500)
     }
   } catch (error) {
     console.error('⚠️ Error al actualizar usuario:', error.response?.data || error)
@@ -382,9 +413,15 @@ const updateUser = async () => {
     // show validation errors from API
     if (error.response?.data?.errors) {
       const errors = Object.values(error.response.data.errors).flat()
-      alert(`❌ Errores de validación:\n${errors.join('\n')}`)
+      toast.value?.error(
+        'Errores de validación',
+        errors.join(', ')
+      )
     } else {
-      alert(`❌ Error al actualizar usuario: ${error.response?.data?.message || error.message}`)
+      toast.value?.error(
+        'Error al actualizar',
+        error.response?.data?.message || error.message
+      )
     }
   } finally {
     saving.value = false

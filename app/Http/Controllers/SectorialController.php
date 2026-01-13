@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Sectorial;
+use App\Traits\FixesSequences;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class SectorialController extends Controller
 {
+    use FixesSequences;
     /**
      * Display a listing of the resource.
      */
@@ -24,6 +26,7 @@ class SectorialController extends Controller
     {
         $data = $request->validate([
             'name' => 'required|string|max:255',
+            'ip' => 'nullable|string|max:255',
             'type' => 'nullable|string|max:255',
             'user_rb' => 'nullable|string|max:255',
             'pass_rb' => 'nullable|string|max:255',
@@ -36,13 +39,13 @@ class SectorialController extends Controller
         ]);
 
         try {
-            $sectorial = Sectorial::create($data);
+            $sectorial = $this->createWithSequenceFix(Sectorial::class, $data);
 
             return response()->json([
                 'message' => 'Sectorial creado correctamente. ✅',
                 'sectorial' => $sectorial
             ], 201);
-        } catch(\Exception $e) {
+        } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Error al crear el sectorial. ❌',
                 'error' => $e->getMessage()
@@ -80,6 +83,7 @@ class SectorialController extends Controller
 
         $data = $request->validate([
             'name' => 'sometimes|required|string|max:255',
+            'ip' => 'nullable|string|max:255',
             'type' => 'nullable|string|max:255',
             'user_rb' => 'nullable|string|max:255',
             'pass_rb' => 'nullable|string|max:255',

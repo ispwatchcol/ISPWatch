@@ -1,5 +1,7 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
 
     <!-- Contenido principal -->
     <main class="flex-1 p-6 overflow-y-auto">
@@ -191,6 +193,7 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '../services/api.js'
 import * as XLSX from 'xlsx'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 //  reactive states
 const search = ref('')
@@ -198,6 +201,7 @@ const staff = ref([])
 const tenantId = ref(null)
 const loading = ref(true)
 const sortCol = ref('create_at')
+const toast = ref(null)
 const sortDir = ref('desc')
 
 // load staff data from API
@@ -213,7 +217,10 @@ const loadStaff = async () => {
 
     if (!tenantId.value) {
       console.error("❌ No se encontró tenant_id en la sesión del usuario.")
-      alert("No se encontró información del tenant. Por favor inicia sesión nuevamente.")
+      toast.value?.error(
+        'Sesión inválida',
+        'No se encontró información del tenant. Por favor inicia sesión nuevamente.'
+      )
       return
     }
 
@@ -224,11 +231,17 @@ const loadStaff = async () => {
       staff.value = response.data.data
     } else {
       console.error("Error en respuesta: ", response.data)
-      alert("Error al cargar el personal")
+      toast.value?.error(
+        'Error de carga',
+        'Error al cargar el personal del sistema'
+      )
     }
   } catch (error) {
     console.error("⚠️ Error al cargar staff:", error.response?.data || error.message)
-    alert("Error al cargar el personal. Por favor intenta nuevamente.")
+    toast.value?.error(
+      'Error de conexión',
+      'Error al cargar el personal. Por favor intenta nuevamente.'
+    )
   } finally {
     loading.value = false
   }
@@ -308,12 +321,18 @@ const deleteUser = async (id) => {
     const response = await api.staff.delete(id)
 
     if (response.data.success) {
-      alert("✅ Usuario desactivado correctamente.")
+      toast.value?.success(
+        'Usuario desactivado',
+        'El usuario ha sido desactivado correctamente'
+      )
       await loadStaff() // reload staff list after deletion
     }
   } catch (erorr) {
       console.error("❌ Error al desactivar usuario:", error.response?.data || error.message)
-      alert("Error al desactivar el usuario. Por favor intenta nuevamente.")
+      toast.value?.error(
+        'Error al desactivar',
+        'Error al desactivar el usuario. Por favor intenta nuevamente.'
+      )
   }
 }
 
@@ -330,7 +349,10 @@ const formatDate = (dateStr) => {
 // Export Helper
 const generateCSV = (withBOM = false) => {
   if (sortedStaff.value.length === 0) {
-    alert("No hay datos para exportar")
+    toast.value?.warning(
+      'Sin datos',
+      'No hay datos disponibles para exportar'
+    )
     return null
   }
 
@@ -378,7 +400,10 @@ const exportToCSV = () => {
 // Export to Excel (CSV compatible)
 const exportToExcel = () => {
   if (sortedStaff.value.length === 0) {
-    alert("No hay datos para exportar")
+    toast.value?.warning(
+      'Sin datos',
+      'No hay datos disponibles para exportar'
+    )
     return
   }
 
