@@ -240,7 +240,9 @@
 import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import SubmenuItem from "./SubmenuItem.vue";
+import TimezoneClock from "./TimezoneClock.vue";
 import { hasPermission, isStaffOrAdmin } from "../services/auth";
+import api from "../services/api";
 
 const router = useRouter();
 const user = ref({});
@@ -424,7 +426,7 @@ const loadTenantTimezone = async () => {
     try {
         if (!user.value?.tenant_id) return;
         
-        const response = await axios.get(`http://localhost:8000/api/tenants/${user.value.tenant_id}`);
+        const response = await api.tenant.getOne(user.value.tenant_id);
         
         if (response.data.success && response.data.data) {
             tenantTimezone.value = response.data.data.zone_tenant || 'America/Bogota';
