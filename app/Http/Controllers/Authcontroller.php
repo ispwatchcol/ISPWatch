@@ -81,6 +81,10 @@ class AuthController extends Controller
 
         $user->update(['last_access' => now()]);
 
+        // Iniciar sesión para el guard 'web' (Persistencia de sesión)
+        auth()->login($user, true);
+        $request->session()->regenerate();
+
         Log::info('Successful login', [
             'user_id' => $user->id,
             'email_tenant' => $user->email_tenant,

@@ -12,13 +12,14 @@ use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\BillingController;
 
 /*
 |--------------------------------------------------------------------------
 | AUTH
 |--------------------------------------------------------------------------
 */
-Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 
 /*
 |--------------------------------------------------------------------------
@@ -41,7 +42,26 @@ Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfa
 Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
 
 // Firewall Block Rules
+// Firewall Block Rules
 Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
+
+/*
+|--------------------------------------------------------------------------
+| BILLING MODULE
+|--------------------------------------------------------------------------
+*/
+Route::group([], function () {
+    Route::get('/billing/stats', [BillingController::class, 'getStats']);
+    Route::get('/billing/invoices', [BillingController::class, 'index']);
+    Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
+    Route::post('/billing/invoices', [BillingController::class, 'store']);
+    Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
+    Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
+    Route::get('/billing/payments', [BillingController::class, 'getPayments']);
+    Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
+    Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
+    Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
+});
 
 // Support routes with permissions
 Route::middleware(['auth:sanctum', 'staff_profile'])->group(function () {
