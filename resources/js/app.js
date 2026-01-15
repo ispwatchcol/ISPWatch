@@ -91,6 +91,7 @@ import {
   PrImages,
   FaEdit,
   FaEye,
+  FaEyeSlash,
   RiArrowGoBackLine,
   MdDownload,
   MdChevronright,
@@ -111,11 +112,10 @@ import {
   MdEdit,
   MdClose,
   MdFilterlist,
-  FaEye,
-  FaEyeSlash,
   MdAdminpanelsettingsRound,
   MdPublicRound,
   MdSecurityRound,
+  FaWhatsapp,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -189,8 +189,6 @@ addIcons(
   MdLightmode,
   MdNightlight,
   MdComputer,
-  MdInfo,
-  MdLanguage,
   MdBrush,
   MdTextfields,
   MdAnimation,
@@ -202,6 +200,7 @@ addIcons(
   PrImages,
   FaEdit,
   FaEye,
+  FaEyeSlash,
   RiArrowGoBackLine,
   MdDownload,
   MdChevronright,
@@ -219,16 +218,13 @@ addIcons(
   MdLock,
   MdLocationon,
   MdDescription,
-  MdArrowback,
   MdEdit,
   MdClose,
-  MdAdd,
   MdFilterlist,
-  FaEye,
-  FaEyeSlash,
   MdAdminpanelsettingsRound,
   MdPublicRound,
   MdSecurityRound,
+  FaWhatsapp,
 );
 
 // -------------------------------

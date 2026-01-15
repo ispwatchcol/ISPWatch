@@ -44,6 +44,9 @@
         <main class="flex-1 md:ml-64 pt-16 md:pt-0 transition-all duration-300">
             <router-view />
         </main>
+
+        <!-- WhatsApp Floating Button -->
+        <WhatsAppButton />
     </div>
 </template>
 
@@ -51,6 +54,7 @@
 import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Sidebar from '../components/Sidebar.vue';
+import WhatsAppButton from '../components/WhatsAppButton.vue';
 
 const isSidebarOpen = ref(false);
 const route = useRoute();
