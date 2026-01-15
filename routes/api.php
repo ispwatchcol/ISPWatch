@@ -13,6 +13,7 @@ use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\DashboardController;
 
 /*
 |--------------------------------------------------------------------------
@@ -20,6 +21,13 @@ use App\Http\Controllers\BillingController;
 |--------------------------------------------------------------------------
 */
 Route::middleware('web')->post('/login', [AuthController::class, 'login']);
+
+/*
+|--------------------------------------------------------------------------
+| DASHBOARD
+|--------------------------------------------------------------------------
+*/
+Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
 /*
 |--------------------------------------------------------------------------
