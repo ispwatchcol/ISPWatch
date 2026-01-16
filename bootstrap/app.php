@@ -23,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'staff_profile' => \App\Http\Middleware\CheckStaffProfile::class,
         ]);
 
+        // Add global security headers to all responses
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);

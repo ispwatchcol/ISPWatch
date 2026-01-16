@@ -1,7 +1,57 @@
 <template>
     <div
-        class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 px-4"
+        class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 px-4 relative"
     >
+        <!-- ✅ NOTIFICACIÓN DE CREDENCIALES (después del registro) -->
+        <div 
+          v-if="showCredentialsNotification" 
+          class="fixed top-4 right-4 z-50 w-full max-w-md animate-slide-in-right"
+        >
+          <div class="bg-white rounded-2xl shadow-2xl p-6 border-2 border-green-400">
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-4">
+              <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-gray-900">🎉 ¡Cuenta Creada Exitosamente!</h3>
+                <p class="text-sm text-gray-500">Usa estas credenciales para ingresar</p>
+              </div>
+              <button 
+                @click="closeCredentialsNotification"
+                class="ml-auto p-1 hover:bg-gray-100 rounded-full transition"
+              >
+                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Credenciales -->
+            <div class="bg-blue-50 rounded-xl p-4 mb-3">
+              <label class="block text-xs font-medium text-blue-600 mb-1">👤 Tu usuario de acceso:</label>
+              <div class="font-mono font-bold text-blue-800 text-lg bg-white rounded-lg px-3 py-2 border border-blue-200">
+                {{ newAccountCredentials.email_tenant }}
+              </div>
+            </div>
+
+            <div class="bg-green-50 rounded-xl p-4 mb-4">
+              <label class="block text-xs font-medium text-green-600 mb-1">🔑 Tu contraseña:</label>
+              <div class="font-medium text-green-800 bg-white rounded-lg px-3 py-2 border border-green-200">
+                La que ingresaste al registrarte
+              </div>
+            </div>
+
+            <!-- Advertencia -->
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700 flex gap-2">
+              <span>⚠️</span>
+              <span><strong>Importante:</strong> Ingresa el usuario exacto mostrado arriba, NO tu correo personal.</span>
+            </div>
+          </div>
+        </div>
+
         <div class="bg-white shadow-2xl rounded-3xl p-10 w-full max-w-md">
             <!-- Logo -->
             <div class="flex justify-center mb-6">
@@ -166,7 +216,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted, reactive } from "vue";
 import { useRouter } from "vue-router";
 import api from "../services/api.js";
 
@@ -181,6 +231,37 @@ const loginData = ref({
 const showPassword = ref(false);
 const loading = ref(false);
 const errorMessage = ref("");
+
+// ✅ Notificación de credenciales para nuevos usuarios
+const showCredentialsNotification = ref(false);
+const newAccountCredentials = reactive({
+    email_tenant: '',
+    company_name: '',
+});
+
+// Verificar si hay credenciales de una cuenta recién creada
+onMounted(() => {
+    const savedCredentials = localStorage.getItem('newAccountCredentials');
+    if (savedCredentials) {
+        try {
+            const parsed = JSON.parse(savedCredentials);
+            newAccountCredentials.email_tenant = parsed.email_tenant || '';
+            newAccountCredentials.company_name = parsed.company_name || '';
+            showCredentialsNotification.value = true;
+            
+            // Pre-llenar el campo de usuario
+            loginData.value.email_tenant = parsed.email_tenant || '';
+        } catch (e) {
+            console.error('Error parsing saved credentials:', e);
+        }
+    }
+});
+
+// Cerrar notificación y limpiar localStorage
+const closeCredentialsNotification = () => {
+    showCredentialsNotification.value = false;
+    localStorage.removeItem('newAccountCredentials');
+};
 
 // ===== FUNCIONES DE SEGURIDAD =====
 
@@ -251,7 +332,7 @@ const detectInjectionAttempt = (input) => {
     if (typeof input !== 'string') return false;
     
     const suspiciousPatterns = [
-        /[<>]/,                   // HTML tags
+        /<>/,                   // HTML tags
         /['"]/,                   // Quotes (SQL)
         /--/,                     // SQL comment
         /;/,                      // Statement terminator
@@ -273,6 +354,9 @@ const detectInjectionAttempt = (input) => {
 const handleLogin = async () => {
     loading.value = true;
     errorMessage.value = "";
+    
+    // Cerrar notificación de credenciales al intentar login
+    closeCredentialsNotification();
 
     // ===== VALIDACIONES DE SEGURIDAD =====
     const rawEmail = loginData.value.email_tenant;
@@ -361,5 +445,21 @@ const handleLogin = async () => {
 <style scoped>
 body {
     font-family: "Inter", sans-serif;
+}
+
+/* Animación de deslizamiento desde la derecha */
+@keyframes slide-in-right {
+    0% {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.animate-slide-in-right {
+    animation: slide-in-right 0.4s ease-out;
 }
 </style>
