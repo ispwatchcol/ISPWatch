@@ -183,7 +183,23 @@ class CustomerProfileController extends Controller
             'service_id' => 'nullable|integer|exists:service_plan,id',
             'sectorial_id' => 'nullable|integer|exists:sectorial,id',
             'router_id' => 'nullable|integer|exists:router,id',
+            'tenant_id' => 'nullable|integer|exists:tenant,id',
         ]);
+
+        // Get tenant ID from request or session
+        $tenantId = $data['tenant_id'] ?? $this->getCurrentTenantId($request);
+
+        // Check customer limit for tenant
+        $limitCheck = $this->checkCustomerLimit($tenantId);
+        if (!$limitCheck['allowed']) {
+            return response()->json([
+                'success' => false,
+                'message' => $limitCheck['message'],
+                'limit' => $limitCheck['limit'],
+                'current' => $limitCheck['current'],
+                'upgrade_required' => true,
+            ], 403);
+        }
 
         DB::beginTransaction();
 
@@ -543,5 +559,73 @@ class CustomerProfileController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get current tenant ID from authenticated user or request
+     */
+    private function getCurrentTenantId(Request $request): int
+    {
+        // Try to get from request header or query param
+        if ($request->has('tenant_id')) {
+            return (int) $request->input('tenant_id');
+        }
+
+        // Try to get from authenticated user
+        if ($request->user() && $request->user()->tenant_id) {
+            return $request->user()->tenant_id;
+        }
+
+        // Default to tenant 1 for backward compatibility
+        return 1;
+    }
+
+    /**
+     * Check if tenant has reached customer limit
+     */
+    private function checkCustomerLimit(int $tenantId): array
+    {
+        $tenant = \App\Models\Tenant::find($tenantId);
+
+        if (!$tenant) {
+            return [
+                'allowed' => false,
+                'message' => 'Tenant no encontrado.',
+                'limit' => 0,
+                'current' => 0,
+            ];
+        }
+
+        // If max_customers is 0 or null, unlimited
+        if (empty($tenant->max_customers) || $tenant->max_customers <= 0) {
+            return [
+                'allowed' => true,
+                'message' => 'Sin límite de clientes.',
+                'limit' => 0,
+                'current' => 0,
+            ];
+        }
+
+        // Count current customers for this tenant
+        $currentCount = CustomerProfile::whereHas('user', function ($query) use ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        })->count();
+
+        if ($currentCount >= $tenant->max_customers) {
+            return [
+                'allowed' => false,
+                'message' => "Has alcanzado el límite de {$tenant->max_customers} clientes de tu plan {$tenant->status}. Contacta con soporte para actualizar tu plan.",
+                'limit' => $tenant->max_customers,
+                'current' => $currentCount,
+            ];
+        }
+
+        return [
+            'allowed' => true,
+            'message' => 'OK',
+            'limit' => $tenant->max_customers,
+            'current' => $currentCount,
+            'remaining' => $tenant->max_customers - $currentCount,
+        ];
     }
 }

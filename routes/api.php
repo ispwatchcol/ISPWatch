@@ -14,6 +14,7 @@ use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\RegistrationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -21,6 +22,13 @@ use App\Http\Controllers\DashboardController;
 |--------------------------------------------------------------------------
 */
 Route::middleware('web')->post('/login', [AuthController::class, 'login']);
+
+/*
+|--------------------------------------------------------------------------
+| REGISTRATION
+|--------------------------------------------------------------------------
+*/
+Route::post('/register', [RegistrationController::class, 'register']);
 
 /*
 |--------------------------------------------------------------------------

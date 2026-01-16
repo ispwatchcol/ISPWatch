@@ -10,6 +10,8 @@ class Tenant extends Model
     protected $fillable = [
         'name',
         'domain',
+        'status',
+        'max_customers',
         'logo',
         'email_tenant',
         'tel_tenant',
