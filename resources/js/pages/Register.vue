@@ -41,6 +41,9 @@
             placeholder="Mi ISP S.A.S."
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
             required
+            maxlength="255"
+            minlength="2"
+            @paste="handlePaste($event, 'company_name')"
           />
         </div>
 
@@ -54,6 +57,9 @@
             placeholder="Juan Pérez"
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
             required
+            maxlength="255"
+            minlength="2"
+            @paste="handlePaste($event, 'name')"
           />
         </div>
 
@@ -67,6 +73,8 @@
             placeholder="you@example.com"
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
             required
+            maxlength="255"
+            @paste="handlePaste($event, 'email')"
           />
         </div>
 
@@ -79,6 +87,8 @@
             v-model="form.phone"
             placeholder="+57 300 123 4567"
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
+            maxlength="20"
+            @paste="handlePaste($event, 'phone')"
           />
         </div>
 
@@ -93,6 +103,7 @@
             class="w-full p-4 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition shadow-sm"
             required
             minlength="6"
+            maxlength="128"
           />
         </div>
 
@@ -147,22 +158,176 @@ const loading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
 
+// ===== SECURITY FUNCTIONS =====
+
+/**
+ * Sanitize input: remove dangerous characters
+ */
+const sanitizeInput = (input) => {
+  if (typeof input !== 'string') return '';
+  
+  // Remove HTML tags
+  let sanitized = input.replace(/<[^>]*>/g, '');
+  
+  // Remove control characters
+  sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+  
+  // Remove SQL dangerous characters
+  sanitized = sanitized.replace(/['";\\]/g, '');
+  
+  // Remove common injection patterns
+  const dangerousPatterns = [
+    /--/g,                    // SQL comment
+    /\/\*/g,                  // SQL block comment start
+    /\*\//g,                  // SQL block comment end
+    /xp_/gi,                  // SQL Server extended procedure
+    /union\s+select/gi,       // SQL UNION injection
+    /select\s+\*/gi,          // SQL SELECT *
+    /drop\s+table/gi,         // SQL DROP TABLE
+    /insert\s+into/gi,        // SQL INSERT
+    /delete\s+from/gi,        // SQL DELETE
+    /update\s+\w+\s+set/gi,   // SQL UPDATE
+    /<script/gi,              // XSS script tag
+    /javascript:/gi,          // XSS javascript protocol
+    /on\w+\s*=/gi,            // XSS event handlers
+  ];
+  
+  dangerousPatterns.forEach(pattern => {
+    sanitized = sanitized.replace(pattern, '');
+  });
+  
+  return sanitized.trim();
+};
+
+/**
+ * Sanitize email input
+ */
+const sanitizeEmail = (email) => {
+  if (typeof email !== 'string') return '';
+  // Allow only valid email characters
+  return email.toLowerCase().replace(/[^a-z0-9@._\-+]/gi, '').trim();
+};
+
+/**
+ * Sanitize phone input
+ */
+const sanitizePhone = (phone) => {
+  if (typeof phone !== 'string') return '';
+  // Allow only numbers, +, -, spaces, and parentheses
+  return phone.replace(/[^0-9+\-\s()]/g, '').trim();
+};
+
+/**
+ * Detect injection patterns
+ */
+const detectInjectionAttempt = (input) => {
+  if (typeof input !== 'string') return false;
+  
+  const suspiciousPatterns = [
+    /<>/,                   // HTML tags
+    /['"]/,                 // Quotes (SQL)
+    /--/,                   // SQL comment
+    /;/,                    // Statement terminator
+    /union/i,               // SQL UNION
+    /select/i,              // SQL SELECT
+    /drop/i,                // SQL DROP
+    /insert/i,              // SQL INSERT
+    /delete/i,              // SQL DELETE
+    /update/i,              // SQL UPDATE
+    /script/i,              // XSS script
+    /javascript/i,          // XSS
+    /\$/,                   // Variable injection
+    /\{|\}/,                // Template injection
+  ];
+  
+  return suspiciousPatterns.some(pattern => pattern.test(input));
+};
+
+/**
+ * Validate input length
+ */
+const isValidLength = (input, min = 2, max = 255) => {
+  if (!input || typeof input !== 'string') return false;
+  return input.length >= min && input.length <= max;
+};
+
+/**
+ * Handle paste event - sanitize pasted content
+ */
+const handlePaste = (event, fieldName) => {
+  event.preventDefault();
+  const pastedText = event.clipboardData.getData('text/plain');
+  
+  let sanitized;
+  switch (fieldName) {
+    case 'email':
+      sanitized = sanitizeEmail(pastedText);
+      break;
+    case 'phone':
+      sanitized = sanitizePhone(pastedText);
+      break;
+    default:
+      sanitized = sanitizeInput(pastedText);
+  }
+  
+  // Update the form field
+  form[fieldName] = sanitized;
+};
+
+/**
+ * Handle registration with security checks
+ */
 const handleRegister = async () => {
   loading.value = true;
   errorMessage.value = '';
   successMessage.value = '';
 
+  // ===== SECURITY VALIDATION =====
+  
+  // 1. Detect injection attempts
+  const fieldsToCheck = [form.company_name, form.name, form.email];
+  for (const field of fieldsToCheck) {
+    if (detectInjectionAttempt(field)) {
+      errorMessage.value = 'Entrada no válida detectada.';
+      loading.value = false;
+      console.warn('⚠️ Possible injection attempt detected');
+      return;
+    }
+  }
+  
+  // 2. Validate lengths
+  if (!isValidLength(form.company_name, 2, 255)) {
+    errorMessage.value = 'El nombre de la empresa debe tener entre 2 y 255 caracteres.';
+    loading.value = false;
+    return;
+  }
+  
+  if (!isValidLength(form.name, 2, 255)) {
+    errorMessage.value = 'Tu nombre debe tener entre 2 y 255 caracteres.';
+    loading.value = false;
+    return;
+  }
+  
+  if (!isValidLength(form.password, 6, 128)) {
+    errorMessage.value = 'La contraseña debe tener entre 6 y 128 caracteres.';
+    loading.value = false;
+    return;
+  }
+  
+  // 3. Sanitize inputs before sending
+  const sanitizedData = {
+    company_name: sanitizeInput(form.company_name),
+    name: sanitizeInput(form.name),
+    email: sanitizeEmail(form.email),
+    phone: form.phone ? sanitizePhone(form.phone) : null,
+    password: form.password, // Don't sanitize passwords
+  };
+
   try {
-    const response = await apiClient.post('/register', {
-      company_name: form.company_name,
-      name: form.name,
-      email: form.email,
-      phone: form.phone || null,
-      password: form.password,
-    });
+    const response = await apiClient.post('/register', sanitizedData);
 
     if (response.data.success) {
-      // ✅ Guardar credenciales en localStorage para mostrar en Login
+      // ✅ Save credentials in localStorage for Login page display
       localStorage.setItem('newAccountCredentials', JSON.stringify({
         email_tenant: response.data.data.email_tenant,
         company_name: response.data.data.company_name,
@@ -170,7 +335,7 @@ const handleRegister = async () => {
       
       successMessage.value = '¡Cuenta creada! Redirigiendo al login...';
       
-      // Redirigir al Login después de 1 segundo
+      // Redirect to Login after 1 second
       setTimeout(() => {
         router.push('/');
       }, 1000);
@@ -180,7 +345,9 @@ const handleRegister = async () => {
   } catch (error) {
     console.error('Registration error:', error);
     
-    if (error.response?.data?.message) {
+    if (error.response?.status === 429) {
+      errorMessage.value = error.response.data.message || 'Demasiados intentos. Espera unos minutos.';
+    } else if (error.response?.data?.message) {
       errorMessage.value = error.response.data.message;
     } else if (error.response?.data?.errors) {
       const errors = error.response.data.errors;
