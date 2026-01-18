@@ -1,5 +1,7 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
         <!-- Header -->
         <div class="mb-6">
             <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Nuevo Ticket de Soporte</h1>
@@ -7,7 +9,7 @@
         </div>
 
         <!-- Formulario -->
-        <div class="max-w-3xl bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
+        <div class="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
             <form @submit.prevent="handleSubmit">
                 <!-- Selección de Cliente -->
                 <div class="mb-6">
@@ -33,6 +35,29 @@
                     <p v-if="errors.user_id" class="mt-1 text-sm text-red-500">{{ errors.user_id }}</p>
                 </div>
 
+                <!-- Selección de Staff -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Técnico
+                    </label>
+                    <p v-if="loadingStaff" class="text-sm text-gray-500 dark:text-gray-400">Cargando personal...</p>
+                    <select
+                        v-else
+                        v-model="form.staff_id"
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        <option value="">Selecciona el técnico</option>
+                        <option 
+                            v-for="member in staff" 
+                            :key="member.id" 
+                            :value="member.id"
+                        >
+                            {{ member.user_name }} {{ member.user_lastname }} ({{ member.email }})
+                        </option>
+                    </select>
+                    <p v-if="errors.staff_id" class="mt-1 text-sm text-red-500">{{ errors.staff_id }}</p>
+                </div>
+
                 <!-- Asunto -->
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -46,6 +71,19 @@
                         :class="{ 'border-red-500': errors.subject }"
                     />
                     <p v-if="errors.subject" class="mt-1 text-sm text-red-500">{{ errors.subject }}</p>
+                </div>
+
+                <!-- Descripción -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Descripción (Opcional)
+                    </label>
+                    <textarea
+                        v-model="form.description"
+                        rows="4"
+                        placeholder="Describe el problema en detalle..."
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    ></textarea>
                 </div>
 
                 <!-- Botones -->
@@ -78,19 +116,26 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
+import NotificationToast from '../components/NotificationToast.vue'
 
 const router = useRouter()
 
 const form = ref({
     user_id: '', // Customer ID
-    subject: ''
+    staff_id: '', // Staff ID
+    subject: '',
+    description: ''
 })
 
 const customers = ref([])
 const loadingCustomers = ref(false)
 
+const staff = ref([])
+const loadingStaff = ref(false)
+
 const errors = ref({})
 const submitting = ref(false)
+const toast = ref(null)
 
 const validate = () => {
     errors.value = {}
@@ -114,17 +159,20 @@ const handleSubmit = async () => {
 
         await api.support.create({
             user_id: form.value.user_id,
-            subject: form.value.subject
+            staff_id: form.value.staff_id || null,
+            subject: form.value.subject,
+            description: form.value.description
         })
 
-        alert('Ticket creado correctamente. ✅')
-        router.push('/support')
+        toast.value?.success('Éxito', 'Ticket creado correctamente.')
+        setTimeout(() => router.push('/support'), 1500)
     } catch (err) {
         console.error('Error al crear ticket:', err)
         if (err.response?.data?.errors) {
             errors.value = err.response.data.errors
+            toast.value?.error('Error', 'Por favor revisa los campos del formulario.')
         } else {
-            alert('Error al crear el ticket. Por favor intenta de nuevo.')
+            toast.value?.error('Error', 'No se pudo crear el ticket. Intenta de nuevo.')
         }
     } finally {
         submitting.value = false
@@ -147,7 +195,24 @@ const loadCustomers = async () => {
     }
 }
 
+const loadStaff = async () => {
+    try {
+        loadingStaff.value = true
+        const [staffRes] = await Promise.all([
+            api.staff.getAll()
+        ])
+        const allUsers = staffRes.data.data || []
+        staff.value = allUsers.filter(user => user.role_id === 2)
+    } catch (err) {
+        console.error('Error al cargar personal:', err)
+        toast.value?.error('Error', 'Error al cargar la lista del personal.')
+    } finally {
+        loadingStaff.value = false
+    }
+}
+
 onMounted(() => {
     loadCustomers()
+    loadStaff()
 })
 </script>

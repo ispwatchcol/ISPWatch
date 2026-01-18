@@ -1,5 +1,7 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
             <div>
@@ -180,12 +182,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { hasPermission } from '../services/auth'
+import NotificationToast from '../components/NotificationToast.vue'
 
 const router = useRouter()
 
 const tickets = ref([])
 const loading = ref(true)
 const error = ref('')
+const toast = ref(null)
 const searchQuery = ref('')
 const filters = ref({
     status: 'all',
@@ -237,6 +241,7 @@ const loadTickets = async () => {
         console.log('Tickets value after assignment:', tickets.value)
     } catch (err) {
         console.error('Error al cargar tickets:', err)
+        toast.value?.error('Error', 'No se pudieron cargar los tickets de soporte.')
         error.value = 'Error al cargar los tickets.'
     } finally {
         loading.value = false
@@ -248,11 +253,11 @@ const deleteTicket = async (id) => {
 
     try {
         await api.support.delete(id)
-        alert('Ticket eliminado correctamente.')
+        toast.value?.success('Éxito', 'Ticket eliminado correctamente.')
         loadTickets()
     } catch (err) {
         console.error('Error al eliminar ticket:', err)
-        alert('Error al eliminar el ticket.')
+        toast.value?.error('Error', 'No se pudo eliminar el ticket.')
     }
 }
 

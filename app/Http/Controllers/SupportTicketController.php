@@ -62,7 +62,8 @@ class SupportTicketController extends Controller
             'subject' => 'required|string|max:255',
             'description' => 'nullable|string',
             'category' => 'nullable|in:technical,billing,services,general',
-            'user_id' => 'required|exists:users,id', // Customer selection required
+            'user_id' => 'required|exists:users,id',
+            'staff_id' => 'nullable|exists:users,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
 
@@ -71,14 +72,14 @@ class SupportTicketController extends Controller
         try {
             // Crear el ticket
             $ticket = SupportTicket::create([
-                'user_id' => $data['user_id'], // Required from request
-                'staff_id' => null, // Not assigned on creation
+                'user_id' => $data['user_id'],
+                'staff_id' => $data['staff_id'] ?? null,
                 'tenant_id' => $request->tenant ?? 1,
                 'subject' => $data['subject'],
                 'description' => $data['description'] ?? null,
-                'category' => $data['category'] ?? 'general', // Default to 'general' instead of null
-                'priority' => SupportTicket::PRIORITY_MEDIUM, // Default: medium
-                'status' => SupportTicket::STATUS_OPEN, // Pending
+                'category' => $data['category'] ?? 'general',
+                'priority' => SupportTicket::PRIORITY_MEDIUM,
+                'status' => SupportTicket::STATUS_OPEN,
             ]);
 
             // Subir archivos adjuntos si existen
@@ -151,7 +152,7 @@ class SupportTicketController extends Controller
     {
         $ticket = SupportTicket::findOrFail($id);
 
-        $data = $request->validate([
+        $validator = \Validator::make($request->all(), [
             'subject' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'category' => 'sometimes|in:technical,billing,services,general',
@@ -160,6 +161,20 @@ class SupportTicketController extends Controller
             'staff_id' => 'sometimes|nullable|exists:users,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
+
+        if ($validator->fails()) {
+            \Log::warning('Validation failed for ticket update:', [
+                'id' => $id,
+                'errors' => $validator->errors()->toArray(),
+                'request_data' => $request->except(['attachments'])
+            ]);
+            return response()->json([
+                'message' => 'Error de validación.',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $data = $validator->validated();
 
         DB::beginTransaction();
 
@@ -214,9 +229,18 @@ class SupportTicketController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+            \Log::error('Error updating ticket: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Error al actualizar el ticket.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'details' => [
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine()
+                ]
             ], 500);
         }
     }
@@ -357,7 +381,7 @@ class SupportTicketController extends Controller
         $data = $request->validate([
             'message' => 'required|string',
             'is_internal' => 'boolean',
-            'user_id' => 'required|exists:users,id', // Hacer user_id requerido en el request
+            'user_id' => 'sometimes|nullable|exists:users,id',
         ]);
 
         DB::beginTransaction();
@@ -365,7 +389,7 @@ class SupportTicketController extends Controller
         try {
             $message = SupportTicketMessage::create([
                 'ticket_id' => $ticket->id,
-                'user_id' => $data['user_id'], // Usar el user_id del request
+                'user_id' => $data['user_id'] ?? Auth::id() ?? 1,
                 'message' => $data['message'],
                 'is_internal' => $data['is_internal'] ?? false,
             ]);
@@ -446,5 +470,37 @@ class SupportTicketController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Update a ticket message.
+     */
+    public function updateMessage(Request $request, $id)
+    {
+        $message = SupportTicketMessage::findOrFail($id);
+
+        $data = $request->validate([
+            'message' => 'required|string',
+        ]);
+
+        $message->update($data);
+
+        return response()->json([
+            'message' => 'Mensaje actualizado correctamente. ✅',
+            'ticket_message' => $message->load('user')
+        ]);
+    }
+
+    /**
+     * Delete a ticket message.
+     */
+    public function deleteMessage($id)
+    {
+        $message = SupportTicketMessage::findOrFail($id);
+        $message->delete();
+
+        return response()->json([
+            'message' => 'Mensaje eliminado correctamente. ✅'
+        ]);
     }
 }

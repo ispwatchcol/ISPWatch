@@ -1,5 +1,7 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
         <!-- Header -->
         <div class="mb-6">
             <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Editar Ticket #{{ ticketId }}</h1>
@@ -137,6 +139,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
+import NotificationToast from '../components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -154,6 +157,7 @@ const staffList = ref([])
 const loading = ref(true)
 const errors = ref({})
 const submitting = ref(false)
+const toast = ref(null)
 
 const loadTicket = async () => {
     try {
@@ -179,7 +183,7 @@ const loadTicket = async () => {
         }
     } catch (err) {
         console.error('Error al cargar ticket:', err)
-        alert('Error al cargar el ticket.')
+        toast.value?.error('Error', 'Error al cargar los detalles del ticket.')
         router.push('/support')
     } finally {
         loading.value = false
@@ -208,14 +212,15 @@ const handleSubmit = async () => {
 
         await api.support.update(ticketId, form.value)
 
-        alert('Ticket actualizado correctamente. ✅')
-        router.push(`/support/${ticketId}`)
+        toast.value?.success('Éxito', 'Ticket actualizado correctamente.')
+        setTimeout(() => router.push(`/support/${ticketId}`), 1500)
     } catch (err) {
         console.error('Error al actualizar ticket:', err)
         if (err.response?.data?.errors) {
             errors.value = err.response.data.errors
+            toast.value?.error('Error', 'Por favor revisa los campos del formulario.')
         } else {
-            alert('Error al actualizar el ticket. Por favor intenta de nuevo.')
+            toast.value?.error('Error', 'No se pudo actualizar el ticket. Intenta de nuevo.')
         }
     } finally {
         submitting.value = false

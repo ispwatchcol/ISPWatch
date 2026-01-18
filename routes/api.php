@@ -83,8 +83,9 @@ Route::group([], function () {
 Route::middleware(['auth:sanctum', 'staff_profile'])->group(function () {
     Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
     Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
+    Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
+    Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
     Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
-    // Additional staff-only support routes if needed
 });
 
 /*
