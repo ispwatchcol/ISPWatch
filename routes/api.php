@@ -77,6 +77,7 @@ Route::group([], function () {
     Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
     Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
     Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
+    Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
 });
 
 // Support routes with permissions

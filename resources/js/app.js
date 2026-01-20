@@ -38,6 +38,7 @@ import {
   MdRouterRound,
   MdSupportagentRound,
   HiChevronDown,
+  MdChevronleftRound,
   FaArrowLeft,
   FaUserEdit,
   PrServer,
@@ -116,6 +117,14 @@ import {
   MdPublicRound,
   MdSecurityRound,
   FaWhatsapp,
+  MdWarningamberRound,
+  MdInventoryRound,
+  BiBuilding,
+  MdStoremalldirectory,
+  BiUpc,
+  MdVisibility,
+  MdCheck,
+
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -152,6 +161,7 @@ addIcons(
   MdRouterRound,
   MdSupportagentRound,
   HiChevronDown,
+  MdChevronleftRound,
   FaArrowLeft,
   PrServer,
   BiSpeedometer2,
@@ -225,6 +235,13 @@ addIcons(
   MdPublicRound,
   MdSecurityRound,
   FaWhatsapp,
+  MdWarningamberRound,
+  MdInventoryRound,
+  BiBuilding,
+  MdStoremalldirectory,
+  BiUpc,
+  MdVisibility,
+  MdCheck,
 );
 
 // -------------------------------

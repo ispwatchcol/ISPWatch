@@ -49,7 +49,7 @@
         <StatCard
           title="Sucursales"
           :value="stats.totalBranches"
-          icon="md-storemalldir"
+          icon="md-storemalldirectory"
           color="orange"
         />
       </div>
@@ -110,7 +110,7 @@
           <!-- Branch Filter -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
-              <v-icon name="md-storemalldir" class="w-4 h-4 mr-1" />
+              <v-icon name="md-storemalldirectory" class="w-4 h-4 mr-1" />
               Sucursal
             </label>
             <div class="relative">
@@ -196,7 +196,7 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-sm text-gray-800 dark:text-gray-200">
-                    <v-icon name="md-storemalldir" class="w-3 h-3 mr-1" />
+                    <v-icon name="md-storemalldirectory" class="w-3 h-3 mr-1" />
                     {{ device.branch_name || 'Sin sucursal' }}
                   </div>
                 </td>
@@ -277,7 +277,7 @@
                      disabled:opacity-50 disabled:cursor-not-allowed transition-all
                      flex items-center gap-2"
             >
-              <v-icon name="md-chevronleft" class="w-4 h-4" />
+              <v-icon name="md-chevronleft-round" class="w-4 h-4" />
               <span class="hidden sm:inline">Anterior</span>
             </button>
             <button
@@ -408,7 +408,7 @@
                      disabled:opacity-50 disabled:cursor-not-allowed transition-all
                      flex items-center justify-center gap-2 font-medium"
             >
-              <v-icon name="md-chevronleft" class="w-4 h-4" />
+              <v-icon name="md-chevronleft-round" class="w-4 h-4" />
               Anterior
             </button>
             <button

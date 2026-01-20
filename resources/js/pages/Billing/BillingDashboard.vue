@@ -33,6 +33,21 @@ const runGeneration = async () => {
     }
 }
 
+const runOverdue = async () => {
+    if (!confirm('¿Está seguro de procesar los cortes por mora? Esto suspenderá el servicio a los clientes con facturas vencidas según su configuración de router.')) return
+    
+    loading.value = true
+    try {
+        const res = await billingService.runOverdue()
+        const s = res.data.stats
+        alert(`Proceso completado:\nSuspendidos: ${s.suspended}\nManual Pendiente: ${s.manual_pending}\nSin Acción: ${s.no_action}\nErrores: ${s.errors}`)
+    } catch (e) {
+        alert('Error: ' + (e.response?.data?.message || e.message))
+    } finally {
+        loading.value = false
+    }
+}
+
 const getStatusColor = (status) => {
     switch (status) {
         case 'paid': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
@@ -63,6 +78,10 @@ onMounted(() => {
                 <button @click="runGeneration" class="px-6 py-3 bg-slate-800 dark:bg-gray-700 hover:bg-slate-900 text-white font-medium rounded-2xl transition-all shadow-md flex items-center gap-2">
                     <v-icon name="bi-calendar" class="w-6 h-6" />
                     Generar Mes
+                </button>
+                <button @click="runOverdue" class="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white font-medium rounded-2xl transition-all shadow-md shadow-rose-200 dark:shadow-none flex items-center gap-2">
+                    <v-icon name="md-warningamber-round" class="w-6 h-6" />
+                    Procesar Cortes
                 </button>
                 <button @click="$router.push('/billing/payments/new')" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none flex items-center gap-2">
                     <v-icon name="md-add" class="w-6 h-6" />
