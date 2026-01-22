@@ -124,7 +124,12 @@ import {
   BiUpc,
   MdVisibility,
   MdCheck,
-
+  MdNotifications,
+  MdCloudupload,
+  MdUploadfile,
+  MdHelpOutlined,
+  ViFileTypeExcel,
+  RiLoader4Line,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -242,6 +247,12 @@ addIcons(
   BiUpc,
   MdVisibility,
   MdCheck,
+  MdNotifications,
+  MdCloudupload,
+  MdUploadfile,
+  MdHelpOutlined,
+  ViFileTypeExcel,
+  RiLoader4Line,
 );
 
 // -------------------------------

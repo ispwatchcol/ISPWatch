@@ -118,3 +118,9 @@ Route::get('/roles', [RoleController::class, 'index']);
 // System Settings
 Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
 
+// Import Data Routes
+Route::prefix('import')->middleware(['auth:sanctum'])->group(function () {
+    Route::get('template/{type}', [App\Http\Controllers\ImportController::class, 'downloadTemplate']);
+    Route::post('{type}', [App\Http\Controllers\ImportController::class, 'import']);
+    Route::get('docs/{type}', [App\Http\Controllers\ImportController::class, 'fieldDocs']);
+});
