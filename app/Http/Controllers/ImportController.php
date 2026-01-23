@@ -33,10 +33,12 @@ class ImportController extends Controller
             'file' => 'required|mimes:xlsx,xls,csv|max:10240',
         ]);
 
+        $tenantId = auth()->user()->tenant_id;
+
         $imports = [
-            'routers' => RoutersImport::class,
-            'service-plans' => ServicePlansImport::class,
-            'customers' => CustomersImport::class,
+            'routers' => new RoutersImport($tenantId),
+            'service-plans' => new ServicePlansImport($tenantId),
+            'customers' => new CustomersImport($tenantId),
         ];
 
         if (!isset($imports[$type])) {
@@ -44,8 +46,7 @@ class ImportController extends Controller
         }
 
         try {
-            $import = new $imports[$type]();
-            Excel::import($import, $request->file('file'));
+            Excel::import($imports[$type], $request->file('file'));
 
             // Note: ToModel doesn't provide getRowCount() easily unless using WithChunkReading or similar, 
             // but we can assume success if no exception.
@@ -99,6 +100,8 @@ class ImportController extends Controller
                 ['field' => 'nombre', 'required' => true, 'description' => 'Nombre del plan', 'example' => 'Internet 10MB'],
                 ['field' => 'costo', 'required' => true, 'description' => 'Precio mensual en COP', 'example' => '25000'],
                 ['field' => 'tipo_plan', 'required' => true, 'description' => 'Tipo: Nombre exacto del tipo (ej: PPPoE, Hotspot)', 'example' => 'PPPoE'],
+                ['field' => 'speed_down', 'required' => true, 'description' => 'Velocidad de descarga (ej: 10M, 100M)', 'example' => '10M'],
+                ['field' => 'speed_up', 'required' => true, 'description' => 'Velocidad de subida (ej: 5M, 50M)', 'example' => '5M'],
                 ['field' => 'descripcion', 'required' => false, 'description' => 'Descripción adicional', 'example' => 'Plan básico residencial'],
             ],
             'customers' => [

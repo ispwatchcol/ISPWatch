@@ -10,6 +10,12 @@ use Maatwebsite\Excel\Concerns\WithValidation;
 class RoutersImport implements ToModel, WithHeadingRow, WithValidation
 {
     private $rows = 0;
+    protected $tenantId;
+
+    public function __construct($tenantId)
+    {
+        $this->tenantId = $tenantId;
+    }
 
     public function model(array $row)
     {
@@ -25,7 +31,7 @@ class RoutersImport implements ToModel, WithHeadingRow, WithValidation
             'password_rb' => $row['password'],
             'cut_type_id' => $cutType?->id,
             'wan_interface' => $row['wan_interface'] ?? 'ether1',
-            'tenant_id' => auth()->user()->tenant_id,
+            'tenant_id' => $this->tenantId,
         ]);
     }
 

@@ -130,6 +130,8 @@ import {
   MdHelpOutlined,
   ViFileTypeExcel,
   RiLoader4Line,
+  MdList,
+  MdCheckcircle,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -253,6 +255,8 @@ addIcons(
   MdHelpOutlined,
   ViFileTypeExcel,
   RiLoader4Line,
+  MdList,
+  MdCheckcircle,
 );
 
 // -------------------------------

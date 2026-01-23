@@ -10,19 +10,27 @@ use Maatwebsite\Excel\Concerns\WithValidation;
 class ServicePlansImport implements ToModel, WithHeadingRow, WithValidation
 {
     private $rows = 0;
+    protected $tenantId;
+
+    public function __construct($tenantId)
+    {
+        $this->tenantId = $tenantId;
+    }
 
     public function model(array $row)
     {
         $this->rows++;
         // Lookup type_plan by name
-        $typePlan = TypePlan::where('name', $row['tipo_plan'])->first();
+        $typePlan = TypePlan::where('code', $row['tipo_plan'])->first();
 
         return new Plan([
             'name' => $row['nombre'],
             'cost_product' => $row['costo'],
+            'speed_down' => $row['speed_down'],
+            'speed_up' => $row['speed_up'],
             'type_plan_id' => $typePlan?->id,
             // 'description'  => $row['descripcion'] ?? null, // Plan model does not have description
-            'tenant_id' => auth()->user()->tenant_id,
+            'tenant_id' => $this->tenantId,
         ]);
     }
 
@@ -31,7 +39,9 @@ class ServicePlansImport implements ToModel, WithHeadingRow, WithValidation
         return [
             'nombre' => 'required|string',
             'costo' => 'required|numeric',
-            'tipo_plan' => 'required|exists:type_plans,name',
+            'tipo_plan' => 'required|exists:type_plans,code',
+            'speed_down' => 'required|string',
+            'speed_up' => 'required|string',
         ];
     }
 }

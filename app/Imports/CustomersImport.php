@@ -13,11 +13,17 @@ use Maatwebsite\Excel\Concerns\WithValidation;
 class CustomersImport implements ToModel, WithHeadingRow, WithValidation
 {
     private $rows = 0;
+    protected $tenantId;
+
+    public function __construct($tenantId)
+    {
+        $this->tenantId = $tenantId;
+    }
 
     public function model(array $row)
     {
         $this->rows++;
-        $tenantId = auth()->user()->tenant_id;
+        $tenantId = $this->tenantId;
 
         // Lookup router by IP
         $router = Router::where('ip', $row['ip_router'])
@@ -61,7 +67,7 @@ class CustomersImport implements ToModel, WithHeadingRow, WithValidation
             'ip_user' => $row['ip_usuario'] ?? null,
             'router_id' => $router->id,
             'service_id' => $plan->id,
-            'status' => 'active',
+            'status' => true,
         ]);
 
         // Create UserService (active plan relationship)
