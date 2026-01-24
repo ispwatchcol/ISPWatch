@@ -50,5 +50,10 @@ export default {
   // Admin: Run Monthly
   runMonthly(period) {
     return apiClient.post('/billing/run-monthly', { period })
+  },
+
+  // Admin: Run Overdue Process
+  runOverdue() {
+    return apiClient.post('/billing/run-overdue')
   }
 }

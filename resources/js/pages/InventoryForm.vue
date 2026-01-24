@@ -170,7 +170,7 @@
               <!-- Branch -->
               <div>
                 <label class="label">
-                  <v-icon name="md-storemalldir" class="w-4 h-4 mr-1 inline" />
+                  <v-icon name="md-storemalldirectory" class="w-4 h-4 mr-1 inline" />
                   Sucursal
                 </label>
                 <div class="relative">

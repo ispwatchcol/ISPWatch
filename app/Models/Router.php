@@ -23,4 +23,18 @@ class Router extends Model
     ];
 
     public $timestamps = true;
+
+    protected $casts = [
+        'coordinates' => 'json',
+    ];
+
+    public function cutType()
+    {
+        return $this->belongsTo(CutType::class, 'cut_type_id');
+    }
+
+    public function suspensionLogs()
+    {
+        return $this->hasMany(SuspensionActionLog::class);
+    }
 }

@@ -20,9 +20,10 @@ class CheckStaffProfile
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        // Check if user has a corresponding record in staff_profile table
-        if (!Auth::user()->staffProfile) {
-            return response()->json(['message' => 'Unauthorized. Staff profile required.'], 403);
+        // Check if user has role Admin (1) or Staff (2)
+        $allowedRoles = [1, 2];
+        if (!in_array(Auth::user()->role_id, $allowedRoles)) {
+            return response()->json(['message' => 'Unauthorized. Staff or Admin role required.'], 403);
         }
 
         return $next($request);

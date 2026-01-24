@@ -206,14 +206,15 @@ class CustomerProfileController extends Controller
         try {
             // create user in users table
             $user = $this->createWithSequenceFix(User::class, [
+                'name' => trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? '')),
                 'user_name' => $data['name'],
                 'user_lastname' => $data['last_name'],
                 'email' => $data['email'],
                 'email_tenant' => $data['email_tenant'] ?? null,
-                'password' => $data['password'],
+                'password' => bcrypt($data['password']),
                 'tel' => $data['tel'] ?? null,
                 'role_id' => 3,
-                'tenant_id' => 1,
+                'tenant_id' => $tenantId,
                 'status' => true,
             ]);
 
@@ -237,11 +238,19 @@ class CustomerProfileController extends Controller
                 'customer' => $customer,
                 'user' => $user
             ], 201);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
+
+            \Log::error('Create customer failed', [
+                'error' => $e->getMessage(),
+                'previous' => $e->getPrevious()?->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'message' => 'Error al crear el cliente.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'previous' => $e->getPrevious()?->getMessage(),
             ], 500);
         }
     }

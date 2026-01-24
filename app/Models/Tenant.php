@@ -20,5 +20,6 @@ class Tenant extends Model
         'currency_tenant',
         'timezone',
         'currency',
+        'next_invoice_number',
     ];
 }

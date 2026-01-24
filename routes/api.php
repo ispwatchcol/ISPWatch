@@ -77,14 +77,16 @@ Route::group([], function () {
     Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
     Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
     Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
+    Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
 });
 
 // Support routes with permissions
 Route::middleware(['auth:sanctum', 'staff_profile'])->group(function () {
     Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
     Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
+    Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
+    Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
     Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
-    // Additional staff-only support routes if needed
 });
 
 /*
@@ -116,3 +118,9 @@ Route::get('/roles', [RoleController::class, 'index']);
 // System Settings
 Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
 
+// Import Data Routes
+Route::prefix('import')->middleware(['auth:sanctum'])->group(function () {
+    Route::get('template/{type}', [App\Http\Controllers\ImportController::class, 'downloadTemplate']);
+    Route::post('{type}', [App\Http\Controllers\ImportController::class, 'import']);
+    Route::get('docs/{type}', [App\Http\Controllers\ImportController::class, 'fieldDocs']);
+});

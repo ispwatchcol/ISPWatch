@@ -87,11 +87,8 @@ class BillingController extends Controller
         $data['balance_due'] = 0;
         $data['currency'] = 'COP';
 
-        // Use the private method from billingService if possible, 
-        // but since it's private in and and we are in controller, we'll re-implement or call a service method.
-        // Let's add a public method to BillingService for this or just do it here.
-        $count = Invoice::where('tenant_id', $data['tenant_id'])->count();
-        $data['number'] = 'INV-' . str_pad($count + 1, 6, '0', STR_PAD_LEFT);
+        // Generate invoice number using BillingService
+        $data['number'] = $this->billingService->generateInvoiceNumber($data['tenant_id']);
 
         $invoice = Invoice::create($data);
         return response()->json($invoice, 201);
@@ -224,6 +221,18 @@ class BillingController extends Controller
             'recent_invoices' => $recentInvoices,
             'recent_payments' => $recentPayments,
             'currency' => '$'
+        ]);
+    }
+
+    // Process Overdue Invoices (Admin)
+    public function processOverdue(Request $request)
+    {
+        $suspensionService = app(\App\Services\OverdueSuspensionService::class);
+        $stats = $suspensionService->processOverdueInvoices();
+
+        return response()->json([
+            'message' => 'Overdue processing complete',
+            'stats' => $stats
         ]);
     }
 }

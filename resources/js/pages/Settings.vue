@@ -430,6 +430,13 @@
           </SettingsSection>
         </div>
 
+        <!-- Import Data Settings -->
+        <div v-show="activeTab === 'import'" class="space-y-6">
+          <ImportSection type="routers" title="1. Importar Routers" />
+          <ImportSection type="service-plans" title="2. Importar Planes de Servicio" />
+          <ImportSection type="customers" title="3. Importar Clientes" />
+        </div>
+
       </div>
 
     </main>
@@ -440,6 +447,7 @@
 import { ref, onMounted, computed } from 'vue'
 import SettingsSection from '@/components/SettingsSection.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
+import ImportSection from '@/components/import/ImportSection.vue'
 import axios from 'axios'
 
 // State
@@ -455,6 +463,7 @@ const tabs = [
   { id: 'general', label: 'General', icon: 'ri-settings-4-line' },
   { id: 'appearance', label: 'Apariencia', icon: 'md-palette' },
   { id: 'notifications', label: 'Notificaciones', icon: 'md-notifications' },
+  { id: 'import', label: 'Importar Datos', icon: 'md-cloudupload' },
   { id: 'system', label: 'Sistema', icon: 'md-computer' }
 ]
 

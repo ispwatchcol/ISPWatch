@@ -233,8 +233,11 @@ export default {
     },
     update(id, data) {
       if (data instanceof FormData) {
+        // Must delete Content-Type to let browser set multipart boundary
         return apiClient.post(`/support/${id}`, data, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+          headers: {
+            'Content-Type': undefined
+          }
         })
       }
       return apiClient.put(`/support/${id}`, data)
@@ -251,6 +254,12 @@ export default {
         is_internal: isInternal,
         user_id: userId  // Agregar user_id al request
       })
+    },
+    updateMessage(messageId, message) {
+      return apiClient.put(`/support/messages/${messageId}`, { message })
+    },
+    deleteMessage(messageId) {
+      return apiClient.delete(`/support/messages/${messageId}`)
     },
     updateStatus(ticketId, status) {
       return apiClient.patch(`/support/${ticketId}/status`, { status })

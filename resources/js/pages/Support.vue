@@ -1,5 +1,7 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
             <div>
@@ -70,6 +72,21 @@
                     <option value="services">Servicios</option>
                     <option value="general">General</option>
                 </select>
+
+                <select
+                    v-model="filters.staff"
+                    class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                    <option value="all">Todos los técnicos</option>
+                    <option value="unassigned">Sin asignar</option>
+                    <option
+                        v-for="staff in staffList"
+                        :key="staff.id"
+                        :value="staff.id"
+                    >
+                        {{ staff.user_name }} {{ staff.user_lastname }}
+                    </option>
+                </select>
             </div>
         </div>
 
@@ -96,6 +113,7 @@
                             <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Categoría</th>
                             <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Estado</th>
                             <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Prioridad</th>
+                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Técnico</th>
                             <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Fecha</th>
                             <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
                         </tr>
@@ -121,6 +139,9 @@
                                 <span :class="getPriorityBadgeClass(ticket.priority)">
                                     {{ getPriorityLabel(ticket.priority) }}
                                 </span>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
+                                {{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname}` : 'Sin asignar' }}
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                                 {{ formatDate(ticket.created_at) }}
@@ -164,7 +185,7 @@
                         </tr>
 
                         <tr v-if="filteredTickets.length === 0 && !loading">
-                            <td colspan="8" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                            <td colspan="9" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                 {{ searchQuery ? 'No se encontraron resultados' : 'No hay tickets registrados' }}
                             </td>
                         </tr>
@@ -180,17 +201,21 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { hasPermission } from '../services/auth'
+import NotificationToast from '../components/NotificationToast.vue'
 
 const router = useRouter()
 
 const tickets = ref([])
+const staffList = ref([])
 const loading = ref(true)
 const error = ref('')
+const toast = ref(null)
 const searchQuery = ref('')
 const filters = ref({
     status: 'all',
     priority: 'all',
-    category: 'all'
+    category: 'all',
+    staff: 'all'
 })
 
 const canCreate = computed(() => hasPermission('support.create'))
@@ -223,9 +248,27 @@ const filteredTickets = computed(() => {
     if (filters.value.category !== 'all') {
         result = result.filter(t => t.category === filters.value.category)
     }
+    if (filters.value.staff !== 'all') {
+        if (filters.value.staff === 'unassigned') {
+            result = result.filter(t => !t.staff_id)
+        } else {
+            result = result.filter(t => t.staff_id === parseInt(filters.value.staff))
+        }
+    }
 
     return result
 })
+
+const loadStaff = async () => {
+    try {
+        const response = await api.staff.getAll()
+        const allUsers = response.data.data || []
+        // Filter only staff members (role_id === 2)
+        staffList.value = allUsers.filter(user => user.role_id === 2)
+    } catch (err) {
+        console.error('Error loading staff:', err)
+    }
+}
 
 const loadTickets = async () => {
     try {
@@ -237,6 +280,7 @@ const loadTickets = async () => {
         console.log('Tickets value after assignment:', tickets.value)
     } catch (err) {
         console.error('Error al cargar tickets:', err)
+        toast.value?.error('Error', 'No se pudieron cargar los tickets de soporte.')
         error.value = 'Error al cargar los tickets.'
     } finally {
         loading.value = false
@@ -248,11 +292,11 @@ const deleteTicket = async (id) => {
 
     try {
         await api.support.delete(id)
-        alert('Ticket eliminado correctamente.')
+        toast.value?.success('Éxito', 'Ticket eliminado correctamente.')
         loadTickets()
     } catch (err) {
         console.error('Error al eliminar ticket:', err)
-        alert('Error al eliminar el ticket.')
+        toast.value?.error('Error', 'No se pudo eliminar el ticket.')
     }
 }
 
@@ -310,6 +354,7 @@ const formatDate = (date) => {
 }
 
 onMounted(() => {
+    loadStaff()
     loadTickets()
 })
 </script>

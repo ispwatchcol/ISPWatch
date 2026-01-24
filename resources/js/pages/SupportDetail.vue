@@ -1,5 +1,8 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+        <!-- Notification Toast -->
+        <NotificationToast ref="toast" />
+        
         <div v-if="loading" class="text-center py-12">
             <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
             <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando ticket...</p>
@@ -49,6 +52,79 @@
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Descripción</h2>
                         <p class="text-gray-600 dark:text-gray-300">{{ ticket.description || 'Sin descripción' }}</p>
+                    </div>
+
+                    <!-- Bitácora de Trabajo (Notas del Staff) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Bitácora de Trabajo</h2>
+                            <button 
+                                v-if="canEdit"
+                                @click="showNoteForm = true"
+                                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg transition flex items-center gap-1"
+                            >
+                                <v-icon name="md-add" class="w-4 h-4" />
+                                Nueva Nota
+                            </button>
+                        </div>
+
+                        <!-- Formulario para Nueva Nota -->
+                        <div v-if="showNoteForm" class="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+                            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                                {{ editingNoteId ? 'Editar Nota' : 'Agregar Nueva Nota' }}
+                            </h3>
+                            <textarea 
+                                v-model="noteContent"
+                                rows="3"
+                                class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+                                placeholder="Escribe aquí los detalles del trabajo realizado..."
+                            ></textarea>
+                            <div class="flex justify-end gap-2 text-sm">
+                                <button 
+                                    @click="cancelNote"
+                                    class="px-3 py-1 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    @click="saveNote"
+                                    :disabled="!noteContent.trim() || savingNote"
+                                    class="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50"
+                                >
+                                    {{ savingNote ? 'Guardando...' : 'Guardar' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Lista de Notas -->
+                        <div v-if="ticket.messages?.length > 0" class="space-y-4">
+                            <div v-for="message in ticket.messages" :key="message.id" 
+                                 class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700 relative group">
+                                <div class="flex justify-between items-start mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
+                                            {{ message.user?.user_name?.charAt(0) }}
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ message.user?.user_name }}</p>
+                                            <p class="text-[10px] text-gray-500 dark:text-gray-400">{{ formatDate(message.created_at) }}</p>
+                                        </div>
+                                    </div>
+                                    <div v-if="canEdit" class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @click="editNote(message)" class="p-1 text-gray-400 hover:text-blue-500 transition-colors">
+                                            <v-icon name="fa-edit" class="w-4 h-4" />
+                                        </button>
+                                        <button @click="deleteNote(message.id)" class="p-1 text-gray-400 hover:text-red-500 transition-colors">
+                                            <v-icon name="md-delete" class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{{ message.message }}</p>
+                            </div>
+                        </div>
+                        <div v-else class="text-center py-4 text-gray-500 dark:text-gray-400 text-sm italic">
+                            No hay notas registradas en este ticket.
+                        </div>
                     </div>
 
                     <!-- Archivos Adjuntos -->
@@ -148,7 +224,7 @@
                                     />
                                     <button
                                         type="button"
-                                        @click="$refs.fileInput.click()"
+                                        @click="fileInput.click()"
                                         class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
                                     >
                                         <v-icon name="pr-images" class="w-5 h-5 inline mr-2" />
@@ -206,12 +282,6 @@
                             <p class="text-sm text-gray-600 dark:text-gray-300">
                                 <span class="font-semibold">Nombre:</span> {{ ticket.staff?.user_name || "No asignado"}}
                             </p>
-                            <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Email:</span> {{ ticket.staff?.email || "No asignado" }}
-                            </p>
-                            <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Teléfono:</span> {{ ticket.staff?.tel || "No contiene" }}
-                            </p>
                         </div>
                     </div>
                 </div>
@@ -225,6 +295,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import { hasPermission } from '../services/auth'
+import NotificationToast from '../components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -237,6 +308,65 @@ const loading = ref(true)
 const selectedFiles = ref([])
 const updating = ref(false)
 const fileInput = ref(null)
+const toast = ref(null)
+
+// Bitácora de Trabajo state
+const showNoteForm = ref(false)
+const noteContent = ref('')
+const savingNote = ref(false)
+const editingNoteId = ref(null)
+
+const userData = JSON.parse(localStorage.getItem('userData')) || {}
+const currentUserId = userData.id || 1
+
+const editNote = (note) => {
+    editingNoteId.value = note.id
+    noteContent.value = note.message
+    showNoteForm.value = true
+}
+
+const cancelNote = () => {
+    showNoteForm.value = false
+    noteContent.value = ''
+    editingNoteId.value = null
+}
+
+const saveNote = async () => {
+    if (!noteContent.value.trim()) return
+    
+    try {
+        savingNote.value = true
+        if (editingNoteId.value) {
+            await api.support.updateMessage(editingNoteId.value, noteContent.value)
+            toast.value?.success('Nota actualizada', 'La nota se ha actualizado correctamente.')
+        } else {
+            // isInternal = true for work log notes, userId from current session
+            await api.support.addMessage(ticketId, noteContent.value, true, currentUserId)
+            toast.value?.success('Nota guardada', 'La nota ha sido agregada a la bitácora.')
+        }
+        
+        cancelNote()
+        loadTicket() // Refresh ticket to see new messages
+    } catch (err) {
+        console.error('Error al guardar nota:', err)
+        toast.value?.error('Error', 'No se pudo guardar la nota en la bitácora.')
+    } finally {
+        savingNote.value = false
+    }
+}
+
+const deleteNote = async (id) => {
+    if (!confirm('¿Estás seguro de eliminar esta nota?')) return
+    
+    try {
+        await api.support.deleteMessage(id)
+        toast.value?.success('Nota eliminada', 'La nota ha sido eliminada de la bitácora.')
+        loadTicket()
+    } catch (err) {
+        console.error('Error al eliminar nota:', err)
+        toast.value?.error('Error', 'No se pudo eliminar la nota.')
+    }
+}
 
 const loadTicket = async () => {
     try {
@@ -245,7 +375,7 @@ const loadTicket = async () => {
         ticket.value = response.data
     } catch (err) {
         console.error('Error al cargar ticket:', err)
-        alert('Error al cargar el ticket.')
+        toast.value?.error('Error', 'Error al cargar los detalles del ticket.')
         router.push('/support')
     } finally {
         loading.value = false
@@ -292,38 +422,36 @@ const updateTicket = async () => {
     try {
         updating.value = true
         
-        // Use a generic update method that handles FormData
-        // If api.support.update doesn't support FormData, we might need a specific method or modify the service
-        // Assuming api.support.update(id, data) accepts FormData
-        
         const formData = new FormData()
-        formData.append('status', ticket.value.status)
-        formData.append('_method', 'PUT') // Method spoofing for Laravel if using POST, but here we likely use PUT directly or POST with spoofing if FormData
         
-        // Laravel PUT with FormData often requires POST + _method: PUT
-        // Checking api service implementation would be ideal, but standard Laravel way:
+        // Only append if it exists and is valid
+        if (ticket.value.status) {
+            formData.append('status', ticket.value.status)
+        }
         
-        selectedFiles.value.forEach(f => {
-            formData.append('attachments[]', f.file)
-        })
-
-        // We use a custom call or modify the service to support this. 
-        // For now, assuming the API can handle POST to update or we force POST method if the service supports it.
-        // Let's assume we modify api service or use a raw call if needed. 
-        // Safer to use a dedicated method 'updateWithFiles' or similar if existing update assumes JSON.
+        // Method spoofing for files via PUT
+        formData.append('_method', 'PUT') 
         
-        // Since I cannot see services/api.js, I will try to use a direct axios call pattern or what seems to be available.
-        // If api.support.update expects JSON, sending FormData might fail content-type.
-        // I'll try to use the generic structure.
+        if (selectedFiles.value.length > 0) {
+            selectedFiles.value.forEach(f => {
+                formData.append('attachments[]', f.file)
+            })
+        }
         
         await api.support.update(ticketId, formData) 
-
-        alert('Ticket actualizado correctamente')
+        toast.value?.success('Éxito', 'Ticket actualizado correctamente.')
         selectedFiles.value = []
         loadTicket()
     } catch (err) {
         console.error('Error al actualizar ticket:', err)
-        alert('Error al actualizar el ticket')
+        
+        if (err.response?.status === 422) {
+            const validationErrors = err.response.data.errors
+            const firstError = Object.values(validationErrors)[0][0]
+            toast.value?.error('Error de validación', firstError)
+        } else {
+            toast.value?.error('Error', 'No se pudo actualizar el ticket.')
+        }
     } finally {
         updating.value = false
     }
