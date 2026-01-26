@@ -732,17 +732,27 @@ const loadRouterData = async () => {
     }
 
     // Mapear Billing
+    // Helper: extrae el día (1-31) de una fecha YYYY-MM-DD
+    const extractDay = (dateStr) => {
+      if (!dateStr) return null
+      const parts = String(dateStr).split('-')
+      if (parts.length === 3) {
+        return parseInt(parts[2], 10)
+      }
+      return null
+    }
+
     if (data.billing) {
         form.facturacion_activa = true
         form.billing.id = data.billing.id
-        form.billing.create_invoice = Number(data.billing.create_invoice) || null
-        form.billing.cut_day = Number(data.billing.cut_day) || null
-        form.billing.pay_day = Number(data.billing.payment_day) || null
-        form.billing.remember_day = Number(data.billing.remember_day) || null
+        form.billing.create_invoice = extractDay(data.billing.create_invoice)
+        form.billing.cut_day = extractDay(data.billing.cut_day)
+        form.billing.pay_day = extractDay(data.billing.payment_day)
+        form.billing.remember_day = extractDay(data.billing.payment_reminder)
         form.billing.overdue_invoices = data.billing.overdue_invoices
         form.billing.amount = data.billing.amount
-        form.billing.metodo = data.billing.type 
-        form.billing.comentarios = data.billing.commit 
+        form.billing.metodo = data.billing.id_type
+        form.billing.comentarios = data.billing.comments || ''
     }
 
   } catch (e) {
@@ -758,16 +768,27 @@ const loadRouterData = async () => {
    GUARDAR BILLING
 ============================ */
 const saveBilling = async () => {
+  // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
+  const dayToDate = (day) => {
+    const num = cleanInt(day)
+    if (!num || num < 1 || num > 31) return null
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(num).padStart(2, '0')
+    return `${year}-${month}-${d}`
+  }
+
   // Usar los mismos nombres de columna que en la BD
   const payload = {
-    create_invoice: cleanInt(form.billing.create_invoice),
-    cut_day: cleanInt(form.billing.cut_day),
-    payment_day: cleanInt(form.billing.pay_day),
-    payment_reminder: cleanInt(form.billing.remember_day),
+    create_invoice: dayToDate(form.billing.create_invoice),
+    cut_day: dayToDate(form.billing.cut_day),
+    payment_day: dayToDate(form.billing.pay_day),
+    payment_reminder: dayToDate(form.billing.remember_day),
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
-    status: 'active',
+    status: 'pending',
   }
 
   let result = null

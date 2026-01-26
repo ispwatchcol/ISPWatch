@@ -569,16 +569,26 @@ const cleanDay = (val) => {
 }
 
 const saveBilling = async () => {
-  // Enviar números de día como enteros (1-31)
+  // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
+  const dayToDate = (day) => {
+    const num = cleanInt(day)
+    if (!num || num < 1 || num > 31) return null
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(num).padStart(2, '0')
+    return `${year}-${month}-${d}`
+  }
+
   const payload = {
-    create_invoice: cleanInt(form.billing.create_invoice),
-    cut_day: cleanInt(form.billing.cut_day),
-    payment_day: cleanInt(form.billing.pay_day),
-    payment_reminder: cleanInt(form.billing.remember_day),
+    create_invoice: dayToDate(form.billing.create_invoice),
+    cut_day: dayToDate(form.billing.cut_day),
+    payment_day: dayToDate(form.billing.pay_day),
+    payment_reminder: dayToDate(form.billing.remember_day),
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
-    status: 'active',
+    status: 'pending',
   }
 
   console.log("payload facturación FINAL:", payload)
@@ -596,6 +606,7 @@ const saveBilling = async () => {
 
   return data
 }
+
 
 /* ============================
   INSERT EN ROUTER PRINCIPAL
