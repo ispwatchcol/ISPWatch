@@ -218,26 +218,24 @@ const sanitizePhone = (phone) => {
 };
 
 /**
- * Detect injection patterns
+ * Detect injection patterns (only really dangerous patterns)
  */
 const detectInjectionAttempt = (input) => {
   if (typeof input !== 'string') return false;
   
   const suspiciousPatterns = [
-    /<>/,                   // HTML tags
-    /['"]/,                 // Quotes (SQL)
-    /--/,                   // SQL comment
-    /;/,                    // Statement terminator
-    /union/i,               // SQL UNION
-    /select/i,              // SQL SELECT
-    /drop/i,                // SQL DROP
-    /insert/i,              // SQL INSERT
-    /delete/i,              // SQL DELETE
-    /update/i,              // SQL UPDATE
-    /script/i,              // XSS script
-    /javascript/i,          // XSS
-    /\$/,                   // Variable injection
-    /\{|\}/,                // Template injection
+    /<>/,                     // HTML tags
+    /['"]/,                   // Quotes (SQL)
+    /--/,                     // SQL comment
+    /;/,                      // Statement terminator
+    /union\s+select/i,        // SQL UNION SELECT
+    /select\s+\*/i,           // SQL SELECT *
+    /drop\s+table/i,          // SQL DROP TABLE
+    /insert\s+into/i,         // SQL INSERT INTO
+    /delete\s+from/i,         // SQL DELETE FROM
+    /update\s+\w+\s+set/i,    // SQL UPDATE SET
+    /<script/i,               // XSS script tag
+    /javascript:/i,           // XSS javascript protocol
   ];
   
   return suspiciousPatterns.some(pattern => pattern.test(input));
