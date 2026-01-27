@@ -46,18 +46,34 @@ class SecurityHeaders
             // $response->header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 
             // Content Security Policy - Allow Vite dev server in development
-            $viteHost = app()->environment('local') ? ' http://localhost:5173 ws://localhost:5173' : '';
+            $isLocal = app()->environment('local');
 
-            $response->header(
-                'Content-Security-Policy',
-                "default-src 'self'{$viteHost}; " .
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'{$viteHost}; " .
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com{$viteHost}; " .
-                "font-src 'self' https://fonts.gstatic.com data:; " .
-                "img-src 'self' data: https: blob:{$viteHost}; " .
-                "connect-src 'self' http://localhost:* ws://localhost:* https://*.supabase.co wss://*.supabase.co; " .
-                "frame-ancestors 'self';"
-            );
+            // Build CSP based on environment
+            if ($isLocal) {
+                // Development: Allow Vite dev server
+                $response->header(
+                    'Content-Security-Policy',
+                    "default-src 'self' http://localhost:5173 ws://localhost:5173; " .
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 ws://localhost:5173; " .
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com http://localhost:5173; " .
+                    "font-src 'self' https://fonts.gstatic.com data:; " .
+                    "img-src 'self' data: https: blob: http://localhost:5173; " .
+                    "connect-src 'self' http://localhost:* ws://localhost:* https://*.supabase.co wss://*.supabase.co; " .
+                    "frame-ancestors 'self';"
+                );
+            } else {
+                // Production: Allow 'self' which covers the current domain (including DigitalOcean)
+                $response->header(
+                    'Content-Security-Policy',
+                    "default-src 'self'; " .
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " .
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " .
+                    "font-src 'self' https://fonts.gstatic.com data:; " .
+                    "img-src 'self' data: https: blob:; " .
+                    "connect-src 'self' https: wss: https://*.supabase.co wss://*.supabase.co; " .
+                    "frame-ancestors 'self';"
+                );
+            }
         }
 
         return $response;
