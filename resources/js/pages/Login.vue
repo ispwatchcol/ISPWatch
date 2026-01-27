@@ -56,7 +56,7 @@
             <!-- Logo -->
             <div class="flex justify-center mb-6">
                 <img
-                    src="../assets/logo.png"
+                    src="../assets/Logo.png"
                     alt="Logo"
                     class="h-20 w-20 animate-bounce"
                 />
