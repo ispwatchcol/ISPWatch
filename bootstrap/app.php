@@ -14,6 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trust all proxies (required for DigitalOcean App Platform)
+        $middleware->trustProxies(at: '*');
+
         // Redirigir invitados (no autenticados) a tu login Vue
         $middleware->redirectGuestsTo('/');
 
