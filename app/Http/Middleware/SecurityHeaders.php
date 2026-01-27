@@ -65,16 +65,18 @@ class SecurityHeaders
                     "frame-ancestors 'self';"
                 );
             } else {
-                // Production: Allow 'self' and explicit DigitalOcean domain (both http and https)
-                $doApp = 'http://hammerhead-app-r5e29.ondigitalocean.app https://hammerhead-app-r5e29.ondigitalocean.app';
+                // Production: Allow 'self' and dynamically include the current origin
+                $scheme = $request->getScheme(); // http or https
+                $currentOrigin = $scheme . '://' . $host;
+
                 $response->header(
                     'Content-Security-Policy',
-                    "default-src 'self' {$doApp}; " .
-                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$doApp}; " .
-                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com {$doApp}; " .
+                    "default-src 'self' {$currentOrigin}; " .
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$currentOrigin}; " .
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com {$currentOrigin}; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
-                    "img-src 'self' data: https: blob:; " .
-                    "connect-src 'self' https: wss: http: ws: https://*.supabase.co wss://*.supabase.co; " .
+                    "img-src 'self' data: https: http: blob:; " .
+                    "connect-src 'self' https: wss: http: ws:; " .
                     "frame-ancestors 'self';"
                 );
             }
