@@ -82,8 +82,19 @@ class AuthController extends Controller
         $user->update(['last_access' => now()]);
 
         // Iniciar sesión para el guard 'web' (Persistencia de sesión)
-        auth()->login($user, true);
-        $request->session()->regenerate();
+        // Wrapped in try-catch to handle session issues in production
+        try {
+            auth()->login($user, true);
+            if ($request->hasSession()) {
+                $request->session()->regenerate();
+            }
+        } catch (\Exception $e) {
+            // Log session error but continue - frontend uses localStorage anyway
+            Log::warning('Session handling failed during login', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         Log::info('Successful login', [
             'user_id' => $user->id,
