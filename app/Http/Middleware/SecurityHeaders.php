@@ -46,7 +46,10 @@ class SecurityHeaders
             // $response->header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 
             // Content Security Policy - Allow Vite dev server in development
-            $isLocal = app()->environment('local');
+            // Check both environment AND if we're actually on localhost
+            $host = $request->getHost();
+            $isLocal = app()->environment('local') &&
+                (str_contains($host, 'localhost') || str_contains($host, '127.0.0.1'));
 
             // Build CSP based on environment
             if ($isLocal) {
@@ -62,15 +65,16 @@ class SecurityHeaders
                     "frame-ancestors 'self';"
                 );
             } else {
-                // Production: Allow 'self' which covers the current domain (including DigitalOcean)
+                // Production: Allow 'self' and explicit DigitalOcean domain (both http and https)
+                $doApp = 'http://hammerhead-app-r5e29.ondigitalocean.app https://hammerhead-app-r5e29.ondigitalocean.app';
                 $response->header(
                     'Content-Security-Policy',
-                    "default-src 'self'; " .
-                    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " .
-                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " .
+                    "default-src 'self' {$doApp}; " .
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$doApp}; " .
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com {$doApp}; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: blob:; " .
-                    "connect-src 'self' https: wss: https://*.supabase.co wss://*.supabase.co; " .
+                    "connect-src 'self' https: wss: http: ws: https://*.supabase.co wss://*.supabase.co; " .
                     "frame-ancestors 'self';"
                 );
             }
