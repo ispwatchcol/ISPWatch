@@ -448,7 +448,7 @@ import { ref, onMounted, computed } from 'vue'
 import SettingsSection from '@/components/SettingsSection.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import ImportSection from '@/components/import/ImportSection.vue'
-import axios from 'axios'
+import { apiClient } from '@/services/api'
 
 // State
 const activeTab = ref('general')
@@ -517,8 +517,8 @@ const saveAllSettings = async () => {
   try {
     // Save tenant info to database if user is admin
     if (isAdmin.value && userData.value?.tenant_id) {
-      const tenantResponse = await axios.put(
-        `http://localhost:8000/api/tenants/${userData.value.tenant_id}`,
+      const tenantResponse = await apiClient.put(
+        `/tenants/${userData.value.tenant_id}`,
         {
           name: settings.value.company_name,
           domain: settings.value.domain,
@@ -576,7 +576,7 @@ const clearCache = async () => {
   
   // 1. Backend Clear (Best effort)
   try {
-    await axios.post('http://localhost:8000/api/settings/cache/clear')
+    await apiClient.post('/settings/cache/clear')
   } catch (error) {
     console.error('Backend cache clear failed:', error)
     // Continue with frontend clear anyway
@@ -648,7 +648,7 @@ const loadTenantData = async () => {
       return
     }
     
-    const response = await axios.get(`http://localhost:8000/api/tenants/${userData.value.tenant_id}`)
+    const response = await apiClient.get(`/tenants/${userData.value.tenant_id}`)
     
     if (response.data.success && response.data.data) {
       const tenant = response.data.data
