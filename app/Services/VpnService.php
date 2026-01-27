@@ -27,8 +27,8 @@ class VpnService
     // ==============================
     // CREDENCIALES API (LECTURA)
     // ==============================
-    private string $apiUser = 'ispwatch-api';
-    private string $apiPass = 'ClaveMuySegura';
+    private string $apiUser = 'admin';
+    private string $apiPass = 'Colombia2018';
 
     // ==============================
     // USERNAME VPN POR ROUTER

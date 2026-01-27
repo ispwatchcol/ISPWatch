@@ -200,11 +200,13 @@ ISPWatch/
 
 Después de ejecutar los seeders, puedes acceder con:
 
-| Rol | Usuario | 
-|-----|---------|
-| Administrador | (revisar seeder para credenciales) |
-| Staff | (revisar seeder para credenciales) |
-| Cliente | (revisar seeder para credenciales) |
+| Rol | Email | Contraseña |
+|-----|-------|------------|
+| Administrador | `admin@ispwatch.com` | (definida en seeder) |
+| Staff | (revisar seeder) | (definida en seeder) |
+| Cliente | (revisar seeder) | (definida en seeder) |
+
+> **Nota:** El usuario administrador tiene acceso completo al sistema. Las contraseñas están hasheadas con bcrypt.
 
 ---
 

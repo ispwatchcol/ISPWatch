@@ -265,7 +265,7 @@ const closeCredentialsNotification = () => {
 
 // ===== FUNCIONES DE SEGURIDAD =====
 
-// Sanitizar entrada: elimina caracteres peligrosos
+// Sanitizar entrada: elimina caracteres peligrosos pero permite @ . _ -
 const sanitizeInput = (input) => {
     if (typeof input !== 'string') return '';
     
@@ -275,7 +275,7 @@ const sanitizeInput = (input) => {
     // Eliminar caracteres de control
     sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
     
-    // Escapar caracteres especiales SQL
+    // Escapar caracteres especiales SQL (pero NO @ . _ - que son válidos para email_tenant)
     sanitized = sanitized.replace(/['";\\]/g, '');
     
     // Eliminar patrones de inyección comunes
@@ -327,25 +327,23 @@ const isValidInput = (input) => {
     return true;
 };
 
-// Detectar intentos de inyección
+// Detectar intentos de inyección (solo patrones realmente peligrosos)
 const detectInjectionAttempt = (input) => {
     if (typeof input !== 'string') return false;
     
     const suspiciousPatterns = [
-        /<>/,                   // HTML tags
+        /<>/,                     // HTML tags
         /['"]/,                   // Quotes (SQL)
         /--/,                     // SQL comment
         /;/,                      // Statement terminator
-        /union/i,                 // SQL UNION
-        /select/i,                // SQL SELECT
-        /drop/i,                  // SQL DROP
-        /insert/i,                // SQL INSERT
-        /delete/i,                // SQL DELETE
-        /update/i,                // SQL UPDATE
-        /script/i,                // XSS script
-        /javascript/i,            // XSS
-        /\$/,                     // Variable injection
-        /\{|\}/,                  // Template injection
+        /union\s+select/i,        // SQL UNION SELECT
+        /select\s+\*/i,           // SQL SELECT *
+        /drop\s+table/i,          // SQL DROP TABLE
+        /insert\s+into/i,         // SQL INSERT INTO
+        /delete\s+from/i,         // SQL DELETE FROM
+        /update\s+\w+\s+set/i,    // SQL UPDATE SET
+        /<script/i,               // XSS script tag
+        /javascript:/i,           // XSS javascript protocol
     ];
     
     return suspiciousPatterns.some(pattern => pattern.test(input));
