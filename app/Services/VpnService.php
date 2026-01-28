@@ -21,7 +21,6 @@ class VpnService
     // ==============================
     // CREDENCIALES VPN
     // ==============================
-    private string $vpnPassword;
     private string $ipsecSecret;
 
     // ==============================
@@ -33,13 +32,15 @@ class VpnService
     public function __construct()
     {
         // Cargar configuración desde .env
-        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '190.14.255.107');
-        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '192.168.88.1');
+        // IP Publica del MikroTik CORE (donde los clientes VPN se conectan)
+        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '138.197.30.155');
+        // IP para conexión API desde Laravel al CORE
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '138.197.30.155');
         $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
         $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
-        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
-        $this->vpnPassword = env('MIKROTIK_VPN_PASSWORD', 'claveSegura');
-        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', 'ISPWATCH_SECRET');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', '');
+        // IPsec Secret fijo para todos los clientes L2TP
+        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', 'Q9fZ7MrL2xSA8DkEpHwCy');
     }
 
     // ==============================
@@ -62,13 +63,30 @@ class VpnService
     public function generateScript(Router $router): string
     {
         $routerName = $this->sanitizeName($router->name);
-        $vpnUsername = $this->getVpnUsername($router);
 
-        // Definir usuario local para gestión
+        // Generar o reutilizar username VPN único
+        $vpnUsername = $router->vpn_username;
+        if (empty($vpnUsername)) {
+            $vpnUsername = $this->getVpnUsername($router);
+        }
+
+        // Generar o reutilizar contraseña VPN segura y única
+        $vpnPassword = $router->vpn_password;
+        if (empty($vpnPassword)) {
+            // Generar contraseña segura de 20 caracteres alfanuméricos
+            $vpnPassword = \Illuminate\Support\Str::random(20);
+        }
+
+        // Guardar credentials VPN en la base de datos
+        $router->update([
+            'vpn_username' => $vpnUsername,
+            'vpn_password' => $vpnPassword,
+        ]);
+
+        // Definir usuario local para gestión del router
         $localUser = 'ispwatch';
 
-        // Si el router no tiene contraseña guardada, generar una segura y guardarla
-        // Si ya tiene una, la reutilizamos para no romper accesos existentes si se regenera el script
+        // Si el router no tiene contraseña de gestión guardada, generar una segura
         if (empty($router->password_rb)) {
             $localPass = \Illuminate\Support\Str::random(12);
             $router->update([
@@ -77,29 +95,24 @@ class VpnService
             ]);
         } else {
             $localPass = $router->password_rb;
-            // Asegurar que el usuario en BD sea 'ispwatch' si ya tiene contraseña
             if ($router->user_rb !== $localUser) {
                 $router->update(['user_rb' => $localUser]);
             }
         }
 
         return <<<SCRIPT
-# 1. Crear usuario de gestión local (o actualizar si ya existe)
-# Primero intentamos eliminar si existe, luego creamos nuevo
+# ============================================
+# Script VPN para Router Cliente: {$routerName}
+# Generado por ISPWatch
+# ============================================
+
+# 1. Crear usuario de gestion local
 :do {/user remove [find name={$localUser}]} on-error={}
 /user add name={$localUser} password={$localPass} group=full comment="Usuario de Gestion ISPWatch"
 
 # 2. Crear interfaz Cliente L2TP
 /interface l2tp-client
-add name=ISPWatch-VPN-{$routerName} \\
-    connect-to={$this->vpnPublicIp} \\
-    user={$vpnUsername} \\
-    password={$this->vpnPassword} \\
-    use-ipsec=yes \\
-    ipsec-secret={$this->ipsecSecret} \\
-    profile=default-encryption \\
-    add-default-route=no \\
-    disabled=no
+add name=ISPWatch-VPN-{$routerName} connect-to={$this->vpnPublicIp} user={$vpnUsername} password={$vpnPassword} use-ipsec=yes ipsec-secret={$this->ipsecSecret} profile=default-encryption add-default-route=no disabled=no
 SCRIPT;
     }
 
