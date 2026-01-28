@@ -61,6 +61,9 @@ Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'se
 // Firewall Block Rules
 Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
 
+// Test MikroTik CORE connection
+Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
+
 /*
 |--------------------------------------------------------------------------
 | BILLING MODULE

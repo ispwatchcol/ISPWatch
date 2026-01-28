@@ -8,27 +8,39 @@ use Illuminate\Support\Facades\Log;
 class VpnService
 {
     // ==============================
-    // IPs DEL CORE
+    // CONFIGURACIÓN DEL CORE (desde .env)
     // ==============================
 
-    // IP pública → SOLO para la VPN
-    private string $vpnPublicIp = '190.14.255.107';
+    // IP pública → SOLO para la VPN (clientes se conectan aquí)
+    private string $vpnPublicIp;
 
-    // IP local → SOLO para la API (Laravel está en la LAN 192.168.88.0/24)
-    private string $apiHost = '192.168.88.1';
-    private int $apiPort = 8728;
+    // IP para API → Donde Laravel se conecta (IP pública si está en DigitalOcean)
+    private string $apiHost;
+    private int $apiPort;
 
     // ==============================
     // CREDENCIALES VPN
     // ==============================
-    private string $vpnPassword = 'claveSegura';
-    private string $ipsecSecret = 'ISPWATCH_SECRET';
+    private string $vpnPassword;
+    private string $ipsecSecret;
 
     // ==============================
     // CREDENCIALES API (LECTURA)
     // ==============================
-    private string $apiUser = 'admin';
-    private string $apiPass = 'Colombia2018';
+    private string $apiUser;
+    private string $apiPass;
+
+    public function __construct()
+    {
+        // Cargar configuración desde .env
+        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '190.14.255.107');
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '192.168.88.1');
+        $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
+        $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
+        $this->vpnPassword = env('MIKROTIK_VPN_PASSWORD', 'claveSegura');
+        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', 'ISPWATCH_SECRET');
+    }
 
     // ==============================
     // USERNAME VPN POR ROUTER
