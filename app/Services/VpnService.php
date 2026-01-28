@@ -83,12 +83,10 @@ class VpnService
             'vpn_password' => $vpnPassword,
         ]);
 
-        // Definir usuario local para gestión del router
+        // Generar credenciales de gestión local (INTERNO - no mostrar al usuario)
         $localUser = 'ispwatch';
-
-        // Si el router no tiene contraseña de gestión guardada, generar una segura
-        if (empty($router->password_rb)) {
-            $localPass = \Illuminate\Support\Str::random(12);
+        if (empty($router->password_rb) || $router->password_rb === 'Sena2017') {
+            $localPass = \Illuminate\Support\Str::random(16);
             $router->update([
                 'user_rb' => $localUser,
                 'password_rb' => $localPass
@@ -100,19 +98,22 @@ class VpnService
             }
         }
 
+        // IPsec Secret fijo
+        $ipsecSecret = 'Q9fZ7MrL2xSA8DkEpHwCy';
+
+        // Script solo con credenciales VPN visibles
+        // Credenciales de gestión local se manejan internamente y NO se muestran en el script
         return <<<SCRIPT
 # ============================================
 # Script VPN para Router Cliente: {$routerName}
 # Generado por ISPWatch
+# Usuario VPN: {$vpnUsername}
+# Contraseña VPN: {$vpnPassword}
 # ============================================
 
-# 1. Crear usuario de gestion local
-:do {/user remove [find name={$localUser}]} on-error={}
-/user add name={$localUser} password={$localPass} group=full comment="Usuario de Gestion ISPWatch"
-
-# 2. Crear interfaz Cliente L2TP
+# Crear interfaz Cliente L2TP
 /interface l2tp-client
-add name=ISPWatch-VPN-{$routerName} connect-to={$this->vpnPublicIp} user={$vpnUsername} password={$vpnPassword} use-ipsec=yes ipsec-secret={$this->ipsecSecret} profile=default-encryption add-default-route=no disabled=no
+add name=ISPWatch-VPN-{$routerName} connect-to={$this->vpnPublicIp} user={$vpnUsername} password={$vpnPassword} use-ipsec=yes ipsec-secret={$ipsecSecret} profile=default-encryption add-default-route=no disabled=no
 SCRIPT;
     }
 
