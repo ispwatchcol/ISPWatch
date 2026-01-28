@@ -64,10 +64,13 @@ class VpnService
     {
         $routerName = $this->sanitizeName($router->name);
 
-        // Generar o reutilizar username VPN único
+        // Generar o reutilizar username VPN único (aleatorio)
         $vpnUsername = $router->vpn_username;
-        if (empty($vpnUsername)) {
-            $vpnUsername = $this->getVpnUsername($router);
+
+        // Si no existe O si tiene el formato antiguo (core-isp-...), generar uno nuevo aleatorio
+        if (empty($vpnUsername) || str_starts_with($vpnUsername, 'core-isp-')) {
+            // Generar usuario aleatorio de 10 caracteres (ej: aB3xY9z123)
+            $vpnUsername = \Illuminate\Support\Str::random(10);
         }
 
         // Generar o reutilizar contraseña VPN segura y única
@@ -104,16 +107,9 @@ class VpnService
         // Script solo con credenciales VPN visibles
         // Credenciales de gestión local se manejan internamente y NO se muestran en el script
         return <<<SCRIPT
-# ============================================
-# Script VPN para Router Cliente: {$routerName}
-# Generado por ISPWatch
-# Usuario VPN: {$vpnUsername}
-# Contraseña VPN: {$vpnPassword}
-# ============================================
-
 # Crear interfaz Cliente L2TP
 /interface l2tp-client
-add name=ISPWatch-VPN-{$routerName} connect-to={$this->vpnPublicIp} user={$vpnUsername} password={$vpnPassword} use-ipsec=yes ipsec-secret={$ipsecSecret} profile=default-encryption add-default-route=no disabled=no
+add name=ISPWatch-VPN-CORE connect-to={$this->vpnPublicIp} user={$vpnUsername} password={$vpnPassword} use-ipsec=yes ipsec-secret={$ipsecSecret} profile=default-encryption add-default-route=no disabled=no
 SCRIPT;
     }
 
@@ -122,7 +118,11 @@ SCRIPT;
     // ==============================
     public function verifyConnection(Router $router): array
     {
-        $vpnUsername = $this->getVpnUsername($router);
+        // Usar el usuario VPN guardado en BD, o generar el legacy si no existe
+        $vpnUsername = $router->vpn_username;
+        if (empty($vpnUsername)) {
+            $vpnUsername = $this->getVpnUsername($router);
+        }
 
         Log::debug('[VPN] Verificando conexión VPN', [
             'router_id' => $router->id,
