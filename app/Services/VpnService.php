@@ -101,6 +101,23 @@ class VpnService
             }
         }
 
+        // ==============================
+        // SINCRONIZAR CON EL CORE (Importantísimo)
+        // ==============================
+        // Intentar crear/actualizar el secret en el CORE vía API
+        // Si falla, lo logueamos pero no bloqueamos la generación del script
+        try {
+            $syncResult = $this->syncPppSecret($vpnUsername, $vpnPassword);
+            if (!$syncResult) {
+                Log::warning('[VPN] Falló la sincronización del secret en el CORE', ['user' => $vpnUsername]);
+            } else {
+                Log::info('[VPN] Secret sincronizado correctamente', ['user' => $vpnUsername]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('[VPN] Excepción al sincronizar secret', ['error' => $e->getMessage()]);
+        }
+
+
         // IPsec Secret fijo
         $ipsecSecret = 'Q9fZ7MrL2xSA8DkEpHwCy';
 
@@ -221,6 +238,68 @@ SCRIPT;
             'message' => '❌ VPN CAÍDA (no existe sesión PPP activa)',
             'assigned_ip' => null,
         ];
+    }
+
+    // ==============================
+    // SYNC CREDENTIALS TO CORE
+    // ==============================
+    private function syncPppSecret(string $username, string $password): bool
+    {
+        Log::info('[VPN] Iniciando sincronización de secret', ['user' => $username]);
+
+        $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 5);
+
+        if (!$socket) {
+            Log::error('[VPN] No se pudo conectar al CORE para sync', ['error' => $errstr]);
+            return false;
+        }
+
+        stream_set_timeout($socket, 10);
+
+        try {
+            if (!$this->doLogin($socket)) {
+                fclose($socket);
+                return false;
+            }
+
+            // 1. Verificar si el usuario ya existe
+            $this->writeCommand($socket, '/ppp/secret/print', [
+                '?name=' . $username,
+                '=.proplist=.id'
+            ]);
+
+            $existing = $this->readRecords($socket);
+
+            if (!empty($existing) && isset($existing[0]['.id'])) {
+                // UPDATE
+                Log::info('[VPN] Actualizando secret existente', ['id' => $existing[0]['.id']]);
+                $this->writeCommand($socket, '/ppp/secret/set', [
+                    '=.id=' . $existing[0]['.id'],
+                    '=password=' . $password,
+                    '=profile=default-encryption', // Asegurar perfil seguro
+                ]);
+            } else {
+                // CREATE
+                Log::info('[VPN] Creando nuevo secret');
+                $this->writeCommand($socket, '/ppp/secret/add', [
+                    '=name=' . $username,
+                    '=password=' . $password,
+                    '=service=l2tp',
+                    '=profile=default-encryption',
+                    '=comment=Creado por ISPWatch',
+                ]);
+            }
+
+            // Leer respuesta del comando set/add
+            $this->readSentence($socket);
+            fclose($socket);
+            return true;
+
+        } catch (\Throwable $e) {
+            Log::error('[VPN] Error en syncPppSecret', ['exception' => $e->getMessage()]);
+            @fclose($socket);
+            return false;
+        }
     }
 
     // ==============================
