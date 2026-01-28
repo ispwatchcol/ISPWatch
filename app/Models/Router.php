@@ -13,7 +13,9 @@ class Router extends Model
         'user_rb',
         'password_rb',
         'lan_interface',
-        'wan_interface',     // Agregado
+        'wan_interface',
+        'vpn_username',
+        'vpn_password',
         'comments',
         'cut_type_id',
         'billing_router_id',
