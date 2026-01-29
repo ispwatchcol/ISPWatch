@@ -49,7 +49,11 @@ export default {
   // AUTH
   // =========================
   auth: {
-    login(credentials) {
+    async login(credentials) {
+      // First, get the CSRF cookie from Laravel Sanctum
+      await apiClient.get('/sanctum/csrf-cookie')
+
+      // Then perform the login with CSRF token in place
       return apiClient.post('/login', credentials)
     },
   },
