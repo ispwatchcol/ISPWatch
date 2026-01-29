@@ -1,5 +1,8 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
+    
     <main class="flex-1 p-8">
 
       <!-- Header -->
@@ -537,11 +540,13 @@ import { ref, reactive, onMounted, watch } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import { supabase } from "@/supabase.js"
 import BillingPanel from "@/components/BillingPanel.vue"
+import NotificationToast from "@/components/NotificationToast.vue"
 
 const router = useRouter()
 const route = useRoute()
 const routerId = route.params.id // ID del router a editar
 const loading = ref(false)
+const toast = ref(null)
 
 // VPN Script variables
 const vpnScript = ref("")
@@ -760,7 +765,10 @@ const loadRouterData = async () => {
 
   } catch (e) {
     console.error("Error cargando router:", e)
-    alert("Error al cargar datos")
+    toast.value?.error(
+      'Error al cargar datos',
+      'No se pudieron cargar los datos del router. Verifica tu conexión e intenta nuevamente.'
+    )
     router.push('/routers')
   } finally {
     loading.value = false
@@ -890,12 +898,21 @@ const payload = {
 
   if (error) {
     console.error("❌ Error actualizando router:", error)
-    alert("Error al actualizar router: " + error.message)
+    toast.value?.error(
+      'Error al actualizar router',
+      error.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
+    )
     return
   }
 
-  alert("Router actualizado correctamente")
-  router.push("/routers")
+  toast.value?.success(
+    'Router actualizado exitosamente',
+    'Los cambios se han guardado correctamente en la base de datos.'
+  )
+  
+  setTimeout(() => {
+    router.push("/routers")
+  }, 1500)
 }
 
 /* ============================

@@ -1,5 +1,8 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
+    
     <main class="flex-1 p-8">
 
       <!-- Header -->
@@ -471,8 +474,10 @@ import { useRouter } from "vue-router"
 import { supabase } from "@/supabase.js"
 import DayPicker from "@/components/DayPicker.vue"
 import BillingPanel from "@/components/BillingPanel.vue"
+import NotificationToast from "@/components/NotificationToast.vue"
 
 const router = useRouter()
+const toast = ref(null)
 
 /* ============================
    FUNCIONES DE LIMPIEZA
@@ -631,7 +636,10 @@ const saveRouter = async () => {
 
   const tenantId = userData?.tenant_id
   if (!tenantId) {
-    alert("Error: No se encontró tenant_id.")
+    toast.value?.error(
+      'Error de sesión',
+      'No se encontró información del tenant. Por favor, inicia sesión nuevamente.'
+    )
     return
   }
 
@@ -646,7 +654,10 @@ const saveRouter = async () => {
   // === SIEMPRE crear billing primero ===
   const billingRow = await saveBilling()
   if (!billingRow?.id) {
-    alert("Error: No se pudo crear el registro de facturación.")
+    toast.value?.error(
+      'Error al guardar facturación',
+      'No se pudo crear el registro de facturación. Verifica los datos e intenta nuevamente.'
+    )
     return
   }
   const billingId = billingRow.id
@@ -689,11 +700,21 @@ const saveRouter = async () => {
 
   if (error) {
     console.error("❌ Error guardando router:", error)
-    alert("Error al guardar router: " + error.message)
+    toast.value?.error(
+      'Error al guardar router',
+      error.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
+    )
     return
   }
 
-  router.push("/routers")
+  toast.value?.success(
+    'Router creado exitosamente',
+    'El router se ha guardado correctamente en la base de datos.'
+  )
+  
+  setTimeout(() => {
+    router.push("/routers")
+  }, 1500)
 }
 
 const goBack = () => router.back()
