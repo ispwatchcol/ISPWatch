@@ -580,6 +580,14 @@ const saveBilling = async () => {
     return `${year}-${month}-${d}`
   }
 
+  // Obtener tenant_id del usuario logueado
+  const userData =
+    JSON.parse(localStorage.getItem("userData")) ??
+    JSON.parse(sessionStorage.getItem("userData"))
+  const tenantId = userData?.tenant_id
+
+  const now = new Date().toISOString()
+  
   const payload = {
     create_invoice: dayToDate(form.billing.create_invoice),
     cut_day: dayToDate(form.billing.cut_day),
@@ -589,6 +597,11 @@ const saveBilling = async () => {
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
     status: 'pending',
+    notificar_wpp: form.billing.notificar_wpp || false,
+    comments: form.billing.comentarios || null,
+    tenant_id: tenantId,
+    created_at: now,
+    updated_at: now,
   }
 
   console.log("payload facturación FINAL:", payload)
@@ -638,11 +651,18 @@ const saveRouter = async () => {
   }
   const billingId = billingRow.id
 
+  const now = new Date().toISOString()
+
   const payload = {
     name: form.nombre,
     ip: form.ip,
+    ipv6: form.ipv6 || null,
+    failover: form.failover || null,
+    external_id: form.external_id || null,
     user_rb: form.usuario,
     password_rb: form.password,
+    puerto_api: form.puerto_api || 8728,
+    puerto_www: form.puerto_www || 80,
     lan_interface: form.interfaz_lan,
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,
@@ -650,7 +670,19 @@ const saveRouter = async () => {
     comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 'active' : 'inactive',
-    tenant_id: tenantId
+    tenant_id: tenantId,
+    agregar_cliente_mkt: form.agregar_cliente_mkt || false,
+    historial_trafico: form.historial_trafico || false,
+    simple_queue: form.simple_queue || false,
+    control_pcq: form.control_pcq || false,
+    hotspot: form.hotspot || false,
+    pppoe: form.pppoe || false,
+    ip_bindings: form.ip_bindings || false,
+    amarre: form.amarre || false,
+    dhcp_leases: form.dhcp_leases || false,
+    falla_general: form.falla_general || false,
+    created_at: now,
+    updated_at: now,
   }
 
   const { error } = await supabase.from("router").insert([payload])

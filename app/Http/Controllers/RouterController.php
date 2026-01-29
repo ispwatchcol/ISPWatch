@@ -37,15 +37,33 @@ class RouterController extends Controller
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'ip' => 'required|ip',
+            'ipv6' => 'nullable|string|max:255',
+            'failover' => 'nullable|string|max:255',
+            'external_id' => 'nullable|string|max:255',
             'user_rb' => 'required|string|max:255',
             'password_rb' => 'required|string|max:255',
+            'puerto_api' => 'nullable|integer|min:1|max:65535',
+            'puerto_www' => 'nullable|integer|min:1|max:65535',
             'lan_interface' => 'nullable|string|max:255',
+            'wan_interface' => 'nullable|string|max:255',
+            'vpn_username' => 'nullable|string|max:255',
+            'vpn_password' => 'nullable|string|max:255',
             'comments' => 'nullable|string',
             'cut_type_id' => 'nullable|integer',
             'billing_router_id' => 'nullable|integer',
-            'firmware_version' => 'nullable|string|max:100',
+            'firmware_version' => 'required|string|max:100',
             'status' => 'required|string|max:50',
             'coordinates' => 'nullable',
+            'agregar_cliente_mkt' => 'nullable|boolean',
+            'historial_trafico' => 'nullable|boolean',
+            'simple_queue' => 'nullable|boolean',
+            'control_pcq' => 'nullable|boolean',
+            'hotspot' => 'nullable|boolean',
+            'pppoe' => 'nullable|boolean',
+            'ip_bindings' => 'nullable|boolean',
+            'amarre' => 'nullable|boolean',
+            'dhcp_leases' => 'nullable|boolean',
+            'falla_general' => 'nullable|boolean',
         ]);
 
         $router = $this->createWithSequenceFix(Router::class, $data);
@@ -55,6 +73,7 @@ class RouterController extends Controller
             'router' => $router,
         ], 201);
     }
+
 
     /**
      * Display the specified router.
@@ -72,15 +91,33 @@ class RouterController extends Controller
         $data = $request->validate([
             'name' => 'sometimes|string|max:255',
             'ip' => 'sometimes|ip',
+            'ipv6' => 'nullable|string|max:255',
+            'failover' => 'nullable|string|max:255',
+            'external_id' => 'nullable|string|max:255',
             'user_rb' => 'sometimes|string|max:255',
             'password_rb' => 'sometimes|string|max:255',
+            'puerto_api' => 'nullable|integer|min:1|max:65535',
+            'puerto_www' => 'nullable|integer|min:1|max:65535',
             'lan_interface' => 'nullable|string|max:255',
+            'wan_interface' => 'nullable|string|max:255',
+            'vpn_username' => 'nullable|string|max:255',
+            'vpn_password' => 'nullable|string|max:255',
             'comments' => 'nullable|string',
             'cut_type_id' => 'nullable|integer',
             'billing_router_id' => 'nullable|integer',
-            'firmware_version' => 'nullable|string|max:100',
+            'firmware_version' => 'sometimes|string|max:100',
             'status' => 'sometimes|string|max:50',
             'coordinates' => 'nullable',
+            'agregar_cliente_mkt' => 'nullable|boolean',
+            'historial_trafico' => 'nullable|boolean',
+            'simple_queue' => 'nullable|boolean',
+            'control_pcq' => 'nullable|boolean',
+            'hotspot' => 'nullable|boolean',
+            'pppoe' => 'nullable|boolean',
+            'ip_bindings' => 'nullable|boolean',
+            'amarre' => 'nullable|boolean',
+            'dhcp_leases' => 'nullable|boolean',
+            'falla_general' => 'nullable|boolean',
         ]);
 
         $router->update($data);

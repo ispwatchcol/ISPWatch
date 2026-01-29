@@ -755,6 +755,7 @@ const loadRouterData = async () => {
         form.billing.amount = data.billing.amount
         form.billing.metodo = data.billing.id_type
         form.billing.comentarios = data.billing.comments || ''
+        form.billing.notificar_wpp = !!data.billing.notificar_wpp
     }
 
   } catch (e) {
@@ -781,6 +782,10 @@ const saveBilling = async () => {
     return `${year}-${month}-${d}`
   }
 
+  // Obtener tenant_id del usuario logueado
+  const userData = JSON.parse(localStorage.getItem("userData")) ?? JSON.parse(sessionStorage.getItem("userData"))
+  const tenantId = userData?.tenant_id
+
   // Usar los mismos nombres de columna que en la BD
   const payload = {
     create_invoice: dayToDate(form.billing.create_invoice),
@@ -791,6 +796,10 @@ const saveBilling = async () => {
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
     status: 'pending',
+    notificar_wpp: form.billing.notificar_wpp || false,
+    comments: form.billing.comentarios || null,
+    tenant_id: tenantId,
+    updated_at: new Date().toISOString(),
   }
 
   let result = null
@@ -807,6 +816,9 @@ const saveBilling = async () => {
       }
       if (!error) result = data
   } else {
+      // Si es nuevo billing, agregar created_at
+      payload.created_at = new Date().toISOString()
+      
       const { data, error } = await supabase
         .from("billing")
         .insert(payload)
@@ -843,8 +855,13 @@ const saveRouter = async () => {
 const payload = {
     name: form.nombre,
     ip: form.ip,
+    ipv6: form.ipv6 || null,
+    failover: form.failover || null,
+    external_id: form.external_id || null,
     user_rb: form.usuario,
     password_rb: form.password,
+    puerto_api: form.puerto_api || 8728,
+    puerto_www: form.puerto_www || 80,
     lan_interface: form.interfaz_lan,
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,
@@ -852,6 +869,17 @@ const payload = {
     comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 'active' : 'inactive',
+    agregar_cliente_mkt: form.agregar_cliente_mkt || false,
+    historial_trafico: form.historial_trafico || false,
+    simple_queue: form.simple_queue || false,
+    control_pcq: form.control_pcq || false,
+    hotspot: form.hotspot || false,
+    pppoe: form.pppoe || false,
+    ip_bindings: form.ip_bindings || false,
+    amarre: form.amarre || false,
+    dhcp_leases: form.dhcp_leases || false,
+    falla_general: form.falla_general || false,
+    updated_at: new Date().toISOString(),
   }
 
 
