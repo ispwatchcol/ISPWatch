@@ -106,7 +106,7 @@
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.ip }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.user_rb }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.lan_interface || '—' }}</td>
-                <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.firmware_version || '—' }}</td>
+                <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ getScriptName(router.firmware_version) }}</td>
                 <td class="py-3 px-4">
                   <span
                     class="inline-block px-3 py-1 text-xs font-semibold rounded-full"
@@ -522,7 +522,34 @@ const loadRouters = async () => {
   }
 
   routers.value = data || []
+  
+  // Cargar versiones de scripts
+  await loadScriptVersions()
+  
   loading.value = false
+}
+
+const scriptVersions = ref([])
+
+// 🔹 Cargar versiones de scripts
+const loadScriptVersions = async () => {
+    const { data, error } = await supabase
+        .from('script_version')
+        .select('id, version')
+    
+    if (error) {
+        console.error('❌ Error al cargar versiones de script:', error.message)
+        return
+    }
+    
+    scriptVersions.value = data || []
+}
+
+// 🔹 Obtener nombre de la versión
+const getScriptName = (id) => {
+    if (!id) return '—'
+    const script = scriptVersions.value.find(v => v.id == id)
+    return script ? script.version : id // Retorna el nombre o el ID si no se encuentra
 }
 
 
@@ -572,7 +599,7 @@ const generateCSV = (withBOM = false) => {
     `"${router.user_rb || ''}"`,
     `"${router.lan_interface || ''}"`,
     `"${router.wan_interface || ''}"`,
-    `"${router.firmware_version || ''}"`,
+    `"${getScriptName(router.firmware_version) || ''}"`,
     `"${router.status || ''}"`
   ])
 
@@ -619,7 +646,7 @@ const exportToExcel = () => {
     'Usuario RB': router.user_rb || '',
     'Interfaz LAN': router.lan_interface || '',
     'Interfaz WAN': router.wan_interface || '',
-    'Versión Firmware': router.firmware_version || '',
+    'Versión Firmware': getScriptName(router.firmware_version) || '',
     'Estado': router.status || ''
   }))
 

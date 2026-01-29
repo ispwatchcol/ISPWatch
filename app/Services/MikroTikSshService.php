@@ -330,15 +330,35 @@ class MikroTikSshService
                     $key = PublicKeyLoader::load($keyContent);
                 }
 
-                if ($ssh->login($this->username, $key)) {
-                    Log::info('[MikroTikSSH] Conectado con clave SSH');
-                    return $ssh;
+                try {
+                    if ($ssh->login($this->username, $key)) {
+                        Log::info('[MikroTikSSH] Conectado con clave SSH');
+                        return $ssh;
+                    }
+                } catch (\TypeError $e) {
+                    Log::warning('[MikroTikSSH] TypeError en login con objeto key, intentando string conversion', [
+                        'error' => $e->getMessage(),
+                        'key_class' => get_class($key)
+                    ]);
+
+                    // Fallback: If login expects string, try passing key as string (PEM)
+                    // This might work if the underlying library supports it or if it's a version mismatch workaround
+                    try {
+                        if ($ssh->login($this->username, (string) $key)) {
+                            Log::info('[MikroTikSSH] Conectado con clave SSH (convertida a string)');
+                            return $ssh;
+                        }
+                    } catch (\Throwable $ex) {
+                        Log::error('[MikroTikSSH] Falló fallback string login', ['error' => $ex->getMessage()]);
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning('[MikroTikSSH] Error con clave SSH, intentando password', [
                     'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
                 ]);
             }
+
         }
 
         // Fallback to password authentication
