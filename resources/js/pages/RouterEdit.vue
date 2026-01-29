@@ -181,7 +181,8 @@
                   
                   <!-- Copy Button -->
                   <button
-                    @click="copyScript"
+                    type="button"
+                    @click.prevent="copyScript"
                     class="flex items-center gap-1.5 px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 
                            text-white rounded transition-colors"
                     :disabled="loadingScript"
@@ -217,7 +218,8 @@
                 <!-- Verify Connection Button -->
                 <div class="px-4 py-3 border-t border-gray-700 bg-gray-800">
                   <button
-                    @click="verifyConnection"
+                    type="button"
+                    @click.prevent="verifyConnection"
                     class="w-full flex items-center justify-center gap-2 px-4 py-2 
                            bg-green-600 hover:bg-green-700 text-white rounded-lg 
                            transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

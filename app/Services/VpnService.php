@@ -8,27 +8,40 @@ use Illuminate\Support\Facades\Log;
 class VpnService
 {
     // ==============================
-    // IPs DEL CORE
+    // CONFIGURACIÓN DEL CORE (desde .env)
     // ==============================
 
-    // IP pública → SOLO para la VPN
-    private string $vpnPublicIp = '190.14.255.107';
+    // IP pública → SOLO para la VPN (clientes se conectan aquí)
+    private string $vpnPublicIp;
 
-    // IP local → SOLO para la API (Laravel está en la LAN 192.168.88.0/24)
-    private string $apiHost = '192.168.88.1';
-    private int $apiPort = 8728;
+    // IP para API → Donde Laravel se conecta (IP pública si está en DigitalOcean)
+    private string $apiHost;
+    private int $apiPort;
 
     // ==============================
     // CREDENCIALES VPN
     // ==============================
-    private string $vpnPassword = 'claveSegura';
-    private string $ipsecSecret = 'ISPWATCH_SECRET';
+    private string $ipsecSecret;
 
     // ==============================
     // CREDENCIALES API (LECTURA)
     // ==============================
-    private string $apiUser = 'admin';
-    private string $apiPass = 'Colombia2018';
+    private string $apiUser;
+    private string $apiPass;
+
+    public function __construct()
+    {
+        // Cargar configuración desde .env
+        // IP Publica del MikroTik CORE (donde los clientes VPN se conectan)
+        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '138.197.30.155');
+        // IP para conexión API desde Laravel al CORE
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '138.197.30.155');
+        $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
+        $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
+        // IPsec Secret fijo para todos los clientes L2TP
+        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', 'Q9fZ7MrL2xSA8DkEpHwCy');
+    }
 
     // ==============================
     // USERNAME VPN POR ROUTER
@@ -50,117 +63,111 @@ class VpnService
     public function generateScript(Router $router): string
     {
         $routerName = $this->sanitizeName($router->name);
-        $vpnUsername = $this->getVpnUsername($router);
 
-        // Definir usuario local para gestión
+        // Generar o reutilizar username VPN único (aleatorio)
+        $vpnUsername = $router->vpn_username;
+
+        // Si no existe O si tiene el formato antiguo (core-isp-...), generar uno nuevo aleatorio
+        if (empty($vpnUsername) || str_starts_with($vpnUsername, 'core-isp-')) {
+            // Generar usuario aleatorio de 10 caracteres (ej: aB3xY9z123)
+            $vpnUsername = \Illuminate\Support\Str::random(10);
+        }
+
+        // Generar o reutilizar contraseña VPN segura y única
+        $vpnPassword = $router->vpn_password;
+        if (empty($vpnPassword)) {
+            // Generar contraseña segura de 20 caracteres alfanuméricos
+            $vpnPassword = \Illuminate\Support\Str::random(20);
+        }
+
+        // Guardar credentials VPN en la base de datos
+        $router->update([
+            'vpn_username' => $vpnUsername,
+            'vpn_password' => $vpnPassword,
+        ]);
+
+        // Generar credenciales de gestión local (INTERNO - no mostrar al usuario)
         $localUser = 'ispwatch';
-
-        // Si el router no tiene contraseña guardada, generar una segura y guardarla
-        // Si ya tiene una, la reutilizamos para no romper accesos existentes si se regenera el script
-        if (empty($router->password_rb)) {
-            $localPass = \Illuminate\Support\Str::random(12);
+        if (empty($router->password_rb) || $router->password_rb === 'Sena2017') {
+            $localPass = \Illuminate\Support\Str::random(16);
             $router->update([
                 'user_rb' => $localUser,
                 'password_rb' => $localPass
             ]);
         } else {
             $localPass = $router->password_rb;
-            // Asegurar que el usuario en BD sea 'ispwatch' si ya tiene contraseña
             if ($router->user_rb !== $localUser) {
                 $router->update(['user_rb' => $localUser]);
             }
         }
 
-        return <<<SCRIPT
-# 1. Crear usuario de gestión local (o actualizar si ya existe)
-# Primero intentamos eliminar si existe, luego creamos nuevo
-:do {/user remove [find name={$localUser}]} on-error={}
-/user add name={$localUser} password={$localPass} group=full comment="Usuario de Gestion ISPWatch"
+        // ==============================
+        // SINCRONIZAR CON EL CORE (Importantísimo)
+        // ==============================
+        // Intentar crear/actualizar el secret en el CORE vía API
+        // Si falla, lo logueamos pero no bloqueamos la generación del script
+        try {
+            $syncResult = $this->syncPppSecret($vpnUsername, $vpnPassword);
+            if (!$syncResult) {
+                Log::warning('[VPN] Falló la sincronización del secret en el CORE', ['user' => $vpnUsername]);
+            } else {
+                Log::info('[VPN] Secret sincronizado correctamente', ['user' => $vpnUsername]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('[VPN] Excepción al sincronizar secret', ['error' => $e->getMessage()]);
+        }
 
-# 2. Crear interfaz Cliente L2TP
+
+        // ==============================
+
+        // Script solo con credenciales VPN visibles
+        // Credenciales de gestión local se manejan internamente y NO se muestran en el script
+        return <<<SCRIPT
+# Crear interfaz Cliente L2TP
+/interface l2tp-client remove [find name="ISPWatch-VPN-CORE"]
+
 /interface l2tp-client
-add name=ISPWatch-VPN-{$routerName} \\
-    connect-to={$this->vpnPublicIp} \\
-    user={$vpnUsername} \\
-    password={$this->vpnPassword} \\
+add name="ISPWatch-VPN-CORE" \\
+    connect-to="{$this->vpnPublicIp}" \\
+    user="{$vpnUsername}" \\
+    password="{$vpnPassword}" \\
     use-ipsec=yes \\
-    ipsec-secret={$this->ipsecSecret} \\
+    ipsec-secret="{$this->ipsecSecret}" \\
     profile=default-encryption \\
     add-default-route=no \\
     disabled=no
+
+# Asegurar que la interfaz inicie habilitada
+/interface l2tp-client enable [find name="ISPWatch-VPN-CORE"]
 SCRIPT;
     }
 
     // ==============================
     // VERIFICAR ESTADO REAL DE VPN
     // ==============================
+    // ==============================
+    // VERIFICAR ESTADO REAL DE VPN
+    // ==============================
     public function verifyConnection(Router $router): array
     {
-        $vpnUsername = $this->getVpnUsername($router);
+        // Usar el usuario VPN guardado en BD, o generar el legacy si no existe
+        $vpnUsername = $router->vpn_username;
+        if (empty($vpnUsername)) {
+            $vpnUsername = $this->getVpnUsername($router);
+        }
 
-        Log::debug('[VPN] Verificando conexión VPN', [
+        Log::debug('[VPN] Verificando conexión VPN (SSH)', [
             'router_id' => $router->id,
-            'external_id' => $router->external_id,
             'vpn_username' => $vpnUsername,
-            'api_host' => $this->apiHost,
-            'api_port' => $this->apiPort,
         ]);
 
-        $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 5);
-
-        if (!$socket) {
-            Log::error('[VPN] No se pudo abrir socket API', [
-                'errno' => $errno,
-                'errstr' => $errstr,
-            ]);
-            return $this->error("No se pudo conectar al CORE por API ($errstr)");
-        }
-
-        stream_set_timeout($socket, 10);
-
         try {
-            // LOGIN - Manejar protocolo nuevo y legacy
-            $loginSuccess = $this->doLogin($socket);
+            $sshService = new MikroTikSshService();
+            $result = $sshService->isVpnConnected($vpnUsername);
 
-            if (!$loginSuccess) {
-                fclose($socket);
-                return $this->error('Error de autenticación API');
-            }
+            if ($result['connected']) {
+                $assignedIp = $result['assigned_ip'] ?? null;
 
-            Log::debug('[VPN] Login exitoso, consultando PPP active');
-
-            // 1) PPP ACTIVE
-            $this->writeCommand($socket, '/ppp/active/print');
-            $pppActive = $this->readRecords($socket);
-            Log::debug('[VPN] PPP active recibidos', ['ppp_active' => $pppActive, 'count' => count($pppActive)]);
-
-            // 2) L2TP SERVER (opcional, debug)
-            $this->writeCommand($socket, '/interface/l2tp-server/print');
-            $l2tpServer = $this->readRecords($socket);
-            Log::debug('[VPN] L2TP server', ['l2tp_server' => $l2tpServer]);
-
-            fclose($socket);
-        } catch (\Throwable $e) {
-            Log::error('[VPN] Excepción en verifyConnection', [
-                'exception' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            @fclose($socket);
-            return $this->error('Error inesperado al consultar la API Mikrotik');
-        }
-
-        // BUSCAR EL USUARIO PPP
-        foreach ($pppActive as $conn) {
-            if (isset($conn['name']) && $conn['name'] === $vpnUsername) {
-                Log::info('[VPN] Conexión PPP encontrada', ['conn' => $conn]);
-
-                $assignedIp = $conn['address'] ?? null;
-
-                // Obtener credenciales del PPP Secret para poder conectar al cliente
-                $secretData = $this->getPppSecretData($vpnUsername);
-
-                // Actualizar el router SOLO con la IP de la VPN
-                // Mantenemos user_rb y password_rb intactos (seran 'ispwatch')
                 if ($assignedIp) {
                     $router->update([
                         'ip' => $assignedIp,
@@ -169,7 +176,6 @@ SCRIPT;
                     Log::info('[VPN] Router actualizado con datos VPN', [
                         'router_id' => $router->id,
                         'vpn_remote_ip' => $assignedIp,
-                        'vpn_user' => $secretData['name'] ?? null,
                     ]);
                 }
 
@@ -178,24 +184,54 @@ SCRIPT;
                     'connected' => true,
                     'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
                     'assigned_ip' => $assignedIp,
-                    'service' => $conn['service'] ?? null,
-                    'uptime' => $conn['uptime'] ?? null,
-                    'vpn_credentials_saved' => $secretData ? true : false,
+                    'uptime' => $result['uptime'] ?? null,
+                ];
+            } else {
+                Log::info('[VPN] No hay PPP activo para usuario', [
+                    'vpn_username' => $vpnUsername,
+                ]);
+
+                return [
+                    'success' => true,
+                    'connected' => false,
+                    'message' => '❌ VPN CAÍDA (no existe sesión PPP activa)',
+                    'assigned_ip' => null,
                 ];
             }
+
+        } catch (\Throwable $e) {
+            Log::error('[VPN] Excepción en verifyConnection (SSH)', [
+                'exception' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return $this->error('Error inesperado al consultar la API Mikrotik (SSH): ' . $e->getMessage());
         }
-
-        Log::info('[VPN] No hay PPP activo para usuario', [
-            'vpn_username' => $vpnUsername,
-        ]);
-
-        return [
-            'success' => true,
-            'connected' => false,
-            'message' => '❌ VPN CAÍDA (no existe sesión PPP activa)',
-            'assigned_ip' => null,
-        ];
     }
+
+    // ==============================
+    // SYNC CREDENTIALS TO CORE
+    // ==============================
+    private function syncPppSecret(string $username, string $password): bool
+    {
+        try {
+            Log::info("[VPN] Sincronizando secret vía SSH", ['user' => $username]);
+
+            $sshService = new MikroTikSshService();
+            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default-encryption');
+
+            if ($result['success']) {
+                Log::info('[VPN] Secret sincronizado exitosamente (SSH).', ['action' => $result['action'] ?? 'unknown']);
+                return true;
+            } else {
+                Log::error('[VPN] Falló syncPppSecret (SSH)', ['message' => $result['message']]);
+                return false;
+            }
+        } catch (\Throwable $e) {
+            Log::error('[VPN] Excepción al sincronizar secret (SSH)', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
 
     // ==============================
     // OBTENER DATOS DEL PPP SECRET
