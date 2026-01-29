@@ -131,12 +131,16 @@ class MikroTikSshService
             }
 
             // Parse MikroTik table format
-            if (preg_match('/(\S+)\s+l2tp\s+(\S+)\s+(\S+)/', $line, $matches)) {
+            // Output example:
+            // 0 ikXcLyXb3M  l2tp     181.225.70.27  10.10.10.254  1m14s   cbc(aes) + hmac(sha1)
+            // Regex: Index(digits) Name Service CallerID Address Uptime
+            if (preg_match('/^\d+\s+(\S+)\s+l2tp\s+(\S+)\s+(\S+)\s+(\S+)/', $line, $matches)) {
                 $connections[] = [
                     'name' => $matches[1],
                     'service' => 'l2tp',
-                    'address' => $matches[2] ?? null,
-                    'uptime' => $matches[3] ?? null,
+                    'caller_id' => $matches[2],
+                    'address' => $matches[3],
+                    'uptime' => $matches[4],
                 ];
             }
         }
@@ -223,17 +227,88 @@ class MikroTikSshService
     }
 
     /**
-     * Create PPP secret for new router
+     * Create or Update PPP secret
+     */
+    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default-encryption'): array
+    {
+        // 1. Check if exists
+        $current = $this->getPppSecret($username);
+
+        if (!$current['success']) {
+            return $current; // Error state
+        }
+
+        if ($current['found']) {
+            // Update if needed
+            $cmd = sprintf(
+                '/ppp secret set [find name=%s] password=%s service=%s profile=%s',
+                escapeshellarg($username),
+                escapeshellarg($password),
+                escapeshellarg($service),
+                escapeshellarg($profile)
+            );
+            $action = "updated";
+        } else {
+            // Create
+            $cmd = sprintf(
+                '/ppp secret add name=%s password=%s service=%s profile=%s comment="ISPWatch Auto"',
+                escapeshellarg($username),
+                escapeshellarg($password),
+                escapeshellarg($service),
+                escapeshellarg($profile)
+            );
+            $action = "created";
+        }
+
+        $result = $this->execute($cmd);
+
+        if ($result['success']) {
+            $result['action'] = $action;
+            $result['message'] = "Secret $action successfully";
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get specific PPP secret details
+     */
+    public function getPppSecret(string $username): array
+    {
+        $cmd = sprintf('/ppp secret print detail where name=%s', escapeshellarg($username));
+        $result = $this->execute($cmd);
+
+        if (!$result['success']) {
+            return $result;
+        }
+
+        $output = $result['output'];
+
+        // Check if output contains "name=" to confirm it's a valid record
+        // The print detail command usually outputs: 0   name="foo" ...
+        // If it outputs only headers (Flags: ...), it means no record found.
+        if (trim($output) === '' || !str_contains($output, 'name=')) {
+            return [
+                'success' => true,
+                'found' => false,
+                'data' => null,
+                'raw_debug' => $output
+            ];
+        }
+
+        return [
+            'success' => true,
+            'found' => true,
+            'raw' => $output
+        ];
+    }
+
+    /**
+     * Create PPP secret for new router (Legacy/Simple wrapper)
      */
     public function createPppSecret(string $username, string $password): array
     {
-        $cmd = sprintf(
-            '/ppp secret add name=%s password=%s service=l2tp profile=vpn-profile',
-            escapeshellarg($username),
-            escapeshellarg($password)
-        );
-
-        return $this->execute($cmd);
+        return $this->ensurePppSecret($username, $password);
     }
 
     /**
