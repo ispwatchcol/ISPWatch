@@ -1,0 +1,27 @@
+spec:
+  name: ispwatch
+  services:
+  - name: web
+    github:
+      branch: main
+      deploy_on_push: true
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+    - path: /
+    run_command: |
+      cp .env.production .env
+      php artisan config:cache
+      php artisan route:cache
+      php artisan view:cache
+      heroku-php-apache2 public/
+    build_command: |
+      composer install --no-dev --optimize-autoloader
+      npm ci
+      npm run build
+    envs:
+    - key: APP_ENV
+      value: production
+    - key: APP_DEBUG
+      value: "false"
