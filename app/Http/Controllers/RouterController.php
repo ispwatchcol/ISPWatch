@@ -168,7 +168,7 @@ class RouterController extends Controller
 
     /**
      * Get interfaces from the client router
-     * Conecta al CORE via SSH y desde allí accede al router cliente
+     * Conecta directamente al router cliente via API (funciona desde producción vía VPN)
      */
     public function getInterfaces(Router $router)
     {
@@ -181,29 +181,29 @@ class RouterController extends Controller
             ]);
         }
 
-        // Usar SSH al CORE para verificar conectividad y obtener info
-        $sshService = new \App\Services\MikroTikSshService();
-        $result = $sshService->getRouterInterfaces(
-            $router->ip,
-            $router->user_rb,
-            $router->password_rb,
-            $router->puerto_api ?? 8728
-        );
+        // Usar VpnService que se conecta directamente al router cliente via API
+        // Esto funciona en producción porque el servidor tiene acceso a la red VPN
+        $vpnService = new VpnService();
+        $result = $vpnService->getInterfaces($router);
 
-        // Si el router es alcanzable pero no podemos obtener interfaces automáticamente,
-        // ofrecemos interfaces comunes de MikroTik para selección manual
-        if (isset($result['reachable']) && $result['reachable']) {
-            $result['interfaces'] = [
-                ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
-                ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'ether3', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'ether4', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'ether5', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
-                ['name' => 'wlan1', 'type' => 'wlan', 'running' => true, 'disabled' => false, 'comment' => 'WiFi'],
-            ];
-            $result['current_wan'] = $router->wan_interface;
-            $result['note'] = 'Interfaces sugeridas. Seleccione la interfaz WAN correcta de su router.';
+        // Si falla la conexión directa, ofrecer interfaces sugeridas
+        if (!$result['success']) {
+            return response()->json([
+                'success' => true,
+                'message' => 'No se pudo conectar al router. Selecciona la interfaz WAN manualmente.',
+                'interfaces' => [
+                    ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
+                    ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                    ['name' => 'ether3', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                    ['name' => 'ether4', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                    ['name' => 'ether5', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                    ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
+                    ['name' => 'wlan1', 'type' => 'wlan', 'running' => true, 'disabled' => false, 'comment' => 'WiFi'],
+                ],
+                'current_wan' => $router->wan_interface,
+                'note' => 'Error de conexión. Interfaces sugeridas para selección manual.',
+                'error_detail' => $result['message'] ?? 'Unknown error',
+            ]);
         }
 
         return response()->json($result);

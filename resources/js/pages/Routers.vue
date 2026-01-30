@@ -461,6 +461,64 @@
           </div>
         </div>
       </div>
+      <!-- Modal Confirmar Eliminación -->
+      <div
+        v-if="showDeleteModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        @click.self="closeDeleteModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <icon-lucide-trash-2 class="w-6 h-6 text-red-600" />
+                Eliminar Router
+              </h2>
+            </div>
+            <button
+              @click="closeDeleteModal"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <icon-lucide-x class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div class="space-y-4">
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-red-800 dark:text-red-300">¿Estás seguro?</h4>
+                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                    Esta acción no se puede deshacer. El router <strong>"{{ routerToDelete?.name }}"</strong> será eliminado permanentemente.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeDeleteModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              @click="confirmDelete"
+              :disabled="deletingRouter"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <icon-lucide-loader-2 v-if="deletingRouter" class="w-4 h-4 animate-spin" />
+              <icon-lucide-trash v-else class="w-4 h-4" />
+              {{ deletingRouter ? 'Eliminando...' : 'Eliminar' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -492,6 +550,11 @@ const savingWan = ref(false)
 const showBlockRulesModal = ref(false)
 const selectedBlockRouter = ref(null)
 const applyingRules = ref(false)
+
+// Estados del modal Eliminar Router
+const showDeleteModal = ref(false)
+const routerToDelete = ref(null)
+const deletingRouter = ref(false)
 
 // 🔹 Navegar a la vista de agregar router
 const goToAddRouter = () => {
@@ -559,31 +622,49 @@ const getScriptName = (id) => {
 
 onMounted(loadRouters)
 
-// 🔹 Eliminar router con confirmación bonita
-const deleteRouter = async (id) => {
-  // Mostrar toast de confirmación
-  toast.value?.warning(
-    '¿Eliminar router?',
-    'Esta acción no se puede deshacer. El router será eliminado permanentemente.',
-    {
-      duration: 0, // No auto-cerrar
-      action: {
-        label: 'Eliminar',
-        onClick: async () => {
-          const { error } = await supabase.from('router').delete().eq('id', id)
-          
-          if (error) {
-            console.error('❌ Error al eliminar router:', error.message)
-            toast.value?.error('Error', 'No se pudo eliminar el router. Intenta de nuevo.')
-            return
-          }
-          
-          routers.value = routers.value.filter(r => r.id !== id)
-          toast.value?.success('Router eliminado', 'El router ha sido eliminado correctamente')
-        }
-      }
+// ==============================
+// FUNCIONES MODAL ELIMINAR ROUTER
+// ==============================
+
+// Abrir modal de confirmación para eliminar
+const deleteRouter = (id) => {
+  const routerData = routers.value.find(r => r.id === id)
+  if (routerData) {
+    routerToDelete.value = routerData
+    showDeleteModal.value = true
+  }
+}
+
+// Cerrar modal de eliminar
+const closeDeleteModal = () => {
+  showDeleteModal.value = false
+  routerToDelete.value = null
+}
+
+// Confirmar eliminación
+const confirmDelete = async () => {
+  if (!routerToDelete.value) return
+  
+  deletingRouter.value = true
+  
+  try {
+    const { error } = await supabase.from('router').delete().eq('id', routerToDelete.value.id)
+    
+    if (error) {
+      console.error('❌ Error al eliminar router:', error.message)
+      toast.value?.error('Error al eliminar', 'No se pudo eliminar el router. Intenta de nuevo.')
+      return
     }
-  )
+    
+    routers.value = routers.value.filter(r => r.id !== routerToDelete.value.id)
+    closeDeleteModal()
+    toast.value?.success('Router eliminado', 'El router ha sido eliminado correctamente')
+  } catch (error) {
+    console.error('Error:', error)
+    toast.value?.error('Error', 'Ocurrió un error inesperado')
+  } finally {
+    deletingRouter.value = false
+  }
 }
 
 // 🔹 Filtro de búsqueda
@@ -797,45 +878,30 @@ const selectRouterForBlock = (routerData) => {
 const applyBlockRules = async () => {
   if (!selectedBlockRouter.value || !selectedBlockRouter.value.wan_interface) return
 
-  // Confirmación con toast
-  const routerName = selectedBlockRouter.value.name
-  
-  toast.value?.warning(
-    '¿Aplicar reglas de bloqueo?',
-    `Se configurarán reglas de firewall en ${routerName} para bloquear usuarios morosos.`,
-    {
-      duration: 0,
-      action: {
-        label: 'Aplicar',
-        onClick: async () => {
-          applyingRules.value = true
-          
-          try {
-            const response = await fetch(`/api/routers/${selectedBlockRouter.value.id}/apply-block-rules`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-            })
-            
-            const data = await response.json()
-            
-            if (data.success) {
-              toast.value?.success('Reglas aplicadas', 'Las reglas de bloqueo se configuraron correctamente en el router')
-              closeBlockRulesModal()
-            } else {
-              toast.value?.error('Error al aplicar reglas', data.message || 'Error desconocido')
-            }
-          } catch (error) {
-            console.error('Error al aplicar reglas de bloqueo:', error)
-            toast.value?.error('Error de conexión', 'No se pudo conectar al servidor para aplicar las reglas')
-          } finally {
-            applyingRules.value = false
-          }
-        }
-      }
+  applyingRules.value = true
+
+  try {
+    const response = await fetch(`/api/routers/${selectedBlockRouter.value.id}/apply-block-rules`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const data = await response.json()
+
+    if (data.success) {
+      toast.value?.success('Reglas aplicadas', 'Las reglas de bloqueo se configuraron correctamente en el router')
+      closeBlockRulesModal()
+    } else {
+      toast.value?.error('Error al aplicar reglas', data.message || 'Error desconocido')
     }
-  )
+  } catch (error) {
+    console.error('Error al aplicar reglas de bloqueo:', error)
+    toast.value?.error('Error de conexión', 'No se pudo conectar al servidor para aplicar las reglas')
+  } finally {
+    applyingRules.value = false
+  }
 }
 
 </script>
