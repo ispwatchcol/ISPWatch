@@ -305,20 +305,19 @@ class MikroTikSshService
 
     /**
      * Get interfaces from a client router via the CORE
-     * Uses SSH to CORE, then CORE connects to client router via API
+     * Uses SSH to CORE, then CORE connects to client router via SSH
      * 
      * @param string $clientIp IP del router cliente (IP VPN asignada)
-     * @param string $clientUser Usuario API del router cliente
-     * @param string $clientPass Password API del router cliente
-     * @param int $clientPort Puerto API del router cliente
+     * @param string $clientUser Usuario del router cliente
+     * @param string $clientPass Password del router cliente
+     * @param int $clientPort Puerto API del router cliente (no usado, solo para compatibilidad)
      */
     public function getRouterInterfaces(string $clientIp, string $clientUser, string $clientPass, int $clientPort = 8728): array
     {
         try {
-            Log::info('[MikroTikSSH] Obteniendo interfaces de router cliente via CORE', [
+            Log::info('[MikroTikSSH] Obteniendo interfaces de router cliente via CORE SSH', [
                 'client_ip' => $clientIp,
                 'client_user' => $clientUser,
-                'client_port' => $clientPort,
             ]);
 
             $ssh = $this->connect();
@@ -326,86 +325,115 @@ class MikroTikSshService
             if (!$ssh) {
                 return [
                     'success' => false,
-                    'message' => 'No se pudo conectar al MikroTik CORE',
+                    'message' => 'No se pudo conectar al MikroTik CORE via SSH',
                     'interfaces' => [],
                 ];
             }
 
-            // Ejecutar script en el CORE que conecta al cliente via API
-            // Usamos /tool fetch para hacer una conexión API al router cliente
-            // Pero es más simple usar el comando /interface print directamente via SSH hacia el cliente
-            // Approach: Desde el CORE, ejecutamos un comando que liste interfaces del CORE
-            // Pero para el cliente, usamos /system ssh con los comandos necesarios
-
-            // MikroTik permite ejecutar comandos en otro router si tiene configurado SSH/API
-            // Opción 1: Usar /tool fetch con API hacia el cliente
-            // Opción 2: Usar script que hace conexión API
-
-            // La forma más directa es usar /tool/fetch con method POST hacia la API del cliente
-            // Pero RouterOS no tiene soporte nativo de API como cliente desde CLI
-
-            // Alternativa: El CORE tiene acceso a la red VPN, entonces podemos usar
-            // un script que liste las interfaces. Vamos a usar un enfoque diferente:
-            // Ejecutar ping para verificar conectividad y luego intentar API desde el servidor Laravel
-            // a través de un túnel.
-
-            // MEJOR SOLUCIÓN: Ejecutar /interface print en el CORE y verificar si hay túneles
-            // hacia el cliente. Pero para interfaces del cliente, necesitamos otro enfoque.
-
-            // Por ahora, verificamos conectividad y retornamos un mensaje apropiado
+            // Verificar conectividad con ping primero
             $pingCommand = sprintf('/ping address=%s count=1', $clientIp);
             $pingResult = $ssh->exec($pingCommand);
 
             Log::debug('[MikroTikSSH] Ping result', ['output' => $pingResult]);
 
-            // Si el ping falla, el router cliente no está conectado
             if (str_contains($pingResult, 'timeout') || str_contains($pingResult, '0 received')) {
                 $ssh->disconnect();
                 return [
                     'success' => false,
-                    'message' => 'El router cliente no responde (VPN posiblemente desconectada)',
+                    'message' => 'El router cliente no responde. Verifica que la VPN esté conectada.',
                     'interfaces' => [],
                 ];
             }
 
-            // El router está accesible desde el CORE
-            // Ahora intentamos conectar al API del cliente DESDE el CORE
-            // MikroTik permite ejecutar scripts que usan /tool/fetch para llamadas HTTP
-            // pero no tiene cliente API nativo. 
-
-            // SOLUCIÓN ALTERNATIVA: Usar SSH desde CORE hacia cliente
-            // Primero verificamos si SSH está configurado en el cliente
-            // Ejecutamos comando remoto via SSH
-            $sshToClientCmd = sprintf(
-                '/system ssh address=%s user=%s command="/interface print terse"',
+            // Ejecutar comando SSH desde CORE hacia el router cliente para obtener interfaces
+            $escapedPass = addslashes($clientPass);
+            $sshCmd = sprintf(
+                '/system ssh address=%s user=%s password="%s" command="/interface print terse"',
                 $clientIp,
-                $clientUser
+                $clientUser,
+                $escapedPass
             );
 
-            // Nota: Este comando requiere que SSH esté habilitado en el cliente
-            // y que las claves SSH estén configuradas o que se use password (interactivo)
-            // Como es interactivo, no funcionará directamente.
+            Log::debug('[MikroTikSSH] Ejecutando SSH al cliente para obtener interfaces');
+            $interfaceOutput = $ssh->exec($sshCmd);
 
-            // SOLUCIÓN FINAL: Usar /tool fetch con HTTP hacia una ruta especial
-            // O simplemente devolver las interfaces que el CORE conoce del cliente via PPP
-
-            // Obtener la información del peer PPP para este cliente
-            $pppInfoCmd = sprintf('/ppp active print detail where address=%s', $clientIp);
-            $pppInfo = $ssh->exec($pppInfoCmd);
-
-            Log::debug('[MikroTikSSH] PPP info', ['output' => $pppInfo]);
+            Log::debug('[MikroTikSSH] Interface output', ['output' => $interfaceOutput]);
 
             $ssh->disconnect();
 
-            // Como no podemos acceder directamente a la API del cliente desde el CORE,
-            // retornamos la información disponible y sugerimos verificar la conexión
+            // Parsear la salida de /interface print terse
+            // Formato: 0 R name="ether1" type="ether" mtu=1500 ...
+            $interfaces = [];
+            $lines = explode("\n", $interfaceOutput);
+
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if (empty($line))
+                    continue;
+
+                // Extraer name usando regex
+                if (preg_match('/name="?([^"\s]+)"?/', $line, $nameMatch)) {
+                    $name = $nameMatch[1];
+
+                    // Extraer type
+                    $type = 'unknown';
+                    if (preg_match('/type="?([^"\s]+)"?/', $line, $typeMatch)) {
+                        $type = $typeMatch[1];
+                    }
+
+                    // Verificar si está running (R flag al inicio)
+                    $running = str_contains($line, ' R ') || preg_match('/^\d+\s+R\s/', $line);
+
+                    // Verificar si está disabled (X flag)
+                    $disabled = str_contains($line, ' X ') || preg_match('/^\d+\s+X/', $line);
+
+                    // Extraer comment si existe
+                    $comment = '';
+                    if (preg_match('/comment="([^"]*)"/', $line, $commentMatch)) {
+                        $comment = $commentMatch[1];
+                    }
+
+                    // Filtrar interfaces VPN/virtuales
+                    $excludedTypes = ['l2tp', 'pptp', 'pppoe', 'ovpn', 'sstp', 'gre', 'ipip', 'eoip'];
+                    $shouldExclude = false;
+                    foreach ($excludedTypes as $excluded) {
+                        if (stripos($type, $excluded) !== false || stripos($name, $excluded) !== false) {
+                            $shouldExclude = true;
+                            break;
+                        }
+                    }
+
+                    // Excluir la interfaz VPN del CORE
+                    if (stripos($name, 'ISPWatch-VPN') !== false) {
+                        $shouldExclude = true;
+                    }
+
+                    if (!$shouldExclude) {
+                        $interfaces[] = [
+                            'name' => $name,
+                            'type' => $type,
+                            'running' => $running,
+                            'disabled' => $disabled,
+                            'comment' => $comment,
+                        ];
+                    }
+                }
+            }
+
+            // Si no pudimos parsear interfaces, puede ser un error de autenticación
+            if (empty($interfaces) && (str_contains($interfaceOutput, 'error') || str_contains($interfaceOutput, 'bad'))) {
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación SSH al router cliente. Verifica usuario y contraseña.',
+                    'interfaces' => [],
+                    'raw_output' => $interfaceOutput,
+                ];
+            }
+
             return [
                 'success' => true,
-                'reachable' => true,
-                'message' => 'Router cliente accesible desde CORE. Configure la interfaz WAN manualmente.',
-                'ppp_info' => trim($pppInfo),
-                'interfaces' => [], // Las interfaces deben configurarse desde el frontend
-                'suggestion' => 'Para obtener interfaces, ejecute el script de configuración en el router cliente que habilita API.',
+                'message' => 'Interfaces obtenidas correctamente',
+                'interfaces' => $interfaces,
             ];
 
         } catch (\Throwable $e) {

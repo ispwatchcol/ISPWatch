@@ -168,7 +168,7 @@ class RouterController extends Controller
 
     /**
      * Get interfaces from the client router
-     * Conecta directamente al router cliente via API (funciona desde producción vía VPN)
+     * Conecta al CORE via SSH y desde allí conecta al router cliente via SSH
      */
     public function getInterfaces(Router $router)
     {
@@ -181,32 +181,37 @@ class RouterController extends Controller
             ]);
         }
 
-        // Usar VpnService que se conecta directamente al router cliente via API
-        // Esto funciona en producción porque el servidor tiene acceso a la red VPN
-        $vpnService = new VpnService();
-        $result = $vpnService->getInterfaces($router);
+        // Usar SSH al CORE, luego SSH al cliente para obtener interfaces
+        $sshService = new \App\Services\MikroTikSshService();
+        $result = $sshService->getRouterInterfaces(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $router->puerto_api ?? 8728
+        );
 
-        // Si falla la conexión directa, ofrecer interfaces sugeridas
-        if (!$result['success']) {
-            return response()->json([
-                'success' => true,
-                'message' => 'No se pudo conectar al router. Selecciona la interfaz WAN manualmente.',
-                'interfaces' => [
-                    ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
-                    ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                    ['name' => 'ether3', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                    ['name' => 'ether4', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                    ['name' => 'ether5', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                    ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
-                    ['name' => 'wlan1', 'type' => 'wlan', 'running' => true, 'disabled' => false, 'comment' => 'WiFi'],
-                ],
-                'current_wan' => $router->wan_interface,
-                'note' => 'Error de conexión. Interfaces sugeridas para selección manual.',
-                'error_detail' => $result['message'] ?? 'Unknown error',
-            ]);
+        // Si obtuvo interfaces exitosamente, agregarlas
+        if ($result['success'] && !empty($result['interfaces'])) {
+            $result['current_wan'] = $router->wan_interface;
+            return response()->json($result);
         }
 
-        return response()->json($result);
+        // Si falla la conexión, ofrecer interfaces sugeridas para selección manual
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'] ?? 'No se pudo obtener interfaces. Selecciona manualmente.',
+            'interfaces' => [
+                ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
+                ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'ether3', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'ether4', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'ether5', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
+                ['name' => 'wlan1', 'type' => 'wlan', 'running' => true, 'disabled' => false, 'comment' => 'WiFi'],
+            ],
+            'current_wan' => $router->wan_interface,
+            'note' => 'Interfaces sugeridas. El error fue: ' . ($result['message'] ?? 'desconocido'),
+        ]);
     }
 
     /**

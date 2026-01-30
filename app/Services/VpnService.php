@@ -319,7 +319,7 @@ SCRIPT;
                 'errstr' => $errstr,
                 'ip' => $router->ip,
             ]);
-            return $this->error("No se pudo conectar al router ($errstr). Verifica que la VPN esté activa.");
+            return $this->error("No se pudo conectar al router en {$router->ip}:8728: {$errstr}");
         }
 
         stream_set_timeout($socket, 15);
