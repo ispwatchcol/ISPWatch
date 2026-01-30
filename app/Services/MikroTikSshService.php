@@ -30,7 +30,7 @@ class MikroTikSshService
     private string $apiUser;
     private string $apiPass;
 
-    private int $timeout = 30;
+    private int $timeout = 15; // Reduced from 30 to avoid DigitalOcean App Platform timeouts
 
     public function __construct()
     {
@@ -322,20 +322,21 @@ class MikroTikSshService
 
     /**
      * Create or Update PPP secret
-     * Uses API first, SSH as fallback
+     * Uses API ONLY (SSH fallback disabled for production - causes timeouts)
      */
     public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default-encryption'): array
     {
-        // Try API first
+        // Use API only - SSH is blocked by Cloudflare in production and causes timeouts
         $apiResult = $this->ensurePppSecretViaApi($username, $password, $service, $profile);
-        if ($apiResult['success']) {
-            return $apiResult;
+
+        if (!$apiResult['success']) {
+            Log::warning('[MikroTikCore] API failed for ensurePppSecret (SSH fallback disabled)', [
+                'api_error' => $apiResult['message'] ?? 'unknown',
+                'username' => $username,
+            ]);
         }
 
-        Log::info('[MikroTikCore] API failed for ensurePppSecret, trying SSH', ['api_error' => $apiResult['message'] ?? 'unknown']);
-
-        // Fallback to SSH
-        return $this->ensurePppSecretViaSsh($username, $password, $service, $profile);
+        return $apiResult;
     }
 
     /**
@@ -350,7 +351,7 @@ class MikroTikSshService
                 'api_port' => $this->apiPort,
             ]);
 
-            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 5); // Reduced from 10s
 
             if (!$socket) {
                 Log::error('[MikroTikCore] API connection failed', [
