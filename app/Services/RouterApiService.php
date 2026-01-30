@@ -11,8 +11,7 @@ use Illuminate\Support\Facades\Log;
  */
 class RouterApiService
 {
-    private int $apiPort = 8728;
-    private int $timeout = 15;
+    private int $timeout = 30; // Increased timeout for slower connections
 
     /**
      * Obtener todas las interfaces del router
@@ -23,18 +22,33 @@ class RouterApiService
             return $this->error('Router sin credenciales configuradas');
         }
 
+        // Use the API port configured in the router, default to 8728
+        $apiPort = $router->puerto_api ?? 8728;
+
         Log::info('[RouterAPI] Conectando para obtener interfaces', [
             'router_id' => $router->id,
             'ip' => $router->ip,
+            'port' => $apiPort,
             'user' => $router->user_rb,
+            'timeout' => $this->timeout,
         ]);
 
         // Conexión fresca al router
-        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
-            return $this->error("No se pudo conectar al router: $errstr");
+            $errorMsg = "No se pudo conectar al router en {$router->ip}:{$apiPort}. " .
+                "Error: $errstr (Código: $errno). " .
+                "Verifica que el servicio API esté habilitado en el router y que el puerto sea accesible.";
+
+            Log::error('[RouterAPI] No se pudo conectar', [
+                'error' => $errstr,
+                'errno' => $errno,
+                'ip' => $router->ip,
+                'port' => $apiPort,
+            ]);
+
+            return $this->error($errorMsg);
         }
 
         stream_set_timeout($socket, $this->timeout);
@@ -130,12 +144,20 @@ class RouterApiService
 
         Log::info('[RouterAPI] Portal IP configurada', ['portal_ip' => $portalIp]);
 
+        // Use the API port configured in the router
+        $apiPort = $router->puerto_api ?? 8728;
+
         // Conexión al router
-        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
-            return $this->error("No se pudo conectar al router: $errstr");
+            Log::error('[RouterAPI] No se pudo conectar', [
+                'error' => $errstr,
+                'errno' => $errno,
+                'ip' => $router->ip,
+                'port' => $apiPort,
+            ]);
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
         }
 
         stream_set_timeout($socket, $this->timeout);
@@ -246,11 +268,19 @@ class RouterApiService
             'plan_up' => $servicePlan->speed_up,
         ]);
 
-        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+        // Use the API port configured in the router
+        $apiPort = $router->puerto_api ?? 8728;
+
+        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
-            return $this->error("No se pudo conectar al router: $errstr");
+            Log::error('[RouterAPI] No se pudo conectar', [
+                'error' => $errstr,
+                'errno' => $errno,
+                'ip' => $router->ip,
+                'port' => $apiPort,
+            ]);
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
         }
 
         stream_set_timeout($socket, $this->timeout);
@@ -367,11 +397,19 @@ class RouterApiService
             'customer_name' => $customerName,
         ]);
 
-        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+        // Use the API port configured in the router
+        $apiPort = $router->puerto_api ?? 8728;
+
+        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
-            return $this->error("No se pudo conectar al router: $errstr");
+            Log::error('[RouterAPI] No se pudo conectar', [
+                'error' => $errstr,
+                'errno' => $errno,
+                'ip' => $router->ip,
+                'port' => $apiPort,
+            ]);
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
         }
 
         stream_set_timeout($socket, $this->timeout);
@@ -423,11 +461,19 @@ class RouterApiService
             'customer_ip' => $ip,
         ]);
 
-        $socket = @fsockopen($router->ip, $this->apiPort, $errno, $errstr, $this->timeout);
+        // Use the API port configured in the router
+        $apiPort = $router->puerto_api ?? 8728;
+
+        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', ['error' => $errstr]);
-            return $this->error("No se pudo conectar al router: $errstr");
+            Log::error('[RouterAPI] No se pudo conectar', [
+                'error' => $errstr,
+                'errno' => $errno,
+                'ip' => $router->ip,
+                'port' => $apiPort,
+            ]);
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
         }
 
         stream_set_timeout($socket, $this->timeout);

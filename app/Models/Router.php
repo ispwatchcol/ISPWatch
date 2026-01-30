@@ -10,8 +10,13 @@ class Router extends Model
     protected $fillable = [
         'name',
         'ip',
+        'ipv6',
+        'failover',
+        'external_id',
         'user_rb',
         'password_rb',
+        'puerto_api',
+        'puerto_www',
         'lan_interface',
         'wan_interface',
         'vpn_username',
@@ -22,13 +27,34 @@ class Router extends Model
         'firmware_version',
         'status',
         'coordinates',
+        'agregar_cliente_mkt',
+        'historial_trafico',
+        'simple_queue',
+        'control_pcq',
+        'hotspot',
+        'pppoe',
+        'ip_bindings',
+        'amarre',
+        'dhcp_leases',
+        'falla_general',
     ];
 
     public $timestamps = true;
 
     protected $casts = [
         'coordinates' => 'json',
+        'agregar_cliente_mkt' => 'boolean',
+        'historial_trafico' => 'boolean',
+        'simple_queue' => 'boolean',
+        'control_pcq' => 'boolean',
+        'hotspot' => 'boolean',
+        'pppoe' => 'boolean',
+        'ip_bindings' => 'boolean',
+        'amarre' => 'boolean',
+        'dhcp_leases' => 'boolean',
+        'falla_general' => 'boolean',
     ];
+
 
     public function cutType()
     {

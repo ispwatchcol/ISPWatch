@@ -10,38 +10,57 @@
             v-for="notification in notifications"
             :key="notification.id"
             :class="[
-              'rounded-xl shadow-2xl backdrop-blur-sm border p-4 flex items-start gap-3',
+              'rounded-xl shadow-2xl backdrop-blur-sm border p-4',
               'transform transition-all duration-300 ease-out',
               notificationClasses[notification.type]
             ]"
             role="alert"
           >
-            <!-- Icon -->
-            <div :class="['flex-shrink-0 p-1.5 rounded-lg', iconBgClasses[notification.type]]">
-              <v-icon 
-                :name="icons[notification.type]" 
-                :class="['w-5 h-5', iconClasses[notification.type]]"
-              />
+            <div class="flex items-start gap-3">
+              <!-- Icon -->
+              <div :class="['flex-shrink-0 p-1.5 rounded-lg', iconBgClasses[notification.type]]">
+                <v-icon 
+                  :name="icons[notification.type]" 
+                  :class="['w-5 h-5', iconClasses[notification.type]]"
+                />
+              </div>
+
+              <!-- Content -->
+              <div class="flex-1 pt-0.5">
+                <h4 :class="['font-semibold text-sm mb-0.5', titleClasses[notification.type]]">
+                  {{ notification.title }}
+                </h4>
+                <p :class="['text-sm', messageClasses[notification.type]]">
+                  {{ notification.message }}
+                </p>
+              </div>
+
+              <!-- Close button -->
+              <button
+                @click="removeNotification(notification.id)"
+                :class="['flex-shrink-0 rounded-lg p-1 transition-colors', closeBtnClasses[notification.type]]"
+                aria-label="Cerrar notificación"
+              >
+                <v-icon name="io-close" class="w-5 h-5" />
+              </button>
             </div>
 
-            <!-- Content -->
-            <div class="flex-1 pt-0.5">
-              <h4 :class="['font-semibold text-sm mb-0.5', titleClasses[notification.type]]">
-                {{ notification.title }}
-              </h4>
-              <p :class="['text-sm', messageClasses[notification.type]]">
-                {{ notification.message }}
-              </p>
+            <!-- Action buttons (optional) -->
+            <div v-if="notification.action" class="mt-3 pt-3 border-t flex justify-end gap-2"
+                 :class="borderClasses[notification.type]">
+              <button
+                @click="removeNotification(notification.id)"
+                :class="['px-3 py-1.5 text-sm font-medium rounded-lg transition-colors', cancelBtnClasses[notification.type]]"
+              >
+                Cancelar
+              </button>
+              <button
+                @click="handleAction(notification)"
+                :class="['px-3 py-1.5 text-sm font-medium rounded-lg transition-colors', actionBtnClasses[notification.type]]"
+              >
+                {{ notification.action.label || 'Confirmar' }}
+              </button>
             </div>
-
-            <!-- Close button -->
-            <button
-              @click="removeNotification(notification.id)"
-              :class="['flex-shrink-0 rounded-lg p-1 transition-colors', closeBtnClasses[notification.type]]"
-              aria-label="Cerrar notificación"
-            >
-              <v-icon name="io-close" class="w-5 h-5" />
-            </button>
           </div>
         </TransitionGroup>
       </div>
@@ -104,9 +123,33 @@ const closeBtnClasses = {
   info: 'text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-800/50'
 }
 
-const addNotification = (type, title, message, duration = 5000) => {
+const borderClasses = {
+  success: 'border-emerald-200 dark:border-emerald-700',
+  error: 'border-red-200 dark:border-red-700',
+  warning: 'border-amber-200 dark:border-amber-700',
+  info: 'border-blue-200 dark:border-blue-700'
+}
+
+const cancelBtnClasses = {
+  success: 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-800/30 hover:bg-emerald-200 dark:hover:bg-emerald-700/50',
+  error: 'text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-800/30 hover:bg-red-200 dark:hover:bg-red-700/50',
+  warning: 'text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-800/30 hover:bg-amber-200 dark:hover:bg-amber-700/50',
+  info: 'text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-800/30 hover:bg-blue-200 dark:hover:bg-blue-700/50'
+}
+
+const actionBtnClasses = {
+  success: 'text-white bg-emerald-600 hover:bg-emerald-700',
+  error: 'text-white bg-red-600 hover:bg-red-700',
+  warning: 'text-white bg-amber-600 hover:bg-amber-700',
+  info: 'text-white bg-blue-600 hover:bg-blue-700'
+}
+
+const addNotification = (type, title, message, options = {}) => {
   const id = ++notificationIdCounter
-  notifications.value.push({ id, type, title, message })
+  const duration = typeof options === 'number' ? options : (options.duration ?? 5000)
+  const action = typeof options === 'object' ? options.action : null
+  
+  notifications.value.push({ id, type, title, message, action })
 
   if (duration > 0) {
     setTimeout(() => {
@@ -124,12 +167,19 @@ const removeNotification = (id) => {
   }
 }
 
+const handleAction = async (notification) => {
+  if (notification.action?.onClick) {
+    await notification.action.onClick()
+  }
+  removeNotification(notification.id)
+}
+
 // Expose methods for external use
 defineExpose({
-  success: (title, message, duration) => addNotification('success', title, message, duration),
-  error: (title, message, duration) => addNotification('error', title, message, duration),
-  warning: (title, message, duration) => addNotification('warning', title, message, duration),
-  info: (title, message, duration) => addNotification('info', title, message, duration),
+  success: (title, message, options) => addNotification('success', title, message, options),
+  error: (title, message, options) => addNotification('error', title, message, options),
+  warning: (title, message, options) => addNotification('warning', title, message, options),
+  info: (title, message, options) => addNotification('info', title, message, options),
   clear: () => { notifications.value = [] }
 })
 </script>

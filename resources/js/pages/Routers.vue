@@ -1,5 +1,7 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
 
     <!-- Contenido principal -->
     <main class="flex-1 p-6 overflow-y-auto">
@@ -468,11 +470,13 @@ import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/supabase.js'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 const search = ref('')
 const routers = ref([])
 const loading = ref(true)
+const toast = ref(null)
 
 // Estados del modal WAN
 const showWanModal = ref(false)
@@ -555,20 +559,31 @@ const getScriptName = (id) => {
 
 onMounted(loadRouters)
 
-// 🔹 Eliminar router
+// 🔹 Eliminar router con confirmación bonita
 const deleteRouter = async (id) => {
-  if (!confirm('¿Estás seguro de eliminar este router?')) return
-
-  const { error } = await supabase.from('router').delete().eq('id', id)
-
-  if (error) {
-    console.error('❌ Error al eliminar router:', error.message)
-    alert('Error al eliminar el router.')
-    return
-  }
-
-  routers.value = routers.value.filter(r => r.id !== id)
-  alert('Router eliminado correctamente.')
+  // Mostrar toast de confirmación
+  toast.value?.warning(
+    '¿Eliminar router?',
+    'Esta acción no se puede deshacer. El router será eliminado permanentemente.',
+    {
+      duration: 0, // No auto-cerrar
+      action: {
+        label: 'Eliminar',
+        onClick: async () => {
+          const { error } = await supabase.from('router').delete().eq('id', id)
+          
+          if (error) {
+            console.error('❌ Error al eliminar router:', error.message)
+            toast.value?.error('Error', 'No se pudo eliminar el router. Intenta de nuevo.')
+            return
+          }
+          
+          routers.value = routers.value.filter(r => r.id !== id)
+          toast.value?.success('Router eliminado', 'El router ha sido eliminado correctamente')
+        }
+      }
+    }
+  )
 }
 
 // 🔹 Filtro de búsqueda
@@ -742,16 +757,16 @@ const saveWanInterface = async () => {
     const data = await response.json()
 
     if (data.success) {
-      alert('✅ Interfaz WAN configurada correctamente')
+      toast.value?.success('Interfaz WAN configurada', 'La interfaz WAN se ha guardado correctamente')
       closeWanModal()
       // Recargar lista de routers para actualizar datos
       await loadRouters()
     } else {
-      alert('❌ Error al guardar: ' + (data.message || 'Error desconocido'))
+      toast.value?.error('Error al guardar', data.message || 'Error desconocido al configurar WAN')
     }
   } catch (error) {
     console.error('Error al guardar WAN:', error)
-    alert('❌ Error de conexión al guardar')
+    toast.value?.error('Error de conexión', 'No se pudo conectar al servidor para guardar la WAN')
   } finally {
     savingWan.value = false
   }
@@ -782,34 +797,45 @@ const selectRouterForBlock = (routerData) => {
 const applyBlockRules = async () => {
   if (!selectedBlockRouter.value || !selectedBlockRouter.value.wan_interface) return
 
-  if (!confirm(`¿Estás seguro de aplicar las reglas de bloqueo en ${selectedBlockRouter.value.name}? Esto configurará el firewall para bloquear usuarios morosos.`)) {
-    return
-  }
-
-  applyingRules.value = true
-
-  try {
-    const response = await fetch(`/api/routers/${selectedBlockRouter.value.id}/apply-block-rules`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-
-    const data = await response.json()
-
-    if (data.success) {
-      alert('✅ Reglas de bloqueo aplicadas correctamente')
-      closeBlockRulesModal()
-    } else {
-      alert('❌ Error al aplicar reglas: ' + (data.message || 'Error desconocido'))
+  // Confirmación con toast
+  const routerName = selectedBlockRouter.value.name
+  
+  toast.value?.warning(
+    '¿Aplicar reglas de bloqueo?',
+    `Se configurarán reglas de firewall en ${routerName} para bloquear usuarios morosos.`,
+    {
+      duration: 0,
+      action: {
+        label: 'Aplicar',
+        onClick: async () => {
+          applyingRules.value = true
+          
+          try {
+            const response = await fetch(`/api/routers/${selectedBlockRouter.value.id}/apply-block-rules`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            })
+            
+            const data = await response.json()
+            
+            if (data.success) {
+              toast.value?.success('Reglas aplicadas', 'Las reglas de bloqueo se configuraron correctamente en el router')
+              closeBlockRulesModal()
+            } else {
+              toast.value?.error('Error al aplicar reglas', data.message || 'Error desconocido')
+            }
+          } catch (error) {
+            console.error('Error al aplicar reglas de bloqueo:', error)
+            toast.value?.error('Error de conexión', 'No se pudo conectar al servidor para aplicar las reglas')
+          } finally {
+            applyingRules.value = false
+          }
+        }
+      }
     }
-  } catch (error) {
-    console.error('Error al aplicar reglas de bloqueo:', error)
-    alert('❌ Error de conexión al aplicar reglas')
-  } finally {
-    applyingRules.value = false
-  }
+  )
 }
 
 </script>

@@ -1,5 +1,8 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Notification Toast -->
+    <NotificationToast ref="toast" />
+    
     <main class="flex-1 p-8">
 
       <!-- Header -->
@@ -102,7 +105,23 @@
             <!-- PASSWORD RB -->
             <div>
               <label class="label">Password del RB</label>
-              <input v-model="form.password" type="password" placeholder="Ej: 123456" class="input" />
+              <div class="relative">
+                <input 
+                  v-model="form.password" 
+                  :type="showPassword ? 'text' : 'password'" 
+                  placeholder="Ej: 123456" 
+                  class="input pr-10" 
+                />
+                 <button 
+                  type="button"
+                  @click="showPassword = !showPassword"
+                  class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors focus:outline-none"
+                  tabindex="-1"
+                >
+                  <icon-lucide-eye v-if="!showPassword" class="w-5 h-5" />
+                  <icon-lucide-eye-off v-else class="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <!-- PUERTO API -->
@@ -537,11 +556,14 @@ import { ref, reactive, onMounted, watch } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import { supabase } from "@/supabase.js"
 import BillingPanel from "@/components/BillingPanel.vue"
+import NotificationToast from "@/components/NotificationToast.vue"
 
 const router = useRouter()
 const route = useRoute()
 const routerId = route.params.id // ID del router a editar
 const loading = ref(false)
+const toast = ref(null)
+const showPassword = ref(false)
 
 // VPN Script variables
 const vpnScript = ref("")
@@ -755,11 +777,15 @@ const loadRouterData = async () => {
         form.billing.amount = data.billing.amount
         form.billing.metodo = data.billing.id_type
         form.billing.comentarios = data.billing.comments || ''
+        form.billing.notificar_wpp = !!data.billing.notificar_wpp
     }
 
   } catch (e) {
     console.error("Error cargando router:", e)
-    alert("Error al cargar datos")
+    toast.value?.error(
+      'Error al cargar datos',
+      'No se pudieron cargar los datos del router. Verifica tu conexión e intenta nuevamente.'
+    )
     router.push('/routers')
   } finally {
     loading.value = false
@@ -781,6 +807,10 @@ const saveBilling = async () => {
     return `${year}-${month}-${d}`
   }
 
+  // Obtener tenant_id del usuario logueado
+  const userData = JSON.parse(localStorage.getItem("userData")) ?? JSON.parse(sessionStorage.getItem("userData"))
+  const tenantId = userData?.tenant_id
+
   // Usar los mismos nombres de columna que en la BD
   const payload = {
     create_invoice: dayToDate(form.billing.create_invoice),
@@ -791,6 +821,10 @@ const saveBilling = async () => {
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
     status: 'pending',
+    notificar_wpp: form.billing.notificar_wpp || false,
+    comments: form.billing.comentarios || null,
+    tenant_id: tenantId,
+    updated_at: new Date().toISOString(),
   }
 
   let result = null
@@ -807,6 +841,9 @@ const saveBilling = async () => {
       }
       if (!error) result = data
   } else {
+      // Si es nuevo billing, agregar created_at
+      payload.created_at = new Date().toISOString()
+      
       const { data, error } = await supabase
         .from("billing")
         .insert(payload)
@@ -843,8 +880,13 @@ const saveRouter = async () => {
 const payload = {
     name: form.nombre,
     ip: form.ip,
+    ipv6: form.ipv6 || null,
+    failover: form.failover || null,
+    external_id: form.external_id || null,
     user_rb: form.usuario,
     password_rb: form.password,
+    puerto_api: form.puerto_api || 8728,
+    puerto_www: form.puerto_www || 80,
     lan_interface: form.interfaz_lan,
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,
@@ -852,6 +894,17 @@ const payload = {
     comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 'active' : 'inactive',
+    agregar_cliente_mkt: form.agregar_cliente_mkt || false,
+    historial_trafico: form.historial_trafico || false,
+    simple_queue: form.simple_queue || false,
+    control_pcq: form.control_pcq || false,
+    hotspot: form.hotspot || false,
+    pppoe: form.pppoe || false,
+    ip_bindings: form.ip_bindings || false,
+    amarre: form.amarre || false,
+    dhcp_leases: form.dhcp_leases || false,
+    falla_general: form.falla_general || false,
+    updated_at: new Date().toISOString(),
   }
 
 
@@ -862,12 +915,21 @@ const payload = {
 
   if (error) {
     console.error("❌ Error actualizando router:", error)
-    alert("Error al actualizar router: " + error.message)
+    toast.value?.error(
+      'Error al actualizar router',
+      error.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
+    )
     return
   }
 
-  alert("Router actualizado correctamente")
-  router.push("/routers")
+  toast.value?.success(
+    'Router actualizado exitosamente',
+    'Los cambios se han guardado correctamente en la base de datos.'
+  )
+  
+  setTimeout(() => {
+    router.push("/routers")
+  }, 1500)
 }
 
 /* ============================
@@ -928,6 +990,30 @@ const verifyConnection = async () => {
       message: data.message,
       assigned_ip: data.assigned_ip,
     }
+    
+    // Si la conexión fue exitosa, actualizar todos los datos del router
+    if (data.connected && data.assigned_ip) {
+      // Actualizar IP
+      form.ip = data.assigned_ip
+      
+      // Actualizar credenciales del RB
+      if (data.user_rb) {
+        form.usuario = data.user_rb
+      }
+      if (data.password_rb) {
+        form.password = data.password_rb
+      }
+      
+      // Recargar datos completos del router para asegurar sincronización
+      await loadRouterData()
+      
+      // Notificar al usuario sobre los cambios
+      toast.value?.success(
+        'Conexión VPN verificada',
+        `Datos actualizados: IP: ${data.assigned_ip}, Usuario: ${data.user_rb || 'N/A'}`
+      )
+    }
+    
   } catch (error) {
     console.error("Error verifying connection:", error)
     connectionStatus.value = {
