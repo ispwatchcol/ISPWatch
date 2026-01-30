@@ -451,8 +451,10 @@ class MikroTikSshService
     }
 
     /**
-     * Apply block rules to a client router via direct API connection
-     * The client is accessible via VPN (10.x.x.x network)
+     * Apply block rules to a client router
+     * Strategy:
+     * 1. Try direct API connection (works when local machine has VPN access)
+     * 2. If fails, use SSH tunneling through CORE (for production servers)
      * 
      * @param string $clientIp IP del router cliente (IP VPN asignada)
      * @param string $clientUser Usuario del router cliente
@@ -463,30 +465,35 @@ class MikroTikSshService
      */
     public function applyBlockRulesViaCore(string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp, int $apiPort = 8728): array
     {
-        Log::info('[MikroTikSSH] Aplicando reglas de bloqueo via API directa', [
+        Log::info('[MikroTikSSH] Aplicando reglas de bloqueo', [
             'client_ip' => $clientIp,
             'api_port' => $apiPort,
             'portal_ip' => $portalIp,
         ]);
 
+        // STRATEGY 1: Try direct API connection (works in local with VPN access)
+        $socket = @fsockopen($clientIp, $apiPort, $errno, $errstr, 5); // Short timeout for quick fail
+
+        if ($socket) {
+            Log::info('[MikroTikSSH] Conexión API directa exitosa, usando método directo');
+            return $this->applyBlockRulesDirectApi($socket, $clientUser, $clientPass, $wanInterface, $portalIp);
+        }
+
+        Log::info('[MikroTikSSH] API directa no disponible, intentando via SSH tunneling al CORE', [
+            'direct_error' => $errstr,
+        ]);
+
+        // STRATEGY 2: Use SSH tunneling through CORE (for production)
+        return $this->applyBlockRulesViaSshTunnel($clientIp, $clientUser, $clientPass, $wanInterface, $portalIp, $apiPort);
+    }
+
+    /**
+     * Apply block rules using direct API connection
+     */
+    private function applyBlockRulesDirectApi($socket, string $clientUser, string $clientPass, string $wanInterface, string $portalIp): array
+    {
         try {
-            // Connect directly to client's API port (accessible via VPN)
-            $socket = @fsockopen($clientIp, $apiPort, $errno, $errstr, 30);
-
-            if (!$socket) {
-                Log::error('[MikroTikSSH] No se pudo conectar a la API del cliente', [
-                    'ip' => $clientIp,
-                    'port' => $apiPort,
-                    'error' => $errstr,
-                ]);
-                return [
-                    'success' => false,
-                    'message' => "No se pudo conectar al router en {$clientIp}:{$apiPort}: $errstr"
-                ];
-            }
-
             stream_set_timeout($socket, 30);
-            Log::info('[MikroTikSSH] Conexión API establecida al cliente');
 
             // Login using API protocol
             if (!$this->apiLogin($socket, $clientUser, $clientPass)) {
@@ -496,62 +503,15 @@ class MikroTikSshService
 
             Log::info('[MikroTikSSH] Login API exitoso');
 
-            // 1. Create address-list (placeholder)
-            Log::info('[MikroTikSSH] Creando address-list ISPWATCH_SUSPENDIDOS');
-            $this->apiSendCommand($socket, '/ip/firewall/address-list/add', [
-                '=list=ISPWATCH_SUSPENDIDOS',
-                '=address=0.0.0.0',
-                '=comment=Control ISPWatch',
-            ]);
-            $this->apiReadUntilDone($socket);
-
-            // 2. NAT Rule HTTP
-            Log::info('[MikroTikSSH] Creando regla NAT HTTP');
-            $this->apiSendCommand($socket, '/ip/firewall/nat/add', [
-                '=chain=dstnat',
-                '=src-address-list=ISPWATCH_SUSPENDIDOS',
-                '=protocol=tcp',
-                '=dst-port=80',
-                '=action=dst-nat',
-                '=to-addresses=' . $portalIp,
-                '=to-ports=80',
-                '=comment=ISPWatch Portal HTTP',
-            ]);
-            $this->apiReadUntilDone($socket);
-
-            // 3. NAT Rule HTTPS
-            Log::info('[MikroTikSSH] Creando regla NAT HTTPS');
-            $this->apiSendCommand($socket, '/ip/firewall/nat/add', [
-                '=chain=dstnat',
-                '=src-address-list=ISPWATCH_SUSPENDIDOS',
-                '=protocol=tcp',
-                '=dst-port=443',
-                '=action=dst-nat',
-                '=to-addresses=' . $portalIp,
-                '=to-ports=443',
-                '=comment=ISPWatch Portal HTTPS',
-            ]);
-            $this->apiReadUntilDone($socket);
-
-            // 4. Filter DROP rule
-            Log::info('[MikroTikSSH] Creando regla Filter DROP');
-            $this->apiSendCommand($socket, '/ip/firewall/filter/add', [
-                '=chain=forward',
-                '=src-address-list=ISPWATCH_SUSPENDIDOS',
-                '=out-interface=' . $wanInterface,
-                '=action=drop',
-                '=comment=ISPWatch - Bloqueo general',
-            ]);
-            $this->apiReadUntilDone($socket);
+            // Apply rules
+            $this->applyFirewallRulesViaApi($socket, $wanInterface, $portalIp);
 
             fclose($socket);
-
-            Log::info('[MikroTikSSH] Reglas de bloqueo aplicadas correctamente');
 
             return [
                 'success' => true,
                 'method' => 'DIRECT_API',
-                'message' => 'Reglas de bloqueo y redirección aplicadas correctamente via API directa',
+                'message' => 'Reglas de bloqueo aplicadas correctamente via API directa',
                 'rules_applied' => [
                     'address_list' => 'ISPWATCH_SUSPENDIDOS',
                     'portal_ip' => $portalIp,
@@ -562,16 +522,204 @@ class MikroTikSshService
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error aplicando reglas', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
+            @fclose($socket);
+            Log::error('[MikroTikSSH] Error en API directa', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Apply block rules using SSH tunneling through CORE
+     */
+    private function applyBlockRulesViaSshTunnel(string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp, int $apiPort): array
+    {
+        try {
+            // Connect to CORE via SSH
+            $ssh = $this->connect();
+            if (!$ssh) {
+                return ['success' => false, 'message' => 'No se pudo conectar al MikroTik CORE'];
+            }
+
+            Log::info('[MikroTikSSH] Conectado al CORE, creando túnel SSH');
+
+            // Create SSH tunnel to client's API port using phpseclib3
+            // This creates a direct-tcpip channel through the SSH connection
+            $tunnel = $ssh->openSocketChannel($clientIp, $apiPort);
+
+            if (!$tunnel) {
+                Log::warning('[MikroTikSSH] openSocketChannel falló, intentando método alternativo');
+
+                // Fallback: Execute commands via SSH directly on CORE
+                $result = $this->applyBlockRulesViaSshCommands($ssh, $clientIp, $clientUser, $clientPass, $wanInterface, $portalIp);
+                $ssh->disconnect();
+                return $result;
+            }
+
+            Log::info('[MikroTikSSH] Túnel SSH creado exitosamente');
+
+            // Use tunnel as socket for API calls
+            stream_set_timeout($tunnel, 30);
+
+            if (!$this->apiLogin($tunnel, $clientUser, $clientPass)) {
+                @fclose($tunnel);
+                $ssh->disconnect();
+                return ['success' => false, 'message' => 'Error de autenticación via túnel SSH'];
+            }
+
+            // Apply rules through tunnel
+            $this->applyFirewallRulesViaApi($tunnel, $wanInterface, $portalIp);
+
+            @fclose($tunnel);
+            $ssh->disconnect();
 
             return [
-                'success' => false,
-                'message' => 'Error: ' . $e->getMessage()
+                'success' => true,
+                'method' => 'SSH_TUNNEL',
+                'message' => 'Reglas de bloqueo aplicadas correctamente via túnel SSH',
+                'rules_applied' => [
+                    'address_list' => 'ISPWATCH_SUSPENDIDOS',
+                    'portal_ip' => $portalIp,
+                    'wan_interface' => $wanInterface,
+                    'nat_rules' => ['HTTP:80', 'HTTPS:443'],
+                    'filter_rule' => 'DROP forward to WAN',
+                ],
             ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikSSH] Error en SSH tunnel', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Apply block rules by executing SSH commands on CORE to reach client
+     * This is the fallback method when tunneling is not available
+     */
+    private function applyBlockRulesViaSshCommands(SSH2 $ssh, string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp): array
+    {
+        Log::info('[MikroTikSSH] Usando método SSH commands via CORE');
+
+        try {
+            // Escape password for shell
+            $safePass = addslashes($clientPass);
+
+            // Build commands to execute via ssh-exec from CORE to CLIENT
+            $commands = [
+                // 1. Create address-list
+                "/ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address=0.0.0.0 comment=\"Control ISPWatch\"",
+                // 2. NAT HTTP
+                "/ip firewall nat add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=80 action=dst-nat to-addresses={$portalIp} to-ports=80 comment=\"ISPWatch Portal HTTP\"",
+                // 3. NAT HTTPS
+                "/ip firewall nat add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=443 action=dst-nat to-addresses={$portalIp} to-ports=443 comment=\"ISPWatch Portal HTTPS\"",
+                // 4. Filter DROP
+                "/ip firewall filter add chain=forward src-address-list=ISPWATCH_SUSPENDIDOS out-interface={$wanInterface} action=drop comment=\"ISPWatch - Bloqueo general\"",
+            ];
+
+            $results = [];
+            $errors = [];
+
+            foreach ($commands as $index => $cmd) {
+                Log::debug("[MikroTikSSH] Ejecutando comando " . ($index + 1));
+
+                // Execute via CORE's ssh-exec to client
+                $sshExecCmd = sprintf(
+                    '/system ssh-exec address=%s user=%s password="%s" command="%s"',
+                    $clientIp,
+                    $clientUser,
+                    $safePass,
+                    addslashes($cmd)
+                );
+
+                $output = $ssh->exec($sshExecCmd);
+                $results[] = trim($output);
+
+                // Check for errors
+                if (stripos($output, 'error') !== false || stripos($output, 'failure') !== false) {
+                    $errors[] = "Comando " . ($index + 1) . ": " . trim($output);
+                }
+
+                // Small delay between commands
+                usleep(500000); // 0.5 seconds
+            }
+
+            if (!empty($errors)) {
+                Log::warning('[MikroTikSSH] Algunos comandos fallaron', ['errors' => $errors]);
+            }
+
+            return [
+                'success' => true,
+                'method' => 'SSH_COMMANDS',
+                'message' => 'Reglas de bloqueo aplicadas via comandos SSH',
+                'rules_applied' => [
+                    'address_list' => 'ISPWATCH_SUSPENDIDOS',
+                    'portal_ip' => $portalIp,
+                    'wan_interface' => $wanInterface,
+                    'nat_rules' => ['HTTP:80', 'HTTPS:443'],
+                    'filter_rule' => 'DROP forward to WAN',
+                ],
+                'warnings' => $errors,
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikSSH] Error en SSH commands', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Apply firewall rules using API protocol (used by both direct and tunnel methods)
+     */
+    private function applyFirewallRulesViaApi($socket, string $wanInterface, string $portalIp): void
+    {
+        // 1. Create address-list (placeholder)
+        Log::info('[MikroTikSSH] Creando address-list ISPWATCH_SUSPENDIDOS');
+        $this->apiSendCommand($socket, '/ip/firewall/address-list/add', [
+            '=list=ISPWATCH_SUSPENDIDOS',
+            '=address=0.0.0.0',
+            '=comment=Control ISPWatch',
+        ]);
+        $this->apiReadUntilDone($socket);
+
+        // 2. NAT Rule HTTP
+        Log::info('[MikroTikSSH] Creando regla NAT HTTP');
+        $this->apiSendCommand($socket, '/ip/firewall/nat/add', [
+            '=chain=dstnat',
+            '=src-address-list=ISPWATCH_SUSPENDIDOS',
+            '=protocol=tcp',
+            '=dst-port=80',
+            '=action=dst-nat',
+            '=to-addresses=' . $portalIp,
+            '=to-ports=80',
+            '=comment=ISPWatch Portal HTTP',
+        ]);
+        $this->apiReadUntilDone($socket);
+
+        // 3. NAT Rule HTTPS
+        Log::info('[MikroTikSSH] Creando regla NAT HTTPS');
+        $this->apiSendCommand($socket, '/ip/firewall/nat/add', [
+            '=chain=dstnat',
+            '=src-address-list=ISPWATCH_SUSPENDIDOS',
+            '=protocol=tcp',
+            '=dst-port=443',
+            '=action=dst-nat',
+            '=to-addresses=' . $portalIp,
+            '=to-ports=443',
+            '=comment=ISPWatch Portal HTTPS',
+        ]);
+        $this->apiReadUntilDone($socket);
+
+        // 4. Filter DROP rule
+        Log::info('[MikroTikSSH] Creando regla Filter DROP');
+        $this->apiSendCommand($socket, '/ip/firewall/filter/add', [
+            '=chain=forward',
+            '=src-address-list=ISPWATCH_SUSPENDIDOS',
+            '=out-interface=' . $wanInterface,
+            '=action=drop',
+            '=comment=ISPWatch - Bloqueo general',
+        ]);
+        $this->apiReadUntilDone($socket);
+
+        Log::info('[MikroTikSSH] Reglas de firewall aplicadas');
     }
 
     /**
