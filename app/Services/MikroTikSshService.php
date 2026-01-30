@@ -529,7 +529,8 @@ class MikroTikSshService
     }
 
     /**
-     * Apply block rules using SSH tunneling through CORE
+     * Apply block rules using SSH connection through CORE
+     * Uses ssh-exec to send commands from CORE to CLIENT
      */
     private function applyBlockRulesViaSshTunnel(string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp, int $apiPort): array
     {
@@ -540,53 +541,15 @@ class MikroTikSshService
                 return ['success' => false, 'message' => 'No se pudo conectar al MikroTik CORE'];
             }
 
-            Log::info('[MikroTikSSH] Conectado al CORE, creando túnel SSH');
+            Log::info('[MikroTikSSH] Conectado al CORE, ejecutando comandos via ssh-exec');
 
-            // Create SSH tunnel to client's API port using phpseclib3
-            // This creates a direct-tcpip channel through the SSH connection
-            $tunnel = $ssh->openSocketChannel($clientIp, $apiPort);
-
-            if (!$tunnel) {
-                Log::warning('[MikroTikSSH] openSocketChannel falló, intentando método alternativo');
-
-                // Fallback: Execute commands via SSH directly on CORE
-                $result = $this->applyBlockRulesViaSshCommands($ssh, $clientIp, $clientUser, $clientPass, $wanInterface, $portalIp);
-                $ssh->disconnect();
-                return $result;
-            }
-
-            Log::info('[MikroTikSSH] Túnel SSH creado exitosamente');
-
-            // Use tunnel as socket for API calls
-            stream_set_timeout($tunnel, 30);
-
-            if (!$this->apiLogin($tunnel, $clientUser, $clientPass)) {
-                @fclose($tunnel);
-                $ssh->disconnect();
-                return ['success' => false, 'message' => 'Error de autenticación via túnel SSH'];
-            }
-
-            // Apply rules through tunnel
-            $this->applyFirewallRulesViaApi($tunnel, $wanInterface, $portalIp);
-
-            @fclose($tunnel);
+            // Use ssh-exec method directly (most reliable)
+            $result = $this->applyBlockRulesViaSshCommands($ssh, $clientIp, $clientUser, $clientPass, $wanInterface, $portalIp);
             $ssh->disconnect();
-
-            return [
-                'success' => true,
-                'method' => 'SSH_TUNNEL',
-                'message' => 'Reglas de bloqueo aplicadas correctamente via túnel SSH',
-                'rules_applied' => [
-                    'address_list' => 'ISPWATCH_SUSPENDIDOS',
-                    'portal_ip' => $portalIp,
-                    'wan_interface' => $wanInterface,
-                    'nat_rules' => ['HTTP:80', 'HTTPS:443'],
-                    'filter_rule' => 'DROP forward to WAN',
-                ],
-            ];
+            return $result;
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error en SSH tunnel', ['error' => $e->getMessage()]);
+            Log::error('[MikroTikSSH] Error en SSH', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
