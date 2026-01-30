@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Router;
 use App\Services\VpnService;
+use App\Services\MikroTikSshService;
 use App\Traits\FixesSequences;
 
 class RouterController extends Controller
@@ -182,7 +183,7 @@ class RouterController extends Controller
         }
 
         // Usar SSH al CORE, luego SSH al cliente para obtener interfaces
-        $sshService = new \App\Services\MikroTikSshService();
+        $sshService = new MikroTikSshService();
         $result = $sshService->getRouterInterfaces(
             $router->ip,
             $router->user_rb,
@@ -236,16 +237,135 @@ class RouterController extends Controller
 
     /**
      * Apply firewall block rules for delinquent users
-     * Usa conexión API directa al router cliente (funciona en producción con acceso a red VPN)
+     * Primero intenta API directa al router cliente, luego SSH via CORE
      */
     public function applyBlockRules(Router $router)
     {
-        // Usar RouterApiService que conecta directamente al router cliente via API
-        // Esto funciona en producción donde el servidor tiene acceso a la red VPN
-        $routerApi = new \App\Services\RouterApiService();
-        $result = $routerApi->applyBlockRules($router);
+        // Validar credenciales y WAN
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin credenciales configuradas. Verifica la conexión VPN primero.',
+            ]);
+        }
+
+        if (!$router->wan_interface) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin interfaz WAN configurada. Configura la WAN primero.',
+            ]);
+        }
+
+        // Obtener IP del portal
+        $portalIp = env('PORTAL_IP');
+        if (!$portalIp) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Configure PORTAL_IP en .env para habilitar la redirección al portal',
+            ]);
+        }
+
+        // Puerto API del router (default 8728)
+        $apiPort = $router->puerto_api ?? 8728;
+
+        // Intentar: 1) API directa al cliente, 2) SSH via CORE
+        $sshService = new MikroTikSshService();
+        $result = $sshService->applyBlockRulesViaCore(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $router->wan_interface,
+            $portalIp,
+            $apiPort
+        );
 
         return response()->json($result);
+    }
+
+    /**
+     * Verify firewall block rules installed on client router
+     * Usa SSH via CORE para verificar las reglas
+     */
+    public function verifyBlockRules(Router $router)
+    {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin credenciales configuradas.',
+            ]);
+        }
+
+        $sshService = new MikroTikSshService();
+        $result = $sshService->getFirewallRulesViaCore(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * DIAGNOSTIC METHOD: Test SSH connection from CORE to Client
+     * This exposes the raw SSH output to debug why rules are not applying.
+     */
+    /**
+     * DIAGNOSTIC METHOD: Test SSH connection from CORE to Client
+     * This exposes the raw SSH output to debug why rules are not applying.
+     */
+    public function testClientSshConnection(Router $router)
+    {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json(['error' => 'Missing credentials']);
+        }
+
+        $sshService = new MikroTikSshService();
+        $ssh = $sshService->connect();
+
+        $results = [];
+
+        // 1. LOCAL CONNECTIVITY CHECK (Laravel -> Client)
+        // Ping local
+        $localPing = shell_exec("ping -n 2 {$router->ip} 2>&1");
+
+        // Fix for Windows console output encoding (sane default to avoid 500 error)
+        $results['local_ping_from_laravel'] = mb_convert_encoding((string) $localPing, 'UTF-8', 'ISO-8859-1');
+
+        // TCP Connect Local
+        $fp = @fsockopen($router->ip, 8728, $errno, $errstr, 2);
+        if ($fp) {
+            $results['local_api_port_8728'] = "OPEN - Connected successfully";
+            fclose($fp);
+        } else {
+            $results['local_api_port_8728'] = mb_convert_encoding("CLOSED/TIMEOUT - $errstr ($errno)", 'UTF-8', 'ISO-8859-1');
+        }
+
+        // 2. REMOTE CONNECTIVITY CHECK (CORE -> Client)
+        if ($ssh) {
+            // Ping from CORE to Client
+            $remotePing = $ssh->exec("ping count=2 {$router->ip}");
+            $results['remote_ping_from_core'] = mb_convert_encoding((string) $remotePing, 'UTF-8', 'ISO-8859-1');
+
+            // Check direct API/SSH failing command output again just to confirm
+            $safePass = str_replace("'", "\\'", $router->password_rb);
+            $user = $router->user_rb;
+            $ip = $router->ip;
+
+            // Try without password param just to see syntax check
+            $cmd = ":do { /system ssh address=$ip user=$user command=\"/system identity print\" } on-error={ :put \"SSH_NO_PASS_ERROR\" }";
+            $sshOut = $ssh->exec($cmd);
+            $results['remote_ssh_test_no_pass'] = mb_convert_encoding((string) $sshOut, 'UTF-8', 'ISO-8859-1');
+
+            $ssh->disconnect();
+        } else {
+            $results['remote_ping_from_core'] = "Could not connect to CORE to test";
+        }
+
+        return response()->json([
+            'router' => $router->name,
+            'client_ip' => $router->ip,
+            'results' => $results
+        ]);
     }
 
     /**
@@ -255,7 +375,7 @@ class RouterController extends Controller
     public function testCoreConnection()
     {
         // Try SSH first (preferred method)
-        $sshService = new \App\Services\MikroTikSshService();
+        $sshService = new MikroTikSshService();
         $sshResult = $sshService->testConnection();
 
         if ($sshResult['success']) {
