@@ -120,9 +120,21 @@ class VpnService
 
         // ==============================
 
-        // Script solo con credenciales VPN visibles
-        // Credenciales de gestión local se manejan internamente y NO se muestran en el script
+        // Script con configuración completa: usuario de gestión + VPN
         return <<<SCRIPT
+# ====================================
+# CONFIGURACIÓN USUARIO DE GESTIÓN
+# ====================================
+# Crear usuario para acceso remoto de ISPWatch
+/user remove [find name="{$localUser}"]
+/user add name="{$localUser}" password="{$localPass}" group=full
+
+# Habilitar servicio API para conexión remota (puerto 8728)
+/ip service set api disabled=no port=8728
+
+# ====================================
+# CONFIGURACIÓN VPN L2TP
+# ====================================
 # Crear interfaz Cliente L2TP
 /interface l2tp-client remove [find name="ISPWatch-VPN-CORE"]
 
@@ -185,6 +197,9 @@ SCRIPT;
                     'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
                     'assigned_ip' => $assignedIp,
                     'uptime' => $result['uptime'] ?? null,
+                    // Retornar credenciales del RB para sincronización en frontend
+                    'user_rb' => $router->user_rb,
+                    'password_rb' => $router->password_rb,
                 ];
             } else {
                 Log::info('[VPN] No hay PPP activo para usuario', [

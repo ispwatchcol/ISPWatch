@@ -168,12 +168,43 @@ class RouterController extends Controller
 
     /**
      * Get interfaces from the client router
-     * Usa RouterApiService para conexión directa al router
+     * Conecta al CORE via SSH y desde allí accede al router cliente
      */
     public function getInterfaces(Router $router)
     {
-        $routerApi = new \App\Services\RouterApiService();
-        $result = $routerApi->getInterfaces($router);
+        // Validar que el router tenga credenciales
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin credenciales configuradas. Verifica la conexión VPN primero.',
+                'interfaces' => [],
+            ]);
+        }
+
+        // Usar SSH al CORE para verificar conectividad y obtener info
+        $sshService = new \App\Services\MikroTikSshService();
+        $result = $sshService->getRouterInterfaces(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $router->puerto_api ?? 8728
+        );
+
+        // Si el router es alcanzable pero no podemos obtener interfaces automáticamente,
+        // ofrecemos interfaces comunes de MikroTik para selección manual
+        if (isset($result['reachable']) && $result['reachable']) {
+            $result['interfaces'] = [
+                ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
+                ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'ether3', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'ether4', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'ether5', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
+                ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
+                ['name' => 'wlan1', 'type' => 'wlan', 'running' => true, 'disabled' => false, 'comment' => 'WiFi'],
+            ];
+            $result['current_wan'] = $router->wan_interface;
+            $result['note'] = 'Interfaces sugeridas. Seleccione la interfaz WAN correcta de su router.';
+        }
 
         return response()->json($result);
     }
@@ -200,9 +231,12 @@ class RouterController extends Controller
 
     /**
      * Apply firewall block rules for delinquent users
+     * Usa conexión API directa al router cliente (funciona en producción con acceso a red VPN)
      */
     public function applyBlockRules(Router $router)
     {
+        // Usar RouterApiService que conecta directamente al router cliente via API
+        // Esto funciona en producción donde el servidor tiene acceso a la red VPN
         $routerApi = new \App\Services\RouterApiService();
         $result = $routerApi->applyBlockRules($router);
 

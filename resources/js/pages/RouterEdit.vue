@@ -105,7 +105,23 @@
             <!-- PASSWORD RB -->
             <div>
               <label class="label">Password del RB</label>
-              <input v-model="form.password" type="password" placeholder="Ej: 123456" class="input" />
+              <div class="relative">
+                <input 
+                  v-model="form.password" 
+                  :type="showPassword ? 'text' : 'password'" 
+                  placeholder="Ej: 123456" 
+                  class="input pr-10" 
+                />
+                 <button 
+                  type="button"
+                  @click="showPassword = !showPassword"
+                  class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors focus:outline-none"
+                  tabindex="-1"
+                >
+                  <icon-lucide-eye v-if="!showPassword" class="w-5 h-5" />
+                  <icon-lucide-eye-off v-else class="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <!-- PUERTO API -->
@@ -547,6 +563,7 @@ const route = useRoute()
 const routerId = route.params.id // ID del router a editar
 const loading = ref(false)
 const toast = ref(null)
+const showPassword = ref(false)
 
 // VPN Script variables
 const vpnScript = ref("")
@@ -973,6 +990,30 @@ const verifyConnection = async () => {
       message: data.message,
       assigned_ip: data.assigned_ip,
     }
+    
+    // Si la conexión fue exitosa, actualizar todos los datos del router
+    if (data.connected && data.assigned_ip) {
+      // Actualizar IP
+      form.ip = data.assigned_ip
+      
+      // Actualizar credenciales del RB
+      if (data.user_rb) {
+        form.usuario = data.user_rb
+      }
+      if (data.password_rb) {
+        form.password = data.password_rb
+      }
+      
+      // Recargar datos completos del router para asegurar sincronización
+      await loadRouterData()
+      
+      // Notificar al usuario sobre los cambios
+      toast.value?.success(
+        'Conexión VPN verificada',
+        `Datos actualizados: IP: ${data.assigned_ip}, Usuario: ${data.user_rb || 'N/A'}`
+      )
+    }
+    
   } catch (error) {
     console.error("Error verifying connection:", error)
     connectionStatus.value = {

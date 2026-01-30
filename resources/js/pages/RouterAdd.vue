@@ -112,7 +112,23 @@
             <!-- PASSWORD RB -->
             <div>
               <label class="label">Password del RB</label>
-              <input v-model="form.password" type="password" placeholder="Ej: 123456" class="input" />
+              <div class="relative">
+                <input 
+                  v-model="form.password" 
+                  :type="showPassword ? 'text' : 'password'" 
+                  placeholder="Ej: 123456" 
+                  class="input pr-10" 
+                />
+                <button 
+                  type="button"
+                  @click="showPassword = !showPassword"
+                  class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors focus:outline-none"
+                  tabindex="-1"
+                >
+                  <icon-lucide-eye v-if="!showPassword" class="w-5 h-5" />
+                  <icon-lucide-eye-off v-else class="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <!-- PUERTO API -->
@@ -478,6 +494,7 @@ import NotificationToast from "@/components/NotificationToast.vue"
 
 const router = useRouter()
 const toast = ref(null)
+const showPassword = ref(false)
 
 /* ============================
    FUNCIONES DE LIMPIEZA
