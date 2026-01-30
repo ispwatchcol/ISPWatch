@@ -229,20 +229,43 @@ SCRIPT;
     private function syncPppSecret(string $username, string $password): bool
     {
         try {
-            Log::info("[VPN] Sincronizando secret vía SSH", ['user' => $username]);
+            Log::info("[VPN] Sincronizando secret con el CORE", [
+                'user' => $username,
+                'password_length' => strlen($password),
+            ]);
 
             $sshService = new MikroTikSshService();
             $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default-encryption');
 
+            Log::info('[VPN] Resultado de sincronización de secret', [
+                'success' => $result['success'],
+                'method' => $result['method'] ?? 'unknown',
+                'action' => $result['action'] ?? 'unknown',
+                'message' => $result['message'] ?? 'no message',
+                'verified' => $result['verified'] ?? false,
+            ]);
+
             if ($result['success']) {
-                Log::info('[VPN] Secret sincronizado exitosamente (SSH).', ['action' => $result['action'] ?? 'unknown']);
+                Log::info('[VPN] ✅ Secret sincronizado exitosamente', [
+                    'user' => $username,
+                    'action' => $result['action'] ?? 'unknown',
+                    'method' => $result['method'] ?? 'unknown',
+                ]);
                 return true;
             } else {
-                Log::error('[VPN] Falló syncPppSecret (SSH)', ['message' => $result['message']]);
+                Log::error('[VPN] ❌ Falló syncPppSecret', [
+                    'user' => $username,
+                    'message' => $result['message'] ?? 'unknown error',
+                    'full_result' => $result,
+                ]);
                 return false;
             }
         } catch (\Throwable $e) {
-            Log::error('[VPN] Excepción al sincronizar secret (SSH)', ['error' => $e->getMessage()]);
+            Log::error('[VPN] Excepción al sincronizar secret', [
+                'user' => $username,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return false;
         }
     }

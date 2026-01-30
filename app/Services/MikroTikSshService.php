@@ -344,9 +344,21 @@ class MikroTikSshService
     private function ensurePppSecretViaApi(string $username, string $password, string $service, string $profile): array
     {
         try {
+            Log::info('[MikroTikCore] Intentando crear/actualizar secret via API', [
+                'username' => $username,
+                'api_host' => $this->apiHost,
+                'api_port' => $this->apiPort,
+            ]);
+
             $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
 
             if (!$socket) {
+                Log::error('[MikroTikCore] API connection failed', [
+                    'host' => $this->apiHost,
+                    'port' => $this->apiPort,
+                    'error' => $errstr,
+                    'errno' => $errno,
+                ]);
                 return ['success' => false, 'message' => "API connection failed: $errstr"];
             }
 
@@ -354,8 +366,13 @@ class MikroTikSshService
 
             if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
                 fclose($socket);
+                Log::error('[MikroTikCore] API authentication failed', [
+                    'user' => $this->apiUser,
+                ]);
                 return ['success' => false, 'message' => 'API authentication failed'];
             }
+
+            Log::info('[MikroTikCore] API login exitoso, buscando secret existente');
 
             // Check if secret exists
             $this->apiSendCommand($socket, '/ppp/secret/print', [
@@ -363,21 +380,34 @@ class MikroTikSshService
             ]);
             $existing = $this->apiReadAllRecords($socket);
 
+            Log::info('[MikroTikCore] Búsqueda de secret completada', [
+                'username' => $username,
+                'found' => !empty($existing),
+                'count' => count($existing),
+            ]);
+
+            $action = 'unknown';
+            $apiError = null;
+
             if (!empty($existing)) {
                 // Update existing
                 $secretId = $existing[0]['.id'] ?? null;
                 if ($secretId) {
+                    Log::info('[MikroTikCore] Actualizando secret existente', ['id' => $secretId]);
                     $this->apiSendCommand($socket, '/ppp/secret/set', [
                         '=.id=' . $secretId,
                         '=password=' . $password,
                         '=service=' . $service,
                         '=profile=' . $profile,
                     ]);
-                    $this->apiReadUntilDone($socket);
+                    $apiError = $this->apiReadUntilDoneWithError($socket);
                     $action = 'updated';
+                } else {
+                    Log::warning('[MikroTikCore] Secret encontrado pero sin .id', ['existing' => $existing]);
                 }
             } else {
                 // Create new
+                Log::info('[MikroTikCore] Creando nuevo secret', ['username' => $username]);
                 $this->apiSendCommand($socket, '/ppp/secret/add', [
                     '=name=' . $username,
                     '=password=' . $password,
@@ -385,23 +415,64 @@ class MikroTikSshService
                     '=profile=' . $profile,
                     '=comment=ISPWatch Auto',
                 ]);
-                $this->apiReadUntilDone($socket);
+                $apiError = $this->apiReadUntilDoneWithError($socket);
                 $action = 'created';
             }
 
+            // Verificar si hubo error en la respuesta de la API
+            if ($apiError) {
+                fclose($socket);
+                Log::error('[MikroTikCore] Error de API MikroTik al gestionar secret', [
+                    'username' => $username,
+                    'action' => $action,
+                    'error' => $apiError,
+                ]);
+                return [
+                    'success' => false,
+                    'message' => "API error: $apiError",
+                    'action' => $action,
+                ];
+            }
+
+            // Verificar que el secret se creó correctamente
+            $this->apiSendCommand($socket, '/ppp/secret/print', [
+                '?name=' . $username,
+            ]);
+            $verification = $this->apiReadAllRecords($socket);
+
             fclose($socket);
 
-            Log::info('[MikroTikCore] PPP secret managed via API', ['username' => $username, 'action' => $action ?? 'unknown']);
+            if (empty($verification)) {
+                Log::error('[MikroTikCore] Secret no encontrado después de creación', [
+                    'username' => $username,
+                    'action' => $action,
+                ]);
+                return [
+                    'success' => false,
+                    'message' => 'Secret no encontrado después de creación/actualización',
+                    'action' => $action,
+                ];
+            }
+
+            Log::info('[MikroTikCore] PPP secret gestionado exitosamente via API', [
+                'username' => $username,
+                'action' => $action,
+                'verified' => true,
+            ]);
 
             return [
                 'success' => true,
                 'method' => 'API',
-                'action' => $action ?? 'processed',
+                'action' => $action,
                 'message' => "Secret {$action} successfully via API",
+                'verified' => true,
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikCore] API error managing PPP secret', ['error' => $e->getMessage()]);
+            Log::error('[MikroTikCore] Exception managing PPP secret via API', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -1303,6 +1374,44 @@ class MikroTikSshService
             if ($word === '!done' || $word === '!trap')
                 break;
         }
+    }
+
+    /**
+     * Read until !done and return error message if !trap was received
+     * @return string|null Error message if trap, null if success
+     */
+    private function apiReadUntilDoneWithError($socket): ?string
+    {
+        $count = 0;
+        $trapMessage = null;
+        $gotTrap = false;
+
+        while ($count < 100) {
+            $word = $this->apiReadWord($socket);
+            $count++;
+
+            if ($word === '!trap') {
+                $gotTrap = true;
+                continue;
+            }
+
+            if ($word === '!done') {
+                break;
+            }
+
+            // Si estamos después de un !trap, capturar el mensaje de error
+            if ($gotTrap && str_starts_with($word, '=message=')) {
+                $trapMessage = substr($word, 9);
+            }
+
+            if ($word === '') {
+                if ($gotTrap)
+                    break;
+                continue;
+            }
+        }
+
+        return $trapMessage;
     }
 
     /**

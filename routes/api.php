@@ -65,6 +65,9 @@ Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 't
 // Test MikroTik CORE connection
 Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
 
+// Diagnóstico: Probar creación de secret en el CORE
+Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+
 /*
 |--------------------------------------------------------------------------
 | BILLING MODULE
