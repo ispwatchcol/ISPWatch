@@ -403,4 +403,35 @@ class RouterController extends Controller
             'config' => $result['config'],
         ]);
     }
+
+    /**
+     * Test secret synchronization with CORE
+     * Diagnostic endpoint to verify secret creation in production
+     */
+    public function testSecretSync(Router $router)
+    {
+        // Generar o usar credenciales VPN existentes
+        $vpnUsername = $router->vpn_username;
+        $vpnPassword = $router->vpn_password;
+
+        if (empty($vpnUsername)) {
+            $vpnUsername = \Illuminate\Support\Str::random(10);
+        }
+        if (empty($vpnPassword)) {
+            $vpnPassword = \Illuminate\Support\Str::random(20);
+        }
+
+        // Intentar sincronizar el secret
+        $sshService = new MikroTikSshService();
+        $result = $sshService->ensurePppSecret($vpnUsername, $vpnPassword, 'l2tp', 'default-encryption');
+
+        return response()->json([
+            'router_id' => $router->id,
+            'router_name' => $router->name,
+            'vpn_username' => $vpnUsername,
+            'password_length' => strlen($vpnPassword),
+            'sync_result' => $result,
+            'timestamp' => now()->toIso8601String(),
+        ]);
+    }
 }
