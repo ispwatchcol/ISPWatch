@@ -370,52 +370,37 @@ class RouterController extends Controller
 
     /**
      * Test connection to MikroTik CORE server
-     * Uses SSH (preferred) or API as fallback
+     * Tests both API (primary) and SSH (fallback) connections
      */
     public function testCoreConnection()
     {
-        // Try SSH first (preferred method)
-        $sshService = new MikroTikSshService();
-        $sshResult = $sshService->testConnection();
+        $service = new MikroTikSshService();
+        $result = $service->testConnection();
 
-        if ($sshResult['success']) {
+        // Determine best response based on what works
+        $apiWorks = $result['api']['success'] ?? false;
+        $sshWorks = $result['ssh']['success'] ?? false;
+
+        if (!$apiWorks && !$sshWorks) {
             return response()->json([
-                'success' => true,
-                'method' => 'SSH',
-                'message' => $sshResult['message'],
-                'identity' => $sshResult['identity'] ?? null,
-                'config' => $sshResult['config'],
-            ]);
+                'success' => false,
+                'message' => '❌ No se pudo conectar al CORE MikroTik (ni API ni SSH)',
+                'api' => $result['api'],
+                'ssh' => $result['ssh'],
+                'config' => $result['config'],
+                'recommendation' => 'Verifica: 1) La IP del MikroTik, 2) Que el puerto 8728 (API) o 22 (SSH) esté abierto, 3) Credenciales correctas',
+            ], 503);
         }
 
-        // Fallback: try API connection
-        $config = [
-            'api_host' => env('MIKROTIK_CORE_API_HOST', '192.168.88.1'),
-            'api_port' => env('MIKROTIK_CORE_API_PORT', 8728),
-            'vpn_ip' => env('MIKROTIK_CORE_VPN_IP', '190.14.255.107'),
-        ];
-
-        $socket = @fsockopen($config['api_host'], $config['api_port'], $errno, $errstr, 10);
-
-        if ($socket) {
-            fclose($socket);
-            return response()->json([
-                'success' => true,
-                'method' => 'API',
-                'message' => '✅ Conexión API al CORE MikroTik exitosa',
-                'config' => $config,
-                'ssh_error' => $sshResult['message'] ?? 'SSH no disponible',
-            ]);
-        }
-
-        // Both failed
         return response()->json([
-            'success' => false,
-            'message' => '❌ No se pudo conectar al CORE MikroTik (ni SSH ni API)',
-            'ssh_result' => $sshResult,
-            'api_error' => $errstr,
-            'api_config' => $config,
-            'recommendation' => 'Verifica: 1) La IP del MikroTik, 2) El passphrase de la clave SSH, 3) Que el puerto 22 o 8728 esté abierto',
-        ], 503);
+            'success' => true,
+            'preferred_method' => $result['preferred_method'],
+            'message' => $apiWorks
+                ? '✅ Conexión API al CORE MikroTik exitosa'
+                : '✅ Conexión SSH al CORE MikroTik exitosa',
+            'api' => $result['api'],
+            'ssh' => $result['ssh'],
+            'config' => $result['config'],
+        ]);
     }
 }
