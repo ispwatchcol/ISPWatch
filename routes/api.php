@@ -58,8 +58,9 @@ Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfa
 Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
 
 // Firewall Block Rules
-// Firewall Block Rules
 Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
+Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
+Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
 
 // Test MikroTik CORE connection
 Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
