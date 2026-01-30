@@ -236,14 +236,43 @@ class RouterController extends Controller
 
     /**
      * Apply firewall block rules for delinquent users
-     * Usa conexión API directa al router cliente (funciona en producción con acceso a red VPN)
+     * Usa SSH via CORE para conectarse al router cliente
      */
     public function applyBlockRules(Router $router)
     {
-        // Usar RouterApiService que conecta directamente al router cliente via API
-        // Esto funciona en producción donde el servidor tiene acceso a la red VPN
-        $routerApi = new \App\Services\RouterApiService();
-        $result = $routerApi->applyBlockRules($router);
+        // Validar credenciales y WAN
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin credenciales configuradas. Verifica la conexión VPN primero.',
+            ]);
+        }
+
+        if (!$router->wan_interface) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin interfaz WAN configurada. Configura la WAN primero.',
+            ]);
+        }
+
+        // Obtener IP del portal
+        $portalIp = env('PORTAL_IP');
+        if (!$portalIp) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Configure PORTAL_IP en .env para habilitar la redirección al portal',
+            ]);
+        }
+
+        // Usar SSH al CORE, luego SSH al cliente para aplicar reglas
+        $sshService = new \App\Services\MikroTikSshService();
+        $result = $sshService->applyBlockRulesViaCore(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $router->wan_interface,
+            $portalIp
+        );
 
         return response()->json($result);
     }
