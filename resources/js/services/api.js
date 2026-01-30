@@ -179,6 +179,18 @@ export default {
     delete(id) {
       return apiClient.delete(`/routers/${id}`)
     },
+    // Router configuration methods
+    getInterfaces(id) {
+      return apiClient.get(`/routers/${id}/interfaces`)
+    },
+    setWanInterface(id, wanInterface) {
+      return apiClient.post(`/routers/${id}/set-wan-interface`, {
+        wan_interface: wanInterface
+      })
+    },
+    applyBlockRules(id) {
+      return apiClient.post(`/routers/${id}/apply-block-rules`)
+    },
   },
 
   // =========================

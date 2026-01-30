@@ -529,6 +529,7 @@ import { supabase } from '@/supabase.js'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
+import api from '@/services/api.js'
 
 const router = useRouter()
 const search = ref('')
@@ -787,8 +788,7 @@ const openWanModal = async (routerData) => {
   loadingInterfaces.value = true
 
   try {
-    const response = await fetch(`/api/routers/${routerData.id}/interfaces`)
-    const data = await response.json()
+    const { data } = await api.routers.getInterfaces(routerData.id)
 
     if (data.success) {
       interfaces.value = data.interfaces
@@ -802,7 +802,7 @@ const openWanModal = async (routerData) => {
     }
   } catch (error) {
     console.error('Error al cargar interfaces:', error)
-    interfacesError.value = 'Error de conexión al obtener interfaces'
+    interfacesError.value = error.response?.data?.message || 'Error de conexión al obtener interfaces'
   } finally {
     loadingInterfaces.value = false
   }
@@ -825,17 +825,7 @@ const saveWanInterface = async () => {
   savingWan.value = true
 
   try {
-    const response = await fetch(`/api/routers/${selectedRouter.value.id}/set-wan-interface`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        wan_interface: selectedWan.value,
-      }),
-    })
-
-    const data = await response.json()
+    const { data } = await api.routers.setWanInterface(selectedRouter.value.id, selectedWan.value)
 
     if (data.success) {
       toast.value?.success('Interfaz WAN configurada', 'La interfaz WAN se ha guardado correctamente')
@@ -847,7 +837,7 @@ const saveWanInterface = async () => {
     }
   } catch (error) {
     console.error('Error al guardar WAN:', error)
-    toast.value?.error('Error de conexión', 'No se pudo conectar al servidor para guardar la WAN')
+    toast.value?.error('Error de conexión', error.response?.data?.message || 'No se pudo conectar al servidor para guardar la WAN')
   } finally {
     savingWan.value = false
   }
@@ -881,14 +871,7 @@ const applyBlockRules = async () => {
   applyingRules.value = true
 
   try {
-    const response = await fetch(`/api/routers/${selectedBlockRouter.value.id}/apply-block-rules`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-
-    const data = await response.json()
+    const { data } = await api.routers.applyBlockRules(selectedBlockRouter.value.id)
 
     if (data.success) {
       toast.value?.success('Reglas aplicadas', 'Las reglas de bloqueo se configuraron correctamente en el router')
@@ -898,7 +881,7 @@ const applyBlockRules = async () => {
     }
   } catch (error) {
     console.error('Error al aplicar reglas de bloqueo:', error)
-    toast.value?.error('Error de conexión', 'No se pudo conectar al servidor para aplicar las reglas')
+    toast.value?.error('Error de conexión', error.response?.data?.message || 'No se pudo conectar al servidor para aplicar las reglas')
   } finally {
     applyingRules.value = false
   }
