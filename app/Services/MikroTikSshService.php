@@ -53,17 +53,36 @@ class MikroTikSshService
 
     /**
      * Test both API and SSH connections to MikroTik CORE
+     * Optimized: If API works, SSH test is skipped to avoid long timeouts
      */
     public function testConnection(): array
     {
+        // Try API first (fast, 5-10 seconds max)
         $apiResult = $this->testApiConnection();
-        $sshResult = $this->testSshConnection();
+
+        // If API works, skip SSH test (saves 30+ seconds in production)
+        if ($apiResult['success']) {
+            return [
+                'success' => true,
+                'api' => $apiResult,
+                'ssh' => [
+                    'success' => false,
+                    'message' => 'SSH test skipped (API working)',
+                    'skipped' => true,
+                ],
+                'preferred_method' => 'API',
+                'config' => $this->getConfig(),
+            ];
+        }
+
+        // API failed, try SSH as fallback (with reduced timeout)
+        $sshResult = $this->testSshConnection(10); // 10 second timeout for test
 
         return [
-            'success' => $apiResult['success'] || $sshResult['success'],
+            'success' => $sshResult['success'],
             'api' => $apiResult,
             'ssh' => $sshResult,
-            'preferred_method' => $apiResult['success'] ? 'API' : ($sshResult['success'] ? 'SSH' : 'NONE'),
+            'preferred_method' => $sshResult['success'] ? 'SSH' : 'NONE',
             'config' => $this->getConfig(),
         ];
     }
@@ -121,11 +140,12 @@ class MikroTikSshService
 
     /**
      * Test SSH connection to MikroTik CORE
+     * @param int|null $timeout Optional timeout override (default uses class timeout)
      */
-    public function testSshConnection(): array
+    public function testSshConnection(?int $timeout = null): array
     {
         try {
-            $ssh = $this->connectSsh();
+            $ssh = $this->connectSsh($timeout);
 
             if (!$ssh) {
                 return [
@@ -1084,12 +1104,14 @@ class MikroTikSshService
 
     /**
      * Establish SSH connection
+     * @param int|null $timeout Optional timeout override (default uses class timeout of 30s)
      */
-    public function connectSsh(): ?SSH2
+    public function connectSsh(?int $timeout = null): ?SSH2
     {
         try {
+            $effectiveTimeout = $timeout ?? $this->timeout;
             $ssh = new SSH2($this->sshHost, $this->sshPort);
-            $ssh->setTimeout($this->timeout);
+            $ssh->setTimeout($effectiveTimeout);
 
             // Try key-based authentication first
             if ($this->privateKeyPath && file_exists($this->privateKeyPath)) {
