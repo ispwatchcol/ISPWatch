@@ -7,42 +7,130 @@ use phpseclib3\Net\SSH2;
 use phpseclib3\Crypt\PublicKeyLoader;
 
 /**
- * Servicio para conexión SSH al MikroTik CORE
- * Usado cuando el API no está habilitado y solo SSH está disponible
+ * Servicio para conexión al MikroTik CORE
+ * Soporta conexión via API (puerto 8728) y SSH (puerto 22)
+ * 
+ * ESTRATEGIA DE CONEXIÓN:
+ * 1. Intentar API primero (funciona en producción via Cloudflare)
+ * 2. Si falla, intentar SSH como fallback (funciona en local)
  */
 class MikroTikSshService
 {
-    private string $host;
-    private int $port;
-    private string $username;
-    private ?string $password;
+    // SSH Configuration
+    private string $sshHost;
+    private int $sshPort;
+    private string $sshUsername;
+    private ?string $sshPassword;
     private ?string $privateKeyPath;
     private ?string $keyPassphrase;
+
+    // API Configuration
+    private string $apiHost;
+    private int $apiPort;
+    private string $apiUser;
+    private string $apiPass;
+
     private int $timeout = 30;
 
     public function __construct()
     {
-        $this->host = env('MIKROTIK_CORE_SSH_HOST', env('MIKROTIK_CORE_API_HOST', '190.14.255.107'));
-        $this->port = (int) env('MIKROTIK_CORE_SSH_PORT', 22);
-        $this->username = env('MIKROTIK_CORE_SSH_USER', 'admin');
-        $this->password = env('MIKROTIK_CORE_SSH_PASS', null);
+        // SSH Configuration
+        $this->sshHost = env('MIKROTIK_CORE_SSH_HOST', env('MIKROTIK_CORE_API_HOST', '138.197.30.155'));
+        $this->sshPort = (int) env('MIKROTIK_CORE_SSH_PORT', 22);
+        $this->sshUsername = env('MIKROTIK_CORE_SSH_USER', 'admin');
+        $this->sshPassword = env('MIKROTIK_CORE_SSH_PASS', null);
         $this->privateKeyPath = env('MIKROTIK_CORE_SSH_KEY_PATH', storage_path('keys/mikrotik_core_id_ed25519'));
         $this->keyPassphrase = env('MIKROTIK_CORE_SSH_KEY_PASSPHRASE', null);
+
+        // API Configuration
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '138.197.30.155');
+        $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
+        $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
+    }
+
+    // ==================== CONNECTION TESTING ====================
+
+    /**
+     * Test both API and SSH connections to MikroTik CORE
+     */
+    public function testConnection(): array
+    {
+        $apiResult = $this->testApiConnection();
+        $sshResult = $this->testSshConnection();
+
+        return [
+            'success' => $apiResult['success'] || $sshResult['success'],
+            'api' => $apiResult,
+            'ssh' => $sshResult,
+            'preferred_method' => $apiResult['success'] ? 'API' : ($sshResult['success'] ? 'SSH' : 'NONE'),
+            'config' => $this->getConfig(),
+        ];
+    }
+
+    /**
+     * Test API connection to MikroTik CORE
+     */
+    public function testApiConnection(): array
+    {
+        try {
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+
+            if (!$socket) {
+                return [
+                    'success' => false,
+                    'message' => "❌ No se pudo conectar a API: $errstr",
+                    'host' => $this->apiHost,
+                    'port' => $this->apiPort,
+                ];
+            }
+
+            stream_set_timeout($socket, $this->timeout);
+
+            // Try login
+            if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => '❌ Error de autenticación API',
+                ];
+            }
+
+            // Get identity
+            $this->apiSendCommand($socket, '/system/identity/print');
+            $records = $this->apiReadAllRecords($socket);
+
+            $identity = $records[0]['name'] ?? 'Unknown';
+
+            fclose($socket);
+
+            return [
+                'success' => true,
+                'message' => '✅ Conexión API al MikroTik CORE exitosa',
+                'identity' => $identity,
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error testing API connection', ['error' => $e->getMessage()]);
+            return [
+                'success' => false,
+                'message' => '❌ Error API: ' . $e->getMessage(),
+            ];
+        }
     }
 
     /**
      * Test SSH connection to MikroTik CORE
      */
-    public function testConnection(): array
+    public function testSshConnection(): array
     {
         try {
-            $ssh = $this->connect();
+            $ssh = $this->connectSsh();
 
             if (!$ssh) {
                 return [
                     'success' => false,
                     'message' => '❌ No se pudo establecer conexión SSH',
-                    'config' => $this->getConfig(),
                 ];
             }
 
@@ -54,65 +142,87 @@ class MikroTikSshService
                 'success' => true,
                 'message' => '✅ Conexión SSH al MikroTik CORE exitosa',
                 'identity' => trim($output),
-                'config' => $this->getConfig(),
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error de conexión', [
-                'error' => $e->getMessage(),
-                'host' => $this->host,
-            ]);
-
+            Log::error('[MikroTikCore] Error testing SSH connection', ['error' => $e->getMessage()]);
             return [
                 'success' => false,
-                'message' => '❌ Error de conexión SSH: ' . $e->getMessage(),
-                'config' => $this->getConfig(),
+                'message' => '❌ Error SSH: ' . $e->getMessage(),
             ];
         }
     }
 
-    /**
-     * Execute command on MikroTik
-     */
-    public function execute(string $command): array
-    {
-        try {
-            $ssh = $this->connect();
-
-            if (!$ssh) {
-                return [
-                    'success' => false,
-                    'message' => 'No se pudo conectar al MikroTik',
-                    'output' => null,
-                ];
-            }
-
-            $output = $ssh->exec($command);
-            $ssh->disconnect();
-
-            return [
-                'success' => true,
-                'output' => $output,
-            ];
-
-        } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error ejecutando comando', [
-                'command' => $command,
-                'error' => $e->getMessage(),
-            ]);
-
-            return [
-                'success' => false,
-                'message' => $e->getMessage(),
-                'output' => null,
-            ];
-        }
-    }
+    // ==================== PPP ACTIVE CONNECTIONS ====================
 
     /**
      * Get PPP active connections (VPN status)
+     * Uses API first, SSH as fallback
      */
     public function getPppActive(): array
+    {
+        // Try API first
+        $apiResult = $this->getPppActiveViaApi();
+        if ($apiResult['success']) {
+            return $apiResult;
+        }
+
+        Log::info('[MikroTikCore] API failed for getPppActive, trying SSH', ['api_error' => $apiResult['message'] ?? 'unknown']);
+
+        // Fallback to SSH
+        return $this->getPppActiveViaSsh();
+    }
+
+    /**
+     * Get PPP active connections via API
+     */
+    private function getPppActiveViaApi(): array
+    {
+        try {
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+
+            if (!$socket) {
+                return ['success' => false, 'message' => "API connection failed: $errstr"];
+            }
+
+            stream_set_timeout($socket, $this->timeout);
+
+            if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
+                fclose($socket);
+                return ['success' => false, 'message' => 'API authentication failed'];
+            }
+
+            $this->apiSendCommand($socket, '/ppp/active/print');
+            $records = $this->apiReadAllRecords($socket);
+
+            fclose($socket);
+
+            $connections = [];
+            foreach ($records as $record) {
+                $connections[] = [
+                    'name' => $record['name'] ?? '',
+                    'service' => $record['service'] ?? 'l2tp',
+                    'caller_id' => $record['caller-id'] ?? '',
+                    'address' => $record['address'] ?? '',
+                    'uptime' => $record['uptime'] ?? '',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'method' => 'API',
+                'connections' => $connections,
+            ];
+
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Get PPP active connections via SSH
+     */
+    private function getPppActiveViaSsh(): array
     {
         $result = $this->execute('/ppp active print');
 
@@ -130,10 +240,6 @@ class MikroTikSshService
                 continue;
             }
 
-            // Parse MikroTik table format
-            // Output example:
-            // 0 ikXcLyXb3M  l2tp     181.225.70.27  10.10.10.254  1m14s   cbc(aes) + hmac(sha1)
-            // Regex: Index(digits) Name Service CallerID Address Uptime
             if (preg_match('/^\d+\s+(\S+)\s+l2tp\s+(\S+)\s+(\S+)\s+(\S+)/', $line, $matches)) {
                 $connections[] = [
                     'name' => $matches[1],
@@ -147,13 +253,17 @@ class MikroTikSshService
 
         return [
             'success' => true,
+            'method' => 'SSH',
             'connections' => $connections,
             'raw' => $result['output'],
         ];
     }
 
+    // ==================== VPN CONNECTION CHECK ====================
+
     /**
      * Check if specific VPN user is connected
+     * Uses API first, SSH as fallback
      */
     public function isVpnConnected(string $vpnUsername): array
     {
@@ -173,6 +283,7 @@ class MikroTikSshService
                     'success' => true,
                     'connected' => true,
                     'message' => '✅ VPN ACTIVA',
+                    'method' => $result['method'] ?? 'unknown',
                     'assigned_ip' => $conn['address'] ?? null,
                     'uptime' => $conn['uptime'] ?? null,
                 ];
@@ -183,8 +294,214 @@ class MikroTikSshService
             'success' => true,
             'connected' => false,
             'message' => '❌ VPN no conectada',
+            'method' => $result['method'] ?? 'unknown',
         ];
     }
+
+    // ==================== PPP SECRET MANAGEMENT ====================
+
+    /**
+     * Create or Update PPP secret
+     * Uses API first, SSH as fallback
+     */
+    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default-encryption'): array
+    {
+        // Try API first
+        $apiResult = $this->ensurePppSecretViaApi($username, $password, $service, $profile);
+        if ($apiResult['success']) {
+            return $apiResult;
+        }
+
+        Log::info('[MikroTikCore] API failed for ensurePppSecret, trying SSH', ['api_error' => $apiResult['message'] ?? 'unknown']);
+
+        // Fallback to SSH
+        return $this->ensurePppSecretViaSsh($username, $password, $service, $profile);
+    }
+
+    /**
+     * Create or Update PPP secret via API
+     */
+    private function ensurePppSecretViaApi(string $username, string $password, string $service, string $profile): array
+    {
+        try {
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+
+            if (!$socket) {
+                return ['success' => false, 'message' => "API connection failed: $errstr"];
+            }
+
+            stream_set_timeout($socket, $this->timeout);
+
+            if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
+                fclose($socket);
+                return ['success' => false, 'message' => 'API authentication failed'];
+            }
+
+            // Check if secret exists
+            $this->apiSendCommand($socket, '/ppp/secret/print', [
+                '?name=' . $username,
+            ]);
+            $existing = $this->apiReadAllRecords($socket);
+
+            if (!empty($existing)) {
+                // Update existing
+                $secretId = $existing[0]['.id'] ?? null;
+                if ($secretId) {
+                    $this->apiSendCommand($socket, '/ppp/secret/set', [
+                        '=.id=' . $secretId,
+                        '=password=' . $password,
+                        '=service=' . $service,
+                        '=profile=' . $profile,
+                    ]);
+                    $this->apiReadUntilDone($socket);
+                    $action = 'updated';
+                }
+            } else {
+                // Create new
+                $this->apiSendCommand($socket, '/ppp/secret/add', [
+                    '=name=' . $username,
+                    '=password=' . $password,
+                    '=service=' . $service,
+                    '=profile=' . $profile,
+                    '=comment=ISPWatch Auto',
+                ]);
+                $this->apiReadUntilDone($socket);
+                $action = 'created';
+            }
+
+            fclose($socket);
+
+            Log::info('[MikroTikCore] PPP secret managed via API', ['username' => $username, 'action' => $action ?? 'unknown']);
+
+            return [
+                'success' => true,
+                'method' => 'API',
+                'action' => $action ?? 'processed',
+                'message' => "Secret {$action} successfully via API",
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] API error managing PPP secret', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Create or Update PPP secret via SSH
+     */
+    private function ensurePppSecretViaSsh(string $username, string $password, string $service, string $profile): array
+    {
+        // 1. Check if exists
+        $current = $this->getPppSecret($username);
+
+        if (!$current['success']) {
+            return $current; // Error state
+        }
+
+        if ($current['found']) {
+            // Update if needed
+            $cmd = sprintf(
+                '/ppp secret set [find name=%s] password=%s service=%s profile=%s',
+                escapeshellarg($username),
+                escapeshellarg($password),
+                escapeshellarg($service),
+                escapeshellarg($profile)
+            );
+            $action = "updated";
+        } else {
+            // Create
+            $cmd = sprintf(
+                '/ppp secret add name=%s password=%s service=%s profile=%s comment="ISPWatch Auto"',
+                escapeshellarg($username),
+                escapeshellarg($password),
+                escapeshellarg($service),
+                escapeshellarg($profile)
+            );
+            $action = "created";
+        }
+
+        $result = $this->execute($cmd);
+
+        if ($result['success']) {
+            $result['method'] = 'SSH';
+            $result['action'] = $action;
+            $result['message'] = "Secret $action successfully via SSH";
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get specific PPP secret details (SSH only)
+     */
+    public function getPppSecret(string $username): array
+    {
+        $cmd = sprintf('/ppp secret print detail where name=%s', escapeshellarg($username));
+        $result = $this->execute($cmd);
+
+        if (!$result['success']) {
+            return $result;
+        }
+
+        $output = $result['output'];
+
+        if (trim($output) === '' || !str_contains($output, 'name=')) {
+            return [
+                'success' => true,
+                'found' => false,
+                'data' => null,
+                'raw_debug' => $output
+            ];
+        }
+
+        return [
+            'success' => true,
+            'found' => true,
+            'raw' => $output
+        ];
+    }
+
+    // ==================== SSH COMMAND EXECUTION ====================
+
+    /**
+     * Execute command on MikroTik via SSH
+     */
+    public function execute(string $command): array
+    {
+        try {
+            $ssh = $this->connectSsh();
+
+            if (!$ssh) {
+                return [
+                    'success' => false,
+                    'message' => 'No se pudo conectar al MikroTik via SSH',
+                    'output' => null,
+                ];
+            }
+
+            $output = $ssh->exec($command);
+            $ssh->disconnect();
+
+            return [
+                'success' => true,
+                'output' => $output,
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error executing SSH command', [
+                'command' => $command,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'output' => null,
+            ];
+        }
+    }
+
+    // ==================== SUSPENDED IP MANAGEMENT ====================
 
     /**
      * Add IP to suspended address-list
@@ -226,82 +543,7 @@ class MikroTikSshService
         return $this->execute($removeCmd);
     }
 
-    /**
-     * Create or Update PPP secret
-     */
-    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default-encryption'): array
-    {
-        // 1. Check if exists
-        $current = $this->getPppSecret($username);
-
-        if (!$current['success']) {
-            return $current; // Error state
-        }
-
-        if ($current['found']) {
-            // Update if needed
-            $cmd = sprintf(
-                '/ppp secret set [find name=%s] password=%s service=%s profile=%s',
-                escapeshellarg($username),
-                escapeshellarg($password),
-                escapeshellarg($service),
-                escapeshellarg($profile)
-            );
-            $action = "updated";
-        } else {
-            // Create
-            $cmd = sprintf(
-                '/ppp secret add name=%s password=%s service=%s profile=%s comment="ISPWatch Auto"',
-                escapeshellarg($username),
-                escapeshellarg($password),
-                escapeshellarg($service),
-                escapeshellarg($profile)
-            );
-            $action = "created";
-        }
-
-        $result = $this->execute($cmd);
-
-        if ($result['success']) {
-            $result['action'] = $action;
-            $result['message'] = "Secret $action successfully";
-        }
-
-        return $result;
-    }
-
-    /**
-     * Get specific PPP secret details
-     */
-    public function getPppSecret(string $username): array
-    {
-        $cmd = sprintf('/ppp secret print detail where name=%s', escapeshellarg($username));
-        $result = $this->execute($cmd);
-
-        if (!$result['success']) {
-            return $result;
-        }
-
-        $output = $result['output'];
-
-        // Check if output contains "name=" to confirm it's a valid record
-        // The print detail command usually outputs: 0   name="foo" ...
-        // If it outputs only headers (Flags: ...), it means no record found.
-        if (trim($output) === '' || !str_contains($output, 'name=')) {
-            return [
-                'success' => true,
-                'found' => false,
-                'data' => null,
-                'raw_debug' => $output
-            ];
-        }
-
-        return [
-            'success' => true,
-            'found' => true,
-            'raw' => $output
-        ];
-    }
+    // ==================== CLIENT ROUTER VIA CORE ====================
 
     /**
      * Get interfaces from a client router via the CORE
@@ -315,12 +557,12 @@ class MikroTikSshService
     public function getRouterInterfaces(string $clientIp, string $clientUser, string $clientPass, int $clientPort = 8728): array
     {
         try {
-            Log::info('[MikroTikSSH] Obteniendo interfaces de router cliente via CORE SSH', [
+            Log::info('[MikroTikCore] Obteniendo interfaces de router cliente via CORE SSH', [
                 'client_ip' => $clientIp,
                 'client_user' => $clientUser,
             ]);
 
-            $ssh = $this->connect();
+            $ssh = $this->connectSsh();
 
             if (!$ssh) {
                 return [
@@ -334,7 +576,7 @@ class MikroTikSshService
             $pingCommand = sprintf('/ping address=%s count=1', $clientIp);
             $pingResult = $ssh->exec($pingCommand);
 
-            Log::debug('[MikroTikSSH] Ping result', ['output' => $pingResult]);
+            Log::debug('[MikroTikCore] Ping result', ['output' => $pingResult]);
 
             if (str_contains($pingResult, 'timeout') || str_contains($pingResult, '0 received')) {
                 $ssh->disconnect();
@@ -354,15 +596,14 @@ class MikroTikSshService
                 $escapedPass
             );
 
-            Log::debug('[MikroTikSSH] Ejecutando SSH al cliente para obtener interfaces');
+            Log::debug('[MikroTikCore] Ejecutando SSH al cliente para obtener interfaces');
             $interfaceOutput = $ssh->exec($sshCmd);
 
-            Log::debug('[MikroTikSSH] Interface output', ['output' => $interfaceOutput]);
+            Log::debug('[MikroTikCore] Interface output', ['output' => $interfaceOutput]);
 
             $ssh->disconnect();
 
             // Parsear la salida de /interface print terse
-            // Formato: 0 R name="ether1" type="ether" mtu=1500 ...
             $interfaces = [];
             $lines = explode("\n", $interfaceOutput);
 
@@ -437,7 +678,7 @@ class MikroTikSshService
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error obteniendo interfaces via CORE', [
+            Log::error('[MikroTikCore] Error obteniendo interfaces via CORE', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -455,31 +696,24 @@ class MikroTikSshService
      * Strategy:
      * 1. Try direct API connection (works when local machine has VPN access)
      * 2. If fails, use SSH tunneling through CORE (for production servers)
-     * 
-     * @param string $clientIp IP del router cliente (IP VPN asignada)
-     * @param string $clientUser Usuario del router cliente
-     * @param string $clientPass Password del router cliente
-     * @param string $wanInterface Interfaz WAN del router cliente
-     * @param string $portalIp IP del portal de redirección
-     * @param int $apiPort Puerto API del router cliente (default 8728)
      */
     public function applyBlockRulesViaCore(string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp, int $apiPort = 8728): array
     {
-        Log::info('[MikroTikSSH] Aplicando reglas de bloqueo', [
+        Log::info('[MikroTikCore] Aplicando reglas de bloqueo', [
             'client_ip' => $clientIp,
             'api_port' => $apiPort,
             'portal_ip' => $portalIp,
         ]);
 
         // STRATEGY 1: Try direct API connection (works in local with VPN access)
-        $socket = @fsockopen($clientIp, $apiPort, $errno, $errstr, 5); // Short timeout for quick fail
+        $socket = @fsockopen($clientIp, $apiPort, $errno, $errstr, 5);
 
         if ($socket) {
-            Log::info('[MikroTikSSH] Conexión API directa exitosa, usando método directo');
+            Log::info('[MikroTikCore] Conexión API directa exitosa, usando método directo');
             return $this->applyBlockRulesDirectApi($socket, $clientUser, $clientPass, $wanInterface, $portalIp);
         }
 
-        Log::info('[MikroTikSSH] API directa no disponible, intentando via SSH tunneling al CORE', [
+        Log::info('[MikroTikCore] API directa no disponible, intentando via SSH tunneling al CORE', [
             'direct_error' => $errstr,
         ]);
 
@@ -501,7 +735,7 @@ class MikroTikSshService
                 return ['success' => false, 'message' => 'Error de autenticación en el router cliente'];
             }
 
-            Log::info('[MikroTikSSH] Login API exitoso');
+            Log::info('[MikroTikCore] Login API exitoso');
 
             // Apply rules
             $this->applyFirewallRulesViaApi($socket, $wanInterface, $portalIp);
@@ -523,25 +757,24 @@ class MikroTikSshService
 
         } catch (\Throwable $e) {
             @fclose($socket);
-            Log::error('[MikroTikSSH] Error en API directa', ['error' => $e->getMessage()]);
+            Log::error('[MikroTikCore] Error en API directa', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
 
     /**
      * Apply block rules using SSH connection through CORE
-     * Uses ssh-exec to send commands from CORE to CLIENT
      */
     private function applyBlockRulesViaSshTunnel(string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp, int $apiPort): array
     {
         try {
             // Connect to CORE via SSH
-            $ssh = $this->connect();
+            $ssh = $this->connectSsh();
             if (!$ssh) {
                 return ['success' => false, 'message' => 'No se pudo conectar al MikroTik CORE'];
             }
 
-            Log::info('[MikroTikSSH] Conectado al CORE, ejecutando comandos via ssh-exec');
+            Log::info('[MikroTikCore] Conectado al CORE, ejecutando comandos via ssh-exec');
 
             // Use ssh-exec method directly (most reliable)
             $result = $this->applyBlockRulesViaSshCommands($ssh, $clientIp, $clientUser, $clientPass, $wanInterface, $portalIp);
@@ -549,18 +782,17 @@ class MikroTikSshService
             return $result;
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error en SSH', ['error' => $e->getMessage()]);
+            Log::error('[MikroTikCore] Error en SSH', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
 
     /**
      * Apply block rules by executing SSH commands on CORE to reach client
-     * This is the fallback method when tunneling is not available
      */
     private function applyBlockRulesViaSshCommands(SSH2 $ssh, string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp): array
     {
-        Log::info('[MikroTikSSH] Usando método SSH commands via CORE');
+        Log::info('[MikroTikCore] Usando método SSH commands via CORE');
 
         try {
             // Escape password for shell
@@ -582,7 +814,7 @@ class MikroTikSshService
             $errors = [];
 
             foreach ($commands as $index => $cmd) {
-                Log::debug("[MikroTikSSH] Ejecutando comando " . ($index + 1));
+                Log::debug("[MikroTikCore] Ejecutando comando " . ($index + 1));
 
                 // Execute via CORE's ssh-exec to client
                 $sshExecCmd = sprintf(
@@ -606,7 +838,7 @@ class MikroTikSshService
             }
 
             if (!empty($errors)) {
-                Log::warning('[MikroTikSSH] Algunos comandos fallaron', ['errors' => $errors]);
+                Log::warning('[MikroTikCore] Algunos comandos fallaron', ['errors' => $errors]);
             }
 
             return [
@@ -624,18 +856,18 @@ class MikroTikSshService
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error en SSH commands', ['error' => $e->getMessage()]);
+            Log::error('[MikroTikCore] Error en SSH commands', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
 
     /**
-     * Apply firewall rules using API protocol (used by both direct and tunnel methods)
+     * Apply firewall rules using API protocol
      */
     private function applyFirewallRulesViaApi($socket, string $wanInterface, string $portalIp): void
     {
         // 1. Create address-list (placeholder)
-        Log::info('[MikroTikSSH] Creando address-list ISPWATCH_SUSPENDIDOS');
+        Log::info('[MikroTikCore] Creando address-list ISPWATCH_SUSPENDIDOS');
         $this->apiSendCommand($socket, '/ip/firewall/address-list/add', [
             '=list=ISPWATCH_SUSPENDIDOS',
             '=address=0.0.0.0',
@@ -644,7 +876,7 @@ class MikroTikSshService
         $this->apiReadUntilDone($socket);
 
         // 2. NAT Rule HTTP
-        Log::info('[MikroTikSSH] Creando regla NAT HTTP');
+        Log::info('[MikroTikCore] Creando regla NAT HTTP');
         $this->apiSendCommand($socket, '/ip/firewall/nat/add', [
             '=chain=dstnat',
             '=src-address-list=ISPWATCH_SUSPENDIDOS',
@@ -658,7 +890,7 @@ class MikroTikSshService
         $this->apiReadUntilDone($socket);
 
         // 3. NAT Rule HTTPS
-        Log::info('[MikroTikSSH] Creando regla NAT HTTPS');
+        Log::info('[MikroTikCore] Creando regla NAT HTTPS');
         $this->apiSendCommand($socket, '/ip/firewall/nat/add', [
             '=chain=dstnat',
             '=src-address-list=ISPWATCH_SUSPENDIDOS',
@@ -672,7 +904,7 @@ class MikroTikSshService
         $this->apiReadUntilDone($socket);
 
         // 4. Filter DROP rule
-        Log::info('[MikroTikSSH] Creando regla Filter DROP');
+        Log::info('[MikroTikCore] Creando regla Filter DROP');
         $this->apiSendCommand($socket, '/ip/firewall/filter/add', [
             '=chain=forward',
             '=src-address-list=ISPWATCH_SUSPENDIDOS',
@@ -682,194 +914,20 @@ class MikroTikSshService
         ]);
         $this->apiReadUntilDone($socket);
 
-        Log::info('[MikroTikSSH] Reglas de firewall aplicadas');
-    }
-
-    /**
-     * Create a direct-tcpip tunnel through the SSH connection
-     */
-    private function createTunnelToClient(SSH2 $ssh, string $clientIp, int $clientPort)
-    {
-        try {
-            Log::debug("[MikroTikSSH] Opening tunnel to $clientIp:$clientPort");
-
-            // phpseclib3 supports valid fsockopen over SSH to create a channel
-            $channel = $ssh->fsockopen($clientIp, $clientPort);
-
-            if (!$channel) {
-                Log::error("[MikroTikSSH] Failed to open channel to $clientIp:$clientPort");
-                return null;
-            }
-
-            // Set blocking mode to ensure we read data correctly
-            stream_set_blocking($channel, true);
-            stream_set_timeout($channel, 30);
-
-            return $channel;
-        } catch (\Throwable $e) {
-            Log::error("[MikroTikSSH] Tunnel exception", ['error' => $e->getMessage()]);
-            return null;
-        }
-    }
-
-    // Método generateFirewallScript eliminado - ya no se usa
-
-    // ==================== API Helper Methods ====================
-
-    /**
-     * Login al router via API
-     */
-    private function apiLogin($socket, string $user, string $pass): bool
-    {
-        $this->apiSendCommand($socket, '/login', [
-            '=name=' . $user,
-            '=password=' . $pass,
-        ]);
-
-        $response = [];
-        $challenge = null;
-
-        while (true) {
-            $word = $this->apiReadWord($socket);
-            if ($word === '')
-                break;
-
-            $response[] = $word;
-
-            if (str_starts_with($word, '=ret=')) {
-                $challenge = substr($word, 5);
-            }
-
-            if ($word === '!trap') {
-                Log::error('[MikroTikSSH] API Login trap');
-                return false;
-            }
-        }
-
-        // Si hay challenge, hacer login MD5
-        if ($challenge) {
-            $challengeBin = hex2bin($challenge);
-            $hash = md5(chr(0) . $pass . $challengeBin);
-
-            $this->apiSendCommand($socket, '/login', [
-                '=name=' . $user,
-                '=response=00' . $hash,
-            ]);
-
-            while (true) {
-                $word = $this->apiReadWord($socket);
-                if ($word === '')
-                    break;
-                if ($word === '!trap')
-                    return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Enviar comando API
-     */
-    private function apiSendCommand($socket, string $command, array $params = []): void
-    {
-        $this->apiWriteWord($socket, $command);
-        foreach ($params as $param) {
-            $this->apiWriteWord($socket, $param);
-        }
-        fwrite($socket, chr(0));
-    }
-
-    /**
-     * Leer hasta !done
-     */
-    private function apiReadUntilDone($socket): void
-    {
-        $count = 0;
-        while ($count < 100) {
-            $word = $this->apiReadWord($socket);
-            $count++;
-            if ($word === '!done' || $word === '!trap')
-                break;
-        }
-    }
-
-    /**
-     * Escribir palabra API
-     */
-    private function apiWriteWord($socket, string $word): void
-    {
-        $len = strlen($word);
-        if ($len < 0x80) {
-            fwrite($socket, chr($len));
-        } elseif ($len < 0x4000) {
-            $len |= 0x8000;
-            fwrite($socket, chr(($len >> 8) & 0xFF));
-            fwrite($socket, chr($len & 0xFF));
-        } else {
-            fwrite($socket, chr(($len >> 16) & 0xFF));
-            fwrite($socket, chr(($len >> 8) & 0xFF));
-            fwrite($socket, chr($len & 0xFF));
-        }
-        fwrite($socket, $word);
-    }
-
-    /**
-     * Leer palabra API
-     */
-    private function apiReadWord($socket): string
-    {
-        $byte = @fread($socket, 1);
-        if ($byte === '' || $byte === false)
-            return '';
-
-        $len = ord($byte);
-        if ($len === 0)
-            return '';
-
-        if (($len & 0x80) == 0x00) {
-            // 1 byte
-        } elseif (($len & 0xC0) == 0x80) {
-            $b2 = ord(@fread($socket, 1));
-            $len = (($len & 0x3F) << 8) + $b2;
-        } elseif (($len & 0xE0) == 0xC0) {
-            $b2 = ord(@fread($socket, 1));
-            $b3 = ord(@fread($socket, 1));
-            $len = (($len & 0x1F) << 16) + ($b2 << 8) + $b3;
-        }
-
-        if ($len <= 0)
-            return '';
-
-        $data = '';
-        $remaining = $len;
-        while ($remaining > 0) {
-            $chunk = @fread($socket, $remaining);
-            if ($chunk === '' || $chunk === false)
-                break;
-            $data .= $chunk;
-            $remaining = $len - strlen($data);
-        }
-
-        return $data;
+        Log::info('[MikroTikCore] Reglas de firewall aplicadas');
     }
 
     /**
      * Get firewall rules from a client router via SSH from CORE
-     * Útil para verificar que las reglas de ISPWatch estén instaladas
-     * 
-     * @param string $clientIp IP del router cliente (IP VPN asignada)
-     * @param string $clientUser Usuario del router cliente
-     * @param string $clientPass Password del router cliente
      */
     public function getFirewallRulesViaCore(string $clientIp, string $clientUser, string $clientPass): array
     {
         try {
-            Log::info('[MikroTikSSH] Verificando reglas de firewall en cliente via CORE (SSH)', [
+            Log::info('[MikroTikCore] Verificando reglas de firewall en cliente via CORE (SSH)', [
                 'client_ip' => $clientIp,
             ]);
 
-            $ssh = $this->connect();
+            $ssh = $this->connectSsh();
 
             if (!$ssh) {
                 return [
@@ -929,7 +987,7 @@ class MikroTikSshService
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] Error verificando reglas en cliente', [
+            Log::error('[MikroTikCore] Error verificando reglas en cliente', [
                 'error' => $e->getMessage(),
             ]);
 
@@ -949,107 +1007,18 @@ class MikroTikSshService
     }
 
     /**
-     * Establish SSH connection
-     */
-    public function connect(): ?SSH2
-    {
-        $ssh = new SSH2($this->host, $this->port);
-        $ssh->setTimeout($this->timeout);
-
-        // Try key-based authentication first
-        if ($this->privateKeyPath && file_exists($this->privateKeyPath)) {
-            try {
-                $keyContent = file_get_contents($this->privateKeyPath);
-
-                if ($this->keyPassphrase) {
-                    $key = PublicKeyLoader::load($keyContent, $this->keyPassphrase);
-                } else {
-                    $key = PublicKeyLoader::load($keyContent);
-                }
-
-                try {
-                    if ($ssh->login($this->username, $key)) {
-                        Log::info('[MikroTikSSH] Conectado con clave SSH');
-                        return $ssh;
-                    }
-                } catch (\TypeError $e) {
-                    Log::warning('[MikroTikSSH] TypeError en login con objeto key, intentando string conversion', [
-                        'error' => $e->getMessage(),
-                        'key_class' => get_class($key)
-                    ]);
-
-                    // Fallback: If login expects string, try passing key as string (PEM)
-                    // This might work if the underlying library supports it or if it's a version mismatch workaround
-                    try {
-                        if ($ssh->login($this->username, (string) $key)) {
-                            Log::info('[MikroTikSSH] Conectado con clave SSH (convertida a string)');
-                            return $ssh;
-                        }
-                    } catch (\Throwable $ex) {
-                        Log::error('[MikroTikSSH] Falló fallback string login', ['error' => $ex->getMessage()]);
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('[MikroTikSSH] Error con clave SSH, intentando password', [
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-            }
-
-        }
-
-        // Fallback to password authentication
-        if ($this->password) {
-            if ($ssh->login($this->username, $this->password)) {
-                Log::info('[MikroTikSSH] Conectado con password');
-                return $ssh;
-            }
-        }
-
-        Log::error('[MikroTikSSH] Falló autenticación', [
-            'host' => $this->host,
-            'user' => $this->username,
-            'hasKey' => file_exists($this->privateKeyPath ?? ''),
-            'hasPassword' => !empty($this->password),
-        ]);
-
-        return null;
-    }
-
-    /**
-     * Get current configuration (sanitized)
-     */
-    private function getConfig(): array
-    {
-        return [
-            'host' => $this->host,
-            'port' => $this->port,
-            'username' => $this->username,
-            'auth_method' => file_exists($this->privateKeyPath ?? '') ? 'ssh_key' : 'password',
-            'key_path' => $this->privateKeyPath,
-            'key_exists' => file_exists($this->privateKeyPath ?? ''),
-        ];
-    }
-
-    /**
-     * MÉTODO TEMPORAL DE PRUEBA
-     * Ejecutar comando en cliente específico vía CORE
-     * 
-     * @param string $clientIp IP del router cliente (VPN IP)
-     * @param string $clientUser Usuario del router cliente
-     * @param string $clientPass Password del router cliente
-     * @param string $command Comando a ejecutar en el cliente
+     * Test command execution on client via CORE
      */
     public function testExecuteOnClient(string $clientIp, string $clientUser, string $clientPass, string $command): array
     {
         try {
-            Log::info('[MikroTikSSH] PRUEBA - Ejecutando comando en cliente via CORE', [
+            Log::info('[MikroTikCore] PRUEBA - Ejecutando comando en cliente via CORE', [
                 'client_ip' => $clientIp,
                 'command' => $command,
             ]);
 
             // 1. Conectar al CORE
-            $ssh = $this->connect();
+            $ssh = $this->connectSsh();
 
             if (!$ssh) {
                 return [
@@ -1062,7 +1031,7 @@ class MikroTikSshService
             $pingCommand = sprintf('/ping address=%s count=2', $clientIp);
             $pingResult = $ssh->exec($pingCommand);
 
-            Log::info('[MikroTikSSH] PRUEBA - Ping result', ['output' => $pingResult]);
+            Log::info('[MikroTikCore] PRUEBA - Ping result', ['output' => $pingResult]);
 
             if (str_contains($pingResult, 'timeout') || str_contains($pingResult, '0 received')) {
                 $ssh->disconnect();
@@ -1083,10 +1052,10 @@ class MikroTikSshService
                 addslashes($command)
             );
 
-            Log::info('[MikroTikSSH] PRUEBA - Ejecutando SSH command');
+            Log::info('[MikroTikCore] PRUEBA - Ejecutando SSH command');
             $output = $ssh->exec($sshCmd);
 
-            Log::info('[MikroTikSSH] PRUEBA - Resultado', ['output' => $output]);
+            Log::info('[MikroTikCore] PRUEBA - Resultado', ['output' => $output]);
 
             $ssh->disconnect();
 
@@ -1099,7 +1068,7 @@ class MikroTikSshService
             ];
 
         } catch (\Throwable $e) {
-            Log::error('[MikroTikSSH] PRUEBA - Error ejecutando comando', [
+            Log::error('[MikroTikCore] PRUEBA - Error ejecutando comando', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -1109,5 +1078,291 @@ class MikroTikSshService
                 'message' => 'Error: ' . $e->getMessage(),
             ];
         }
+    }
+
+    // ==================== SSH CONNECTION ====================
+
+    /**
+     * Establish SSH connection
+     */
+    public function connectSsh(): ?SSH2
+    {
+        try {
+            $ssh = new SSH2($this->sshHost, $this->sshPort);
+            $ssh->setTimeout($this->timeout);
+
+            // Try key-based authentication first
+            if ($this->privateKeyPath && file_exists($this->privateKeyPath)) {
+                try {
+                    $keyContent = file_get_contents($this->privateKeyPath);
+
+                    if ($this->keyPassphrase) {
+                        $key = PublicKeyLoader::load($keyContent, $this->keyPassphrase);
+                    } else {
+                        $key = PublicKeyLoader::load($keyContent);
+                    }
+
+                    try {
+                        if ($ssh->login($this->sshUsername, $key)) {
+                            Log::info('[MikroTikCore] Conectado con clave SSH');
+                            return $ssh;
+                        }
+                    } catch (\TypeError $e) {
+                        Log::warning('[MikroTikCore] TypeError en login con objeto key, intentando string conversion', [
+                            'error' => $e->getMessage(),
+                            'key_class' => get_class($key)
+                        ]);
+
+                        try {
+                            if ($ssh->login($this->sshUsername, (string) $key)) {
+                                Log::info('[MikroTikCore] Conectado con clave SSH (convertida a string)');
+                                return $ssh;
+                            }
+                        } catch (\Throwable $ex) {
+                            Log::error('[MikroTikCore] Falló fallback string login', ['error' => $ex->getMessage()]);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('[MikroTikCore] Error con clave SSH, intentando password', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // Fallback to password authentication
+            if ($this->sshPassword) {
+                if ($ssh->login($this->sshUsername, $this->sshPassword)) {
+                    Log::info('[MikroTikCore] Conectado con password');
+                    return $ssh;
+                }
+            }
+
+            Log::error('[MikroTikCore] Falló autenticación SSH', [
+                'host' => $this->sshHost,
+                'user' => $this->sshUsername,
+                'hasKey' => file_exists($this->privateKeyPath ?? ''),
+                'hasPassword' => !empty($this->sshPassword),
+            ]);
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] SSH connection exception', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Legacy alias for connectSsh
+     */
+    public function connect(): ?SSH2
+    {
+        return $this->connectSsh();
+    }
+
+    // ==================== API HELPER METHODS ====================
+
+    /**
+     * Login to router via API
+     */
+    private function apiLogin($socket, string $user, string $pass): bool
+    {
+        $this->apiSendCommand($socket, '/login', [
+            '=name=' . $user,
+            '=password=' . $pass,
+        ]);
+
+        $response = [];
+        $challenge = null;
+
+        while (true) {
+            $word = $this->apiReadWord($socket);
+            if ($word === '')
+                break;
+
+            $response[] = $word;
+
+            if (str_starts_with($word, '=ret=')) {
+                $challenge = substr($word, 5);
+            }
+
+            if ($word === '!trap') {
+                Log::error('[MikroTikCore] API Login trap');
+                return false;
+            }
+        }
+
+        // Si hay challenge, hacer login MD5
+        if ($challenge) {
+            $challengeBin = hex2bin($challenge);
+            $hash = md5(chr(0) . $pass . $challengeBin);
+
+            $this->apiSendCommand($socket, '/login', [
+                '=name=' . $user,
+                '=response=00' . $hash,
+            ]);
+
+            while (true) {
+                $word = $this->apiReadWord($socket);
+                if ($word === '')
+                    break;
+                if ($word === '!trap')
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Send API command
+     */
+    private function apiSendCommand($socket, string $command, array $params = []): void
+    {
+        $this->apiWriteWord($socket, $command);
+        foreach ($params as $param) {
+            $this->apiWriteWord($socket, $param);
+        }
+        fwrite($socket, chr(0));
+    }
+
+    /**
+     * Read all records from API response
+     */
+    private function apiReadAllRecords($socket): array
+    {
+        $records = [];
+        $current = [];
+        $wordCount = 0;
+        $maxWords = 2000;
+
+        while ($wordCount < $maxWords) {
+            $word = $this->apiReadWord($socket);
+            $wordCount++;
+
+            if ($word === '!re') {
+                if (!empty($current)) {
+                    $records[] = $current;
+                }
+                $current = [];
+                continue;
+            }
+
+            if ($word === '!done' || $word === '!trap') {
+                if (!empty($current)) {
+                    $records[] = $current;
+                }
+                break;
+            }
+
+            if ($word === '') {
+                continue;
+            }
+
+            if (str_starts_with($word, '=')) {
+                $parts = explode('=', substr($word, 1), 2);
+                if (count($parts) === 2) {
+                    $current[$parts[0]] = $parts[1];
+                }
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * Read until !done
+     */
+    private function apiReadUntilDone($socket): void
+    {
+        $count = 0;
+        while ($count < 100) {
+            $word = $this->apiReadWord($socket);
+            $count++;
+            if ($word === '!done' || $word === '!trap')
+                break;
+        }
+    }
+
+    /**
+     * Write API word
+     */
+    private function apiWriteWord($socket, string $word): void
+    {
+        $len = strlen($word);
+        if ($len < 0x80) {
+            fwrite($socket, chr($len));
+        } elseif ($len < 0x4000) {
+            $len |= 0x8000;
+            fwrite($socket, chr(($len >> 8) & 0xFF));
+            fwrite($socket, chr($len & 0xFF));
+        } else {
+            fwrite($socket, chr(($len >> 16) & 0xFF));
+            fwrite($socket, chr(($len >> 8) & 0xFF));
+            fwrite($socket, chr($len & 0xFF));
+        }
+        fwrite($socket, $word);
+    }
+
+    /**
+     * Read API word
+     */
+    private function apiReadWord($socket): string
+    {
+        $byte = @fread($socket, 1);
+        if ($byte === '' || $byte === false)
+            return '';
+
+        $len = ord($byte);
+        if ($len === 0)
+            return '';
+
+        if (($len & 0x80) == 0x00) {
+            // 1 byte
+        } elseif (($len & 0xC0) == 0x80) {
+            $b2 = ord(@fread($socket, 1));
+            $len = (($len & 0x3F) << 8) + $b2;
+        } elseif (($len & 0xE0) == 0xC0) {
+            $b2 = ord(@fread($socket, 1));
+            $b3 = ord(@fread($socket, 1));
+            $len = (($len & 0x1F) << 16) + ($b2 << 8) + $b3;
+        }
+
+        if ($len <= 0)
+            return '';
+
+        $data = '';
+        $remaining = $len;
+        while ($remaining > 0) {
+            $chunk = @fread($socket, $remaining);
+            if ($chunk === '' || $chunk === false)
+                break;
+            $data .= $chunk;
+            $remaining = $len - strlen($data);
+        }
+
+        return $data;
+    }
+
+    // ==================== CONFIGURATION ====================
+
+    /**
+     * Get current configuration (sanitized)
+     */
+    private function getConfig(): array
+    {
+        return [
+            'ssh' => [
+                'host' => $this->sshHost,
+                'port' => $this->sshPort,
+                'username' => $this->sshUsername,
+                'auth_method' => file_exists($this->privateKeyPath ?? '') ? 'ssh_key' : 'password',
+                'key_exists' => file_exists($this->privateKeyPath ?? ''),
+            ],
+            'api' => [
+                'host' => $this->apiHost,
+                'port' => $this->apiPort,
+                'username' => $this->apiUser,
+            ],
+        ];
     }
 }
