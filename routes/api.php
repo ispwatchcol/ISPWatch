@@ -70,6 +70,7 @@ Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreC
 
 // Diagnóstico: Probar creación de secret en el CORE
 Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
 
 /*
 |--------------------------------------------------------------------------
