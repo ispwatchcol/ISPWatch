@@ -60,7 +60,21 @@ class RegistrationController extends Controller
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:6|max:128',
             'phone' => 'nullable|string|max:20',
+            'verification_code' => 'required|string',
         ]);
+
+        // Verify Code
+        $cachedCode = \Illuminate\Support\Facades\Cache::get('verification_code_' . $data['email']);
+
+        if (!$cachedCode || $cachedCode != $data['verification_code']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Código de verificación inválido o expirado.',
+            ], 400);
+        }
+
+        // Remove code from cache to prevent reuse
+        \Illuminate\Support\Facades\Cache::forget('verification_code_' . $data['email']);
 
         // ===== 3. SECURITY CHECKS =====
         // Check for SQL injection patterns
@@ -131,6 +145,7 @@ class RegistrationController extends Controller
                 'role_id' => $roleId,
                 'tenant_id' => $tenant->id,
                 'status' => true,
+                'email_verified_at' => now(), // Email verified by code before creation
             ]);
 
             DB::commit();
@@ -146,7 +161,7 @@ class RegistrationController extends Controller
                 'ip' => $request->ip(),
             ]);
 
-            // 4. Send notification email to admin
+            // 5. Send notification email to admin
             $this->sendNotificationEmail($tenant, $user, $sanitizedData);
 
             return response()->json([
@@ -260,6 +275,34 @@ class RegistrationController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to send registration notification email: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Send verification code to email
+     */
+    public function sendVerificationCode(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        // Check if user already exists
+        if (User::where('email', $request->email)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Este correo ya está registrado.'], 400);
+        }
+
+        $email = $request->email;
+        $code = rand(100000, 999999);
+
+        // Store in cache for 10 minutes
+        \Illuminate\Support\Facades\Cache::put('verification_code_' . $email, $code, 600);
+
+        try {
+            Mail::to($email)->send(new \App\Mail\VerificationCodeMail($code));
+        } catch (\Exception $e) {
+            Log::error('Failed to send verification code', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Error al enviar el código. Intenta nuevamente.'], 500);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Código de verificación enviado.']);
     }
 
     /**

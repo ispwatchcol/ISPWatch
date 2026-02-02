@@ -15,12 +15,14 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RegistrationController;
+use App\Http\Controllers\VerificationController;
 
 /*
 |--------------------------------------------------------------------------
 | AUTH
 |--------------------------------------------------------------------------
 */
+Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 
 /*
@@ -29,6 +31,7 @@ Route::middleware('web')->post('/login', [AuthController::class, 'login']);
 |--------------------------------------------------------------------------
 */
 Route::post('/register', [RegistrationController::class, 'register']);
+Route::post('/register/send-code', [RegistrationController::class, 'sendVerificationCode']);
 
 /*
 |--------------------------------------------------------------------------
