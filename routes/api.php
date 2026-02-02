@@ -22,8 +22,7 @@ use App\Http\Controllers\VerificationController;
 | AUTH
 |--------------------------------------------------------------------------
 */
-Route::middleware('web')->post('/login', [AuthController::class, 'login']);
-Route::middleware('web')->post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login']);
 
 /*
 |--------------------------------------------------------------------------
