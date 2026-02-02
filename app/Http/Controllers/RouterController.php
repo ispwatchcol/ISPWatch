@@ -149,10 +149,21 @@ class RouterController extends Controller
         $vpnService = new VpnService();
         $script = $vpnService->generateScript($router);
 
+        // DIAGNÓSTICO: Re-intentar sincronización explícita para exponer el resultado/error al frontend
+        // Esto ayuda a depurar por qué falla silenciosamente en VpnService
+        $sshService = new MikroTikSshService();
+        $debugSync = $sshService->ensurePppSecret(
+            $router->vpn_username ?? 'unknown',
+            $router->vpn_password ?? 'unknown',
+            'l2tp',
+            'default-encryption'
+        );
+
         return response()->json([
             'success' => true,
             'script' => $script,
             'server_ip' => $vpnService->getServerPublicIp(),
+            'debug_sync_result' => $debugSync,
         ]);
     }
 
