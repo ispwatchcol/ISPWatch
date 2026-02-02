@@ -71,6 +71,14 @@ class AuthController extends Controller
                 return response()->json(['success' => false, 'message' => 'Credenciales incorrectas.'], 401);
             }
 
+            // CHECK EMAIL VERIFICATION
+            if (!$user->hasVerifiedEmail()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Por favor verifica tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada o usa la opción de reenviar correo.'
+                ], 403);
+            }
+
             // ===== 5. VERIFICAR CONTRASEÑA =====
             if (!Hash::check($request->password, $user->password)) {
                 $this->handleFailedAttempt($request, $rateLimitKey, $emailTenant);

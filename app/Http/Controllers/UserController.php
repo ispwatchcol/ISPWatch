@@ -84,6 +84,7 @@ class UserController extends Controller
 
         $data['password'] = Hash::make($data['password']);
         $data['status'] = true;
+        $data['email_verified_at'] = now();
         $data['created_at'] = now();
 
         try {
