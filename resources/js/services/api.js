@@ -51,7 +51,9 @@ export default {
   auth: {
     async login(credentials) {
       // First, get the CSRF cookie from Laravel Sanctum
-      await apiClient.get('/sanctum/csrf-cookie')
+      // IMPORTANT: this route is defined in routes/web.php WITHOUT the /api prefix,
+      // so we must call it on the root path, not through the /api baseURL.
+      await axios.get('/sanctum/csrf-cookie', { withCredentials: true })
 
       // Then perform the login with CSRF token in place
       return apiClient.post('/login', credentials)
@@ -59,7 +61,9 @@ export default {
 
     async register(userData) {
       // First, get the CSRF cookie from Laravel Sanctum
-      await apiClient.get('/sanctum/csrf-cookie')
+      // IMPORTANT: this route is defined in routes/web.php WITHOUT the /api prefix,
+      // so we must call it on the root path, not through the /api baseURL.
+      await axios.get('/sanctum/csrf-cookie', { withCredentials: true })
 
       // Then perform the registration with CSRF token in place
       return apiClient.post('/register', userData)
