@@ -27,6 +27,11 @@ const routes = [
     name: 'Register',
     component: Register,
   },
+  {
+    path: '/resend-verification',
+    name: 'ResendVerification',
+    component: () => import('@/pages/ResendVerification.vue'),
+  },
 
   {
     path: '/dashboard',

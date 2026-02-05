@@ -2,6 +2,53 @@
     <div
         class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 px-4 relative"
     >
+        <!-- ✅ NOTIFICACIÓN DE VERIFICACIÓN EXITOSA -->
+        <div 
+          v-if="showVerificationSuccess" 
+          class="fixed top-4 right-4 z-50 w-full max-w-md animate-slide-in-right"
+        >
+          <div class="bg-white rounded-2xl shadow-2xl p-6 border-2 border-green-400">
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-4">
+              <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-gray-900">✅ Email Verificado</h3>
+                <p class="text-sm text-gray-500">Tu cuenta está lista</p>
+              </div>
+              <button 
+                @click="closeVerificationNotification"
+                class="ml-auto p-1 hover:bg-gray-100 rounded-full transition"
+              >
+                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Success Message -->
+            <div class="bg-green-50 rounded-xl p-4 mb-4">
+              <p class="text-sm text-green-800 mb-3">
+                🎉 <strong>¡Tu correo ha sido verificado exitosamente!</strong>
+              </p>
+              <p class="text-sm text-green-700 mb-2">
+                Ahora puedes iniciar sesión con tus credenciales:
+              </p>
+              <div class="bg-white rounded-lg px-3 py-2 border border-green-200 font-mono text-sm text-gray-800">
+                👤 {{ verificationData.email_tenant }}
+              </div>
+            </div>
+
+            <!-- Company info -->
+            <div class="text-center text-xs text-gray-500">
+              {{ verificationData.company }}
+            </div>
+          </div>
+        </div>
+
         <!-- ✅ NOTIFICACIÓN DE CREDENCIALES (después del registro) -->
         <div 
           v-if="showCredentialsNotification" 
@@ -239,8 +286,37 @@ const newAccountCredentials = reactive({
     company_name: '',
 });
 
+// ✅ Notificación de verificación exitosa
+const showVerificationSuccess = ref(false);
+const verificationData = reactive({
+    email_tenant: '',
+    company: '',
+});
+
 // Verificar si hay credenciales de una cuenta recién creada
 onMounted(() => {
+    // Check for email verification success from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    if (urlParams.get('verified') === 'success') {
+        const email_tenant = urlParams.get('email_tenant');
+        const company = urlParams.get('company');
+        
+        if (email_tenant) {
+            verificationData.email_tenant = decodeURIComponent(email_tenant);
+            verificationData.company = company ? decodeURIComponent(company) : 'ISPWatch';
+            showVerificationSuccess.value = true;
+            
+            // Pre-fill login field
+            loginData.value.email_tenant = verificationData.email_tenant;
+            
+            // Clean URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+        }
+    }
+    
+    // Check for new account credentials
     const savedCredentials = localStorage.getItem('newAccountCredentials');
     if (savedCredentials) {
         try {
@@ -261,6 +337,11 @@ onMounted(() => {
 const closeCredentialsNotification = () => {
     showCredentialsNotification.value = false;
     localStorage.removeItem('newAccountCredentials');
+};
+
+// Cerrar notificación de verificación
+const closeVerificationNotification = () => {
+    showVerificationSuccess.value = false;
 };
 
 // ===== FUNCIONES DE SEGURIDAD =====

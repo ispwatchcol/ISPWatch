@@ -34,6 +34,17 @@ Route::post('/register/send-code', [RegistrationController::class, 'sendVerifica
 
 /*
 |--------------------------------------------------------------------------
+| EMAIL VERIFICATION
+|--------------------------------------------------------------------------
+*/
+Route::get('/verify-email/{id}/{hash}', [VerificationController::class, 'verify'])
+    ->middleware(['signed'])
+    ->name('verification.verify');
+Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
+    ->name('verification.resend');
+
+/*
+|--------------------------------------------------------------------------
 | DASHBOARD
 |--------------------------------------------------------------------------
 */

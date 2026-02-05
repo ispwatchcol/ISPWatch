@@ -56,6 +56,19 @@ export default {
       // Then perform the login with CSRF token in place
       return apiClient.post('/login', credentials)
     },
+
+    async register(userData) {
+      // First, get the CSRF cookie from Laravel Sanctum
+      await apiClient.get('/sanctum/csrf-cookie')
+
+      // Then perform the registration with CSRF token in place
+      return apiClient.post('/register', userData)
+    },
+
+    async resendVerification(email) {
+      // Resend email verification link
+      return apiClient.post('/verify-email/resend', { email })
+    },
   },
 
   // =========================
