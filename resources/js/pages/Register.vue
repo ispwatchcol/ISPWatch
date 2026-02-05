@@ -76,6 +76,9 @@
             maxlength="255"
             @paste="handlePaste($event, 'email')"
           />
+          <p class="text-xs text-gray-500 mt-1">
+            Usaremos este correo para enviarte un <strong>enlace de verificación</strong>.
+          </p>
         </div>
 
         <!-- Teléfono (opcional) -->
@@ -142,7 +145,7 @@
 <script setup>
 import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
-import { apiClient } from '../services/api';
+import api from '../services/api'; // Use default export with auth.register method
 
 const router = useRouter();
 
@@ -281,7 +284,6 @@ const handleRegister = async () => {
   successMessage.value = '';
 
   // ===== SECURITY VALIDATION =====
-  
   // 1. Detect injection attempts
   const fieldsToCheck = [form.company_name, form.name, form.email];
   for (const field of fieldsToCheck) {
@@ -322,7 +324,7 @@ const handleRegister = async () => {
   };
 
   try {
-    const response = await apiClient.post('/register', sanitizedData);
+    const response = await api.auth.register(sanitizedData);
 
     if (response.data.success) {
       // ✅ Save credentials in localStorage for Login page display
@@ -331,12 +333,7 @@ const handleRegister = async () => {
         company_name: response.data.data.company_name,
       }));
       
-      successMessage.value = '¡Cuenta creada! Redirigiendo al login...';
-      
-      // Redirect to Login after 1 second
-      setTimeout(() => {
-        router.push('/');
-      }, 1000);
+      successMessage.value = '¡Cuenta creada! Te enviamos un enlace de verificación a tu correo. Revisa tu bandeja de entrada para activar tu cuenta.';
     } else {
       errorMessage.value = response.data.message || 'Error al crear la cuenta.';
     }
@@ -345,6 +342,13 @@ const handleRegister = async () => {
     
     if (error.response?.status === 429) {
       errorMessage.value = error.response.data.message || 'Demasiados intentos. Espera unos minutos.';
+    } else if (error.response?.data?.requires_verification) {
+      // Redirect to resend verification page with email pre-filled
+      router.push({
+        name: 'ResendVerification',
+        query: { email: sanitizedData.email }
+      });
+      return;
     } else if (error.response?.data?.message) {
       errorMessage.value = error.response.data.message;
     } else if (error.response?.data?.errors) {

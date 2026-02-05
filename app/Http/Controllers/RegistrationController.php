@@ -57,24 +57,42 @@ class RegistrationController extends Controller
         $data = $request->validate([
             'company_name' => 'required|string|max:255|min:2',
             'name' => 'required|string|max:255|min:2',
-            'email' => 'required|email|max:255|unique:users,email',
+            'email' => 'required|email|max:255',
             'password' => 'required|string|min:6|max:128',
             'phone' => 'nullable|string|max:20',
-            'verification_code' => 'required|string',
         ]);
 
-        // Verify Code
-        $cachedCode = \Illuminate\Support\Facades\Cache::get('verification_code_' . $data['email']);
-
-        if (!$cachedCode || $cachedCode != $data['verification_code']) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Código de verificación inválido o expirado.',
-            ], 400);
+        // Check if email already exists
+        $existingUser = User::where('email', $data['email'])->first();
+        if ($existingUser) {
+            if (!$existingUser->hasVerifiedEmail()) {
+                // User exists but email is not verified - resend verification
+                try {
+                    $existingUser->sendEmailVerificationNotification();
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este correo ya está registrado pero no está verificado. Te hemos enviado un nuevo enlace de verificación a tu correo.',
+                        'requires_verification' => true,
+                    ], 400);
+                } catch (\Exception $e) {
+                    Log::error('Failed to resend verification email', [
+                        'user_id' => $existingUser->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este correo ya está registrado pero no está verificado. Por favor, solicita un nuevo enlace de verificación.',
+                        'requires_verification' => true,
+                    ], 400);
+                }
+            } else {
+                // Email already verified
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este correo electrónico ya está registrado y verificado. Por favor, inicia sesión.',
+                ], 400);
+            }
         }
-
-        // Remove code from cache to prevent reuse
-        \Illuminate\Support\Facades\Cache::forget('verification_code_' . $data['email']);
 
         // ===== 3. SECURITY CHECKS =====
         // Check for SQL injection patterns
@@ -145,13 +163,22 @@ class RegistrationController extends Controller
                 'role_id' => $roleId,
                 'tenant_id' => $tenant->id,
                 'status' => true,
-                'email_verified_at' => now(), // Email verified by code before creation
             ]);
 
             DB::commit();
 
             // Clear rate limiter on success
             RateLimiter::clear($rateLimitKey);
+
+            // Send email verification link
+            try {
+                $user->sendEmailVerificationNotification();
+            } catch (\Exception $e) {
+                Log::error('Failed to send verification email', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             // Log successful registration
             Log::info('New user registered', [
@@ -166,7 +193,7 @@ class RegistrationController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => '¡Cuenta creada exitosamente! Tu plan trial incluye hasta 30 clientes.',
+                'message' => '¡Cuenta creada exitosamente! Tu plan trial incluye hasta 30 clientes. Te enviamos un enlace de verificación a tu correo electrónico.',
                 'data' => [
                     'tenant_id' => $tenant->id,
                     'plan' => 'trial',

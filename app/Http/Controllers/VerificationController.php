@@ -17,27 +17,21 @@ class VerificationController extends Controller
         $user = User::findOrFail($id);
 
         if (!hash_equals((string) $hash, sha1($user->getEmailForVerification()))) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Link de verificación inválido o expirado.'
-            ], 400);
+            // Redirect to frontend with error
+            return redirect(env('VITE_APP_URL', 'http://localhost:5173') . '/?error=invalid_link&message=' . urlencode('Link de verificación inválido o expirado.'));
         }
 
         if ($user->hasVerifiedEmail()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'El correo ya ha sido verificado anteriormente.'
-            ]);
+            // Redirect to frontend with info that email was already verified
+            return redirect(env('VITE_APP_URL', 'http://localhost:5173') . '/?verified=already&message=' . urlencode('El correo ya ha sido verificado anteriormente.'));
         }
 
         if ($user->markEmailAsVerified()) {
             event(new Verified($user));
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => '¡Correo verificado exitosamente! Ya puedes iniciar sesión.'
-        ]);
+        // Redirect to frontend login with success message
+        return redirect(env('VITE_APP_URL', 'http://localhost:5173') . '/?verified=success&email_tenant=' . urlencode($user->email_tenant) . '&company=' . urlencode($user->tenant->name ?? 'ISPWatch'));
     }
 
     /**
