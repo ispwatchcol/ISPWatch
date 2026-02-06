@@ -1713,7 +1713,8 @@ class MikroTikSshService
 SCRIPT;
 
             // Build queue command - same format as firewall rules
-            $addCmd = "/queue simple add name={$queueName} target={$targetIp} max-limit={$maxLimit} comment=\"ISPWatch\"";
+            // Name must be quoted because it contains spaces
+            $addCmd = "/queue simple add name=\"{$queueName}\" target={$targetIp} max-limit={$maxLimit} comment=\"ISPWatch\"";
 
             // Create temporary script on CORE
             $scriptName = 'ispwatch_q_' . substr(uniqid(), -6);
