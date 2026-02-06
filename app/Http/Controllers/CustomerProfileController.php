@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\CustomerProfile;
+use App\Models\Plan;
+use App\Models\Router;
+use App\Services\MikroTikSshService;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Traits\FixesSequences;
@@ -233,10 +236,52 @@ class CustomerProfileController extends Controller
 
             DB::commit();
 
+            // Auto-provision Simple Queue if router has simple_queue enabled
+            $queueResult = null;
+            if (!empty($data['router_id']) && !empty($data['service_id']) && !empty($data['ip_user'])) {
+                try {
+                    $router = Router::find($data['router_id']);
+                    $servicePlan = Plan::find($data['service_id']);
+
+                    if ($router && $servicePlan && $router->simple_queue) {
+                        \Log::info('[CustomerProfile] Auto-provisioning Simple Queue', [
+                            'customer_id' => $customer->user_id,
+                            'router_id' => $router->id,
+                            'plan_id' => $servicePlan->id,
+                        ]);
+
+                        $mikrotik = app(MikroTikSshService::class);
+                        $queueResult = $mikrotik->syncQueueViaCore(
+                            $router->ip,
+                            $router->user_rb,
+                            $router->password_rb,
+                            $data['ip_user'],
+                            $data['name'],
+                            $data['last_name'],
+                            $servicePlan->speed_up,
+                            $servicePlan->speed_down,
+                            $router->puerto_api ?? 8728
+                        );
+
+                        if (!$queueResult['success']) {
+                            \Log::warning('[CustomerProfile] Queue sync failed (non-blocking)', [
+                                'error' => $queueResult['message'] ?? 'Unknown error',
+                            ]);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Log::warning('[CustomerProfile] Queue sync exception (non-blocking)', [
+                        'error' => $e->getMessage(),
+                    ]);
+                    $queueResult = ['success' => false, 'message' => $e->getMessage()];
+                }
+            }
+
             return response()->json([
                 'message' => 'Cliente creado correctamente. ✅',
                 'customer' => $customer,
-                'user' => $user
+                'user' => $user,
+                'queue_provisioned' => $queueResult,
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
