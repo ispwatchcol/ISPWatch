@@ -415,7 +415,6 @@ class MikroTikSshService
                     '=name=' . $username,
                     '=password=' . $password,
                     '=service=' . $service,
-                    '=profile=' . $profile,
                     '=comment=ISPWatch Auto',
                 ]);
                 $apiError = $this->apiReadUntilDoneWithError($socket);
