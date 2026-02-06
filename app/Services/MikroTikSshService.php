@@ -1456,6 +1456,266 @@ class MikroTikSshService
     }
 
     /**
+     * Sync Simple Queue on client router via API
+     * Strategy:
+     * 1. Try direct API connection to client router (works in local with VPN access)
+     * 2. If fails, use CORE as network bridge to reach client router via API
+     * 
+     * @param string $clientIp IP del router cliente (IP VPN asignada)
+     * @param string $clientUser Usuario del router cliente
+     * @param string $clientPass Password del router cliente
+     * @param string $targetIp IP del cliente que será el target de la queue
+     * @param string $customerName Nombre del cliente
+     * @param string $customerLastName Apellido del cliente
+     * @param string $speedUp Velocidad de subida (ej: "10M" o "10")
+     * @param string $speedDown Velocidad de bajada (ej: "20M" o "20")
+     * @param int $clientPort Puerto API del router cliente
+     */
+    public function syncQueueViaCore(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $targetIp,
+        string $customerName,
+        string $customerLastName,
+        string $speedUp,
+        string $speedDown,
+        int $clientPort = 8728
+    ): array {
+        try {
+            Log::info('[MikroTikCore] Sincronizando Simple Queue en router cliente', [
+                'client_ip' => $clientIp,
+                'target_ip' => $targetIp,
+                'customer' => "$customerName $customerLastName",
+                'speed' => "$speedUp/$speedDown",
+            ]);
+
+            // Normalize speeds: if numeric only, add 'M' suffix for megabits
+            if (is_numeric($speedUp)) {
+                $speedUp = $speedUp . 'M';
+            }
+            if (is_numeric($speedDown)) {
+                $speedDown = $speedDown . 'M';
+            }
+
+            $maxLimit = "{$speedUp}/{$speedDown}";
+            $queueName = "Client - {$customerName} {$customerLastName}";
+
+            // STRATEGY 1: Try direct API connection (works in local with VPN access)
+            $directSocket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 5);
+
+            if ($directSocket) {
+                Log::info('[MikroTikCore] Conexión API directa al cliente exitosa para sync queue');
+                return $this->syncQueueDirectApi($directSocket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+            }
+
+            Log::info('[MikroTikCore] API directa no disponible, usando CORE como puente de red', [
+                'direct_error' => $errstr,
+            ]);
+
+            // STRATEGY 2: Use CORE as network bridge to reach client router
+            // The CORE has VPN access to client routers, so we connect via CORE's network
+            return $this->syncQueueViaCoreNetwork($clientIp, $clientPort, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error sincronizando queue via CORE', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Sync queue using direct API connection to client router
+     */
+    private function syncQueueDirectApi($socket, string $clientUser, string $clientPass, string $targetIp, string $queueName, string $maxLimit): array
+    {
+        try {
+            stream_set_timeout($socket, 30);
+
+            if (!$this->apiLogin($socket, $clientUser, $clientPass)) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación en el router cliente',
+                ];
+            }
+
+            Log::info('[MikroTikCore] Login API exitoso, buscando queue existente', [
+                'target' => $targetIp,
+                'name' => $queueName,
+            ]);
+
+            // Search for existing queue by target IP
+            $this->apiSendCommand($socket, '/queue/simple/print', [
+                '?target=' . $targetIp . '/32',
+                '=.proplist=.id,name,target,max-limit',
+            ]);
+            $records = $this->apiReadAllRecords($socket);
+
+            $existingId = null;
+            if (!empty($records)) {
+                $existingId = $records[0]['.id'] ?? null;
+            } else {
+                // Try to find by name if not found by target
+                $this->apiSendCommand($socket, '/queue/simple/print', [
+                    '?name=' . $queueName,
+                    '=.proplist=.id,name,target,max-limit',
+                ]);
+                $records = $this->apiReadAllRecords($socket);
+                if (!empty($records)) {
+                    $existingId = $records[0]['.id'] ?? null;
+                }
+            }
+
+            if ($existingId) {
+                // UPDATE existing queue
+                Log::info('[MikroTikCore] Actualizando Simple Queue existente', ['id' => $existingId]);
+                $this->apiSendCommand($socket, '/queue/simple/set', [
+                    '=.id=' . $existingId,
+                    '=name=' . $queueName,
+                    '=target=' . $targetIp,
+                    '=max-limit=' . $maxLimit,
+                    '=comment=ISPWatch Auto-Provisioned',
+                ]);
+            } else {
+                // CREATE new queue
+                Log::info('[MikroTikCore] Creando nueva Simple Queue');
+                $this->apiSendCommand($socket, '/queue/simple/add', [
+                    '=name=' . $queueName,
+                    '=target=' . $targetIp,
+                    '=max-limit=' . $maxLimit,
+                    '=comment=ISPWatch Auto-Provisioned',
+                ]);
+            }
+
+            $error = $this->apiReadUntilDoneWithError($socket);
+            fclose($socket);
+
+            if ($error) {
+                Log::warning('[MikroTikCore] Error en comando de queue', ['error' => $error]);
+                return [
+                    'success' => false,
+                    'message' => 'Error al crear/actualizar queue: ' . $error,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'method' => 'DIRECT_API',
+                'message' => 'Simple Queue sincronizada correctamente via API directa',
+                'details' => [
+                    'name' => $queueName,
+                    'target' => $targetIp,
+                    'max_limit' => $maxLimit,
+                    'action' => $existingId ? 'updated' : 'created',
+                ],
+            ];
+
+        } catch (\Throwable $e) {
+            @fclose($socket);
+            Log::error('[MikroTikCore] Error en syncQueueDirectApi', ['error' => $e->getMessage()]);
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Sync queue using CORE as network bridge to reach client router via API
+     * The CORE has VPN access to client routers
+     */
+    private function syncQueueViaCoreNetwork(string $clientIp, int $clientPort, string $clientUser, string $clientPass, string $targetIp, string $queueName, string $maxLimit): array
+    {
+        try {
+            Log::info('[MikroTikCore] Conectando al CORE para verificar conectividad con cliente');
+
+            // First, connect to CORE to verify client is reachable
+            $coreSocket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+
+            if (!$coreSocket) {
+                return [
+                    'success' => false,
+                    'message' => "No se pudo conectar al CORE via API: $errstr",
+                ];
+            }
+
+            stream_set_timeout($coreSocket, 30);
+
+            if (!$this->apiLogin($coreSocket, $this->apiUser, $this->apiPass)) {
+                fclose($coreSocket);
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación al CORE',
+                ];
+            }
+
+            // Verify connectivity with ping from CORE to client
+            $this->apiSendCommand($coreSocket, '/ping', [
+                '=address=' . $clientIp,
+                '=count=1',
+            ]);
+            $pingRecords = $this->apiReadAllRecords($coreSocket);
+
+            $pingSuccess = false;
+            foreach ($pingRecords as $record) {
+                if (isset($record['time']) && $record['time'] !== 'timeout') {
+                    $pingSuccess = true;
+                    break;
+                }
+            }
+
+            fclose($coreSocket);
+
+            if (!$pingSuccess) {
+                return [
+                    'success' => false,
+                    'message' => "El router cliente $clientIp no responde al ping. Verifica que la VPN esté activa.",
+                ];
+            }
+
+            // Client is reachable from CORE, now try API connection 
+            // (Laravel should also have network access since CORE can reach it)
+            Log::info('[MikroTikCore] Cliente responde al ping, intentando conexión API al cliente');
+
+            // Try connecting to client router API (might work if there's network routing)
+            $clientSocket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 10);
+
+            if ($clientSocket) {
+                Log::info('[MikroTikCore] Conexión API al cliente exitosa via red CORE');
+                return $this->syncQueueDirectApi($clientSocket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+            }
+
+            // If direct connection still fails, we can't sync the queue automatically
+            // The application server doesn't have direct network access to the client router
+            Log::warning('[MikroTikCore] No se puede conectar al router cliente. El servidor no tiene acceso de red.', [
+                'client_ip' => $clientIp,
+                'client_port' => $clientPort,
+                'error' => $errstr,
+            ]);
+
+            return [
+                'success' => false,
+                'message' => "No se puede conectar al router cliente $clientIp:$clientPort. El cliente es alcanzable desde el CORE pero no desde el servidor de la aplicación.",
+                'suggestion' => 'Provisiónalo manualmente desde Clientes → Provisionar',
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error en syncQueueViaCoreNetwork', ['error' => $e->getMessage()]);
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Test command execution on client via CORE
      */
     public function testExecuteOnClient(string $clientIp, string $clientUser, string $clientPass, string $command): array
