@@ -326,8 +326,9 @@ class CustomerProfileController extends Controller
 
     /**
      * Provision customer to Mikrotik Router.
+     * Uses MikroTikSshService.syncQueueViaCore which works from production (DigitalOcean)
      */
-    public function provision($id, \App\Services\RouterApiService $routerApi)
+    public function provision($id)
     {
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
 
@@ -343,8 +344,14 @@ class CustomerProfileController extends Controller
             ], 400);
         }
 
-        $router = \App\Models\Router::find($customer->router_id);
-        $servicePlan = \App\Models\Plan::find($customer->service_id);
+        if (!$customer->ip_user) {
+            return response()->json([
+                'message' => 'El cliente no tiene una IP asignada.',
+            ], 400);
+        }
+
+        $router = Router::find($customer->router_id);
+        $servicePlan = Plan::find($customer->service_id);
 
         if (!$router) {
             return response()->json([
@@ -352,7 +359,25 @@ class CustomerProfileController extends Controller
             ], 404);
         }
 
-        $result = $routerApi->syncCustomer($router, $customer, $servicePlan);
+        if (!$servicePlan) {
+            return response()->json([
+                'message' => 'Plan de servicio no encontrado.',
+            ], 404);
+        }
+
+        // Use syncQueueViaCore which works from production (via CORE ssh-exec)
+        $mikrotik = app(MikroTikSshService::class);
+        $result = $mikrotik->syncQueueViaCore(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $customer->ip_user,
+            $customer->name,
+            $customer->last_name,
+            $servicePlan->speed_up,
+            $servicePlan->speed_down,
+            $router->puerto_api ?? 8728
+        );
 
         if ($result['success']) {
             return response()->json($result);
@@ -363,8 +388,9 @@ class CustomerProfileController extends Controller
 
     /**
      * Bulk provision multiple customers to their assigned Mikrotik Routers.
+     * Uses MikroTikSshService.syncQueueViaCore which works from production (DigitalOcean)
      */
-    public function bulkProvision(Request $request, \App\Services\RouterApiService $routerApi)
+    public function bulkProvision(Request $request)
     {
         $data = $request->validate([
             'customer_ids' => 'required|array',
@@ -374,6 +400,8 @@ class CustomerProfileController extends Controller
         $results = [];
         $successCount = 0;
         $failCount = 0;
+
+        $mikrotik = app(MikroTikSshService::class);
 
         foreach ($data['customer_ids'] as $customerId) {
             $customer = CustomerProfile::where('user_id', $customerId)->first();
@@ -399,8 +427,19 @@ class CustomerProfileController extends Controller
                 continue;
             }
 
-            $router = \App\Models\Router::find($customer->router_id);
-            $servicePlan = \App\Models\Plan::find($customer->service_id);
+            if (!$customer->ip_user) {
+                $results[] = [
+                    'customer_id' => $customerId,
+                    'customer_name' => "{$customer->name} {$customer->last_name}",
+                    'success' => false,
+                    'message' => 'Cliente sin IP asignada',
+                ];
+                $failCount++;
+                continue;
+            }
+
+            $router = Router::find($customer->router_id);
+            $servicePlan = Plan::find($customer->service_id);
 
             if (!$router) {
                 $results[] = [
@@ -413,7 +452,29 @@ class CustomerProfileController extends Controller
                 continue;
             }
 
-            $result = $routerApi->syncCustomer($router, $customer, $servicePlan);
+            if (!$servicePlan) {
+                $results[] = [
+                    'customer_id' => $customerId,
+                    'customer_name' => "{$customer->name} {$customer->last_name}",
+                    'success' => false,
+                    'message' => 'Plan de servicio no encontrado',
+                ];
+                $failCount++;
+                continue;
+            }
+
+            // Use syncQueueViaCore which works from production (via CORE ssh-exec)
+            $result = $mikrotik->syncQueueViaCore(
+                $router->ip,
+                $router->user_rb,
+                $router->password_rb,
+                $customer->ip_user,
+                $customer->name,
+                $customer->last_name,
+                $servicePlan->speed_up,
+                $servicePlan->speed_down,
+                $router->puerto_api ?? 8728
+            );
 
             $results[] = [
                 'customer_id' => $customerId,
