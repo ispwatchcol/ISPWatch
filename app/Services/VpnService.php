@@ -145,7 +145,7 @@ add name="ISPWatch-VPN-CORE" \\
     password="{$vpnPassword}" \\
     use-ipsec=yes \\
     ipsec-secret="{$this->ipsecSecret}" \\
-    profile=default-encryption \\
+    profile=default \\
     add-default-route=no \\
     disabled=no
 
@@ -235,7 +235,7 @@ SCRIPT;
             ]);
 
             $sshService = new MikroTikSshService();
-            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default-encryption');
+            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default');
 
             Log::info('[VPN] Resultado de sincronización de secret', [
                 'success' => $result['success'],
