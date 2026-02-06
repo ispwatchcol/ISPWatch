@@ -324,7 +324,7 @@ class MikroTikSshService
      * Create or Update PPP secret
      * Uses API ONLY (SSH fallback disabled for production - causes timeouts)
      */
-    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default-encryption'): array
+    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default'): array
     {
         // Use API only - SSH is blocked by Cloudflare in production and causes timeouts
         $apiResult = $this->ensurePppSecretViaApi($username, $password, $service, $profile);
@@ -420,6 +420,12 @@ class MikroTikSshService
                 ]);
                 $apiError = $this->apiReadUntilDoneWithError($socket);
                 $action = 'created';
+
+                Log::info('[MikroTikCore] Respuesta de creación de secret', [
+                    'username' => $username,
+                    'api_error' => $apiError,
+                    'error_is_null' => is_null($apiError),
+                ]);
             }
 
             // Verificar si hubo error en la respuesta de la API
@@ -437,11 +443,21 @@ class MikroTikSshService
                 ];
             }
 
+            // Pequeña pausa para asegurar que MikroTik procesó el comando
+            usleep(100000); // 100ms
+
             // Verificar que el secret se creó correctamente
+            Log::info('[MikroTikCore] Verificando secret creado', ['username' => $username]);
             $this->apiSendCommand($socket, '/ppp/secret/print', [
                 '?name=' . $username,
             ]);
             $verification = $this->apiReadAllRecords($socket);
+
+            Log::info('[MikroTikCore] Resultado de verificación', [
+                'username' => $username,
+                'verification_count' => count($verification),
+                'verification_data' => $verification,
+            ]);
 
             fclose($socket);
 

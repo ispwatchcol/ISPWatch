@@ -156,7 +156,7 @@ class RouterController extends Controller
             $router->vpn_username ?? 'unknown',
             $router->vpn_password ?? 'unknown',
             'l2tp',
-            'default-encryption'
+            'default'
         );
 
         return response()->json([
@@ -434,7 +434,7 @@ class RouterController extends Controller
 
         // Intentar sincronizar el secret
         $sshService = new MikroTikSshService();
-        $result = $sshService->ensurePppSecret($vpnUsername, $vpnPassword, 'l2tp', 'default-encryption');
+        $result = $sshService->ensurePppSecret($vpnUsername, $vpnPassword, 'l2tp', 'default');
 
         return response()->json([
             'router_id' => $router->id,
