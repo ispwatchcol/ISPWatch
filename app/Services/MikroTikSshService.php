@@ -351,7 +351,7 @@ class MikroTikSshService
                 'api_port' => $this->apiPort,
             ]);
 
-            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 5); // Reduced from 10s
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
 
             if (!$socket) {
                 Log::error('[MikroTikCore] API connection failed', [
@@ -363,6 +363,8 @@ class MikroTikSshService
                 return ['success' => false, 'message' => "API connection failed: $errstr"];
             }
 
+            // Configure socket for reliable communication
+            stream_set_blocking($socket, true);
             stream_set_timeout($socket, $this->timeout);
 
             if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
@@ -1316,7 +1318,10 @@ class MikroTikSshService
         foreach ($params as $param) {
             $this->apiWriteWord($socket, $param);
         }
-        fwrite($socket, chr(0));
+        $result = @fwrite($socket, chr(0));
+        if ($result === false) {
+            throw new \RuntimeException('Socket write failed: Broken pipe or connection closed');
+        }
     }
 
     /**
@@ -1421,18 +1426,34 @@ class MikroTikSshService
     private function apiWriteWord($socket, string $word): void
     {
         $len = strlen($word);
+        $result = false;
+
         if ($len < 0x80) {
-            fwrite($socket, chr($len));
+            $result = @fwrite($socket, chr($len));
         } elseif ($len < 0x4000) {
             $len |= 0x8000;
-            fwrite($socket, chr(($len >> 8) & 0xFF));
-            fwrite($socket, chr($len & 0xFF));
+            $result = @fwrite($socket, chr(($len >> 8) & 0xFF));
+            if ($result !== false) {
+                $result = @fwrite($socket, chr($len & 0xFF));
+            }
         } else {
-            fwrite($socket, chr(($len >> 16) & 0xFF));
-            fwrite($socket, chr(($len >> 8) & 0xFF));
-            fwrite($socket, chr($len & 0xFF));
+            $result = @fwrite($socket, chr(($len >> 16) & 0xFF));
+            if ($result !== false) {
+                $result = @fwrite($socket, chr(($len >> 8) & 0xFF));
+            }
+            if ($result !== false) {
+                $result = @fwrite($socket, chr($len & 0xFF));
+            }
         }
-        fwrite($socket, $word);
+
+        if ($result === false) {
+            throw new \RuntimeException('Socket write failed: Broken pipe or connection closed');
+        }
+
+        $result = @fwrite($socket, $word);
+        if ($result === false) {
+            throw new \RuntimeException('Socket write failed: Broken pipe or connection closed');
+        }
     }
 
     /**
