@@ -1712,19 +1712,26 @@ class MikroTikSshService
 }
 SCRIPT;
 
-            // Since we can't easily transfer multi-line scripts via ssh-exec, use a simpler approach:
-            // Just try to remove existing and add new (idempotent)
-            $removeCmd = "/queue simple remove [find name=\\\"$queueName\\\"]";
-            $addCmd = "/queue simple add name=\\\"$queueName\\\" target=$targetIp max-limit=$maxLimit comment=\\\"ISPWatch Auto-Provisioned\\\"";
+            // Build queue command - same format as firewall rules
+            $addCmd = "/queue simple add name={$queueName} target={$targetIp} max-limit={$maxLimit} comment=\"ISPWatch\"";
 
-            // Create temporary script on CORE to execute ssh commands on client
-            $scriptName = 'ispwatch_queue_sync_' . uniqid();
-            $sshExecCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\\\"{$safePass}\\\" command=\\\"{$removeCmd}; {$addCmd}\\\"";
+            // Create temporary script on CORE
+            $scriptName = 'ispwatch_q_' . substr(uniqid(), -6);
+
+            // Build ssh-exec command - EXACT format that works for firewall rules
+            // Uses addslashes() like applyBlockRulesViaCoreApi does
+            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($addCmd) . "\"";
+
+            Log::info('[MikroTikCore] ssh-exec command', [
+                'script_name' => $scriptName,
+                'client_ip' => $clientIp,
+                'command' => $addCmd,
+            ]);
 
             // Create the script
             $this->apiSendCommand($socket, '/system/script/add', [
                 '=name=' . $scriptName,
-                '=source=' . $sshExecCommand,
+                '=source=' . $scriptSource,
             ]);
             $addError = $this->apiReadUntilDoneWithError($socket);
 
@@ -1752,20 +1759,29 @@ SCRIPT;
             fclose($socket);
 
             if ($runError) {
-                // ssh-exec might report "expected end of command" which can be a false positive
-                // Log it but still consider it a partial success
-                Log::warning('[MikroTikCore] ssh-exec returned message', ['output' => $runError]);
+                // Check if it's a "queue exists" error which means success
+                if (str_contains($runError, 'already have') || str_contains($runError, 'entry already exists')) {
+                    return [
+                        'success' => true,
+                        'method' => 'CORE_SSH_EXEC',
+                        'message' => 'Queue ya existe (no se duplicó)',
+                        'details' => [
+                            'name' => $queueName,
+                            'target' => $targetIp,
+                        ],
+                    ];
+                }
+
+                Log::warning('[MikroTikCore] ssh-exec error', ['error' => $runError]);
 
                 return [
-                    'success' => true,
+                    'success' => false,
                     'method' => 'CORE_SSH_EXEC',
-                    'message' => 'Queue command enviado via CORE (revisar router para confirmar)',
+                    'message' => 'Error: ' . $runError,
                     'details' => [
                         'name' => $queueName,
                         'target' => $targetIp,
-                        'max_limit' => $maxLimit,
                     ],
-                    'warning' => $runError,
                 ];
             }
 
@@ -2229,3 +2245,4 @@ SCRIPT;
         ];
     }
 }
+
