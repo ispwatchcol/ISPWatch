@@ -62,25 +62,27 @@ Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bul
 Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend']);
 Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
 
-// VPN Routes
-Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
-Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
+// VPN Routes (require authentication)
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
+    Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
 
-// Router Interfaces Routes
-Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
-Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
+    // Router Interfaces Routes
+    Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
+    Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
 
-// Firewall Block Rules
-Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
-Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
-Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
+    // Firewall Block Rules
+    Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
+    Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
+    Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
 
-// Test MikroTik CORE connection
-Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
+    // Test MikroTik CORE connection
+    Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
 
-// Diagnóstico: Probar creación de secret en el CORE
-Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
-Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+    // Diagnóstico: Probar creación de secret en el CORE
+    Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+    Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+});
 
 /*
 |--------------------------------------------------------------------------
