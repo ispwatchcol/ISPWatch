@@ -82,6 +82,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Diagnóstico: Probar creación de secret en el CORE
     Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
     Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+
+    // Diagnóstico: Probar sincronización de queue en router cliente
+    Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
 });
 
 /*

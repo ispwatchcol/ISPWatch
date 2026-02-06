@@ -445,4 +445,41 @@ class RouterController extends Controller
             'timestamp' => now()->toIso8601String(),
         ]);
     }
+
+    /**
+     * Diagnostic endpoint to test queue sync on a router
+     * Tests the ssh-exec mechanism from CORE to client
+     */
+    public function testQueueSync(Router $router)
+    {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Router sin credenciales configuradas',
+            ], 400);
+        }
+
+        $sshService = new MikroTikSshService();
+
+        // Test with a dummy queue to see if ssh-exec works
+        $result = $sshService->syncQueueViaCore(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            '192.168.88.254',  // Dummy target IP for testing
+            'Test',
+            'Queue',
+            '1M',
+            '1M',
+            $router->puerto_api ?? 8728
+        );
+
+        return response()->json([
+            'router_id' => $router->id,
+            'router_name' => $router->name,
+            'router_ip' => $router->ip,
+            'test_result' => $result,
+            'timestamp' => now()->toIso8601String(),
+        ]);
+    }
 }
