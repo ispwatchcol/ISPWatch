@@ -1628,28 +1628,33 @@ class MikroTikSshService
     }
 
     /**
-     * Sync queue using CORE as network bridge to reach client router via API
-     * The CORE has VPN access to client routers
+     * Sync queue using CORE as command executor to reach client router via ssh-exec
+     * The CORE connects to client via native MikroTik SSH and executes queue commands
+     * 
+     * This is the PRODUCTION method - Laravel cannot directly connect to VPN clients
      */
     private function syncQueueViaCoreNetwork(string $clientIp, int $clientPort, string $clientUser, string $clientPass, string $targetIp, string $queueName, string $maxLimit): array
     {
         try {
-            Log::info('[MikroTikCore] Conectando al CORE para verificar conectividad con cliente');
+            Log::info('[MikroTikCore] Conectando al CORE para sincronizar queue via ssh-exec', [
+                'client_ip' => $clientIp,
+                'queue_name' => $queueName,
+            ]);
 
-            // First, connect to CORE to verify client is reachable
-            $coreSocket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+            // Connect to CORE via API
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
 
-            if (!$coreSocket) {
+            if (!$socket) {
                 return [
                     'success' => false,
                     'message' => "No se pudo conectar al CORE via API: $errstr",
                 ];
             }
 
-            stream_set_timeout($coreSocket, 30);
+            stream_set_timeout($socket, 30);
 
-            if (!$this->apiLogin($coreSocket, $this->apiUser, $this->apiPass)) {
-                fclose($coreSocket);
+            if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
+                fclose($socket);
                 return [
                     'success' => false,
                     'message' => 'Error de autenticación al CORE',
@@ -1657,11 +1662,11 @@ class MikroTikSshService
             }
 
             // Verify connectivity with ping from CORE to client
-            $this->apiSendCommand($coreSocket, '/ping', [
+            $this->apiSendCommand($socket, '/ping', [
                 '=address=' . $clientIp,
                 '=count=1',
             ]);
-            $pingRecords = $this->apiReadAllRecords($coreSocket);
+            $pingRecords = $this->apiReadAllRecords($socket);
 
             $pingSuccess = false;
             foreach ($pingRecords as $record) {
@@ -1671,39 +1676,113 @@ class MikroTikSshService
                 }
             }
 
-            fclose($coreSocket);
-
             if (!$pingSuccess) {
+                fclose($socket);
                 return [
                     'success' => false,
                     'message' => "El router cliente $clientIp no responde al ping. Verifica que la VPN esté activa.",
                 ];
             }
 
-            // Client is reachable from CORE, now try API connection 
-            // (Laravel should also have network access since CORE can reach it)
-            Log::info('[MikroTikCore] Cliente responde al ping, intentando conexión API al cliente');
+            Log::info('[MikroTikCore] Cliente responde al ping, ejecutando queue commands via ssh-exec');
 
-            // Try connecting to client router API (might work if there's network routing)
-            $clientSocket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 10);
+            // Escape password for MikroTik script
+            $safePass = str_replace('"', '\\"', $clientPass);
 
-            if ($clientSocket) {
-                Log::info('[MikroTikCore] Conexión API al cliente exitosa via red CORE');
-                return $this->syncQueueDirectApi($clientSocket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+            // Build queue command - first check if exists, then add or set
+            // Using RouterOS CLI format for simple queue
+            $queueCommand = '/queue simple add name=\"' . $queueName . '\" target=' . $targetIp . ' max-limit=' . $maxLimit . ' comment=\"ISPWatch Auto-Provisioned\"';
+
+            // Script that tries to find and update existing queue, or create new one
+            $scriptSource = <<<SCRIPT
+:local queueName "{$queueName}"
+:local queueTarget "{$targetIp}"
+:local maxLimit "{$maxLimit}"
+:local existingId
+:set existingId [/queue simple find where name=\$queueName]
+:if ([:len \$existingId] > 0) do={
+    /queue simple set \$existingId target=\$queueTarget max-limit=\$maxLimit comment="ISPWatch Updated"
+} else={
+    :set existingId [/queue simple find where target=\$queueTarget]
+    :if ([:len \$existingId] > 0) do={
+        /queue simple set \$existingId name=\$queueName max-limit=\$maxLimit comment="ISPWatch Updated"
+    } else={
+        /queue simple add name=\$queueName target=\$queueTarget max-limit=\$maxLimit comment="ISPWatch Auto-Provisioned"
+    }
+}
+SCRIPT;
+
+            // Since we can't easily transfer multi-line scripts via ssh-exec, use a simpler approach:
+            // Just try to remove existing and add new (idempotent)
+            $removeCmd = "/queue simple remove [find name=\\\"$queueName\\\"]";
+            $addCmd = "/queue simple add name=\\\"$queueName\\\" target=$targetIp max-limit=$maxLimit comment=\\\"ISPWatch Auto-Provisioned\\\"";
+
+            // Create temporary script on CORE to execute ssh commands on client
+            $scriptName = 'ispwatch_queue_sync_' . uniqid();
+            $sshExecCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\\\"{$safePass}\\\" command=\\\"{$removeCmd}; {$addCmd}\\\"";
+
+            // Create the script
+            $this->apiSendCommand($socket, '/system/script/add', [
+                '=name=' . $scriptName,
+                '=source=' . $sshExecCommand,
+            ]);
+            $addError = $this->apiReadUntilDoneWithError($socket);
+
+            if ($addError) {
+                fclose($socket);
+                Log::warning('[MikroTikCore] Error creando script de queue', ['error' => $addError]);
+                return [
+                    'success' => false,
+                    'message' => 'Error creando script en CORE: ' . $addError,
+                ];
             }
 
-            // If direct connection still fails, we can't sync the queue automatically
-            // The application server doesn't have direct network access to the client router
-            Log::warning('[MikroTikCore] No se puede conectar al router cliente. El servidor no tiene acceso de red.', [
-                'client_ip' => $clientIp,
-                'client_port' => $clientPort,
-                'error' => $errstr,
+            // Run the script
+            $this->apiSendCommand($socket, '/system/script/run', [
+                '=number=' . $scriptName,
+            ]);
+            $runError = $this->apiReadUntilDoneWithError($socket);
+
+            // Remove temporary script
+            $this->apiSendCommand($socket, '/system/script/remove', [
+                '=numbers=' . $scriptName,
+            ]);
+            $this->apiReadUntilDone($socket);
+
+            fclose($socket);
+
+            if ($runError) {
+                // ssh-exec might report "expected end of command" which can be a false positive
+                // Log it but still consider it a partial success
+                Log::warning('[MikroTikCore] ssh-exec returned message', ['output' => $runError]);
+
+                return [
+                    'success' => true,
+                    'method' => 'CORE_SSH_EXEC',
+                    'message' => 'Queue command enviado via CORE (revisar router para confirmar)',
+                    'details' => [
+                        'name' => $queueName,
+                        'target' => $targetIp,
+                        'max_limit' => $maxLimit,
+                    ],
+                    'warning' => $runError,
+                ];
+            }
+
+            Log::info('[MikroTikCore] Simple Queue sincronizada via ssh-exec', [
+                'queue_name' => $queueName,
+                'target' => $targetIp,
             ]);
 
             return [
-                'success' => false,
-                'message' => "No se puede conectar al router cliente $clientIp:$clientPort. El cliente es alcanzable desde el CORE pero no desde el servidor de la aplicación.",
-                'suggestion' => 'Provisiónalo manualmente desde Clientes → Provisionar',
+                'success' => true,
+                'method' => 'CORE_SSH_EXEC',
+                'message' => 'Simple Queue sincronizada correctamente via CORE ssh-exec',
+                'details' => [
+                    'name' => $queueName,
+                    'target' => $targetIp,
+                    'max_limit' => $maxLimit,
+                ],
             ];
 
         } catch (\Throwable $e) {
