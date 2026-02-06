@@ -933,6 +933,22 @@ const payload = {
 }
 
 /* ============================
+   CSRF TOKEN HELPER
+============================ */
+const getCsrfToken = () => {
+  const name = 'XSRF-TOKEN='
+  const decodedCookie = decodeURIComponent(document.cookie)
+  const cookies = decodedCookie.split(';')
+  for (let cookie of cookies) {
+    cookie = cookie.trim()
+    if (cookie.indexOf(name) === 0) {
+      return cookie.substring(name.length, cookie.length)
+    }
+  }
+  return ''
+}
+
+/* ============================
    VPN SCRIPT FUNCTIONS
 ============================ */
 const loadVpnScript = async () => {
@@ -940,7 +956,13 @@ const loadVpnScript = async () => {
   
   loadingScript.value = true
   try {
-    const response = await fetch(`/api/routers/${routerId}/vpn-script`)
+    const response = await fetch(`/api/routers/${routerId}/vpn-script`, {
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+        'X-XSRF-TOKEN': getCsrfToken(),
+      },
+    })
     const data = await response.json()
     
     if (data.success) {
@@ -979,8 +1001,11 @@ const verifyConnection = async () => {
   try {
     const response = await fetch(`/api/routers/${routerId}/verify-vpn`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-XSRF-TOKEN': getCsrfToken(),
       },
     })
     const data = await response.json()
