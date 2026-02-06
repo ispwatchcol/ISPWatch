@@ -1380,6 +1380,12 @@ class MikroTikSshService
             }
         }
 
+        // Log for debugging
+        Log::info('[MikroTikCore] apiReadAllRecords completed', [
+            'records_count' => count($records),
+            'records' => $records,
+        ]);
+
         return $records;
     }
 
@@ -1406,10 +1412,12 @@ class MikroTikSshService
         $count = 0;
         $trapMessage = null;
         $gotTrap = false;
+        $allWords = []; // Capture all words for debugging
 
         while ($count < 100) {
             $word = $this->apiReadWord($socket);
             $count++;
+            $allWords[] = $word; // Log all words
 
             if ($word === '!trap') {
                 $gotTrap = true;
@@ -1431,6 +1439,14 @@ class MikroTikSshService
                 continue;
             }
         }
+
+        // Log all words received for debugging
+        Log::info('[MikroTikCore] API Response Words', [
+            'words_count' => count($allWords),
+            'words' => $allWords,
+            'got_trap' => $gotTrap,
+            'trap_message' => $trapMessage,
+        ]);
 
         return $trapMessage;
     }
