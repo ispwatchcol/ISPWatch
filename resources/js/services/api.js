@@ -53,7 +53,11 @@ export default {
       // First, get the CSRF cookie from Laravel Sanctum
       // IMPORTANT: this route is defined in routes/web.php WITHOUT the /api prefix,
       // so we must call it on the root path, not through the /api baseURL.
-      await axios.get('/sanctum/csrf-cookie', { withCredentials: true })
+      // In production, we need to use the full base URL to ensure the cookie is set correctly
+      const baseUrl = import.meta.env.VITE_API_URL
+        ? new URL(import.meta.env.VITE_API_URL).origin
+        : window.location.origin;
+      await axios.get(`${baseUrl}/sanctum/csrf-cookie`, { withCredentials: true })
 
       // Then perform the login with CSRF token in place
       return apiClient.post('/login', credentials)
@@ -63,7 +67,11 @@ export default {
       // First, get the CSRF cookie from Laravel Sanctum
       // IMPORTANT: this route is defined in routes/web.php WITHOUT the /api prefix,
       // so we must call it on the root path, not through the /api baseURL.
-      await axios.get('/sanctum/csrf-cookie', { withCredentials: true })
+      // In production, we need to use the full base URL to ensure the cookie is set correctly
+      const baseUrl = import.meta.env.VITE_API_URL
+        ? new URL(import.meta.env.VITE_API_URL).origin
+        : window.location.origin;
+      await axios.get(`${baseUrl}/sanctum/csrf-cookie`, { withCredentials: true })
 
       // Then perform the registration with CSRF token in place
       return apiClient.post('/register', userData)
