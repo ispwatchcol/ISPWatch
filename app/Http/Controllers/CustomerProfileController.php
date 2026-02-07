@@ -503,7 +503,7 @@ class CustomerProfileController extends Controller
     /**
      * Suspend a customer (set status to false and add IP to router block list).
      */
-    public function suspend($id, \App\Services\RouterApiService $routerApi)
+    public function suspend($id)
     {
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
 
@@ -516,19 +516,25 @@ class CustomerProfileController extends Controller
         // Update status
         $customer->update(['status' => false]);
 
-        // If router assigned, add IP to block list
+        // If router assigned, add IP to block list via CORE
         if ($customer->router_id && $customer->ip_user) {
             $router = \App\Models\Router::find($customer->router_id);
             if ($router) {
-                $result = $routerApi->addSuspendedIp(
-                    $router,
+                $mikrotik = new \App\Services\MikroTikSshService();
+                $result = $mikrotik->addSuspendedIpViaCore(
+                    $router->ip,
+                    $router->user_rb,
+                    $router->password_rb,
                     $customer->ip_user,
-                    "{$customer->name} {$customer->last_name}"
+                    "{$customer->name} {$customer->last_name}",
+                    $router->puerto_api ?? 8728
                 );
 
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Cliente suspendido correctamente.',
+                    'success' => $result['success'],
+                    'message' => $result['success']
+                        ? 'Cliente suspendido correctamente.'
+                        : 'Cliente suspendido en BD pero error en router: ' . ($result['message'] ?? 'desconocido'),
                     'router_result' => $result,
                 ]);
             }
@@ -543,7 +549,7 @@ class CustomerProfileController extends Controller
     /**
      * Activate a customer (set status to true and remove IP from router block list).
      */
-    public function activate($id, \App\Services\RouterApiService $routerApi)
+    public function activate($id)
     {
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
 
@@ -556,15 +562,24 @@ class CustomerProfileController extends Controller
         // Update status
         $customer->update(['status' => true]);
 
-        // If router assigned, remove IP from block list
+        // If router assigned, remove IP from block list via CORE
         if ($customer->router_id && $customer->ip_user) {
             $router = \App\Models\Router::find($customer->router_id);
             if ($router) {
-                $result = $routerApi->removeSuspendedIp($router, $customer->ip_user);
+                $mikrotik = new \App\Services\MikroTikSshService();
+                $result = $mikrotik->removeSuspendedIpViaCore(
+                    $router->ip,
+                    $router->user_rb,
+                    $router->password_rb,
+                    $customer->ip_user,
+                    $router->puerto_api ?? 8728
+                );
 
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Cliente activado correctamente.',
+                    'success' => $result['success'],
+                    'message' => $result['success']
+                        ? 'Cliente activado correctamente.'
+                        : 'Cliente activado en BD pero error en router: ' . ($result['message'] ?? 'desconocido'),
                     'router_result' => $result,
                 ]);
             }
