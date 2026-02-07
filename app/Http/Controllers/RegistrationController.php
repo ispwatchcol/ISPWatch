@@ -19,10 +19,7 @@ class RegistrationController extends Controller
 {
     use FixesSequences, InputSanitizer;
 
-    /**
-     * Admin email to receive notifications
-     */
-    private const ADMIN_NOTIFICATION_EMAIL = 'axelcano1711@gmail.com';
+
 
     /**
      * Rate limiting configuration
@@ -188,8 +185,7 @@ class RegistrationController extends Controller
                 'ip' => $request->ip(),
             ]);
 
-            // 5. Send notification email to admin
-            $this->sendNotificationEmail($tenant, $user, $sanitizedData);
+
 
             return response()->json([
                 'success' => true,
@@ -240,69 +236,7 @@ class RegistrationController extends Controller
         return $slug . '-' . time();
     }
 
-    /**
-     * Send notification email to admin about new registration
-     */
-    private function sendNotificationEmail(Tenant $tenant, $user, array $data): void
-    {
-        try {
-            $to = self::ADMIN_NOTIFICATION_EMAIL;
 
-            // Escape data for HTML output (XSS prevention in email)
-            $safeTenantName = htmlspecialchars($tenant->name, ENT_QUOTES, 'UTF-8');
-            $safeName = htmlspecialchars($data['name'], ENT_QUOTES, 'UTF-8');
-            $safeEmail = htmlspecialchars($data['email'], ENT_QUOTES, 'UTF-8');
-            $safePhone = htmlspecialchars($data['phone'] ?? 'No proporcionado', ENT_QUOTES, 'UTF-8');
-
-            $subject = '🆕 Nueva cuenta registrada en ISPWATCH: ' . $safeTenantName;
-
-            $message = "
-            <html>
-            <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
-                    <h2 style='color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;'>
-                        🆕 Nueva Cuenta Registrada
-                    </h2>
-                    
-                    <div style='background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;'>
-                        <h3 style='margin-top: 0; color: #1f2937;'>Información del Tenant</h3>
-                        <p><strong>Empresa:</strong> {$safeTenantName}</p>
-                        <p><strong>ID Tenant:</strong> {$tenant->id}</p>
-                        <p><strong>Plan:</strong> Trial (30 clientes)</p>
-                        <p><strong>Fecha:</strong> " . now()->format('d/m/Y H:i') . "</p>
-                    </div>
-                    
-                    <div style='background: #ecfdf5; padding: 20px; border-radius: 8px; margin: 20px 0;'>
-                        <h3 style='margin-top: 0; color: #065f46;'>Información del Usuario Admin</h3>
-                        <p><strong>Nombre:</strong> {$safeName}</p>
-                        <p><strong>Email:</strong> {$safeEmail}</p>
-                        <p><strong>Teléfono:</strong> {$safePhone}</p>
-                    </div>
-                    
-                    <div style='background: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0;'>
-                        <p style='margin: 0; color: #92400e;'>
-                            <strong>💡 Tip:</strong> Contacta a este usuario cuando esté cerca de alcanzar 
-                            su límite de 30 clientes para ofrecerle un plan superior.
-                        </p>
-                    </div>
-                    
-                    <p style='color: #6b7280; font-size: 12px; margin-top: 30px;'>
-                        Este es un correo automático de ISPWATCH.
-                    </p>
-                </div>
-            </body>
-            </html>
-            ";
-
-            Mail::html($message, function ($mail) use ($to, $subject) {
-                $mail->to($to)
-                    ->subject($subject);
-            });
-
-        } catch (\Exception $e) {
-            Log::error('Failed to send registration notification email: ' . $e->getMessage());
-        }
-    }
 
     /**
      * Send verification code to email
