@@ -652,6 +652,402 @@ class MikroTikSshService
         return $this->execute($removeCmd);
     }
 
+    /**
+     * Add IP to suspended address-list on CLIENT router via CORE ssh-exec
+     * Works from production (DigitalOcean) by executing commands through CORE
+     */
+    public function addSuspendedIpViaCore(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $suspendedIp,
+        string $customerName,
+        int $clientPort = 8728
+    ): array {
+        try {
+            Log::info('[MikroTikCore] Agregando IP a lista de suspendidos en router cliente', [
+                'client_ip' => $clientIp,
+                'suspended_ip' => $suspendedIp,
+                'customer' => $customerName,
+            ]);
+
+            // STRATEGY 1: Try direct API connection (works in local with VPN access)
+            $directSocket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 5);
+
+            if ($directSocket) {
+                Log::info('[MikroTikCore] Conexión API directa al cliente exitosa para suspender');
+                return $this->addSuspendedIpDirectApi($directSocket, $clientUser, $clientPass, $suspendedIp, $customerName);
+            }
+
+            Log::info('[MikroTikCore] API directa no disponible, usando CORE ssh-exec', [
+                'direct_error' => $errstr,
+            ]);
+
+            // STRATEGY 2: Use CORE ssh-exec to reach client router
+            return $this->addSuspendedIpViaCoreNetwork($clientIp, $clientUser, $clientPass, $suspendedIp, $customerName);
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error agregando IP suspendida via CORE', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Add suspended IP using direct API connection to client router
+     */
+    private function addSuspendedIpDirectApi($socket, string $clientUser, string $clientPass, string $suspendedIp, string $customerName): array
+    {
+        try {
+            stream_set_timeout($socket, 30);
+
+            if (!$this->apiLogin($socket, $clientUser, $clientPass)) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación en el router cliente',
+                ];
+            }
+
+            // Add IP to address-list
+            $this->apiSendCommand($socket, '/ip/firewall/address-list/add', [
+                '=list=ISPWATCH_SUSPENDIDOS',
+                '=address=' . $suspendedIp,
+                '=comment=Cliente: ' . $customerName,
+            ]);
+            $error = $this->apiReadUntilDoneWithError($socket);
+
+            fclose($socket);
+
+            if ($error && !str_contains($error, 'already have')) {
+                return [
+                    'success' => false,
+                    'message' => 'Error al agregar IP: ' . $error,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'method' => 'DIRECT_API',
+                'message' => 'Cliente suspendido - IP agregada a ISPWATCH_SUSPENDIDOS',
+                'details' => [
+                    'ip' => $suspendedIp,
+                    'customer' => $customerName,
+                ],
+            ];
+
+        } catch (\Throwable $e) {
+            @fclose($socket);
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Add suspended IP using CORE ssh-exec to client router
+     */
+    private function addSuspendedIpViaCoreNetwork(string $clientIp, string $clientUser, string $clientPass, string $suspendedIp, string $customerName): array
+    {
+        try {
+            // Connect to CORE via API
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+
+            if (!$socket) {
+                return [
+                    'success' => false,
+                    'message' => "No se pudo conectar al CORE via API: $errstr",
+                ];
+            }
+
+            stream_set_timeout($socket, 30);
+
+            if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación al CORE',
+                ];
+            }
+
+            // Build command to add IP to address-list
+            $safePass = str_replace('"', '\\"', $clientPass);
+            $safeComment = str_replace('"', '\\"', "Cliente: $customerName");
+            $addCmd = "/ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address={$suspendedIp} comment=\"{$safeComment}\"";
+
+            // Create temporary script on CORE
+            $scriptName = 'ispwatch_s_' . substr(uniqid(), -6);
+            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($addCmd) . "\"";
+
+            Log::info('[MikroTikCore] ssh-exec suspend command', [
+                'script_name' => $scriptName,
+                'client_ip' => $clientIp,
+                'suspended_ip' => $suspendedIp,
+            ]);
+
+            // Create the script
+            $this->apiSendCommand($socket, '/system/script/add', [
+                '=name=' . $scriptName,
+                '=source=' . $scriptSource,
+            ]);
+            $addError = $this->apiReadUntilDoneWithError($socket);
+
+            if ($addError) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error creando script en CORE: ' . $addError,
+                ];
+            }
+
+            // Run the script
+            $this->apiSendCommand($socket, '/system/script/run', [
+                '=number=' . $scriptName,
+            ]);
+            $runError = $this->apiReadUntilDoneWithError($socket);
+
+            // Remove temporary script
+            $this->apiSendCommand($socket, '/system/script/remove', [
+                '=numbers=' . $scriptName,
+            ]);
+            $this->apiReadUntilDone($socket);
+
+            fclose($socket);
+
+            if ($runError && !str_contains($runError, 'already have')) {
+                return [
+                    'success' => false,
+                    'method' => 'CORE_SSH_EXEC',
+                    'message' => 'Error: ' . $runError,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'method' => 'CORE_SSH_EXEC',
+                'message' => 'Cliente suspendido - IP agregada a ISPWATCH_SUSPENDIDOS via CORE',
+                'details' => [
+                    'ip' => $suspendedIp,
+                    'customer' => $customerName,
+                ],
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error en addSuspendedIpViaCoreNetwork', ['error' => $e->getMessage()]);
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Remove IP from suspended address-list on CLIENT router via CORE ssh-exec
+     * Works from production (DigitalOcean) by executing commands through CORE
+     */
+    public function removeSuspendedIpViaCore(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $suspendedIp,
+        int $clientPort = 8728
+    ): array {
+        try {
+            Log::info('[MikroTikCore] Removiendo IP de lista de suspendidos en router cliente', [
+                'client_ip' => $clientIp,
+                'suspended_ip' => $suspendedIp,
+            ]);
+
+            // STRATEGY 1: Try direct API connection
+            $directSocket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 5);
+
+            if ($directSocket) {
+                Log::info('[MikroTikCore] Conexión API directa al cliente exitosa para activar');
+                return $this->removeSuspendedIpDirectApi($directSocket, $clientUser, $clientPass, $suspendedIp);
+            }
+
+            Log::info('[MikroTikCore] API directa no disponible, usando CORE ssh-exec');
+
+            // STRATEGY 2: Use CORE ssh-exec
+            return $this->removeSuspendedIpViaCoreNetwork($clientIp, $clientUser, $clientPass, $suspendedIp);
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error removiendo IP suspendida via CORE', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Remove suspended IP using direct API connection to client router
+     */
+    private function removeSuspendedIpDirectApi($socket, string $clientUser, string $clientPass, string $suspendedIp): array
+    {
+        try {
+            stream_set_timeout($socket, 30);
+
+            if (!$this->apiLogin($socket, $clientUser, $clientPass)) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación en el router cliente',
+                ];
+            }
+
+            // Find the entry
+            $this->apiSendCommand($socket, '/ip/firewall/address-list/print', [
+                '?list=ISPWATCH_SUSPENDIDOS',
+                '?address=' . $suspendedIp,
+            ]);
+            $records = $this->apiReadAllRecords($socket);
+
+            if (empty($records)) {
+                fclose($socket);
+                return [
+                    'success' => true,
+                    'method' => 'DIRECT_API',
+                    'message' => 'Cliente ya estaba activo (IP no encontrada en lista)',
+                ];
+            }
+
+            // Remove each entry
+            foreach ($records as $record) {
+                $id = $record['.id'] ?? null;
+                if ($id) {
+                    $this->apiSendCommand($socket, '/ip/firewall/address-list/remove', [
+                        '=.id=' . $id,
+                    ]);
+                    $this->apiReadUntilDone($socket);
+                }
+            }
+
+            fclose($socket);
+
+            return [
+                'success' => true,
+                'method' => 'DIRECT_API',
+                'message' => 'Cliente activado - IP removida de ISPWATCH_SUSPENDIDOS',
+                'details' => [
+                    'ip' => $suspendedIp,
+                ],
+            ];
+
+        } catch (\Throwable $e) {
+            @fclose($socket);
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Remove suspended IP using CORE ssh-exec to client router
+     */
+    private function removeSuspendedIpViaCoreNetwork(string $clientIp, string $clientUser, string $clientPass, string $suspendedIp): array
+    {
+        try {
+            // Connect to CORE via API
+            $socket = @fsockopen($this->apiHost, $this->apiPort, $errno, $errstr, 10);
+
+            if (!$socket) {
+                return [
+                    'success' => false,
+                    'message' => "No se pudo conectar al CORE via API: $errstr",
+                ];
+            }
+
+            stream_set_timeout($socket, 30);
+
+            if (!$this->apiLogin($socket, $this->apiUser, $this->apiPass)) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error de autenticación al CORE',
+                ];
+            }
+
+            // Build command to remove IP from address-list
+            $safePass = str_replace('"', '\\"', $clientPass);
+            $removeCmd = "/ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address={$suspendedIp}]";
+
+            // Create temporary script on CORE
+            $scriptName = 'ispwatch_a_' . substr(uniqid(), -6);
+            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($removeCmd) . "\"";
+
+            Log::info('[MikroTikCore] ssh-exec activate command', [
+                'script_name' => $scriptName,
+                'client_ip' => $clientIp,
+                'suspended_ip' => $suspendedIp,
+            ]);
+
+            // Create the script
+            $this->apiSendCommand($socket, '/system/script/add', [
+                '=name=' . $scriptName,
+                '=source=' . $scriptSource,
+            ]);
+            $addError = $this->apiReadUntilDoneWithError($socket);
+
+            if ($addError) {
+                fclose($socket);
+                return [
+                    'success' => false,
+                    'message' => 'Error creando script en CORE: ' . $addError,
+                ];
+            }
+
+            // Run the script
+            $this->apiSendCommand($socket, '/system/script/run', [
+                '=number=' . $scriptName,
+            ]);
+            $runError = $this->apiReadUntilDoneWithError($socket);
+
+            // Remove temporary script
+            $this->apiSendCommand($socket, '/system/script/remove', [
+                '=numbers=' . $scriptName,
+            ]);
+            $this->apiReadUntilDone($socket);
+
+            fclose($socket);
+
+            // "no such item" is ok - means IP was already removed
+            if ($runError && !str_contains($runError, 'no such item')) {
+                return [
+                    'success' => false,
+                    'method' => 'CORE_SSH_EXEC',
+                    'message' => 'Error: ' . $runError,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'method' => 'CORE_SSH_EXEC',
+                'message' => 'Cliente activado - IP removida de ISPWATCH_SUSPENDIDOS via CORE',
+                'details' => [
+                    'ip' => $suspendedIp,
+                ],
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikCore] Error en removeSuspendedIpViaCoreNetwork', ['error' => $e->getMessage()]);
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
     // ==================== CLIENT ROUTER VIA CORE ====================
 
     /**
@@ -1499,7 +1895,7 @@ class MikroTikSshService
             }
 
             $maxLimit = "{$speedUp}/{$speedDown}";
-            $queueName = "Client - {$customerName} {$customerLastName}";
+            $queueName = "{$customerName} {$customerLastName}";
 
             // STRATEGY 1: Try direct API connection (works in local with VPN access)
             $directSocket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 5);
