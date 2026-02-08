@@ -9,7 +9,7 @@
       <div class="flex items-center justify-between mb-8">
         <div>
             <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <v-icon name="pr-server" class="text-blue-600 w-7 h-7" />
+              <v-icon name="bi-hdd-rack" class="text-blue-600 w-7 h-7" />
               Routers del Sistema
             </h1>
             <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
@@ -146,6 +146,7 @@
 
                   <!-- Botón Detalles -->
                   <button
+                    @click="openDetailsModal(router)"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-cyan-50 text-cyan-700 border border-cyan-200
                           hover:bg-cyan-100 hover:scale-[1.03] transition-all
@@ -461,6 +462,142 @@
           </div>
         </div>
       </div>
+
+      <!-- Modal Detalles del Router -->
+      <div
+        v-if="showDetailsModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        @click.self="closeDetailsModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-2xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <icon-lucide-server class="w-6 h-6 text-cyan-600" />
+                Detalles del Router
+              </h2>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Información básica del router
+              </p>
+            </div>
+            <button
+              @click="closeDetailsModal"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <icon-lucide-x class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div v-if="selectedDetailsRouter" class="space-y-4">
+            <!-- Nombre y Estado -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <icon-lucide-tag class="w-4 h-4" />
+                  Nombre
+                </div>
+                <div class="font-medium text-gray-800 dark:text-gray-100">
+                  {{ selectedDetailsRouter.name }}
+                </div>
+              </div>
+
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <icon-lucide-activity class="w-4 h-4" />
+                  Estado
+                </div>
+                <div>
+                  <span
+                    class="inline-block px-3 py-1 text-sm font-semibold rounded-full"
+                    :class="selectedDetailsRouter.status === 'active'
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                      : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'"
+                  >
+                    {{ selectedDetailsRouter.status || '—' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- IP y Usuario -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <icon-lucide-network class="w-4 h-4" />
+                  Dirección IP
+                </div>
+                <div class="font-medium text-gray-800 dark:text-gray-100 font-mono">
+                  {{ selectedDetailsRouter.ip }}
+                </div>
+              </div>
+
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <icon-lucide-user class="w-4 h-4" />
+                  Usuario RouterBOARD
+                </div>
+                <div class="font-medium text-gray-800 dark:text-gray-100">
+                  {{ selectedDetailsRouter.user_rb }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Interfaces -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <icon-lucide-wifi class="w-4 h-4" />
+                  Interfaz LAN
+                </div>
+                <div class="font-medium text-gray-800 dark:text-gray-100 font-mono">
+                  {{ selectedDetailsRouter.lan_interface || '—' }}
+                </div>
+              </div>
+
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                  <icon-lucide-globe class="w-4 h-4" />
+                  Interfaz WAN
+                </div>
+                <div class="font-medium text-gray-800 dark:text-gray-100 font-mono">
+                  {{ selectedDetailsRouter.wan_interface || 'No configurada' }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Firmware -->
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-cpu class="w-4 h-4" />
+                Versión de Firmware
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ getScriptName(selectedDetailsRouter.firmware_version) }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeDetailsModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cerrar
+            </button>
+            <button
+              @click="editRouter(selectedDetailsRouter.id)"
+              class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <icon-lucide-pencil class="w-4 h-4" />
+              Editar Router
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Modal Confirmar Eliminación -->
       <div
         v-if="showDeleteModal"
@@ -556,6 +693,10 @@ const applyingRules = ref(false)
 const showDeleteModal = ref(false)
 const routerToDelete = ref(null)
 const deletingRouter = ref(false)
+
+// Estados del modal Detalles
+const showDetailsModal = ref(false)
+const selectedDetailsRouter = ref(null)
 
 // 🔹 Navegar a la vista de agregar router
 const goToAddRouter = () => {
@@ -885,6 +1026,27 @@ const applyBlockRules = async () => {
   } finally {
     applyingRules.value = false
   }
+}
+
+// ==============================
+// FUNCIONES MODAL DETALLES
+// ==============================
+
+// Abrir modal de detalles
+const openDetailsModal = (routerData) => {
+  selectedDetailsRouter.value = routerData
+  showDetailsModal.value = true
+}
+
+// Cerrar modal de detalles
+const closeDetailsModal = () => {
+  showDetailsModal.value = false
+  selectedDetailsRouter.value = null
+}
+
+// Editar router desde el modal
+const editRouter = (id) => {
+  router.push({ name: 'RouterEdit', params: { id } })
 }
 
 </script>

@@ -8,7 +8,7 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-10">
         <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-          <v-icon name="pr-server" class="text-blue-600 w-7 h-7" />
+          <v-icon name="bi-hdd-rack" class="text-blue-600 w-7 h-7" />
           Agregar Router
         </h1>
         

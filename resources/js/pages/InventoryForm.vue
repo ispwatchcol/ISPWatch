@@ -198,7 +198,7 @@
               <!-- User Assignment -->
               <div>
                 <label class="label">
-                  <v-icon name="pr-user" class="w-4 h-4 mr-1 inline" />
+                  <v-icon name="bi-person" class="w-4 h-4 mr-1 inline" />
                   Asignado a
                 </label>
                 <div class="relative">

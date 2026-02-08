@@ -7,7 +7,7 @@
       <div class="flex items-center justify-between mb-8">
         <div>
           <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <v-icon name="pr-user-plus" class="text-blue-600 w-7 h-7" />
+            <v-icon name="bi-person-plus" class="text-blue-600 w-7 h-7" />
             Registrar nuevo usuario del Staff
           </h1>
           <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">

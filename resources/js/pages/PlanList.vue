@@ -262,7 +262,7 @@
               </div>
               
               <div class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                <v-icon name="pr-users" class="w-3.5 h-3.5" />
+                <v-icon name="bi-people" class="w-3.5 h-3.5" />
                 {{ plan.active_clients_count }} clientes
               </div>
             </div>

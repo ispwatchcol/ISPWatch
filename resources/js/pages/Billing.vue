@@ -160,7 +160,7 @@
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-3">
                     <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                      <v-icon name="pr-user" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <v-icon name="bi-person" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     </div>
                     <div>
                       <div class="text-sm font-medium text-gray-800 dark:text-white">
