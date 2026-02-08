@@ -104,6 +104,11 @@ Route::group([], function () {
     Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
     Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
     Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
+
+    // Payment Reminders
+    Route::post('/billing/invoices/{id}/send-reminder', [\App\Http\Controllers\PaymentReminderController::class, 'sendReminder']);
+    Route::post('/billing/invoices/bulk-reminders', [\App\Http\Controllers\PaymentReminderController::class, 'sendBulkReminders']);
+    Route::get('/billing/whatsapp-status', [\App\Http\Controllers\PaymentReminderController::class, 'checkWhatsAppStatus']);
 });
 
 // Support routes with permissions

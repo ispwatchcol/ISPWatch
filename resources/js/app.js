@@ -132,6 +132,8 @@ import {
   RiLoader4Line,
   MdList,
   MdCheckcircle,
+  MdNotificationsactiveOutlined,
+  MdSend,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -257,6 +259,8 @@ addIcons(
   RiLoader4Line,
   MdList,
   MdCheckcircle,
+  MdNotificationsactiveOutlined,
+  MdSend,
 );
 
 // -------------------------------

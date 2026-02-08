@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import billingService from '@/services/billing'
 import api from '@/services/api'
 import { useRouter } from 'vue-router'
@@ -110,6 +110,66 @@ onMounted(() => {
 })
 
 watch(filters, () => fetchInvoices(), { deep: true })
+
+// Payment Reminder State
+const selectedInvoices = ref([])
+const sendingBulkReminder = ref(false)
+
+// Only invoices that are not paid can receive reminders
+const selectableInvoices = computed(() => {
+    return invoices.value.data.filter(inv => ['pending', 'overdue', 'issued'].includes(inv.status))
+})
+
+const allSelected = computed(() => {
+    return selectableInvoices.value.length > 0 && 
+           selectableInvoices.value.every(inv => selectedInvoices.value.includes(inv.id))
+})
+
+const toggleSelectAll = () => {
+    if (allSelected.value) {
+        selectedInvoices.value = []
+    } else {
+        selectedInvoices.value = selectableInvoices.value.map(inv => inv.id)
+    }
+}
+
+const toggleSelect = (invoiceId) => {
+    const index = selectedInvoices.value.indexOf(invoiceId)
+    if (index > -1) {
+        selectedInvoices.value.splice(index, 1)
+    } else {
+        selectedInvoices.value.push(invoiceId)
+    }
+}
+
+const sendBulkReminders = async () => {
+    if (selectedInvoices.value.length === 0) {
+        alert('Por favor selecciona al menos una factura')
+        return
+    }
+    
+    if (!confirm(`¿Enviar recordatorio a ${selectedInvoices.value.length} factura(s)?`)) {
+        return
+    }
+    
+    sendingBulkReminder.value = true
+    try {
+        const response = await billingService.sendBulkReminders(selectedInvoices.value)
+        const data = response.data
+        
+        if (data.success) {
+            alert(`✅ ${data.message}`)
+            selectedInvoices.value = []
+        } else {
+            alert(`❌ Error: ${data.message}`)
+        }
+    } catch (e) {
+        console.error('Error sending bulk reminders:', e)
+        alert('Error al enviar recordatorios: ' + (e.response?.data?.message || e.message))
+    } finally {
+        sendingBulkReminder.value = false
+    }
+}
 </script>
 
 <template>
@@ -159,6 +219,21 @@ watch(filters, () => fetchInvoices(), { deep: true })
                     <button @click="fetchInvoices" class="p-2 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 rounded-xl transition-colors">
                         <v-icon name="bi-filter" class="w-5 h-5 text-slate-600 dark:text-slate-300" />
                     </button>
+                    
+                    <!-- Bulk Reminder Button -->
+                    <button @click="sendBulkReminders" 
+                        :disabled="selectedInvoices.length === 0 || sendingBulkReminder"
+                        :class="[
+                            'inline-flex items-center px-4 py-2 rounded-xl font-medium transition-all',
+                            selectedInvoices.length > 0 
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-200 dark:shadow-none' 
+                                : 'bg-slate-200 dark:bg-gray-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                        ]">
+                        <v-icon v-if="!sendingBulkReminder" name="md-notificationsactive-outlined" class="w-5 h-5 mr-2" />
+                        <v-icon v-else name="bi-arrow-repeat" class="w-5 h-5 mr-2 animate-spin" />
+                        <span v-if="selectedInvoices.length > 0">Enviar ({{ selectedInvoices.length }})</span>
+                        <span v-else>Enviar Recordatorio</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -169,6 +244,18 @@ watch(filters, () => fetchInvoices(), { deep: true })
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-slate-50/50 dark:bg-gray-900/50 border-b border-slate-200 dark:border-gray-700">
+                            <!-- Select All Checkbox -->
+                            <th class="px-4 py-4 w-14">
+                                <button @click="toggleSelectAll" 
+                                    :class="[
+                                        'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200',
+                                        allSelected 
+                                            ? 'bg-indigo-600 border-indigo-600 text-white' 
+                                            : 'border-slate-400 dark:border-gray-500 hover:border-indigo-500 dark:hover:border-indigo-400'
+                                    ]">
+                                    <v-icon v-if="allSelected" name="md-check" class="w-3 h-3" />
+                                </button>
+                            </th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Número</th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Total</th>
@@ -180,7 +267,7 @@ watch(filters, () => fetchInvoices(), { deep: true })
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-gray-700">
                         <tr v-if="loading">
-                            <td colspan="7" class="px-6 py-20 text-center">
+                            <td colspan="8" class="px-6 py-20 text-center">
                                 <div class="flex flex-col items-center justify-center">
                                     <v-icon name="bi-arrow-repeat" class="w-10 h-10 text-indigo-500 animate-spin mb-4" />
                                     <p class="text-slate-500 dark:text-slate-400 font-medium animate-pulse">Cargando facturas...</p>
@@ -188,13 +275,27 @@ watch(filters, () => fetchInvoices(), { deep: true })
                             </td>
                         </tr>
                         <tr v-else-if="invoices.data.length === 0">
-                            <td colspan="7" class="px-6 py-12 text-center">
+                            <td colspan="8" class="px-6 py-12 text-center">
                                 <v-icon name="la-money-bill-wave-solid" class="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
                                 <p class="text-slate-500 dark:text-slate-400 font-medium">No se encontraron facturas.</p>
                             </td>
                         </tr>
                         <tr v-else v-for="invoice in invoices.data" :key="invoice.id" 
                             class="group hover:bg-slate-50/80 dark:hover:bg-gray-700/50 transition-colors">
+                            <!-- Checkbox (only for non-paid invoices) -->
+                            <td class="px-4 py-4">
+                                <button v-if="['pending', 'overdue', 'issued'].includes(invoice.status)"
+                                    @click="toggleSelect(invoice.id)"
+                                    :class="[
+                                        'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200',
+                                        selectedInvoices.includes(invoice.id) 
+                                            ? 'bg-indigo-600 border-indigo-600 text-white' 
+                                            : 'border-slate-400 dark:border-gray-500 hover:border-indigo-500 dark:hover:border-indigo-400'
+                                    ]">
+                                    <v-icon v-if="selectedInvoices.includes(invoice.id)" name="md-check" class="w-3 h-3" />
+                                </button>
+                                <span v-else class="w-5 h-5 flex items-center justify-center text-slate-300 dark:text-slate-600">—</span>
+                            </td>
                             <td class="px-6 py-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">#{{ invoice.number }}</td>
                             <td class="px-6 py-4">
                                 <div class="font-semibold text-slate-900 dark:text-white">

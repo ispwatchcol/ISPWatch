@@ -5,43 +5,43 @@ export default {
   getInvoices(params = {}) {
     return apiClient.get('/billing/invoices', { params })
   },
-  
+
   // Single Invoice
   getInvoice(id) {
     return apiClient.get(`/billing/invoices/${id}`)
   },
-  
+
   // Create Manual (Draft)
   createInvoice(data) {
     return apiClient.post('/billing/invoices', data)
   },
-  
+
   // Add Items
   addItems(id, data) {
     return apiClient.post(`/billing/invoices/${id}/items`, data)
   },
-  
+
   // Download PDF
   downloadPdf(id) {
-    return apiClient.get(`/billing/invoices/${id}/pdf`, { 
-        responseType: 'blob' 
+    return apiClient.get(`/billing/invoices/${id}/pdf`, {
+      responseType: 'blob'
     })
   },
-  
+
   // Register Payment
   registerPayment(data) {
     return apiClient.post('/billing/payments', data)
   },
-  
+
   // Customer Balance
   getBalance(customerId) {
     return apiClient.get(`/billing/customers/${customerId}/balance`)
   },
-  
+
   getStats(tenantId) {
     return apiClient.get('/billing/stats', { params: { tenant: tenantId } })
   },
-  
+
   // List Payments
   getPayments(params = {}) {
     return apiClient.get('/billing/payments', { params })
@@ -55,5 +55,20 @@ export default {
   // Admin: Run Overdue Process
   runOverdue() {
     return apiClient.post('/billing/run-overdue')
+  },
+
+  // Send Payment Reminder
+  sendReminder(invoiceId) {
+    return apiClient.post(`/billing/invoices/${invoiceId}/send-reminder`)
+  },
+
+  // Send Bulk Reminders
+  sendBulkReminders(invoiceIds) {
+    return apiClient.post('/billing/invoices/bulk-reminders', { invoice_ids: invoiceIds })
+  },
+
+  // Check WhatsApp configuration status
+  getWhatsAppStatus() {
+    return apiClient.get('/billing/whatsapp-status')
   }
 }
