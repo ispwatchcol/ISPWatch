@@ -68,7 +68,7 @@
                             class="p-3 rounded-full bg-blue-50 dark:bg-blue-900"
                         >
                             <v-icon
-                                name="pr-users"
+                                name="bi-people"
                                 class="w-8 h-8 text-blue-600 dark:text-blue-400"
                             />
                         </div>
@@ -100,7 +100,7 @@
                             class="p-3 rounded-full bg-green-50 dark:bg-green-900"
                         >
                             <v-icon
-                                name="pr-user-plus"
+                                name="bi-person-plus"
                                 class="w-8 h-8 text-green-600 dark:text-green-400"
                             />
                         </div>
@@ -432,7 +432,7 @@
                                     class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0"
                                 >
                                     <v-icon
-                                        name="pr-user"
+                                        name="bi-person"
                                         class="w-5 h-5 text-blue-600 dark:text-blue-400"
                                     />
                                 </div>

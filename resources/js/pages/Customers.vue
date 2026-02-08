@@ -10,7 +10,7 @@
             @click="router.push('/customers/create')"
             class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition"
         >
-            <v-icon name="pr-user-plus" class="w-5 h-5" />
+            <v-icon name="bi-person-plus" class="w-5 h-5" />
             <span class="text-sm sm:text-base">Nuevo Cliente</span>
         </button>
         </div>

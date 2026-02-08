@@ -120,7 +120,7 @@ onMounted(fetchInvoice)
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
                         <div class="space-y-4">
                             <h3 class="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
-                                <v-icon name="pr-user" class="w-4 h-4" /> Facturado a:
+                                <v-icon name="bi-person" class="w-4 h-4" /> Facturado a:
                             </h3>
                             <div class="p-6 bg-slate-50 dark:bg-gray-900 rounded-[2rem]">
                                 <p class="text-xl font-medium text-slate-900 dark:text-white">

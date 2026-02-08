@@ -27,7 +27,7 @@
             <div class="flex items-center gap-3">
                 <div class="p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
                     <v-icon
-                        name="pr-user"
+                        name="bi-person"
                         class="h-5 w-5 text-gray-500 dark:text-white"
                     />
                 </div>
@@ -62,18 +62,18 @@
 
                 <SubmenuItem
                     v-if="canSee.usuarios"
-                    icon="pr-users"
+                    icon="bi-people"
                     title="Usuarios"
                     :items="[
                         {
                             name: 'Lista de usuarios',
                             to: '/customers',
-                            icon: 'pr-users',
+                            icon: 'bi-people',
                         },
                         {
                             name: 'Agregar usuario',
                             to: '/customers/create',
-                            icon: 'pr-user-plus',
+                            icon: 'bi-person-plus',
                         },
                         {
                             name: 'Estadísticas',
@@ -159,7 +159,7 @@
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
                         active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
                     >
-                        <v-icon name="pr-users" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
+                        <v-icon name="bi-people" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
                         <span class="text-sm font-medium">Staff</span>
                     </RouterLink>
                 </li>
@@ -400,7 +400,6 @@ onMounted(() => {
     if (storedJson) {
         try {
             user.value = JSON.parse(storedJson);
-            console.log("Usuario cargado en Sidebar:", user.value);
         } catch (e) {
             console.error("Error parseando userData:", e);
             user.value = {};

@@ -88,7 +88,7 @@ onMounted(() => {
                                 <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Cliente</label>
                                 <div class="relative">
                                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                        <v-icon name="pr-user" class="h-5 w-5 text-slate-400" />
+                                        <v-icon name="bi-person" class="h-5 w-5 text-slate-400" />
                                     </div>
                                     <select v-model="form.customer_id" @change="getBalance" 
                                         class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all appearance-none" required>

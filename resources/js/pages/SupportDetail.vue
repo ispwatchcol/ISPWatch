@@ -134,7 +134,7 @@
                             <div v-for="attachment in ticket.attachments" :key="attachment.id"
                                  class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                                 <div class="flex items-center gap-3">
-                                    <v-icon name="pr-file" class="w-5 h-5 text-gray-500" />
+                                    <v-icon name="bi-file-earmark" class="w-5 h-5 text-gray-500" />
                                     <span class="text-sm text-gray-800 dark:text-white">{{ attachment.file_name }}</span>
                                 </div>
                                 <div class="flex items-center gap-3">
@@ -227,7 +227,7 @@
                                         @click="fileInput.click()"
                                         class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
                                     >
-                                        <v-icon name="pr-images" class="w-5 h-5 inline mr-2" />
+                                        <v-icon name="bi-images" class="w-5 h-5 inline mr-2" />
                                         Seleccionar Imágenes
                                     </button>
                                 </div>
