@@ -26,7 +26,8 @@
         <button
           v-for="d in days"
           :key="d"
-          @click="selectDay(d)"
+          type="button"
+          @click.stop="selectDay(d)"
           :class="[
             'h-11 w-full rounded-full flex items-center justify-center text-sm font-medium transition',
             modelValue === d
