@@ -62,18 +62,18 @@
 
                 <SubmenuItem
                     v-if="canSee.usuarios"
-                    icon="pr-users"
+                    icon="bi-people"
                     title="Usuarios"
                     :items="[
                         {
                             name: 'Lista de usuarios',
                             to: '/customers',
-                            icon: 'pr-users',
+                            icon: 'bi-people',
                         },
                         {
                             name: 'Agregar usuario',
                             to: '/customers/create',
-                            icon: 'pr-user-plus',
+                            icon: 'bi-person-plus',
                         },
                         {
                             name: 'Estadísticas',

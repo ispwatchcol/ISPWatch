@@ -239,7 +239,7 @@ const cards = computed(() => {
       title: "Clientes Activos",
       value: data.customers?.active || 0,
       description: `${data.customers?.total || 0} clientes totales`,
-      icon: "pr-users",
+      icon: "bi-people",
       bgColor: "bg-blue-50 dark:bg-blue-900",
       iconColor: "text-blue-600 dark:text-blue-400",
     },
@@ -278,7 +278,7 @@ const actions = ref([
   {
     id: 1,
     name: "Agregar cliente",
-    icon: "pr-user-plus",
+    icon: "bi-person-plus",
     to: "/customers/create",
   },
   {
