@@ -587,59 +587,6 @@ const cleanDay = (val) => {
 }
 
 /* ============================
-   PARSEO HEX ROBUSTO (EWKB PostGIS)
-============================ */
-const parseWKB = (hex) => {
-    if (!hex || typeof hex !== 'string') return null;
-    
-    // Limpieza básica
-    hex = hex.trim();
-    
-    try {
-        // 1. Convertir string hex a DataView
-        // Cada 2 caracteres hex son 1 byte.
-        const buffer = new Uint8Array(hex.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16))).buffer;
-        const view = new DataView(buffer);
-        
-        // Verificamos si es Little Endian (01)
-        const isLittleEndian = view.getUint8(0) === 1;
-        
-        // Leemos el tipo de geometría (bytes 1-4)
-        const geomType = view.getUint32(1, isLittleEndian);
-        
-        // Posición donde empiezan las coordenadas X (Longitud)
-        let offset = 5; 
-        
-        // Si el flag SRID está activo (0x20000000), hay 4 bytes extra para el SRID
-        if ((geomType & 0x20000000) !== 0) { 
-            // Tiene SRID, saltamos 4 bytes más
-            offset += 4; 
-        }
-        
-        // Si por alguna razón no detectamos flags pero el string es largo,
-        // intentamos forzar el offset estándar de PostGIS (byte 9)
-        if (offset === 5 && hex.length > 40) offset = 9;
-
-        // Leemos coordenadas
-        const lng = view.getFloat64(offset, isLittleEndian);
-        const lat = view.getFloat64(offset + 8, isLittleEndian);
-        
-        // Validar que sean números reales y dentro de rangos terrestres lógicos
-        if (isNaN(lat) || isNaN(lng)) return null;
-        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-             console.warn("Coordenadas fuera de rango, posible error de parseo", {lat, lng});
-             return null;
-        }
-
-        return { lat: lat.toFixed(6), lng: lng.toFixed(6) };
-
-    } catch (e) {
-        console.warn("Fallo parseWKB:", e, hex);
-        return null;
-    }
-}
-
-/* ============================
    DATOS DESDE DB (Selects)
 ============================ */
 const tiposCorte = ref([])
@@ -747,12 +694,22 @@ const loadRouterData = async () => {
     form.dhcp_leases = !!data.dhcp_leases
     form.falla_general = !!data.falla_general
 
-    // 👇 COORDENADAS
+    // 👇 COORDENADAS - PostGIS returns WKT format like "SRID=4326;POINT(-75.8383 21.7484)"
     if (data.coordinates) {
-        const coords = parseWKB(data.coordinates);
-        if (coords) {
-            form.coordenadas = `${coords.lat}, ${coords.lng}`
-            console.log("✅ Coordenadas parseadas:", form.coordenadas)
+        try {
+            // Simple regex to extract coordinates from WKT POINT format
+            const match = data.coordinates.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
+            if (match) {
+                const lng = parseFloat(match[1]);
+                const lat = parseFloat(match[2]);
+                
+                // Validate coordinates are within Earth's range
+                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                    form.coordenadas = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing coordinates:", e);
         }
     }
 
@@ -770,10 +727,18 @@ const loadRouterData = async () => {
     if (data.billing) {
         form.facturacion_activa = true
         form.billing.id = data.billing.id
-        form.billing.create_invoice = extractDay(data.billing.create_invoice)
-        form.billing.cut_day = extractDay(data.billing.cut_day)
-        form.billing.pay_day = extractDay(data.billing.payment_day)
-        form.billing.remember_day = extractDay(data.billing.payment_reminder)
+        
+        // Convert to strings since DayPicker expects string modelValue
+        const dayCreate = extractDay(data.billing.create_invoice)
+        const dayCut = extractDay(data.billing.cut_day)
+        const dayPay = extractDay(data.billing.payment_day)
+        const dayRemind = extractDay(data.billing.payment_reminder)
+        
+        form.billing.create_invoice = dayCreate !== null ? String(dayCreate) : null
+        form.billing.cut_day = dayCut !== null ? String(dayCut) : null
+        form.billing.pay_day = dayPay !== null ? String(dayPay) : null
+        form.billing.remember_day = dayRemind !== null ? String(dayRemind) : null
+        
         form.billing.overdue_invoices = data.billing.overdue_invoices
         form.billing.amount = data.billing.amount
         form.billing.metodo = data.billing.id_type

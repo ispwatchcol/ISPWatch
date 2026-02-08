@@ -274,10 +274,7 @@ const loadTickets = async () => {
     try {
         loading.value = true
         const response = await api.support.getAll()
-        console.log('Support tickets response:', response)
-        console.log('Support tickets data:', response.data)
         tickets.value = response.data
-        console.log('Tickets value after assignment:', tickets.value)
     } catch (err) {
         console.error('Error al cargar tickets:', err)
         toast.value?.error('Error', 'No se pudieron cargar los tickets de soporte.')

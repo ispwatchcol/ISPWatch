@@ -476,8 +476,6 @@ const handleLogin = async () => {
             // ⚠️ EXTRAER CORRECTAMENTE EL USUARIO
             const user = response.data.data.user ?? response.data.data;
 
-            console.log("Usuario que se va a guardar:", user);
-
             if (loginData.value.remember) {
                 localStorage.setItem("userData", JSON.stringify(user));
                 localStorage.setItem("isLoggedIn", "true");

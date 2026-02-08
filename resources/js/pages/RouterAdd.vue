@@ -628,8 +628,6 @@ const saveBilling = async () => {
     updated_at: now,
   }
 
-  console.log("payload facturación FINAL:", payload)
-
   const { data, error } = await supabase
     .from("billing")
     .insert(payload)

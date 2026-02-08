@@ -400,7 +400,6 @@ onMounted(() => {
     if (storedJson) {
         try {
             user.value = JSON.parse(storedJson);
-            console.log("Usuario cargado en Sidebar:", user.value);
         } catch (e) {
             console.error("Error parseando userData:", e);
             user.value = {};

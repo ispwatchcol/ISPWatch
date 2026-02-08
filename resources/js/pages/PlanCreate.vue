@@ -395,6 +395,7 @@ const currentConfig = computed(
 )
 
 const loading = ref(false)
+const showAdvancedSpeed = ref(false)
 
 const typePlanMap = {
   queue: 1,
