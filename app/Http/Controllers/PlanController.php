@@ -59,9 +59,17 @@ class PlanController extends Controller
             'type' => 'required|string',
             'type_plan_id' => 'required|exists:type_plans,id',
             'tenant_id' => 'required|integer',
-            // Agrega aquí validaciones para los campos extra si los necesitas (burst, pppoe, etc)
-            // 'burst_download' => 'nullable|string',
-            // 'priority' => 'nullable|integer',
+            // Campos específicos por tipo de plan
+            'priority' => 'nullable|integer|min:1|max:8',
+            'burst_download' => 'nullable|string',
+            'burst_upload' => 'nullable|string',
+            'pppoe_pool' => 'nullable|string',
+            'local_address' => 'nullable|string',
+            'shared_users' => 'nullable|integer|min:1',
+            'session_timeout' => 'nullable|string',
+            'idle_timeout' => 'nullable|string',
+            'pcq_rate' => 'nullable|string',
+            'address_mask' => 'nullable|string',
         ]);
 
         $plan = $this->createWithSequenceFix(Plan::class, $validated);
@@ -92,14 +100,19 @@ class PlanController extends Controller
             'speed_up' => 'sometimes|string',
             'cost_product' => 'sometimes|numeric',
             'commit' => 'nullable|string',
-            // Asegúrate de validar los campos extra que agregamos en el Vue
-            'priority' => 'nullable|integer',
+            'type' => 'sometimes|string',
+            'type_plan_id' => 'sometimes|exists:type_plans,id',
+            // Campos específicos por tipo de plan
+            'priority' => 'nullable|integer|min:1|max:8',
             'burst_download' => 'nullable|string',
             'burst_upload' => 'nullable|string',
             'pppoe_pool' => 'nullable|string',
             'local_address' => 'nullable|string',
-            'shared_users' => 'nullable|integer',
-            // etc...
+            'shared_users' => 'nullable|integer|min:1',
+            'session_timeout' => 'nullable|string',
+            'idle_timeout' => 'nullable|string',
+            'pcq_rate' => 'nullable|string',
+            'address_mask' => 'nullable|string',
         ]);
 
         $plan->update($validated);

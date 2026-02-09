@@ -17,6 +17,17 @@ class Plan extends Model
         'type',
         'tenant_id',
         'type_plan_id',
+        // Campos específicos por tipo de plan
+        'priority',           // Queue
+        'burst_download',     // Queue/PPPoE
+        'burst_upload',       // Queue/PPPoE
+        'pppoe_pool',         // PPPoE
+        'local_address',      // PPPoE
+        'shared_users',       // Hotspot
+        'session_timeout',    // Hotspot
+        'idle_timeout',       // Hotspot
+        'pcq_rate',           // PCQ
+        'address_mask',       // PCQ
     ];
 
     protected $appends = ['active_clients_count'];

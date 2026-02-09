@@ -302,6 +302,65 @@
 
       </div>
     </main>
+
+    <!-- Modal Confirmar Eliminación -->
+    <div
+      v-if="showDeleteModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="closeDeleteModal"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <icon-lucide-trash-2 class="w-6 h-6 text-red-600" />
+              Eliminar Plan
+            </h2>
+          </div>
+          <button
+            @click="closeDeleteModal"
+            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+          >
+            <icon-lucide-x class="w-6 h-6" />
+          </button>
+        </div>
+
+        <!-- Content -->
+        <div class="space-y-4">
+          <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <div class="flex items-start gap-3">
+              <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 class="font-medium text-red-800 dark:text-red-300">¿Estás seguro?</h4>
+                <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                  Esta acción no se puede deshacer. El plan <strong>"{{ planToDelete?.name }}"</strong> será eliminado permanentemente.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="closeDeleteModal"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmDelete"
+            :disabled="deletingPlan"
+            class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <icon-lucide-loader-2 v-if="deletingPlan" class="w-4 h-4 animate-spin" />
+            <icon-lucide-trash v-else class="w-4 h-4" />
+            {{ deletingPlan ? 'Eliminando...' : 'Eliminar' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -321,6 +380,11 @@ const currentTab = ref('queue')
 const selectedPlans = ref([])
 const allPlans = ref([])
 const toast = ref(null)
+
+// Estados del modal eliminar
+const showDeleteModal = ref(false)
+const planToDelete = ref(null)
+const deletingPlan = ref(false)
 
 /* ---------------------------
    TABS
@@ -426,23 +490,46 @@ const loadPlans = async () => {
   }
 }
 
-const deletePlan = async (id) => {
-  if (!confirm('¿Seguro deseas eliminar este plan?')) return
+// Abrir modal de confirmación para eliminar
+const deletePlan = (id) => {
+  const planData = allPlans.value.find(p => p.id === id)
+  if (planData) {
+    planToDelete.value = planData
+    showDeleteModal.value = true
+  }
+}
 
+// Cerrar modal de eliminar
+const closeDeleteModal = () => {
+  showDeleteModal.value = false
+  planToDelete.value = null
+}
+
+// Confirmar eliminación
+const confirmDelete = async () => {
+  if (!planToDelete.value) return
+  
+  deletingPlan.value = true
+  
   try {
-    await api.plan.delete(id)
-    allPlans.value = allPlans.value.filter(p => p.id !== id)
-    selectedPlans.value = selectedPlans.value.filter(pId => pId !== id)
+    await api.plan.delete(planToDelete.value.id)
+    
+    allPlans.value = allPlans.value.filter(p => p.id !== planToDelete.value.id)
+    selectedPlans.value = selectedPlans.value.filter(pId => pId !== planToDelete.value.id)
+    
     toast.value?.success(
       'Plan eliminado',
-      'El plan ha sido eliminado correctamente'
+      `El plan "${planToDelete.value.name}" ha sido eliminado correctamente`
     )
+    
+    closeDeleteModal()
   } catch (error) {
-    console.error('Error eliminando plan:', error)
     toast.value?.error(
       'Error al eliminar',
       error.response?.data?.message || 'No se pudo eliminar el plan. Intenta de nuevo.'
     )
+  } finally {
+    deletingPlan.value = false
   }
 }
 

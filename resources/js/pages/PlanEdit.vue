@@ -396,9 +396,9 @@ const configMap = {
 
 const typePlanMapInverse = {
   1: 'queue',
-  2: 'pppoe',
+  2: 'pcq',      // Corregido: ID 2 es PCQ
   3: 'hotspot',
-  4: 'pcq'
+  4: 'pppoe'     // Corregido: ID 4 es PPPoE
 }
 
 // Tipo de plan (se detectará al cargar los datos)
@@ -495,7 +495,6 @@ const fetchPlanData = async () => {
     }
 
   } catch (error) {
-    console.error(error)
     toast.value?.error(
       'Error al cargar',
       'No se pudieron cargar los datos del plan. Intenta de nuevo.'
@@ -526,6 +525,14 @@ const updatePlan = async () => {
   loading.value = true
 
   try {
+    // Mapeo de tipo a ID
+    const typePlanMap = {
+      queue: 1,
+      pppoe: 4,  // Corregido: PPPoE es ID 4
+      hotspot: 3,
+      pcq: 2     // Corregido: PCQ es ID 2
+    }
+
     const payload = {
       name: form.value.name,
       cost_product: Number(form.value.cost_product),
@@ -533,17 +540,22 @@ const updatePlan = async () => {
       speed_down: `${form.value.speed_down}${form.value.download_unit}`,
       speed_up: `${form.value.speed_up}${form.value.upload_unit}`,
       
+      // 🔥 IMPORTANTE: Incluir type y type_plan_id para mantener el tipo de plan
+      type: planType.value,
+      type_plan_id: typePlanMap[planType.value],
+      
       // Campos opcionales / específicos
-      priority: form.value.priority,
-      burst_download: form.value.burst_download,
-      burst_upload: form.value.burst_upload,
-      pppoe_pool: form.value.pppoe_pool,
-      local_address: form.value.local_address,
-      shared_users: form.value.shared_users,
-      // ... agrega el resto de campos específicos al payload
+      priority: form.value.priority ? parseInt(form.value.priority) : null,
+      burst_download: form.value.burst_download || null,
+      burst_upload: form.value.burst_upload || null,
+      pppoe_pool: form.value.pppoe_pool || null,
+      local_address: form.value.local_address || null,
+      shared_users: form.value.shared_users ? parseInt(form.value.shared_users) : null,
+      session_timeout: form.value.session_timeout || null,
+      idle_timeout: form.value.idle_timeout || null,
+      pcq_rate: form.value.pcq_rate || null,
+      address_mask: form.value.address_mask || null,
     }
-
-    console.log('📦 Actualizando:', payload)
 
     // Asumimos endpoint update(id, payload)
     await api.plan.update(planId, payload)
@@ -558,11 +570,18 @@ const updatePlan = async () => {
     }, 1500)
 
   } catch (error) {
-    console.error(error)
-    toast.value?.error(
-      'Error al actualizar',
-      error.response?.data?.message || 'No se pudo actualizar el plan. Intenta de nuevo.'
-    )
+    if (error.response?.data?.errors) {
+      const errors = Object.values(error.response.data.errors).flat()
+      toast.value?.error(
+        'Errores de validación',
+        errors.join(', ')
+      )
+    } else {
+      toast.value?.error(
+        'Error al actualizar',
+        error.response?.data?.message || 'No se pudo actualizar el plan. Intenta de nuevo.'
+      )
+    }
   } finally {
     loading.value = false
   }

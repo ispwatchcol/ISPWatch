@@ -427,9 +427,9 @@ const showAdvancedSpeed = ref(false)
 
 const typePlanMap = {
   queue: 1,
-  pppoe: 2,
+  pppoe: 4,  // Corregido: PPPoE es ID 4
   hotspot: 3,
-  pcq: 4
+  pcq: 2     // Corregido: PCQ es ID 2
 }
 
 const form = ref({
