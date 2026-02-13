@@ -426,6 +426,69 @@
         </div>
       </div>
 
+      <!-- Delete Confirmation Modal -->
+      <div
+        v-if="showDeleteModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+        @click.self="closeDeleteModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <v-icon name="md-delete" class="w-6 h-6 text-red-600" />
+                Eliminar Dispositivo
+              </h2>
+            </div>
+            <button
+              @click="closeDeleteModal"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <v-icon name="md-close" class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div class="space-y-4">
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <v-icon name="md-warning-round" class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-red-800 dark:text-red-300">¿Estás seguro?</h4>
+                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                    Esta acción no se puede deshacer. El dispositivo <strong>"#{{ deviceToDelete?.id }} - {{ deviceToDelete?.stock_brand }} {{ deviceToDelete?.stock_model }}"</strong> será eliminado permanentemente.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeDeleteModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              :disabled="deleting"
+            >
+              Cancelar
+            </button>
+            <button
+              @click="confirmDeleteDevice"
+              :disabled="deleting"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <v-icon v-if="deleting" name="ri-loader-4-line" animation="spin" class="w-4 h-4" />
+              <v-icon v-else name="md-delete" class="w-4 h-4" />
+              {{ deleting ? 'Eliminando...' : 'Eliminar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification Toast -->
+      <NotificationToast ref="toast" />
+
     </main>
   </div>
 </template>
@@ -434,12 +497,30 @@
 import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/supabase.js'
 import StatCard from '@/components/StatCard.vue'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 // State
 const devices = ref([])
 const providers = ref([])
 const branches = ref([])
 const loading = ref(false)
+const toast = ref(null)
+
+// Delete modal state
+const showDeleteModal = ref(false)
+const deviceToDelete = ref(null)
+const deleting = ref(false)
+const tenantId = ref(null)
+
+// Get tenant_id from logged-in user
+const getUserTenantId = () => {
+  const userData = JSON.parse(localStorage.getItem('userData')) ?? JSON.parse(sessionStorage.getItem('userData'))
+  if (!userData?.tenant_id) {
+    console.error('⚠️ No se encontró tenant_id del usuario autenticado.')
+    return null
+  }
+  return userData.tenant_id
+}
 
 // Filters
 const filters = ref({
@@ -501,6 +582,8 @@ const paginationEnd = computed(() => Math.min(currentPage.value * itemsPerPage.v
 const loadDevices = async () => {
   loading.value = true
   try {
+    if (!tenantId.value) return
+
     const { data, error } = await supabase
       .from('inventory_device')
       .select(`
@@ -520,6 +603,7 @@ const loadDevices = async () => {
           name
         )
       `)
+      .eq('tenant_id', tenantId.value)
       .order('created_at', { ascending: false })
 
     if (error) throw error
@@ -536,7 +620,7 @@ const loadDevices = async () => {
     calculateStats()
   } catch (error) {
     console.error('Error loading devices:', error)
-    alert('Error al cargar los dispositivos')
+    toast.value?.error('Error', 'Error al cargar los dispositivos')
   } finally {
     loading.value = false
   }
@@ -547,6 +631,7 @@ const loadProviders = async () => {
     const { data, error } = await supabase
       .from('inventory_provider')
       .select('id, name')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -561,6 +646,7 @@ const loadBranches = async () => {
     const { data, error } = await supabase
       .from('inventory_branch')
       .select('id, name')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -588,29 +674,44 @@ const formatCurrency = (value) => {
 const viewDevice = (device) => {
   // TODO: Implement view modal
   console.log('View device:', device)
-  alert(`Dispositivo #${device.id}\nSerial: ${device.serial}\nMAC: ${device.mac}`)
+  toast.value?.info('Información del Dispositivo', `Serial: ${device.serial}\nMAC: ${device.mac}`)
 }
 
 const editDevice = (device) => {
   window.location.href = `/inventory/${device.id}/edit`
 }
 
-const deleteDevice = async (device) => {
-  if (!confirm(`¿Eliminar el dispositivo #${device.id}?`)) return
+const deleteDevice = (device) => {
+  deviceToDelete.value = device
+  showDeleteModal.value = true
+}
+
+const closeDeleteModal = () => {
+  showDeleteModal.value = false
+  deviceToDelete.value = null
+}
+
+const confirmDeleteDevice = async () => {
+  if (!deviceToDelete.value) return
+  deleting.value = true
 
   try {
     const { error } = await supabase
       .from('inventory_device')
       .delete()
-      .eq('id', device.id)
+      .eq('id', deviceToDelete.value.id)
+      .eq('tenant_id', tenantId.value) // Ensure tenant_id is used for deletion
 
     if (error) throw error
 
-    alert('Dispositivo eliminado')
+    toast.value?.success('Eliminado', 'Dispositivo eliminado correctamente')
+    closeDeleteModal()
     await loadDevices()
   } catch (error) {
     console.error('Error deleting device:', error)
-    alert('Error al eliminar el dispositivo')
+    toast.value?.error('Error', 'No se pudo eliminar el dispositivo')
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -624,6 +725,7 @@ const nextPage = () => {
 
 // Lifecycle
 onMounted(async () => {
+  tenantId.value = getUserTenantId()
   await Promise.all([
     loadDevices(),
     loadProviders(),

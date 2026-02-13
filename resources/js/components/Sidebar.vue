@@ -126,6 +126,21 @@
                             to: '/inventory/create',
                             icon: 'oi-diff-added',
                         },
+                        {
+                            name: 'Stock / Modelos',
+                            to: '/inventory/stocks',
+                            icon: 'md-inventory-round',
+                        },
+                        {
+                            name: 'Proveedores',
+                            to: '/inventory/providers',
+                            icon: 'bi-building',
+                        },
+                        {
+                            name: 'Sucursales',
+                            to: '/inventory/branches',
+                            icon: 'md-storemalldirectory',
+                        },
                     ]"
                 />
 

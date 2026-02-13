@@ -272,6 +272,21 @@ const routes = [
         path: ':id/edit',
         name: 'InventoryEdit',
         component: () => import('@/pages/InventoryForm.vue'),
+      },
+      {
+        path: 'stocks',
+        name: 'InventoryStocks',
+        component: () => import('@/pages/StockList.vue'),
+      },
+      {
+        path: 'providers',
+        name: 'InventoryProviders',
+        component: () => import('@/pages/ProviderList.vue'),
+      },
+      {
+        path: 'branches',
+        name: 'InventoryBranches',
+        component: () => import('@/pages/BranchList.vue'),
       }
     ]
   },

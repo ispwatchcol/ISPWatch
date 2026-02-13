@@ -116,7 +116,7 @@
                         Editar
                     </button>
                     <button
-                        @click="router.push()"
+                        @click="openDetailsModal(sectorial)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-cyan-50 text-cyan-700 border border-cyan-200
                             hover:bg-cyan-100 hover:scale-[1.03] transition-all
@@ -149,6 +149,182 @@
         </div>
         </div>
     </div>
+
+    <!-- Modal Detalles de la Sectorial -->
+    <div
+      v-if="showDetailsModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="closeDetailsModal"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-2xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <icon-lucide-radio-tower class="w-6 h-6 text-cyan-600" />
+              Detalles de la Sectorial
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Información completa de la sectorial
+            </p>
+          </div>
+          <button
+            @click="closeDetailsModal"
+            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+          >
+            <icon-lucide-x class="w-6 h-6" />
+          </button>
+        </div>
+
+        <!-- Content -->
+        <div v-if="selectedDetailsSectorial" class="space-y-4">
+          <!-- Nombre y Tipo -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-tag class="w-4 h-4" />
+                Nombre
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ selectedDetailsSectorial.name }}
+              </div>
+            </div>
+
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-layers class="w-4 h-4" />
+                Tipo
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ selectedDetailsSectorial.type || '—' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Usuario RB y Frecuencia -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-user class="w-4 h-4" />
+                Usuario RouterBOARD
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ selectedDetailsSectorial.user_rb || '—' }}
+              </div>
+            </div>
+
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-radio class="w-4 h-4" />
+                Frecuencia
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ selectedDetailsSectorial.frequency || '—' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Router y Nodo Torre -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-server class="w-4 h-4" />
+                Router Asociado
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ getRouterName(selectedDetailsSectorial.zona_id) || '—' }}
+              </div>
+            </div>
+
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+                <icon-lucide-tower-control class="w-4 h-4" />
+                Nodo Torre
+              </div>
+              <div class="font-medium text-gray-800 dark:text-gray-100">
+                {{ selectedDetailsSectorial.node_tower || '—' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="closeDetailsModal"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cerrar
+          </button>
+          <button
+            @click="router.push(`/sectorials/${selectedDetailsSectorial?.id}/edit`)"
+            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <icon-lucide-pencil class="w-4 h-4" />
+            Editar Sectorial
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Confirmar Eliminación -->
+    <div
+      v-if="showDeleteModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="closeDeleteModal"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <icon-lucide-trash-2 class="w-6 h-6 text-red-600" />
+              Eliminar Sectorial
+            </h2>
+          </div>
+          <button
+            @click="closeDeleteModal"
+            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+          >
+            <icon-lucide-x class="w-6 h-6" />
+          </button>
+        </div>
+
+        <!-- Content -->
+        <div class="space-y-4">
+          <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <div class="flex items-start gap-3">
+              <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 class="font-medium text-red-800 dark:text-red-300">¿Estás seguro?</h4>
+                <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                  Esta acción no se puede deshacer. La sectorial <strong>"{{ sectorialToDelete?.name }}"</strong> será eliminada permanentemente.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="closeDeleteModal"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmDelete"
+            :disabled="deletingSectorial"
+            class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <icon-lucide-loader-2 v-if="deletingSectorial" class="w-4 h-4 animate-spin" />
+            <icon-lucide-trash v-else class="w-4 h-4" />
+            {{ deletingSectorial ? 'Eliminando...' : 'Eliminar' }}
+          </button>
+        </div>
+      </div>
+    </div>
 </template>
 
 <script setup>
@@ -167,6 +343,15 @@ const loading = ref(true)
 const error = ref('')
 const searchQuery = ref('')
 const toast = ref(null)
+
+// Estados del modal eliminar
+const showDeleteModal = ref(false)
+const sectorialToDelete = ref(null)
+const deletingSectorial = ref(false)
+
+// Estados del modal detalles
+const showDetailsModal = ref(false)
+const selectedDetailsSectorial = ref(null)
 
 // Computed para filtrar sectoriales
 const filteredSectorials = computed(() => {
@@ -239,15 +424,36 @@ const loadSectorials = async () => {
     }
 }
 
-const deleteSectorial = async (id) => {
-    if (!confirm('¿Estás seguro de eliminar esta sectorial?')) return
+// Abrir modal de confirmación para eliminar
+const deleteSectorial = (id) => {
+    const sectorialData = sectorials.value.find(s => s.id === id)
+    if (sectorialData) {
+        sectorialToDelete.value = sectorialData
+        showDeleteModal.value = true
+    }
+}
 
+// Cerrar modal de eliminar
+const closeDeleteModal = () => {
+    showDeleteModal.value = false
+    sectorialToDelete.value = null
+}
+
+// Confirmar eliminación
+const confirmDelete = async () => {
+    if (!sectorialToDelete.value) return
+    
+    deletingSectorial.value = true
+    
     try {
-        await api.sectorials.delete(id)
+        await api.sectorials.delete(sectorialToDelete.value.id)
+        
         toast.value?.success(
             'Sectorial eliminada',
-            'La sectorial ha sido eliminada correctamente'
+            `La sectorial "${sectorialToDelete.value.name}" ha sido eliminada correctamente`
         )
+        
+        closeDeleteModal()
         loadSectorials()
     } catch (err) {
         console.error('Error al eliminar sectorial:', err)
@@ -255,7 +461,25 @@ const deleteSectorial = async (id) => {
             'Error al eliminar',
             'No se pudo eliminar la sectorial. Intenta de nuevo.'
         )
+    } finally {
+        deletingSectorial.value = false
     }
+}
+
+// ==============================
+// FUNCIONES MODAL DETALLES
+// ==============================
+
+// Abrir modal de detalles
+const openDetailsModal = (sectorialData) => {
+    selectedDetailsSectorial.value = sectorialData
+    showDetailsModal.value = true
+}
+
+// Cerrar modal de detalles
+const closeDetailsModal = () => {
+    showDetailsModal.value = false
+    selectedDetailsSectorial.value = null
 }
 
 const clearSearch = () => {
