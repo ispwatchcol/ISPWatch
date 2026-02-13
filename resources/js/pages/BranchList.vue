@@ -44,8 +44,8 @@
         </div>
       </div>
 
-      <!-- Table -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
+      <!-- Desktop Table View -->
+      <div class="hidden lg:block bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
         <!-- Loading -->
         <div v-if="loading" class="flex items-center justify-center py-16">
           <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-orange-500" />
@@ -54,13 +54,24 @@
 
         <!-- Empty state -->
         <div v-else-if="filteredItems.length === 0" class="text-center py-16">
-          <v-icon name="md-storemalldirectory" class="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-          <h3 class="text-lg font-semibold text-gray-600 dark:text-gray-300">
+          <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
+            <v-icon name="md-storemalldirectory" class="w-10 h-10 text-gray-400" />
+          </div>
+          <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">
             {{ searchQuery ? 'Sin resultados' : 'Sin sucursales registradas' }}
-          </h3>
-          <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          </p>
+          <p class="text-gray-400 dark:text-gray-500 text-sm mt-2">
             {{ searchQuery ? 'Intenta con otros términos de búsqueda' : 'Agrega tu primera sucursal' }}
           </p>
+          <button
+            v-if="!searchQuery"
+            @click="openAddModal"
+            class="mt-6 px-6 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg
+                   transition-colors text-sm font-medium inline-flex items-center gap-2"
+          >
+            <v-icon name="md-add" class="w-4 h-4 fill-current" />
+            Agregar Primera Sucursal
+          </button>
         </div>
 
         <!-- Data table -->
@@ -98,14 +109,14 @@
                   <div class="flex items-center gap-2">
                     <button
                       @click="openEditModal(item)"
-                      class="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                      class="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-all hover:scale-110"
                       title="Editar"
                     >
                       <v-icon name="fa-edit" class="w-4 h-4" />
                     </button>
                     <button
                       @click="confirmDelete(item)"
-                      class="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                      class="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-all hover:scale-110"
                       title="Eliminar"
                     >
                       <v-icon name="md-delete" class="w-4 h-4" />
@@ -118,10 +129,89 @@
         </div>
       </div>
 
+      <!-- Mobile Card View -->
+      <div class="lg:hidden space-y-4">
+        <!-- Mobile Loading -->
+        <div v-if="loading" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 text-center">
+          <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-orange-500 mx-auto" />
+          <span class="block mt-3 text-gray-500 dark:text-gray-400">Cargando sucursales...</span>
+        </div>
+
+        <!-- Mobile Cards -->
+        <template v-else-if="filteredItems.length > 0">
+          <div
+            v-for="item in filteredItems"
+            :key="item.id"
+            class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 hover:shadow-lg transition-all"
+          >
+            <!-- Header -->
+            <div class="flex items-start justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <div class="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+                  <v-icon name="md-storemalldirectory" class="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div>
+                  <span class="text-xs font-bold text-orange-600 dark:text-orange-400">#{{ item.id }}</span>
+                  <p class="text-sm font-medium text-gray-800 dark:text-white mt-0.5">{{ item.name }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Info -->
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mb-3">
+              <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Dirección</p>
+              <p class="text-sm text-gray-800 dark:text-gray-200">{{ item.address || 'Sin dirección' }}</p>
+            </div>
+
+            <!-- Actions -->
+            <div class="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <button
+                @click="openEditModal(item)"
+                class="py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
+                       transition-colors text-sm font-medium flex items-center justify-center gap-1"
+              >
+                <v-icon name="fa-edit" class="w-4 h-4" />
+                Editar
+              </button>
+              <button
+                @click="confirmDelete(item)"
+                class="py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg
+                       transition-colors text-sm font-medium flex items-center justify-center gap-1"
+              >
+                <v-icon name="md-delete" class="w-4 h-4" />
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Mobile Empty State -->
+        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 text-center">
+          <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
+            <v-icon name="md-storemalldirectory" class="w-10 h-10 text-gray-400" />
+          </div>
+          <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">
+            {{ searchQuery ? 'Sin resultados' : 'Sin sucursales' }}
+          </p>
+          <p class="text-gray-400 dark:text-gray-500 text-sm mt-2 mb-6">
+            {{ searchQuery ? 'Intenta con otros términos' : 'Agrega tu primera sucursal' }}
+          </p>
+          <button
+            v-if="!searchQuery"
+            @click="openAddModal"
+            class="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-lg
+                   transition-colors text-sm font-medium flex items-center justify-center gap-2"
+          >
+            <v-icon name="md-add" class="w-4 h-4 fill-current" />
+            Agregar Sucursal
+          </button>
+        </div>
+      </div>
+
       <!-- Add/Edit Modal -->
       <div v-if="showFormModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="closeFormModal">
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-          <div class="bg-gradient-to-r from-orange-600 to-orange-700 p-5 text-white">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] overflow-y-auto">
+          <div class="bg-gradient-to-r from-orange-600 to-orange-700 p-5 text-white sticky top-0 z-10">
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">{{ isEditing ? 'Editar Sucursal' : 'Nueva Sucursal' }}</h3>
               <button @click="closeFormModal" class="p-1 hover:bg-white/20 rounded-lg transition-colors">
@@ -130,7 +220,7 @@
             </div>
           </div>
 
-          <form @submit.prevent="handleSave" class="p-6 space-y-4">
+          <form @submit.prevent="handleSave" class="p-4 md:p-6 space-y-4">
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nombre *</label>
               <input
@@ -155,7 +245,7 @@
               />
             </div>
 
-            <div class="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div class="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 type="button"
                 @click="closeFormModal"
@@ -192,7 +282,7 @@
               ¿Estás seguro de eliminar <strong>{{ itemToDelete?.name }}</strong>? Esta acción no se puede deshacer.
             </p>
           </div>
-          <div class="flex border-t border-gray-200 dark:border-gray-700">
+          <div class="flex flex-col sm:flex-row border-t border-gray-200 dark:border-gray-700">
             <button
               @click="closeDeleteModal"
               class="flex-1 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
@@ -204,7 +294,7 @@
             <button
               @click="deleteItem"
               class="flex-1 py-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20
-                     font-medium transition-colors border-l border-gray-200 dark:border-gray-700"
+                     font-medium transition-colors sm:border-l border-t sm:border-t-0 border-gray-200 dark:border-gray-700"
               :disabled="saving"
             >
               {{ saving ? 'Eliminando...' : 'Eliminar' }}
