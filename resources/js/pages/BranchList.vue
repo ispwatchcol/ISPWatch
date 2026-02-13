@@ -82,6 +82,7 @@
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Nombre</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Dirección</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Número</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
             </thead>
@@ -103,7 +104,10 @@
                   </div>
                 </td>
                 <td class="px-6 py-4">
-                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.address || '—' }}</span>
+                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.dir || '—' }}</span>
+                </td>
+                <td class="px-6 py-4">
+                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.numero || '—' }}</span>
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-2">
@@ -155,12 +159,15 @@
                   <p class="text-sm font-medium text-gray-800 dark:text-white mt-0.5">{{ item.name }}</p>
                 </div>
               </div>
+              <span v-if="item.numero" class="text-xs font-bold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-2 py-1 rounded-lg">
+                #{{ item.numero }}
+              </span>
             </div>
 
             <!-- Info -->
             <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mb-3">
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Dirección</p>
-              <p class="text-sm text-gray-800 dark:text-gray-200">{{ item.address || 'Sin dirección' }}</p>
+              <p class="text-sm text-gray-800 dark:text-gray-200">{{ item.dir || 'Sin dirección' }}</p>
             </div>
 
             <!-- Actions -->
@@ -236,9 +243,21 @@
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dirección</label>
               <input
-                v-model="form.address"
+                v-model="form.dir"
                 type="text"
                 placeholder="Dirección de la sucursal..."
+                class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                       focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Número</label>
+              <input
+                v-model.number="form.numero"
+                type="number"
+                min="0"
+                placeholder="Número de sucursal..."
                 class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none"
@@ -271,32 +290,59 @@
       </div>
 
       <!-- Delete Confirmation Modal -->
-      <div v-if="showDeleteModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="closeDeleteModal">
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-          <div class="p-6 text-center">
-            <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-              <v-icon name="md-warning-round" class="w-8 h-8 text-red-600 dark:text-red-400" />
+      <div
+        v-if="showDeleteModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+        @click.self="closeDeleteModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <v-icon name="md-delete" class="w-6 h-6 text-red-600" />
+                Eliminar Sucursal
+              </h2>
             </div>
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">¿Eliminar sucursal?</h3>
-            <p class="text-sm text-gray-600 dark:text-gray-400">
-              ¿Estás seguro de eliminar <strong>{{ itemToDelete?.name }}</strong>? Esta acción no se puede deshacer.
-            </p>
-          </div>
-          <div class="flex flex-col sm:flex-row border-t border-gray-200 dark:border-gray-700">
             <button
               @click="closeDeleteModal"
-              class="flex-1 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
-                     font-medium transition-colors"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <v-icon name="md-close" class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div class="space-y-4">
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <v-icon name="md-warning-round" class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-red-800 dark:text-red-300">¿Estás seguro?</h4>
+                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                    Esta acción no se puede deshacer. La sucursal <strong>"{{ itemToDelete?.name }}"</strong> será eliminada permanentemente.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeDeleteModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               :disabled="saving"
             >
               Cancelar
             </button>
             <button
               @click="deleteItem"
-              class="flex-1 py-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20
-                     font-medium transition-colors sm:border-l border-t sm:border-t-0 border-gray-200 dark:border-gray-700"
               :disabled="saving"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
+              <v-icon v-if="saving" name="ri-loader-4-line" animation="spin" class="w-4 h-4" />
+              <v-icon v-else name="md-delete" class="w-4 h-4" />
               {{ saving ? 'Eliminando...' : 'Eliminar' }}
             </button>
           </div>
@@ -319,6 +365,17 @@ const loading = ref(false)
 const saving = ref(false)
 const searchQuery = ref('')
 const items = ref([])
+const tenantId = ref(null)
+
+// Get tenant_id from logged-in user
+const getUserTenantId = () => {
+  const userData = JSON.parse(localStorage.getItem('userData')) ?? JSON.parse(sessionStorage.getItem('userData'))
+  if (!userData?.tenant_id) {
+    console.error('⚠️ No se encontró tenant_id del usuario autenticado.')
+    return null
+  }
+  return userData.tenant_id
+}
 
 const showFormModal = ref(false)
 const showDeleteModal = ref(false)
@@ -328,7 +385,8 @@ const itemToDelete = ref(null)
 
 const form = ref({
   name: '',
-  address: ''
+  dir: '',
+  numero: null
 })
 
 const filteredItems = computed(() => {
@@ -336,16 +394,19 @@ const filteredItems = computed(() => {
   const q = searchQuery.value.toLowerCase()
   return items.value.filter(item =>
     (item.name || '').toLowerCase().includes(q) ||
-    (item.address || '').toLowerCase().includes(q)
+    (item.dir || '').toLowerCase().includes(q)
   )
 })
 
 const loadItems = async () => {
   loading.value = true
   try {
+    if (!tenantId.value) return
+
     const { data, error } = await supabase
       .from('inventory_branch')
       .select('*')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -361,7 +422,7 @@ const loadItems = async () => {
 const openAddModal = () => {
   isEditing.value = false
   editingId.value = null
-  form.value = { name: '', address: '' }
+  form.value = { name: '', dir: '', numero: null }
   showFormModal.value = true
 }
 
@@ -370,7 +431,8 @@ const openEditModal = (item) => {
   editingId.value = item.id
   form.value = {
     name: item.name || '',
-    address: item.address || ''
+    dir: item.dir || '',
+    numero: item.numero || null
   }
   showFormModal.value = true
 }
@@ -396,7 +458,9 @@ const handleSave = async () => {
   try {
     const payload = {
       name: form.value.name,
-      address: form.value.address || null
+      dir: form.value.dir || null,
+      numero: form.value.numero || null,
+      tenant_id: tenantId.value
     }
 
     if (isEditing.value) {
@@ -445,6 +509,7 @@ const deleteItem = async () => {
 }
 
 onMounted(() => {
+  tenantId.value = getUserTenantId()
   loadItems()
 })
 </script>

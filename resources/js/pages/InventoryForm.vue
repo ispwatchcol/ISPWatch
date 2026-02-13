@@ -287,6 +287,9 @@
         </form>
       </div>
 
+      <!-- Notification Toast -->
+      <NotificationToast ref="toast" />
+
     </main>
   </div>
 </template>
@@ -295,6 +298,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '@/supabase.js'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -307,6 +311,18 @@ const stocks = ref([])
 const providers = ref([])
 const branches = ref([])
 const users = ref([])
+const toast = ref(null)
+const tenantId = ref(null)
+
+// Get tenant_id from logged-in user
+const getUserTenantId = () => {
+  const userData = JSON.parse(localStorage.getItem('userData')) ?? JSON.parse(sessionStorage.getItem('userData'))
+  if (!userData?.tenant_id) {
+    console.error('⚠️ No se encontró tenant_id del usuario autenticado.')
+    return null
+  }
+  return userData.tenant_id
+}
 
 // Form
 const form = ref({
@@ -338,13 +354,14 @@ const loadStocks = async () => {
     const { data, error } = await supabase
       .from('inventory_stock')
       .select('id, brand, model, price')
+      .eq('tenant_id', tenantId.value)
       .order('brand')
 
     if (error) throw error
     stocks.value = data || []
   } catch (error) {
     console.error('Error loading stocks:', error)
-    alert('Error al cargar el stock')
+    toast.value?.error('Error', 'Error al cargar el stock')
   }
 }
 
@@ -353,6 +370,7 @@ const loadProviders = async () => {
     const { data, error } = await supabase
       .from('inventory_provider')
       .select('id, name')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -367,6 +385,7 @@ const loadBranches = async () => {
     const { data, error } = await supabase
       .from('inventory_branch')
       .select('id, name')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -381,6 +400,7 @@ const loadUsers = async () => {
     const { data, error } = await supabase
       .from('users')
       .select('id, name')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -413,7 +433,7 @@ const loadDevice = async () => {
     }
   } catch (error) {
     console.error('Error loading device:', error)
-    alert('Error al cargar el dispositivo')
+    toast.value?.error('Error', 'Error al cargar el dispositivo')
     router.push('/inventory')
   } finally {
     loading.value = false
@@ -440,7 +460,8 @@ const handleSubmit = async () => {
       user_id: form.value.user_id || null,
       branch_id: form.value.branch_id || null,
       serial: form.value.serial || null,
-      mac: form.value.mac || null
+      mac: form.value.mac || null,
+      tenant_id: tenantId.value
     }
 
     if (isEdit) {
@@ -451,7 +472,7 @@ const handleSubmit = async () => {
         .eq('id', deviceId)
 
       if (error) throw error
-      alert('✅ Dispositivo actualizado correctamente')
+      toast.value?.success('Actualizado', 'Dispositivo actualizado correctamente')
     } else {
       // Create
       const { error } = await supabase
@@ -459,13 +480,13 @@ const handleSubmit = async () => {
         .insert(payload)
 
       if (error) throw error
-      alert('✅ Dispositivo creado correctamente')
+      toast.value?.success('Creado', 'Dispositivo creado correctamente')
     }
 
     router.push('/inventory')
   } catch (error) {
     console.error('Error saving device:', error)
-    alert('❌ Error al guardar el dispositivo: ' + error.message)
+    toast.value?.error('Error', 'Error al guardar: ' + error.message)
   } finally {
     loading.value = false
   }
@@ -485,6 +506,7 @@ const formatCurrency = (value) => {
 
 // Lifecycle
 onMounted(async () => {
+  tenantId.value = getUserTenantId()
   await Promise.all([
     loadStocks(),
     loadProviders(),

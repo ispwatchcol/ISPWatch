@@ -35,7 +35,7 @@
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Buscar por nombre, contacto..."
+            placeholder="Buscar por nombre, email, ciudad..."
             class="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                    bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                    focus:ring-2 focus:ring-blue-500 focus:border-transparent
@@ -81,8 +81,10 @@
               <tr>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Nombre</th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Contacto</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Email</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Teléfono</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Ciudad</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Asesor</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
             </thead>
@@ -100,14 +102,23 @@
                     <div class="w-9 h-9 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
                       <v-icon name="bi-building" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     </div>
-                    <span class="text-sm font-medium text-gray-900 dark:text-white">{{ item.name }}</span>
+                    <div>
+                      <span class="text-sm font-medium text-gray-900 dark:text-white">{{ item.name }}</span>
+                      <p v-if="item.identification" class="text-xs text-gray-500 dark:text-gray-400">{{ item.identification }}</p>
+                    </div>
                   </div>
                 </td>
                 <td class="px-6 py-4">
-                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.contact || '—' }}</span>
+                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.email || '—' }}</span>
                 </td>
                 <td class="px-6 py-4">
                   <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.phone || '—' }}</span>
+                </td>
+                <td class="px-6 py-4">
+                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.city || '—' }}</span>
+                </td>
+                <td class="px-6 py-4">
+                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.advisor_name || '—' }}</span>
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-2">
@@ -157,6 +168,7 @@
                 <div>
                   <span class="text-xs font-bold text-blue-600 dark:text-blue-400">#{{ item.id }}</span>
                   <p class="text-sm font-medium text-gray-800 dark:text-white mt-0.5">{{ item.name }}</p>
+                  <p v-if="item.identification" class="text-xs text-gray-500 dark:text-gray-400">{{ item.identification }}</p>
                 </div>
               </div>
             </div>
@@ -164,12 +176,20 @@
             <!-- Info Grid -->
             <div class="grid grid-cols-2 gap-3 mb-3">
               <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Contacto</p>
-                <p class="text-sm text-gray-800 dark:text-gray-200">{{ item.contact || 'N/A' }}</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Email</p>
+                <p class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ item.email || 'N/A' }}</p>
               </div>
               <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Teléfono</p>
                 <p class="text-sm text-gray-800 dark:text-gray-200">{{ item.phone || 'N/A' }}</p>
+              </div>
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Ciudad</p>
+                <p class="text-sm text-gray-800 dark:text-gray-200">{{ item.city || 'N/A' }}</p>
+              </div>
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Asesor</p>
+                <p class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ item.advisor_name || 'N/A' }}</p>
               </div>
             </div>
 
@@ -220,7 +240,7 @@
 
       <!-- Add/Edit Modal -->
       <div v-if="showFormModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="closeFormModal">
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
           <div class="bg-gradient-to-r from-blue-600 to-blue-700 p-5 text-white sticky top-0 z-10">
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-semibold">{{ isEditing ? 'Editar Proveedor' : 'Nuevo Proveedor' }}</h3>
@@ -230,40 +250,130 @@
             </div>
           </div>
 
-          <form @submit.prevent="handleSave" class="p-4 md:p-6 space-y-4">
+          <form @submit.prevent="handleSave" class="p-4 md:p-6 space-y-5">
+            <!-- Datos principales -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nombre *</label>
-              <input
-                v-model="form.name"
-                type="text"
-                required
-                placeholder="Nombre del proveedor..."
-                class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
-                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                       focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-              />
+              <h4 class="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">Datos del Proveedor</h4>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="sm:col-span-2">
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nombre *</label>
+                  <input
+                    v-model="form.name"
+                    type="text"
+                    required
+                    placeholder="Nombre del proveedor..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Identificación</label>
+                  <input
+                    v-model="form.identification"
+                    type="text"
+                    placeholder="NIT / CC..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
+                  <input
+                    v-model="form.email"
+                    type="email"
+                    placeholder="email@proveedor.com"
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Teléfono</label>
+                  <input
+                    v-model="form.phone"
+                    type="text"
+                    placeholder="Teléfono..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Dirección</label>
+                  <input
+                    v-model="form.addr"
+                    type="text"
+                    placeholder="Dirección..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Ciudad</label>
+                  <input
+                    v-model="form.city"
+                    type="text"
+                    placeholder="Ciudad..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+              </div>
             </div>
+
+            <!-- Datos del asesor -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Contacto</label>
-              <input
-                v-model="form.contact"
-                type="text"
-                placeholder="Nombre de contacto..."
-                class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
-                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                       focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Teléfono</label>
-              <input
-                v-model="form.phone"
-                type="text"
-                placeholder="Teléfono..."
-                class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
-                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                       focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-              />
+              <h4 class="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-3">Datos del Asesor</h4>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nombre del Asesor</label>
+                  <input
+                    v-model="form.advisor_name"
+                    type="text"
+                    placeholder="Nombre..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cargo</label>
+                  <input
+                    v-model="form.advisor_position"
+                    type="text"
+                    placeholder="Cargo..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Teléfono del Asesor</label>
+                  <input
+                    v-model="form.advisor_phone"
+                    type="text"
+                    placeholder="Teléfono..."
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email del Asesor</label>
+                  <input
+                    v-model="form.advisor_email"
+                    type="email"
+                    placeholder="email@asesor.com"
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
+                </div>
+              </div>
             </div>
 
             <div class="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -292,32 +402,59 @@
       </div>
 
       <!-- Delete Confirmation Modal -->
-      <div v-if="showDeleteModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="closeDeleteModal">
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-          <div class="p-6 text-center">
-            <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-              <v-icon name="md-warning-round" class="w-8 h-8 text-red-600 dark:text-red-400" />
+      <div
+        v-if="showDeleteModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+        @click.self="closeDeleteModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <v-icon name="md-delete" class="w-6 h-6 text-red-600" />
+                Eliminar Proveedor
+              </h2>
             </div>
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">¿Eliminar proveedor?</h3>
-            <p class="text-sm text-gray-600 dark:text-gray-400">
-              ¿Estás seguro de eliminar <strong>{{ itemToDelete?.name }}</strong>? Esta acción no se puede deshacer.
-            </p>
-          </div>
-          <div class="flex flex-col sm:flex-row border-t border-gray-200 dark:border-gray-700">
             <button
               @click="closeDeleteModal"
-              class="flex-1 py-3 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
-                     font-medium transition-colors"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            >
+              <v-icon name="md-close" class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Content -->
+          <div class="space-y-4">
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <v-icon name="md-warning-round" class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-red-800 dark:text-red-300">¿Estás seguro?</h4>
+                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                    Esta acción no se puede deshacer. El proveedor <strong>"{{ itemToDelete?.name }}"</strong> será eliminado permanentemente.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeDeleteModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               :disabled="saving"
             >
               Cancelar
             </button>
             <button
               @click="deleteItem"
-              class="flex-1 py-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20
-                     font-medium transition-colors sm:border-l border-t sm:border-t-0 border-gray-200 dark:border-gray-700"
               :disabled="saving"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
+              <v-icon v-if="saving" name="ri-loader-4-line" animation="spin" class="w-4 h-4" />
+              <v-icon v-else name="md-delete" class="w-4 h-4" />
               {{ saving ? 'Eliminando...' : 'Eliminar' }}
             </button>
           </div>
@@ -340,6 +477,17 @@ const loading = ref(false)
 const saving = ref(false)
 const searchQuery = ref('')
 const items = ref([])
+const tenantId = ref(null)
+
+// Get tenant_id from logged-in user
+const getUserTenantId = () => {
+  const userData = JSON.parse(localStorage.getItem('userData')) ?? JSON.parse(sessionStorage.getItem('userData'))
+  if (!userData?.tenant_id) {
+    console.error('⚠️ No se encontró tenant_id del usuario autenticado.')
+    return null
+  }
+  return userData.tenant_id
+}
 
 const showFormModal = ref(false)
 const showDeleteModal = ref(false)
@@ -347,27 +495,41 @@ const isEditing = ref(false)
 const editingId = ref(null)
 const itemToDelete = ref(null)
 
-const form = ref({
+const emptyForm = () => ({
   name: '',
-  contact: '',
-  phone: ''
+  email: '',
+  phone: '',
+  addr: '',
+  city: '',
+  identification: '',
+  advisor_name: '',
+  advisor_phone: '',
+  advisor_email: '',
+  advisor_position: ''
 })
+
+const form = ref(emptyForm())
 
 const filteredItems = computed(() => {
   if (!searchQuery.value) return items.value
   const q = searchQuery.value.toLowerCase()
   return items.value.filter(item =>
     (item.name || '').toLowerCase().includes(q) ||
-    (item.contact || '').toLowerCase().includes(q)
+    (item.email || '').toLowerCase().includes(q) ||
+    (item.city || '').toLowerCase().includes(q) ||
+    (item.identification || '').toLowerCase().includes(q)
   )
 })
 
 const loadItems = async () => {
   loading.value = true
   try {
+    if (!tenantId.value) return
+
     const { data, error } = await supabase
       .from('inventory_provider')
       .select('*')
+      .eq('tenant_id', tenantId.value)
       .order('name')
 
     if (error) throw error
@@ -383,7 +545,7 @@ const loadItems = async () => {
 const openAddModal = () => {
   isEditing.value = false
   editingId.value = null
-  form.value = { name: '', contact: '', phone: '' }
+  form.value = emptyForm()
   showFormModal.value = true
 }
 
@@ -392,8 +554,15 @@ const openEditModal = (item) => {
   editingId.value = item.id
   form.value = {
     name: item.name || '',
-    contact: item.contact || '',
-    phone: item.phone || ''
+    email: item.email || '',
+    phone: item.phone || '',
+    addr: item.addr || '',
+    city: item.city || '',
+    identification: item.identification || '',
+    advisor_name: item.advisor_name || '',
+    advisor_phone: item.advisor_phone || '',
+    advisor_email: item.advisor_email || '',
+    advisor_position: item.advisor_position || ''
   }
   showFormModal.value = true
 }
@@ -419,8 +588,16 @@ const handleSave = async () => {
   try {
     const payload = {
       name: form.value.name,
-      contact: form.value.contact || null,
-      phone: form.value.phone || null
+      email: form.value.email || null,
+      phone: form.value.phone || null,
+      addr: form.value.addr || null,
+      city: form.value.city || null,
+      identification: form.value.identification || null,
+      advisor_name: form.value.advisor_name || null,
+      advisor_phone: form.value.advisor_phone || null,
+      advisor_email: form.value.advisor_email || null,
+      advisor_position: form.value.advisor_position || null,
+      tenant_id: tenantId.value
     }
 
     if (isEditing.value) {
@@ -469,6 +646,7 @@ const deleteItem = async () => {
 }
 
 onMounted(() => {
+  tenantId.value = getUserTenantId()
   loadItems()
 })
 </script>
