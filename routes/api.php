@@ -16,27 +16,19 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\VerificationController;
+use App\Http\Controllers\PaymentReminderController;
+use App\Http\Controllers\ImportController;
 
 /*
 |--------------------------------------------------------------------------
-| AUTH
+| PUBLIC ROUTES (No authentication required)
 |--------------------------------------------------------------------------
 */
 Route::post('/login', [AuthController::class, 'login']);
-
-/*
-|--------------------------------------------------------------------------
-| REGISTRATION
-|--------------------------------------------------------------------------
-*/
 Route::post('/register', [RegistrationController::class, 'register']);
 Route::post('/register/send-code', [RegistrationController::class, 'sendVerificationCode']);
 
-/*
-|--------------------------------------------------------------------------
-| EMAIL VERIFICATION
-|--------------------------------------------------------------------------
-*/
+// Email Verification
 Route::get('/verify-email/{id}/{hash}', [VerificationController::class, 'verify'])
     ->middleware(['signed'])
     ->name('verification.verify');
@@ -45,54 +37,36 @@ Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
 
 /*
 |--------------------------------------------------------------------------
-| DASHBOARD
+| PROTECTED ROUTES (require auth:sanctum)
 |--------------------------------------------------------------------------
 */
-Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
-
-/*
-|--------------------------------------------------------------------------
-| RUTAS PERSONALIZADAS (Deben ir ANTES de apiResources)
-|--------------------------------------------------------------------------
-*/
-Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
-Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
-Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision']);
-Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision']);
-Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend']);
-Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
-
-// VPN Routes (require authentication)
 Route::middleware(['auth:sanctum'])->group(function () {
+
+    // ─── DASHBOARD ───
+    Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
+
+    // ─── CUSTOMERS (custom routes before apiResource) ───
+    Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
+    Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
+    Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision']);
+    Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision']);
+    Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend']);
+    Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
+
+    // ─── ROUTER MANAGEMENT ───
     Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
     Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
-
-    // Router Interfaces Routes
     Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
     Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
-
-    // Firewall Block Rules
     Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
     Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
     Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
-
-    // Test MikroTik CORE connection
     Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
-
-    // Diagnóstico: Probar creación de secret en el CORE
     Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
     Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
-
-    // Diagnóstico: Probar sincronización de queue en router cliente
     Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
-});
 
-/*
-|--------------------------------------------------------------------------
-| BILLING MODULE
-|--------------------------------------------------------------------------
-*/
-Route::group([], function () {
+    // ─── BILLING ───
     Route::get('/billing/stats', [BillingController::class, 'getStats']);
     Route::get('/billing/invoices', [BillingController::class, 'index']);
     Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
@@ -106,52 +80,42 @@ Route::group([], function () {
     Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
 
     // Payment Reminders
-    Route::post('/billing/invoices/{id}/send-reminder', [\App\Http\Controllers\PaymentReminderController::class, 'sendReminder']);
-    Route::post('/billing/invoices/bulk-reminders', [\App\Http\Controllers\PaymentReminderController::class, 'sendBulkReminders']);
-    Route::get('/billing/whatsapp-status', [\App\Http\Controllers\PaymentReminderController::class, 'checkWhatsAppStatus']);
-});
+    Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
+    Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
+    Route::get('/billing/whatsapp-status', [PaymentReminderController::class, 'checkWhatsAppStatus']);
 
-// Support routes with permissions
-Route::middleware(['auth:sanctum', 'staff_profile'])->group(function () {
-    Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
-    Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
-    Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
-    Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
-    Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
-});
+    // ─── SUPPORT (requires staff profile) ───
+    Route::middleware(['staff_profile'])->group(function () {
+        Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
+        Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
+        Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
+        Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
+        Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
+    });
 
-/*
-|--------------------------------------------------------------------------
-| API RESOURCES (CRUD Completo: index, show, store, update, destroy)
-|--------------------------------------------------------------------------
-*/
-Route::apiResources([
-    'customers' => CustomerProfileController::class,
-    'routers' => RouterController::class,
-    'inventory' => InventoryDeviceController::class,
-    'staff' => UserController::class,
-    'plans' => PlanController::class,
-    'sectorials' => SectorialController::class,
-    'support' => SupportTicketController::class, // Most methods likely need staff_profile, check controller constructor or middleware usage
-]);
+    // ─── CRUD RESOURCES ───
+    Route::apiResources([
+        'customers' => CustomerProfileController::class,
+        'routers' => RouterController::class,
+        'inventory' => InventoryDeviceController::class,
+        'staff' => UserController::class,
+        'plans' => PlanController::class,
+        'sectorials' => SectorialController::class,
+        'support' => SupportTicketController::class,
+    ]);
 
-/*
-|--------------------------------------------------------------------------
-| CATALOGOS / LISTAS SIMPLES
-|--------------------------------------------------------------------------
-*/
-// Tenant routes
-Route::get('/tenants/{id}', [TenantController::class, 'show']);
-Route::put('/tenants/{id}', [TenantController::class, 'update']);
+    // ─── CATALOGS ───
+    Route::get('/tenants/{id}', [TenantController::class, 'show']);
+    Route::put('/tenants/{id}', [TenantController::class, 'update']);
+    Route::get('/roles', [RoleController::class, 'index']);
 
-Route::get('/roles', [RoleController::class, 'index']);
+    // ─── SYSTEM ───
+    Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
 
-// System Settings
-Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
-
-// Import Data Routes
-Route::prefix('import')->middleware(['auth:sanctum'])->group(function () {
-    Route::get('template/{type}', [App\Http\Controllers\ImportController::class, 'downloadTemplate']);
-    Route::post('{type}', [App\Http\Controllers\ImportController::class, 'import']);
-    Route::get('docs/{type}', [App\Http\Controllers\ImportController::class, 'fieldDocs']);
+    // ─── IMPORT ───
+    Route::prefix('import')->group(function () {
+        Route::get('template/{type}', [ImportController::class, 'downloadTemplate']);
+        Route::post('{type}', [ImportController::class, 'import']);
+        Route::get('docs/{type}', [ImportController::class, 'fieldDocs']);
+    });
 });

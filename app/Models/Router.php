@@ -2,13 +2,17 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class Router extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'router';
     protected $fillable = [
         'name',
+        'tenant_id',
         'ip',
         'ipv6',
         'failover',

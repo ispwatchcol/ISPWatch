@@ -14,27 +14,45 @@ export default defineConfig({
 
     vue(),
 
-    // 👇 Auto-import de íconos y componentes
+    // Auto-import icons and components
     Components({
+      dirs: ['resources/js/components'],
       resolvers: [
         IconsResolver({
-          prefix: 'icon', // podrás usar icon-fa-solid-user, icon-mdi-home, etc.
+          prefix: 'icon',
         }),
       ],
     }),
 
     Icons({
-      autoInstall: true, // instala los íconos automáticamente
+      autoInstall: true,
     }),
   ],
+
+  // ─── Build Optimization ───
+  build: {
+    // Target modern browsers for smaller output
+    target: 'es2020',
+    // Chunk splitting for optimal caching
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-xlsx': ['xlsx'],
+        },
+      },
+    },
+    // Raise chunk size warning limit (some components are large)
+    chunkSizeWarningLimit: 600,
+  },
 
   server: {
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
     hmr: {
-      host: 'localhost', // For local development, use localhost for HMR
+      host: 'localhost',
     },
   },
 })
-
