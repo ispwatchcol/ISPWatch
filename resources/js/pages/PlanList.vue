@@ -92,6 +92,7 @@
               </span>
               <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
               <button
+                @click="deleteBulkPlans"
                 class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors flex items-center gap-1"
               >
                 <icon-lucide-trash-2 class="w-3.5 h-3.5" />
@@ -191,17 +192,17 @@
                 </td>
 
                 <td class="px-4 py-4">
-                  <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <div class="flex items-center justify-end gap-2">
                     <button
                       @click="editPlan(plan)"
-                      class="p-2 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-400 dark:hover:text-blue-400 transition"
+                      class="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-500 dark:hover:text-blue-400 transition-all duration-200"
                       title="Editar"
                     >
                       <icon-lucide-pencil class="w-4 h-4" />
                     </button>
                     <button
                       @click="deletePlan(plan.id)"
-                      class="p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:text-gray-400 dark:hover:text-red-400 transition"
+                      class="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:text-gray-500 dark:hover:text-red-400 transition-all duration-200"
                       title="Eliminar"
                     >
                       <icon-lucide-trash-2 class="w-4 h-4" />
@@ -530,6 +531,45 @@ const confirmDelete = async () => {
     )
   } finally {
     deletingPlan.value = false
+  }
+}
+
+// Eliminar planes seleccionados (bulk delete)
+const deleteBulkPlans = async () => {
+  if (selectedPlans.value.length === 0) return
+  
+  const confirmMsg = `¿Estás seguro de eliminar ${selectedPlans.value.length} plan(es) seleccionado(s)? Esta acción no se puede deshacer.`
+  
+  if (!confirm(confirmMsg)) return
+  
+  const plansToDelete = [...selectedPlans.value]
+  let successCount = 0
+  let errorCount = 0
+  
+  for (const planId of plansToDelete) {
+    try {
+      await api.plan.delete(planId)
+      allPlans.value = allPlans.value.filter(p => p.id !== planId)
+      selectedPlans.value = selectedPlans.value.filter(id => id !== planId)
+      successCount++
+    } catch (error) {
+      console.error(`Error eliminando plan ${planId}:`, error)
+      errorCount++
+    }
+  }
+  
+  if (successCount > 0) {
+    toast.value?.success(
+      'Planes eliminados',
+      `${successCount} plan(es) eliminado(s) correctamente`
+    )
+  }
+  
+  if (errorCount > 0) {
+    toast.value?.error(
+      'Error parcial',
+      `No se pudieron eliminar ${errorCount} plan(es)`
+    )
   }
 }
 
