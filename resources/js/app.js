@@ -134,6 +134,8 @@ import {
   MdCheckcircle,
   MdNotificationsactiveOutlined,
   MdSend,
+  RiBillLine,
+  RiBankCardLine,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -261,6 +263,8 @@ addIcons(
   MdCheckcircle,
   MdNotificationsactiveOutlined,
   MdSend,
+  RiBillLine,
+  RiBankCardLine,
 );
 
 // -------------------------------
