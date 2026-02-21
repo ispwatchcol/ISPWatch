@@ -144,6 +144,10 @@ Route::apiResources([
 Route::get('/tenants/{id}', [TenantController::class, 'show']);
 Route::put('/tenants/{id}', [TenantController::class, 'update']);
 
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig']);
+});
+
 Route::get('/roles', [RoleController::class, 'index']);
 
 // System Settings
