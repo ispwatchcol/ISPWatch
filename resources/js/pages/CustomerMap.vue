@@ -160,6 +160,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import api from "../services/api";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 const router = useRouter();
 
@@ -218,6 +220,11 @@ const createCustomIcon = (color) => {
 
 const initMap = () => {
     // Initialize Leaflet map
+    if (map) {
+        map.off();
+        map.remove();
+        map = null;
+    }
     map = L.map("map").setView([4.5709, -74.2973], 6); // Centered on Bogotá, Colombia
 
     // Add OpenStreetMap tiles
@@ -296,11 +303,10 @@ const loadMapData = async () => {
 
         // Wait for DOM update to ensure #map div exists
         setTimeout(() => {
+            initMap();
             if (customers.value.length === 0) {
-                error.value =
-                    "No hay clientes con ubicación registrada en el mapa.";
-            } else {
-                initMap();
+                // Optionally log or handle empty state, but don't hide the map
+                console.info("No hay clientes con ubicación registrada en el mapa.");
             }
         }, 100);
     } catch (err) {
@@ -312,18 +318,7 @@ const loadMapData = async () => {
 };
 
 onMounted(() => {
-    // Load Leaflet CSS and JS from CDN
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-    document.head.appendChild(link);
-
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.onload = () => {
-        loadMapData();
-    };
-    document.head.appendChild(script);
+    loadMapData();
 });
 
 onBeforeUnmount(() => {

@@ -29,6 +29,7 @@
     "dependencies": {
         "@fontsource/inter": "^5.2.6",
         "@supabase/supabase-js": "^2.81.1",
+        "leaflet": "^1.9.4",
         "oh-vue-icons": "^1.0.0-rc3",
         "pinia": "^3.0.4",
         "vue": "^3.5.21",

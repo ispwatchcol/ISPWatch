@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Http\Requests\UpdateTenantRequest;
 use App\Models\Tenant;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 class TenantController extends Controller
 {
@@ -40,7 +42,7 @@ class TenantController extends Controller
      * Update tenant information
      * Only administrators can update tenant information
      */
-    public function update(Request $request, $id)
+    public function update(UpdateTenantRequest $request, $id)
     {
         try {
             // Validate that the user is an administrator
@@ -79,35 +81,9 @@ class TenantController extends Controller
                 ], 404);
             }
 
-            // Validate input
-            $validated = $request->validate([
-                'name' => 'sometimes|required|string|max:255',
-                'domain' => 'sometimes|required|string|max:255',
-                'email_tenant' => 'sometimes|nullable|email|max:255',
-                'tel' => 'sometimes|nullable|string|max:50',
-                'address' => 'sometimes|nullable|string|max:500',
-                'timezone' => 'sometimes|nullable|string|max:100',
-                'currency' => 'sometimes|nullable|string|max:10',
-            ]);
-
-            // Map inputs to database columns
-            $updateData = [];
-            if ($request->has('name'))
-                $updateData['name'] = $request->name;
-            if ($request->has('domain'))
-                $updateData['domain'] = $request->domain;
-            if ($request->has('email_tenant'))
-                $updateData['email_tenant'] = $request->email_tenant;
-            if ($request->has('tel'))
-                $updateData['tel_tenant'] = $request->tel;
-            if ($request->has('address'))
-                $updateData['address_tenant'] = $request->address;
-            if ($request->has('timezone'))
-                $updateData['zone_tenant'] = $request->timezone;
-            if ($request->has('currency'))
-                $updateData['currency_tenant'] = $request->currency;
-
-            $tenant->update($updateData);
+            // Validation is handled by UpdateTenantRequest.
+            // Only update the fields that were actually sent in the request.
+            $tenant->update($request->only(array_keys($request->rules())));
 
             return response()->json([
                 'success' => true,
@@ -124,6 +100,48 @@ class TenantController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al actualizar el tenant: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update current tenant configuration
+     */
+    public function updateConfig(UpdateTenantRequest $request)
+    {
+        try {
+            $user = $request->user();
+
+            if (!$user || !$user->tenant_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Usuario no autenticado o no pertenece a ningún tenant'
+                ], 401);
+            }
+
+            return DB::transaction(function () use ($user, $request) {
+                $tenant = Tenant::lockForUpdate()->find($user->tenant_id);
+
+                if (!$tenant) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tenant no encontrado'
+                    ], 404);
+                }
+
+                $tenant->update($request->only(array_keys($request->rules())));
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Configuración de la empresa actualizada correctamente',
+                    'data' => $tenant
+                ]);
+            });
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al actualizar la configuración: ' . $e->getMessage()
             ], 500);
         }
     }

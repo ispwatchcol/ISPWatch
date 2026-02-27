@@ -111,6 +111,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ─── CATALOGS ───
     Route::get('/tenants/{id}', [TenantController::class, 'show']);
     Route::put('/tenants/{id}', [TenantController::class, 'update']);
+    Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig']);
     Route::get('/roles', [RoleController::class, 'index']);
 
     // ─── SYSTEM ───
