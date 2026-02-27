@@ -6,6 +6,7 @@ use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Router;
 use App\Services\MikroTikSshService;
+use App\Http\Requests\StoreCustomerRequest;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Traits\FixesSequences;
@@ -170,24 +171,9 @@ class CustomerProfileController extends Controller
     /**
      * Store a newly created customer in storage.
      */
-    public function store(Request $request)
+    public function store(StoreCustomerRequest $request)
     {
-        $data = $request->validate([
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6',
-            'tel' => 'nullable|string|max:20',
-            'email_tenant' => 'nullable|email',
-            'name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'department' => 'nullable|string|max:255',
-            'position' => 'nullable|string|max:255',
-            // nuevos campos de servicio
-            'ip_user' => 'nullable|string|max:45',
-            'service_id' => 'nullable|integer|exists:service_plan,id',
-            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
-            'router_id' => 'nullable|integer|exists:router,id',
-            'tenant_id' => 'nullable|integer|exists:tenant,id',
-        ]);
+        $data = $request->validated();
 
         // Get tenant ID from request or session
         $tenantId = $data['tenant_id'] ?? $this->getCurrentTenantId($request);

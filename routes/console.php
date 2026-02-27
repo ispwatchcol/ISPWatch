@@ -17,3 +17,6 @@ Artisan::command('billing:generate-monthly', function (BillingService $service) 
 
 // Run on the 1st of every month at 00:00
 Schedule::command('billing:generate-monthly')->monthlyOn(1, '00:00');
+
+// Auto-cut: run every hour so it picks up routers whose cut_time has arrived
+Schedule::command('billing:auto-cut')->hourly();

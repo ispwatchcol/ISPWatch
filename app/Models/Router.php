@@ -65,8 +65,18 @@ class Router extends Model
         return $this->belongsTo(CutType::class, 'cut_type_id');
     }
 
+    public function billingConfig()
+    {
+        return $this->belongsTo(Billing::class, 'billing_router_id');
+    }
+
     public function suspensionLogs()
     {
         return $this->hasMany(SuspensionActionLog::class);
+    }
+
+    public function customers()
+    {
+        return $this->hasMany(CustomerProfile::class, 'router_id');
     }
 }

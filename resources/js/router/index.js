@@ -241,7 +241,20 @@ const routes = [
     ],
   },
 
-  // ─── INVENTORY ───
+  // ─── MASS ACTIONS ───
+  {
+    path: '/mass-actions',
+    component: () => import('@/layouts/DefaultLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'MassActions',
+        component: () => import('@/pages/MassActions.vue'),
+      },
+    ],
+  },
+
   {
     path: '/inventory',
     component: () => import('@/layouts/DefaultLayout.vue'),

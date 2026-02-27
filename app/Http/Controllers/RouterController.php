@@ -5,6 +5,8 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Http\Requests\StoreRouterRequest;
+use App\Http\Requests\UpdateRouterRequest;
 use App\Models\Router;
 use App\Services\VpnService;
 use App\Services\MikroTikSshService;
@@ -33,41 +35,9 @@ class RouterController extends Controller
     /**
      * Store a newly created router in storage.
      */
-    public function store(Request $request)
+    public function store(StoreRouterRequest $request)
     {
-        $data = $request->validate([
-            'name' => 'required|string|max:255',
-            'ip' => 'required|ip',
-            'ipv6' => 'nullable|string|max:255',
-            'failover' => 'nullable|string|max:255',
-            'external_id' => 'nullable|string|max:255',
-            'user_rb' => 'required|string|max:255',
-            'password_rb' => 'required|string|max:255',
-            'puerto_api' => 'nullable|integer|min:1|max:65535',
-            'puerto_www' => 'nullable|integer|min:1|max:65535',
-            'lan_interface' => 'nullable|string|max:255',
-            'wan_interface' => 'nullable|string|max:255',
-            'vpn_username' => 'nullable|string|max:255',
-            'vpn_password' => 'nullable|string|max:255',
-            'comments' => 'nullable|string',
-            'cut_type_id' => 'nullable|integer',
-            'billing_router_id' => 'nullable|integer',
-            'firmware_version' => 'required|string|max:100',
-            'status' => 'required|string|max:50',
-            'coordinates' => 'nullable',
-            'agregar_cliente_mkt' => 'nullable|boolean',
-            'historial_trafico' => 'nullable|boolean',
-            'simple_queue' => 'nullable|boolean',
-            'control_pcq' => 'nullable|boolean',
-            'hotspot' => 'nullable|boolean',
-            'pppoe' => 'nullable|boolean',
-            'ip_bindings' => 'nullable|boolean',
-            'amarre' => 'nullable|boolean',
-            'dhcp_leases' => 'nullable|boolean',
-            'falla_general' => 'nullable|boolean',
-        ]);
-
-        $router = $this->createWithSequenceFix(Router::class, $data);
+        $router = $this->createWithSequenceFix(Router::class, $request->validated());
 
         return response()->json([
             'message' => 'Router creado correctamente. ✅',
@@ -87,41 +57,9 @@ class RouterController extends Controller
     /**
      * Update the specified router in storage.
      */
-    public function update(Request $request, Router $router)
+    public function update(UpdateRouterRequest $request, Router $router)
     {
-        $data = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'ip' => 'sometimes|ip',
-            'ipv6' => 'nullable|string|max:255',
-            'failover' => 'nullable|string|max:255',
-            'external_id' => 'nullable|string|max:255',
-            'user_rb' => 'sometimes|string|max:255',
-            'password_rb' => 'sometimes|string|max:255',
-            'puerto_api' => 'nullable|integer|min:1|max:65535',
-            'puerto_www' => 'nullable|integer|min:1|max:65535',
-            'lan_interface' => 'nullable|string|max:255',
-            'wan_interface' => 'nullable|string|max:255',
-            'vpn_username' => 'nullable|string|max:255',
-            'vpn_password' => 'nullable|string|max:255',
-            'comments' => 'nullable|string',
-            'cut_type_id' => 'nullable|integer',
-            'billing_router_id' => 'nullable|integer',
-            'firmware_version' => 'sometimes|string|max:100',
-            'status' => 'sometimes|string|max:50',
-            'coordinates' => 'nullable',
-            'agregar_cliente_mkt' => 'nullable|boolean',
-            'historial_trafico' => 'nullable|boolean',
-            'simple_queue' => 'nullable|boolean',
-            'control_pcq' => 'nullable|boolean',
-            'hotspot' => 'nullable|boolean',
-            'pppoe' => 'nullable|boolean',
-            'ip_bindings' => 'nullable|boolean',
-            'amarre' => 'nullable|boolean',
-            'dhcp_leases' => 'nullable|boolean',
-            'falla_general' => 'nullable|boolean',
-        ]);
-
-        $router->update($data);
+        $router->update($request->validated());
 
         return response()->json([
             'message' => 'Router actualizado correctamente. ✅',

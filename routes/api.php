@@ -78,6 +78,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
     Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
     Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
+    Route::get('/billing/configs', [BillingController::class, 'getBillingConfigs']);
+    Route::put('/billing/configs/{id}', [BillingController::class, 'updateBillingConfig']);
+    Route::post('/billing/run-auto-cut', [BillingController::class, 'runAutoCut']);
+
 
     // Payment Reminders
     Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
