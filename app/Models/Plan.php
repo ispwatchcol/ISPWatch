@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class Plan extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'service_plan';
 
     protected $fillable = [

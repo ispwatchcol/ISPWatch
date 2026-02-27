@@ -3,8 +3,6 @@ import axios from 'axios'
 // =========================
 // AXIOS INSTANCE
 // =========================
-// Use relative URL '/api' for production (works with same-origin)
-// VITE_API_URL can override for local development
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: {
@@ -14,11 +12,9 @@ export const apiClient = axios.create({
   withCredentials: true,
 })
 
-/* =====================================
-   🔐 INTERCEPTOR: INYECTAR TENANT
-   - Lee tenant_id desde localStorage o sessionStorage
-   - Lo agrega automáticamente como ?tenant=
-===================================== */
+// =========================
+// INTERCEPTOR: AUTO-INJECT TENANT
+// =========================
 apiClient.interceptors.request.use(
   config => {
     const userData =
@@ -29,12 +25,9 @@ apiClient.interceptors.request.use(
       config.params = {
         ...(config.params || {}),
         tenant: userData.tenant_id,
-        tenant_id: userData.tenant_id // Fix for endpoints expecting tenant_id like Users/Staff
+        tenant_id: userData.tenant_id,
       }
     }
-
-    // DON'T auto-inject user_id - it was causing support tickets to be filtered incorrectly
-    // Each endpoint should explicitly request user_id if needed
 
     return config
   },
@@ -42,279 +35,43 @@ apiClient.interceptors.request.use(
 )
 
 // =========================
-// API MODULES
+// RE-EXPORT ALL API MODULES
 // =========================
+export { default as authApi } from './api/auth'
+export { default as customersApi } from './api/customers'
+export { default as routersApi } from './api/routers'
+export { default as plansApi } from './api/plans'
+export { default as staffApi } from './api/staff'
+export { default as supportApi } from './api/support'
+export { default as inventoryApi } from './api/inventory'
+export { default as sectorialsApi } from './api/sectorials'
+export { default as tenantApi } from './api/tenant'
+export { default as rolesApi } from './api/roles'
+
+// =========================
+// LEGACY DEFAULT EXPORT (backward-compatible)
+// =========================
+import authApi from './api/auth'
+import customersApi from './api/customers'
+import routersApi from './api/routers'
+import plansApi from './api/plans'
+import staffApi from './api/staff'
+import supportApi from './api/support'
+import inventoryApi from './api/inventory'
+import sectorialsApi from './api/sectorials'
+import tenantApi from './api/tenant'
+import rolesApi from './api/roles'
+
 export default {
-  // =========================
-  // AUTH
-  // =========================
-  auth: {
-    async login(credentials) {
-      // First, get the CSRF cookie from Laravel Sanctum
-      // IMPORTANT: this route is defined in routes/web.php WITHOUT the /api prefix,
-      // so we must call it on the root path, not through the /api baseURL.
-      // In production, we need to use the full base URL to ensure the cookie is set correctly
-      const baseUrl = import.meta.env.VITE_API_URL
-        ? new URL(import.meta.env.VITE_API_URL).origin
-        : window.location.origin;
-      await axios.get(`${baseUrl}/sanctum/csrf-cookie`, { withCredentials: true })
-
-      // Then perform the login with CSRF token in place
-      return apiClient.post('/login', credentials)
-    },
-
-    async register(userData) {
-      // First, get the CSRF cookie from Laravel Sanctum
-      // IMPORTANT: this route is defined in routes/web.php WITHOUT the /api prefix,
-      // so we must call it on the root path, not through the /api baseURL.
-      // In production, we need to use the full base URL to ensure the cookie is set correctly
-      const baseUrl = import.meta.env.VITE_API_URL
-        ? new URL(import.meta.env.VITE_API_URL).origin
-        : window.location.origin;
-      await axios.get(`${baseUrl}/sanctum/csrf-cookie`, { withCredentials: true })
-
-      // Then perform the registration with CSRF token in place
-      return apiClient.post('/register', userData)
-    },
-
-    async resendVerification(email) {
-      // Resend email verification link
-      return apiClient.post('/verify-email/resend', { email })
-    },
-  },
-
-  // =========================
-  // PLANS
-  // =========================
-  plan: {
-    getAll(params = {}) {
-      return apiClient.get('/plans', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/plans/${id}`)
-    },
-    // Alias 'show' para compatibilidad si lo usas en algún lado
-    show(id) {
-      return apiClient.get(`/plans/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/plans', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/plans/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/plans/${id}`)
-    },
-  },
-
-  // Alias para compatibilidad
-  plans: {
-    getAll(params = {}) {
-      return apiClient.get('/plans', { params })
-    },
-  },
-
-  // =========================
-  // CUSTOMERS
-  // =========================
-  customers: {
-    getAll(params = {}) {
-      return apiClient.get('/customers', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/customers/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/customers', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/customers/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/customers/${id}`)
-    },
-    // Estadísticas y Mapa
-    getStatistics() {
-      return apiClient.get('/customers/statistics')
-    },
-    getMapData() {
-      return apiClient.get('/customers/map')
-    },
-    provision(id) {
-      return apiClient.post(`/customers/${id}/provision`)
-    },
-    bulkProvision(customerIds) {
-      return apiClient.post('/customers/bulk-provision', { customer_ids: customerIds })
-    },
-    suspend(id) {
-      return apiClient.post(`/customers/${id}/suspend`)
-    },
-    activate(id) {
-      return apiClient.post(`/customers/${id}/activate`)
-    }
-  },
-
-  // =========================
-  // STAFF / USERS
-  // =========================
-  staff: {
-    getAll(params = {}) {
-      return apiClient.get('/staff', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/staff/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/staff', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/staff/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/staff/${id}`)
-    },
-  },
-
-  // =========================
-  // ROLES
-  // =========================
-  roles: {
-    getAll() {
-      return apiClient.get('/roles')
-    },
-  },
-
-  // =========================
-  // ROUTERS
-  // =========================
-  routers: {
-    getAll(params = {}) {
-      return apiClient.get('/routers', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/routers/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/routers', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/routers/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/routers/${id}`)
-    },
-    // Router configuration methods
-    getInterfaces(id) {
-      return apiClient.get(`/routers/${id}/interfaces`)
-    },
-    setWanInterface(id, wanInterface) {
-      return apiClient.post(`/routers/${id}/set-wan-interface`, {
-        wan_interface: wanInterface
-      })
-    },
-    applyBlockRules(id) {
-      return apiClient.post(`/routers/${id}/apply-block-rules`)
-    },
-  },
-
-  // =========================
-  // INVENTORY
-  // =========================
-  inventory: {
-    getAll(params = {}) {
-      return apiClient.get('/inventory', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/inventory/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/inventory', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/inventory/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/inventory/${id}`)
-    },
-  },
-
-  // =========================
-  // SECTORIALS
-  // =========================
-  sectorials: {
-    getAll() {
-      return apiClient.get('/sectorials')
-    },
-    getOne(id) {
-      return apiClient.get(`/sectorials/${id}`)
-    },
-    create(data) {
-      return apiClient.post('/sectorials', data)
-    },
-    update(id, data) {
-      return apiClient.put(`/sectorials/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/sectorials/${id}`)
-    }
-  },
-
-  // =========================
-  // SUPPORT
-  // =========================
-  support: {
-    getAll(params = {}) {
-      return apiClient.get('/support', { params })
-    },
-    getOne(id) {
-      return apiClient.get(`/support/${id}`)
-    },
-    create(data) {
-      // Support simple JSON data (user_id + subject)
-      return apiClient.post('/support', data)
-    },
-    update(id, data) {
-      if (data instanceof FormData) {
-        // Must delete Content-Type to let browser set multipart boundary
-        return apiClient.post(`/support/${id}`, data, {
-          headers: {
-            'Content-Type': undefined
-          }
-        })
-      }
-      return apiClient.put(`/support/${id}`, data)
-    },
-    delete(id) {
-      return apiClient.delete(`/support/${id}`)
-    },
-    getStatistics() {
-      return apiClient.get('/support/statistics')
-    },
-    addMessage(ticketId, message, isInternal = false, userId = 1) {
-      return apiClient.post(`/support/${ticketId}/message`, {
-        message,
-        is_internal: isInternal,
-        user_id: userId  // Agregar user_id al request
-      })
-    },
-    updateMessage(messageId, message) {
-      return apiClient.put(`/support/messages/${messageId}`, { message })
-    },
-    deleteMessage(messageId) {
-      return apiClient.delete(`/support/messages/${messageId}`)
-    },
-    updateStatus(ticketId, status) {
-      return apiClient.patch(`/support/${ticketId}/status`, { status })
-    }
-  },
-
-  // =========================
-  // TENANT
-  // =========================
-  tenant: {
-    getOne(id) {
-      return apiClient.get(`/tenants/${id}`)
-    },
-  },
+  auth: authApi,
+  customers: customersApi,
+  routers: routersApi,
+  plan: plansApi,
+  plans: { getAll: plansApi.getAll },
+  staff: staffApi,
+  support: supportApi,
+  inventory: inventoryApi,
+  sectorials: sectorialsApi,
+  tenant: tenantApi,
+  roles: rolesApi,
 }

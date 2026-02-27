@@ -119,7 +119,7 @@
                     {{ router.status || '—' }}
                   </span>
                 </td>
-                <td class="py-3 px-4 flex gap-2">
+                <td class="py-3 px-4 flex gap-2 flex-wrap">
                   <!-- Botón Editar -->
                   <button
                     @click="$router.push({ name: 'RouterEdit', params: { id: router.id } })"
@@ -142,6 +142,19 @@
                   >
                     <icon-lucide-network class="w-4 h-4" />
                     WAN
+                  </button>
+
+                  <!-- Botón Corte Rápido -->
+                  <button
+                    @click="openAutoCutModal(router)"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                          bg-red-50 text-red-700 border border-red-200
+                          hover:bg-red-100 hover:scale-[1.03] transition-all
+                          dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-800/50"
+                    title="Ejecutar corte automático ahora para este router"
+                  >
+                    <icon-lucide-scissors class="w-4 h-4" />
+                    Corte
                   </button>
 
                   <!-- Botón Detalles -->
@@ -656,6 +669,110 @@
           </div>
         </div>
       </div>
+      <!-- Modal Corte Automático Rápido -->
+      <div
+        v-if="showAutoCutModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        @click.self="closeAutoCutModal"
+      >
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <icon-lucide-scissors class="w-6 h-6 text-red-600" />
+                Corte Automático
+              </h2>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Router: <strong>{{ autoCutRouter?.name }}</strong>
+              </p>
+            </div>
+            <button @click="closeAutoCutModal" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+              <icon-lucide-x class="w-6 h-6" />
+            </button>
+          </div>
+
+          <!-- Contenido -->
+          <div class="space-y-4">
+            <!-- Estado inicial -->
+            <div v-if="!autoCutResult && !runningAutoCut">
+              <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                <div class="flex items-start gap-3">
+                  <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 class="font-medium text-red-800 dark:text-red-300">Ejecutar corte manual ahora</h4>
+                    <p class="text-sm text-red-600 dark:text-red-400 mt-1">
+                      Se suspenderán todos los clientes de este router que tengan facturas vencidas
+                      suficientes según la configuración de facturación. Esta acción ignora la
+                      restricción de hora/día de corte.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Loading -->
+            <div v-if="runningAutoCut" class="flex flex-col items-center justify-center py-10">
+              <div class="w-14 h-14 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p class="text-gray-600 dark:text-gray-300">Ejecutando corte automático...</p>
+            </div>
+
+            <!-- Resultado -->
+            <div v-if="autoCutResult && !runningAutoCut" class="space-y-3">
+              <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                <p class="text-sm font-medium text-green-800 dark:text-green-300">Corte completado</p>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-center">
+                  <div class="text-2xl font-bold text-red-600 dark:text-red-400">{{ autoCutResult.suspended }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Suspendidos</div>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-center">
+                  <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{ autoCutResult.manual_pending }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Pend. Manual</div>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-center">
+                  <div class="text-2xl font-bold text-gray-600 dark:text-gray-400">{{ autoCutResult.no_action }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Sin Acción</div>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 text-center">
+                  <div class="text-2xl font-bold" :class="autoCutResult.errors > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400'">{{ autoCutResult.errors }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Errores</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              @click="closeAutoCutModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cerrar
+            </button>
+            <button
+              v-if="!autoCutResult"
+              @click="runAutoCut"
+              :disabled="runningAutoCut"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <icon-lucide-loader-2 v-if="runningAutoCut" class="w-4 h-4 animate-spin" />
+              <icon-lucide-scissors v-else class="w-4 h-4" />
+              {{ runningAutoCut ? 'Ejecutando...' : 'Ejecutar Corte Ahora' }}
+            </button>
+            <button
+              v-if="autoCutResult"
+              @click="runAutoCut"
+              :disabled="runningAutoCut"
+              class="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <icon-lucide-refresh-cw class="w-4 h-4" />
+              Ejecutar de nuevo
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -697,6 +814,42 @@ const deletingRouter = ref(false)
 // Estados del modal Detalles
 const showDetailsModal = ref(false)
 const selectedDetailsRouter = ref(null)
+
+// Estados del modal Corte Automático
+const showAutoCutModal = ref(false)
+const autoCutRouter = ref(null)
+const runningAutoCut = ref(false)
+const autoCutResult = ref(null)
+
+const openAutoCutModal = (router) => {
+  autoCutRouter.value = router
+  autoCutResult.value = null
+  showAutoCutModal.value = true
+}
+
+const closeAutoCutModal = () => {
+  showAutoCutModal.value = false
+  autoCutRouter.value = null
+  autoCutResult.value = null
+}
+
+const runAutoCut = async () => {
+  if (!autoCutRouter.value) return
+  runningAutoCut.value = true
+  autoCutResult.value = null
+  try {
+    const response = await api.post('/billing/run-auto-cut', {
+      router_id: autoCutRouter.value.id
+    })
+    autoCutResult.value = response.data.stats
+    toast.value?.success('Corte completado', `${response.data.stats.suspended} cliente(s) suspendidos.`)
+  } catch (err) {
+    console.error('Error al ejecutar corte:', err)
+    toast.value?.error('Error', 'No se pudo ejecutar el corte automático.')
+  } finally {
+    runningAutoCut.value = false
+  }
+}
 
 // 🔹 Navegar a la vista de agregar router
 const goToAddRouter = () => {

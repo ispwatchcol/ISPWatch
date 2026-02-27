@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Billing;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\BillingService;
+use App\Services\OverdueSuspensionService;
 use Illuminate\Http\Request;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
@@ -224,15 +226,65 @@ class BillingController extends Controller
         ]);
     }
 
-    // Process Overdue Invoices (Admin)
+    // Process Overdue Invoices (Admin) — legacy endpoint
     public function processOverdue(Request $request)
     {
-        $suspensionService = app(\App\Services\OverdueSuspensionService::class);
+        $suspensionService = app(OverdueSuspensionService::class);
         $stats = $suspensionService->processOverdueInvoices();
 
         return response()->json([
             'message' => 'Overdue processing complete',
-            'stats' => $stats
+            'stats' => $stats,
+        ]);
+    }
+
+    // ─── Billing Configs ─────────────────────────────────────────────────────
+
+    // List all billing configs with their associated routers
+    public function getBillingConfigs()
+    {
+        $configs = Billing::with('routers:id,name,cut_type_id,billing_router_id')
+            ->with('routers.cutType:id,name')
+            ->get();
+
+        return response()->json($configs);
+    }
+
+    // Update a billing config (cut_day, cut_time, overdue_invoices, etc.)
+    public function updateBillingConfig(Request $request, $id)
+    {
+        $billing = Billing::findOrFail($id);
+
+        $validated = $request->validate([
+            'create_invoice' => 'nullable|date',
+            'payment_day' => 'nullable|date',
+            'payment_reminder' => 'nullable|date',
+            'cut_day' => 'nullable|date',
+            'cut_time' => 'nullable|date_format:H:i,H:i:s',
+            'overdue_invoices' => 'nullable|integer|min:1',
+            'notification_type' => 'nullable|in:email,whatsapp,both',
+            'notificar_wpp' => 'nullable|boolean',
+            'comments' => 'nullable|string',
+        ]);
+
+        $billing->update($validated);
+
+        return response()->json($billing->fresh()->load('routers'));
+    }
+
+    // Trigger auto-cut manually (optionally scoped to one router)
+    public function runAutoCut(Request $request)
+    {
+        $request->validate([
+            'router_id' => 'nullable|integer|exists:router,id',
+        ]);
+
+        $suspensionService = app(OverdueSuspensionService::class);
+        $stats = $suspensionService->processOverdueInvoices($request->input('router_id'));
+
+        return response()->json([
+            'message' => 'Corte automático ejecutado',
+            'stats' => $stats,
         ]);
     }
 }

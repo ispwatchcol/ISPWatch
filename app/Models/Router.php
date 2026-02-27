@@ -2,13 +2,17 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class Router extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'router';
     protected $fillable = [
         'name',
+        'tenant_id',
         'ip',
         'ipv6',
         'failover',
@@ -61,8 +65,18 @@ class Router extends Model
         return $this->belongsTo(CutType::class, 'cut_type_id');
     }
 
+    public function billingConfig()
+    {
+        return $this->belongsTo(Billing::class, 'billing_router_id');
+    }
+
     public function suspensionLogs()
     {
         return $this->hasMany(SuspensionActionLog::class);
+    }
+
+    public function customers()
+    {
+        return $this->hasMany(CustomerProfile::class, 'router_id');
     }
 }
