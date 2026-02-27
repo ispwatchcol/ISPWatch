@@ -24,7 +24,17 @@ return new class extends Migration {
         });
 
         // Add geography column for coordinates (PostGIS)
-        DB::statement('ALTER TABLE sectorial ADD COLUMN coordinates geography(Point, 4326)');
+        // Wrapped in try/catch: silently skips on SQLite (testing) where geography is unsupported
+        try {
+            DB::statement('ALTER TABLE sectorial ADD COLUMN coordinates geography(Point, 4326)');
+        } catch (\Exception $e) {
+            // SQLite fallback: add a plain text column to store coordinates
+            if (!Schema::hasColumn('sectorial', 'coordinates')) {
+                Schema::table('sectorial', function ($table) {
+                    $table->text('coordinates')->nullable();
+                });
+            }
+        }
     }
 
     public function down(): void

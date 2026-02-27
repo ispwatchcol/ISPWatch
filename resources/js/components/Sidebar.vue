@@ -212,6 +212,18 @@
                         <span class="text-sm font-medium">Manual de Usuario</span>
                     </RouterLink>
                 </li>
+                <!-- Acciones Masivas -->
+                <li v-if="canSee.accionesMasivas">
+                    <RouterLink
+                        to="/mass-actions"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 text-red-700 dark:text-red-400 transition-all duration-200"
+                        active-class="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                    >
+                        <icon-lucide-scissors class="w-5 h-5 group-hover:scale-110 transition-transform duration-200" />
+                        <span class="text-sm font-medium">Acciones Masivas</span>
+                    </RouterLink>
+                </li>
+
             </ul>
         </nav>
 
@@ -268,12 +280,15 @@ import SubmenuItem from "./SubmenuItem.vue";
 import TimezoneClock from "./TimezoneClock.vue";
 import { hasPermission, isStaffOrAdmin } from "../services/auth";
 import { apiClient } from "../services/api";
+import api from "../services/api";
 import axios from "axios";
 
 const router = useRouter();
 const user = ref({});
 const theme = ref("system");
 const tenantTimezone = ref("America/Bogota");
+
+// ─── Acciones Masivas ─── (moved to /mass-actions page)
 
 const isStaff = computed(() => isStaffOrAdmin());
 
@@ -328,7 +343,8 @@ const canSee = computed(() => {
             staff: true,
             soporte: true,
             configuracion: true,
-            manual: true
+            manual: true,
+            accionesMasivas: true,
         };
     }
     
@@ -343,7 +359,8 @@ const canSee = computed(() => {
             staff: false,
             soporte: true,
             configuracion: false,
-            manual: true
+            manual: true,
+            accionesMasivas: false,
         };
     }
     
@@ -358,7 +375,8 @@ const canSee = computed(() => {
             staff: false,
             soporte: false,
             configuracion: false,
-            manual: true
+            manual: true,
+            accionesMasivas: true,
         };
     }
     
@@ -373,7 +391,8 @@ const canSee = computed(() => {
             staff: true,
             soporte: false,
             configuracion: false,
-            manual: true
+            manual: true,
+            accionesMasivas: false,
         };
     }
     
@@ -388,7 +407,8 @@ const canSee = computed(() => {
             staff: false,
             soporte: true,
             configuracion: false,
-            manual: true
+            manual: true,
+            accionesMasivas: false,
         };
     }
     
@@ -402,7 +422,8 @@ const canSee = computed(() => {
         staff: false,
         soporte: false,
         configuracion: false,
-        manual: true
+        manual: true,
+        accionesMasivas: false,
     };
 });
 

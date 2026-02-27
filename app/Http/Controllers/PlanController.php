@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Plan;
 use App\Traits\FixesSequences;
+use App\Http\Requests\StorePlanRequest;
 use Illuminate\Http\Request;
 
 class PlanController extends Controller
@@ -11,68 +12,23 @@ class PlanController extends Controller
     use FixesSequences;
     public function index(Request $request)
     {
-        $tenantId = $request->query('tenant');
-
-        if (!$tenantId) {
-            return response()->json([
-                'data' => [],
-                'message' => 'No tenant'
-            ]);
-        }
-
+        // BelongsToTenant scope auto-filters by tenant query param
         return response()->json([
-            'data' => Plan::with('typePlan')
-                ->byTenant($tenantId)
-                ->get()
+            'data' => Plan::with('typePlan')->get()
         ]);
     }
 
     // 👇 ESTE ES EL MÉTODO QUE TE FALTABA PARA QUE CARGUE EL EDITAR
     public function show(Request $request, $id)
     {
-        $tenantId = $request->query('tenant');
-
-        if (!$tenantId) {
-            return response()->json(['message' => 'Tenant ID es obligatorio'], 400);
-        }
-
-        // Buscamos el plan y verificamos que pertenezca al tenant
-        $plan = Plan::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->first();
-
-        if (!$plan) {
-            return response()->json(['message' => 'Plan no encontrado'], 404);
-        }
-
+        // BelongsToTenant global scope auto-filters by tenant
+        $plan = Plan::findOrFail($id);
         return response()->json($plan);
     }
 
-    public function store(Request $request)
+    public function store(StorePlanRequest $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'speed_down' => 'required|string',
-            'speed_up' => 'required|string',
-            'cost_product' => 'required|numeric',
-            'commit' => 'nullable|string',
-            'type' => 'required|string',
-            'type_plan_id' => 'required|exists:type_plans,id',
-            'tenant_id' => 'required|integer',
-            // Campos específicos por tipo de plan
-            'priority' => 'nullable|integer|min:1|max:8',
-            'burst_download' => 'nullable|string',
-            'burst_upload' => 'nullable|string',
-            'pppoe_pool' => 'nullable|string',
-            'local_address' => 'nullable|string',
-            'shared_users' => 'nullable|integer|min:1',
-            'session_timeout' => 'nullable|string',
-            'idle_timeout' => 'nullable|string',
-            'pcq_rate' => 'nullable|string',
-            'address_mask' => 'nullable|string',
-        ]);
-
-        $plan = $this->createWithSequenceFix(Plan::class, $validated);
+        $plan = $this->createWithSequenceFix(Plan::class, $request->validated());
 
         return response()->json([
             'success' => true,
@@ -83,17 +39,9 @@ class PlanController extends Controller
     // 👇 ESTE ES EL MÉTODO QUE TE FALTABA PARA GUARDAR EL EDITAR
     public function update(Request $request, $id)
     {
-        $tenantId = $request->query('tenant');
+        // BelongsToTenant global scope auto-filters by tenant
+        $plan = Plan::findOrFail($id);
 
-        $plan = Plan::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->first();
-
-        if (!$plan) {
-            return response()->json(['message' => 'Plan no encontrado'], 404);
-        }
-
-        // Validamos solo los campos que vienen (sometimes)
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'speed_down' => 'sometimes|string',
@@ -102,7 +50,6 @@ class PlanController extends Controller
             'commit' => 'nullable|string',
             'type' => 'sometimes|string',
             'type_plan_id' => 'sometimes|exists:type_plans,id',
-            // Campos específicos por tipo de plan
             'priority' => 'nullable|integer|min:1|max:8',
             'burst_download' => 'nullable|string',
             'burst_upload' => 'nullable|string',
@@ -125,16 +72,8 @@ class PlanController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        // Es buena práctica validar el tenant también al eliminar
-        $tenantId = $request->query('tenant');
-
-        $plan = Plan::where('id', $id);
-
-        if ($tenantId) {
-            $plan->where('tenant_id', $tenantId);
-        }
-
-        $plan = $plan->firstOrFail();
+        // BelongsToTenant global scope auto-filters by tenant
+        $plan = Plan::findOrFail($id);
         $plan->delete();
 
         return response()->json([

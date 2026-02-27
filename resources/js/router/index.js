@@ -1,31 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
-import Login from '@/pages/Login.vue';
-import Register from '@/pages/Register.vue';
-import Dashboard from '@/pages/Dashboard.vue';
-import Staff from '@/pages/Staff.vue';
-import StaffNew from '@/pages/StaffNew.vue';
-import EditStaff from '@/pages/EditStaff.vue';
-import Routers from '@/pages/Routers.vue';
-import Customers from '@/pages/Customers.vue';
-import CustomerAdd from '@/pages/CustomerAdd.vue';
-import CustomerEdit from '@/pages/CustomerEdit.vue';
-import DefaultLayout from '@/layouts/DefaultLayout.vue';
-import Sectorial from '@/pages/Sectorial.vue';
-import SectorialAdd from '../pages/SectorialAdd.vue';
-import CustomerStatistics from '@/pages/CustomerStatistics.vue';
-
-
+// All page imports are lazy-loaded for optimal code-splitting
 const routes = [
+  // ─── PUBLIC ROUTES ───
   {
     path: '/',
     name: 'Login',
-    component: Login,
+    component: () => import('@/pages/Login.vue'),
   },
   {
     path: '/register',
     name: 'Register',
-    component: Register,
+    component: () => import('@/pages/Register.vue'),
   },
   {
     path: '/resend-verification',
@@ -33,192 +19,193 @@ const routes = [
     component: () => import('@/pages/ResendVerification.vue'),
   },
 
+  // ─── DASHBOARD ───
   {
     path: '/dashboard',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Dashboard',
-        component: Dashboard,
+        component: () => import('@/pages/Dashboard.vue'),
       },
     ],
   },
 
-  // STAFF
+  // ─── STAFF ───
   {
     path: '/staff',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Staff',
-        component: Staff,
+        component: () => import('@/pages/Staff.vue'),
       },
       {
         path: 'create',
         name: 'StaffNew',
-        component: StaffNew,
+        component: () => import('@/pages/StaffNew.vue'),
       },
       {
         path: ':id/edit',
         name: 'StaffEdit',
-        component: EditStaff,
+        component: () => import('@/pages/EditStaff.vue'),
       },
     ],
   },
 
-  // ROUTERS
+  // ─── ROUTERS ───
   {
     path: '/routers',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Routers',
-        component: Routers,
+        component: () => import('@/pages/Routers.vue'),
       },
       {
-        path: "add", // Corregido: "add" relativo, no "/routers/add" absoluto
-        name: "RouterAdd",
-        component: () => import("@/pages/RouterAdd.vue"),
+        path: 'add',
+        name: 'RouterAdd',
+        component: () => import('@/pages/RouterAdd.vue'),
       },
       {
         path: ':id/edit',
         name: 'RouterEdit',
-        component: () => import("@/pages/RouterEdit.vue"),
+        component: () => import('@/pages/RouterEdit.vue'),
       },
     ],
   },
 
-  // 👇 AQUÍ ESTÁN LAS NUEVAS RUTAS DE PLANES
+  // ─── PLANS ───
   {
     path: '/planes',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'PlanList',
-        // Asegúrate de crear este archivo con el código que te di antes
         component: () => import('@/pages/PlanList.vue'),
       },
       {
         path: 'create',
         name: 'PlanCreate',
-        // Crea este archivo cuando estés listo para el formulario de crear
         component: () => import('@/pages/PlanCreate.vue'),
       },
       {
-        path: '/planes/:id/edit',
+        path: ':id/edit',
         name: 'plan-edit',
         component: () => import('@/pages/PlanEdit.vue'),
-        props: true // Opcional, pero recomendado
-      }
-    ]
+        props: true,
+      },
+    ],
   },
 
-  // CUSTOMERS
+  // ─── CUSTOMERS ───
   {
     path: '/customers',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Customers',
-        component: Customers,
+        component: () => import('@/pages/Customers.vue'),
       },
       {
         path: 'create',
         name: 'CustomerAdd',
-        component: CustomerAdd,
+        component: () => import('@/pages/CustomerAdd.vue'),
       },
       {
         path: ':id/edit',
         name: 'CustomerEdit',
-        component: CustomerEdit,
+        component: () => import('@/pages/CustomerEdit.vue'),
       },
       {
         path: 'statistics',
         name: 'CustomerStatistics',
-        component: CustomerStatistics,
+        component: () => import('@/pages/CustomerStatistics.vue'),
       },
       {
         path: 'map',
         name: 'CustomerMap',
         component: () => import('@/pages/CustomerMap.vue'),
-      }
+      },
     ],
   },
 
+  // ─── SECTORIALS ───
   {
     path: '/sectorials',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Sectorials',
-        component: Sectorial,
+        component: () => import('@/pages/Sectorial.vue'),
       },
       {
         path: 'create',
         name: 'SectorialAdd',
-        component: SectorialAdd,
+        component: () => import('@/pages/SectorialAdd.vue'),
       },
       {
         path: ':id/edit',
         name: 'SectorialEdit',
         component: () => import('@/pages/SectorialEdit.vue'),
-      }
+      },
     ],
   },
 
-  // SUPPORT
+  // ─── SUPPORT ───
   {
     path: '/support',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true, requiresStaff: true },
     children: [
       {
         path: '',
         name: 'Support',
         component: () => import('@/pages/Support.vue'),
-        meta: { permission: 'support.view' } // Added permission
+        meta: { permission: 'support.view' },
       },
       {
         path: 'create',
         name: 'SupportCreate',
         component: () => import('@/pages/SupportCreate.vue'),
-        meta: { permission: 'support.create' }
+        meta: { permission: 'support.create' },
       },
       {
         path: ':id',
         name: 'SupportDetail',
         component: () => import('@/pages/SupportDetail.vue'),
-        // No strict permission here, handled in component (view own or all)
       },
       {
         path: ':id/edit',
         name: 'SupportEdit',
         component: () => import('@/pages/SupportEdit.vue'),
-        meta: { permission: 'support.update' } // Admin/Staff only
+        meta: { permission: 'support.update' },
       },
       {
         path: 'statistics',
         name: 'SupportStatistics',
         component: () => import('@/pages/SupportStatistics.vue'),
-        meta: { permission: 'support.statistics' } // Admin/Staff only
+        meta: { permission: 'support.statistics' },
       },
     ],
   },
+
+  // ─── BILLING ───
   {
     path: '/billing',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
@@ -250,12 +237,27 @@ const routes = [
         path: 'payments/new',
         name: 'RegisterPayment',
         component: () => import('@/pages/Billing/RegisterPayment.vue'),
-      }
-    ]
+      },
+    ],
   },
+
+  // ─── MASS ACTIONS ───
+  {
+    path: '/mass-actions',
+    component: () => import('@/layouts/DefaultLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'MassActions',
+        component: () => import('@/pages/MassActions.vue'),
+      },
+    ],
+  },
+
   {
     path: '/inventory',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
@@ -287,40 +289,43 @@ const routes = [
         path: 'branches',
         name: 'InventoryBranches',
         component: () => import('@/pages/BranchList.vue'),
-      }
-    ]
+      },
+    ],
   },
+
+  // ─── SETTINGS ───
   {
     path: '/settings',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Settings',
         component: () => import('@/pages/Settings.vue'),
-      }
-    ]
+      },
+    ],
   },
+
+  // ─── MANUAL ───
   {
     path: '/manual',
-    component: DefaultLayout,
+    component: () => import('@/layouts/DefaultLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'Manual',
         component: () => import('@/pages/Manual.vue'),
-      }
-    ]
+      },
+    ],
   },
 
-
-  // ✅ Ruta 404
+  // ─── 404 ───
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: () => import('../pages/NotFound.vue'),
+    component: () => import('@/pages/NotFound.vue'),
   },
 ];
 
@@ -329,58 +334,38 @@ const router = createRouter({
   routes,
 });
 
-import { hasPermission, isStaffOrAdmin } from '../services/auth';
+// ─── NAVIGATION GUARD ───
+// Uses Pinia auth store for centralized session validation
+import { useAuthStore } from '@/stores/auth';
 
-// Helper: Verificar si la sesión es válida
-const isSessionValid = () => {
-  const isLoggedIn =
-    localStorage.getItem('isLoggedIn') === 'true' ||
-    sessionStorage.getItem('isLoggedIn') === 'true';
+router.beforeEach((to, from, next) => {
+  const auth = useAuthStore();
 
-  // También verificar que existan los datos del usuario
-  const userData =
-    localStorage.getItem('userData') ||
-    sessionStorage.getItem('userData');
-
-  // Si dice que está logueado pero sin datos, limpiar sesión inválida
-  if (isLoggedIn && !userData) {
-    localStorage.removeItem('isLoggedIn');
-    sessionStorage.removeItem('isLoggedIn');
-    return false;
+  // Ensure user data is loaded from storage
+  if (!auth.user) {
+    auth.loadFromStorage();
   }
 
-  return isLoggedIn && userData;
-};
-
-// ✅ Protección de rutas
-router.beforeEach((to, from, next) => {
-  const isAuthenticated = isSessionValid();
-
-  // 1. Check Login
-  if (to.meta.requiresAuth && !isAuthenticated) {
+  // 1. Auth check
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return next({ name: 'Login' });
   }
 
-  // 2. Redirect logged in users from Login page
-  if (to.name === 'Login' && isAuthenticated) {
+  // 2. Redirect logged-in users from Login page
+  if (to.name === 'Login' && auth.isAuthenticated) {
     return next({ name: 'Dashboard' });
   }
 
-  // 3. Check Staff Access
-  if (to.meta.requiresStaff) {
-    if (!isStaffOrAdmin()) {
-      alert('No tienes permisos para acceder a esta sección. Solo el personal autorizado puede acceder al módulo de Soporte.');
-      return next({ name: 'Dashboard' });
-    }
+  // 3. Staff access check
+  if (to.meta.requiresStaff && !auth.isStaffOrAdmin) {
+    alert('No tienes permisos para acceder a esta sección. Solo el personal autorizado puede acceder al módulo de Soporte.');
+    return next({ name: 'Dashboard' });
   }
 
-  // 4. Check Permissions
-  if (to.meta.permission) {
-    if (!hasPermission(to.meta.permission)) {
-      // Redirect to dashboard or unauthorized page
-      alert('No tienes permisos para acceder a esta sección.');
-      return next({ name: 'Dashboard' });
-    }
+  // 4. Permission check
+  if (to.meta.permission && !auth.hasPermission(to.meta.permission)) {
+    alert('No tienes permisos para acceder a esta sección.');
+    return next({ name: 'Dashboard' });
   }
 
   next();
