@@ -60,7 +60,7 @@
                 placeholder="Ej: IP Mikrotik Cloud"
                 class="input" />
 
-              <p class="hint">Para usar esta función debes agregar las IP de los servidores de WispHub.</p>
+              <p class="hint">Para usar esta función debes agregar las IP de tus servidores.</p>
             </div>
 
             <!-- COORDENADAS -->
