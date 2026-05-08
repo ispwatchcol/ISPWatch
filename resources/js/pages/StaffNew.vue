@@ -340,16 +340,36 @@ const loadRoles = async () => {
   try {
     console.log('📥 Cargando roles...')
     const response = await api.roles.getAll()
-    
-    if (response.data.success) {
-      roles.value = response.data.data
-    } else if (response.data && Array.isArray(response.data)) {
-      roles.value = response.data
+    const data = response.data
+
+    if (data?.success && Array.isArray(data.data)) {
+      roles.value = data.data
+    } else if (data?.data && Array.isArray(data.data)) {
+      roles.value = data.data
+    } else if (Array.isArray(data)) {
+      roles.value = data
+    } else {
+      console.warn('⚠️ Estructura de respuesta inesperada:', data)
+      roles.value = []
     }
-    console.log('✅ Roles cargados:', roles.value.length)
+
+    if (roles.value.length === 0) {
+      console.warn('⚠️ API no devolvió roles, usando valores predeterminados')
+      roles.value = [
+        { id: 1, name: 'Administrador' },
+        { id: 2, name: 'Staff' },
+      ]
+    }
+
+    console.log('✅ Roles cargados:', roles.value.length, roles.value)
   } catch (error) {
-    console.error('❌ Error al cargar roles:', error)
-    // No bloqueamos la UI con alert, solo log
+    console.error('❌ Error al cargar roles:', error?.response?.status, error?.message)
+    // Fallback con roles por defecto para no bloquear la UI
+    roles.value = [
+      { id: 1, name: 'Administrador' },
+      { id: 2, name: 'Staff' },
+    ]
+    console.log('🔄 Usando roles predeterminados como fallback')
   }
 }
 

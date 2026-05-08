@@ -63,6 +63,12 @@
           />
         </div>
 
+        <!-- Preview del nombre de usuario generado -->
+        <div v-if="usernamePreview" class="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+          <p class="text-xs text-blue-600 font-medium mb-1">👤 Tu nombre de usuario será:</p>
+          <p class="text-sm font-mono text-blue-800 font-semibold">{{ usernamePreview }}</p>
+        </div>
+
         <!-- Correo electrónico -->
         <div>
           <label for="email" class="block text-gray-700 font-medium mb-1">Correo electrónico</label>
@@ -143,7 +149,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api'; // Use default export with auth.register method
 
@@ -160,6 +166,30 @@ const form = reactive({
 const loading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
+
+// ===== COMPUTED: USERNAME PREVIEW =====
+const usernamePreview = computed(() => {
+  const name = (form.name || '').trim();
+  const company = (form.company_name || '').trim();
+  if (!name || !company) return '';
+
+  const parts = name.split(/\s+/, 2);
+  const first = parts[0]
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const last = (parts[1] || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+  const companySlug = company
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return first + (last ? '.' + last : '') + '@' + companySlug;
+});
 
 // ===== SECURITY FUNCTIONS =====
 

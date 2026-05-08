@@ -290,7 +290,6 @@
                   :class="form.agregar_cliente_mkt
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.agregar_cliente_mkt = !form.agregar_cliente_mkt"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -314,7 +313,6 @@
                   :class="form.historial_trafico
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.historial_trafico = !form.historial_trafico"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -338,7 +336,6 @@
                   :class="form.simple_queue
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.simple_queue = !form.simple_queue"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -362,7 +359,6 @@
                   :class="form.control_pcq
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.control_pcq = !form.control_pcq"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -386,7 +382,6 @@
                   :class="form.hotspot
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.hotspot = !form.hotspot"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -410,7 +405,6 @@
                   :class="form.pppoe
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.pppoe = !form.pppoe"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -434,7 +428,6 @@
                   :class="form.ip_bindings
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.ip_bindings = !form.ip_bindings"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -458,7 +451,6 @@
                   :class="form.amarre
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.amarre = !form.amarre"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -482,7 +474,6 @@
                   :class="form.dhcp_leases
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.dhcp_leases = !form.dhcp_leases"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -506,7 +497,6 @@
                   :class="form.falla_general
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.falla_general = !form.falla_general"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -555,6 +545,7 @@
 import { ref, reactive, onMounted, watch } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import { supabase } from "@/supabase.js"
+import { apiClient } from "@/services/api"
 import BillingPanel from "@/components/BillingPanel.vue"
 import NotificationToast from "@/components/NotificationToast.vue"
 
@@ -764,14 +755,19 @@ const loadRouterData = async () => {
 ============================ */
 const saveBilling = async () => {
   // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
+  // Clamp: si el mes no tiene ese día, usa el último día válido
+  // Ej: día 31 en febrero → 28 (o 29 en bisiesto)
   const dayToDate = (day) => {
     const num = cleanInt(day)
     if (!num || num < 1 || num > 31) return null
     const now = new Date()
     const year = now.getFullYear()
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const d = String(num).padStart(2, '0')
-    return `${year}-${month}-${d}`
+    const month = now.getMonth() + 1 // 1-based
+    const lastDay = new Date(year, month, 0).getDate() // último día del mes
+    const clampedDay = Math.min(num, lastDay)
+    const m = String(month).padStart(2, '0')
+    const d = String(clampedDay).padStart(2, '0')
+    return `${year}-${m}-${d}`
   }
 
   // Obtener tenant_id del usuario logueado
@@ -901,47 +897,45 @@ const payload = {
 }
 
 /* ============================
-   CSRF TOKEN HELPER
-============================ */
-const getCsrfToken = () => {
-  const name = 'XSRF-TOKEN='
-  const decodedCookie = decodeURIComponent(document.cookie)
-  const cookies = decodedCookie.split(';')
-  for (let cookie of cookies) {
-    cookie = cookie.trim()
-    if (cookie.indexOf(name) === 0) {
-      return cookie.substring(name.length, cookie.length)
-    }
-  }
-  return ''
-}
-
-/* ============================
    VPN SCRIPT FUNCTIONS
 ============================ */
 const loadVpnScript = async () => {
   if (!form.script_activo) return
   
   loadingScript.value = true
+  vpnScript.value = ""
+  
   try {
-    const response = await fetch(`/api/routers/${routerId}/vpn-script`, {
-      credentials: 'include',
-      headers: {
-        'Accept': 'application/json',
-        'X-XSRF-TOKEN': getCsrfToken(),
-      },
-    })
-    const data = await response.json()
+    const { data } = await apiClient.get(`/routers/${routerId}/vpn-script`)
     
     if (data.success) {
       vpnScript.value = data.script
     } else {
       vpnScript.value = ""
-      console.error("Error loading VPN script")
+      console.error("Error loading VPN script:", data.message || "Unknown error")
+      toast.value?.error(
+        'Error al cargar script VPN',
+        data.message || 'No se pudo obtener el script. Intenta nuevamente.'
+      )
     }
   } catch (error) {
     console.error("Error fetching VPN script:", error)
     vpnScript.value = ""
+    
+    const status = error.response?.status
+    let errorMsg = 'Error de conexión al cargar el script.'
+    
+    if (status === 401) {
+      errorMsg = 'Sesión expirada. Por favor, vuelve a iniciar sesión.'
+    } else if (status === 404) {
+      errorMsg = 'Router no encontrado.'
+    } else if (status === 500) {
+      errorMsg = 'Error del servidor al generar el script VPN.'
+    } else if (error.response?.data?.message) {
+      errorMsg = error.response.data.message
+    }
+    
+    toast.value?.error('Error al cargar script VPN', errorMsg)
   } finally {
     loadingScript.value = false
   }
@@ -967,16 +961,7 @@ const verifyConnection = async () => {
   connectionStatus.value = null
   
   try {
-    const response = await fetch(`/api/routers/${routerId}/verify-vpn`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-XSRF-TOKEN': getCsrfToken(),
-      },
-    })
-    const data = await response.json()
+    const { data } = await apiClient.post(`/routers/${routerId}/verify-vpn`)
     
     connectionStatus.value = {
       connected: data.connected,
@@ -986,10 +971,8 @@ const verifyConnection = async () => {
     
     // Si la conexión fue exitosa, actualizar todos los datos del router
     if (data.connected && data.assigned_ip) {
-      // Actualizar IP
       form.ip = data.assigned_ip
       
-      // Actualizar credenciales del RB
       if (data.user_rb) {
         form.usuario = data.user_rb
       }
@@ -997,10 +980,8 @@ const verifyConnection = async () => {
         form.password = data.password_rb
       }
       
-      // Recargar datos completos del router para asegurar sincronización
       await loadRouterData()
       
-      // Notificar al usuario sobre los cambios
       toast.value?.success(
         'Conexión VPN verificada',
         `Datos actualizados: IP: ${data.assigned_ip}, Usuario: ${data.user_rb || 'N/A'}`
@@ -1011,7 +992,7 @@ const verifyConnection = async () => {
     console.error("Error verifying connection:", error)
     connectionStatus.value = {
       connected: false,
-      message: "Error al verificar la conexión",
+      message: error.response?.data?.message || "Error al verificar la conexión",
       assigned_ip: null,
     }
   } finally {

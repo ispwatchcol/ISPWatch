@@ -145,9 +145,23 @@ class RegistrationController extends Controller
             $firstName = $nameParts[0];
             $lastName = $nameParts[1] ?? '';
 
-            // Generate email_tenant as firstName@companySlug (e.g., axel@colombianet)
-            $companySlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $sanitizedData['company_name']));
-            $emailTenant = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $firstName)) . '@' . $companySlug;
+            // Generate email_tenant as nombre.apellido@empresa-separada-por-guiones
+            // Example: "Juan Pérez" + "Colombia Net de Occidente" → "juan.perez@colombia-net-de-occidente"
+            // Use iconv to transliterate accented characters (é→e, ñ→n, ü→u, etc.)
+            $translitFirst = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $firstName) ?: $firstName;
+            $firstNameSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $translitFirst));
+
+            $translitLast = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $lastName) ?: $lastName;
+            $lastNameSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $translitLast));
+
+            // Split company name by spaces and join with hyphens
+            $translitCompany = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $sanitizedData['company_name']) ?: $sanitizedData['company_name'];
+            $companySlug = strtolower(trim($translitCompany));
+            $companySlug = preg_replace('/[^a-z0-9\s]+/', '', $companySlug);  // Keep only letters, numbers and spaces
+            $companySlug = preg_replace('/\s+/', '-', $companySlug);            // Spaces → hyphens
+            $companySlug = trim($companySlug, '-');
+
+            $emailTenant = $firstNameSlug . ($lastNameSlug ? '.' . $lastNameSlug : '') . '@' . $companySlug;
 
             $user = $this->createWithSequenceFix(User::class, [
                 'name' => $sanitizedData['name'],
