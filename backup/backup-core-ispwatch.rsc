@@ -42,7 +42,7 @@ add address=192.168.88.1/24 interface=bridge-lan network=192.168.88.0 comment="L
 ############################
 /ip pool
 add name=default-dhcp ranges=192.168.88.10-192.168.88.254
-add name=vpn-pool ranges=10.10.10.2-10.10.10.254
+add name=vpn-pool ranges=172.31.200.2-172.31.200.254
 
 ############################
 # DHCP SERVER
@@ -66,7 +66,7 @@ add name=router.lan address=192.168.88.1
 # L2TP + IPSEC (VPN SERVER)
 ############################
 /ppp profile
-add name=vpn-profile local-address=10.10.10.1 remote-address=vpn-pool use-encryption=yes
+add name=vpn-profile local-address=172.31.200.1 remote-address=vpn-pool use-encryption=yes
 
 /interface l2tp-server server
 set enabled=yes use-ipsec=yes ipsec-secret="Q9fZ7MrL2xSA8DkEpHwCy" authentication=mschap2 default-profile=vpn-profile
@@ -79,11 +79,11 @@ set enabled=yes use-ipsec=yes ipsec-secret="Q9fZ7MrL2xSA8DkEpHwCy" authenticatio
 # IP del servidor Laravel DigitalOcean: 162.159.140.98
 ############################
 /ip service
-set api address=162.159.140.98/32,192.168.88.0/24,10.10.10.0/24 disabled=no port=8728
+set api address=162.159.140.98/32,192.168.88.0/24,172.31.200.0/24 disabled=no port=8728
 set api-ssl disabled=yes
 set www disabled=yes
 set telnet disabled=yes
-set winbox address=192.168.88.0/24,10.10.10.0/24
+set winbox address=192.168.88.0/24,172.31.200.0/24
 
 ############################
 # FIREWALL ADDRESS LIST
@@ -97,7 +97,7 @@ add list=BLACKLIST address=59.12.158.62 comment="Ataque Telnet Brute force"
 
 add list=ISPWATCH_ALLOWED_API address=162.159.140.98 comment="Servidor Laravel DigitalOcean"
 add list=ISPWATCH_ALLOWED_API address=192.168.88.0/24 comment="LAN Local"
-add list=ISPWATCH_ALLOWED_API address=10.10.10.0/24 comment="VPN Clientes"
+add list=ISPWATCH_ALLOWED_API address=172.31.200.0/24 comment="VPN Clientes"
 
 ############################
 # FIREWALL FILTER
@@ -108,7 +108,7 @@ add chain=input action=drop connection-state=invalid comment="Drop invalid"
 add chain=input action=accept protocol=tcp dst-port=8728 src-address-list=ISPWATCH_ALLOWED_API comment="API MikroTik - ISPWatch"
 add chain=input action=accept protocol=udp dst-port=500,1701,4500 comment="L2TP/IPsec"
 add chain=input action=accept protocol=ipsec-esp comment="IPsec ESP"
-add chain=input action=accept src-address=10.10.10.0/24 comment="VPN Access"
+add chain=input action=accept src-address=172.31.200.0/24 comment="VPN Access"
 add chain=input action=drop src-address-list=BLACKLIST comment="Drop Blacklisted IPs"
 add chain=input action=drop in-interface-list=WAN comment="Drop WAN input"
 
@@ -117,7 +117,7 @@ add chain=input action=drop in-interface-list=WAN comment="Drop WAN input"
 ############################
 /ip firewall nat
 add chain=srcnat out-interface-list=WAN action=masquerade comment="Internet NAT"
-add chain=srcnat src-address=10.10.10.0/24 dst-address=192.168.88.252 action=masquerade comment="VPN to Portal"
+add chain=srcnat src-address=172.31.200.0/24 dst-address=192.168.88.252 action=masquerade comment="VPN to Portal"
 add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=80 action=dst-nat to-addresses=192.168.88.252 to-ports=8000 comment="ISPWatch HTTP Redirect"
 add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=443 action=dst-nat to-addresses=192.168.88.252 to-ports=8000 comment="ISPWatch HTTPS Redirect"
 

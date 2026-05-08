@@ -99,9 +99,9 @@ class MikroTikSshService
     /**
      * Create or Update PPP secret
      */
-    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default'): array
+    public function ensurePppSecret(string $username, string $password, string $service = 'l2tp', string $profile = 'default', string $comment = 'ISPWatch Auto'): array
     {
-        return $this->pppManager->ensurePppSecret($username, $password, $service, $profile);
+        return $this->pppManager->ensurePppSecret($username, $password, $service, $profile, $comment);
     }
 
     /**
