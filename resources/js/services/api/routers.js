@@ -27,4 +27,10 @@ export default {
     applyBlockRules(id) {
         return apiClient.post(`/routers/${id}/apply-block-rules`)
     },
+    getVpnScript(id) {
+        return apiClient.get(`/routers/${id}/vpn-script`)
+    },
+    verifyVpnConnection(id) {
+        return apiClient.post(`/routers/${id}/verify-vpn`)
+    },
 }

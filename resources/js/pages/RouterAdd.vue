@@ -60,7 +60,7 @@
                 placeholder="Ej: IP Mikrotik Cloud"
                 class="input" />
 
-              <p class="hint">Para usar esta función debes agregar las IP de los servidores de WispHub.</p>
+              <p class="hint">Para usar esta función debes agregar las IP de tus servidores.</p>
             </div>
 
             <!-- COORDENADAS -->
@@ -152,7 +152,111 @@
             <!-- RANGOS IP -->
             <div class="col-span-2">
                 <label class="label">Rangos IP</label>
-                <textarea v-model="form.rangos_ip" rows="5" placeholder="Ej. 192.168.1.0/24 uno por línea" class="textarea"></textarea>
+                <textarea v-model="form.rangos_ip" rows="3" placeholder="Ej. 192.168.1.0/24 uno por línea" class="textarea"></textarea>
+                <p class="hint">Ingresa subredes en formato CIDR (ej: 192.168.1.0/24). Soporta /20 a /30.</p>
+            </div>
+
+            <!-- IP RANGE ANALYZER -->
+            <div v-if="parsedRanges.length > 0" class="col-span-2">
+              <div class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800 shadow-sm">
+                
+                <!-- Header -->
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 flex items-center justify-between">
+                  <div class="flex items-center gap-2 text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span class="font-semibold text-sm">Analizador de IPs</span>
+                  </div>
+                  <div v-if="loadingIps" class="flex items-center gap-1.5 text-white/80 text-xs">
+                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    Consultando...
+                  </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="grid grid-cols-3 divide-x divide-gray-200 dark:divide-gray-700 border-b border-gray-200 dark:border-gray-700">
+                  <div class="px-4 py-3 text-center">
+                    <p class="text-xl font-bold text-gray-800 dark:text-white">{{ ipStats.total }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Total hosts</p>
+                  </div>
+                  <div class="px-4 py-3 text-center">
+                    <p class="text-xl font-bold text-green-600 dark:text-green-400">{{ ipStats.free }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Libres</p>
+                  </div>
+                  <div class="px-4 py-3 text-center">
+                    <p class="text-xl font-bold text-red-500 dark:text-red-400">{{ ipStats.used }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Ocupadas</p>
+                  </div>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/50">
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        class="h-full rounded-full transition-all duration-500"
+                        :class="ipStats.usagePercent > 80 ? 'bg-red-500' : ipStats.usagePercent > 50 ? 'bg-amber-500' : 'bg-green-500'"
+                        :style="{ width: ipStats.usagePercent + '%' }"
+                      ></div>
+                    </div>
+                    <span class="text-xs font-medium text-gray-600 dark:text-gray-400 w-10 text-right">
+                      {{ ipStats.usagePercent }}%
+                    </span>
+                  </div>
+                </div>
+
+                <!-- IP Grid (per range) -->
+                <div v-for="(range, idx) in parsedRanges" :key="idx" class="border-t border-gray-200 dark:border-gray-700">
+                  <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between">
+                    <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">
+                      🌐 {{ range.cidr }}
+                    </span>
+                    <span class="text-xs text-gray-500">
+                      {{ range.hosts.length }} hosts · {{ range.freeHosts.length }} libres
+                    </span>
+                  </div>
+
+                  <div class="px-4 py-3 max-h-48 overflow-y-auto">
+                    <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
+                      <button
+                        v-for="ip in range.hosts"
+                        :key="ip"
+                        type="button"
+                        @click="copyIp(ip)"
+                        :class="[
+                          'px-1 py-1 text-[10px] font-mono rounded transition-all truncate',
+                          usedIpsSet.has(ip)
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 cursor-not-allowed line-through'
+                            : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/40 cursor-pointer'
+                        ]"
+                        :title="usedIpsSet.has(ip) ? 'IP en uso' : 'Click para copiar'"
+                        :disabled="usedIpsSet.has(ip)"
+                      >
+                        {{ ip.split('.').pop() }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Legend -->
+                <div class="px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center gap-4">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></div>
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400">Libre (click = copiar)</span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-3 h-3 rounded bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700"></div>
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400">En uso</span>
+                  </div>
+                  <div v-if="copiedIp" class="ml-auto text-[10px] text-green-600 dark:text-green-400 font-medium animate-pulse">
+                    ✓ {{ copiedIp }} copiada
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- FACTURACIÓN -->
@@ -221,7 +325,6 @@
                   :class="form.agregar_cliente_mkt
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.agregar_cliente_mkt = !form.agregar_cliente_mkt"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -245,7 +348,6 @@
                   :class="form.historial_trafico
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.historial_trafico = !form.historial_trafico"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -269,7 +371,6 @@
                   :class="form.simple_queue
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.simple_queue = !form.simple_queue"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -293,7 +394,6 @@
                   :class="form.control_pcq
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.control_pcq = !form.control_pcq"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -317,7 +417,6 @@
                   :class="form.hotspot
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.hotspot = !form.hotspot"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -341,7 +440,6 @@
                   :class="form.pppoe
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.pppoe = !form.pppoe"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -365,7 +463,6 @@
                   :class="form.ip_bindings
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.ip_bindings = !form.ip_bindings"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -389,7 +486,6 @@
                   :class="form.amarre
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.amarre = !form.amarre"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -413,7 +509,6 @@
                   :class="form.dhcp_leases
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.dhcp_leases = !form.dhcp_leases"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -437,7 +532,6 @@
                   :class="form.falla_general
                     ? 'bg-blue-600'
                     : 'bg-gray-300 dark:bg-gray-600'"
-                  @click.stop="form.falla_general = !form.falla_general"
                 >
                   <span
                     class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -485,7 +579,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue"
+import { ref, reactive, onMounted, computed, watch } from "vue"
 import { useRouter } from "vue-router"
 import { supabase } from "@/supabase.js"
 import DayPicker from "@/components/DayPicker.vue"
@@ -529,6 +623,108 @@ onMounted(async () => {
 
   const { data: tipos } = await supabase.from("type_billing").select("id, type")
   types.value = tipos ?? []
+})
+
+/* ============================
+   IP RANGE ANALYZER
+============================ */
+const usedIps = ref([])
+const loadingIps = ref(false)
+const copiedIp = ref('')
+const usedIpsSet = computed(() => new Set(usedIps.value))
+
+// Parse CIDR notation to array of host IPs
+const parseCIDR = (cidr) => {
+  const match = cidr.trim().match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d{1,2})$/)
+  if (!match) return null
+  
+  const ip = match[1]
+  const prefix = parseInt(match[2])
+  if (prefix < 20 || prefix > 30) return null // only /20 to /30
+  
+  const parts = ip.split('.').map(Number)
+  if (parts.some(p => p < 0 || p > 255)) return null
+  
+  const ipNum = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
+  const mask = (~((1 << (32 - prefix)) - 1)) >>> 0
+  const network = (ipNum & mask) >>> 0
+  const broadcast = (network | (~mask >>> 0)) >>> 0
+  
+  const hosts = []
+  for (let i = network + 1; i < broadcast; i++) {
+    hosts.push(
+      ((i >>> 24) & 255) + '.' +
+      ((i >>> 16) & 255) + '.' +
+      ((i >>> 8) & 255) + '.' +
+      (i & 255)
+    )
+  }
+  return { cidr: cidr.trim(), hosts }
+}
+
+const parsedRanges = computed(() => {
+  if (!form.rangos_ip) return []
+  const lines = form.rangos_ip.split('\n').map(l => l.trim()).filter(Boolean)
+  const ranges = []
+  for (const line of lines) {
+    const parsed = parseCIDR(line)
+    if (parsed) {
+      parsed.freeHosts = parsed.hosts.filter(ip => !usedIpsSet.value.has(ip))
+      ranges.push(parsed)
+    }
+  }
+  return ranges
+})
+
+const ipStats = computed(() => {
+  const allHosts = parsedRanges.value.flatMap(r => r.hosts)
+  const total = allHosts.length
+  const used = allHosts.filter(ip => usedIpsSet.value.has(ip)).length
+  const free = total - used
+  const usagePercent = total > 0 ? Math.round((used / total) * 100) : 0
+  return { total, used, free, usagePercent }
+})
+
+const loadUsedIps = async () => {
+  loadingIps.value = true
+  try {
+    const userData = JSON.parse(localStorage.getItem('userData')) ?? JSON.parse(sessionStorage.getItem('userData'))
+    const tenantId = userData?.tenant_id
+    if (!tenantId) return
+    
+    const { data, error } = await supabase
+      .from('customer_profile')
+      .select('ip_user')
+      .eq('tenant_id', tenantId)
+      .not('ip_user', 'is', null)
+    
+    if (!error && data) {
+      usedIps.value = data.map(d => d.ip_user).filter(Boolean)
+    }
+  } catch (e) {
+    console.error('Error loading used IPs:', e)
+  } finally {
+    loadingIps.value = false
+  }
+}
+
+const copyIp = async (ip) => {
+  try {
+    await navigator.clipboard.writeText(ip)
+    copiedIp.value = ip
+    setTimeout(() => { copiedIp.value = '' }, 2000)
+  } catch (e) {
+    console.error('Copy failed:', e)
+  }
+}
+
+// Load used IPs when ranges change
+let ipDebounce = null
+watch(() => form.rangos_ip, (val) => {
+  clearTimeout(ipDebounce)
+  if (val && val.includes('/')) {
+    ipDebounce = setTimeout(loadUsedIps, 500)
+  }
 })
 
 /* ============================
@@ -593,14 +789,19 @@ const cleanDay = (val) => {
 
 const saveBilling = async () => {
   // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
+  // Clamp: si el mes no tiene ese día, usa el último día válido
+  // Ej: día 31 en febrero → 28 (o 29 en bisiesto)
   const dayToDate = (day) => {
     const num = cleanInt(day)
     if (!num || num < 1 || num > 31) return null
     const now = new Date()
     const year = now.getFullYear()
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const d = String(num).padStart(2, '0')
-    return `${year}-${month}-${d}`
+    const month = now.getMonth() + 1 // 1-based
+    const lastDay = new Date(year, month, 0).getDate() // último día del mes
+    const clampedDay = Math.min(num, lastDay)
+    const m = String(month).padStart(2, '0')
+    const d = String(clampedDay).padStart(2, '0')
+    return `${year}-${m}-${d}`
   }
 
   // Obtener tenant_id del usuario logueado

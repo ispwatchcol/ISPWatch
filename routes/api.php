@@ -35,6 +35,9 @@ Route::get('/verify-email/{id}/{hash}', [VerificationController::class, 'verify'
 Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
     ->name('verification.resend');
 
+// ─── PUBLIC CATALOGS (no auth required) ───
+Route::get('/roles', [RoleController::class, 'index']);
+
 /*
 |--------------------------------------------------------------------------
 | PROTECTED ROUTES (require auth:sanctum)
@@ -112,7 +115,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/tenants/{id}', [TenantController::class, 'show']);
     Route::put('/tenants/{id}', [TenantController::class, 'update']);
     Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig']);
-    Route::get('/roles', [RoleController::class, 'index']);
 
     // ─── SYSTEM ───
     Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
