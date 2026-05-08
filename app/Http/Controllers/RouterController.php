@@ -80,30 +80,35 @@ class RouterController extends Controller
     }
 
     /**
-     * Generate VPN script for the router
+     * Generate VPN script for the router and sync the PPP secret to CORE.
+     * VpnService::generateScript() already calls syncPppSecret internally.
      */
     public function generateVpnScript(Router $router)
     {
         $vpnService = new VpnService();
         $script = $vpnService->generateScript($router);
 
-        // DIAGNÓSTICO: Re-intentar sincronización explícita para exponer el resultado/error al frontend
-        // Esto ayuda a depurar por qué falla silenciosamente en VpnService
+        // Re-read router to get updated vpn_username after generateScript saved it
+        $router->refresh();
+
+        // Confirm the secret exists on the CORE by querying it
         $sshService = new MikroTikSshService();
-        $debugSync = $sshService->ensurePppSecret(
-            $router->vpn_username ?? 'unknown',
-            $router->vpn_password ?? 'unknown',
-            'l2tp',
-            'default'
-        );
+        $secretCheck = $sshService->getPppSecret($router->vpn_username ?? '');
+
+        $secretSynced = $secretCheck['success'] ?? false;
 
         return response()->json([
-            'success' => true,
-            'script' => $script,
-            'server_ip' => $vpnService->getServerPublicIp(),
-            'debug_sync_result' => $debugSync,
+            'success'        => true,
+            'script'         => $script,
+            'server_ip'      => $vpnService->getServerPublicIp(),
+            'vpn_username'   => $router->vpn_username,
+            'secret_synced'  => $secretSynced,
+            'secret_message' => $secretSynced
+                ? '✅ Secret VPN creado/verificado correctamente en el CORE MikroTik'
+                : '⚠️ Script generado pero no se pudo confirmar el secret en el CORE. Verifica la conexión al MikroTik.',
         ]);
     }
+
 
     /**
      * Verify VPN connection status

@@ -34,7 +34,7 @@ class MikroTikConnectionManager
     public function __construct(?MikroTikApiProtocol $apiProtocol = null)
     {
         // SSH Configuration
-        $this->sshHost = env('MIKROTIK_CORE_SSH_HOST', env('MIKROTIK_CORE_API_HOST', '138.197.30.155'));
+        $this->sshHost = env('MIKROTIK_CORE_SSH_HOST', env('MIKROTIK_CORE_API_HOST', '167.172.132.234'));
         $this->sshPort = (int) env('MIKROTIK_CORE_SSH_PORT', 22);
         $this->sshUsername = env('MIKROTIK_CORE_SSH_USER', 'admin');
         $this->sshPassword = env('MIKROTIK_CORE_SSH_PASS', null);
@@ -42,7 +42,7 @@ class MikroTikConnectionManager
         $this->keyPassphrase = env('MIKROTIK_CORE_SSH_KEY_PASSPHRASE', null);
 
         // API Configuration
-        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '138.197.30.155');
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '167.172.132.234');
         $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
         $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
         $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
