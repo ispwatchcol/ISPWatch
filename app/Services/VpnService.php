@@ -107,7 +107,7 @@ class VpnService
         // Intentar crear/actualizar el secret en el CORE vía API
         // Si falla, lo logueamos pero no bloqueamos la generación del script
         try {
-            $syncResult = $this->syncPppSecret($vpnUsername, $vpnPassword);
+            $syncResult = $this->syncPppSecret($vpnUsername, $vpnPassword, $routerName);
             if (!$syncResult) {
                 Log::warning('[VPN] Falló la sincronización del secret en el CORE', ['user' => $vpnUsername]);
             } else {
@@ -226,7 +226,7 @@ SCRIPT;
     // ==============================
     // SYNC CREDENTIALS TO CORE
     // ==============================
-    private function syncPppSecret(string $username, string $password): bool
+    private function syncPppSecret(string $username, string $password, string $routerName = ''): bool
     {
         try {
             Log::info("[VPN] Sincronizando secret con el CORE", [
@@ -234,8 +234,12 @@ SCRIPT;
                 'password_length' => strlen($password),
             ]);
 
+            $comment = $routerName
+                ? "ISPWatch - {$routerName}"
+                : 'ISPWatch Auto';
+
             $sshService = new MikroTikSshService();
-            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default');
+            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default', $comment);
 
             Log::info('[VPN] Resultado de sincronización de secret', [
                 'success' => $result['success'],

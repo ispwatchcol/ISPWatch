@@ -184,9 +184,10 @@ class PppSecretManager
         string $username,
         string $password,
         string $service = 'l2tp',
-        string $profile = 'default'
+        string $profile = 'default',
+        string $comment = 'ISPWatch Auto'
     ): array {
-        $apiResult = $this->ensurePppSecretViaApi($username, $password, $service, $profile);
+        $apiResult = $this->ensurePppSecretViaApi($username, $password, $service, $profile, $comment);
 
         if (!$apiResult['success']) {
             Log::warning('[PppSecretManager] API failed for ensurePppSecret', [
@@ -205,7 +206,8 @@ class PppSecretManager
         string $username,
         string $password,
         string $service,
-        string $profile
+        string $profile,
+        string $comment = 'ISPWatch Auto'
     ): array {
         try {
             Log::info('[PppSecretManager] Intentando crear/actualizar secret via API', [
@@ -263,7 +265,7 @@ class PppSecretManager
                     '=name=' . $username,
                     '=password=' . $password,
                     '=service=' . $service,
-                    '=comment=ISPWatch Auto',
+                    '=comment=' . $comment,
                 ]);
                 $apiError = $this->apiProtocol->readUntilDoneWithError($socket);
                 $action = 'created';
@@ -324,7 +326,8 @@ class PppSecretManager
         string $username,
         string $password,
         string $service,
-        string $profile
+        string $profile,
+        string $comment = 'ISPWatch Auto'
     ): array {
         $current = $this->getPppSecret($username);
 
@@ -343,11 +346,12 @@ class PppSecretManager
             $action = "updated";
         } else {
             $cmd = sprintf(
-                '/ppp secret add name=%s password=%s service=%s profile=%s comment="ISPWatch Auto"',
+                '/ppp secret add name=%s password=%s service=%s profile=%s comment="%s"',
                 escapeshellarg($username),
                 escapeshellarg($password),
                 escapeshellarg($service),
-                escapeshellarg($profile)
+                escapeshellarg($profile),
+                addslashes($comment)
             );
             $action = "created";
         }
