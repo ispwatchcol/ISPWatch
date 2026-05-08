@@ -103,7 +103,8 @@ class InterfaceReader
     }
 
     /**
-     * Get interfaces using API to CORE, then CORE uses ssh-exec
+     * Get interfaces using API to CORE, then CORE uses ssh-exec to query the client router.
+     * NOTE: We skip the ping step — ICMP is often blocked on MikroTik client routers.
      */
     private function getInterfacesViaCoreApi(
         string $clientIp,
@@ -120,7 +121,7 @@ class InterfaceReader
             if (!$socket) {
                 return [
                     'success' => false,
-                    'message' => 'No se pudo conectar al CORE via API',
+                    'message' => 'No se pudo conectar al CORE MikroTik (' . $this->connectionManager->getApiHost() . ':' . $this->connectionManager->getApiPort() . '). Verifica la IP y el puerto API.',
                     'interfaces' => [],
                 ];
             }
@@ -135,52 +136,50 @@ class InterfaceReader
                 $this->apiProtocol->close($socket);
                 return [
                     'success' => false,
-                    'message' => 'Error de autenticación al CORE',
+                    'message' => 'Autenticación fallida al CORE MikroTik. Verifica las credenciales en .env.',
                     'interfaces' => [],
                 ];
             }
 
-            // Verify connectivity
-            $this->apiProtocol->sendCommand($socket, '/ping', [
-                '=address=' . $clientIp,
-                '=count=1',
-            ]);
-            $pingRecords = $this->apiProtocol->readAllRecords($socket);
-
-            $pingSuccess = false;
-            foreach ($pingRecords as $record) {
-                if (isset($record['time']) && $record['time'] !== 'timeout') {
-                    $pingSuccess = true;
-                    break;
-                }
-            }
-
-            if (!$pingSuccess) {
-                $this->apiProtocol->close($socket);
-                return [
-                    'success' => false,
-                    'message' => 'El router cliente no responde. Verifica que la VPN esté conectada.',
-                    'interfaces' => [],
-                ];
-            }
-
-            // Create and run script
+            // Build the ssh-exec command to run /interface/print on the client router
             $safePass = str_replace('"', '\\"', $clientPass);
-            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"/interface print terse\"";
+            $safeUser = escapeshellarg($clientUser);
 
-            $this->apiProtocol->sendCommand($socket, '/system/script/add', [
-                '=name=ispwatch_get_interfaces',
-                '=source=' . $scriptSource,
+            // Use /interface/print detail to get name and type
+            $cmd = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"/interface print terse\"";
+
+            $this->apiProtocol->sendCommand($socket, '/tool/fetch', [
+                // We'll use script approach instead
+            ]);
+            // Discard the fetch attempt, use script method
+            $this->apiProtocol->readUntilDone($socket);
+
+            // Create a temporary script that runs ssh-exec and stores output
+            $scriptName = 'ispwatch_ifaces_' . substr(md5($clientIp), 0, 6);
+
+            // Remove old script if exists
+            $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
+                '=numbers=' . $scriptName,
             ]);
             $this->apiProtocol->readUntilDone($socket);
 
+            // Create new script
+            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"/interface print terse\"";
+            $this->apiProtocol->sendCommand($socket, '/system/script/add', [
+                '=name=' . $scriptName,
+                '=source=' . $scriptSource,
+            ]);
+            $addResult = $this->apiProtocol->readUntilDone($socket);
+
+            // Run the script
             $this->apiProtocol->sendCommand($socket, '/system/script/run', [
-                '=number=ispwatch_get_interfaces',
+                '=number=' . $scriptName,
             ]);
             $runResult = $this->apiProtocol->readAllRecords($socket);
 
+            // Cleanup
             $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
-                '=numbers=ispwatch_get_interfaces',
+                '=numbers=' . $scriptName,
             ]);
             $this->apiProtocol->readUntilDone($socket);
 
@@ -193,23 +192,41 @@ class InterfaceReader
                     $output = $record['ret'];
                     break;
                 }
+                if (isset($record['output'])) {
+                    $output = $record['output'];
+                    break;
+                }
+            }
+
+            Log::info('[InterfaceReader] ssh-exec output', [
+                'client_ip' => $clientIp,
+                'output_length' => strlen($output),
+                'raw_output' => substr($output, 0, 500),
+                'all_records' => $runResult,
+            ]);
+
+            if (empty(trim($output))) {
+                return [
+                    'success' => false,
+                    'message' => "El CORE se conectó pero el router cliente ({$clientIp}) no respondió vía SSH. Asegúrate que: 1) La VPN esté activa, 2) SSH esté habilitado en el router cliente, 3) Las credenciales user_rb sean correctas.",
+                    'interfaces' => [],
+                ];
             }
 
             $interfaces = $this->parseTerseOutput($output);
 
             if (empty($interfaces)) {
                 return [
-                    'success' => true,
-                    'message' => 'No se pudieron parsear interfaces. Mostrando sugeridas.',
-                    'method' => 'CORE_API_FALLBACK',
-                    'interfaces' => $this->getSuggestedInterfaces(),
+                    'success' => false,
+                    'message' => 'El router respondió pero no se pudieron leer las interfaces. Respuesta del router: ' . substr($output, 0, 200),
+                    'interfaces' => [],
                 ];
             }
 
             return [
                 'success' => true,
-                'message' => 'Interfaces obtenidas via CORE',
-                'method' => 'CORE_API',
+                'message' => 'Interfaces obtenidas via CORE → SSH al cliente',
+                'method'  => 'CORE_SSH_EXEC',
                 'interfaces' => $interfaces,
             ];
 
@@ -217,11 +234,12 @@ class InterfaceReader
             Log::error('[InterfaceReader] Error via CORE API', ['error' => $e->getMessage()]);
             return [
                 'success' => false,
-                'message' => 'Error: ' . $e->getMessage(),
+                'message' => 'Error interno: ' . $e->getMessage(),
                 'interfaces' => [],
             ];
         }
     }
+
 
     /**
      * Parse interface records from API response

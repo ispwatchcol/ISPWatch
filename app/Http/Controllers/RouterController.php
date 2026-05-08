@@ -122,21 +122,21 @@ class RouterController extends Controller
     }
 
     /**
-     * Get interfaces from the client router
-     * Conecta al CORE via SSH y desde allí conecta al router cliente via SSH
+     * Get interfaces from the client router.
+     * Tries: 1) Direct API, 2) CORE → SSH-exec to client.
+     * Returns the real error if both fail (no silent hardcoded fallback).
      */
     public function getInterfaces(Router $router)
     {
-        // Validar que el router tenga credenciales
+        // Validate credentials
         if (!$router->ip || !$router->user_rb || !$router->password_rb) {
             return response()->json([
-                'success' => false,
-                'message' => 'Router sin credenciales configuradas. Verifica la conexión VPN primero.',
+                'success'    => false,
+                'message'    => 'Router sin credenciales configuradas (user_rb / password_rb). Genera el script VPN primero.',
                 'interfaces' => [],
             ]);
         }
 
-        // Usar SSH al CORE, luego SSH al cliente para obtener interfaces
         $sshService = new MikroTikSshService();
         $result = $sshService->getRouterInterfaces(
             $router->ip,
@@ -145,29 +145,22 @@ class RouterController extends Controller
             $router->puerto_api ?? 8728
         );
 
-        // Si obtuvo interfaces exitosamente, agregarlas
+        // If successful, attach current WAN
         if ($result['success'] && !empty($result['interfaces'])) {
             $result['current_wan'] = $router->wan_interface;
             return response()->json($result);
         }
 
-        // Si falla la conexión, ofrecer interfaces sugeridas para selección manual
+        // Return the real error message — no hardcoded fallback
         return response()->json([
-            'success' => true,
-            'message' => $result['message'] ?? 'No se pudo obtener interfaces. Selecciona manualmente.',
-            'interfaces' => [
-                ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
-                ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'ether3', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'ether4', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'ether5', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-                ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
-                ['name' => 'wlan1', 'type' => 'wlan', 'running' => true, 'disabled' => false, 'comment' => 'WiFi'],
-            ],
+            'success'    => false,
+            'message'    => $result['message'] ?? 'No se pudo obtener interfaces del router.',
+            'interfaces' => [],
             'current_wan' => $router->wan_interface,
-            'note' => 'Interfaces sugeridas. El error fue: ' . ($result['message'] ?? 'desconocido'),
+            'hint'       => 'Para configurar la WAN manualmente, ingresa el nombre de la interfaz en el campo de texto.',
         ]);
     }
+
 
     /**
      * Set WAN interface for the router
