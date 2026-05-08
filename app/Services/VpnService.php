@@ -33,9 +33,9 @@ class VpnService
     {
         // Cargar configuración desde .env
         // IP Publica del MikroTik CORE (donde los clientes VPN se conectan)
-        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '138.197.30.155');
+        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '167.172.132.234');
         // IP para conexión API desde Laravel al CORE
-        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '138.197.30.155');
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '167.172.132.234');
         $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
         $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
         $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
