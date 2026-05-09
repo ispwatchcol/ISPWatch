@@ -118,6 +118,7 @@ class UserController extends Controller
             'success' => true,
             'data' => [
                 'id' => $user->id,
+                'name' => $user->name,
                 'user_name' => $user->user_name,
                 'user_lastname' => $user->user_lastname,
                 'email' => $user->email,
@@ -138,6 +139,7 @@ class UserController extends Controller
         $user = User::findOrFail($id);
 
         $data = $request->validate([
+            'name' => 'sometimes|string|max:255',
             'role_id' => 'sometimes|integer|exists:role,id',
             'user_name' => 'sometimes|string|max:255',
             'user_lastname' => 'sometimes|string|max:255',

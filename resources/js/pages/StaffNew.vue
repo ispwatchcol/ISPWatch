@@ -253,42 +253,41 @@ onMounted(async () => {
 
 // Cargar dominio del tenant
 const loadTenantDomain = async () => {
-  try {
-    console.log("🔍 Buscando dominio para Tenant ID:", tenantId.value)
+  // PLAN A: Extraer del email_tenant del usuario logueado en localStorage
+  // Es el método más confiable ya que el admin siempre tiene el dominio correcto
+  const userData = JSON.parse(localStorage.getItem('userData') || sessionStorage.getItem('userData') || '{}')
 
-    // 1. INTENTO DE API
+  if (userData?.email_tenant) {
+    const parts = userData.email_tenant.split('@')
+    if (parts.length > 1 && parts[1]) {
+      tenant.value = `@${parts[1]}`
+      console.log('✅ Dominio extraido de email_tenant del usuario:', tenant.value)
+      return
+    }
+  }
+
+  // PLAN B: API del tenant (fallback - el campo domain puede tener timestamp)
+  try {
+    console.log('🔍 Buscando dominio via API para Tenant ID:', tenantId.value)
     const response = await api.tenant.getOne(tenantId.value)
-    
-    // Verificamos la estructura de la respuesta en consola
-    console.log("📦 Respuesta API Tenant:", response.data)
+    console.log('📦 Respuesta API Tenant:', response.data)
 
     if (response.data.success) {
-      // Caso ideal: La API responde bien
-      const domain = response.data.data?.domain || response.data.domain; // Probamos ambas rutas
-      tenant.value = `@${domain}`
-      console.log("✅ Dominio cargado desde API:", tenant.value)
-      return; // Salimos si tuvo éxito
-    } 
+      const domain = response.data.data?.domain || response.data.domain
+      if (domain) {
+        // Limpiar el timestamp del final del dominio si existe (ej: nombre-empresa-1778274279)
+        const cleanDomain = domain.replace(/-\d{9,}$/, '')
+        tenant.value = `@${cleanDomain}`
+        console.log('✅ Dominio cargado desde API (limpiado):', tenant.value)
+        return
+      }
+    }
   } catch (error) {
     console.error('⚠️ Error API tenant.getOne:', error)
   }
 
-  // 2. PLAN B: Si la API falla, intentamos leerlo del localStorage (userData)
-  // El login suele guardar el email completo (ej: usuario@midominio.com)
-  const userData = JSON.parse(localStorage.getItem("userData") || sessionStorage.getItem("userData"))
-  
-  if (userData?.email_tenant) {
-      // Extraemos lo que está después del @
-      const parts = userData.email_tenant.split('@');
-      if (parts.length > 1) {
-          tenant.value = `@${parts[1]}`;
-          console.log("✅ Dominio recuperado de userData (Plan B):", tenant.value);
-          return;
-      }
-  }
-
-  // 3. Si todo falla
-  console.error("❌ No se pudo obtener el dominio de ninguna forma.")
+  // PLAN C: Si todo falla
+  console.error('❌ No se pudo obtener el dominio de ninguna forma.')
   tenant.value = '@sin-tenant'
 }
 

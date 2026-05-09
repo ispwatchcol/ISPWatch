@@ -246,8 +246,15 @@ class RegistrationController extends Controller
         $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
         $slug = trim($slug, '-');
 
-        // Add timestamp to ensure uniqueness
-        return $slug . '-' . time();
+        // Ensure uniqueness with a numeric counter instead of a timestamp
+        $domain = $slug;
+        $counter = 2;
+        while (Tenant::where('domain', $domain)->exists()) {
+            $domain = $slug . '-' . $counter;
+            $counter++;
+        }
+
+        return $domain;
     }
 
 
