@@ -4,8 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 /**
+ * @property string $uuid Unique public identifier for the tenant (UUID v4)
+ * @property string $domain URL-friendly slug (e.g. "ispwatch-pruebas")
  * @property string|null $legal_name Legal or corporate name of the Colombian company
  * @property string|null $trade_name Commercial or trade name of the company
  * @property string|null $nit Tax Identification Number (Número de Identificación Tributaria)
@@ -22,8 +25,11 @@ use Illuminate\Database\Eloquent\Model;
 class Tenant extends Model
 {
     use HasFactory;
+
     protected $table = 'tenant';
+
     protected $fillable = [
+        'uuid',
         'name',
         'domain',
         'status',
@@ -50,4 +56,15 @@ class Tenant extends Model
         'department',
         'country',
     ];
+
+    /** Auto-generate UUID on creation if not provided */
+    protected static function booted(): void
+    {
+        static::creating(function (Tenant $tenant) {
+            if (empty($tenant->uuid)) {
+                $tenant->uuid = (string) Str::uuid();
+            }
+        });
+    }
 }
+
