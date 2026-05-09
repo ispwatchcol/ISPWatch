@@ -34,6 +34,7 @@ class UserController extends Controller
             ->map(function ($user) {
                 return [
                     'id' => $user->id,
+                    'name' => $user->name,
                     'user_name' => $user->user_name,
                     'user_lastname' => $user->user_lastname ?? '',
                     'email_tenant' => $user->email_tenant ?? $user->email,

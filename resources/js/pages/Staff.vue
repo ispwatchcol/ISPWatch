@@ -85,12 +85,12 @@
           <table class="min-w-full border-collapse">
             <thead>
               <tr class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
-                <th @click="sortBy('user_name')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
+                <th @click="sortBy('name')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
                   <div class="flex items-center gap-1">
                     Nombre
-                    <icon-lucide-arrow-up-down v-if="sortCol !== 'user_name'" class="w-3 h-3 opacity-50" />
-                    <icon-lucide-arrow-up v-if="sortCol === 'user_name' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
-                    <icon-lucide-arrow-down v-if="sortCol === 'user_name' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-up-down v-if="sortCol !== 'name'" class="w-3 h-3 opacity-50" />
+                    <icon-lucide-arrow-up v-if="sortCol === 'name' && sortDir === 'asc'" class="w-3 h-3 text-blue-600" />
+                    <icon-lucide-arrow-down v-if="sortCol === 'name' && sortDir === 'desc'" class="w-3 h-3 text-blue-600" />
                   </div>
                 </th>
                 <th @click="sortBy('email_tenant')" class="py-3 px-4 text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors select-none">
@@ -135,7 +135,7 @@
                 :key="member.id"
                 class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all"
               >
-                <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">{{ member.user_name }} {{ member.user_lastname }}</td>
+                <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">{{ member.name || (member.user_name + ' ' + member.user_lastname).trim() }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ member.email_tenant }}</td>
                 <td>
                   <span
@@ -254,7 +254,7 @@ const filteredStaff = computed(() =>
   staff.value
     .filter(member => member.role_name !== 'Cliente') // Exclude Clients
     .filter(member =>
-      [member.user_name, member.user_lastname, member.email_tenant, member.role_name]
+      [member.name, member.user_name, member.user_lastname, member.email_tenant, member.role_name]
         .filter(Boolean)
         .some(f => f.toLowerCase().includes(search.value.toLowerCase()))
     )
@@ -271,9 +271,9 @@ const sortedStaff = computed(() => {
     if (valB === null || valB === undefined) valB = ''
 
     // Specific logic for name (combine first and last name if needed, but here simple prop)
-    if (sortCol.value === 'user_name') {
-       valA = (a.user_name || '') + ' ' + (a.user_lastname || '')
-       valB = (b.user_name || '') + ' ' + (b.user_lastname || '')
+    if (sortCol.value === 'name') {
+       valA = a.name || ((a.user_name || '') + ' ' + (a.user_lastname || '')).trim()
+       valB = b.name || ((b.user_name || '') + ' ' + (b.user_lastname || '')).trim()
     }
 
     if (valA < valB) return sortDir.value === 'asc' ? -1 : 1
@@ -361,7 +361,7 @@ const generateCSV = (withBOM = false) => {
   
   // Rows
   const rows = sortedStaff.value.map(member => [
-    `"${(member.user_name || '')} ${(member.user_lastname || '')}"`,
+    `"${member.name || ((member.user_name || '') + ' ' + (member.user_lastname || '')).trim()}"`,
     `"${member.email_tenant || ''}"`,
     `"${member.role_name || ''}"`,
     `"${formatDate(member.create_at)}"`,
@@ -409,7 +409,7 @@ const exportToExcel = () => {
 
   // Prepare data for Excel
   const data = sortedStaff.value.map(member => ({
-    'Nombre': `${member.user_name || ''} ${member.user_lastname || ''}`.trim(),
+    'Nombre': member.name || `${member.user_name || ''} ${member.user_lastname || ''}`.trim(),
     'Usuario': member.email_tenant || '',
     'Rol': member.role_name || '',
     'Creado': formatDate(member.create_at),
