@@ -910,19 +910,6 @@ const loadVpnScript = async () => {
     
     if (data.success) {
       vpnScript.value = data.script
-
-      // Mostrar resultado de la sincronización del secret en el CORE
-      if (data.secret_synced) {
-        toast.value?.success(
-          '🔐 Secret VPN sincronizado',
-          data.secret_message || `Usuario "${data.vpn_username}" creado/actualizado en el CORE MikroTik.`
-        )
-      } else {
-        toast.value?.warning(
-          '⚠️ Script generado — Revisar CORE',
-          data.secret_message || 'El script fue generado pero no se pudo confirmar el secret en el MikroTik CORE. Verifica la conexión API/SSH.'
-        )
-      }
     } else {
       vpnScript.value = ""
       console.error("Error loading VPN script:", data.message || "Unknown error")

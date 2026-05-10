@@ -636,7 +636,6 @@ const openSyncModal = async (plan) => {
   await loadRouters()
 
   const preferredRouter =
-    availableRouters.value.find(rb => rb.ip === '10.72.105.71') ||
     availableRouters.value.find(rb => rb.pppoe) ||
     availableRouters.value[0]
 

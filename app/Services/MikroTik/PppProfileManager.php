@@ -49,11 +49,11 @@ class PppProfileManager
             ]);
 
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
+                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
 
                 if ($socket) {
                     Log::info('[PppProfileManager] Direct API connection available');
-                    return $this->syncDirectApi(
+                    $directResult = $this->syncDirectApi(
                         $socket,
                         $clientUser,
                         $clientPass,
@@ -62,10 +62,18 @@ class PppProfileManager
                         $localAddress,
                         $remoteAddress,
                     );
+
+                    if ($directResult['success']) {
+                        return $directResult;
+                    }
+
+                    Log::warning('[PppProfileManager] Direct API failed, falling back to CORE', [
+                        'reason' => $directResult['message'] ?? 'unknown',
+                    ]);
                 }
             }
 
-            Log::info('[PppProfileManager] Direct API unavailable, using CORE fallback');
+            Log::info('[PppProfileManager] Direct API unavailable or failed, using CORE fallback');
 
             return $this->syncViaCore(
                 $clientIp,

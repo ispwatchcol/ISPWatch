@@ -266,7 +266,7 @@ class MikroTikConnectionManager
      */
     public function tryDirectClientConnection(string $clientIp, int $clientPort = 8728): bool
     {
-        $socket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 5);
+        $socket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 3);
 
         if ($socket) {
             @fclose($socket);

@@ -53,6 +53,71 @@ class VpnService
     }
 
     // ==============================
+    // PERFIL VPN POR TENANT
+    // ==============================
+
+    private function getTenantSubnet(int $tenantId): array
+    {
+        // Asigna un /24 único por tenant dentro del rango 172.16.0.0/12
+        // Tenant 1 → 172.16.1.0/24, Tenant 255 → 172.16.255.0/24, Tenant 256 → 172.17.1.0/24 ...
+        $third  = (($tenantId - 1) % 254) + 1;
+        $second = 16 + intdiv($tenantId - 1, 254);
+        return [
+            'local_address' => "172.{$second}.{$third}.1",
+            'pool_range'    => "172.{$second}.{$third}.2-172.{$second}.{$third}.254",
+        ];
+    }
+
+    private function getProfileName(int $tenantId): string
+    {
+        return "vpn-isp-{$tenantId}";
+    }
+
+    private function getPoolName(int $tenantId): string
+    {
+        return "pool-vpn-{$tenantId}";
+    }
+
+    private function ensureTenantVpnResources(int $tenantId): bool
+    {
+        $subnet      = $this->getTenantSubnet($tenantId);
+        $profileName = $this->getProfileName($tenantId);
+        $poolName    = $this->getPoolName($tenantId);
+
+        $sshService = new MikroTikSshService();
+
+        $poolResult = $sshService->ensureIpPool($poolName, $subnet['pool_range']);
+        if (!$poolResult['success']) {
+            Log::warning('[VPN] No se pudo asegurar el pool IP del tenant', [
+                'tenantId' => $tenantId,
+                'error'    => $poolResult['message'] ?? '',
+            ]);
+            return false;
+        }
+
+        $profileResult = $sshService->ensurePppProfile($profileName, $subnet['local_address'], $poolName);
+        if (!$profileResult['success']) {
+            Log::warning('[VPN] No se pudo asegurar el perfil PPP del tenant', [
+                'tenantId' => $tenantId,
+                'error'    => $profileResult['message'] ?? '',
+            ]);
+            return false;
+        }
+
+        Log::info('[VPN] Recursos VPN de tenant listos', [
+            'tenantId'      => $tenantId,
+            'profile'       => $profileName,
+            'pool'          => $poolName,
+            'localAddress'  => $subnet['local_address'],
+            'poolRange'     => $subnet['pool_range'],
+            'poolAction'    => $poolResult['action'] ?? 'unknown',
+            'profileAction' => $profileResult['action'] ?? 'unknown',
+        ]);
+
+        return true;
+    }
+
+    // ==============================
     // SCRIPT CLIENTE L2TP
     // ==============================
     public function getServerPublicIp(): string
@@ -104,14 +169,22 @@ class VpnService
         // ==============================
         // SINCRONIZAR CON EL CORE (Importantísimo)
         // ==============================
+        // Determinar perfil VPN específico del tenant (o fallback a profile-vpn)
+        $vpnProfile = 'profile-vpn';
+        $tenantId   = $router->tenant_id;
+        if ($tenantId) {
+            $this->ensureTenantVpnResources((int) $tenantId);
+            $vpnProfile = $this->getProfileName((int) $tenantId);
+        }
+
         // Intentar crear/actualizar el secret en el CORE vía API
         // Si falla, lo logueamos pero no bloqueamos la generación del script
         try {
-            $syncResult = $this->syncPppSecret($vpnUsername, $vpnPassword, $routerName);
+            $syncResult = $this->syncPppSecret($vpnUsername, $vpnPassword, $routerName, $vpnProfile);
             if (!$syncResult) {
                 Log::warning('[VPN] Falló la sincronización del secret en el CORE', ['user' => $vpnUsername]);
             } else {
-                Log::info('[VPN] Secret sincronizado correctamente', ['user' => $vpnUsername]);
+                Log::info('[VPN] Secret sincronizado correctamente', ['user' => $vpnUsername, 'profile' => $vpnProfile]);
             }
         } catch (\Throwable $e) {
             Log::error('[VPN] Excepción al sincronizar secret', ['error' => $e->getMessage()]);
@@ -129,8 +202,9 @@ class VpnService
 /user remove [find name="{$localUser}"]
 /user add name="{$localUser}" password="{$localPass}" group=full
 
-# Habilitar servicio API para conexión remota (puerto 8728)
+# Habilitar servicios para gestión remota
 /ip service set api disabled=no port=8728
+/ip service set ssh disabled=no port=22
 
 # ====================================
 # CONFIGURACIÓN VPN L2TP
@@ -226,12 +300,13 @@ SCRIPT;
     // ==============================
     // SYNC CREDENTIALS TO CORE
     // ==============================
-    private function syncPppSecret(string $username, string $password, string $routerName = ''): bool
+    private function syncPppSecret(string $username, string $password, string $routerName = '', string $profile = 'profile-vpn'): bool
     {
         try {
             Log::info("[VPN] Sincronizando secret con el CORE", [
-                'user' => $username,
+                'user'            => $username,
                 'password_length' => strlen($password),
+                'profile'         => $profile,
             ]);
 
             $comment = $routerName
@@ -239,7 +314,7 @@ SCRIPT;
                 : 'ISPWatch Auto';
 
             $sshService = new MikroTikSshService();
-            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', 'default', $comment);
+            $result = $sshService->ensurePppSecret($username, $password, 'l2tp', $profile, $comment);
 
             Log::info('[VPN] Resultado de sincronización de secret', [
                 'success' => $result['success'],

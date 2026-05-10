@@ -103,9 +103,14 @@ class PlanController extends Controller
         $router = Router::findOrFail($data['router_id']);
 
         if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            $missing = [];
+            if (!$router->ip) $missing[] = 'IP VPN (¿VPN conectada?)';
+            if (!$router->user_rb) $missing[] = 'usuario de gestión';
+            if (!$router->password_rb) $missing[] = 'contraseña de gestión';
+
             return response()->json([
                 'success' => false,
-                'message' => 'El router seleccionado no tiene credenciales de gestion completas.',
+                'message' => 'El router no tiene credenciales completas: ' . implode(', ', $missing) . '. Genera el script VPN y conéctalo primero.',
             ], 422);
         }
 
