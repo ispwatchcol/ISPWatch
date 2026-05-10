@@ -140,6 +140,25 @@ class MikroTikSshService
     }
 
     /**
+     * Create or update a PPPoE /ppp secret on a client router.
+     */
+    public function ensurePppoeSecretOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $username,
+        string $password,
+        string $profile = 'default',
+        string $service = 'pppoe',
+        int $clientPort = 8728
+    ): array {
+        return $this->pppProfileManager->ensurePppoeSecretOnRouter(
+            $clientIp, $clientUser, $clientPass,
+            $username, $password, $profile, $service, $clientPort
+        );
+    }
+
+    /**
      * Create or update a PPPoE profile on a client router.
      */
     public function syncPppoeProfileOnRouter(

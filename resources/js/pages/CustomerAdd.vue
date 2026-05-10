@@ -1,5 +1,7 @@
 <template>
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-3 sm:p-6">
+        <NotificationToast ref="toast" />
+
         <!-- Header -->
         <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
         <button
@@ -17,121 +19,85 @@
         <!-- Formulario -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
         <form @submit.prevent="handleSubmit">
-            
-            <!-- Sección: Datos del Usuario -->
+
+            <!-- Sección: Datos de Acceso -->
             <div class="mb-8">
             <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
                 Datos de Acceso
             </h2>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Email -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     Email <span class="text-red-500">*</span>
                 </label>
-                <input
-                    v-model="form.email"
-                    type="email"
-                    required
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="ejemplo@empresa.com"
-                />
+                <input v-model="form.email" type="email" required
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="ejemplo@empresa.com" />
                 </div>
 
-                <!-- Contraseña -->
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     Contraseña <span class="text-red-500">*</span>
                 </label>
-                <input
-                    v-model="form.password"
-                    type="password"
-                    required
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Mínimo 6 caracteres"
-                />
+                <input v-model="form.password" type="password" required
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Mínimo 6 caracteres" />
                 </div>
 
-                <!-- Teléfono -->
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Teléfono</label>
-                <input
-                    v-model="form.tel"
-                    type="tel"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: +57 300 123 4567"
-                />
-                </div>
-
-                <!-- Email Tenant (opcional) -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Email Tenant (Opcional)</label>
-                <input
-                    v-model="form.email_tenant"
-                    type="email"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="correo@tenant.com"
-                />
+                <input v-model="form.tel" type="tel"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="+57 300 123 4567" />
                 </div>
             </div>
             </div>
 
-            <!-- Sección: Datos del Perfil -->
+            <!-- Sección: Información del Cliente -->
             <div class="mb-8">
             <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
                 Información del Cliente
             </h2>
-
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Nombre -->
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     Nombre <span class="text-red-500">*</span>
                 </label>
-                <input
-                    v-model="form.name"
-                    type="text"
-                    required
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Juan"
-                />
+                <input v-model="form.name" type="text" required
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: Juan" />
                 </div>
 
-                <!-- Apellido -->
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     Apellido <span class="text-red-500">*</span>
                 </label>
-                <input
-                    v-model="form.last_name"
-                    type="text"
-                    required
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Pérez"
-                />
+                <input v-model="form.last_name" type="text" required
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: Pérez" />
                 </div>
 
-                <!-- Departamento -->
                 <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Cédula <span class="text-red-500">*</span>
+                </label>
+                <input v-model="form.cedula" type="text" required
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 1234567890" />
+                </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Ciudad</label>
+                <input v-model="form.city" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: La Vega" />
+                </div>
+
+                <div class="md:col-span-2">
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Departamento</label>
-                <input
-                    v-model="form.department"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Ventas"
-                />
-                </div>
-
-                <!-- Posición -->
-                <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Posición</label>
-                <input
-                    v-model="form.position"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: Gerente de Ventas"
-                />
+                <input v-model="form.state" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: Cundinamarca" />
                 </div>
             </div>
             </div>
@@ -141,89 +107,96 @@
             <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
                 Configuración del Servicio
             </h2>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- IP del Usuario -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    IP del Usuario
-                </label>
-                <input
-                    v-model="form.ip_user"
-                    type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                    placeholder="Ej: 192.168.1.100"
-                />
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">IP del Usuario</label>
+                <input v-model="form.ip_user" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="192.168.1.100" />
                 </div>
 
-                <!-- Plan/Servicio -->
                 <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Plan de Servicio
-                </label>
-                <select
-                    v-model="form.service_id"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                >
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Plan de Servicio</label>
+                <select v-model="form.service_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option :value="null">Seleccionar plan...</option>
-                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">
-                        {{ plan.name }}
-                    </option>
+                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
                 </select>
                 </div>
 
-                <!-- Sectorial -->
                 <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Sectorial
-                </label>
-                <select
-                    v-model="form.sectorial_id"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                >
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Sectorial</label>
+                <select v-model="form.sectorial_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option :value="null">Seleccionar sectorial...</option>
-                    <option v-for="sectorial in sectorials" :key="sectorial.id" :value="sectorial.id">
-                        {{ sectorial.name }}
-                    </option>
+                    <option v-for="s in sectorials" :key="s.id" :value="s.id">{{ s.name }}</option>
                 </select>
                 </div>
-                <!-- Router (Nuevo) -->
+
                 <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Router
-                </label>
-                <select
-                    v-model="form.router_id"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
-                >
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Router</label>
+                <select v-model="form.router_id"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option :value="null">Seleccionar router...</option>
-                    <option v-for="router in routers" :key="router.id" :value="router.id">
-                        {{ router.name }}
-                    </option>
+                    <option v-for="rb in routers" :key="rb.id" :value="rb.id">{{ rb.name }}</option>
                 </select>
                 </div>
             </div>
             </div>
 
-            <!-- Error -->
-            <div v-if="error" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
-            {{ error }}
+            <!-- Sección: Configuración PPPoE (aparece cuando el router tiene PPPoE activo) -->
+            <div v-if="showPppoeSection" class="mb-8">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-blue-200 dark:border-blue-700 pb-2 flex items-center gap-2">
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Configuración PPPoE
+            </h2>
+
+            <div class="flex items-center gap-3 mb-5">
+                <button type="button" @click="form.create_pppoe_secret = !form.create_pppoe_secret"
+                :class="form.create_pppoe_secret ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none">
+                <span :class="form.create_pppoe_secret ? 'translate-x-6' : 'translate-x-1'"
+                    class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" />
+                </button>
+                <span class="text-gray-700 dark:text-gray-300 font-medium">
+                Crear secret PPPoE en el router al guardar
+                </span>
+            </div>
+
+            <div v-if="form.create_pppoe_secret" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Usuario PPPoE <span class="text-red-500">*</span>
+                </label>
+                <input v-model="form.pppoe_username" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="juan.perez" />
+                </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Contraseña PPPoE <span class="text-red-500">*</span>
+                </label>
+                <input v-model="form.pppoe_password" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Contraseña del servicio PPPoE" />
+                </div>
+            </div>
+            </div>
+
+            <!-- Error inline -->
+            <div v-if="errorMsg" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
+            {{ errorMsg }}
             </div>
 
             <!-- Botones -->
             <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button
-                type="submit"
-                :disabled="loading"
-                class="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white py-2.5 sm:py-3 rounded-lg font-medium transition text-sm sm:text-base"
-            >
+            <button type="submit" :disabled="loading"
+                class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white py-2.5 sm:py-3 rounded-lg font-medium transition text-sm sm:text-base">
                 {{ loading ? 'Guardando...' : 'Guardar Cliente' }}
             </button>
-            <button
-                type="button"
-                @click="router.push({ name: 'Customers' })"
-                class="px-6 sm:px-8 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-2.5 sm:py-3 rounded-lg transition text-sm sm:text-base"
-            >
+            <button type="button" @click="router.push({ name: 'Customers' })"
+                class="px-6 sm:px-8 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-2.5 sm:py-3 rounded-lg transition text-sm sm:text-base">
                 Cancelar
             </button>
             </div>
@@ -233,41 +206,52 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
+const toast  = ref(null)
 
 const form = ref({
-    // datos del usuario
     email: '',
     password: '',
     tel: '',
-    email_tenant: '',
-
-    // datos para el perfil
     name: '',
     last_name: '',
-    department: '',
-    position: '',
-
-    // configuración del servicio
+    cedula: '',
+    city: '',
+    state: '',
     ip_user: '',
     service_id: null,
     sectorial_id: null,
     router_id: null,
+    create_pppoe_secret: false,
+    pppoe_username: '',
+    pppoe_password: '',
 })
 
-const loading = ref(false)
-const error = ref('')
-
-// Datos para selects
-const plans = ref([])
+const loading  = ref(false)
+const errorMsg = ref('')
+const plans      = ref([])
 const sectorials = ref([])
-const routers = ref([])
+const routers    = ref([])
 
-// Cargar catálogos
+// Show PPPoE section whenever the selected router has pppoe = true
+const selectedRouter   = computed(() => routers.value.find(r => r.id === form.value.router_id))
+const showPppoeSection = computed(() => !!selectedRouter.value?.pppoe)
+
+// Auto-fill PPPoE username when section becomes visible; reset toggle when hidden
+watch(showPppoeSection, (visible) => {
+    if (visible && !form.value.pppoe_username) {
+        const n = form.value.name.toLowerCase().replace(/\s+/g, '')
+        const l = form.value.last_name.toLowerCase().replace(/\s+/g, '')
+        if (n && l) form.value.pppoe_username = `${n}.${l}`
+    }
+    if (!visible) form.value.create_pppoe_secret = false
+})
+
 const loadCatalogs = async () => {
     try {
         const [plansRes, sectorialsRes, routersRes] = await Promise.all([
@@ -275,12 +259,9 @@ const loadCatalogs = async () => {
             api.sectorials.getAll(),
             api.routers.getAll(),
         ])
-        // PlanController devuelve { data: [...] }
-        plans.value = plansRes.data.data || []
-        // SectorialController devuelve [...]
+        plans.value      = plansRes.data.data || []
         sectorials.value = sectorialsRes.data || []
-        // RouterController devuelve directamente un array
-        routers.value = routersRes.data || []
+        routers.value    = routersRes.data || []
     } catch (err) {
         console.error('Error al cargar catálogos:', err)
     }
@@ -289,16 +270,33 @@ const loadCatalogs = async () => {
 onMounted(loadCatalogs)
 
 const handleSubmit = async () => {
-    loading.value = true
-    error.value = ''
+    if (form.value.create_pppoe_secret && (!form.value.pppoe_username || !form.value.pppoe_password)) {
+        toast.value?.warning('Datos incompletos', 'Ingresa el usuario y contraseña PPPoE.')
+        return
+    }
+
+    loading.value  = true
+    errorMsg.value = ''
 
     try {
-        await api.customers.create(form.value)
-        alert('Cliente creado exitosamente ✅')
-        router.push('/customers')
+        const res   = await api.customers.create(form.value)
+        const pppoe = res.data?.pppoe_provisioned
+
+        if (pppoe && !pppoe.success) {
+            toast.value?.warning(
+                'Cliente creado',
+                `El cliente fue registrado correctamente, pero el secret PPPoE no se pudo crear: ${pppoe.message}`
+            )
+        } else {
+            toast.value?.success('Cliente creado', 'El cliente fue registrado correctamente.')
+        }
+
+        setTimeout(() => router.push('/customers'), 1500)
     } catch (err) {
         console.error('Error al crear cliente:', err)
-        error.value = err.response?.data?.message || 'Error al crear el cliente. Por favor, intenta nuevamente.'
+        const msg = err.response?.data?.message || 'Error al crear el cliente.'
+        errorMsg.value = msg
+        toast.value?.error('Error al crear', msg)
     } finally {
         loading.value = false
     }

@@ -190,53 +190,63 @@ class CustomerProfileController extends Controller
             ], 403);
         }
 
+        // Auto-generate email_tenant as nombre.apellido@tenant-domain
+        $tenant = \App\Models\Tenant::find($tenantId);
+        $firstName = strtolower(preg_replace('/\s+/', '', $data['name'] ?? ''));
+        $lastName  = strtolower(preg_replace('/\s+/', '', $data['last_name'] ?? ''));
+        $domain    = $tenant ? strtolower($tenant->domain) : 'local';
+        $emailTenant = "{$firstName}.{$lastName}@{$domain}";
+
         DB::beginTransaction();
 
         try {
             // create user in users table
             $user = $this->createWithSequenceFix(User::class, [
-                'name' => trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? '')),
-                'user_name' => $data['name'],
-                'user_lastname' => $data['last_name'],
-                'email' => $data['email'],
-                'email_tenant' => $data['email_tenant'] ?? null,
-                'password' => bcrypt($data['password']),
-                'tel' => $data['tel'] ?? null,
-                'role_id' => 3,
-                'tenant_id' => $tenantId,
-                'status' => true,
+                'name'         => trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? '')),
+                'user_name'    => $data['name'],
+                'user_lastname'=> $data['last_name'],
+                'email'        => $data['email'],
+                'email_tenant' => $emailTenant,
+                'password'     => bcrypt($data['password']),
+                'tel'          => $data['tel'] ?? null,
+                'role_id'      => 3,
+                'tenant_id'    => $tenantId,
+                'status'       => true,
             ]);
 
-            // create customer profile in customer_profiles table
+            // create customer profile
             $customer = $this->createWithSequenceFix(CustomerProfile::class, [
-                'user_id' => $user->id,
-                'name' => $data['name'],
-                'last_name' => $data['last_name'],
-                'department' => $data['department'] ?? null,
-                'position' => $data['position'] ?? null,
-                'ip_user' => $data['ip_user'] ?? null,
-                'service_id' => $data['service_id'] ?? null,
-                'sectorial_id' => $data['sectorial_id'] ?? null,
-                'router_id' => $data['router_id'] ?? null,
+                'user_id'     => $user->id,
+                'name'        => $data['name'],
+                'last_name'   => $data['last_name'],
+                'cedula'      => $data['cedula'] ?? null,
+                'city'        => $data['city'] ?? null,
+                'state'       => $data['state'] ?? null,
+                'ip_user'     => $data['ip_user'] ?? null,
+                'service_id'  => $data['service_id'] ?? null,
+                'sectorial_id'=> $data['sectorial_id'] ?? null,
+                'router_id'   => $data['router_id'] ?? null,
             ]);
 
             DB::commit();
+
+            $mikrotik    = app(MikroTikSshService::class);
+            $router      = null;
+            $servicePlan = null;
 
             // Auto-provision Simple Queue if router has simple_queue enabled
             $queueResult = null;
             if (!empty($data['router_id']) && !empty($data['service_id']) && !empty($data['ip_user'])) {
                 try {
-                    $router = Router::find($data['router_id']);
+                    $router      = Router::find($data['router_id']);
                     $servicePlan = Plan::find($data['service_id']);
 
                     if ($router && $servicePlan && $router->simple_queue) {
                         \Log::info('[CustomerProfile] Auto-provisioning Simple Queue', [
                             'customer_id' => $customer->user_id,
-                            'router_id' => $router->id,
-                            'plan_id' => $servicePlan->id,
+                            'router_id'   => $router->id,
                         ]);
 
-                        $mikrotik = app(MikroTikSshService::class);
                         $queueResult = $mikrotik->syncQueueViaCore(
                             $router->ip,
                             $router->user_rb,
@@ -263,24 +273,60 @@ class CustomerProfileController extends Controller
                 }
             }
 
+            // Create PPPoE secret on the assigned router if requested
+            $pppoeResult = null;
+            if (!empty($data['create_pppoe_secret']) && !empty($data['pppoe_username']) && !empty($data['pppoe_password']) && !empty($data['router_id'])) {
+                try {
+                    $router = $router ?? Router::find($data['router_id']);
+                    if ($router && $router->pppoe) {
+                        $servicePlan = $servicePlan ?? Plan::find($data['service_id']);
+                        $profile     = $servicePlan ? $servicePlan->name : 'default';
+
+                        $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
+                            $router->ip,
+                            $router->user_rb,
+                            $router->password_rb,
+                            $data['pppoe_username'],
+                            $data['pppoe_password'],
+                            $profile,
+                            'pppoe',
+                            $router->puerto_api ?? 8728
+                        );
+
+                        if (!$pppoeResult['success']) {
+                            \Log::warning('[CustomerProfile] PPPoE secret creation failed (non-blocking)', [
+                                'error' => $pppoeResult['message'] ?? 'Unknown error',
+                            ]);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Log::warning('[CustomerProfile] PPPoE secret exception (non-blocking)', [
+                        'error' => $e->getMessage(),
+                    ]);
+                    $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+                }
+            }
+
             return response()->json([
-                'message' => 'Cliente creado correctamente. ✅',
-                'customer' => $customer,
-                'user' => $user,
-                'queue_provisioned' => $queueResult,
+                'message'            => 'Cliente creado correctamente. ✅',
+                'customer'           => $customer,
+                'user'               => $user,
+                'email_tenant'       => $emailTenant,
+                'queue_provisioned'  => $queueResult,
+                'pppoe_provisioned'  => $pppoeResult,
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
 
             \Log::error('Create customer failed', [
-                'error' => $e->getMessage(),
+                'error'    => $e->getMessage(),
                 'previous' => $e->getPrevious()?->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'trace'    => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'message' => 'Error al crear el cliente.',
-                'error' => $e->getMessage(),
+                'message'  => 'Error al crear el cliente.',
+                'error'    => $e->getMessage(),
                 'previous' => $e->getPrevious()?->getMessage(),
             ], 500);
         }
@@ -292,20 +338,22 @@ class CustomerProfileController extends Controller
     public function show($id)
     {
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
-        $user = User::findOrFail($id);
+        $user     = User::findOrFail($id);
 
         return response()->json([
-            'user_id' => $customer->user_id,
-            'name' => $customer->name,
-            'last_name' => $customer->last_name,
-            'department' => $customer->department,
-            'position' => $customer->position,
-            'ip_user' => $customer->ip_user,
-            'service_id' => $customer->service_id,
+            'user_id'      => $customer->user_id,
+            'name'         => $customer->name,
+            'last_name'    => $customer->last_name,
+            'cedula'       => $customer->cedula,
+            'city'         => $customer->city,
+            'state'        => $customer->state,
+            'ip_user'      => $customer->ip_user,
+            'service_id'   => $customer->service_id,
             'sectorial_id' => $customer->sectorial_id,
-            'router_id' => $customer->router_id,
-            'email' => $user->email,
-            'tel' => $user->tel,
+            'router_id'    => $customer->router_id,
+            'status'       => $customer->status,
+            'email'        => $user->email,
+            'tel'          => $user->tel,
             'email_tenant' => $user->email_tenant,
         ]);
     }
@@ -583,25 +631,31 @@ class CustomerProfileController extends Controller
     public function update(Request $request, $id)
     {
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
-        $user = User::findOrFail($id);
+        $user     = User::findOrFail($id);
 
         $data = $request->validate([
             // user data
-            'email' => 'sometimes|email|unique:users,email,' . $id,
+            'email'    => 'sometimes|email|unique:users,email,' . $id,
             'password' => 'nullable|string|min:6',
-            'tel' => 'nullable|string|max:20',
-            'email_tenant' => 'nullable|email',
+            'tel'      => 'nullable|string|max:20',
 
             // customer profile data
-            'name' => 'sometimes|required|string|max:255',
+            'name'      => 'sometimes|required|string|max:255',
             'last_name' => 'sometimes|required|string|max:255',
-            'department' => 'nullable|string|max:255',
-            'position' => 'nullable|string|max:255',
-            // nuevos campos de servicio
-            'ip_user' => 'nullable|string|max:45',
-            'service_id' => 'nullable|integer|exists:service_plan,id',
+            'cedula'    => 'nullable|string|max:20',
+            'city'      => 'nullable|string|max:255',
+            'state'     => 'nullable|string|max:255',
+
+            // service configuration
+            'ip_user'      => 'nullable|string|max:45',
+            'service_id'   => 'nullable|integer|exists:service_plan,id',
             'sectorial_id' => 'nullable|integer|exists:sectorial,id',
-            'router_id' => 'nullable|integer|exists:router,id',
+            'router_id'    => 'nullable|integer|exists:router,id',
+
+            // PPPoE secret (optional)
+            'create_pppoe_secret' => 'nullable|boolean',
+            'pppoe_username'      => 'nullable|string|max:255',
+            'pppoe_password'      => 'nullable|string|max:255',
         ]);
 
         DB::beginTransaction();
@@ -609,11 +663,10 @@ class CustomerProfileController extends Controller
         try {
             // update user data
             $userData = [
-                'user_name' => $data['name'] ?? $user->user_name,
-                'user_lastname' => $data['last_name'] ?? $user->user_lastname,
-                'email' => $data['email'] ?? $user->email,
-                'email_tenant' => $data['email_tenant'] ?? $user->email_tenant,
-                'tel' => $data['tel'] ?? $user->tel,
+                'user_name'    => $data['name'] ?? $user->user_name,
+                'user_lastname'=> $data['last_name'] ?? $user->user_lastname,
+                'email'        => $data['email'] ?? $user->email,
+                'tel'          => $data['tel'] ?? $user->tel,
             ];
 
             if (!empty($data['password'])) {
@@ -624,27 +677,62 @@ class CustomerProfileController extends Controller
 
             // update customer profile data
             $customer->update([
-                'name' => $data['name'] ?? $customer->name,
-                'last_name' => $data['last_name'] ?? $customer->last_name,
-                'department' => $data['department'] ?? $customer->department,
-                'position' => $data['position'] ?? $customer->position,
-                'ip_user' => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
-                'service_id' => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
-                'sectorial_id' => array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
-                'router_id' => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
+                'name'        => $data['name'] ?? $customer->name,
+                'last_name'   => $data['last_name'] ?? $customer->last_name,
+                'cedula'      => array_key_exists('cedula', $data) ? $data['cedula'] : $customer->cedula,
+                'city'        => array_key_exists('city', $data) ? $data['city'] : $customer->city,
+                'state'       => array_key_exists('state', $data) ? $data['state'] : $customer->state,
+                'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
+                'service_id'  => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
+                'sectorial_id'=> array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
+                'router_id'   => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
             ]);
 
             DB::commit();
 
+            // Create/update PPPoE secret on router if requested
+            $pppoeResult = null;
+            if (!empty($data['create_pppoe_secret']) && !empty($data['pppoe_username']) && !empty($data['pppoe_password'])) {
+                $routerId = $data['router_id'] ?? $customer->router_id;
+                if ($routerId) {
+                    try {
+                        $router      = Router::find($routerId);
+                        $serviceId   = $data['service_id'] ?? $customer->service_id;
+                        $servicePlan = $serviceId ? Plan::find($serviceId) : null;
+                        $profile     = $servicePlan ? $servicePlan->name : 'default';
+
+                        if ($router && $router->pppoe) {
+                            $mikrotik    = app(MikroTikSshService::class);
+                            $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
+                                $router->ip,
+                                $router->user_rb,
+                                $router->password_rb,
+                                $data['pppoe_username'],
+                                $data['pppoe_password'],
+                                $profile,
+                                'pppoe',
+                                $router->puerto_api ?? 8728
+                            );
+                        }
+                    } catch (\Throwable $e) {
+                        \Log::warning('[CustomerProfile] PPPoE secret update exception (non-blocking)', [
+                            'error' => $e->getMessage(),
+                        ]);
+                        $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+                    }
+                }
+            }
+
             return response()->json([
-                'message' => 'Cliente actualizado correctamente. ✅',
-                'customer' => $customer
+                'message'           => 'Cliente actualizado correctamente. ✅',
+                'customer'          => $customer,
+                'pppoe_provisioned' => $pppoeResult,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'message' => 'Error al actualizar el cliente.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }

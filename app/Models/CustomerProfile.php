@@ -15,6 +15,7 @@ class CustomerProfile extends Model
         'user_id',
         'name',
         'last_name',
+        'cedula',
         'department',
         'position',
         'address',

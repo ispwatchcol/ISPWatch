@@ -93,7 +93,7 @@ class PlanController extends Controller
         ]);
 
         $typeCode = $plan->typePlan?->code ?? $plan->type;
-        if ($typeCode !== 'pppoe') {
+        if (strtolower((string) $typeCode) !== 'pppoe') {
             return response()->json([
                 'success' => false,
                 'message' => 'Solo los planes PPPoE se pueden cargar como perfil en la RB.',
