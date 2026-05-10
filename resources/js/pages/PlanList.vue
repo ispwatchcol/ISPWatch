@@ -194,6 +194,14 @@
                 <td class="px-4 py-4">
                   <div class="flex items-center justify-end gap-2">
                     <button
+                      v-if="isPppoePlan(plan)"
+                      @click="openSyncModal(plan)"
+                      class="p-2 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:text-gray-500 dark:hover:text-emerald-400 transition-all duration-200"
+                      title="Cargar a RB"
+                    >
+                      <icon-lucide-upload class="w-4 h-4" />
+                    </button>
+                    <button
                       @click="editPlan(plan)"
                       class="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-500 dark:hover:text-blue-400 transition-all duration-200"
                       title="Editar"
@@ -270,6 +278,13 @@
 
             <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700 mt-1">
               <button
+                v-if="isPppoePlan(plan)"
+                @click="openSyncModal(plan)"
+                class="flex-1 py-2 rounded-lg text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition flex items-center justify-center gap-2"
+              >
+                <icon-lucide-upload class="w-4 h-4" /> Cargar RB
+              </button>
+              <button
                 @click="editPlan(plan)"
                 class="flex-1 py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition flex items-center justify-center gap-2"
               >
@@ -303,6 +318,95 @@
 
       </div>
     </main>
+
+    <div
+      v-if="showSyncModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="closeSyncModal"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 m-4">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <icon-lucide-upload class="w-6 h-6 text-emerald-600" />
+              Cargar a RB
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {{ planToSync?.name || 'Plan PPPoE' }}
+            </p>
+          </div>
+          <button
+            @click="closeSyncModal"
+            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+          >
+            <icon-lucide-x class="w-6 h-6" />
+          </button>
+        </div>
+
+        <div class="space-y-4">
+          <div class="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+            <div class="flex items-start gap-3">
+              <icon-lucide-server class="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 class="font-medium text-emerald-800 dark:text-emerald-300">Perfil PPPoE que se cargara</h4>
+                <p class="text-sm text-emerald-700 dark:text-emerald-400 mt-1">
+                  {{ planToSync?.name }} • {{ planToSync?.speed_down }} / {{ planToSync?.speed_up }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Router destino
+            </label>
+            <select
+              v-model="selectedSyncRouterId"
+              :disabled="loadingSyncRouters || syncingProfile || availableRouters.length === 0"
+              class="w-full h-11 px-4 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-sm appearance-none disabled:opacity-60"
+            >
+              <option value="">
+                {{ loadingSyncRouters ? 'Cargando routers...' : 'Seleccionar router...' }}
+              </option>
+              <option
+                v-for="rb in availableRouters"
+                :key="rb.id"
+                :value="String(rb.id)"
+              >
+                {{ rb.name }} - {{ rb.ip }}{{ rb.pppoe ? ' • PPPoE' : '' }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="selectedSyncRouter" class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+            Se cargara el perfil en <strong>{{ selectedSyncRouter.name }}</strong> ({{ selectedSyncRouter.ip }}).
+            <span v-if="!selectedSyncRouter.pppoe">Este router no tiene marcado el flag PPPoE en el sistema, pero igualmente se intentara la carga.</span>
+          </div>
+
+          <div v-if="!loadingSyncRouters && availableRouters.length === 0" class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 text-sm text-yellow-700 dark:text-yellow-300">
+            No se encontraron routers disponibles para cargar el perfil.
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="closeSyncModal"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="syncPppoePlanToRouter"
+            :disabled="syncingProfile || !selectedSyncRouterId"
+            class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <icon-lucide-loader-2 v-if="syncingProfile" class="w-4 h-4 animate-spin" />
+            <icon-lucide-upload v-else class="w-4 h-4" />
+            {{ syncingProfile ? 'Cargando...' : 'Cargar a RB' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Modal Confirmar Eliminación -->
     <div
@@ -387,6 +491,14 @@ const showDeleteModal = ref(false)
 const planToDelete = ref(null)
 const deletingPlan = ref(false)
 
+// Estados del modal sync PPPoE
+const showSyncModal = ref(false)
+const planToSync = ref(null)
+const syncingProfile = ref(false)
+const loadingSyncRouters = ref(false)
+const selectedSyncRouterId = ref('')
+const routers = ref([])
+
 /* ---------------------------
    TABS
    (DEBEN coincidir con type_plans.code)
@@ -436,6 +548,20 @@ const selectAll = computed({
   }
 })
 
+const availableRouters = computed(() => {
+  return [...routers.value].sort((a, b) => {
+    if (!!a.pppoe !== !!b.pppoe) {
+      return a.pppoe ? -1 : 1
+    }
+
+    return `${a.name} ${a.ip}`.localeCompare(`${b.name} ${b.ip}`)
+  })
+})
+
+const selectedSyncRouter = computed(() => {
+  return availableRouters.value.find(rb => String(rb.id) === String(selectedSyncRouterId.value)) || null
+})
+
 /* ---------------------------
    METHODS
 ----------------------------*/
@@ -446,6 +572,18 @@ const formatCurrency = (value) => {
     currency: 'COP',
     minimumFractionDigits: 0
   }).format(value)
+}
+
+const getTenantId = () => {
+  const userData =
+    JSON.parse(localStorage.getItem('userData')) ||
+    JSON.parse(sessionStorage.getItem('userData'))
+
+  return userData?.tenant_id || null
+}
+
+const isPppoePlan = (plan) => {
+  return (plan?.type_plan?.code || plan?.type) === 'pppoe'
 }
 
 const createPlan = () =>
@@ -464,23 +602,107 @@ const editPlan = (plan) => {
   })
 }
 
+const loadRouters = async () => {
+  loadingSyncRouters.value = true
+
+  try {
+    const tenantId = getTenantId()
+    const response = await api.routers.getAll(tenantId ? { tenant: tenantId } : {})
+    const data = Array.isArray(response.data) ? response.data : response.data?.data || []
+
+    routers.value = data.map(routerData => ({
+      id: routerData.id,
+      name: routerData.name,
+      ip: routerData.ip,
+      pppoe: !!routerData.pppoe,
+      status: routerData.status,
+    }))
+  } catch (error) {
+    console.error('Error cargando routers:', error)
+    toast.value?.error(
+      'Error al cargar routers',
+      error.response?.data?.message || 'No se pudo obtener la lista de routers.'
+    )
+  } finally {
+    loadingSyncRouters.value = false
+  }
+}
+
+const openSyncModal = async (plan) => {
+  planToSync.value = plan
+  showSyncModal.value = true
+  selectedSyncRouterId.value = ''
+
+  await loadRouters()
+
+  const preferredRouter =
+    availableRouters.value.find(rb => rb.ip === '10.72.105.71') ||
+    availableRouters.value.find(rb => rb.pppoe) ||
+    availableRouters.value[0]
+
+  if (preferredRouter) {
+    selectedSyncRouterId.value = String(preferredRouter.id)
+  }
+}
+
+const closeSyncModal = () => {
+  showSyncModal.value = false
+  planToSync.value = null
+  selectedSyncRouterId.value = ''
+}
+
+const syncPppoePlanToRouter = async () => {
+  if (!planToSync.value || !selectedSyncRouterId.value) {
+    toast.value?.warning(
+      'Seleccion faltante',
+      'Selecciona el router destino para cargar el perfil PPPoE.'
+    )
+    return
+  }
+
+  syncingProfile.value = true
+
+  try {
+    const tenantId = getTenantId()
+    const { data } = await api.plan.syncPppoeProfile(
+      planToSync.value.id,
+      {
+        router_id: Number(selectedSyncRouterId.value),
+      },
+      tenantId ? { tenant: tenantId } : {}
+    )
+
+    toast.value?.success(
+      'Perfil cargado',
+      data.message || 'El perfil PPPoE fue cargado correctamente en la RB.'
+    )
+
+    closeSyncModal()
+  } catch (error) {
+    toast.value?.error(
+      'Error al cargar a RB',
+      error.response?.data?.message || 'No se pudo cargar el perfil PPPoE en la RB seleccionada.'
+    )
+  } finally {
+    syncingProfile.value = false
+  }
+}
+
 
 
 const loadPlans = async () => {
   loading.value = true
   try {
-    const userData =
-      JSON.parse(localStorage.getItem('userData')) ||
-      JSON.parse(sessionStorage.getItem('userData'))
+    const tenantId = getTenantId()
 
-    if (!userData?.tenant_id) {
+    if (!tenantId) {
       console.warn('⚠️ No tenant, no se cargan planes')
       allPlans.value = []
       return
     }
 
     const response = await api.plan.getAll({
-      tenant: userData.tenant_id
+      tenant: tenantId
     })
 
     allPlans.value = response.data.data

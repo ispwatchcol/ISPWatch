@@ -16,6 +16,9 @@ export default {
     update(id, data) {
         return apiClient.put(`/plans/${id}`, data)
     },
+    syncPppoeProfile(id, data, params = {}) {
+        return apiClient.post(`/plans/${id}/sync-pppoe-profile`, data, { params })
+    },
     delete(id) {
         return apiClient.delete(`/plans/${id}`)
     },

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Services\MikroTik\MikroTikConnectionManager;
 use App\Services\MikroTik\MikroTikApiProtocol;
 use App\Services\MikroTik\PppSecretManager;
+use App\Services\MikroTik\PppProfileManager;
 use App\Services\MikroTik\SuspensionManager;
 use App\Services\MikroTik\QueueManager;
 use App\Services\MikroTik\InterfaceReader;
@@ -32,6 +33,7 @@ class MikroTikSshService
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
     private PppSecretManager $pppManager;
+    private PppProfileManager $pppProfileManager;
     private SuspensionManager $suspensionManager;
     private QueueManager $queueManager;
     private InterfaceReader $interfaceReader;
@@ -42,6 +44,7 @@ class MikroTikSshService
         $this->connectionManager = new MikroTikConnectionManager();
         $this->apiProtocol = $this->connectionManager->getApiProtocol();
         $this->pppManager = new PppSecretManager($this->connectionManager, $this->apiProtocol);
+        $this->pppProfileManager = new PppProfileManager($this->connectionManager, $this->apiProtocol);
         $this->suspensionManager = new SuspensionManager($this->connectionManager, $this->apiProtocol);
         $this->queueManager = new QueueManager($this->connectionManager, $this->apiProtocol);
         $this->interfaceReader = new InterfaceReader($this->connectionManager, $this->apiProtocol);
@@ -118,6 +121,33 @@ class MikroTikSshService
     public function createPppSecret(string $username, string $password): array
     {
         return $this->pppManager->createPppSecret($username, $password);
+    }
+
+    /**
+     * Create or update a PPPoE profile on a client router.
+     */
+    public function syncPppoeProfileOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $profileName,
+        string $speedUp,
+        string $speedDown,
+        ?string $localAddress = null,
+        ?string $remoteAddress = null,
+        int $clientPort = 8728
+    ): array {
+        return $this->pppProfileManager->syncPppoeProfile(
+            $clientIp,
+            $clientUser,
+            $clientPass,
+            $profileName,
+            $speedUp,
+            $speedDown,
+            $localAddress,
+            $remoteAddress,
+            $clientPort
+        );
     }
 
     // ==================== SUSPENDED IP MANAGEMENT ====================
@@ -282,6 +312,14 @@ class MikroTikSshService
     public function getPppManager(): PppSecretManager
     {
         return $this->pppManager;
+    }
+
+    /**
+     * Get the PPP profile manager for advanced use.
+     */
+    public function getPppProfileManager(): PppProfileManager
+    {
+        return $this->pppProfileManager;
     }
 
     /**

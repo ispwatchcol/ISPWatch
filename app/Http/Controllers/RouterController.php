@@ -24,6 +24,7 @@ class RouterController extends Controller
             'id',
             'name',
             'ip',
+            'pppoe',
             'firmware_version',
             'status',
             'created_at'

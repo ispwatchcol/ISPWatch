@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Router;
+use App\Services\MikroTikSshService;
 use App\Models\Plan;
 use App\Traits\FixesSequences;
 use App\Http\Requests\StorePlanRequest;
@@ -78,6 +80,70 @@ class PlanController extends Controller
 
         return response()->json([
             'message' => 'Plan eliminado'
+        ]);
+    }
+
+    /**
+     * Sync a PPPoE plan as a /ppp profile on the selected client router.
+     */
+    public function syncPppoeProfile(Request $request, Plan $plan)
+    {
+        $data = $request->validate([
+            'router_id' => 'required|integer|exists:router,id',
+        ]);
+
+        $typeCode = $plan->typePlan?->code ?? $plan->type;
+        if ($typeCode !== 'pppoe') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo los planes PPPoE se pueden cargar como perfil en la RB.',
+            ], 422);
+        }
+
+        $router = Router::findOrFail($data['router_id']);
+
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El router seleccionado no tiene credenciales de gestion completas.',
+            ], 422);
+        }
+
+        $mikrotik = app(MikroTikSshService::class);
+        $result = $mikrotik->syncPppoeProfileOnRouter(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $plan->name,
+            $plan->speed_up,
+            $plan->speed_down,
+            $plan->local_address,
+            $plan->pppoe_pool,
+            $router->puerto_api ?? 8728
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'] ?? 'No se pudo sincronizar el perfil PPPoE.',
+                'details' => $result,
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Perfil PPPoE cargado correctamente en la RB ' . $router->name . ' (' . $router->ip . ')',
+            'plan' => [
+                'id' => $plan->id,
+                'name' => $plan->name,
+            ],
+            'router' => [
+                'id' => $router->id,
+                'name' => $router->name,
+                'ip' => $router->ip,
+                'pppoe_enabled' => (bool) $router->pppoe,
+            ],
+            'result' => $result,
         ]);
     }
 }

@@ -69,6 +69,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
     Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
 
+    // PPPoE plan sync
+    Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
+
     // ─── BILLING ───
     Route::get('/billing/stats', [BillingController::class, 'getStats']);
     Route::get('/billing/invoices', [BillingController::class, 'index']);
