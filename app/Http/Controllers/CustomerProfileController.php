@@ -35,10 +35,12 @@ class CustomerProfileController extends Controller
                 'customer_profile.sectorial_id',
                 'customer_profile.router_id',
                 'customer_profile.status',
+                'customer_profile.pppoe_username',
                 'users.email',
                 'service_plan.name as service_name',
                 'sectorial.name as sectorial_name',
-                'router.name as router_name'
+                'router.name as router_name',
+                'router.pppoe as router_pppoe'
             )
             ->get();
 
@@ -222,10 +224,12 @@ class CustomerProfileController extends Controller
                 'cedula'      => $data['cedula'] ?? null,
                 'city'        => $data['city'] ?? null,
                 'state'       => $data['state'] ?? null,
-                'ip_user'     => $data['ip_user'] ?? null,
-                'service_id'  => $data['service_id'] ?? null,
-                'sectorial_id'=> $data['sectorial_id'] ?? null,
-                'router_id'   => $data['router_id'] ?? null,
+                'ip_user'        => $data['ip_user'] ?? null,
+                'service_id'     => $data['service_id'] ?? null,
+                'sectorial_id'   => $data['sectorial_id'] ?? null,
+                'router_id'      => $data['router_id'] ?? null,
+                'pppoe_username' => $data['pppoe_username'] ?? null,
+                'pppoe_password' => $data['pppoe_password'] ?? null,
             ]);
 
             DB::commit();
@@ -351,10 +355,12 @@ class CustomerProfileController extends Controller
             'service_id'   => $customer->service_id,
             'sectorial_id' => $customer->sectorial_id,
             'router_id'    => $customer->router_id,
-            'status'       => $customer->status,
-            'email'        => $user->email,
-            'tel'          => $user->tel,
-            'email_tenant' => $user->email_tenant,
+            'status'         => $customer->status,
+            'pppoe_username' => $customer->pppoe_username,
+            'pppoe_password' => $customer->pppoe_password,
+            'email'          => $user->email,
+            'tel'            => $user->tel,
+            'email_tenant'   => $user->email_tenant,
         ]);
     }
 
@@ -399,9 +405,9 @@ class CustomerProfileController extends Controller
             ], 404);
         }
 
-        // Use syncQueueViaCore which works from production (via CORE ssh-exec)
         $mikrotik = app(MikroTikSshService::class);
-        $result = $mikrotik->syncQueueViaCore(
+
+        $queueResult = $mikrotik->syncQueueViaCore(
             $router->ip,
             $router->user_rb,
             $router->password_rb,
@@ -413,11 +419,33 @@ class CustomerProfileController extends Controller
             $router->puerto_api ?? 8728
         );
 
-        if ($result['success']) {
-            return response()->json($result);
-        } else {
-            return response()->json($result, 500);
+        $pppoeResult = null;
+        if ($router->pppoe && $customer->pppoe_username && $customer->pppoe_password) {
+            try {
+                $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
+                    $router->ip,
+                    $router->user_rb,
+                    $router->password_rb,
+                    $customer->pppoe_username,
+                    $customer->pppoe_password,
+                    $servicePlan->name,
+                    'pppoe',
+                    $router->puerto_api ?? 8728
+                );
+            } catch (\Throwable $e) {
+                \Log::warning('[CustomerProfile::provision] PPPoE secret exception', ['error' => $e->getMessage()]);
+                $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+            }
         }
+
+        $overallSuccess = $queueResult['success'] && ($pppoeResult === null || $pppoeResult['success']);
+
+        return response()->json([
+            'success'      => $overallSuccess,
+            'message'      => $overallSuccess ? 'Provisionado correctamente.' : 'Provisionado con advertencias.',
+            'queue_result' => $queueResult,
+            'pppoe_result' => $pppoeResult,
+        ], $overallSuccess ? 200 : 500);
     }
 
     /**
@@ -431,9 +459,10 @@ class CustomerProfileController extends Controller
             'customer_ids.*' => 'integer|exists:customer_profile,user_id',
         ]);
 
-        $results = [];
-        $successCount = 0;
-        $failCount = 0;
+        $results           = [];
+        $successCount      = 0;
+        $failCount         = 0;
+        $pppoeSkippedCount = 0;
 
         $mikrotik = app(MikroTikSshService::class);
 
@@ -497,8 +526,7 @@ class CustomerProfileController extends Controller
                 continue;
             }
 
-            // Use syncQueueViaCore which works from production (via CORE ssh-exec)
-            $result = $mikrotik->syncQueueViaCore(
+            $queueResult = $mikrotik->syncQueueViaCore(
                 $router->ip,
                 $router->user_rb,
                 $router->password_rb,
@@ -510,15 +538,40 @@ class CustomerProfileController extends Controller
                 $router->puerto_api ?? 8728
             );
 
+            $pppoeResult = null;
+            if ($router->pppoe && $customer->pppoe_username && $customer->pppoe_password) {
+                try {
+                    $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
+                        $router->ip,
+                        $router->user_rb,
+                        $router->password_rb,
+                        $customer->pppoe_username,
+                        $customer->pppoe_password,
+                        $servicePlan->name,
+                        'pppoe',
+                        $router->puerto_api ?? 8728
+                    );
+                } catch (\Throwable $e) {
+                    \Log::warning('[CustomerProfile::bulkProvision] PPPoE secret exception', [
+                        'customer_id' => $customerId,
+                        'error'       => $e->getMessage(),
+                    ]);
+                    $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+                }
+            }
+
+            $rowSuccess = $queueResult['success'] && ($pppoeResult === null || $pppoeResult['success']);
+
             $results[] = [
-                'customer_id' => $customerId,
+                'customer_id'   => $customerId,
                 'customer_name' => "{$customer->name} {$customer->last_name}",
-                'success' => $result['success'],
-                'message' => $result['message'],
-                'details' => $result['details'] ?? null,
+                'success'       => $rowSuccess,
+                'message'       => $rowSuccess ? 'OK' : ($queueResult['message'] ?? ($pppoeResult['message'] ?? 'Error')),
+                'queue_result'  => $queueResult,
+                'pppoe_result'  => $pppoeResult,
             ];
 
-            if ($result['success']) {
+            if ($rowSuccess) {
                 $successCount++;
             } else {
                 $failCount++;
@@ -685,7 +738,9 @@ class CustomerProfileController extends Controller
                 'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
                 'service_id'  => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
                 'sectorial_id'=> array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
-                'router_id'   => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
+                'router_id'      => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
+                'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
+                'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,
             ]);
 
             DB::commit();

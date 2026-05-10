@@ -29,6 +29,8 @@ class CustomerProfile extends Model
         'service_id',
         'sectorial_id',
         'router_id',
+        'pppoe_username',
+        'pppoe_password',
         'status',
     ];
 

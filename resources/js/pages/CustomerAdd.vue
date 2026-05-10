@@ -142,35 +142,39 @@
                 </select>
                 </div>
             </div>
+
+            <!-- Alerta: plan PPPoE pero router sin Control PPPOE -->
+            <div v-if="pppoeMismatch" class="mt-4 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg px-4 py-3">
+                <span class="text-amber-500 text-lg leading-none mt-0.5">⚠</span>
+                <p class="text-sm text-amber-800 dark:text-amber-300">
+                El plan seleccionado es <strong>PPPoE</strong> pero el router
+                <strong>{{ selectedRouter?.name }}</strong> no tiene habilitado el
+                <strong>Control PPPOE</strong>. Activa esa opción en el router o selecciona uno compatible.
+                </p>
+            </div>
             </div>
 
-            <!-- Sección: Configuración PPPoE (aparece cuando el router tiene PPPoE activo) -->
+            <!-- Sección: Credenciales PPPoE (obligatorio cuando el router tiene Control PPPOE activo) -->
             <div v-if="showPppoeSection" class="mb-8">
-            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-blue-200 dark:border-blue-700 pb-2 flex items-center gap-2">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-1 border-b border-blue-200 dark:border-blue-700 pb-2 flex items-center gap-2">
                 <span class="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                Configuración PPPoE
+                Credenciales PPPoE
+                <span class="text-sm font-normal text-blue-600 dark:text-blue-400 ml-1">(requerido — el router usa Control PPPOE)</span>
             </h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                El secret PPPoE se creará automáticamente en <strong>{{ selectedRouter?.name }}</strong> al guardar.
+            </p>
 
-            <div class="flex items-center gap-3 mb-5">
-                <button type="button" @click="form.create_pppoe_secret = !form.create_pppoe_secret"
-                :class="form.create_pppoe_secret ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
-                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none">
-                <span :class="form.create_pppoe_secret ? 'translate-x-6' : 'translate-x-1'"
-                    class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform" />
-                </button>
-                <span class="text-gray-700 dark:text-gray-300 font-medium">
-                Crear secret PPPoE en el router al guardar
-                </span>
-            </div>
-
-            <div v-if="form.create_pppoe_secret" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     Usuario PPPoE <span class="text-red-500">*</span>
                 </label>
                 <input v-model="form.pppoe_username" type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    :class="pppoeUserError ? 'border-red-500 focus:ring-red-500' : 'border-gray-200 dark:border-gray-600 focus:ring-blue-500'"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border focus:outline-none focus:ring-2"
                     placeholder="juan.perez" />
+                <p v-if="pppoeUserError" class="mt-1 text-xs text-red-500">{{ pppoeUserError }}</p>
                 </div>
 
                 <div>
@@ -178,21 +182,23 @@
                     Contraseña PPPoE <span class="text-red-500">*</span>
                 </label>
                 <input v-model="form.pppoe_password" type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    :class="pppoePassError ? 'border-red-500 focus:ring-red-500' : 'border-gray-200 dark:border-gray-600 focus:ring-blue-500'"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border focus:outline-none focus:ring-2"
                     placeholder="Contraseña del servicio PPPoE" />
+                <p v-if="pppoePassError" class="mt-1 text-xs text-red-500">{{ pppoePassError }}</p>
                 </div>
             </div>
             </div>
 
-            <!-- Error inline -->
-            <div v-if="errorMsg" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
+            <!-- Error inline general -->
+            <div v-if="errorMsg" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
             {{ errorMsg }}
             </div>
 
             <!-- Botones -->
             <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button type="submit" :disabled="loading"
-                class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white py-2.5 sm:py-3 rounded-lg font-medium transition text-sm sm:text-base">
+            <button type="submit" :disabled="loading || pppoeMismatch"
+                class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 sm:py-3 rounded-lg font-medium transition text-sm sm:text-base">
                 {{ loading ? 'Guardando...' : 'Guardar Cliente' }}
             </button>
             <button type="button" @click="router.push({ name: 'Customers' })"
@@ -232,24 +238,48 @@ const form = ref({
     pppoe_password: '',
 })
 
-const loading  = ref(false)
-const errorMsg = ref('')
-const plans      = ref([])
-const sectorials = ref([])
-const routers    = ref([])
+const loading      = ref(false)
+const errorMsg     = ref('')
+const pppoeUserError = ref('')
+const pppoePassError = ref('')
+const plans        = ref([])
+const sectorials   = ref([])
+const routers      = ref([])
 
-// Show PPPoE section whenever the selected router has pppoe = true
-const selectedRouter   = computed(() => routers.value.find(r => r.id === form.value.router_id))
+const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
+const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
+
+// Detect PPPoE plan by type_plan name, plan name, or pppoe_pool field
+const isPppoePlan = computed(() => {
+    if (!selectedPlan.value) return false
+    const typeName = (selectedPlan.value.type_plan?.name ?? '').toLowerCase()
+    const planName = (selectedPlan.value.name ?? '').toLowerCase()
+    return typeName.includes('pppoe') || planName.includes('pppoe') || !!selectedPlan.value.pppoe_pool
+})
+
+// PPPoE section is shown (and mandatory) when the router has Control PPPOE active
 const showPppoeSection = computed(() => !!selectedRouter.value?.pppoe)
 
-// Auto-fill PPPoE username when section becomes visible; reset toggle when hidden
+// Mismatch: PPPoE plan selected but router doesn't support PPPoE
+const pppoeMismatch = computed(() =>
+    isPppoePlan.value && !!selectedRouter.value && !selectedRouter.value.pppoe
+)
+
+// Auto-fill credentials and toggle create_pppoe_secret when section appears/disappears
 watch(showPppoeSection, (visible) => {
+    form.value.create_pppoe_secret = visible
     if (visible && !form.value.pppoe_username) {
         const n = form.value.name.toLowerCase().replace(/\s+/g, '')
         const l = form.value.last_name.toLowerCase().replace(/\s+/g, '')
         if (n && l) form.value.pppoe_username = `${n}.${l}`
     }
-    if (!visible) form.value.create_pppoe_secret = false
+})
+
+// Re-fill username when name/last_name change while section is visible
+watch([() => form.value.name, () => form.value.last_name], ([n, l]) => {
+    if (!showPppoeSection.value) return
+    const username = n.toLowerCase().replace(/\s+/g, '') + '.' + l.toLowerCase().replace(/\s+/g, '')
+    if (username !== '.') form.value.pppoe_username = username
 })
 
 const loadCatalogs = async () => {
@@ -270,28 +300,48 @@ const loadCatalogs = async () => {
 onMounted(loadCatalogs)
 
 const handleSubmit = async () => {
-    if (form.value.create_pppoe_secret && (!form.value.pppoe_username || !form.value.pppoe_password)) {
-        toast.value?.warning('Datos incompletos', 'Ingresa el usuario y contraseña PPPoE.')
+    errorMsg.value     = ''
+    pppoeUserError.value = ''
+    pppoePassError.value = ''
+
+    // Hard block: PPPoE plan assigned to non-PPPoE router
+    if (pppoeMismatch.value) {
+        toast.value?.error('Configuración inválida',
+            `El plan PPPoE requiere un router con Control PPPOE activo. Actívalo en la configuración del router "${selectedRouter.value?.name}" primero.`)
         return
     }
 
-    loading.value  = true
-    errorMsg.value = ''
+    // PPPoE credentials required when section is visible
+    if (showPppoeSection.value) {
+        let valid = true
+        if (!form.value.pppoe_username.trim()) {
+            pppoeUserError.value = 'El usuario PPPoE es obligatorio.'
+            valid = false
+        }
+        if (!form.value.pppoe_password.trim()) {
+            pppoePassError.value = 'La contraseña PPPoE es obligatoria.'
+            valid = false
+        }
+        if (!valid) return
+    }
+
+    loading.value = true
 
     try {
         const res   = await api.customers.create(form.value)
         const pppoe = res.data?.pppoe_provisioned
 
-        if (pppoe && !pppoe.success) {
+        if (showPppoeSection.value && pppoe && !pppoe.success) {
             toast.value?.warning(
-                'Cliente creado',
-                `El cliente fue registrado correctamente, pero el secret PPPoE no se pudo crear: ${pppoe.message}`
+                'Cliente creado con advertencia',
+                `Datos guardados, pero el secret PPPoE no se pudo crear en ${selectedRouter.value?.name}: ${pppoe.message}`
             )
+            setTimeout(() => router.push('/customers'), 2500)
         } else {
-            toast.value?.success('Cliente creado', 'El cliente fue registrado correctamente.')
+            const extra = showPppoeSection.value ? ` Secret PPPoE creado en ${selectedRouter.value?.name}.` : ''
+            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${extra}`)
+            setTimeout(() => router.push('/customers'), 1500)
         }
-
-        setTimeout(() => router.push('/customers'), 1500)
     } catch (err) {
         console.error('Error al crear cliente:', err)
         const msg = err.response?.data?.message || 'Error al crear el cliente.'
