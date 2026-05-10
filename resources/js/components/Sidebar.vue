@@ -275,7 +275,6 @@
 
 <script setup>
 import { ref, onMounted, computed } from "vue";
-import { useRouter } from "vue-router";
 import SubmenuItem from "./SubmenuItem.vue";
 import TimezoneClock from "./TimezoneClock.vue";
 import { hasPermission, isStaffOrAdmin } from "../services/auth";
@@ -283,7 +282,6 @@ import { apiClient } from "../services/api";
 import api from "../services/api";
 import axios from "axios";
 
-const router = useRouter();
 const user = ref({});
 const theme = ref("system");
 const tenantTimezone = ref("America/Bogota");
@@ -487,8 +485,7 @@ const logout = () => {
     localStorage.removeItem("userData");
     sessionStorage.removeItem("isLoggedIn");
     sessionStorage.removeItem("userData");
-
-    router.push("/");
+    window.location.replace("/");
 };
 </script>
 <style scoped>
