@@ -252,14 +252,20 @@ const loadUserData = async () => {
     if (response.data.success) {
       const data = response.data.data
 
+      // Separar el nombre completo (guardado en 'name') en nombre y apellido
+      const fullName = (data.name || '').trim()
+      const nameParts = fullName.split(' ')
+      const displayFirst = nameParts[0] || data.user_name || ''
+      const displayLast = nameParts.slice(1).join(' ') || data.user_lastname || ''
+
       // Rellenar el formulario
       editMember.value = {
         username: data.user_name,
         password: '',
         email: data.email || '',
         phone: data.tel || '',
-        name: data.user_name, // Ajusta si tienes campo separado para nombre real
-        lastname: data.user_lastname,
+        name: displayFirst,
+        lastname: displayLast,
         role_id: data.role_id,
         allZones: 'Sí',
         twoFA: 'No',
@@ -408,6 +414,7 @@ const updateUser = async () => {
     }
 
     const updateData = {
+        name: `${editMember.value.name} ${editMember.value.lastname}`.trim(),
         user_name: editMember.value.username,
         user_lastname: editMember.value.lastname,
         email: editMember.value.email,

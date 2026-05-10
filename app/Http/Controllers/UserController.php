@@ -4,36 +4,38 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\User;
 use App\Traits\FixesSequences;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class UserController extends Controller
 {
     use FixesSequences;
+
     /**
      * Display a listing of the users (staff members).
      */
     public function index(Request $request)
     {
-        // got tenant_id from request (we sent from vue)
         $tenantId = $request->input('tenant_id');
 
         if (!$tenantId) {
             return response()->json([
-                'message' => 'tenant_id es requerido'
+                'message' => 'tenant_id es requerido',
             ], 400);
         }
 
-        $users = User::with(['role', 'tenant',])
+        $users = User::with(['role', 'tenant'])
             ->where('tenant_id', $tenantId)
-            ->where('status', true) // only active users
+            ->where('status', true)
             ->orderBy('id', 'asc')
             ->get()
             ->map(function ($user) {
                 return [
                     'id' => $user->id,
+                    'name' => $user->name,
                     'user_name' => $user->user_name,
                     'user_lastname' => $user->user_lastname ?? '',
                     'email_tenant' => $user->email_tenant ?? $user->email,
@@ -71,13 +73,11 @@ class UserController extends Controller
             'password' => 'required|string|min:6',
         ]);
 
-        // Check if email exists for a disabled user
         $existingDisabledUser = User::where('email', $data['email'])
             ->where('status', false)
             ->first();
 
         if ($existingDisabledUser) {
-            // Rename the old user's email to free it up
             $existingDisabledUser->email = $existingDisabledUser->email . '_deleted_' . time();
             $existingDisabledUser->save();
         }
@@ -90,9 +90,7 @@ class UserController extends Controller
         try {
             $user = User::create($data);
         } catch (\Illuminate\Database\QueryException $e) {
-            // Check if it's a duplicate key error (sequence out of sync)
             if (str_contains($e->getMessage(), 'duplicate key') || str_contains($e->getMessage(), 'unique constraint')) {
-                // Auto-fix the sequence and retry
                 $this->fixSequence('users');
                 $user = User::create($data);
             } else {
@@ -102,7 +100,7 @@ class UserController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Usuario creado correctamente. ✅',
+            'message' => 'Usuario creado correctamente.',
             'data' => $user,
         ], 201);
     }
@@ -118,6 +116,7 @@ class UserController extends Controller
             'success' => true,
             'data' => [
                 'id' => $user->id,
+                'name' => $user->name,
                 'user_name' => $user->user_name,
                 'user_lastname' => $user->user_lastname,
                 'email' => $user->email,
@@ -125,8 +124,8 @@ class UserController extends Controller
                 'tel' => $user->tel,
                 'role_id' => $user->role_id,
                 'role_name' => $user->role->name ?? 'Sin rol',
-                'password' => '', // don't return password
-            ]
+                'password' => '',
+            ],
         ]);
     }
 
@@ -138,6 +137,7 @@ class UserController extends Controller
         $user = User::findOrFail($id);
 
         $data = $request->validate([
+            'name' => 'sometimes|string|max:255',
             'role_id' => 'sometimes|integer|exists:role,id',
             'user_name' => 'sometimes|string|max:255',
             'user_lastname' => 'sometimes|string|max:255',
@@ -147,15 +147,13 @@ class UserController extends Controller
             'password' => 'nullable|string|min:6',
         ]);
 
-        // Check if email exists for a disabled user (other than the current one)
         if (isset($data['email'])) {
             $existingDisabledUser = User::where('email', $data['email'])
                 ->where('status', false)
-                ->where('id', '!=', $user->id) // don't rename our own email if we are disabled
+                ->where('id', '!=', $user->id)
                 ->first();
 
             if ($existingDisabledUser) {
-                // Rename the old user's email to free it up
                 $existingDisabledUser->email = $existingDisabledUser->email . '_deleted_' . time();
                 $existingDisabledUser->save();
             }
@@ -173,7 +171,7 @@ class UserController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Usuario actualizado correctamente. ✅',
+            'message' => 'Usuario actualizado correctamente.',
             'data' => $user,
         ]);
     }
@@ -185,15 +183,20 @@ class UserController extends Controller
     {
         $user = User::findOrFail($id);
 
-        $user->update([
+        $updates = [
             'email' => $user->email . '_deleted_' . time(),
             'status' => false,
-            'deleted_at' => now(),
-        ]);
+        ];
+
+        if (Schema::hasColumn('users', 'deleted_at')) {
+            $updates['deleted_at'] = now();
+        }
+
+        $user->update($updates);
 
         return response()->json([
             'success' => true,
-            'message' => 'Usuario desactivado correctamente. ✅',
+            'message' => 'Usuario desactivado correctamente.',
         ]);
     }
 
