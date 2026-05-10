@@ -6,12 +6,15 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Interface Reader
- * 
+ *
  * Handles reading network interfaces from MikroTik routers.
- * Supports direct API and CORE ssh-exec methods.
+ * Supports direct API and CORE SSH fallback methods.
  */
 class InterfaceReader
 {
+    private const SSH_FIELD_DELIMITER = '|#|';
+    private const ALLOWED_WAN_TYPES = ['ether', 'vlan'];
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -26,7 +29,7 @@ class InterfaceReader
     }
 
     /**
-     * Get interfaces from a client router
+     * Get interfaces from a client router.
      */
     public function getRouterInterfaces(
         string $clientIp,
@@ -35,26 +38,26 @@ class InterfaceReader
         int $clientPort = 8728
     ): array {
         try {
-            Log::info('[InterfaceReader] Obteniendo interfaces', [
+            Log::info('[InterfaceReader] Getting interfaces', [
                 'client_ip' => $clientIp,
             ]);
 
-            // Try direct API first
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
                 $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
+
                 if ($socket) {
-                    Log::info('[InterfaceReader] Conexión API directa exitosa');
+                    Log::info('[InterfaceReader] Direct API connection available');
                     return $this->getInterfacesDirectApi($socket, $clientUser, $clientPass);
                 }
             }
 
-            Log::info('[InterfaceReader] API directa no disponible, usando CORE');
-            return $this->getInterfacesViaCoreApi($clientIp, $clientUser, $clientPass);
-
+            Log::info('[InterfaceReader] Direct API unavailable, using CORE SSH fallback');
+            return $this->getInterfacesViaCoreSsh($clientIp, $clientUser, $clientPass);
         } catch (\Throwable $e) {
-            Log::error('[InterfaceReader] Error obteniendo interfaces', [
+            Log::error('[InterfaceReader] Error getting interfaces', [
                 'error' => $e->getMessage(),
             ]);
+
             return [
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage(),
@@ -64,36 +67,34 @@ class InterfaceReader
     }
 
     /**
-     * Get interfaces using direct API connection
+     * Get interfaces using a direct API connection to the client router.
      */
     private function getInterfacesDirectApi($socket, string $clientUser, string $clientPass): array
     {
         try {
             if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
                 $this->apiProtocol->close($socket);
+
                 return [
                     'success' => false,
-                    'message' => 'Error de autenticación en router cliente',
+                    'message' => 'Authentication failed on client router',
                     'interfaces' => [],
                 ];
             }
 
             $this->apiProtocol->sendCommand($socket, '/interface/print');
             $records = $this->apiProtocol->readAllRecords($socket);
-
             $this->apiProtocol->close($socket);
-
-            $interfaces = $this->parseInterfaceRecords($records);
 
             return [
                 'success' => true,
-                'message' => 'Interfaces obtenidas via API directa',
+                'message' => 'Interfaces loaded via direct API',
                 'method' => 'DIRECT_API',
-                'interfaces' => $interfaces,
+                'interfaces' => $this->parseInterfaceRecords($records),
             ];
-
         } catch (\Throwable $e) {
             @$this->apiProtocol->close($socket);
+
             return [
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage(),
@@ -103,135 +104,71 @@ class InterfaceReader
     }
 
     /**
-     * Get interfaces using API to CORE, then CORE uses ssh-exec to query the client router.
-     * NOTE: We skip the ping step — ICMP is often blocked on MikroTik client routers.
+     * Get interfaces by connecting to CORE over SSH and delegating an ssh-exec to the client router.
+     * This avoids the old API script flow that returned internal ids such as "*2" instead of the real output.
      */
-    private function getInterfacesViaCoreApi(
+    private function getInterfacesViaCoreSsh(
         string $clientIp,
         string $clientUser,
         string $clientPass
     ): array {
         try {
-            $socket = $this->apiProtocol->connect(
-                $this->connectionManager->getApiHost(),
-                $this->connectionManager->getApiPort(),
-                10
-            );
+            $command = $this->buildCoreInterfaceCommand($clientIp, $clientUser, $clientPass);
+            $sshResult = $this->connectionManager->executeSsh($command);
 
-            if (!$socket) {
+            if (!($sshResult['success'] ?? false)) {
                 return [
                     'success' => false,
-                    'message' => 'No se pudo conectar al CORE MikroTik (' . $this->connectionManager->getApiHost() . ':' . $this->connectionManager->getApiPort() . '). Verifica la IP y el puerto API.',
+                    'message' => 'No se pudo consultar el router cliente desde el CORE: ' . ($sshResult['message'] ?? 'sin respuesta del CORE'),
                     'interfaces' => [],
                 ];
             }
 
-            if (
-                !$this->apiProtocol->login(
-                    $socket,
-                    $this->connectionManager->getApiUser(),
-                    $this->connectionManager->getApiPass()
-                )
-            ) {
-                $this->apiProtocol->close($socket);
-                return [
-                    'success' => false,
-                    'message' => 'Autenticación fallida al CORE MikroTik. Verifica las credenciales en .env.',
-                    'interfaces' => [],
-                ];
-            }
+            $output = $this->normalizeRouterOutput((string) ($sshResult['output'] ?? ''));
 
-            // Build the ssh-exec command to run /interface/print on the client router
-            $safePass = str_replace('"', '\\"', $clientPass);
-            $safeUser = escapeshellarg($clientUser);
-
-            // Use /interface/print detail to get name and type
-            $cmd = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"/interface print terse\"";
-
-            $this->apiProtocol->sendCommand($socket, '/tool/fetch', [
-                // We'll use script approach instead
-            ]);
-            // Discard the fetch attempt, use script method
-            $this->apiProtocol->readUntilDone($socket);
-
-            // Create a temporary script that runs ssh-exec and stores output
-            $scriptName = 'ispwatch_ifaces_' . substr(md5($clientIp), 0, 6);
-
-            // Remove old script if exists
-            $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
-                '=numbers=' . $scriptName,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            // Create new script
-            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"/interface print terse\"";
-            $this->apiProtocol->sendCommand($socket, '/system/script/add', [
-                '=name=' . $scriptName,
-                '=source=' . $scriptSource,
-            ]);
-            $addResult = $this->apiProtocol->readUntilDone($socket);
-
-            // Run the script
-            $this->apiProtocol->sendCommand($socket, '/system/script/run', [
-                '=number=' . $scriptName,
-            ]);
-            $runResult = $this->apiProtocol->readAllRecords($socket);
-
-            // Cleanup
-            $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
-                '=numbers=' . $scriptName,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            $this->apiProtocol->close($socket);
-
-            // Parse output
-            $output = '';
-            foreach ($runResult as $record) {
-                if (isset($record['ret'])) {
-                    $output = $record['ret'];
-                    break;
-                }
-                if (isset($record['output'])) {
-                    $output = $record['output'];
-                    break;
-                }
-            }
-
-            Log::info('[InterfaceReader] ssh-exec output', [
+            Log::info('[InterfaceReader] CORE SSH output', [
                 'client_ip' => $clientIp,
                 'output_length' => strlen($output),
                 'raw_output' => substr($output, 0, 500),
-                'all_records' => $runResult,
             ]);
 
-            if (empty(trim($output))) {
+            if ($output === '') {
                 return [
                     'success' => false,
-                    'message' => "El CORE se conectó pero el router cliente ({$clientIp}) no respondió vía SSH. Asegúrate que: 1) La VPN esté activa, 2) SSH esté habilitado en el router cliente, 3) Las credenciales user_rb sean correctas.",
+                    'message' => "El CORE se conecto pero el router cliente ({$clientIp}) no devolvio salida por SSH.",
                     'interfaces' => [],
                 ];
             }
 
-            $interfaces = $this->parseTerseOutput($output);
+            if ($errorMessage = $this->extractRouterCommandError($output)) {
+                return [
+                    'success' => false,
+                    'message' => $errorMessage,
+                    'interfaces' => [],
+                ];
+            }
+
+            $interfaces = $this->parseRouterOutput($output);
 
             if (empty($interfaces)) {
                 return [
                     'success' => false,
-                    'message' => 'El router respondió pero no se pudieron leer las interfaces. Respuesta del router: ' . substr($output, 0, 200),
+                    'message' => 'El router respondio pero no se pudieron leer las interfaces. Respuesta del router: ' . substr($output, 0, 200),
                     'interfaces' => [],
                 ];
             }
 
             return [
                 'success' => true,
-                'message' => 'Interfaces obtenidas via CORE → SSH al cliente',
-                'method'  => 'CORE_SSH_EXEC',
+                'message' => 'Interfaces obtenidas via CORE SSH',
+                'method' => 'CORE_SSH_EXEC',
                 'interfaces' => $interfaces,
             ];
-
         } catch (\Throwable $e) {
-            Log::error('[InterfaceReader] Error via CORE API', ['error' => $e->getMessage()]);
+            Log::error('[InterfaceReader] CORE SSH fallback failed', [
+                'error' => $e->getMessage(),
+            ]);
+
             return [
                 'success' => false,
                 'message' => 'Error interno: ' . $e->getMessage(),
@@ -240,9 +177,26 @@ class InterfaceReader
         }
     }
 
+    /**
+     * Build the command executed on CORE.
+     * We prefer RouterOS "print terse" here because ssh-exec may evaluate variables
+     * in nested scripts unexpectedly and return "no such item".
+     */
+    private function buildCoreInterfaceCommand(string $clientIp, string $clientUser, string $clientPass): string
+    {
+        $clientCommand = '/interface print terse without-paging';
+
+        return sprintf(
+            '/system ssh-exec address="%s" user="%s" password="%s" command="%s"',
+            $this->escapeRouterOsQuotedValue($clientIp),
+            $this->escapeRouterOsQuotedValue($clientUser),
+            $this->escapeRouterOsQuotedValue($clientPass),
+            $this->escapeRouterOsQuotedValue($clientCommand),
+        );
+    }
 
     /**
-     * Parse interface records from API response
+     * Parse interface records from a RouterOS API response.
      */
     private function parseInterfaceRecords(array $records): array
     {
@@ -252,62 +206,141 @@ class InterfaceReader
             $name = $record['name'] ?? '';
             $type = $record['type'] ?? 'unknown';
 
-            if ($this->shouldExcludeInterface($name, $type)) {
+            if (!$name || $this->shouldExcludeInterface($name, $type)) {
                 continue;
             }
 
-            if ($name) {
-                $interfaces[] = [
-                    'name' => $name,
-                    'type' => $type,
-                    'running' => ($record['running'] ?? 'false') === 'true',
-                    'disabled' => ($record['disabled'] ?? 'false') === 'true',
-                    'comment' => $record['comment'] ?? '',
-                ];
-            }
+            $interfaces[] = [
+                'name' => $name,
+                'type' => $type,
+                'running' => ($record['running'] ?? 'false') === 'true',
+                'disabled' => ($record['disabled'] ?? 'false') === 'true',
+                'comment' => $record['comment'] ?? '',
+            ];
         }
 
         return $interfaces;
     }
 
     /**
-     * Parse terse output format
+     * Try the structured SSH output first and then fall back to classic terse parsing.
+     */
+    private function parseRouterOutput(string $output): array
+    {
+        $interfaces = $this->parseStructuredOutput($output);
+
+        if (!empty($interfaces)) {
+            return $interfaces;
+        }
+
+        return $this->parseTerseOutput($output);
+    }
+
+    private function parseStructuredOutput(string $output): array
+    {
+        $interfaces = [];
+        $lines = preg_split('/\n+/', $output) ?: [];
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            if (
+                $line === '' ||
+                !str_contains($line, self::SSH_FIELD_DELIMITER) ||
+                !str_contains($line, 'name=')
+            ) {
+                continue;
+            }
+
+            if (!str_starts_with($line, 'name=')) {
+                $line = substr($line, strpos($line, 'name='));
+            }
+
+            $fields = [];
+
+            foreach (explode(self::SSH_FIELD_DELIMITER, $line) as $segment) {
+                $segment = trim($segment);
+
+                if (!str_contains($segment, '=')) {
+                    continue;
+                }
+
+                [$key, $value] = explode('=', $segment, 2);
+                $fields[strtolower(trim($key))] = trim($value, " \t\n\r\0\x0B\"'");
+            }
+
+            $name = $fields['name'] ?? '';
+            $type = $fields['type'] ?? $this->inferInterfaceType($name);
+
+            if (!$name || $this->shouldExcludeInterface($name, $type)) {
+                continue;
+            }
+
+            $interfaces[] = [
+                'name' => $name,
+                'type' => $type,
+                'running' => $this->toBool($fields['running'] ?? 'false'),
+                'disabled' => $this->toBool($fields['disabled'] ?? 'false'),
+                'comment' => '',
+            ];
+        }
+
+        return $interfaces;
+    }
+
+    /**
+     * Parse classic RouterOS "print terse" style output.
      */
     private function parseTerseOutput(string $output): array
     {
         $interfaces = [];
-        $lines = explode("\n", $output);
+        $lines = preg_split('/\n+/', $output) ?: [];
 
         foreach ($lines as $line) {
             $line = trim($line);
-            if (empty($line))
+
+            if (
+                $line === '' ||
+                str_starts_with($line, 'Flags:') ||
+                str_starts_with($line, '[') ||
+                str_ends_with($line, '>') ||
+                str_ends_with($line, '] >')
+            ) {
                 continue;
-
-            if (preg_match('/name="?([^"\s]+)"?/', $line, $nameMatch)) {
-                $name = $nameMatch[1];
-                $type = 'unknown';
-                if (preg_match('/type="?([^"\s]+)"?/', $line, $typeMatch)) {
-                    $type = $typeMatch[1];
-                }
-
-                if (!$this->shouldExcludeInterface($name, $type)) {
-                    $interfaces[] = [
-                        'name' => $name,
-                        'type' => $type,
-                        'running' => str_contains($line, ' R ') || preg_match('/^\d+\s+R\s/', $line),
-                        'disabled' => str_contains($line, ' X ') || preg_match('/^\d+\s+X/', $line),
-                        'comment' => '',
-                    ];
-                }
             }
+
+            $name = $this->extractTerseField($line, 'name');
+
+            if ($name === null || $name === '') {
+                continue;
+            }
+
+            $type = $this->inferInterfaceType($name);
+
+            $typeField = $this->extractTerseField($line, 'type');
+            if ($typeField !== null && $typeField !== '') {
+                $type = $typeField;
+            }
+
+            if ($this->shouldExcludeInterface($name, $type)) {
+                continue;
+            }
+
+            preg_match('/^\d+\s+([A-Z]+)/', $line, $flagMatch);
+            $flags = $flagMatch[1] ?? '';
+
+            $interfaces[] = [
+                'name' => $name,
+                'type' => $type,
+                'running' => str_contains($flags, 'R') || str_contains($line, 'running=yes') || str_contains($line, 'running=true'),
+                'disabled' => str_contains($flags, 'X') || str_contains($line, 'disabled=yes') || str_contains($line, 'disabled=true'),
+                'comment' => '',
+            ];
         }
 
         return $interfaces;
     }
 
-    /**
-     * Check if interface should be excluded
-     */
     private function shouldExcludeInterface(string $name, string $type): bool
     {
         foreach ($this->excludedTypes as $excluded) {
@@ -320,18 +353,117 @@ class InterfaceReader
             return true;
         }
 
+        return !$this->isAllowedWanType($type, $name);
+    }
+
+    private function escapeRouterOsQuotedValue(string $value): string
+    {
+        return addcslashes($value, "\\\"");
+    }
+
+    private function normalizeRouterOutput(string $output): string
+    {
+        $output = preg_replace('/\x1B\[[0-9;]*[A-Za-z]/', '', $output) ?? $output;
+        $output = str_replace("\r", '', $output);
+        $output = trim($output);
+
+        if (preg_match('/output:\s*(.*)$/si', $output, $matches)) {
+            $output = $matches[1];
+        }
+
+        $output = str_replace(["\\r\\n", "\\n", "\\r"], ["\n", "\n", "\r"], $output);
+
+        return trim($output);
+    }
+
+    private function extractRouterCommandError(string $output): ?string
+    {
+        $lines = preg_split('/\n+/', $output) ?: [];
+
+        foreach ($lines as $line) {
+            $normalized = strtolower(trim($line));
+
+            if ($normalized === '') {
+                continue;
+            }
+
+            if (
+                str_contains($normalized, 'failure:') ||
+                str_contains($normalized, 'no such item') ||
+                str_contains($normalized, 'permission denied') ||
+                str_contains($normalized, 'timed out') ||
+                str_contains($normalized, 'connection closed') ||
+                str_contains($normalized, 'bad command name') ||
+                str_contains($normalized, 'syntax error') ||
+                str_contains($normalized, 'invalid user name or password') ||
+                str_contains($normalized, 'no route to host')
+            ) {
+                return 'Error consultando interfaces desde el CORE: ' . trim($line);
+            }
+        }
+
+        return null;
+    }
+
+    private function inferInterfaceType(string $name): string
+    {
+        $normalized = strtolower($name);
+
+        return match (true) {
+            str_starts_with($normalized, 'ether') => 'ether',
+            str_starts_with($normalized, 'sfp') => 'sfp',
+            str_starts_with($normalized, 'bridge') => 'bridge',
+            str_starts_with($normalized, 'vlan') => 'vlan',
+            str_starts_with($normalized, 'wlan') => 'wlan',
+            str_starts_with($normalized, 'lte') => 'lte',
+            str_starts_with($normalized, 'bond') => 'bond',
+            default => 'unknown',
+        };
+    }
+
+    private function extractTerseField(string $line, string $field): ?string
+    {
+        $pattern = '/\b' . preg_quote($field, '/') . '=(?:"([^"]*)"|(.*?))(?=\s+[a-zA-Z0-9_-]+=|$)/';
+
+        if (!preg_match($pattern, $line, $matches)) {
+            return null;
+        }
+
+        return trim(($matches[1] ?? '') !== '' ? $matches[1] : ($matches[2] ?? ''));
+    }
+
+    private function isAllowedWanType(string $type, string $name = ''): bool
+    {
+        $normalizedType = strtolower(trim($type));
+        $normalizedName = strtolower(trim($name));
+
+        foreach (self::ALLOWED_WAN_TYPES as $allowedType) {
+            if (
+                $normalizedType === $allowedType ||
+                str_starts_with($normalizedType, $allowedType) ||
+                str_starts_with($normalizedName, $allowedType)
+            ) {
+                return true;
+            }
+        }
+
         return false;
     }
 
+    private function toBool(string $value): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
     /**
-     * Get suggested interfaces when parsing fails
+     * Kept for future fallbacks if interface discovery needs a manual suggestion set.
      */
     private function getSuggestedInterfaces(): array
     {
         return [
-            ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'WAN típico'],
+            ['name' => 'ether1', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => 'Typical WAN'],
             ['name' => 'ether2', 'type' => 'ether', 'running' => true, 'disabled' => false, 'comment' => ''],
-            ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN Bridge'],
+            ['name' => 'bridge', 'type' => 'bridge', 'running' => true, 'disabled' => false, 'comment' => 'LAN bridge'],
         ];
     }
 }

@@ -439,7 +439,17 @@ const form = ref({
   speed_down: '',
   download_unit: 'M',
   speed_up: '',
-  upload_unit: 'M'
+  upload_unit: 'M',
+  priority: 8,
+  burst_download: '',
+  burst_upload: '',
+  pppoe_pool: '',
+  local_address: '',
+  shared_users: 1,
+  session_timeout: '',
+  idle_timeout: '',
+  pcq_rate: '',
+  address_mask: '32',
 })
 
 const toast = ref(null)
@@ -477,7 +487,17 @@ const payload = {
   speed_up: `${form.value.speed_up}${form.value.upload_unit}`,
   type: planType.value,
   type_plan_id: typePlanMap[planType.value],
-  tenant_id: userData.tenant_id
+  tenant_id: userData.tenant_id,
+  priority: form.value.priority ? parseInt(form.value.priority) : null,
+  burst_download: form.value.burst_download || null,
+  burst_upload: form.value.burst_upload || null,
+  pppoe_pool: form.value.pppoe_pool || null,
+  local_address: form.value.local_address || null,
+  shared_users: form.value.shared_users ? parseInt(form.value.shared_users) : null,
+  session_timeout: form.value.session_timeout || null,
+  idle_timeout: form.value.idle_timeout || null,
+  pcq_rate: form.value.pcq_rate || null,
+  address_mask: form.value.address_mask || null,
 }
 
     await api.plan.create(payload)
