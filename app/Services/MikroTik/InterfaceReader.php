@@ -36,6 +36,13 @@ class InterfaceReader
 
     /**
      * Get interfaces from a client router.
+     *
+     * Tries, in order:
+     *   1. Direct API on the configured DB port (router.puerto_api).
+     *   2. Direct API on the factory default port (8728) — only if it differs from the configured one.
+     *   3. SSH via CORE (ssh-exec) as last resort.
+     *
+     * Returns a `attempts` array so the UI can show what was tried and why each step failed.
      */
     public function getRouterInterfaces(
         string $clientIp,
@@ -43,22 +50,61 @@ class InterfaceReader
         string $clientPass,
         int $clientPort = 8728
     ): array {
+        $attempts = [];
+
         try {
             Log::info('[InterfaceReader] Getting interfaces', [
                 'client_ip' => $clientIp,
+                'configured_port' => $clientPort,
             ]);
 
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
+            // ── Attempt 1: API on the configured DB port ─────────────────────────
+            $apiResult = $this->tryDirectApi($clientIp, $clientUser, $clientPass, $clientPort);
+            $attempts[] = [
+                'method' => 'API directa',
+                'port' => $clientPort,
+                'success' => $apiResult['success'],
+                'message' => $apiResult['message'],
+            ];
+            if ($apiResult['success']) {
+                $apiResult['attempts'] = $attempts;
+                return $apiResult;
+            }
 
-                if ($socket) {
-                    Log::info('[InterfaceReader] Direct API connection available');
-                    return $this->getInterfacesDirectApi($socket, $clientUser, $clientPass);
+            // ── Attempt 2: API on the factory default 8728, if different ─────────
+            if ($clientPort !== 8728) {
+                $apiResult2 = $this->tryDirectApi($clientIp, $clientUser, $clientPass, 8728);
+                $attempts[] = [
+                    'method' => 'API directa (puerto de fábrica)',
+                    'port' => 8728,
+                    'success' => $apiResult2['success'],
+                    'message' => $apiResult2['message'],
+                ];
+                if ($apiResult2['success']) {
+                    $apiResult2['attempts'] = $attempts;
+                    return $apiResult2;
                 }
             }
 
+            // ── Attempt 3: SSH via CORE as last resort ───────────────────────────
             Log::info('[InterfaceReader] Direct API unavailable, using CORE SSH fallback');
-            return $this->getInterfacesViaCoreSsh($clientIp, $clientUser, $clientPass);
+            $sshResult = $this->getInterfacesViaCoreSsh($clientIp, $clientUser, $clientPass);
+            $attempts[] = [
+                'method' => 'SSH vía CORE',
+                'port' => null,
+                'success' => $sshResult['success'],
+                'message' => $sshResult['message'],
+            ];
+
+            $sshResult['attempts'] = $attempts;
+
+            if (!$sshResult['success']) {
+                // Build a clear consolidated error for the UI
+                $sshResult['message'] = $this->buildConsolidatedError($attempts);
+                $sshResult['hint'] = $sshResult['hint'] ?? 'Verifica que el router cliente tenga el servicio API activo (puerto 8728 por defecto) y/o que el CORE pueda hacer SSH al cliente.';
+            }
+
+            return $sshResult;
         } catch (\Throwable $e) {
             Log::error('[InterfaceReader] Error getting interfaces', [
                 'error' => $e->getMessage(),
@@ -67,9 +113,55 @@ class InterfaceReader
             return [
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage(),
+                'attempts' => $attempts,
                 'interfaces' => [],
             ];
         }
+    }
+
+    /**
+     * Attempt a direct API connection on a specific port and read interfaces.
+     */
+    private function tryDirectApi(string $clientIp, string $clientUser, string $clientPass, int $port): array
+    {
+        if (!$this->connectionManager->tryDirectClientConnection($clientIp, $port)) {
+            return [
+                'success' => false,
+                'message' => "Puerto {$port} no responde (TCP) desde el servidor.",
+                'interfaces' => [],
+            ];
+        }
+
+        $socket = $this->apiProtocol->connect($clientIp, $port, 5);
+        if (!$socket) {
+            return [
+                'success' => false,
+                'message' => "TCP abierto en puerto {$port} pero la API MikroTik no respondió.",
+                'interfaces' => [],
+            ];
+        }
+
+        Log::info('[InterfaceReader] Direct API connection available', ['port' => $port]);
+        $result = $this->getInterfacesDirectApi($socket, $clientUser, $clientPass);
+
+        if ($result['success']) {
+            $result['port_used'] = $port;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Build a single error message summarising every attempt and its failure reason.
+     */
+    private function buildConsolidatedError(array $attempts): string
+    {
+        $lines = ['No se pudo obtener las interfaces. Se intentaron los siguientes métodos:'];
+        foreach ($attempts as $i => $a) {
+            $portLabel = $a['port'] ? " (puerto {$a['port']})" : '';
+            $lines[] = ($i + 1) . ". {$a['method']}{$portLabel}: {$a['message']}";
+        }
+        return implode("\n", $lines);
     }
 
     /**

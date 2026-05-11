@@ -150,16 +150,19 @@ class RouterController extends Controller
         // If successful, attach current WAN
         if ($result['success'] && !empty($result['interfaces'])) {
             $result['current_wan'] = $router->wan_interface;
+            $result['configured_port'] = $router->puerto_api ?? 8728;
             return response()->json($result);
         }
 
         // Return the real error message — no hardcoded fallback
         return response()->json([
-            'success'    => false,
-            'message'    => $result['message'] ?? 'No se pudo obtener interfaces del router.',
-            'interfaces' => [],
-            'current_wan' => $router->wan_interface,
-            'hint'       => 'Para configurar la WAN manualmente, ingresa el nombre de la interfaz en el campo de texto.',
+            'success'        => false,
+            'message'        => $result['message'] ?? 'No se pudo obtener interfaces del router.',
+            'attempts'       => $result['attempts'] ?? [],
+            'interfaces'     => [],
+            'current_wan'    => $router->wan_interface,
+            'configured_port' => $router->puerto_api ?? 8728,
+            'hint'           => $result['hint'] ?? 'Para configurar la WAN manualmente, ingresa el nombre de la interfaz en el campo de texto.',
         ]);
     }
 
