@@ -84,7 +84,6 @@ class UserController extends Controller
 
         $data['password'] = Hash::make($data['password']);
         $data['status'] = true;
-        $data['email_verified_at'] = now();
         $data['created_at'] = now();
 
         try {
@@ -97,6 +96,9 @@ class UserController extends Controller
                 throw $e;
             }
         }
+
+        // Staff created internally is pre-verified — no email confirmation required.
+        $user->markEmailAsVerified();
 
         return response()->json([
             'success' => true,
