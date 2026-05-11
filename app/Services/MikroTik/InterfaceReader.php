@@ -70,6 +70,13 @@ class InterfaceReader
                 $apiResult['attempts'] = $attempts;
                 return $apiResult;
             }
+            // If the API authenticated and ran /interface/print (raw_count is set), we already
+            // have the router's definitive answer — falling back to SSH would only hide the real
+            // diagnostic (trap message or filter exclusion details).
+            if (array_key_exists('raw_count', $apiResult)) {
+                $apiResult['attempts'] = $attempts;
+                return $apiResult;
+            }
 
             // ── Attempt 2: API on the factory default 8728, if different ─────────
             if ($clientPort !== 8728) {
@@ -81,6 +88,10 @@ class InterfaceReader
                     'message' => $apiResult2['message'],
                 ];
                 if ($apiResult2['success']) {
+                    $apiResult2['attempts'] = $attempts;
+                    return $apiResult2;
+                }
+                if (array_key_exists('raw_count', $apiResult2)) {
                     $apiResult2['attempts'] = $attempts;
                     return $apiResult2;
                 }
@@ -180,15 +191,79 @@ class InterfaceReader
                 ];
             }
 
-            $this->apiProtocol->sendCommand($socket, '/interface/print');
-            $records = $this->apiProtocol->readAllRecords($socket);
+            // Use /interface/ethernet/print instead of /interface/print to target only physical
+            // ports. A busy PPPoE/SSTP CORE can have 200+ dynamic tunnel entries; the generic
+            // print command buries the ether/sfp ports past the maxWords safety limit.
+            $this->apiProtocol->sendCommand($socket, '/interface/ethernet/print');
+            $status = $this->apiProtocol->readAllRecordsWithStatus($socket);
             $this->apiProtocol->close($socket);
+
+            $records = $status['records'] ?? [];
+            $trap = $status['trap'] ?? null;
+            $connectionClosed = $status['connection_closed'] ?? false;
+            $rawCount = count($records);
+
+            // Router dropped the connection mid-read. This is NOT "0 records" — it's a transport
+            // failure. The most common cause is an "Available From" ACL on /ip service api that
+            // doesn't include the server's source IP: TCP completes, login appears fine, but the
+            // service layer kills the session as soon as the real query starts.
+            if ($connectionClosed) {
+                return [
+                    'success' => false,
+                    'message' => 'El router cerró la conexión durante la consulta /interface/ethernet/print (sin enviar !done ni !trap).',
+                    'hint' => 'Causa típica: la IP de origen del servidor no está en "Available From" de /ip service api en el router. Verifica que la IP del servidor de producción esté incluida en el ACL del servicio API.',
+                    'interfaces' => [],
+                    'raw_count' => 0,
+                    'connection_closed' => true,
+                ];
+            }
+
+            // API rejected the command — almost always a missing "read" policy on the API user.
+            if ($trap !== null) {
+                return [
+                    'success' => false,
+                    'message' => "El router respondió con error a /interface/ethernet/print: {$trap}.",
+                    'hint' => 'Suele significar que el usuario API no tiene la policy "read" sobre /interface. Verifica en el router /user group del grupo asignado al usuario API.',
+                    'interfaces' => [],
+                    'raw_count' => $rawCount,
+                ];
+            }
+
+            $interfaces = $this->parseInterfaceRecords($records);
+            $filteredOutCount = $rawCount - count($interfaces);
+
+            // API connected, returned data, but every single record was filtered out.
+            if ($rawCount > 0 && empty($interfaces)) {
+                return [
+                    'success' => false,
+                    'message' => "El router devolvió {$rawCount} interfaces ethernet, pero todas fueron excluidas por el filtro (VLANs, bridges, etc.).",
+                    'hint' => 'Si tu WAN es un túnel (pppoe, sstp, l2tp) o un bridge, no aparecerá en la lista — el filtro sólo acepta puertos físicos. Ingresa el nombre manualmente abajo.',
+                    'interfaces' => [],
+                    'raw_count' => $rawCount,
+                    'filtered_out' => $filteredOutCount,
+                ];
+            }
+
+            // API connected, command executed cleanly, but the table really is empty.
+            if ($rawCount === 0) {
+                return [
+                    'success' => false,
+                    'message' => 'El router respondió !done pero /interface/ethernet/print devolvió 0 registros.',
+                    'hint' => 'Esto es raro — revisa que el usuario API tenga visibilidad sobre /interface/ethernet, o que no haya una restricción inusual en /user group.',
+                    'interfaces' => [],
+                    'raw_count' => 0,
+                ];
+            }
+
+            $message = "Interfaces loaded via direct API ({$rawCount} ethernet, " . count($interfaces) . ' disponibles)';
 
             return [
                 'success' => true,
-                'message' => 'Interfaces loaded via direct API',
+                'message' => $message,
                 'method' => 'DIRECT_API',
-                'interfaces' => $this->parseInterfaceRecords($records),
+                'interfaces' => $interfaces,
+                'raw_count' => $rawCount,
+                'filtered_out' => $filteredOutCount,
             ];
         } catch (\Throwable $e) {
             @$this->apiProtocol->close($socket);

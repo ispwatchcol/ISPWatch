@@ -41,8 +41,14 @@ class MikroTikApiProtocol
     }
 
     /**
-     * Authenticate with the router via API
-     * 
+     * Authenticate with the router via API.
+     *
+     * IMPORTANT: this method only returns true when an explicit !done reply was
+     * received. Just hitting "no !trap" is NOT enough — a closed/timed-out
+     * socket also yields zero !trap words, and silently treating that as
+     * success has burned us before (subsequent reads return [] and the UI ends
+     * up showing "0 records" instead of an auth failure).
+     *
      * @param resource $socket Active socket connection
      * @param string $user Username
      * @param string $pass Password
@@ -55,24 +61,50 @@ class MikroTikApiProtocol
             '=password=' . $pass,
         ]);
 
-        $response = [];
         $challenge = null;
+        $sawDone = false;
+        $sawTrap = false;
+        $trapMessage = null;
 
         while (true) {
             $word = $this->readWord($socket);
-            if ($word === '')
+            if ($word === '') {
+                if ($this->isSocketClosed($socket)) {
+                    Log::error('[MikroTikApiProtocol] Login: socket closed by router before reply', [
+                        'user' => $user,
+                    ]);
+                    return false;
+                }
+                // Empty word == sentence terminator. End of this login reply.
                 break;
+            }
 
-            $response[] = $word;
+            if ($word === '!done') {
+                $sawDone = true;
+                continue;
+            }
+
+            if ($word === '!trap') {
+                $sawTrap = true;
+                continue;
+            }
+
+            if ($sawTrap && str_starts_with($word, '=message=')) {
+                $trapMessage = substr($word, 9);
+                continue;
+            }
 
             if (str_starts_with($word, '=ret=')) {
                 $challenge = substr($word, 5);
             }
+        }
 
-            if ($word === '!trap') {
-                Log::error('[MikroTikApiProtocol] Login trap received');
-                return false;
-            }
+        if ($sawTrap) {
+            Log::error('[MikroTikApiProtocol] Login rejected by router', [
+                'user' => $user,
+                'message' => $trapMessage,
+            ]);
+            return false;
         }
 
         // Handle MD5 challenge-response authentication (RouterOS < 6.43)
@@ -85,16 +117,64 @@ class MikroTikApiProtocol
                 '=response=00' . $hash,
             ]);
 
+            $sawDone = false;
+            $sawTrap = false;
+            $trapMessage = null;
+
             while (true) {
                 $word = $this->readWord($socket);
-                if ($word === '')
+                if ($word === '') {
+                    if ($this->isSocketClosed($socket)) {
+                        Log::error('[MikroTikApiProtocol] Login challenge: socket closed before reply');
+                        return false;
+                    }
                     break;
-                if ($word === '!trap')
-                    return false;
+                }
+                if ($word === '!done') {
+                    $sawDone = true;
+                    continue;
+                }
+                if ($word === '!trap') {
+                    $sawTrap = true;
+                    continue;
+                }
+                if ($sawTrap && str_starts_with($word, '=message=')) {
+                    $trapMessage = substr($word, 9);
+                }
+            }
+
+            if ($sawTrap) {
+                Log::error('[MikroTikApiProtocol] Login challenge rejected', [
+                    'user' => $user,
+                    'message' => $trapMessage,
+                ]);
+                return false;
             }
         }
 
+        // Require an explicit !done before declaring success. If neither !done
+        // nor a challenge was seen, the router answered something we don't
+        // understand (or, more commonly, closed the socket without speaking).
+        if (!$sawDone && !$challenge) {
+            Log::error('[MikroTikApiProtocol] Login: no !done received and no challenge — treating as failure', [
+                'user' => $user,
+            ]);
+            return false;
+        }
+
         return true;
+    }
+
+    /**
+     * Cheap "is the socket still alive" check that doesn't consume bytes.
+     */
+    private function isSocketClosed($socket): bool
+    {
+        if (!is_resource($socket)) {
+            return true;
+        }
+        $meta = @stream_get_meta_data($socket);
+        return !empty($meta['eof']) || feof($socket);
     }
 
     /**
@@ -166,6 +246,124 @@ class MikroTikApiProtocol
         ]);
 
         return $records;
+    }
+
+    /**
+     * Read all records from an API response and capture trap status.
+     *
+     * Unlike readAllRecords(), this method keeps reading after a !trap to
+     * collect the =message= word and only stops at !done. Useful when the
+     * caller needs to distinguish "0 results" from "router rejected the
+     * command" (e.g. missing API policy).
+     *
+     * @param resource $socket Active socket connection
+     * @param int $maxWords Safety limit on words read
+     * @return array{records: array, trap: ?string} Records and trap message (if any)
+     */
+    public function readAllRecordsWithStatus($socket, int $maxWords = 2000): array
+    {
+        $records = [];
+        $current = [];
+        $wordCount = 0;
+        $trapMessage = null;
+        $gotTrap = false;
+        $gotDone = false;
+        $consecutiveEmpty = 0;
+        $closed = false;
+
+        while ($wordCount < $maxWords) {
+            $word = $this->readWord($socket);
+            $wordCount++;
+
+            if ($word === '!re') {
+                if (!empty($current)) {
+                    $records[] = $current;
+                }
+                $current = [];
+                $consecutiveEmpty = 0;
+                continue;
+            }
+
+            if ($word === '!trap') {
+                if (!empty($current)) {
+                    $records[] = $current;
+                }
+                $current = [];
+                $gotTrap = true;
+                $consecutiveEmpty = 0;
+                continue;
+            }
+
+            if ($word === '!done') {
+                if (!empty($current)) {
+                    $records[] = $current;
+                }
+                $gotDone = true;
+                $consecutiveEmpty = 0;
+                // Consume the final sentence terminator and stop.
+                break;
+            }
+
+            if ($word === '') {
+                $consecutiveEmpty++;
+                // If the socket is closed (eof / feof), bail out — reading
+                // forever from a dead socket would mask the failure as "0
+                // records, no trap", which is what burned us before.
+                if ($this->isSocketClosed($socket)) {
+                    $closed = true;
+                    break;
+                }
+                // Two empty words in a row, when no !done was seen, means the
+                // router isn't sending more data — almost always a half-closed
+                // socket. Stop early to avoid spinning until maxWords.
+                if ($consecutiveEmpty >= 2 && !$gotDone) {
+                    $closed = true;
+                    break;
+                }
+                if ($gotTrap) {
+                    break;
+                }
+                continue;
+            }
+
+            $consecutiveEmpty = 0;
+
+            if ($gotTrap && str_starts_with($word, '=message=')) {
+                $trapMessage = substr($word, 9);
+                continue;
+            }
+
+            if (str_starts_with($word, '=')) {
+                $parts = explode('=', substr($word, 1), 2);
+                if (count($parts) === 2) {
+                    $current[$parts[0]] = $parts[1];
+                }
+            }
+        }
+
+        Log::debug('[MikroTikApiProtocol] readAllRecordsWithStatus completed', [
+            'records_count' => count($records),
+            'trap' => $trapMessage,
+            'closed_early' => $closed,
+            'got_done' => $gotDone,
+            'word_count' => $wordCount,
+        ]);
+
+        // Closed socket without !done = the router dropped us mid-response.
+        // Surface that distinctly so callers don't confuse it with "0 results".
+        if ($closed && !$gotDone && !$gotTrap) {
+            return [
+                'records' => $records,
+                'trap' => null,
+                'connection_closed' => true,
+            ];
+        }
+
+        return [
+            'records' => $records,
+            'trap' => $gotTrap ? ($trapMessage ?? 'unknown error') : null,
+            'connection_closed' => false,
+        ];
     }
 
     /**
