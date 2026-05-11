@@ -626,6 +626,50 @@ onMounted(async () => {
 })
 
 /* ============================
+        FORMULARIO
+============================ */
+const form = reactive({
+  nombre: "",
+  ip: "",
+  coordenadas: "",
+  version: null,
+  usuario: "",
+  password: "",
+  puerto_api: 8728,
+  puerto_www: 80,
+  interfaz_lan: "",
+  rangos_ip: "",
+  tipo_corte: null,
+  agregar_cliente_mkt: false,
+  historial_trafico: false,
+  simple_queue: false,
+  control_pcq: false,
+  hotspot: false,
+  pppoe: false,
+  ip_bindings: false,
+  amarre: false,
+  dhcp_leases: false,
+  falla_general: false,
+  comentarios_router: "",
+  activo: true,
+
+  facturacion_activa: false,
+  billing: {
+    create_invoice: null,
+    payment_day: null,
+    cut_day: null,
+    overdue_invoices: "",
+    amount: null,
+    comentarios: "",
+    metodo: "",
+    notificar_wpp: false,
+    remember_day: null,
+    pay_day: null,
+    notification_type: 'email',
+  }
+})
+
+/* ============================
    IP RANGE ANALYZER
 ============================ */
 const usedIps = ref([])
@@ -724,50 +768,6 @@ watch(() => form.rangos_ip, (val) => {
   clearTimeout(ipDebounce)
   if (val && val.includes('/')) {
     ipDebounce = setTimeout(loadUsedIps, 500)
-  }
-})
-
-/* ============================
-        FORMULARIO
-============================ */
-const form = reactive({
-  nombre: "",
-  ip: "",
-  coordenadas: "",
-  version: null,
-  usuario: "",
-  password: "",
-  puerto_api: 8728,
-  puerto_www: 80,
-  interfaz_lan: "",
-  rangos_ip: "",
-  tipo_corte: null,
-  agregar_cliente_mkt: false,
-  historial_trafico: false,
-  simple_queue: false,
-  control_pcq: false,
-  hotspot: false,
-  pppoe: false,
-  ip_bindings: false,
-  amarre: false,
-  dhcp_leases: false,
-  falla_general: false,
-  comentarios_router: "",
-  activo: true,
-
-  facturacion_activa: false,
-  billing: {
-    create_invoice: null,
-    payment_day: null,
-    cut_day: null,
-    overdue_invoices: "",
-    amount: null,
-    comentarios: "",
-    metodo: "",
-    notificar_wpp: false,
-    remember_day: null,
-    pay_day: null,
-    notification_type: 'email',
   }
 })
 
