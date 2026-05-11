@@ -51,7 +51,8 @@ class CustomerProfileController extends Controller
                 'service_plan.name as service_name',
                 'sectorial.name as sectorial_name',
                 'router.name as router_name',
-                'router.pppoe as router_pppoe'
+                'router.pppoe as router_pppoe',
+                'router.falla_general as router_falla_general'
             )
             ->get();
 
@@ -249,14 +250,18 @@ class CustomerProfileController extends Controller
             $router      = null;
             $servicePlan = null;
 
-            // Auto-provision Simple Queue if router has simple_queue enabled
+            // Auto-provision Simple Queue if router has simple_queue + agregar_cliente_mkt enabled
             $queueResult = null;
             if (!empty($data['router_id']) && !empty($data['service_id']) && !empty($data['ip_user'])) {
                 try {
                     $router      = Router::find($data['router_id']);
                     $servicePlan = Plan::find($data['service_id']);
 
-                    if ($router && $servicePlan && $router->simple_queue) {
+                    if ($router && !$router->agregar_cliente_mkt) {
+                        \Log::info('[CustomerProfile] Skip auto-provision: agregar_cliente_mkt disabled on router', [
+                            'router_id' => $router->id,
+                        ]);
+                    } elseif ($router && $servicePlan && $router->simple_queue) {
                         \Log::info('[CustomerProfile] Auto-provisioning Simple Queue', [
                             'customer_id' => $customer->user_id,
                             'router_id'   => $router->id,
@@ -288,12 +293,16 @@ class CustomerProfileController extends Controller
                 }
             }
 
-            // Create PPPoE secret on the assigned router if requested
+            // Create PPPoE secret on the assigned router if requested and the router opts-in
             $pppoeResult = null;
             if (!empty($data['create_pppoe_secret']) && !empty($data['pppoe_username']) && !empty($data['pppoe_password']) && !empty($data['router_id'])) {
                 try {
                     $router = $router ?? Router::find($data['router_id']);
-                    if ($router && $router->pppoe) {
+                    if ($router && !$router->agregar_cliente_mkt) {
+                        \Log::info('[CustomerProfile] Skip PPPoE secret: agregar_cliente_mkt disabled on router', [
+                            'router_id' => $router->id,
+                        ]);
+                    } elseif ($router && $router->pppoe) {
                         $servicePlan = $servicePlan ?? Plan::find($data['service_id']);
                         $profile     = $servicePlan ? $servicePlan->name : 'default';
 

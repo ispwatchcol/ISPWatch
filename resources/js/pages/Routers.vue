@@ -104,7 +104,19 @@
                 :key="router.id"
                 class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all"
               >
-                <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">{{ router.name }}</td>
+                <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">
+                  <div class="flex items-center gap-2">
+                    <span>{{ router.name }}</span>
+                    <span
+                      v-if="router.falla_general"
+                      title="Router marcado en falla general"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                    >
+                      <icon-lucide-alert-triangle class="w-3 h-3" />
+                      Falla general
+                    </span>
+                  </div>
+                </td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.ip }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.user_rb }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.lan_interface || '—' }}</td>
@@ -230,9 +242,34 @@
             <div v-else-if="interfacesError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
               <div class="flex items-start gap-3">
                 <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                <div>
+                <div class="flex-1 min-w-0">
                   <h4 class="font-medium text-red-800 dark:text-red-300">Error al obtener interfaces</h4>
-                  <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ interfacesError }}</p>
+                  <p class="text-sm text-red-600 dark:text-red-400 mt-1 whitespace-pre-line">{{ interfacesError }}</p>
+
+                  <!-- Per-attempt diagnostic table -->
+                  <div v-if="interfaceAttempts && interfaceAttempts.length" class="mt-3 space-y-1.5">
+                    <p class="text-xs font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Métodos intentados</p>
+                    <ul class="text-xs space-y-1">
+                      <li
+                        v-for="(att, i) in interfaceAttempts"
+                        :key="i"
+                        class="flex items-start gap-2 bg-white/50 dark:bg-gray-900/30 rounded px-2 py-1.5 border border-red-100 dark:border-red-900/40"
+                      >
+                        <span :class="att.success ? 'text-green-600' : 'text-red-500'" class="font-bold mt-0.5">
+                          {{ att.success ? '✓' : '✗' }}
+                        </span>
+                        <span class="flex-1">
+                          <span class="font-medium text-gray-800 dark:text-gray-200">{{ att.method }}</span>
+                          <span v-if="att.port" class="text-gray-500 dark:text-gray-400"> · puerto {{ att.port }}</span>
+                          <span class="block text-gray-600 dark:text-gray-400 mt-0.5">{{ att.message }}</span>
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <p v-if="interfacesHint" class="text-xs text-red-500 dark:text-red-400/80 mt-3 italic">
+                    💡 {{ interfacesHint }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -822,6 +859,8 @@ const selectedWan = ref(null)
 const currentWan = ref(null)
 const loadingInterfaces = ref(false)
 const interfacesError = ref(null)
+const interfacesHint = ref(null)
+const interfaceAttempts = ref([])
 const savingWan = ref(false)
 
 // Estados del modal Reglas de Bloqueo
@@ -1102,6 +1141,8 @@ const openWanModal = async (routerData) => {
   selectedWan.value = null
   currentWan.value = null
   interfacesError.value = null
+  interfacesHint.value = null
+  interfaceAttempts.value = []
   loadingInterfaces.value = true
 
   try {
@@ -1116,10 +1157,14 @@ const openWanModal = async (routerData) => {
       }
     } else {
       interfacesError.value = data.message || 'Error al obtener interfaces'
+      interfacesHint.value = data.hint || null
+      interfaceAttempts.value = data.attempts || []
     }
   } catch (error) {
     console.error('Error al cargar interfaces:', error)
     interfacesError.value = error.response?.data?.message || 'Error de conexión al obtener interfaces'
+    interfacesHint.value = error.response?.data?.hint || null
+    interfaceAttempts.value = error.response?.data?.attempts || []
   } finally {
     loadingInterfaces.value = false
   }
@@ -1133,6 +1178,8 @@ const closeWanModal = () => {
   selectedWan.value = null
   currentWan.value = null
   interfacesError.value = null
+  interfacesHint.value = null
+  interfaceAttempts.value = []
 }
 
 // Guardar interfaz WAN seleccionada
