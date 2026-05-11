@@ -14,14 +14,14 @@ class RoutersSheet implements FromCollection, WithHeadings, WithTitle
 
     public function headings(): array
     {
-        return ['nombre', 'ip', 'puerto', 'usuario', 'password', 'tipo_corte', 'wan_interface'];
+        return ['nombre', 'ip', 'puerto', 'usuario', 'password', 'tipo_corte', 'wan_interface', 'pppoe'];
     }
 
     public function collection()
     {
         return collect([
-            ['Torre Centro', '192.168.1.1', '8728', 'admin', 'pass123', 'Corte Automático', 'ether1'],
-            ['Torre Norte', '192.168.1.2', '8728', 'admin', 'pass456', 'Corte Manual', 'ether1'],
+            ['Torre Centro', '192.168.1.1', '8728', 'admin', 'pass123', 'Corte Automático', 'ether1', 'Sí'],
+            ['Torre Norte', '192.168.1.2', '8728', 'admin', 'pass456', 'Corte Manual', 'ether1', 'No'],
         ]);
     }
 }

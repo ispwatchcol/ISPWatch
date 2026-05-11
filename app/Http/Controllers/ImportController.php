@@ -56,6 +56,7 @@ class ImportController extends Controller
                 ['field' => 'usuario', 'required' => true, 'description' => 'Usuario de acceso RouterOS', 'example' => 'admin'],
                 ['field' => 'password', 'required' => true, 'description' => 'Contraseña de acceso', 'example' => 'password123'],
                 ['field' => 'tipo_corte', 'required' => true, 'description' => 'Corte Automático, Corte Manual o Sin Corte', 'example' => 'Corte Automático'],
+                ['field' => 'pppoe', 'required' => false, 'description' => '¿El core es PPPoE? Sí/No (también acepta 1/0, true/false)', 'example' => 'Sí'],
                 ['field' => 'puerto', 'required' => false, 'description' => 'Puerto API MikroTik (default: 8728)', 'example' => '8728'],
                 ['field' => 'wan_interface', 'required' => false, 'description' => 'Interfaz WAN (default: ether1)', 'example' => 'ether1'],
             ],
@@ -73,7 +74,7 @@ class ImportController extends Controller
             'Planes' => [
                 ['field' => 'nombre', 'required' => true, 'description' => 'Nombre del plan', 'example' => 'Internet 10MB'],
                 ['field' => 'costo', 'required' => true, 'description' => 'Precio mensual', 'example' => '25000'],
-                ['field' => 'tipo_plan', 'required' => true, 'description' => 'Código: queue, pppoe, hotspot o pcq', 'example' => 'pppoe'],
+                ['field' => 'tipo_plan', 'required' => true, 'description' => 'Tipo de plan. Valores válidos: pppoe, queue, hotspot, pcq', 'example' => 'pppoe'],
                 ['field' => 'speed_down', 'required' => true, 'description' => 'Velocidad de descarga (10M, 100M)', 'example' => '10M'],
                 ['field' => 'speed_up', 'required' => true, 'description' => 'Velocidad de subida (5M, 50M)', 'example' => '5M'],
                 ['field' => 'descripcion', 'required' => false, 'description' => 'Descripción adicional (referencia)', 'example' => 'Plan básico'],

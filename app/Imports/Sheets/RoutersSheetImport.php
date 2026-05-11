@@ -24,6 +24,14 @@ class RoutersSheetImport implements OnEachRow, WithHeadingRow, WithTitle
         return 'Routers';
     }
 
+    private function parseBool($value): bool
+    {
+        if (is_bool($value)) return $value;
+        if (is_numeric($value)) return (int)$value === 1;
+        $normalized = strtolower(trim((string)$value));
+        return in_array($normalized, ['sí', 'si', 'yes', 'true', '1', 'x'], true);
+    }
+
     public function onRow(Row $row)
     {
         $rowNumber = $row->getIndex();
@@ -90,6 +98,7 @@ class RoutersSheetImport implements OnEachRow, WithHeadingRow, WithTitle
                 'password_rb' => $data['password'],
                 'cut_type_id' => $cutType->id,
                 'wan_interface' => $data['wan_interface'] ?? 'ether1',
+                'pppoe' => $this->parseBool($data['pppoe'] ?? null),
                 'tenant_id' => $this->tenantId,
                 'firmware_version' => 'unknown',
                 'status' => 'active',
