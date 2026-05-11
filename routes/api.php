@@ -57,6 +57,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
 
     // ─── ROUTER MANAGEMENT ───
+    Route::get('/routers/{router}/free-ips', [RouterController::class, 'getFreeIps']);
     Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
     Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
     Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);

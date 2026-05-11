@@ -262,10 +262,11 @@ class PppSecretManager
                 // Create new
                 Log::info('[PppSecretManager] Creando nuevo secret', ['username' => $username]);
                 $this->apiProtocol->sendCommand($socket, '/ppp/secret/add', [
-                    '=name=' . $username,
+                    '=name='     . $username,
                     '=password=' . $password,
-                    '=service=' . $service,
-                    '=comment=' . $comment,
+                    '=service='  . $service,
+                    '=profile='  . $profile,
+                    '=comment='  . $comment,
                 ]);
                 $apiError = $this->apiProtocol->readUntilDoneWithError($socket);
                 $action = 'created';
@@ -403,5 +404,122 @@ class PppSecretManager
     public function createPppSecret(string $username, string $password): array
     {
         return $this->ensurePppSecret($username, $password);
+    }
+
+    // ==================== IP POOL MANAGEMENT (CORE) ====================
+
+    /**
+     * Ensure an IP pool exists on the CORE. Creates it if missing.
+     */
+    public function ensureIpPool(string $poolName, string $ranges): array
+    {
+        try {
+            $socket = $this->apiProtocol->connect(
+                $this->connectionManager->getApiHost(),
+                $this->connectionManager->getApiPort(),
+                10
+            );
+            if (!$socket) {
+                return ['success' => false, 'message' => 'API connection failed'];
+            }
+
+            if (!$this->apiProtocol->login(
+                $socket,
+                $this->connectionManager->getApiUser(),
+                $this->connectionManager->getApiPass()
+            )) {
+                $this->apiProtocol->close($socket);
+                return ['success' => false, 'message' => 'API authentication failed'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ip/pool/print', ['?name=' . $poolName]);
+            $existing = $this->apiProtocol->readAllRecords($socket);
+
+            if (!empty($existing)) {
+                $this->apiProtocol->close($socket);
+                Log::debug('[PppSecretManager] IP pool ya existe', ['pool' => $poolName]);
+                return ['success' => true, 'action' => 'exists'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ip/pool/add', [
+                '=name='   . $poolName,
+                '=ranges=' . $ranges,
+            ]);
+            $error = $this->apiProtocol->readUntilDoneWithError($socket);
+            $this->apiProtocol->close($socket);
+
+            if ($error) {
+                return ['success' => false, 'message' => "API error: $error"];
+            }
+
+            Log::info('[PppSecretManager] IP pool creado en CORE', ['pool' => $poolName, 'ranges' => $ranges]);
+            return ['success' => true, 'action' => 'created'];
+
+        } catch (\Throwable $e) {
+            Log::error('[PppSecretManager] Error creando IP pool', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    // ==================== PPP PROFILE MANAGEMENT (CORE) ====================
+
+    /**
+     * Ensure a PPP profile for tenant VPN exists on the CORE. Creates it if missing.
+     */
+    public function ensurePppProfile(string $profileName, string $localAddress, string $remotePool): array
+    {
+        try {
+            $socket = $this->apiProtocol->connect(
+                $this->connectionManager->getApiHost(),
+                $this->connectionManager->getApiPort(),
+                10
+            );
+            if (!$socket) {
+                return ['success' => false, 'message' => 'API connection failed'];
+            }
+
+            if (!$this->apiProtocol->login(
+                $socket,
+                $this->connectionManager->getApiUser(),
+                $this->connectionManager->getApiPass()
+            )) {
+                $this->apiProtocol->close($socket);
+                return ['success' => false, 'message' => 'API authentication failed'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ppp/profile/print', ['?name=' . $profileName]);
+            $existing = $this->apiProtocol->readAllRecords($socket);
+
+            if (!empty($existing)) {
+                $this->apiProtocol->close($socket);
+                Log::debug('[PppSecretManager] Perfil PPP ya existe', ['profile' => $profileName]);
+                return ['success' => true, 'action' => 'exists'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ppp/profile/add', [
+                '=name='           . $profileName,
+                '=local-address='  . $localAddress,
+                '=remote-address=' . $remotePool,
+                '=use-encryption=yes',
+                '=change-tcp-mss=yes',
+            ]);
+            $error = $this->apiProtocol->readUntilDoneWithError($socket);
+            $this->apiProtocol->close($socket);
+
+            if ($error) {
+                return ['success' => false, 'message' => "API error: $error"];
+            }
+
+            Log::info('[PppSecretManager] Perfil PPP creado en CORE', [
+                'profile'      => $profileName,
+                'localAddress' => $localAddress,
+                'remotePool'   => $remotePool,
+            ]);
+            return ['success' => true, 'action' => 'created'];
+
+        } catch (\Throwable $e) {
+            Log::error('[PppSecretManager] Error creando perfil PPP', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
     }
 }

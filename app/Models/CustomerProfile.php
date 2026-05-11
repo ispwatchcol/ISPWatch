@@ -15,6 +15,7 @@ class CustomerProfile extends Model
         'user_id',
         'name',
         'last_name',
+        'cedula',
         'department',
         'position',
         'address',
@@ -28,6 +29,8 @@ class CustomerProfile extends Model
         'service_id',
         'sectorial_id',
         'router_id',
+        'pppoe_username',
+        'pppoe_password',
         'status',
     ];
 

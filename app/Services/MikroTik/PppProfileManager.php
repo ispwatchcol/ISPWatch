@@ -41,51 +41,43 @@ class PppProfileManager
             $rateLimit = $this->buildRateLimit($speedUp, $speedDown);
 
             Log::info('[PppProfileManager] Syncing PPP profile', [
-                'client_ip' => $clientIp,
-                'profile' => $profileName,
-                'rate_limit' => $rateLimit,
+                'client_ip'     => $clientIp,
+                'profile'       => $profileName,
+                'rate_limit'    => $rateLimit,
                 'local_address' => $localAddress,
-                'remote_address' => $remoteAddress,
+                'remote_address'=> $remoteAddress,
             ]);
 
+            // 1. Try direct API connection to client router
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
-
+                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
                 if ($socket) {
                     Log::info('[PppProfileManager] Direct API connection available');
-                    return $this->syncDirectApi(
-                        $socket,
-                        $clientUser,
-                        $clientPass,
-                        $profileName,
-                        $rateLimit,
-                        $localAddress,
-                        $remoteAddress,
-                    );
+                    $result = $this->syncDirectApi($socket, $clientUser, $clientPass, $profileName, $rateLimit, $localAddress, $remoteAddress);
+                    if ($result['success']) {
+                        return $result;
+                    }
+                    Log::warning('[PppProfileManager] Direct API failed', ['reason' => $result['message'] ?? 'unknown']);
                 }
             }
 
-            Log::info('[PppProfileManager] Direct API unavailable, using CORE fallback');
+            // 2. Try SSH directly on CORE (simpler and more reliable than API-script approach)
+            Log::info('[PppProfileManager] Direct API unavailable, trying CORE SSH');
+            $sshResult = $this->syncViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $profileName, $rateLimit, $localAddress, $remoteAddress);
+            if ($sshResult['success']) {
+                return $sshResult;
+            }
+            Log::warning('[PppProfileManager] CORE SSH failed, trying CORE API script fallback', ['reason' => $sshResult['message'] ?? 'unknown']);
 
-            return $this->syncViaCore(
-                $clientIp,
-                $clientUser,
-                $clientPass,
-                $profileName,
-                $rateLimit,
-                $localAddress,
-                $remoteAddress,
-            );
+            // 3. Last resort: CORE API script with ssh-exec
+            return $this->syncViaCore($clientIp, $clientUser, $clientPass, $profileName, $rateLimit, $localAddress, $remoteAddress);
+
         } catch (\Throwable $e) {
             Log::error('[PppProfileManager] Error syncing PPP profile', [
                 'profile' => $profileName,
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ]);
-
-            return [
-                'success' => false,
-                'message' => 'Error: ' . $e->getMessage(),
-            ];
+            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
 
@@ -159,6 +151,70 @@ class PppProfileManager
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * Sync via CORE: SSH directly into CORE and run ssh-exec from there.
+     * Simpler than the API-script approach — no persistent scripts left on CORE.
+     */
+    private function syncViaCoreDirectSsh(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $profileName,
+        string $rateLimit,
+        ?string $localAddress,
+        ?string $remoteAddress
+    ): array {
+        try {
+            $clientCommand = $this->buildRouterCommand($profileName, $rateLimit, $localAddress, $remoteAddress);
+            $safePass      = str_replace('"', '\\"', $clientPass);
+            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+
+            Log::info('[PppProfileManager] CORE SSH direct: executing ssh-exec', [
+                'client_ip' => $clientIp,
+                'profile'   => $profileName,
+            ]);
+
+            $result = $this->connectionManager->executeSsh($coreCommand);
+
+            if (!$result['success']) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $result['message'] ?? 'No se pudo conectar al CORE via SSH',
+                ];
+            }
+
+            $output = trim((string) ($result['output'] ?? ''));
+
+            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|\bunknown\b/i', $output)) {
+                Log::warning('[PppProfileManager] CORE SSH direct: error in output', ['output' => $output]);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => 'Error en router cliente: ' . $output,
+                ];
+            }
+
+            Log::info('[PppProfileManager] CORE SSH direct: success', [
+                'profile' => $profileName,
+                'output'  => $output ?: '(sin output)',
+            ]);
+
+            return [
+                'success'      => true,
+                'method'       => 'CORE_SSH_DIRECT',
+                'action'       => 'upserted',
+                'message'      => 'Perfil PPPoE sincronizado via CORE SSH',
+                'profile_name' => $profileName,
+                'rate_limit'   => $rateLimit,
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[PppProfileManager] CORE SSH direct exception', ['error' => $e->getMessage()]);
+            return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error: ' . $e->getMessage()];
         }
     }
 
@@ -290,22 +346,169 @@ class PppProfileManager
         ?string $localAddress,
         ?string $remoteAddress
     ): string {
-        $findExpression = '[/ppp profile find where name="' . $this->escapeRouterOsQuotedValue($profileName) . '"]';
-        $localStatement = $localAddress !== null && trim($localAddress) !== ''
-            ? ' local-address="' . $this->escapeRouterOsQuotedValue(trim($localAddress)) . '"'
-            : '';
-        $remoteStatement = $remoteAddress !== null && trim($remoteAddress) !== ''
-            ? ' remote-address="' . $this->escapeRouterOsQuotedValue(trim($remoteAddress)) . '"'
-            : '';
-        $commonArgs = ' name="' . $this->escapeRouterOsQuotedValue($profileName) . '"'
-            . ' rate-limit="' . $this->escapeRouterOsQuotedValue($rateLimit) . '"'
-            . $localStatement
-            . $remoteStatement
+        $escapedName = $this->escapeRouterOsQuotedValue($profileName);
+        $args = ' rate-limit="' . $this->escapeRouterOsQuotedValue($rateLimit) . '"'
+            . ($localAddress !== null && trim($localAddress) !== ''
+                ? ' local-address="' . $this->escapeRouterOsQuotedValue(trim($localAddress)) . '"' : '')
+            . ($remoteAddress !== null && trim($remoteAddress) !== ''
+                ? ' remote-address="' . $this->escapeRouterOsQuotedValue(trim($remoteAddress)) . '"' : '')
             . ' comment="ISPWatch Auto-Profile"';
 
-        return ':local pid ' . $findExpression
-            . '; :if ([:len $pid] > 0) do={ /ppp profile set $pid' . $commonArgs
-            . ' } else={ /ppp profile add' . $commonArgs . ' }';
+        // Try to add (ignore if already exists), then always set to apply latest params.
+        // This avoids :local/:if conditionals which can be unreliable inside ssh-exec command strings.
+        return ':do { /ppp profile add name="' . $escapedName . '"' . $args
+            . ' } on-error={}; /ppp profile set [find name="' . $escapedName . '"]' . $args;
+    }
+
+    // ==================== PPPoE SECRET MANAGEMENT ON CLIENT ROUTER ====================
+
+    /**
+     * Create or update a PPPoE /ppp secret on a client router.
+     * Mirrors the same try-direct-API / CORE-SSH-exec pattern as syncPppoeProfile.
+     */
+    public function ensurePppoeSecretOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $username,
+        string $password,
+        string $profile = 'default',
+        string $service = 'pppoe',
+        int $clientPort = 8728,
+        ?string $remoteAddress = null
+    ): array {
+        try {
+            Log::info('[PppProfileManager] Ensuring PPPoE secret on router', [
+                'client_ip'      => $clientIp,
+                'username'       => $username,
+                'profile'        => $profile,
+                'remote_address' => $remoteAddress,
+            ]);
+
+            // 1. Try direct API connection to client router
+            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
+                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
+                if ($socket) {
+                    $result = $this->ensureSecretDirectApi($socket, $clientUser, $clientPass, $username, $password, $service, $profile, $remoteAddress);
+                    if ($result['success']) {
+                        return $result;
+                    }
+                    Log::warning('[PppProfileManager] Direct API secret failed', ['reason' => $result['message'] ?? 'unknown']);
+                }
+            }
+
+            // 2. CORE SSH exec fallback
+            $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress);
+            $safePass      = str_replace('"', '\\"', $clientPass);
+            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+
+            Log::info('[PppProfileManager] CORE SSH direct: executing ssh-exec for secret', [
+                'client_ip' => $clientIp,
+                'username'  => $username,
+            ]);
+
+            $result = $this->connectionManager->executeSsh($coreCommand);
+
+            if (!$result['success']) {
+                return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $result['message'] ?? 'SSH exec failed'];
+            }
+
+            $output = trim((string) ($result['output'] ?? ''));
+            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b/i', $output)) {
+                return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error en router: ' . $output];
+            }
+
+            Log::info('[PppProfileManager] PPPoE secret created/updated via CORE SSH', ['username' => $username]);
+
+            return [
+                'success'  => true,
+                'method'   => 'CORE_SSH_DIRECT',
+                'action'   => 'upserted',
+                'message'  => 'PPPoE secret sincronizado en router',
+                'username' => $username,
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('[PppProfileManager] Error ensuring PPPoE secret on router', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+        }
+    }
+
+    private function ensureSecretDirectApi(
+        $socket,
+        string $clientUser,
+        string $clientPass,
+        string $username,
+        string $password,
+        string $service,
+        string $profile,
+        ?string $remoteAddress = null
+    ): array {
+        try {
+            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
+                $this->apiProtocol->close($socket);
+                return ['success' => false, 'message' => 'Authentication failed on client router'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ppp/secret/print', ['?name=' . $username]);
+            $existing = $this->apiProtocol->readAllRecords($socket);
+
+            $setParams = [
+                '=password='       . $password,
+                '=service='        . $service,
+                '=profile='        . $profile,
+            ];
+            if ($remoteAddress && trim($remoteAddress) !== '') {
+                $setParams[] = '=remote-address=' . trim($remoteAddress);
+            }
+
+            if (!empty($existing)) {
+                $secretId = $existing[0]['.id'] ?? null;
+                if ($secretId) {
+                    array_unshift($setParams, '=.id=' . $secretId);
+                    $this->apiProtocol->sendCommand($socket, '/ppp/secret/set', $setParams);
+                    $error = $this->apiProtocol->readUntilDoneWithError($socket);
+                    $this->apiProtocol->close($socket);
+                    if ($error) {
+                        return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error updating secret: ' . $error];
+                    }
+                    return ['success' => true, 'method' => 'DIRECT_API', 'action' => 'updated', 'message' => 'Secret actualizado en router', 'username' => $username];
+                }
+            }
+
+            $addParams = array_merge([
+                '=name='     . $username,
+                '=comment=ISPWatch Auto',
+            ], $setParams);
+            $this->apiProtocol->sendCommand($socket, '/ppp/secret/add', $addParams);
+            $error = $this->apiProtocol->readUntilDoneWithError($socket);
+            $this->apiProtocol->close($socket);
+
+            if ($error) {
+                return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error creating secret: ' . $error];
+            }
+
+            return ['success' => true, 'method' => 'DIRECT_API', 'action' => 'created', 'message' => 'Secret creado en router', 'username' => $username];
+
+        } catch (\Throwable $e) {
+            @$this->apiProtocol->close($socket);
+            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+        }
+    }
+
+    private function buildSecretCommand(string $username, string $password, string $service, string $profile, ?string $remoteAddress = null): string
+    {
+        $escapedUser    = $this->escapeRouterOsQuotedValue($username);
+        $escapedPass    = $this->escapeRouterOsQuotedValue($password);
+        $escapedProfile = $this->escapeRouterOsQuotedValue($profile);
+        $remoteAttr     = ($remoteAddress && trim($remoteAddress) !== '')
+            ? ' remote-address="' . $this->escapeRouterOsQuotedValue(trim($remoteAddress)) . '"'
+            : '';
+
+        return ':do { /ppp secret add name="' . $escapedUser . '" password="' . $escapedPass
+            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . ' comment="ISPWatch Auto" } on-error={};'
+            . ' /ppp secret set [find name="' . $escapedUser . '"] password="' . $escapedPass
+            . '" profile="' . $escapedProfile . '"' . $remoteAttr;
     }
 
     private function buildRateLimit(string $speedUp, string $speedDown): string

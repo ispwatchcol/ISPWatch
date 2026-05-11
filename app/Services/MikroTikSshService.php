@@ -124,6 +124,42 @@ class MikroTikSshService
     }
 
     /**
+     * Ensure an IP pool exists on the CORE. Creates it if missing.
+     */
+    public function ensureIpPool(string $poolName, string $ranges): array
+    {
+        return $this->pppManager->ensureIpPool($poolName, $ranges);
+    }
+
+    /**
+     * Ensure a tenant-specific PPP profile exists on the CORE. Creates it if missing.
+     */
+    public function ensurePppProfile(string $profileName, string $localAddress, string $remotePool): array
+    {
+        return $this->pppManager->ensurePppProfile($profileName, $localAddress, $remotePool);
+    }
+
+    /**
+     * Create or update a PPPoE /ppp secret on a client router.
+     */
+    public function ensurePppoeSecretOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $username,
+        string $password,
+        string $profile = 'default',
+        string $service = 'pppoe',
+        int $clientPort = 8728,
+        ?string $remoteAddress = null
+    ): array {
+        return $this->pppProfileManager->ensurePppoeSecretOnRouter(
+            $clientIp, $clientUser, $clientPass,
+            $username, $password, $profile, $service, $clientPort, $remoteAddress
+        );
+    }
+
+    /**
      * Create or update a PPPoE profile on a client router.
      */
     public function syncPppoeProfileOnRouter(

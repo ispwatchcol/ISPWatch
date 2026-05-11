@@ -33,4 +33,7 @@ export default {
     verifyVpnConnection(id) {
         return apiClient.post(`/routers/${id}/verify-vpn`)
     },
+    getFreeIps(id) {
+        return apiClient.get(`/routers/${id}/free-ips`)
+    },
 }
