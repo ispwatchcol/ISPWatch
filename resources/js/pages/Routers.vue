@@ -245,6 +245,9 @@
                 <div>
                   <h4 class="font-medium text-red-800 dark:text-red-300">Error al obtener interfaces</h4>
                   <p class="text-sm text-red-600 dark:text-red-400 mt-1">{{ interfacesError }}</p>
+                  <p v-if="interfacesHint" class="text-xs text-red-500 dark:text-red-400/80 mt-2 italic">
+                    💡 {{ interfacesHint }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -834,6 +837,7 @@ const selectedWan = ref(null)
 const currentWan = ref(null)
 const loadingInterfaces = ref(false)
 const interfacesError = ref(null)
+const interfacesHint = ref(null)
 const savingWan = ref(false)
 
 // Estados del modal Reglas de Bloqueo
@@ -1114,6 +1118,7 @@ const openWanModal = async (routerData) => {
   selectedWan.value = null
   currentWan.value = null
   interfacesError.value = null
+  interfacesHint.value = null
   loadingInterfaces.value = true
 
   try {
@@ -1128,10 +1133,12 @@ const openWanModal = async (routerData) => {
       }
     } else {
       interfacesError.value = data.message || 'Error al obtener interfaces'
+      interfacesHint.value = data.hint || null
     }
   } catch (error) {
     console.error('Error al cargar interfaces:', error)
     interfacesError.value = error.response?.data?.message || 'Error de conexión al obtener interfaces'
+    interfacesHint.value = error.response?.data?.hint || null
   } finally {
     loadingInterfaces.value = false
   }
@@ -1145,6 +1152,7 @@ const closeWanModal = () => {
   selectedWan.value = null
   currentWan.value = null
   interfacesError.value = null
+  interfacesHint.value = null
 }
 
 // Guardar interfaz WAN seleccionada

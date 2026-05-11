@@ -13,12 +13,18 @@ use Illuminate\Support\Facades\Log;
 class InterfaceReader
 {
     private const SSH_FIELD_DELIMITER = '|#|';
-    private const ALLOWED_WAN_TYPES = ['ether', 'vlan'];
+    // Only physical ports are valid WAN candidates — no VLANs, bridges, or tunnels.
+    private const ALLOWED_WAN_TYPES = ['ether', 'sfp'];
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
-    private array $excludedTypes = ['l2tp', 'pptp', 'pppoe', 'ovpn', 'sstp', 'gre', 'ipip', 'eoip'];
+    // Tunnel-type names that should be excluded if found as substring in either type or name
+    // (these strings don't appear in normal physical-port names).
+    private array $excludedTunnelTypes = ['l2tp', 'pptp', 'pppoe', 'ovpn', 'sstp', 'gre', 'ipip', 'eoip'];
+
+    // Non-physical interface types — exact match against the type field only.
+    private array $excludedExactTypes = ['vlan', 'bridge', 'bond', 'wlan', 'lte', 'vrrp', 'vpls', 'vxlan'];
 
     public function __construct(
         ?MikroTikConnectionManager $connectionManager = null,
@@ -117,9 +123,19 @@ class InterfaceReader
             $sshResult = $this->connectionManager->executeSsh($command);
 
             if (!($sshResult['success'] ?? false)) {
+                $innerMessage = $sshResult['message'] ?? 'sin respuesta del CORE';
+                $isCoreUnreachable = stripos($innerMessage, 'no se pudo conectar') !== false
+                    || stripos($innerMessage, 'connection refused') !== false
+                    || stripos($innerMessage, 'timed out') !== false;
+
                 return [
                     'success' => false,
-                    'message' => 'No se pudo consultar el router cliente desde el CORE: ' . ($sshResult['message'] ?? 'sin respuesta del CORE'),
+                    'message' => $isCoreUnreachable
+                        ? 'El servidor no pudo conectar SSH al CORE. Verifica que el CORE esté encendido, que su servicio SSH esté activo y que las credenciales SSH del CORE configuradas en el servidor sean correctas.'
+                        : 'No se pudo consultar el router cliente desde el CORE: ' . $innerMessage,
+                    'hint' => $isCoreUnreachable
+                        ? 'Esto es un problema entre el servidor y el CORE — no entre el CORE y el router cliente. La VPN del cliente está OK; lo que falla es el SSH del servidor al CORE.'
+                        : 'Verifica que el router cliente tenga el servicio SSH activo y que las credenciales (user_rb / password_rb) sean correctas.',
                     'interfaces' => [],
                 ];
             }
@@ -343,10 +359,22 @@ class InterfaceReader
 
     private function shouldExcludeInterface(string $name, string $type): bool
     {
-        foreach ($this->excludedTypes as $excluded) {
+        // Tunnel-type substring match (in either name or type)
+        foreach ($this->excludedTunnelTypes as $excluded) {
             if (stripos($type, $excluded) !== false || stripos($name, $excluded) !== false) {
                 return true;
             }
+        }
+
+        // VLAN sub-interfaces named like "ether1.100" or "sfp1-vlan10" — anything with a dot or "vlan" tag
+        if (preg_match('/\.\d+$/', $name) || stripos($name, '.vlan') !== false || stripos($name, '-vlan') !== false) {
+            return true;
+        }
+
+        // Non-physical exact type match (vlan/bridge/bond/etc.)
+        $normalizedType = strtolower(trim($type));
+        if (in_array($normalizedType, $this->excludedExactTypes, true)) {
+            return true;
         }
 
         if (stripos($name, 'ISPWatch-VPN') !== false) {
