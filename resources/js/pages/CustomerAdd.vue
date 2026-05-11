@@ -149,6 +149,10 @@
             </div>
 
             <!-- IP RANGE ANALYZER -->
+            <div v-if="freeIpsLoaded && parsedRanges.length === 0 && form.router_id" class="mt-4 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              El router seleccionado no tiene rangos IP configurados. Agrégalos en <strong class="mx-1">Editar Router → Rangos IP</strong> para usar el analizador.
+            </div>
             <div v-if="parsedRanges.length > 0 || loadingFreeIps" class="mt-4">
               <div class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800 shadow-sm">
                 <!-- Header -->
@@ -387,6 +391,7 @@ const ipStats = computed(() => {
 const loadFreeIps = async (routerId) => {
     rangosIpStr.value = ''
     usedIpsSet.value  = new Set()
+    freeIpsLoaded.value = false
     if (!routerId) return
     loadingFreeIps.value = true
     try {
@@ -397,6 +402,7 @@ const loadFreeIps = async (routerId) => {
         console.warn('No se pudieron cargar IPs libres:', e)
     } finally {
         loadingFreeIps.value = false
+        freeIpsLoaded.value  = true
     }
 }
 
