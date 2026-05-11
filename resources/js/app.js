@@ -3,7 +3,6 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import router from "./router";
-import { supabase } from "./supabase";
 import "../css/app.css";
 
 // -------------------------------
@@ -264,33 +263,8 @@ addIcons(
   MdCheckcircle,
   MdNotificationsactiveOutlined,
   MdSend,
+  RiBillLine,
   RiBankCardLine,
-  BiPerson, BiPeople, BiPersonPlus, RiMapPinUserLine, FaDollarSign,
-  OiAlert, HiTrendingUp, BiActivity, RiMapPinLine, RiSettings4Line,
-  FaUserEdit, FaRegularBell, IoCalendar, HiWifi, BiSun, BiMoon,
-  MdScreenshotmonitor, MdLogoutTwotone, MdDashboardOutlined, BiRouter,
-  BiListTask, BiWifi, BiDiagram3, BiHddNetwork, OiDiffAdded, OiPackage,
-  RiMoneyDollarCircleLine, FaHeadphonesAlt, HiBookOpen, MdRouterRound,
-  MdSupportagentRound, HiChevronDown, MdChevronleftRound, FaArrowLeft,
-  BiHddRack, BiSpeedometer2, BiBroadcastPin, RiListSettingsLine,
-  BiPeopleFill, FaFileInvoiceDollar, RiAdminFill, BiHeadset,
-  HiChevronRight, HiLightBulb, IoClose, HiTicket, LaMoneyBillWaveSolid,
-  BiPaperclip, IoSearch, BiFileEarmark, BiArrowRepeat, MdArrowback,
-  BiBoxSeam, MdAdd, LaDollarSignSolid, MdPendingTwotone, MdWarningRound,
-  MdTrendingupRound, MdSearch, BiFilter, BiCalendar,
-  LaFileInvoiceDollarSolid, MdPalette, MdInfo, MdLanguage, MdSave,
-  MdKeyboardarrowdown, MdLightmode, MdNightlight, MdComputer, MdBrush,
-  MdTextfields, MdAnimation, MdEmail, BiBell, MdWarning, MdBuild,
-  MdDelete, BiImages, FaEdit, FaEye, FaEyeSlash, RiArrowGoBackLine,
-  MdDownload, MdChevronright, BiCheckCircleFill, MdError, MdSchedule,
-  MdPaymentsOutlined, MdFiledownload, MdPrint, MdShare, MdTrendingdown,
-  MdRouter, MdWifi, MdPerson, MdLock, MdLocationon, MdDescription,
-  MdEdit, MdClose, MdFilterlist, MdAdminpanelsettingsRound,
-  MdPublicRound, MdSecurityRound, FaWhatsapp, MdWarningamberRound,
-  MdInventoryRound, BiBuilding, MdStoremalldirectory, BiUpc,
-  MdVisibility, MdCheck, MdNotifications, MdCloudupload, MdUploadfile,
-  MdHelpOutlined, ViFileTypeExcel, RiLoader4Line, MdList, MdCheckcircle,
-  MdNotificationsactiveOutlined, MdSend,
 );
 
 // -------------------------------
@@ -301,9 +275,6 @@ const app = createApp(App);
 
 // Pinia state management (MUST be registered before router)
 app.use(pinia);
-
-// Supabase globally available
-app.config.globalProperties.$supabase = supabase;
 
 // Register OhVueIcon component
 app.component("v-icon", OhVueIcon);

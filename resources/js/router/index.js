@@ -232,15 +232,13 @@ const routes = [
     children: [
       {
         path: '',
-        name: 'BillingSummary',
+        name: 'BillingDashboard',
         component: () => import('@/pages/Billing/BillingDashboard.vue'),
         meta: { title: 'Facturación' },
       },
       {
         path: 'dashboard',
-        name: 'BillingDashboard',
-        component: () => import('@/pages/Billing/BillingDashboard.vue'),
-        meta: { title: 'Facturación' },
+        redirect: { name: 'BillingDashboard' },
       },
       {
         path: 'invoices',

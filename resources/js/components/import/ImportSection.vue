@@ -5,66 +5,71 @@
         <div class="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
           <v-icon name="md-uploadfile" class="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
         </div>
-        <h3 class="text-lg font-bold text-gray-800 dark:text-white">{{ title }}</h3>
+        <div>
+          <h3 class="text-lg font-bold text-gray-800 dark:text-white">Carga Masiva de Datos</h3>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Un solo archivo con hojas: Routers, Sectoriales, Planes y Clientes.
+          </p>
+        </div>
       </div>
-      <button 
-        @click="showFieldDocs = true" 
+      <button
+        @click="showFieldDocs = true"
         class="text-sm bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors font-medium"
       >
         <v-icon name="md-help-outlined" class="w-5 h-5" />
         Ver Campos Requeridos
       </button>
     </div>
-    
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <!-- Step 1 & 2 Left Column -->
+      <!-- Left column: Steps 1 & 2 -->
       <div class="space-y-6">
-        <!-- Step 1: Download Template -->
+        <!-- Step 1: Download template -->
         <div class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700/50">
           <div class="flex items-center gap-2 mb-3">
             <span class="w-6 h-6 flex items-center justify-center bg-indigo-600 text-white rounded-full text-xs font-bold">1</span>
-            <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">Descargar plantilla</p>
+            <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">Descargar plantilla unificada</p>
           </div>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-4 ml-8">
-            Obtén el archivo Excel con el formato correcto y encabezados necesarios.
+            Excel con 4 hojas separadas para Routers, Sectoriales, Planes y Clientes.
           </p>
           <button @click="downloadTemplate" class="ml-8 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-sm">
             <v-icon name="vi-file-type-excel" class="text-green-600 dark:text-green-500" />
             Descargar Plantilla Excel
           </button>
         </div>
-        
-        <!-- Step 2: Upload File -->
+
+        <!-- Step 2: Upload file -->
         <div>
           <div class="flex items-center gap-2 mb-3">
             <span class="w-6 h-6 flex items-center justify-center bg-indigo-600 text-white rounded-full text-xs font-bold">2</span>
             <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">Subir archivo completado</p>
           </div>
-          
-          <div 
+
+          <div
             class="ml-8 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-all group"
             @drop.prevent="handleDrop"
             @dragover.prevent
             @click="$refs.fileInput.click()"
           >
-            <input 
-              ref="fileInput" 
-              type="file" 
-              accept=".xlsx,.xls,.csv" 
-              @change="handleFile" 
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".xlsx,.xls"
+              @change="handleFile"
               class="hidden"
             />
-            
+
             <div v-if="!uploading" class="flex flex-col items-center gap-3">
               <div class="p-3 bg-gray-100 dark:bg-gray-700 rounded-full group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/30 transition-colors">
                 <v-icon name="md-cloudupload" class="w-8 h-8 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
               </div>
               <div>
                 <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Click para seleccionar o arrastra aquí</p>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Soporta .xlsx, .xls, .csv</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Soporta .xlsx, .xls</p>
               </div>
             </div>
-            
+
             <div v-else class="flex flex-col items-center gap-3">
               <v-icon name="ri-loader-4-line" class="w-8 h-8 text-indigo-600 animate-spin" />
               <p class="text-sm font-medium text-indigo-600 dark:text-indigo-400">Procesando archivo...</p>
@@ -72,57 +77,109 @@
           </div>
         </div>
       </div>
-      
-      <!-- Step 3: Results Right Column -->
+
+      <!-- Right column: Step 3 (results) -->
       <div v-if="results || uploading" class="h-full">
         <div class="h-full bg-gray-50 dark:bg-gray-700/30 rounded-xl p-6 border border-gray-100 dark:border-gray-700/50 flex flex-col">
           <div class="flex items-center gap-2 mb-4">
             <span class="w-6 h-6 flex items-center justify-center bg-indigo-600 text-white rounded-full text-xs font-bold">3</span>
-            <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">Resultados de la importación</p>
+            <p class="text-sm font-semibold text-gray-700 dark:text-gray-300">Resultados</p>
           </div>
-          
+
           <div v-if="uploading" class="flex-1 flex flex-col items-center justify-center text-center p-8 opacity-50">
-             <p class="text-sm text-gray-500">Esperando resultados...</p>
+            <p class="text-sm text-gray-500">Esperando resultados...</p>
           </div>
 
           <div v-else-if="results" class="flex-1 flex flex-col animate-fade-in-up">
-            <div v-if="results.success" class="flex-1 flex flex-col items-center justify-center text-center mb-6">
-              <div class="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-                <v-icon name="md-checkcircle" class="w-10 h-10 text-green-600 dark:text-green-500" />
+            <!-- Status header -->
+            <div class="flex flex-col items-center justify-center text-center mb-4">
+              <div
+                :class="[
+                  'w-16 h-16 rounded-full flex items-center justify-center mb-3',
+                  results.success
+                    ? 'bg-green-100 dark:bg-green-900/30'
+                    : results.partial
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30'
+                      : 'bg-red-100 dark:bg-red-900/30'
+                ]"
+              >
+                <v-icon
+                  :name="results.success ? 'md-checkcircle' : results.partial ? 'md-warning' : 'md-error'"
+                  :class="[
+                    'w-10 h-10',
+                    results.success
+                      ? 'text-green-600 dark:text-green-500'
+                      : results.partial
+                        ? 'text-yellow-600 dark:text-yellow-500'
+                        : 'text-red-600 dark:text-red-500'
+                  ]"
+                />
               </div>
-              <h4 class="text-lg font-bold text-green-700 dark:text-green-400 mb-2">¡Importación Exitosa!</h4>
-              <p class="text-gray-600 dark:text-gray-300">{{ results.summary.imported }}</p>
+              <h4
+                :class="[
+                  'text-lg font-bold mb-1',
+                  results.success
+                    ? 'text-green-700 dark:text-green-400'
+                    : results.partial
+                      ? 'text-yellow-700 dark:text-yellow-400'
+                      : 'text-red-700 dark:text-red-400'
+                ]"
+              >
+                {{
+                  results.success
+                    ? '¡Importación Exitosa!'
+                    : results.partial
+                      ? 'Importación Parcial'
+                      : 'Atención Requerida'
+                }}
+              </h4>
+              <p class="text-sm text-gray-600 dark:text-gray-300 px-2">
+                {{ results.message }}
+              </p>
             </div>
-            
-            <div v-else class="flex-1 flex flex-col items-center justify-center text-center mb-6">
-              <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
-                <v-icon name="md-error" class="w-10 h-10 text-red-600 dark:text-red-500" />
+
+            <!-- Summary breakdown -->
+            <div v-if="results.summary" class="grid grid-cols-2 gap-2 mb-4">
+              <div class="p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                <p class="text-xs text-gray-500 dark:text-gray-400">Routers</p>
+                <p class="text-lg font-bold text-indigo-600 dark:text-indigo-400">{{ results.summary.routers }}</p>
               </div>
-              <h4 class="text-lg font-bold text-red-700 dark:text-red-400 mb-2">Atención Requerida</h4>
-              <p class="text-gray-600 dark:text-gray-300 mb-4">Se encontraron {{ results.errors.length }} errores en el archivo.</p>
-              
-              <button @click="showErrors = true" class="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg shadow-lg shadow-red-600/20 transition-all transform hover:-translate-y-0.5 flex items-center gap-2">
-                <v-icon name="md-list" />
-                Ver Detalle de Errores
-              </button>
+              <div class="p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                <p class="text-xs text-gray-500 dark:text-gray-400">Sectoriales</p>
+                <p class="text-lg font-bold text-indigo-600 dark:text-indigo-400">{{ results.summary.sectoriales }}</p>
+              </div>
+              <div class="p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                <p class="text-xs text-gray-500 dark:text-gray-400">Planes</p>
+                <p class="text-lg font-bold text-indigo-600 dark:text-indigo-400">{{ results.summary.planes }}</p>
+              </div>
+              <div class="p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                <p class="text-xs text-gray-500 dark:text-gray-400">Clientes</p>
+                <p class="text-lg font-bold text-indigo-600 dark:text-indigo-400">{{ results.summary.clientes }}</p>
+              </div>
             </div>
+
+            <button
+              v-if="results.errors && results.errors.length"
+              @click="showErrors = true"
+              class="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2"
+            >
+              <v-icon name="md-list" />
+              Ver {{ results.errors.length }} Error{{ results.errors.length > 1 ? 'es' : '' }}
+            </button>
           </div>
         </div>
       </div>
     </div>
-    
-    <!-- Field Docs Modal -->
-    <FieldDocsModal 
-      v-if="showFieldDocs" 
-      :type="type" 
-      @close="showFieldDocs = false" 
+
+    <FieldDocsModal
+      v-if="showFieldDocs"
+      @close="showFieldDocs = false"
     />
-    
-    <!-- Errors Modal -->
-    <ErrorsModal 
-      v-if="showErrors" 
-      :errors="results.errors" 
-      @close="showErrors = false" 
+
+    <ErrorsModal
+      v-if="showErrors"
+      :errors="results.errors"
+      @close="showErrors = false"
     />
   </div>
 </template>
@@ -133,11 +190,6 @@ import axios from 'axios';
 import FieldDocsModal from './FieldDocsModal.vue';
 import ErrorsModal from './ErrorsModal.vue';
 
-const props = defineProps({
-  type: String, // 'routers' | 'service-plans' | 'customers'
-  title: String,
-});
-
 const uploading = ref(false);
 const results = ref(null);
 const showFieldDocs = ref(false);
@@ -146,14 +198,14 @@ const fileInput = ref(null);
 
 const downloadTemplate = async () => {
   try {
-    const response = await axios.get(`/api/import/template/${props.type}`, {
+    const response = await axios.get('/api/import/template', {
       responseType: 'blob',
     });
-    
+
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `plantilla_${props.type}.xlsx`);
+    link.setAttribute('download', 'plantilla_carga_completa.xlsx');
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -165,7 +217,6 @@ const downloadTemplate = async () => {
 const handleFile = async (event) => {
   const file = event.target.files[0];
   if (file) await uploadFile(file);
-  // Reset input
   if (fileInput.value) fileInput.value.value = '';
 };
 
@@ -177,12 +228,12 @@ const handleDrop = async (event) => {
 const uploadFile = async (file) => {
   const formData = new FormData();
   formData.append('file', file);
-  
+
   uploading.value = true;
   results.value = null;
-  
+
   try {
-    const response = await axios.post(`/api/import/${props.type}`, formData);
+    const response = await axios.post('/api/import/upload', formData);
     results.value = response.data;
   } catch (error) {
     if (error.response && error.response.data) {

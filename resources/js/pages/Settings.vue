@@ -66,7 +66,7 @@
             <!-- Tab Content -->
             <div class="space-y-6">
                 <!-- General Settings -->
-                <div v-show="activeTab === 'general'" class="space-y-6">
+                <div v-if="activeTab === 'general'" class="space-y-6">
                     <SettingsSection
                         title="Información General"
                         description="Configuración básica de la aplicación"
@@ -513,7 +513,7 @@
                 </div>
 
                 <!-- Appearance Settings -->
-                <div v-show="activeTab === 'appearance'" class="space-y-6">
+                <div v-if="activeTab === 'appearance'" class="space-y-6">
                     <SettingsSection
                         title="Tema de la Aplicación"
                         description="Personaliza la apariencia visual"
@@ -669,7 +669,7 @@
                 </div>
 
                 <!-- Notifications Settings -->
-                <div v-show="activeTab === 'notifications'" class="space-y-6">
+                <div v-if="activeTab === 'notifications'" class="space-y-6">
                     <SettingsSection
                         title="Notificaciones del Sistema"
                         description="Configura cómo y cuándo recibir alertas"
@@ -828,7 +828,7 @@
                 </div>
 
                 <!-- System Settings -->
-                <div v-show="activeTab === 'system'" class="space-y-6">
+                <div v-if="activeTab === 'system'" class="space-y-6">
                     <SettingsSection
                         title="Información del Sistema"
                         description="Detalles de la aplicación y base de datos"
@@ -963,16 +963,8 @@
                 </div>
 
                 <!-- Import Data Settings -->
-                <div v-show="activeTab === 'import'" class="space-y-6">
-                    <ImportSection type="routers" title="1. Importar Routers" />
-                    <ImportSection
-                        type="service-plans"
-                        title="2. Importar Planes de Servicio"
-                    />
-                    <ImportSection
-                        type="customers"
-                        title="3. Importar Clientes"
-                    />
+                <div v-if="activeTab === 'import'" class="space-y-6">
+                    <ImportSection />
                 </div>
             </div>
         </main>
