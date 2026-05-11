@@ -26,6 +26,7 @@ class Router extends Model
         'vpn_username',
         'vpn_password',
         'comments',
+        'rangos_ip',
         'cut_type_id',
         'billing_router_id',
         'firmware_version',

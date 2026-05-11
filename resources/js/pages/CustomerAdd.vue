@@ -108,11 +108,46 @@
                 Configuración del Servicio
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- IP del Usuario con selector de IPs libres -->
                 <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">IP del Usuario</label>
-                <input v-model="form.ip_user" type="text"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="192.168.1.100" />
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    IP del Usuario
+                    <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400">cargando...</span>
+                    <span v-else-if="freeIps.length > 0" class="ml-1 text-xs text-green-500">{{ freeIps.length }} libres</span>
+                </label>
+                <div class="relative">
+                    <input v-model="form.ip_user" type="text"
+                        class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="192.168.1.100"
+                        @focus="showIpDropdown = freeIps.length > 0"
+                        @blur="setTimeout(() => showIpDropdown = false, 200)" />
+                    <button v-if="freeIps.length > 0" type="button"
+                        @click="showIpDropdown = !showIpDropdown"
+                        class="absolute right-2 top-2.5 text-gray-400 hover:text-blue-500 transition">
+                        <v-icon name="md-expandmore" class="w-5 h-5" />
+                    </button>
+                    <!-- Dropdown of free IPs -->
+                    <div v-if="showIpDropdown && freeIps.length > 0"
+                        class="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl max-h-52 overflow-y-auto">
+                        <div class="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-300 border-b border-gray-100 dark:border-gray-600 flex justify-between">
+                            <span>IPs libres</span>
+                            <span>{{ ipRangeStats.used }}/{{ ipRangeStats.total }} en uso</span>
+                        </div>
+                        <button v-for="ip in freeIps" :key="ip" type="button"
+                            @mousedown.prevent="form.ip_user = ip; showIpDropdown = false"
+                            class="w-full text-left px-4 py-2 text-sm font-mono text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 transition">
+                            {{ ip }}
+                        </button>
+                    </div>
+                </div>
+                <!-- Range stats bar -->
+                <div v-if="ipRangeStats.total > 0" class="mt-1.5 flex items-center gap-2">
+                    <div class="flex-1 h-1 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500 rounded-full transition-all"
+                            :style="{ width: ipRangeStats.usagePercent + '%' }" />
+                    </div>
+                    <span class="text-xs text-gray-400">{{ ipRangeStats.usagePercent }}%</span>
+                </div>
                 </div>
 
                 <div>
@@ -238,13 +273,19 @@ const form = ref({
     pppoe_password: '',
 })
 
-const loading      = ref(false)
-const errorMsg     = ref('')
+const loading        = ref(false)
+const errorMsg       = ref('')
 const pppoeUserError = ref('')
 const pppoePassError = ref('')
-const plans        = ref([])
-const sectorials   = ref([])
-const routers      = ref([])
+const plans          = ref([])
+const sectorials     = ref([])
+const routers        = ref([])
+
+// ── Free IP picker ───────────────────────────────────────────────────────────
+const freeIps        = ref([])
+const loadingFreeIps = ref(false)
+const showIpDropdown = ref(false)
+const ipRangeStats   = ref({ total: 0, used: 0, free: 0, usagePercent: 0 })
 
 const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
@@ -281,6 +322,30 @@ watch([() => form.value.name, () => form.value.last_name], ([n, l]) => {
     const username = n.toLowerCase().replace(/\s+/g, '') + '.' + l.toLowerCase().replace(/\s+/g, '')
     if (username !== '.') form.value.pppoe_username = username
 })
+
+const loadFreeIps = async (routerId) => {
+    freeIps.value      = []
+    ipRangeStats.value = { total: 0, used: 0, free: 0, usagePercent: 0 }
+    if (!routerId) return
+    loadingFreeIps.value = true
+    try {
+        const res = await api.routers.getFreeIps(routerId)
+        freeIps.value = res.data.free_ips ?? []
+        const totals  = (res.data.ranges ?? []).reduce((a, r) => ({ total: a.total + r.total, used: a.used + r.used }), { total: 0, used: 0 })
+        ipRangeStats.value = {
+            total: totals.total,
+            used:  totals.used,
+            free:  freeIps.value.length,
+            usagePercent: totals.total > 0 ? Math.round((totals.used / totals.total) * 100) : 0,
+        }
+    } catch (e) {
+        console.warn('No se pudieron cargar IPs libres:', e)
+    } finally {
+        loadingFreeIps.value = false
+    }
+}
+
+watch(() => form.value.router_id, (id) => loadFreeIps(id))
 
 const loadCatalogs = async () => {
     try {

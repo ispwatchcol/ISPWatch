@@ -294,7 +294,8 @@ class CustomerProfileController extends Controller
                             $data['pppoe_password'],
                             $profile,
                             'pppoe',
-                            $router->puerto_api ?? 8728
+                            $router->puerto_api ?? 8728,
+                            $data['ip_user'] ?? null
                         );
 
                         if (!$pppoeResult['success']) {
@@ -430,7 +431,8 @@ class CustomerProfileController extends Controller
                     $customer->pppoe_password,
                     $servicePlan->name,
                     'pppoe',
-                    $router->puerto_api ?? 8728
+                    $router->puerto_api ?? 8728,
+                    $customer->ip_user
                 );
             } catch (\Throwable $e) {
                 \Log::warning('[CustomerProfile::provision] PPPoE secret exception', ['error' => $e->getMessage()]);
@@ -538,37 +540,48 @@ class CustomerProfileController extends Controller
                 $router->puerto_api ?? 8728
             );
 
-            $pppoeResult = null;
-            if ($router->pppoe && $customer->pppoe_username && $customer->pppoe_password) {
-                try {
-                    $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
-                        $router->ip,
-                        $router->user_rb,
-                        $router->password_rb,
-                        $customer->pppoe_username,
-                        $customer->pppoe_password,
-                        $servicePlan->name,
-                        'pppoe',
-                        $router->puerto_api ?? 8728
-                    );
-                } catch (\Throwable $e) {
-                    \Log::warning('[CustomerProfile::bulkProvision] PPPoE secret exception', [
-                        'customer_id' => $customerId,
-                        'error'       => $e->getMessage(),
-                    ]);
-                    $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+            $pppoeResult  = null;
+            $pppoeSkipped = false;
+
+            if ($router->pppoe) {
+                if ($customer->pppoe_username && $customer->pppoe_password) {
+                    try {
+                        $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
+                            $router->ip,
+                            $router->user_rb,
+                            $router->password_rb,
+                            $customer->pppoe_username,
+                            $customer->pppoe_password,
+                            $servicePlan->name,
+                            'pppoe',
+                            $router->puerto_api ?? 8728,
+                            $customer->ip_user
+                        );
+                    } catch (\Throwable $e) {
+                        \Log::warning('[CustomerProfile::bulkProvision] PPPoE secret exception', [
+                            'customer_id' => $customerId,
+                            'error'       => $e->getMessage(),
+                        ]);
+                        $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+                    }
+                } else {
+                    $pppoeSkipped = true;
+                    $pppoeSkippedCount++;
                 }
             }
 
             $rowSuccess = $queueResult['success'] && ($pppoeResult === null || $pppoeResult['success']);
 
             $results[] = [
-                'customer_id'   => $customerId,
-                'customer_name' => "{$customer->name} {$customer->last_name}",
-                'success'       => $rowSuccess,
-                'message'       => $rowSuccess ? 'OK' : ($queueResult['message'] ?? ($pppoeResult['message'] ?? 'Error')),
-                'queue_result'  => $queueResult,
-                'pppoe_result'  => $pppoeResult,
+                'customer_id'    => $customerId,
+                'customer_name'  => "{$customer->name} {$customer->last_name}",
+                'success'        => $rowSuccess,
+                'pppoe_skipped'  => $pppoeSkipped,
+                'message'        => $rowSuccess
+                    ? ($pppoeSkipped ? 'Queue OK — credenciales PPPoE no configuradas' : 'OK')
+                    : ($queueResult['message'] ?? ($pppoeResult['message'] ?? 'Error')),
+                'queue_result'   => $queueResult,
+                'pppoe_result'   => $pppoeResult,
             ];
 
             if ($rowSuccess) {
@@ -579,11 +592,11 @@ class CustomerProfileController extends Controller
         }
 
         return response()->json([
-            'success' => $failCount === 0,
-            'summary' => "Provisionados: {$successCount}, Fallidos: {$failCount}",
-            'success_count' => $successCount,
-            'fail_count' => $failCount,
-            'results' => $results,
+            'success'             => $failCount === 0,
+            'success_count'       => $successCount,
+            'fail_count'          => $failCount,
+            'pppoe_skipped_count' => $pppoeSkippedCount,
+            'results'             => $results,
         ]);
     }
 
@@ -766,7 +779,8 @@ class CustomerProfileController extends Controller
                                 $data['pppoe_password'],
                                 $profile,
                                 'pppoe',
-                                $router->puerto_api ?? 8728
+                                $router->puerto_api ?? 8728,
+                                $data['ip_user'] ?? $customer->ip_user
                             );
                         }
                     } catch (\Throwable $e) {

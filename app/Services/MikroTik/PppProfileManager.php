@@ -374,20 +374,22 @@ class PppProfileManager
         string $password,
         string $profile = 'default',
         string $service = 'pppoe',
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?string $remoteAddress = null
     ): array {
         try {
             Log::info('[PppProfileManager] Ensuring PPPoE secret on router', [
-                'client_ip' => $clientIp,
-                'username'  => $username,
-                'profile'   => $profile,
+                'client_ip'      => $clientIp,
+                'username'       => $username,
+                'profile'        => $profile,
+                'remote_address' => $remoteAddress,
             ]);
 
             // 1. Try direct API connection to client router
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
                 $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
                 if ($socket) {
-                    $result = $this->ensureSecretDirectApi($socket, $clientUser, $clientPass, $username, $password, $service, $profile);
+                    $result = $this->ensureSecretDirectApi($socket, $clientUser, $clientPass, $username, $password, $service, $profile, $remoteAddress);
                     if ($result['success']) {
                         return $result;
                     }
@@ -396,7 +398,7 @@ class PppProfileManager
             }
 
             // 2. CORE SSH exec fallback
-            $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile);
+            $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress);
             $safePass      = str_replace('"', '\\"', $clientPass);
             $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
 
@@ -439,7 +441,8 @@ class PppProfileManager
         string $username,
         string $password,
         string $service,
-        string $profile
+        string $profile,
+        ?string $remoteAddress = null
     ): array {
         try {
             if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
@@ -450,15 +453,20 @@ class PppProfileManager
             $this->apiProtocol->sendCommand($socket, '/ppp/secret/print', ['?name=' . $username]);
             $existing = $this->apiProtocol->readAllRecords($socket);
 
+            $setParams = [
+                '=password='       . $password,
+                '=service='        . $service,
+                '=profile='        . $profile,
+            ];
+            if ($remoteAddress && trim($remoteAddress) !== '') {
+                $setParams[] = '=remote-address=' . trim($remoteAddress);
+            }
+
             if (!empty($existing)) {
                 $secretId = $existing[0]['.id'] ?? null;
                 if ($secretId) {
-                    $this->apiProtocol->sendCommand($socket, '/ppp/secret/set', [
-                        '=.id='      . $secretId,
-                        '=password=' . $password,
-                        '=service='  . $service,
-                        '=profile='  . $profile,
-                    ]);
+                    array_unshift($setParams, '=.id=' . $secretId);
+                    $this->apiProtocol->sendCommand($socket, '/ppp/secret/set', $setParams);
                     $error = $this->apiProtocol->readUntilDoneWithError($socket);
                     $this->apiProtocol->close($socket);
                     if ($error) {
@@ -468,13 +476,11 @@ class PppProfileManager
                 }
             }
 
-            $this->apiProtocol->sendCommand($socket, '/ppp/secret/add', [
+            $addParams = array_merge([
                 '=name='     . $username,
-                '=password=' . $password,
-                '=service='  . $service,
-                '=profile='  . $profile,
                 '=comment=ISPWatch Auto',
-            ]);
+            ], $setParams);
+            $this->apiProtocol->sendCommand($socket, '/ppp/secret/add', $addParams);
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
             $this->apiProtocol->close($socket);
 
@@ -490,16 +496,19 @@ class PppProfileManager
         }
     }
 
-    private function buildSecretCommand(string $username, string $password, string $service, string $profile): string
+    private function buildSecretCommand(string $username, string $password, string $service, string $profile, ?string $remoteAddress = null): string
     {
         $escapedUser    = $this->escapeRouterOsQuotedValue($username);
         $escapedPass    = $this->escapeRouterOsQuotedValue($password);
         $escapedProfile = $this->escapeRouterOsQuotedValue($profile);
+        $remoteAttr     = ($remoteAddress && trim($remoteAddress) !== '')
+            ? ' remote-address="' . $this->escapeRouterOsQuotedValue(trim($remoteAddress)) . '"'
+            : '';
 
         return ':do { /ppp secret add name="' . $escapedUser . '" password="' . $escapedPass
-            . '" service=' . $service . ' profile="' . $escapedProfile . '" comment="ISPWatch Auto" } on-error={};'
+            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . ' comment="ISPWatch Auto" } on-error={};'
             . ' /ppp secret set [find name="' . $escapedUser . '"] password="' . $escapedPass
-            . '" profile="' . $escapedProfile . '"';
+            . '" profile="' . $escapedProfile . '"' . $remoteAttr;
     }
 
     private function buildRateLimit(string $speedUp, string $speedDown): string

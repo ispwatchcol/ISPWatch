@@ -910,6 +910,7 @@ const saveRouter = async () => {
     amarre: form.amarre || false,
     dhcp_leases: form.dhcp_leases || false,
     falla_general: form.falla_general || false,
+    rangos_ip: form.rangos_ip || null,
     created_at: now,
     updated_at: now,
   }

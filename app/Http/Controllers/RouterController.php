@@ -419,4 +419,68 @@ class RouterController extends Controller
             'timestamp' => now()->toIso8601String(),
         ]);
     }
+
+    /**
+     * Return free IPs for a router based on its rangos_ip (CIDR notation, one per line).
+     * Subtracts IPs already assigned to any customer in the same tenant.
+     */
+    public function getFreeIps(Router $router, Request $request): \Illuminate\Http\JsonResponse
+    {
+        $rangosIp = trim($router->rangos_ip ?? '');
+
+        if (!$rangosIp) {
+            return response()->json(['ranges' => [], 'free_ips' => [], 'message' => 'El router no tiene rangos IP configurados.']);
+        }
+
+        // Collect used IPs from customer_profile for this tenant
+        $tenantId = $request->query('tenant_id') ?? $request->query('tenant');
+        $usedQuery = \App\Models\CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->whereNotNull('customer_profile.ip_user');
+        if ($tenantId) {
+            $usedQuery->where('users.tenant_id', $tenantId);
+        }
+        $usedIps = $usedQuery->pluck('customer_profile.ip_user')->toArray();
+        $usedSet = array_flip($usedIps);
+
+        $lines    = array_filter(array_map('trim', explode("\n", $rangosIp)));
+        $ranges   = [];
+        $freeIps  = [];
+
+        foreach ($lines as $cidr) {
+            if (!preg_match('/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/', $cidr, $m)) continue;
+
+            $prefix = (int) $m[2];
+            if ($prefix < 20 || $prefix > 30) continue;
+
+            $ipLong    = ip2long($m[1]);
+            $mask      = ~((1 << (32 - $prefix)) - 1);
+            $network   = $ipLong & $mask;
+            $broadcast = $network | ~$mask;
+
+            $hosts = [];
+            $free  = [];
+            for ($i = $network + 1; $i < $broadcast; $i++) {
+                $ip = long2ip($i);
+                $hosts[] = $ip;
+                if (!isset($usedSet[$ip])) {
+                    $free[]    = $ip;
+                    $freeIps[] = $ip;
+                }
+            }
+
+            $ranges[] = [
+                'cidr'  => $cidr,
+                'total' => count($hosts),
+                'used'  => count($hosts) - count($free),
+                'free'  => count($free),
+            ];
+        }
+
+        return response()->json([
+            'rangos_ip' => $rangosIp,
+            'ranges'    => $ranges,
+            'free_ips'  => $freeIps,
+            'used_ips'  => array_values($usedIps),
+        ]);
+    }
 }

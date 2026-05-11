@@ -161,7 +161,18 @@
                     <td class="px-6 py-4 text-sm font-mono text-gray-600 dark:text-gray-300">{{ customer.ip_user || '-' }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.service_name || '-' }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.sectorial_name || '-' }}</td>
-                    <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.router_name || '-' }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
+                        <span>{{ customer.router_name || '-' }}</span>
+                        <span v-if="customer.router_pppoe && !customer.pppoe_username"
+                            class="ml-1.5 inline-flex items-center gap-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
+                            title="Router PPPoE sin credenciales guardadas — edita el cliente para configurarlas">
+                            <v-icon name="md-warningamber" class="w-3.5 h-3.5" />PPPoE?
+                        </span>
+                        <span v-else-if="customer.router_pppoe && customer.pppoe_username"
+                            class="ml-1.5 inline-flex items-center text-xs font-medium text-blue-500 dark:text-blue-400">
+                            PPPoE
+                        </span>
+                    </td>
                     <td class="px-6 py-4 text-center">
                         <span v-if="customer.status"
                             class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
@@ -240,7 +251,15 @@
                     <div class="grid grid-cols-2 gap-1.5 text-sm">
                     <div><span class="text-gray-400">IP:</span> <span class="font-mono ml-1">{{ customer.ip_user || '-' }}</span></div>
                     <div><span class="text-gray-400">Plan:</span> <span class="ml-1">{{ customer.service_name || '-' }}</span></div>
-                    <div><span class="text-gray-400">Router:</span> <span class="ml-1">{{ customer.router_name || '-' }}</span></div>
+                    <div class="flex items-center gap-1 flex-wrap">
+                        <span class="text-gray-400">Router:</span>
+                        <span class="ml-1">{{ customer.router_name || '-' }}</span>
+                        <span v-if="customer.router_pppoe && !customer.pppoe_username"
+                            class="text-xs font-medium text-amber-600 dark:text-amber-400"
+                            title="Credenciales PPPoE no configuradas">⚠ PPPoE?</span>
+                        <span v-else-if="customer.router_pppoe && customer.pppoe_username"
+                            class="text-xs font-medium text-blue-500 dark:text-blue-400">PPPoE</span>
+                    </div>
                     <div><span class="text-gray-400">Sectorial:</span> <span class="ml-1">{{ customer.sectorial_name || '-' }}</span></div>
                     </div>
 
@@ -428,19 +447,26 @@ const provisionCustomer = async () => {
         const customerIds = filteredCustomers.value.map(c => c.user_id)
         const response    = await api.customers.bulkProvision(customerIds)
 
-        if (response.data.fail_count > 0 && response.data.success_count > 0) {
+        const { success_count, fail_count, pppoe_skipped_count } = response.data
+
+        if (fail_count > 0 && success_count > 0) {
             toast.value?.warning(
                 'Provisionamiento parcial',
-                `${response.data.success_count} exitoso(s), ${response.data.fail_count} con error.`
+                `${success_count} exitoso(s), ${fail_count} con error.`
             )
-        } else if (response.data.fail_count > 0) {
-            toast.value?.error('Error al provisionar', `${response.data.fail_count} cliente(s) no pudieron ser provisionados.`)
+        } else if (fail_count > 0) {
+            toast.value?.error('Error al provisionar', `${fail_count} cliente(s) no pudieron ser provisionados.`)
+        } else if (pppoe_skipped_count > 0) {
+            toast.value?.warning(
+                'Queue cargado — PPPoE pendiente',
+                `Queue cargado en ${success_count} cliente(s). ${pppoe_skipped_count} cliente(s) con router PPPoE no tienen credenciales guardadas — edítalos para configurarlas.`
+            )
         } else {
             const ri = selectedRouterInfo.value
             const suffix = ri?.pppoe ? ' (queue + PPPoE secret)' : ''
             toast.value?.success(
                 'Provisionamiento exitoso',
-                `${response.data.success_count} cliente(s) cargado(s) correctamente${suffix}.`
+                `${success_count} cliente(s) cargado(s) correctamente${suffix}.`
             )
         }
     } catch (err) {
