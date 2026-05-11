@@ -104,7 +104,19 @@
                 :key="router.id"
                 class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all"
               >
-                <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">{{ router.name }}</td>
+                <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">
+                  <div class="flex items-center gap-2">
+                    <span>{{ router.name }}</span>
+                    <span
+                      v-if="router.falla_general"
+                      title="Router marcado en falla general"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                    >
+                      <icon-lucide-alert-triangle class="w-3 h-3" />
+                      Falla general
+                    </span>
+                  </div>
+                </td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.ip }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.user_rb }}</td>
                 <td class="py-3 px-4 text-gray-600 dark:text-gray-300">{{ router.lan_interface || '—' }}</td>

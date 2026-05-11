@@ -185,6 +185,11 @@
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.sectorial_name || '-' }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                         <span>{{ customer.router_name || '-' }}</span>
+                        <span v-if="customer.router_falla_general"
+                            class="ml-1.5 inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                            title="Router en falla general">
+                            <v-icon name="md-warningamber" class="w-3 h-3" /> Falla
+                        </span>
                         <span v-if="customer.router_pppoe && !customer.pppoe_username"
                             class="ml-1.5 inline-flex items-center gap-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
                             title="Router PPPoE sin credenciales guardadas — edita el cliente para configurarlas">
@@ -276,6 +281,9 @@
                     <div class="flex items-center gap-1 flex-wrap">
                         <span class="text-gray-400">Router:</span>
                         <span class="ml-1">{{ customer.router_name || '-' }}</span>
+                        <span v-if="customer.router_falla_general"
+                            class="text-xs font-semibold text-red-600 dark:text-red-400"
+                            title="Router en falla general">⚠ Falla</span>
                         <span v-if="customer.router_pppoe && !customer.pppoe_username"
                             class="text-xs font-medium text-amber-600 dark:text-amber-400"
                             title="Credenciales PPPoE no configuradas">⚠ PPPoE?</span>

@@ -27,6 +27,7 @@ class RouterController extends Controller
             'pppoe',
             'firmware_version',
             'status',
+            'falla_general',
             'created_at'
         )->get();
 
