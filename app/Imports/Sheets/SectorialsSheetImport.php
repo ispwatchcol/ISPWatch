@@ -2,12 +2,12 @@
 namespace App\Imports\Sheets;
 
 use App\Models\Sectorial;
-use Maatwebsite\Excel\Concerns\OnEachRow;
+use Illuminate\Support\Collection;
+use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithTitle;
-use Maatwebsite\Excel\Row;
 
-class SectorialsSheetImport implements OnEachRow, WithHeadingRow, WithTitle
+class SectorialsSheetImport implements ToCollection, WithHeadingRow, WithTitle
 {
     public int $imported = 0;
     public array $errors = [];
@@ -17,45 +17,47 @@ class SectorialsSheetImport implements OnEachRow, WithHeadingRow, WithTitle
         return 'Sectoriales';
     }
 
-    public function onRow(Row $row)
+    public function collection(Collection $rows)
     {
-        $rowNumber = $row->getIndex();
-        $data = $row->toArray();
+        foreach ($rows as $index => $row) {
+            $rowNumber = $index + 2;
+            $data = is_array($row) ? $row : $row->toArray();
 
-        if (empty(array_filter($data, fn($v) => $v !== null && $v !== ''))) {
-            return;
-        }
+            if (empty(array_filter($data, fn($v) => $v !== null && $v !== ''))) {
+                continue;
+            }
 
-        if (empty($data['nombre'])) {
-            $this->errors[] = [
-                'sheet' => 'Sectoriales',
-                'row' => $rowNumber,
-                'field' => 'nombre',
-                'error' => 'El nombre es obligatorio',
-            ];
-            return;
-        }
+            if (empty($data['nombre'])) {
+                $this->errors[] = [
+                    'sheet' => 'Sectoriales',
+                    'row' => $rowNumber,
+                    'field' => 'nombre',
+                    'error' => 'El nombre es obligatorio',
+                ];
+                continue;
+            }
 
-        try {
-            Sectorial::create([
-                'name' => $data['nombre'],
-                'type' => $data['tipo'] ?? null,
-                'ip' => $data['ip'] ?? null,
-                'user_rb' => $data['usuario'] ?? null,
-                'pass_rb' => $data['password'] ?? null,
-                'ssid' => $data['ssid'] ?? null,
-                'frequency' => $data['frecuencia'] ?? null,
-                'node_tower' => $data['node_tower'] ?? null,
-                'comments' => $data['comments'] ?? null,
-            ]);
-            $this->imported++;
-        } catch (\Throwable $e) {
-            $this->errors[] = [
-                'sheet' => 'Sectoriales',
-                'row' => $rowNumber,
-                'field' => '-',
-                'error' => $e->getMessage(),
-            ];
+            try {
+                Sectorial::create([
+                    'name' => $data['nombre'],
+                    'type' => $data['tipo'] ?? null,
+                    'ip' => $data['ip'] ?? null,
+                    'user_rb' => $data['usuario'] ?? null,
+                    'pass_rb' => $data['password'] ?? null,
+                    'ssid' => $data['ssid'] ?? null,
+                    'frequency' => $data['frecuencia'] ?? null,
+                    'node_tower' => $data['node_tower'] ?? null,
+                    'comments' => $data['comments'] ?? null,
+                ]);
+                $this->imported++;
+            } catch (\Throwable $e) {
+                $this->errors[] = [
+                    'sheet' => 'Sectoriales',
+                    'row' => $rowNumber,
+                    'field' => '-',
+                    'error' => $e->getMessage(),
+                ];
+            }
         }
     }
 }
