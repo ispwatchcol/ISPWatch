@@ -1,11 +1,17 @@
 <?php
-namespace App\Exports;
+namespace App\Exports\Sheets;
 
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
+use Maatwebsite\Excel\Concerns\WithTitle;
 
-class RoutersTemplateExport implements FromCollection, WithHeadings
+class RoutersSheet implements FromCollection, WithHeadings, WithTitle
 {
+    public function title(): string
+    {
+        return 'Routers';
+    }
+
     public function headings(): array
     {
         return ['nombre', 'ip', 'puerto', 'usuario', 'password', 'tipo_corte', 'wan_interface'];

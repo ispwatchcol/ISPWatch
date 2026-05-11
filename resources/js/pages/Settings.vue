@@ -964,15 +964,7 @@
 
                 <!-- Import Data Settings -->
                 <div v-if="activeTab === 'import'" class="space-y-6">
-                    <ImportSection type="routers" title="1. Importar Routers" />
-                    <ImportSection
-                        type="service-plans"
-                        title="2. Importar Planes de Servicio"
-                    />
-                    <ImportSection
-                        type="customers"
-                        title="3. Importar Clientes"
-                    />
+                    <ImportSection />
                 </div>
             </div>
         </main>

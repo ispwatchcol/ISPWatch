@@ -15,6 +15,7 @@
         <table class="w-full">
           <thead class="bg-red-50 dark:bg-red-900/20">
             <tr>
+              <th v-if="hasSheet" class="px-4 py-3 text-left text-xs font-medium text-red-800 dark:text-red-300 uppercase tracking-wider">Hoja</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-red-800 dark:text-red-300 uppercase tracking-wider">Fila</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-red-800 dark:text-red-300 uppercase tracking-wider">Campo</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-red-800 dark:text-red-300 uppercase tracking-wider">Error</th>
@@ -22,6 +23,7 @@
           </thead>
           <tbody class="divide-y divide-red-100 dark:divide-red-900/30 bg-white dark:bg-gray-800">
             <tr v-for="(error, index) in errors" :key="index" class="hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors">
+              <td v-if="hasSheet" class="px-4 py-3 text-sm text-indigo-600 dark:text-indigo-400 font-mono">{{ error.sheet || '-' }}</td>
               <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 font-mono">{{ error.row }}</td>
               <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 font-mono font-bold">{{ error.field }}</td>
               <td class="px-4 py-3 text-sm text-red-600 dark:text-red-400">{{ error.error }}</td>
@@ -40,7 +42,11 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue';
+
+const props = defineProps({
   errors: Array,
 });
+
+const hasSheet = computed(() => Array.isArray(props.errors) && props.errors.some(e => e && e.sheet));
 </script>

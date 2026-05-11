@@ -125,8 +125,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // ─── IMPORT ───
     Route::prefix('import')->group(function () {
-        Route::get('template/{type}', [ImportController::class, 'downloadTemplate']);
-        Route::post('{type}', [ImportController::class, 'import']);
-        Route::get('docs/{type}', [ImportController::class, 'fieldDocs']);
+        Route::get('template', [ImportController::class, 'downloadUnifiedTemplate']);
+        Route::post('upload', [ImportController::class, 'importUnified']);
+        Route::get('docs', [ImportController::class, 'fieldDocs']);
     });
 });
