@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B5BFF"/>
+      <stop offset="100%" stop-color="#1E3ABF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="100" height="100" rx="22" fill="url(#bg)"/>
+
+  <!-- WiFi arcs -->
+  <path d="M50 42 m-22 0 a22 22 0 0 1 44 0" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+  <path d="M50 42 m-14 0 a14 14 0 0 1 28 0" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.75"/>
+  <path d="M50 42 m-6 0 a6 6 0 0 1 12 0" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Router body -->
+  <rect x="18" y="58" width="64" height="24" rx="6" fill="white"/>
+
+  <!-- Antenna left -->
+  <line x1="30" y1="58" x2="26" y2="44" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <!-- Antenna right -->
+  <line x1="70" y1="58" x2="74" y2="44" stroke="white" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Status LEDs -->
+  <circle cx="32" cy="70" r="3.5" fill="#3B5BFF"/>
+  <circle cx="43" cy="70" r="3.5" fill="#3B5BFF"/>
+  <circle cx="54" cy="70" r="3.5" fill="#3B5BFF"/>
+</svg>
