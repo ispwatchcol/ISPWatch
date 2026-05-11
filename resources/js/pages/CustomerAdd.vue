@@ -108,46 +108,16 @@
                 Configuración del Servicio
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <!-- IP del Usuario con selector de IPs libres -->
+                <!-- IP del Usuario -->
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     IP del Usuario
-                    <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400">cargando...</span>
-                    <span v-else-if="freeIps.length > 0" class="ml-1 text-xs text-green-500">{{ freeIps.length }} libres</span>
+                    <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400 animate-pulse">cargando...</span>
+                    <span v-else-if="ipStats.free > 0" class="ml-1 text-xs text-green-500">{{ ipStats.free }} libres</span>
                 </label>
-                <div class="relative">
-                    <input v-model="form.ip_user" type="text"
-                        class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="192.168.1.100"
-                        @focus="showIpDropdown = freeIps.length > 0"
-                        @blur="setTimeout(() => showIpDropdown = false, 200)" />
-                    <button v-if="freeIps.length > 0" type="button"
-                        @click="showIpDropdown = !showIpDropdown"
-                        class="absolute right-2 top-2.5 text-gray-400 hover:text-blue-500 transition">
-                        <v-icon name="md-expandmore" class="w-5 h-5" />
-                    </button>
-                    <!-- Dropdown of free IPs -->
-                    <div v-if="showIpDropdown && freeIps.length > 0"
-                        class="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl max-h-52 overflow-y-auto">
-                        <div class="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-300 border-b border-gray-100 dark:border-gray-600 flex justify-between">
-                            <span>IPs libres</span>
-                            <span>{{ ipRangeStats.used }}/{{ ipRangeStats.total }} en uso</span>
-                        </div>
-                        <button v-for="ip in freeIps" :key="ip" type="button"
-                            @mousedown.prevent="form.ip_user = ip; showIpDropdown = false"
-                            class="w-full text-left px-4 py-2 text-sm font-mono text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 transition">
-                            {{ ip }}
-                        </button>
-                    </div>
-                </div>
-                <!-- Range stats bar -->
-                <div v-if="ipRangeStats.total > 0" class="mt-1.5 flex items-center gap-2">
-                    <div class="flex-1 h-1 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                        <div class="h-full bg-blue-500 rounded-full transition-all"
-                            :style="{ width: ipRangeStats.usagePercent + '%' }" />
-                    </div>
-                    <span class="text-xs text-gray-400">{{ ipRangeStats.usagePercent }}%</span>
-                </div>
+                <input v-model="form.ip_user" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="192.168.1.100" />
                 </div>
 
                 <div>
@@ -176,6 +146,101 @@
                     <option v-for="rb in routers" :key="rb.id" :value="rb.id">{{ rb.name }}</option>
                 </select>
                 </div>
+            </div>
+
+            <!-- IP RANGE ANALYZER -->
+            <div v-if="parsedRanges.length > 0 || loadingFreeIps" class="mt-4">
+              <div class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800 shadow-sm">
+                <!-- Header -->
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 flex items-center justify-between">
+                  <div class="flex items-center gap-2 text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span class="font-semibold text-sm">Analizador de IPs</span>
+                  </div>
+                  <div v-if="loadingFreeIps" class="flex items-center gap-1.5 text-white/80 text-xs">
+                    <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    Consultando...
+                  </div>
+                </div>
+                <!-- Stats -->
+                <div class="grid grid-cols-3 divide-x divide-gray-200 dark:divide-gray-700 border-b border-gray-200 dark:border-gray-700">
+                  <div class="px-4 py-3 text-center">
+                    <p class="text-xl font-bold text-gray-800 dark:text-white">{{ ipStats.total }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Total hosts</p>
+                  </div>
+                  <div class="px-4 py-3 text-center">
+                    <p class="text-xl font-bold text-green-600 dark:text-green-400">{{ ipStats.free }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Libres</p>
+                  </div>
+                  <div class="px-4 py-3 text-center">
+                    <p class="text-xl font-bold text-red-500 dark:text-red-400">{{ ipStats.used }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Ocupadas</p>
+                  </div>
+                </div>
+                <!-- Progress bar -->
+                <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/50">
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all duration-500"
+                        :class="ipStats.usagePercent > 80 ? 'bg-red-500' : ipStats.usagePercent > 50 ? 'bg-amber-500' : 'bg-green-500'"
+                        :style="{ width: ipStats.usagePercent + '%' }"
+                      ></div>
+                    </div>
+                    <span class="text-xs font-medium text-gray-600 dark:text-gray-400 w-10 text-right">{{ ipStats.usagePercent }}%</span>
+                  </div>
+                </div>
+                <!-- IP Grid per range -->
+                <div v-for="(range, idx) in parsedRanges" :key="idx" class="border-t border-gray-200 dark:border-gray-700">
+                  <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between">
+                    <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
+                    <span class="text-xs text-gray-500">{{ range.hosts.length }} hosts · {{ range.freeHosts.length }} libres</span>
+                  </div>
+                  <div class="px-4 py-3 max-h-48 overflow-y-auto">
+                    <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
+                      <button
+                        v-for="ip in range.hosts"
+                        :key="ip"
+                        type="button"
+                        @click="range.freeSet.has(ip) && (form.ip_user = ip)"
+                        :class="[
+                          'px-1 py-1 text-[10px] font-mono rounded transition-all truncate',
+                          !range.freeSet.has(ip)
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 cursor-not-allowed line-through'
+                            : form.ip_user === ip
+                              ? 'bg-blue-500 text-white cursor-pointer ring-2 ring-blue-400'
+                              : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/40 cursor-pointer'
+                        ]"
+                        :title="!range.freeSet.has(ip) ? 'IP en uso' : 'Click para asignar'"
+                        :disabled="!range.freeSet.has(ip)"
+                      >{{ ip.split('.').pop() }}</button>
+                    </div>
+                  </div>
+                </div>
+                <!-- Legend -->
+                <div class="px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center gap-4 flex-wrap">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></div>
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400">Libre (click = asignar)</span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-3 h-3 rounded bg-blue-500 border border-blue-400"></div>
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400">Seleccionada</span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-3 h-3 rounded bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700"></div>
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400">En uso</span>
+                  </div>
+                  <div v-if="form.ip_user" class="ml-auto text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+                    ✓ {{ form.ip_user }} seleccionada
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Alerta: plan PPPoE pero router sin Control PPPOE -->
@@ -281,11 +346,61 @@ const plans          = ref([])
 const sectorials     = ref([])
 const routers        = ref([])
 
-// ── Free IP picker ───────────────────────────────────────────────────────────
-const freeIps        = ref([])
-const loadingFreeIps = ref(false)
-const showIpDropdown = ref(false)
-const ipRangeStats   = ref({ total: 0, used: 0, free: 0, usagePercent: 0 })
+// ── IP Range Analyzer ────────────────────────────────────────────────────────
+const rangosIpStr    = ref('')
+const usedIpsSet     = ref(new Set())
+const loadingFreeIps  = ref(false)
+const freeIpsLoaded   = ref(false)
+
+const parseCIDR = (cidr, usedSet) => {
+    const m = cidr.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/)
+    if (!m) return null
+    const prefix = parseInt(m[2])
+    if (prefix < 20 || prefix > 30) return null
+    const parts = m[1].split('.').map(Number)
+    const ipLong    = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
+    const mask      = (0xFFFFFFFF << (32 - prefix)) >>> 0
+    const network   = (ipLong & mask) >>> 0
+    const broadcast = (network | (~mask >>> 0)) >>> 0
+    const hosts = [], freeHosts = []
+    for (let i = network + 1; i < broadcast; i++) {
+        const ip = [(i >>> 24) & 255, (i >>> 16) & 255, (i >>> 8) & 255, i & 255].join('.')
+        hosts.push(ip)
+        if (!usedSet.has(ip)) freeHosts.push(ip)
+    }
+    return { cidr, hosts, freeHosts, freeSet: new Set(freeHosts) }
+}
+
+const parsedRanges = computed(() => {
+    if (!rangosIpStr.value) return []
+    return rangosIpStr.value.split('\n').map(l => l.trim()).filter(Boolean)
+        .map(cidr => parseCIDR(cidr, usedIpsSet.value)).filter(Boolean)
+})
+
+const ipStats = computed(() => {
+    const total = parsedRanges.value.reduce((s, r) => s + r.hosts.length, 0)
+    const free  = parsedRanges.value.reduce((s, r) => s + r.freeHosts.length, 0)
+    const used  = total - free
+    return { total, free, used, usagePercent: total > 0 ? Math.round((used / total) * 100) : 0 }
+})
+
+const loadFreeIps = async (routerId) => {
+    rangosIpStr.value = ''
+    usedIpsSet.value  = new Set()
+    if (!routerId) return
+    loadingFreeIps.value = true
+    try {
+        const res = await api.routers.getFreeIps(routerId)
+        rangosIpStr.value = res.data.rangos_ip ?? ''
+        usedIpsSet.value  = new Set(res.data.used_ips ?? [])
+    } catch (e) {
+        console.warn('No se pudieron cargar IPs libres:', e)
+    } finally {
+        loadingFreeIps.value = false
+    }
+}
+
+watch(() => form.value.router_id, (id) => loadFreeIps(id))
 
 const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
@@ -322,30 +437,6 @@ watch([() => form.value.name, () => form.value.last_name], ([n, l]) => {
     const username = n.toLowerCase().replace(/\s+/g, '') + '.' + l.toLowerCase().replace(/\s+/g, '')
     if (username !== '.') form.value.pppoe_username = username
 })
-
-const loadFreeIps = async (routerId) => {
-    freeIps.value      = []
-    ipRangeStats.value = { total: 0, used: 0, free: 0, usagePercent: 0 }
-    if (!routerId) return
-    loadingFreeIps.value = true
-    try {
-        const res = await api.routers.getFreeIps(routerId)
-        freeIps.value = res.data.free_ips ?? []
-        const totals  = (res.data.ranges ?? []).reduce((a, r) => ({ total: a.total + r.total, used: a.used + r.used }), { total: 0, used: 0 })
-        ipRangeStats.value = {
-            total: totals.total,
-            used:  totals.used,
-            free:  freeIps.value.length,
-            usagePercent: totals.total > 0 ? Math.round((totals.used / totals.total) * 100) : 0,
-        }
-    } catch (e) {
-        console.warn('No se pudieron cargar IPs libres:', e)
-    } finally {
-        loadingFreeIps.value = false
-    }
-}
-
-watch(() => form.value.router_id, (id) => loadFreeIps(id))
 
 const loadCatalogs = async () => {
     try {
