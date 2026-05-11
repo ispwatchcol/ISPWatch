@@ -61,13 +61,35 @@
             <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">Clientes</h1>
             <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Gestión de perfiles de clientes</p>
         </div>
-        <button
-            @click="router.push('/customers/create')"
-            class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition"
-        >
-            <v-icon name="bi-person-plus" class="w-5 h-5" />
-            <span class="text-sm sm:text-base">Nuevo Cliente</span>
-        </button>
+        <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+            <!-- Export CSV -->
+            <button
+                @click="exportToCSV"
+                class="text-sm bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-2 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
+                title="Exportar archivo CSV puro"
+            >
+                <icon-lucide-file-text class="w-4 h-4" />
+                CSV
+            </button>
+
+            <!-- Export Excel -->
+            <button
+                @click="exportToExcel"
+                class="text-sm bg-green-50 text-green-700 border border-green-200 px-3 py-2 rounded-lg hover:bg-green-100 transition-all flex items-center gap-2 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50"
+                title="Exportar archivo compatible con Excel"
+            >
+                <icon-lucide-file-spreadsheet class="w-4 h-4" />
+                Excel
+            </button>
+
+            <button
+                @click="router.push('/customers/create')"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition"
+            >
+                <v-icon name="bi-person-plus" class="w-5 h-5" />
+                <span class="text-sm sm:text-base">Nuevo Cliente</span>
+            </button>
+        </div>
         </div>
 
         <!-- Search + Router filter + Provision -->
@@ -139,7 +161,7 @@
                 <table class="w-full">
                 <thead class="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">ID</th>
+                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">#</th>
                     <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nombre</th>
                     <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Apellido</th>
                     <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Email</th>
@@ -152,9 +174,9 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="customer in filteredCustomers" :key="customer.user_id"
+                    <tr v-for="(customer, idx) in filteredCustomers" :key="customer.user_id"
                         class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                    <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">{{ customer.user_id }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{{ idx + 1 }}</td>
                     <td class="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{{ customer.name }}</td>
                     <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">{{ customer.last_name }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.email }}</td>
@@ -306,6 +328,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import * as XLSX from 'xlsx'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 
@@ -551,6 +574,73 @@ const deleteCustomer = async (customer) => {
         console.error('Error al eliminar cliente:', err)
         toast.value?.error('Error al eliminar', err.response?.data?.message || 'No se pudo eliminar el cliente.')
     }
+}
+
+// ── Export ──────────────────────────────────────────────────────────────────
+const exportRows = () =>
+    filteredCustomers.value.map((c, idx) => ({
+        '#': idx + 1,
+        'Nombre': c.name || '',
+        'Apellido': c.last_name || '',
+        'Email': c.email || '',
+        'IP': c.ip_user || '',
+        'Plan': c.service_name || '',
+        'Sectorial': c.sectorial_name || '',
+        'Router': c.router_name || '',
+        'Estado': c.status ? 'Activo' : 'Suspendido',
+    }))
+
+const downloadFile = (content, filename, mimeType) => {
+    const blob = new Blob([content], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+}
+
+const exportToCSV = () => {
+    if (filteredCustomers.value.length === 0) {
+        toast.value?.warning('Sin datos', 'No hay clientes para exportar.')
+        return
+    }
+    const rows = exportRows()
+    const headers = Object.keys(rows[0])
+    const csv = [
+        headers.join(','),
+        ...rows.map(r => headers.map(h => `"${String(r[h]).replace(/"/g, '""')}"`).join(',')),
+    ].join('\n')
+
+    const date = new Date().toISOString().split('T')[0]
+    downloadFile('﻿' + csv, `clientes_${date}.csv`, 'text/csv;charset=utf-8;')
+}
+
+const exportToExcel = () => {
+    if (filteredCustomers.value.length === 0) {
+        toast.value?.warning('Sin datos', 'No hay clientes para exportar.')
+        return
+    }
+    const rows = exportRows()
+    const worksheet = XLSX.utils.json_to_sheet(rows)
+    worksheet['!cols'] = [
+        { wch: 5 },   // #
+        { wch: 20 },  // Nombre
+        { wch: 20 },  // Apellido
+        { wch: 28 },  // Email
+        { wch: 15 },  // IP
+        { wch: 18 },  // Plan
+        { wch: 18 },  // Sectorial
+        { wch: 18 },  // Router
+        { wch: 12 },  // Estado
+    ]
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Clientes')
+
+    const date = new Date().toISOString().split('T')[0]
+    XLSX.writeFile(workbook, `clientes_${date}.xlsx`)
 }
 
 onMounted(loadCustomers)

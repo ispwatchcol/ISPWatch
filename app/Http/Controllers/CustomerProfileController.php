@@ -16,14 +16,25 @@ class CustomerProfileController extends Controller
 {
     use FixesSequences;
     /**
-     * Display a list of customers profiles.
+     * Display a list of customers profiles (scoped to current tenant).
      */
-    public function index()
+    public function index(Request $request)
     {
+        // Strict: always use authenticated user's tenant_id — ignore any query param
+        // to prevent cross-tenant data leakage.
+        $tenantId = $request->user()?->tenant_id;
+
+        if (!$tenantId) {
+            return response()->json([
+                'message' => 'No autorizado: usuario sin tenant asignado.',
+            ], 401);
+        }
+
         $customers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
             ->leftJoin('service_plan', 'customer_profile.service_id', '=', 'service_plan.id')
             ->leftJoin('sectorial', 'customer_profile.sectorial_id', '=', 'sectorial.id')
             ->leftJoin('router', 'customer_profile.router_id', '=', 'router.id')
+            ->where('users.tenant_id', $tenantId)
             ->select(
                 'customer_profile.user_id',
                 'customer_profile.name',
