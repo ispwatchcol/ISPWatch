@@ -202,6 +202,12 @@ class SshTunnelManager
 
     private function assertSshAvailable(): void
     {
+        // TEMP DEBUG: skip the check entirely to A/B-test whether THIS method
+        // is what makes the local app hang. Remove this line once the test is
+        // done — it disables a guard that gives nice error messages when ssh
+        // is missing.
+        return;
+
         static $checked = null;
         if ($checked !== null) {
             if ($checked === false) {
