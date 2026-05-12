@@ -26,6 +26,7 @@ class SshTunnelManager
     private string $coreUser;
     private string $privateKeyPath;
     private float $readyTimeoutSeconds;
+    private bool $enabled;
 
     public function __construct()
     {
@@ -34,11 +35,22 @@ class SshTunnelManager
         $this->coreUser       = env('MIKROTIK_CORE_SSH_USER', 'admin');
         $this->privateKeyPath = env('MIKROTIK_CORE_SSH_KEY_PATH', storage_path('keys/mikrotik_core_id_ed25519'));
         $this->readyTimeoutSeconds = (float) env('MIKROTIK_TUNNEL_READY_TIMEOUT', 6.0);
+
+        // Tunnel is only needed when the Laravel server cannot reach client
+        // router IPs directly (e.g. production behind DO App Platform). Devs
+        // running locally on the same network as the routers should set
+        // MIKROTIK_USE_CORE_TUNNEL=false in their .env to skip the ssh dance
+        // entirely and connect directly to $router->ip.
+        $this->enabled = filter_var(
+            env('MIKROTIK_USE_CORE_TUNNEL', true),
+            FILTER_VALIDATE_BOOLEAN
+        );
     }
 
     /**
      * Open a tunnel, run $callback($localHost, $localPort), then close.
-     * The callback's return value is propagated to the caller.
+     * When tunneling is disabled, $callback is invoked with the original
+     * $clientIp/$clientPort and no ssh subprocess is spawned.
      *
      * @template T
      * @param  callable(string $localHost, int $localPort): T  $callback
@@ -56,9 +68,21 @@ class SshTunnelManager
 
     /**
      * Open a tunnel and return the handle. Caller MUST call close() on it.
+     *
+     * When MIKROTIK_USE_CORE_TUNNEL=false this returns a passthrough handle
+     * whose localHost()/localPort() resolve to the original client endpoint;
+     * close() is then a no-op.
      */
     public function open(string $clientIp, int $clientPort): SshTunnel
     {
+        if (!$this->enabled) {
+            Log::debug('[SshTunnelManager] tunnel disabled — passthrough mode', [
+                'clientIp'   => $clientIp,
+                'clientPort' => $clientPort,
+            ]);
+            return SshTunnel::passthrough($clientIp, $clientPort);
+        }
+
         $this->assertSshAvailable();
         $this->assertKeyExists();
 
@@ -205,22 +229,33 @@ class SshTunnelManager
         static $checked = null;
         if ($checked !== null) {
             if ($checked === false) {
-                throw new \RuntimeException(
-                    "ssh client not found on PATH. Install OpenSSH client in the runtime image."
-                );
+                throw new \RuntimeException($this->sshMissingMessage());
             }
             return;
         }
 
-        // `which ssh` is cheap; cache the result so we only run it once per request.
-        $result = @shell_exec('command -v ssh 2>/dev/null');
-        $checked = is_string($result) && trim($result) !== '';
+        // Cross-platform: `where ssh` on Windows, `command -v ssh` on POSIX.
+        // exec() gives us the real exit code; shell_exec() with `command -v`
+        // silently fails on Windows because `command` is a bash builtin.
+        $output = [];
+        $returnCode = -1;
+        $probe = PHP_OS_FAMILY === 'Windows'
+            ? 'where ssh 2>NUL'
+            : 'command -v ssh 2>/dev/null';
+        @exec($probe, $output, $returnCode);
+        $checked = ($returnCode === 0);
 
         if (!$checked) {
-            throw new \RuntimeException(
-                "ssh client not found on PATH. Install OpenSSH client in the runtime image."
-            );
+            throw new \RuntimeException($this->sshMissingMessage());
         }
+    }
+
+    private function sshMissingMessage(): string
+    {
+        return "ssh client not found on PATH. " . (PHP_OS_FAMILY === 'Windows'
+            ? "On Windows: install OpenSSH Client via Settings > Apps > Optional Features, " .
+              "or add C:\\Windows\\System32\\OpenSSH to PATH."
+            : "Install OpenSSH client in the runtime image.");
     }
 
     private function assertKeyExists(): void
