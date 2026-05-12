@@ -23,6 +23,7 @@ class SshTunnel
     private string $clientIp;
     private int $clientPort;
     private bool $closed = false;
+    private bool $passthrough = false;
 
     public function __construct($process, array $pipes, int $localPort, string $clientIp, int $clientPort)
     {
@@ -31,6 +32,20 @@ class SshTunnel
         $this->localPort  = $localPort;
         $this->clientIp   = $clientIp;
         $this->clientPort = $clientPort;
+    }
+
+    /**
+     * Build a "passthrough" handle that returns the original $clientIp:$clientPort
+     * from localHost()/localPort(). Used when MIKROTIK_USE_CORE_TUNNEL=false (local
+     * development on the same network as the routers) — no ssh subprocess is
+     * spawned, close() is a no-op.
+     */
+    public static function passthrough(string $clientIp, int $clientPort): self
+    {
+        $instance = new self(null, [], $clientPort, $clientIp, $clientPort);
+        $instance->passthrough = true;
+        $instance->closed      = true; // skip cleanup paths
+        return $instance;
     }
 
     public function __destruct()
@@ -46,7 +61,7 @@ class SshTunnel
 
     public function localHost(): string
     {
-        return '127.0.0.1';
+        return $this->passthrough ? $this->clientIp : '127.0.0.1';
     }
 
     public function localPort(): int
@@ -130,23 +145,37 @@ class SshTunnel
         }
 
         $status = @proc_get_status($this->process);
+        $pid    = is_array($status) ? ($status['pid'] ?? null) : null;
+
         if (is_array($status) && !empty($status['running'])) {
-            @proc_terminate($this->process, 15); // SIGTERM
-
-            // Wait up to 500ms for a clean exit.
-            for ($i = 0; $i < 25; $i++) {
-                $s = @proc_get_status($this->process);
-                if (!is_array($s) || empty($s['running'])) {
-                    break;
+            if (PHP_OS_FAMILY === 'Windows') {
+                // On Windows, proc_open(string) wraps the command in `cmd /c`, so
+                // proc_get_status()['pid'] is cmd.exe's PID — NOT ssh.exe.
+                // proc_terminate() only kills cmd.exe, leaving ssh.exe as an orphan
+                // child, and then proc_close() blocks waiting for the wrapper
+                // shell that's now waiting on ssh.exe. Use taskkill /T to kill the
+                // whole tree and break the deadlock.
+                if ($pid) {
+                    @exec(sprintf('taskkill /F /T /PID %d 2>NUL', (int) $pid));
                 }
-                usleep(20000);
-            }
+            } else {
+                @proc_terminate($this->process, 15); // SIGTERM
 
-            $s = @proc_get_status($this->process);
-            if (is_array($s) && !empty($s['running'])) {
-                @proc_terminate($this->process, 9); // SIGKILL
-                if (function_exists('posix_kill') && !empty($s['pid'])) {
-                    @posix_kill($s['pid'], 9);
+                // Wait up to 500ms for a clean exit.
+                for ($i = 0; $i < 25; $i++) {
+                    $s = @proc_get_status($this->process);
+                    if (!is_array($s) || empty($s['running'])) {
+                        break;
+                    }
+                    usleep(20000);
+                }
+
+                $s = @proc_get_status($this->process);
+                if (is_array($s) && !empty($s['running'])) {
+                    @proc_terminate($this->process, 9); // SIGKILL
+                    if (function_exists('posix_kill') && !empty($s['pid'])) {
+                        @posix_kill($s['pid'], 9);
+                    }
                 }
             }
         }
