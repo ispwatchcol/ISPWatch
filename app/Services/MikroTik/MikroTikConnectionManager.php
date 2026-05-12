@@ -30,6 +30,8 @@ class MikroTikConnectionManager
 
     private int $timeout;
     private MikroTikApiProtocol $apiProtocol;
+    private ?SshTunnelManager $tunnelManagerInstance = null;
+    private ?SshTunnel $activeClientTunnel = null;
 
     public function __construct(?MikroTikApiProtocol $apiProtocol = null)
     {
@@ -236,24 +238,49 @@ class MikroTikConnectionManager
     }
 
     /**
-     * Connect to a CLIENT router via API (direct connection)
-     * 
-     * @param string $clientIp Client router IP
-     * @param int $clientPort Client API port (default: 8728)
-     * @param string $clientUser Client username
-     * @param string $clientPass Client password
+     * Connect to a CLIENT router via API through an SSH local-forward tunnel.
+     *
+     * The tunnel is opened on this manager's $activeClientTunnel and lives until
+     * closeClientApi() is called (or this object is destroyed). The returned
+     * socket points at 127.0.0.1:<tunnel-local-port>, not at the actual client.
+     *
      * @return resource|false Socket resource or false on failure
      */
     public function connectClientApi(string $clientIp, int $clientPort, string $clientUser, string $clientPass)
     {
-        $socket = $this->apiProtocol->connect($clientIp, $clientPort, $this->timeout);
+        if ($this->activeClientTunnel !== null) {
+            // Don't silently overwrite — the previous tunnel would leak.
+            Log::warning('[MikroTikConnectionManager] connectClientApi called with an existing tunnel — closing it first');
+            $this->activeClientTunnel->close();
+            $this->activeClientTunnel = null;
+        }
+
+        try {
+            $this->activeClientTunnel = $this->tunnelManager()->open($clientIp, $clientPort);
+        } catch (\Throwable $e) {
+            Log::error('[MikroTikConnectionManager] tunnel open failed', [
+                'client' => "{$clientIp}:{$clientPort}",
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+
+        $socket = $this->apiProtocol->connect(
+            $this->activeClientTunnel->localHost(),
+            $this->activeClientTunnel->localPort(),
+            $this->timeout
+        );
 
         if (!$socket) {
+            $this->activeClientTunnel->close();
+            $this->activeClientTunnel = null;
             return false;
         }
 
         if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
             $this->apiProtocol->close($socket);
+            $this->activeClientTunnel->close();
+            $this->activeClientTunnel = null;
             return false;
         }
 
@@ -261,19 +288,62 @@ class MikroTikConnectionManager
     }
 
     /**
-     * Try direct API connection to client, returns socket or false
-     * Quick timeout for fallback scenarios
+     * Close a socket opened by connectClientApi() AND tear down its tunnel.
+     */
+    public function closeClientApi($socket): void
+    {
+        if ($socket) {
+            $this->apiProtocol->close($socket);
+        }
+        if ($this->activeClientTunnel !== null) {
+            $this->activeClientTunnel->close();
+            $this->activeClientTunnel = null;
+        }
+    }
+
+    /**
+     * Probe whether a client router is reachable.
+     *
+     * In production the client router lives behind the L2TP overlay on the CORE,
+     * so "reachable" means: we can open an SSH tunnel through the CORE and a
+     * TCP connection completes through it on the requested port.
      */
     public function tryDirectClientConnection(string $clientIp, int $clientPort = 8728): bool
     {
-        $socket = @fsockopen($clientIp, $clientPort, $errno, $errstr, 3);
-
-        if ($socket) {
-            @fclose($socket);
-            return true;
+        try {
+            $tunnel = $this->tunnelManager()->open($clientIp, $clientPort);
+        } catch (\Throwable $e) {
+            Log::debug('[MikroTikConnectionManager] probe: tunnel open failed', [
+                'client' => "{$clientIp}:{$clientPort}",
+                'error' => $e->getMessage(),
+            ]);
+            return false;
         }
 
-        return false;
+        try {
+            $errno = 0; $errstr = '';
+            $probe = @fsockopen($tunnel->localHost(), $tunnel->localPort(), $errno, $errstr, 3);
+            if (!$probe) {
+                Log::debug('[MikroTikConnectionManager] probe: tunnel up but client TCP refused', [
+                    'client' => "{$clientIp}:{$clientPort}",
+                    'errno' => $errno,
+                    'errstr' => $errstr,
+                ]);
+                return false;
+            }
+            @fclose($probe);
+            return true;
+        } finally {
+            $tunnel->close();
+        }
+    }
+
+    private function tunnelManager(): SshTunnelManager
+    {
+        if ($this->tunnelManagerInstance === null) {
+            $this->tunnelManagerInstance = new SshTunnelManager();
+        }
+        return $this->tunnelManagerInstance;
     }
 
     // ==================== SSH CONNECTIONS ====================

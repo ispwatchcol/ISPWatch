@@ -3,19 +3,34 @@
 namespace App\Services;
 
 use App\Models\Router;
+use App\Services\MikroTik\SshTunnel;
+use App\Services\MikroTik\SshTunnelManager;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Servicio para comunicación directa con routers MikroTik
  * Separado de VpnService para llamadas específicas al router cliente
+ *
+ * Connectivity: every call goes through an SSH local-forward tunnel opened
+ * through the MikroTik CORE, because client router IPs (172.16.x.x, 192.168.x.x)
+ * live inside the L2TP overlay and are NOT routable from the production server.
  */
 class RouterApiService
 {
     private int $timeout = 30; // Increased timeout for slower connections
-    private $externalStream = null; // Stream resource injected manually (e.g. SSH Tunnel)
+    private $externalStream = null; // Stream resource injected manually (escape hatch)
+
+    private SshTunnelManager $tunnelManager;
+    private ?SshTunnel $activeTunnel = null;
+
+    public function __construct(?SshTunnelManager $tunnelManager = null)
+    {
+        $this->tunnelManager = $tunnelManager ?? new SshTunnelManager();
+    }
 
     /**
-     * set an external stream to be used for connection
+     * Inject a pre-opened stream. When set, connect() returns it as-is and
+     * closeSocket() is a no-op — the caller owns the stream's lifecycle.
      */
     public function useStream($stream)
     {
@@ -53,8 +68,7 @@ class RouterApiService
         try {
             // LOGIN
             if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
-                if (is_null($this->externalStream))
-                    fclose($socket); // Only close if we opened it
+                $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
 
@@ -66,7 +80,7 @@ class RouterApiService
             // Leer TODA la respuesta hasta !done
             $records = $this->readAllRecords($socket);
 
-            fclose($socket);
+            $this->closeSocket($socket);
 
             Log::info('[RouterAPI] Interfaces obtenidas', ['count' => count($records)]);
 
@@ -102,7 +116,7 @@ class RouterApiService
 
         } catch (\Throwable $e) {
             Log::error('[RouterAPI] Excepción', ['error' => $e->getMessage()]);
-            @fclose($socket);
+            $this->closeSocket($socket);
             return $this->error('Error al consultar interfaces: ' . $e->getMessage());
         }
     }
@@ -156,16 +170,10 @@ class RouterApiService
             return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}");
         }
 
-        // Only set timeout if we created the connection (not external stream)
-        if (is_null($this->externalStream)) {
-            stream_set_timeout($socket, $this->timeout);
-        }
-
         try {
             // LOGIN
             if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
-                if (is_null($this->externalStream))
-                    fclose($socket);
+                $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
 
@@ -219,9 +227,7 @@ class RouterApiService
             $this->readUntilDone($socket);
             Log::info('[RouterAPI] Regla FILTER aplicada');
 
-            // Only close socket if we created it (not external stream)
-            if (is_null($this->externalStream))
-                fclose($socket);
+            $this->closeSocket($socket);
 
             return [
                 'success' => true,
@@ -240,8 +246,7 @@ class RouterApiService
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            if (is_null($this->externalStream))
-                @fclose($socket);
+            $this->closeSocket($socket);
             return $this->error('Error al aplicar reglas: ' . $e->getMessage());
         }
     }
@@ -274,23 +279,15 @@ class RouterApiService
         // Use the API port configured in the router
         $apiPort = $router->puerto_api ?? 8728;
 
-        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
+        $socket = $this->connect($router->ip, $apiPort);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', [
-                'error' => $errstr,
-                'errno' => $errno,
-                'ip' => $router->ip,
-                'port' => $apiPort,
-            ]);
-            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}");
         }
-
-        stream_set_timeout($socket, $this->timeout);
 
         try {
             if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
-                fclose($socket);
+                $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
 
@@ -364,7 +361,7 @@ class RouterApiService
             }
 
             $this->readUntilDone($socket);
-            fclose($socket);
+            $this->closeSocket($socket);
 
             return [
                 'success' => true,
@@ -376,7 +373,7 @@ class RouterApiService
             Log::error('[RouterAPI] Error sincronizando cliente', [
                 'error' => $e->getMessage()
             ]);
-            @fclose($socket);
+            $this->closeSocket($socket);
             return $this->error('Error al sincronizar cliente: ' . $e->getMessage());
         }
     }
@@ -403,23 +400,15 @@ class RouterApiService
         // Use the API port configured in the router
         $apiPort = $router->puerto_api ?? 8728;
 
-        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
+        $socket = $this->connect($router->ip, $apiPort);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', [
-                'error' => $errstr,
-                'errno' => $errno,
-                'ip' => $router->ip,
-                'port' => $apiPort,
-            ]);
-            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}");
         }
-
-        stream_set_timeout($socket, $this->timeout);
 
         try {
             if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
-                fclose($socket);
+                $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
 
@@ -431,7 +420,7 @@ class RouterApiService
             ]);
             $this->readUntilDone($socket);
 
-            fclose($socket);
+            $this->closeSocket($socket);
 
             return [
                 'success' => true,
@@ -441,7 +430,7 @@ class RouterApiService
 
         } catch (\Throwable $e) {
             Log::error('[RouterAPI] Error suspendiendo cliente', ['error' => $e->getMessage()]);
-            @fclose($socket);
+            $this->closeSocket($socket);
             return $this->error('Error al suspender cliente: ' . $e->getMessage());
         }
     }
@@ -467,23 +456,15 @@ class RouterApiService
         // Use the API port configured in the router
         $apiPort = $router->puerto_api ?? 8728;
 
-        $socket = @fsockopen($router->ip, $apiPort, $errno, $errstr, $this->timeout);
+        $socket = $this->connect($router->ip, $apiPort);
 
         if (!$socket) {
-            Log::error('[RouterAPI] No se pudo conectar', [
-                'error' => $errstr,
-                'errno' => $errno,
-                'ip' => $router->ip,
-                'port' => $apiPort,
-            ]);
-            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}: $errstr");
+            return $this->error("No se pudo conectar al router en {$router->ip}:{$apiPort}");
         }
-
-        stream_set_timeout($socket, $this->timeout);
 
         try {
             if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
-                fclose($socket);
+                $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
 
@@ -497,7 +478,7 @@ class RouterApiService
             $records = $this->readAllRecords($socket);
 
             if (empty($records)) {
-                fclose($socket);
+                $this->closeSocket($socket);
                 return [
                     'success' => true,
                     'message' => 'Cliente ya estaba activo',
@@ -516,7 +497,7 @@ class RouterApiService
                 }
             }
 
-            fclose($socket);
+            $this->closeSocket($socket);
 
             return [
                 'success' => true,
@@ -526,33 +507,88 @@ class RouterApiService
 
         } catch (\Throwable $e) {
             Log::error('[RouterAPI] Error activando cliente', ['error' => $e->getMessage()]);
-            @fclose($socket);
+            $this->closeSocket($socket);
             return $this->error('Error al activar cliente: ' . $e->getMessage());
         }
     }
 
     /**
-     * Establish connection to router (Socket or Stream)
+     * Establish a connection to a client router.
+     *
+     * Path: open an SSH local-forward tunnel through the MikroTik CORE, then
+     * fsockopen() onto 127.0.0.1:<localPort>. The tunnel handle is stashed on
+     * the instance and torn down by closeSocket().
+     *
+     * If useStream() was called, that stream is returned verbatim (escape hatch
+     * used by tests / specialty callers).
+     *
+     * @return resource|null
      */
     private function connect(string $ip, int $port)
     {
-        // 1. If external stream (tunnel) is provided, use it
         if ($this->externalStream) {
-            Log::debug('[RouterAPI] Using existing external stream/tunnel');
+            Log::debug('[RouterAPI] Using injected external stream — bypassing tunnel');
             return $this->externalStream;
         }
 
-        // 2. Otherwise create a new socket connection
-        Log::debug("[RouterAPI] Opening new fsockopen connection to $ip:$port");
-        $socket = @fsockopen($ip, $port, $errno, $errstr, $this->timeout);
+        // Only one tunnel per service instance at a time. If a previous call
+        // forgot to close, reap it before opening a new one.
+        if ($this->activeTunnel !== null) {
+            Log::warning('[RouterAPI] Previous tunnel still open at connect() — closing it');
+            $this->activeTunnel->close();
+            $this->activeTunnel = null;
+        }
+
+        try {
+            $this->activeTunnel = $this->tunnelManager->open($ip, $port);
+        } catch (\Throwable $e) {
+            Log::error('[RouterAPI] Tunnel open failed', [
+                'ip'    => $ip,
+                'port'  => $port,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+
+        $errno = 0; $errstr = '';
+        $socket = @fsockopen(
+            $this->activeTunnel->localHost(),
+            $this->activeTunnel->localPort(),
+            $errno,
+            $errstr,
+            $this->timeout
+        );
 
         if (!$socket) {
-            Log::error('[RouterAPI] Connection failed', ['ip' => $ip, 'error' => $errstr]);
+            Log::error('[RouterAPI] fsockopen against tunnel failed', [
+                'tunnelLocalPort' => $this->activeTunnel->localPort(),
+                'clientIp'        => $ip,
+                'clientPort'      => $port,
+                'error'           => $errstr,
+                'errno'           => $errno,
+            ]);
+            $this->activeTunnel->close();
+            $this->activeTunnel = null;
             return null;
         }
 
         stream_set_timeout($socket, $this->timeout);
         return $socket;
+    }
+
+    /**
+     * Close the API socket AND tear down the SSH tunnel that backs it.
+     * Safe to call multiple times. No-op for externally-injected streams.
+     */
+    private function closeSocket($socket): void
+    {
+        if (is_resource($socket) && $socket !== $this->externalStream) {
+            @fclose($socket);
+        }
+        if ($this->activeTunnel !== null) {
+            $this->activeTunnel->close();
+            $this->activeTunnel = null;
+        }
     }
 
     /**

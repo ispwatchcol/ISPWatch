@@ -131,35 +131,64 @@ class InterfaceReader
     }
 
     /**
-     * Attempt a direct API connection on a specific port and read interfaces.
+     * Attempt an API connection on a specific port and read interfaces.
+     *
+     * Client routers live behind the L2TP overlay on the CORE; we go through
+     * an SSH local-forward tunnel opened by SshTunnelManager. The probe via
+     * tryDirectClientConnection() is kept first so existing test doubles that
+     * mock it to return false (forcing the SSH-via-CORE fallback path) keep
+     * working unchanged.
      */
     private function tryDirectApi(string $clientIp, string $clientUser, string $clientPass, int $port): array
     {
         if (!$this->connectionManager->tryDirectClientConnection($clientIp, $port)) {
             return [
                 'success' => false,
-                'message' => "Puerto {$port} no responde (TCP) desde el servidor.",
+                'message' => "Puerto {$port} no alcanzable a través del túnel CORE.",
                 'interfaces' => [],
             ];
         }
 
-        $socket = $this->apiProtocol->connect($clientIp, $port, 5);
-        if (!$socket) {
+        // Open the actual API socket via a fresh tunnel. tryDirectClientConnection
+        // closed its probe tunnel already; we want a dedicated one bound to the
+        // lifecycle of this API session.
+        $tunnelManager = new SshTunnelManager();
+        try {
+            $tunnel = $tunnelManager->open($clientIp, $port);
+        } catch (\Throwable $e) {
             return [
                 'success' => false,
-                'message' => "TCP abierto en puerto {$port} pero la API MikroTik no respondió.",
+                'message' => "No se pudo abrir túnel SSH al puerto {$port}: " . $e->getMessage(),
                 'interfaces' => [],
             ];
         }
 
-        Log::info('[InterfaceReader] Direct API connection available', ['port' => $port]);
-        $result = $this->getInterfacesDirectApi($socket, $clientUser, $clientPass);
+        try {
+            $socket = $this->apiProtocol->connect($tunnel->localHost(), $tunnel->localPort(), 5);
+            if (!$socket) {
+                return [
+                    'success' => false,
+                    'message' => "Túnel SSH abierto pero la API MikroTik en {$port} no respondió.",
+                    'interfaces' => [],
+                ];
+            }
 
-        if ($result['success']) {
-            $result['port_used'] = $port;
+            Log::info('[InterfaceReader] Direct API connection available via tunnel', [
+                'port' => $port,
+                'tunnel_local_port' => $tunnel->localPort(),
+            ]);
+            $result = $this->getInterfacesDirectApi($socket, $clientUser, $clientPass);
+
+            if ($result['success']) {
+                $result['port_used'] = $port;
+            }
+
+            return $result;
+        } finally {
+            // getInterfacesDirectApi already closes $socket via apiProtocol->close.
+            // Closing the tunnel here is what stops the ssh subprocess.
+            $tunnel->close();
         }
-
-        return $result;
     }
 
     /**

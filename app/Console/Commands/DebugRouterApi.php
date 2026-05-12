@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\Router;
 use App\Services\MikroTik\MikroTikApiProtocol;
+use App\Services\MikroTik\SshTunnelManager;
 
 /**
  * Deep API diagnostic command — connects to a client router exactly the way the
@@ -63,22 +64,42 @@ class DebugRouterApi extends Command
             $log("  DB wan_interface = " . ($router->wan_interface ?? 'null'));
         }
 
-        $log("Connecting to {$ip}:{$port} as '{$user}'");
+        $log("Connecting to {$ip}:{$port} as '{$user}' via SSH tunnel through CORE");
 
-        // ── Step 1: raw TCP probe ───────────────────────────────────────────
-        $tcp = @fsockopen($ip, $port, $errno, $errstr, 5);
-        if (!$tcp) {
-            $log("❌ TCP probe failed: [{$errno}] {$errstr}");
+        // ── Step 0: open SSH local-forward tunnel through the CORE ──────────
+        // Client routers live behind the L2TP overlay; the production server
+        // can't reach $ip directly, so we forward 127.0.0.1:<rand> -> $ip:$port.
+        $tunnelManager = new SshTunnelManager();
+        try {
+            $tunnel = $tunnelManager->open($ip, $port);
+        } catch (\Throwable $e) {
+            $log("❌ SSH tunnel open failed: " . $e->getMessage());
+            $log("   Verify MIKROTIK_CORE_SSH_KEY_B64 is set in App Platform envs and");
+            $log("   that the corresponding public key is installed on the MikroTik CORE.");
             return 1;
         }
-        $log("✓ TCP port {$port} reachable");
+        $log("✓ Tunnel opened: 127.0.0.1:{$tunnel->localPort()} -> CORE -> {$ip}:{$port}");
+
+        $localHost = $tunnel->localHost();
+        $localPort = $tunnel->localPort();
+
+        // ── Step 1: raw TCP probe through the tunnel ───────────────────────
+        $tcp = @fsockopen($localHost, $localPort, $errno, $errstr, 5);
+        if (!$tcp) {
+            $log("❌ TCP probe failed through tunnel: [{$errno}] {$errstr}");
+            $log("   Tunnel is up locally but the CORE could not reach {$ip}:{$port}.");
+            $tunnel->close();
+            return 1;
+        }
+        $log("✓ TCP port {$port} reachable through tunnel");
         fclose($tcp);
 
-        // ── Step 2: open API socket with tracing protocol ───────────────────
+        // ── Step 2: open API socket through the tunnel with tracing protocol ─
         $protocol = new TracingApiProtocol($log);
-        $socket = $protocol->connect($ip, $port, 10);
+        $socket = $protocol->connect($localHost, $localPort, 10);
         if (!$socket) {
             $log("❌ API socket connect failed");
+            $tunnel->close();
             return 1;
         }
         $log("✓ API socket opened");
@@ -135,6 +156,7 @@ class DebugRouterApi extends Command
             $log("   - The router has fail2ban / blacklist active against this server");
             $log("   - There's a firewall between server and router dropping API traffic");
             $protocol->close($socket);
+            $tunnel->close();
             return 1;
         }
 
@@ -152,6 +174,7 @@ class DebugRouterApi extends Command
         }
 
         $protocol->close($socket);
+        $tunnel->close();
         $log("====================================================");
         $log("Stopping here — fix login first before testing /interface");
         $log("Full transcript: {$logFile}");
@@ -214,6 +237,7 @@ class DebugRouterApi extends Command
         }
 
         $protocol->close($socket);
+        $tunnel->close();
         $log("====================================================");
         $log("Done. Full transcript: {$logFile}");
         $log("====================================================");

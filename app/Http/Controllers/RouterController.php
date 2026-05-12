@@ -10,6 +10,7 @@ use App\Http\Requests\UpdateRouterRequest;
 use App\Models\Router;
 use App\Services\VpnService;
 use App\Services\MikroTikSshService;
+use App\Services\MikroTik\SshTunnelManager;
 use App\Traits\FixesSequences;
 
 class RouterController extends Controller
@@ -283,13 +284,29 @@ class RouterController extends Controller
         // Fix for Windows console output encoding (sane default to avoid 500 error)
         $results['local_ping_from_laravel'] = mb_convert_encoding((string) $localPing, 'UTF-8', 'ISO-8859-1');
 
-        // TCP Connect Local
-        $fp = @fsockopen($router->ip, 8728, $errno, $errstr, 2);
-        if ($fp) {
-            $results['local_api_port_8728'] = "OPEN - Connected successfully";
-            fclose($fp);
-        } else {
-            $results['local_api_port_8728'] = mb_convert_encoding("CLOSED/TIMEOUT - $errstr ($errno)", 'UTF-8', 'ISO-8859-1');
+        // TCP Connect Local — client routers live behind the L2TP overlay, so we
+        // probe through an SSH local-forward via the CORE.
+        try {
+            $tunnelManager = new SshTunnelManager();
+            $tunnel = $tunnelManager->open($router->ip, 8728);
+            $fp = @fsockopen($tunnel->localHost(), $tunnel->localPort(), $errno, $errstr, 2);
+            if ($fp) {
+                $results['local_api_port_8728'] = "OPEN via CORE tunnel (local port {$tunnel->localPort()})";
+                fclose($fp);
+            } else {
+                $results['local_api_port_8728'] = mb_convert_encoding(
+                    "Tunnel up but client TCP refused: $errstr ($errno)",
+                    'UTF-8',
+                    'ISO-8859-1'
+                );
+            }
+            $tunnel->close();
+        } catch (\Throwable $e) {
+            $results['local_api_port_8728'] = mb_convert_encoding(
+                "Tunnel open failed: " . $e->getMessage(),
+                'UTF-8',
+                'ISO-8859-1'
+            );
         }
 
         // 2. REMOTE CONNECTIVITY CHECK (CORE -> Client)
