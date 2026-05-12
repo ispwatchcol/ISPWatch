@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Router;
+use App\Services\MikroTik\SshTunnelManager;
 use Illuminate\Support\Facades\Log;
 
 class VpnService
@@ -412,15 +413,31 @@ SCRIPT;
             'router_ip' => $router->ip,
         ]);
 
-        // Conectar directamente al router cliente
-        $socket = @fsockopen($router->ip, 8728, $errno, $errstr, 10);
+        // Client router IPs (172.16.x.x, 192.168.x.x) only route inside the L2TP
+        // overlay, so we go through the CORE via SSH local-forward.
+        $tunnelManager = new SshTunnelManager();
+        try {
+            $tunnel = $tunnelManager->open($router->ip, 8728);
+        } catch (\Throwable $e) {
+            Log::error('[INTERFACES] No se pudo abrir túnel SSH al router', [
+                'router_id' => $router->id,
+                'ip' => $router->ip,
+                'error' => $e->getMessage(),
+            ]);
+            return $this->error("No se pudo abrir túnel al router en {$router->ip}:8728: " . $e->getMessage());
+        }
+
+        $errno = 0; $errstr = '';
+        $socket = @fsockopen($tunnel->localHost(), $tunnel->localPort(), $errno, $errstr, 10);
 
         if (!$socket) {
-            Log::error('[INTERFACES] No se pudo conectar al router', [
+            Log::error('[INTERFACES] No se pudo conectar al router via túnel', [
                 'errno' => $errno,
                 'errstr' => $errstr,
                 'ip' => $router->ip,
+                'tunnel_port' => $tunnel->localPort(),
             ]);
+            $tunnel->close();
             return $this->error("No se pudo conectar al router en {$router->ip}:8728: {$errstr}");
         }
 
@@ -431,7 +448,8 @@ SCRIPT;
             $loginSuccess = $this->doLoginToClient($socket, $router->user_rb, $router->password_rb);
 
             if (!$loginSuccess) {
-                fclose($socket);
+                @fclose($socket);
+                $tunnel->close();
                 return $this->error('Error de autenticación en el router cliente');
             }
 
@@ -448,7 +466,8 @@ SCRIPT;
                 'data' => $interfacesData,
             ]);
 
-            fclose($socket);
+            @fclose($socket);
+            $tunnel->close();
 
             // Formatear respuesta
             $interfaces = [];
@@ -502,6 +521,7 @@ SCRIPT;
                 'trace' => $e->getTraceAsString(),
             ]);
             @fclose($socket);
+            $tunnel->close();
             return $this->error('Error inesperado al consultar interfaces del router');
         }
     }

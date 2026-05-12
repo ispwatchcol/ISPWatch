@@ -20,6 +20,14 @@
 /storage/*.key
 /storage/keys/
 /storage/pail
+# SSH private keys — never commit, no matter where they end up
+*.pem
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+mikrotik_core_id_ed25519
+mikrotik_core_id_ed25519.*
 /vendor
 Homestead.json
 Homestead.yaml
