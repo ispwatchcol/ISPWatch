@@ -205,22 +205,33 @@ class SshTunnelManager
         static $checked = null;
         if ($checked !== null) {
             if ($checked === false) {
-                throw new \RuntimeException(
-                    "ssh client not found on PATH. Install OpenSSH client in the runtime image."
-                );
+                throw new \RuntimeException($this->sshMissingMessage());
             }
             return;
         }
 
-        // `which ssh` is cheap; cache the result so we only run it once per request.
-        $result = @shell_exec('command -v ssh 2>/dev/null');
-        $checked = is_string($result) && trim($result) !== '';
+        // Cross-platform: `where ssh` on Windows, `command -v ssh` on POSIX.
+        // exec() gives us the real exit code; shell_exec() with `command -v`
+        // silently fails on Windows because `command` is a bash builtin.
+        $output = [];
+        $returnCode = -1;
+        $probe = PHP_OS_FAMILY === 'Windows'
+            ? 'where ssh 2>NUL'
+            : 'command -v ssh 2>/dev/null';
+        @exec($probe, $output, $returnCode);
+        $checked = ($returnCode === 0);
 
         if (!$checked) {
-            throw new \RuntimeException(
-                "ssh client not found on PATH. Install OpenSSH client in the runtime image."
-            );
+            throw new \RuntimeException($this->sshMissingMessage());
         }
+    }
+
+    private function sshMissingMessage(): string
+    {
+        return "ssh client not found on PATH. " . (PHP_OS_FAMILY === 'Windows'
+            ? "On Windows: install OpenSSH Client via Settings > Apps > Optional Features, " .
+              "or add C:\\Windows\\System32\\OpenSSH to PATH."
+            : "Install OpenSSH client in the runtime image.");
     }
 
     private function assertKeyExists(): void
