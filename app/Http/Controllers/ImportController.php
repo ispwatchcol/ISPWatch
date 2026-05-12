@@ -90,6 +90,8 @@ class ImportController extends Controller
                 ['field' => 'ciudad', 'required' => false, 'description' => 'Ciudad de residencia', 'example' => 'Bogotá'],
                 ['field' => 'ip_usuario', 'required' => false, 'description' => 'IP asignada al cliente', 'example' => '10.0.0.5'],
                 ['field' => 'nombre_sectorial', 'required' => false, 'description' => 'Nombre de la sectorial asignada', 'example' => 'Sectorial Norte'],
+                ['field' => 'usuario_pppoe', 'required' => false, 'description' => 'Usuario PPPoE (obligatorio si el router tiene Control PPPOE activo)', 'example' => 'juan.perez'],
+                ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE (obligatoria si el router tiene Control PPPOE activo)', 'example' => 'secret123'],
             ],
         ]);
     }

@@ -90,6 +90,21 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
+            if ($router->pppoe) {
+                $pppoeMissing = [];
+                if (empty($data['usuario_pppoe'])) $pppoeMissing[] = 'usuario_pppoe';
+                if (empty($data['password_pppoe'])) $pppoeMissing[] = 'password_pppoe';
+                if (!empty($pppoeMissing)) {
+                    $this->errors[] = [
+                        'sheet' => 'Clientes',
+                        'row' => $rowNumber,
+                        'field' => implode(', ', $pppoeMissing),
+                        'error' => "El router '{$router->name}' usa Control PPPOE — credenciales PPPoE obligatorias.",
+                    ];
+                    continue;
+                }
+            }
+
             $plan = Plan::where('name', $data['nombre_plan'])
                 ->where('tenant_id', $this->tenantId)
                 ->first();
@@ -150,6 +165,8 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                     'router_id' => $router->id,
                     'service_id' => $plan->id,
                     'sectorial_id' => $sectorialId,
+                    'pppoe_username' => $data['usuario_pppoe'] ?? null,
+                    'pppoe_password' => $data['password_pppoe'] ?? null,
                     'status' => true,
                 ]);
 
