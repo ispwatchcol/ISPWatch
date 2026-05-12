@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Exports\ImportErrorsExport;
 use App\Exports\UnifiedTemplateExport;
 use App\Imports\UnifiedImport;
 use Illuminate\Http\Request;
@@ -45,6 +46,19 @@ class ImportController extends Controller
             'errors' => $errors,
             'message' => $this->buildSummaryMessage($summary, $errors),
         ], $hasErrors && !$hasAnyImport ? 422 : 200);
+    }
+
+    public function exportErrors(Request $request)
+    {
+        $data = $request->validate([
+            'errors' => 'required|array|min:1',
+            'errors.*.sheet' => 'nullable|string',
+            'errors.*.row' => 'nullable',
+            'errors.*.field' => 'nullable|string',
+            'errors.*.error' => 'nullable|string',
+        ]);
+
+        return Excel::download(new ImportErrorsExport($data['errors']), 'errores_carga_masiva.xlsx');
     }
 
     public function fieldDocs()

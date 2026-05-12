@@ -42,7 +42,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
             }
 
             $missing = [];
-            foreach (['email', 'nombre', 'apellido', 'ip_router', 'nombre_plan'] as $field) {
+            foreach (['nombre', 'apellido', 'ip_usuario', 'ip_router', 'nombre_plan', 'nombre_sectorial'] as $field) {
                 if (empty($data[$field])) {
                     $missing[] = $field;
                 }
@@ -57,22 +57,12 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            if (!empty($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
                     'field' => 'email',
                     'error' => 'Email inválido',
-                ];
-                continue;
-            }
-
-            if (User::where('email', $data['email'])->exists()) {
-                $this->errors[] = [
-                    'sheet' => 'Clientes',
-                    'row' => $rowNumber,
-                    'field' => 'email',
-                    'error' => "El email {$data['email']} ya está registrado",
                 ];
                 continue;
             }
@@ -118,20 +108,17 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            $sectorialId = null;
-            if (!empty($data['nombre_sectorial'])) {
-                $sectorial = Sectorial::where('name', $data['nombre_sectorial'])->first();
-                if (!$sectorial) {
-                    $this->errors[] = [
-                        'sheet' => 'Clientes',
-                        'row' => $rowNumber,
-                        'field' => 'nombre_sectorial',
-                        'error' => "Sectorial '{$data['nombre_sectorial']}' no encontrada.",
-                    ];
-                    continue;
-                }
-                $sectorialId = $sectorial->id;
+            $sectorial = Sectorial::where('name', $data['nombre_sectorial'])->first();
+            if (!$sectorial) {
+                $this->errors[] = [
+                    'sheet' => 'Clientes',
+                    'row' => $rowNumber,
+                    'field' => 'nombre_sectorial',
+                    'error' => "Sectorial '{$data['nombre_sectorial']}' no encontrada.",
+                ];
+                continue;
             }
+            $sectorialId = $sectorial->id;
 
             $tenant = Tenant::find($this->tenantId);
             $firstName = strtolower(preg_replace('/\s+/', '', $data['nombre']));
@@ -139,13 +126,25 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
             $domain = $tenant ? strtolower($tenant->domain ?? 'local') : 'local';
             $emailTenant = "{$firstName}.{$lastName}@{$domain}";
 
+            $customerEmail = !empty($data['email']) ? $data['email'] : $emailTenant;
+
+            if (User::where('email', $customerEmail)->exists()) {
+                $this->errors[] = [
+                    'sheet' => 'Clientes',
+                    'row' => $rowNumber,
+                    'field' => 'email',
+                    'error' => "El email {$customerEmail} ya está registrado",
+                ];
+                continue;
+            }
+
             DB::beginTransaction();
             try {
                 $user = User::create([
                     'name' => trim($data['nombre'] . ' ' . $data['apellido']),
                     'user_name' => $data['nombre'],
                     'user_lastname' => $data['apellido'],
-                    'email' => $data['email'],
+                    'email' => $customerEmail,
                     'email_tenant' => $emailTenant,
                     'password' => Hash::make('default123'),
                     'tel' => $data['telefono'] ?? null,
