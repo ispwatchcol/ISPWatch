@@ -2,16 +2,20 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class Sectorial extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'sectorial';
     protected $primaryKey = 'id';
     protected $fillable = [
         'name',
+        'tenant_id',
         'ip',
         'type',
         'user_rb',

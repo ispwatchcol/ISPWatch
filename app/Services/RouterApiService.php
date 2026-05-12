@@ -179,6 +179,11 @@ class RouterApiService
 
             Log::info('[RouterAPI] Login exitoso, aplicando reglas');
 
+            // NOTE: each /add below is unconditional — the UI shows a warning
+            // telling the operator "apply only once". Re-applying intentionally
+            // is the operator's responsibility per product decision; the panel
+            // copy explains how to clean up duplicates from Winbox if needed.
+
             // 1. Crear address-list inicial (con IP placeholder)
             $this->sendCommand($socket, '/ip/firewall/address-list/add', [
                 '=list=ISPWATCH_SUSPENDIDOS',
