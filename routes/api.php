@@ -128,5 +128,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('template', [ImportController::class, 'downloadUnifiedTemplate']);
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);
+        Route::post('errors-excel', [ImportController::class, 'exportErrors']);
     });
 });
