@@ -149,24 +149,6 @@
           </div>
         </div>
 
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Permisos</h2>
-        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <div v-for="(items, groupTitle) in permissionsByGroup" :key="groupTitle" class="border rounded-xl p-4 bg-gray-50 dark:bg-gray-700/50">
-            <h3 class="font-bold text-gray-700 dark:text-gray-200 mb-2">{{ groupTitle }}</h3>
-            <div class="space-y-1 text-sm">
-              <label v-for="(label, permKey) in items" :key="permKey" class="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  :checked="newMember.permissions.includes(permKey)"
-                  @change="togglePermission(permKey)"
-                  class="accent-blue-600"
-                />
-                <span>{{ label }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
         <div class="mt-8 text-right">
           <button
             @click="saveUser"
@@ -198,7 +180,6 @@ const newMember = ref({
   role_id: '',
   allZones: 'Sí',
   twoFA: 'No',
-  permissions: [],
 })
 
 const tenant = ref('')
@@ -206,8 +187,6 @@ const tenantId = ref('')
 const roles = ref([])
 const saving = ref(false)
 const toast = ref(null)
-const availablePermissions = ref({})
-const roleDefaults = ref({})
 
 onMounted(async () => {
   const userData = JSON.parse(localStorage.getItem("userData")) || JSON.parse(sessionStorage.getItem("userData"))
@@ -220,7 +199,6 @@ onMounted(async () => {
   }
 
   await loadRoles()
-  await loadPermissions()
 })
 
 const loadTenantDomain = async () => {
@@ -255,50 +233,9 @@ const loadRoles = async () => {
   }
 }
 
-const loadPermissions = async () => {
-  try {
-    console.log('📥 Cargando permisos...')
-    const response = await api.roles.getPermissions()
-    console.log('📦 Respuesta de permisos:', response.data)
-    if (response.data?.success) {
-      availablePermissions.value = response.data.data.available || {}
-      roleDefaults.value = response.data.data.roleDefaults || {}
-      console.log('✅ Permisos cargados:', {
-        available: Object.keys(availablePermissions.value),
-        roleDefaults: Object.keys(roleDefaults.value)
-      })
-    }
-  } catch (error) {
-    console.error('❌ Error al cargar permisos:', error?.response?.data || error?.message)
-    toast.value?.error('Error', 'No se pudieron cargar los permisos')
-  }
-}
-
 const filteredRoles = computed(() => {
   return roles.value.filter(role => role.name !== 'Cliente')
 })
-
-const permissionsByGroup = computed(() => {
-  return availablePermissions.value
-})
-
-const onRoleChange = () => {
-  if (newMember.value.role_id) {
-    const selectedRole = roles.value.find(r => r.id == newMember.value.role_id)
-    if (selectedRole && roleDefaults.value[selectedRole.name]) {
-      newMember.value.permissions = [...roleDefaults.value[selectedRole.name]]
-    }
-  }
-}
-
-const togglePermission = (permKey) => {
-  const index = newMember.value.permissions.indexOf(permKey)
-  if (index > -1) {
-    newMember.value.permissions.splice(index, 1)
-  } else {
-    newMember.value.permissions.push(permKey)
-  }
-}
 
 const saveUser = async () => {
   saving.value = true
@@ -323,7 +260,6 @@ const saveUser = async () => {
       tel: newMember.value.phone,
       email_tenant: `${newMember.value.username}${tenant.value}`,
       email: newMember.value.email,
-      permissions: newMember.value.permissions,
     }
 
     const response = await api.staff.create(userInsert)

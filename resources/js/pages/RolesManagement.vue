@@ -1,151 +1,218 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
+  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
     <NotificationToast ref="toast" />
-    <main class="flex-1 p-6 md:p-10 overflow-y-auto">
-      <div class="flex items-center justify-between mb-8">
+    <main class="flex-1 overflow-y-auto p-6">
+      <div class="mb-8 flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <v-icon name="md-adminpanelsettings-round" class="text-blue-600 w-8 h-8" />
+          <h1 class="flex items-center gap-2 text-3xl font-semibold text-gray-800 dark:text-gray-100">
+            <icon-lucide-shield class="h-7 w-7 text-blue-600" />
             Administración de Roles
           </h1>
-          <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            Crea y gestiona roles personalizados con sus permisos.
+          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Crea y gestiona roles personalizados con sus permisos asignados
           </p>
         </div>
+
         <button
           @click="openCreateModal"
-          class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all"
+          class="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-white shadow-md transition-all hover:bg-blue-700"
         >
-          <v-icon name="fa-plus" class="w-4 h-4" />
+          <icon-lucide-plus class="h-4 w-4" />
           Crear Rol
         </button>
       </div>
 
-      <!-- Tabla de roles -->
-      <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
-        <div v-if="loading" class="text-center py-8">
-          <p class="text-gray-500 dark:text-gray-400">Cargando roles...</p>
+      <div class="rounded-2xl bg-white p-6 shadow dark:bg-gray-800">
+        <div v-if="loading" class="py-12 text-center">
+          <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+          <p class="mt-4 text-gray-500 dark:text-gray-400">Cargando roles...</p>
         </div>
 
-        <table v-else class="w-full">
-          <thead class="bg-gray-100 dark:bg-gray-700">
-            <tr>
-              <th class="px-6 py-3 text-left text-sm font-semibold">Nombre</th>
-              <th class="px-6 py-3 text-left text-sm font-semibold">Permisos</th>
-              <th class="px-6 py-3 text-left text-sm font-semibold">Fecha de Creación</th>
-              <th class="px-6 py-3 text-right text-sm font-semibold">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y dark:divide-gray-700">
-            <tr v-for="role in roles" :key="role.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-              <td class="px-6 py-4">
-                <span class="font-medium">{{ role.name }}</span>
-                <span v-if="isPredefinedRole(role.name)" class="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                  Predefinido
-                </span>
-              </td>
-              <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                {{ role.permissions?.length || 0 }} permisos
-              </td>
-              <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                {{ formatDate(role.created_at) }}
-              </td>
-              <td class="px-6 py-4 text-right space-x-2">
-                <button
-                  @click="editRole(role)"
-                  class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-                >
-                  Editar
-                </button>
-                <button
-                  v-if="!isPredefinedRole(role.name)"
-                  @click="deleteRole(role)"
-                  class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium"
-                >
-                  Eliminar
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else class="overflow-x-auto">
+          <table class="min-w-full border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-sm uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                <th class="py-3 px-4 text-left">
+                  <div class="flex items-center gap-2">
+                    <icon-lucide-users class="h-4 w-4 text-blue-600" />
+                    Nombre
+                  </div>
+                </th>
+                <th class="py-3 px-4 text-left">
+                  <div class="flex items-center gap-2">
+                    <icon-lucide-key class="h-4 w-4 text-blue-600" />
+                    Permisos
+                  </div>
+                </th>
+                <th class="py-3 px-4 text-left">
+                  <div class="flex items-center gap-2">
+                    <icon-lucide-calendar class="h-4 w-4 text-blue-600" />
+                    Fecha de Creación
+                  </div>
+                </th>
+                <th class="py-3 px-4 text-left">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="role in roles"
+                :key="role.id"
+                class="border-b border-gray-200 transition-all hover:bg-blue-50 dark:border-gray-700 dark:hover:bg-gray-700/40"
+              >
+                <td class="py-3 px-4">
+                  <div class="font-medium text-gray-800 dark:text-gray-100">
+                    {{ role.name }}
+                    <div v-if="isPredefinedRole(role.name)" class="mt-1">
+                      <span class="inline-flex items-center gap-1 text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2.5 py-1 rounded-full font-medium">
+                        <icon-lucide-check-circle class="w-3 h-3" />
+                        Predefinido
+                      </span>
+                    </div>
+                  </div>
+                </td>
+                <td class="py-3 px-4 text-gray-600 dark:text-gray-300">
+                  <div class="inline-flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-lg">
+                    <icon-lucide-key class="text-gray-500 dark:text-gray-400 h-4 w-4" />
+                    <span class="font-semibold">{{ role.permissions?.length || 0 }}</span>
+                    <span class="text-sm">permisos</span>
+                  </div>
+                </td>
+                <td class="py-3 px-4 text-gray-500 dark:text-gray-400">
+                  {{ formatDate(role.created_at) }}
+                </td>
+                <td class="flex gap-2 py-3 px-4">
+                  <button
+                    @click="editRole(role)"
+                    class="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition-all hover:scale-[1.03] hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
+                  >
+                    <icon-lucide-pencil class="h-4 w-4" />
+                    Editar
+                  </button>
+
+                  <button
+                    v-if="!isPredefinedRole(role.name)"
+                    @click="deleteRole(role)"
+                    class="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition-all hover:scale-[1.03] hover:bg-red-100 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-800/50"
+                  >
+                    <icon-lucide-trash-2 class="h-4 w-4" />
+                    Eliminar
+                  </button>
+                </td>
+              </tr>
+
+              <tr v-if="roles.length === 0" class="text-center">
+                <td colspan="4" class="py-8">
+                  <p class="text-gray-500 dark:text-gray-400">No hay roles disponibles</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Modal para crear/editar rol -->
-      <div
-        v-if="showModal"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-        @click.self="closeModal"
-      >
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-96 overflow-y-auto">
-          <div class="sticky top-0 bg-gray-50 dark:bg-gray-700 px-6 py-4 border-b dark:border-gray-600 flex justify-between items-center">
-            <h2 class="text-xl font-semibold">
-              {{ editingRole ? 'Editar Rol' : 'Crear Nuevo Rol' }}
-            </h2>
-            <button @click="closeModal" class="text-gray-500 hover:text-gray-700 dark:text-gray-400">
-              <v-icon name="fa-times" class="w-5 h-5" />
-            </button>
-          </div>
+      <Teleport to="body">
+        <div
+          v-if="showModal"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        >
+          <div
+            class="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            @click="closeModal"
+          />
 
-          <div class="p-6">
+          <div class="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
+            <div class="mb-6 flex items-start justify-between">
+              <div class="flex items-start gap-4">
+                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600">
+                  <icon-lucide-plus v-if="!editingRole" class="h-5 w-5 text-white" />
+                  <icon-lucide-pencil v-else class="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                    {{ editingRole ? 'Editar Rol' : 'Crear Nuevo Rol' }}
+                  </h2>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {{ editingRole ? 'Modifica los permisos del rol' : 'Define el nombre y permisos del nuevo rol' }}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                @click="closeModal"
+                class="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              >
+                <icon-lucide-x class="h-5 w-5" />
+              </button>
+            </div>
+
             <!-- Nombre del rol -->
             <div class="mb-6">
-              <label class="block text-sm font-medium mb-2">Nombre del Rol</label>
+              <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Nombre del Rol
+              </label>
               <input
                 v-model="formData.name"
                 type="text"
-                class="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200 dark:border-gray-600 dark:bg-gray-900 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-900/40"
                 placeholder="Ej: Soporte Técnico"
               />
             </div>
 
             <!-- Permisos -->
             <div class="mb-6">
-              <label class="block text-sm font-medium mb-3">Permisos</label>
-              <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div
-                  v-for="(items, groupTitle) in availablePermissions"
-                  :key="groupTitle"
-                  class="border rounded-lg p-4 dark:border-gray-600"
-                >
-                  <h4 class="font-semibold text-sm mb-3 text-gray-700 dark:text-gray-200">{{ groupTitle }}</h4>
-                  <div class="space-y-2">
-                    <label
-                      v-for="(label, permKey) in items"
-                      :key="permKey"
-                      class="flex items-center gap-2 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        :checked="formData.permissions.includes(permKey)"
-                        @change="togglePermission(permKey)"
-                        class="accent-blue-600"
-                      />
-                      <span>{{ label }}</span>
-                    </label>
+              <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
+                Permisos
+              </label>
+              <div class="max-h-72 overflow-y-auto">
+                <div class="grid md:grid-cols-2 gap-4">
+                  <div
+                    v-for="(items, groupTitle) in availablePermissions"
+                    :key="groupTitle"
+                    class="border border-gray-300 dark:border-gray-600 rounded-lg p-4 bg-gray-50 dark:bg-gray-700/50"
+                  >
+                    <h4 class="font-semibold text-sm mb-3 text-gray-700 dark:text-gray-200">
+                      {{ groupTitle }}
+                    </h4>
+                    <div class="space-y-2">
+                      <label
+                        v-for="(label, permKey) in items"
+                        :key="permKey"
+                        class="flex items-center gap-2 text-sm cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          :checked="formData.permissions.includes(permKey)"
+                          @change="togglePermission(permKey)"
+                          class="w-4 h-4 accent-blue-600 cursor-pointer rounded"
+                        />
+                        <span class="text-gray-700 dark:text-gray-300">{{ label }}</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
             <!-- Botones -->
-            <div class="flex justify-end gap-3">
+            <div class="mt-6 flex justify-end gap-3">
               <button
                 @click="closeModal"
-                class="px-4 py-2 border rounded-lg hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700 transition-all"
+                class="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
               >
                 Cancelar
               </button>
               <button
                 @click="saveRole"
                 :disabled="saving"
-                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all disabled:opacity-50"
+                class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {{ saving ? 'Guardando...' : 'Guardar Rol' }}
               </button>
             </div>
           </div>
         </div>
-      </div>
+      </Teleport>
     </main>
   </div>
 </template>

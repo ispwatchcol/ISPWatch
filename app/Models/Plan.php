@@ -16,6 +16,7 @@ class Plan extends Model
         'speed_down',
         'speed_up',
         'cost_product',
+        'is_courtesy',
         'commit',
         'type',
         'tenant_id',
@@ -34,6 +35,10 @@ class Plan extends Model
     ];
 
     protected $appends = ['active_clients_count'];
+
+    protected $casts = [
+        'is_courtesy' => 'boolean',
+    ];
 
     public function typePlan()
     {

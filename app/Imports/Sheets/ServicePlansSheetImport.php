@@ -50,12 +50,15 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            if (!is_numeric($data['costo'])) {
+            $isCourtesy = is_string($data['costo'])
+                && strtoupper(trim($data['costo'])) === 'CORTESIA';
+
+            if (!$isCourtesy && !is_numeric($data['costo'])) {
                 $this->errors[] = [
                     'sheet' => 'Planes',
                     'row' => $rowNumber,
                     'field' => 'costo',
-                    'error' => 'El costo debe ser numérico',
+                    'error' => "El costo debe ser numérico o 'CORTESIA'",
                 ];
                 continue;
             }
@@ -74,7 +77,8 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
             try {
                 Plan::create([
                     'name' => $data['nombre'],
-                    'cost_product' => $data['costo'],
+                    'cost_product' => $isCourtesy ? 0 : $data['costo'],
+                    'is_courtesy' => $isCourtesy,
                     'speed_down' => $data['speed_down'],
                     'speed_up' => $data['speed_up'],
                     'type_plan_id' => $typePlan->id,

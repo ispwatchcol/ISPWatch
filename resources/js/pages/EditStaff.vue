@@ -9,7 +9,7 @@
             Editar usuario del Staff
           </h1>
           <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            Modifica la información del usuario y sus permisos.
+            Modifica la información del usuario.
           </p>
         </div>
 
@@ -110,7 +110,6 @@
             <div class="relative">
               <select
                 v-model="editMember.role_id"
-                @change="onRoleChange"
                 class="w-full pl-3 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 cursor-pointer appearance-none hover:border-blue-400 dark:hover:border-blue-500"
               >
                 <option disabled value="">Selecciona un rol</option>
@@ -163,24 +162,6 @@
           </div>
         </div>
 
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Permisos</h2>
-        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <div v-for="(items, groupTitle) in permissionsByGroup" :key="groupTitle" class="border rounded-xl p-4 bg-gray-50 dark:bg-gray-700/50">
-            <h3 class="font-bold text-gray-700 dark:text-gray-200 mb-2">{{ groupTitle }}</h3>
-            <div class="space-y-1 text-sm">
-              <label v-for="(label, permKey) in items" :key="permKey" class="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  :checked="editMember.permissions.includes(permKey)"
-                  @change="togglePermission(permKey)"
-                  class="accent-blue-600"
-                />
-                <span>{{ label }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
         <div class="mt-8 text-right">
           <button
             @click="updateUser"
@@ -214,7 +195,6 @@ const editMember = ref({
   role_id: '',
   allZones: 'Sí',
   twoFA: 'No',
-  permissions: [],
 })
 
 const tenant = ref('')
@@ -223,12 +203,9 @@ const loading = ref(false)
 const saving = ref(false)
 const showPassword = ref(false)
 const toast = ref(null)
-const availablePermissions = ref({})
-const roleDefaults = ref({})
 
 onMounted(async () => {
   await loadRoles()
-  await loadPermissions()
   await loadUserData()
 })
 
@@ -251,7 +228,6 @@ const loadUserData = async () => {
         role_id: data.role_id,
         allZones: 'Sí',
         twoFA: 'No',
-        permissions: data.permissions || [],
       }
 
       const userData = JSON.parse(localStorage.getItem('userData') || sessionStorage.getItem('userData'))
@@ -295,50 +271,9 @@ const loadRoles = async () => {
   }
 }
 
-const loadPermissions = async () => {
-  try {
-    console.log('📥 Cargando permisos...')
-    const response = await api.roles.getPermissions()
-    console.log('📦 Respuesta de permisos:', response.data)
-    if (response.data?.success) {
-      availablePermissions.value = response.data.data.available || {}
-      roleDefaults.value = response.data.data.roleDefaults || {}
-      console.log('✅ Permisos cargados:', {
-        available: Object.keys(availablePermissions.value),
-        roleDefaults: Object.keys(roleDefaults.value)
-      })
-    }
-  } catch (error) {
-    console.error('❌ Error al cargar permisos:', error?.response?.data || error?.message)
-    toast.value?.error('Error', 'No se pudieron cargar los permisos')
-  }
-}
-
 const filteredRoles = computed(() => {
   return roles.value.filter(role => role.name !== 'Cliente')
 })
-
-const permissionsByGroup = computed(() => {
-  return availablePermissions.value
-})
-
-const onRoleChange = () => {
-  if (editMember.value.role_id) {
-    const selectedRole = roles.value.find(r => r.id == editMember.value.role_id)
-    if (selectedRole && roleDefaults.value[selectedRole.name]) {
-      editMember.value.permissions = [...roleDefaults.value[selectedRole.name]]
-    }
-  }
-}
-
-const togglePermission = (permKey) => {
-  const index = editMember.value.permissions.indexOf(permKey)
-  if (index > -1) {
-    editMember.value.permissions.splice(index, 1)
-  } else {
-    editMember.value.permissions.push(permKey)
-  }
-}
 
 const updateUser = async () => {
   saving.value = true
@@ -365,7 +300,6 @@ const updateUser = async () => {
       email: editMember.value.email,
       tel: editMember.value.phone,
       role_id: editMember.value.role_id,
-      permissions: editMember.value.permissions,
       updated_at: new Date().toISOString(),
     }
 

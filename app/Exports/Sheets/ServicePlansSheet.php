@@ -22,6 +22,7 @@ class ServicePlansSheet implements FromCollection, WithHeadings, WithTitle
         return collect([
             ['Internet 10MB', '25000', '10M', '5M', 'pppoe', 'Plan residencial básico'],
             ['Internet 50MB', '75000', '50M', '10M', 'queue', 'Plan empresarial'],
+            ['Cortesía 10MB', 'CORTESIA', '10M', '5M', 'pppoe', 'Plan de cortesía (sin costo)'],
         ]);
     }
 }

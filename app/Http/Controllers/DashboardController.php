@@ -21,15 +21,26 @@ class DashboardController extends Controller
     public function stats(Request $request)
     {
         try {
-            $tenantId = $request->query('tenant_id');
+            $tenantId = $request->user()?->tenant_id;
 
             // Get current month dates
             $startOfMonth = Carbon::now()->startOfMonth();
             $endOfMonth = Carbon::now()->endOfMonth();
 
-            // Customer counts
-            $totalCustomers = CustomerProfile::count();
-            $activeCustomers = CustomerProfile::where('status', true)->count();
+            // Customer counts: only role=customer (3), active user accounts, scoped to tenant.
+            // Mirrors the visibility rules of the Customers UI so the dashboard count
+            // matches what the user actually sees in /customers.
+            $customersQuery = CustomerProfile::query()
+                ->join('users', 'customer_profile.user_id', '=', 'users.id')
+                ->where('users.role_id', 3)
+                ->where('users.status', true);
+
+            if ($tenantId) {
+                $customersQuery->where('users.tenant_id', $tenantId);
+            }
+
+            $totalCustomers  = (clone $customersQuery)->count();
+            $activeCustomers = (clone $customersQuery)->where('customer_profile.status', true)->count();
 
             // Sectorial/Antenna counts
             $totalSectorials = Sectorial::count();
