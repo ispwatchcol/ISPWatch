@@ -298,7 +298,7 @@ const loadRoles = async () => {
 const loadPermissions = async () => {
   try {
     console.log('📥 Cargando permisos...')
-    const response = await api.get('/roles/permissions')
+    const response = await api.roles.getPermissions()
     console.log('📦 Respuesta de permisos:', response.data)
     if (response.data?.success) {
       availablePermissions.value = response.data.data.available || {}
