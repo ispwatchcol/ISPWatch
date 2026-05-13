@@ -257,13 +257,20 @@ const loadRoles = async () => {
 
 const loadPermissions = async () => {
   try {
+    console.log('📥 Cargando permisos...')
     const response = await api.get('/roles/permissions')
+    console.log('📦 Respuesta de permisos:', response.data)
     if (response.data?.success) {
       availablePermissions.value = response.data.data.available || {}
       roleDefaults.value = response.data.data.roleDefaults || {}
+      console.log('✅ Permisos cargados:', {
+        available: Object.keys(availablePermissions.value),
+        roleDefaults: Object.keys(roleDefaults.value)
+      })
     }
   } catch (error) {
-    console.error('Error al cargar permisos:', error)
+    console.error('❌ Error al cargar permisos:', error?.response?.data || error?.message)
+    toast.value?.error('Error', 'No se pudieron cargar los permisos')
   }
 }
 
