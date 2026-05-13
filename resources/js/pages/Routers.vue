@@ -419,11 +419,46 @@
                 <div>
                   <h4 class="font-medium text-blue-800 dark:text-blue-300">¿Qué son las reglas de bloqueo?</h4>
                   <p class="text-sm text-blue-600 dark:text-blue-400 mt-1">
-                    Se configurarán reglas de firewall en MikroTik que redirigen el tráfico HTTP/HTTPS de usuarios morosos 
-                    a un portal de pago. Se creará una address-list "ISPWATCH_SUSPENDIDOS" y reglas NAT que redirigen 
+                    Se configurarán reglas de firewall en MikroTik que redirigen el tráfico HTTP/HTTPS de usuarios morosos
+                    a un portal de pago. Se creará una address-list "ISPWATCH_SUSPENDIDOS" y reglas NAT que redirigen
                     a los morosos al portal, bloqueando el resto del tráfico.
                   </p>
                 </div>
+              </div>
+            </div>
+
+            <!-- Warning colapsable: aplicar solo una vez -->
+            <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                @click="showBlockRulesWarning = !showBlockRulesWarning"
+                class="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-amber-100/60 dark:hover:bg-amber-900/30 transition-colors"
+                :aria-expanded="showBlockRulesWarning"
+              >
+                <div class="flex items-center gap-3">
+                  <icon-lucide-triangle-alert class="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                  <span class="font-medium text-amber-800 dark:text-amber-200 text-left">
+                    Importante — aplicar solo una vez
+                  </span>
+                </div>
+                <icon-lucide-chevron-down
+                  class="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 transition-transform"
+                  :class="{ 'rotate-180': showBlockRulesWarning }"
+                />
+              </button>
+              <div v-show="showBlockRulesWarning" class="px-4 pb-4 pt-1">
+                <ul class="text-sm text-amber-700 dark:text-amber-300 space-y-1.5 list-disc list-inside pl-2">
+                  <li>
+                    Estas reglas <strong>solo deben aplicarse una vez por router</strong>. Cada click vuelve a crear las reglas en MikroTik, generando duplicados que pueden afectar el rendimiento del firewall.
+                  </li>
+                  <li>
+                    Si las reglas fueron <strong>eliminadas por error</strong> (manualmente desde Winbox o por un reset), puedes volver a aplicarlas desde aquí sin problema.
+                  </li>
+                  <li>
+                    Aplicar las reglas varias veces a propósito <strong>queda bajo tu responsabilidad</strong>. Tendrás que limpiar los duplicados manualmente en
+                    <code class="px-1 py-0.5 bg-amber-100 dark:bg-amber-800/40 rounded text-xs">IP → Firewall → NAT / Filter Rules</code>.
+                  </li>
+                </ul>
               </div>
             </div>
 
@@ -867,6 +902,7 @@ const savingWan = ref(false)
 const showBlockRulesModal = ref(false)
 const selectedBlockRouter = ref(null)
 const applyingRules = ref(false)
+const showBlockRulesWarning = ref(false)
 
 // Estados del modal Eliminar Router
 const showDeleteModal = ref(false)
@@ -1215,12 +1251,14 @@ const saveWanInterface = async () => {
 const openBlockRulesInfo = () => {
   showBlockRulesModal.value = true
   selectedBlockRouter.value = null
+  showBlockRulesWarning.value = false
 }
 
 // Cerrar modal de reglas de bloqueo
 const closeBlockRulesModal = () => {
   showBlockRulesModal.value = false
   selectedBlockRouter.value = null
+  showBlockRulesWarning.value = false
 }
 
 // Seleccionar router para aplicar reglas

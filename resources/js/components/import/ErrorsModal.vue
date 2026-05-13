@@ -32,7 +32,15 @@
         </table>
       </div>
       
-      <div class="mt-6 flex justify-end">
+      <div class="mt-6 flex justify-end gap-2">
+        <button
+          @click="downloadErrorsExcel"
+          :disabled="downloading"
+          class="bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors font-medium flex items-center gap-2"
+        >
+          <v-icon name="vi-file-type-excel" />
+          {{ downloading ? 'Generando...' : 'Descargar Excel' }}
+        </button>
         <button @click="$emit('close')" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-6 py-2 rounded-lg transition-colors font-medium">
           Cerrar
         </button>
@@ -42,11 +50,37 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import axios from 'axios';
 
 const props = defineProps({
   errors: Array,
 });
 
 const hasSheet = computed(() => Array.isArray(props.errors) && props.errors.some(e => e && e.sheet));
+const downloading = ref(false);
+
+const downloadErrorsExcel = async () => {
+  if (!Array.isArray(props.errors) || props.errors.length === 0) return;
+  downloading.value = true;
+  try {
+    const response = await axios.post(
+      '/api/import/errors-excel',
+      { errors: props.errors },
+      { responseType: 'blob' }
+    );
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'errores_carga_masiva.xlsx');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Error al descargar Excel de errores: ' + (e.message || 'desconocido'));
+  } finally {
+    downloading.value = false;
+  }
+};
 </script>

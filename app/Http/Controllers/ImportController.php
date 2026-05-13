@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Exports\ImportErrorsExport;
 use App\Exports\UnifiedTemplateExport;
 use App\Imports\UnifiedImport;
 use Illuminate\Http\Request;
@@ -47,6 +48,19 @@ class ImportController extends Controller
         ], $hasErrors && !$hasAnyImport ? 422 : 200);
     }
 
+    public function exportErrors(Request $request)
+    {
+        $data = $request->validate([
+            'errors' => 'required|array|min:1',
+            'errors.*.sheet' => 'nullable|string',
+            'errors.*.row' => 'nullable',
+            'errors.*.field' => 'nullable|string',
+            'errors.*.error' => 'nullable|string',
+        ]);
+
+        return Excel::download(new ImportErrorsExport($data['errors']), 'errores_carga_masiva.xlsx');
+    }
+
     public function fieldDocs()
     {
         return response()->json([
@@ -80,16 +94,18 @@ class ImportController extends Controller
                 ['field' => 'descripcion', 'required' => false, 'description' => 'Descripción adicional (referencia)', 'example' => 'Plan básico'],
             ],
             'Clientes' => [
-                ['field' => 'email', 'required' => true, 'description' => 'Email único del cliente', 'example' => 'juan@mail.com'],
                 ['field' => 'nombre', 'required' => true, 'description' => 'Nombre del cliente', 'example' => 'Juan'],
                 ['field' => 'apellido', 'required' => true, 'description' => 'Apellido del cliente', 'example' => 'Pérez'],
+                ['field' => 'ip_usuario', 'required' => true, 'description' => 'IP asignada al cliente', 'example' => '10.0.0.5'],
                 ['field' => 'ip_router', 'required' => true, 'description' => 'IP del router (debe existir o estar en la hoja Routers)', 'example' => '192.168.1.1'],
                 ['field' => 'nombre_plan', 'required' => true, 'description' => 'Nombre del plan (debe existir o estar en la hoja Planes)', 'example' => 'Internet 10MB'],
+                ['field' => 'nombre_sectorial', 'required' => true, 'description' => 'Nombre de la sectorial asignada (debe existir)', 'example' => 'Sectorial Norte'],
+                ['field' => 'email', 'required' => false, 'description' => 'Email único. Si se omite, se genera como nombre.apellido@dominio-tenant', 'example' => 'juan@mail.com'],
                 ['field' => 'telefono', 'required' => false, 'description' => 'Teléfono de contacto', 'example' => '3001234567'],
                 ['field' => 'direccion', 'required' => false, 'description' => 'Dirección física', 'example' => 'Calle 1 #2-3'],
                 ['field' => 'ciudad', 'required' => false, 'description' => 'Ciudad de residencia', 'example' => 'Bogotá'],
-                ['field' => 'ip_usuario', 'required' => false, 'description' => 'IP asignada al cliente', 'example' => '10.0.0.5'],
-                ['field' => 'nombre_sectorial', 'required' => false, 'description' => 'Nombre de la sectorial asignada', 'example' => 'Sectorial Norte'],
+                ['field' => 'usuario_pppoe', 'required' => false, 'description' => 'Usuario PPPoE (obligatorio si el router tiene Control PPPOE activo)', 'example' => 'juan.perez'],
+                ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE (obligatoria si el router tiene Control PPPOE activo)', 'example' => 'secret123'],
             ],
         ]);
     }
