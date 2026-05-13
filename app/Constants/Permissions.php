@@ -90,6 +90,9 @@ class Permissions
                 self::VIEW_INVOICES,
             ],
             'Contabilidad' => [
+                self::EDIT_DISCOUNT,
+                self::EDIT_PENDING_BALANCE,
+                self::EDIT_INTERNET_SERVICE,
                 self::VIEW_DASHBOARD_STATS,
                 self::ADD_EXPENSE,
                 self::REGISTER_PAYMENTS,
