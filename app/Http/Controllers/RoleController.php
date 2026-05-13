@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Role;
+use App\Constants\Permissions;
 use Illuminate\Http\Request;
 
 class RoleController extends Controller
@@ -17,6 +18,28 @@ class RoleController extends Controller
         return response()->json([
             'success' => true,
             'data' => $roles,
+        ]);
+    }
+
+    /**
+     * Get all available permissions and role default permissions
+     */
+    public function permissions()
+    {
+        $allPermissions = Permissions::getAllPermissions();
+        $roles = Role::all();
+
+        $rolePermissions = [];
+        foreach ($roles as $role) {
+            $rolePermissions[$role->name] = Permissions::getPermissionsByRole($role->name);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'available' => $allPermissions,
+                'roleDefaults' => $rolePermissions,
+            ],
         ]);
     }
 
