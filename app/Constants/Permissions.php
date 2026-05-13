@@ -79,15 +79,13 @@ class Permissions
         return match ($roleName) {
             'Administrador' => $allPermissions,
             'Técnico' => [
-                self::EDIT_DISCOUNT,
+                self::ACTIVATE_DEACTIVATE_CLIENTS,
+                self::DELETE_INSTALLATIONS,
                 self::EDIT_PENDING_BALANCE,
                 self::VIEW_CLIENTS,
+                self::EDIT_INTERNET_SERVICE,
                 self::VIEW_CLIENT_TRAFFIC,
                 self::ADD_CLIENTS,
-                self::VIEW_DASHBOARD_STATS,
-                self::REGISTER_PAYMENTS,
-                self::VIEW_EXPENSES,
-                self::VIEW_INVOICES,
             ],
             'Contabilidad' => [
                 self::EDIT_DISCOUNT,
