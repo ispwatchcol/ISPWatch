@@ -19,12 +19,16 @@ class Router extends Model
         'external_id',
         'user_rb',
         'password_rb',
+        'user_rb_encrypted',
+        'password_rb_encrypted',
         'puerto_api',
         'puerto_www',
         'lan_interface',
         'wan_interface',
         'vpn_username',
         'vpn_password',
+        'vpn_username_encrypted',
+        'vpn_password_encrypted',
         'comments',
         'rangos_ip',
         'cut_type_id',
@@ -58,6 +62,10 @@ class Router extends Model
         'amarre' => 'boolean',
         'dhcp_leases' => 'boolean',
         'falla_general' => 'boolean',
+        'vpn_username_encrypted' => 'encrypted',
+        'vpn_password_encrypted' => 'encrypted',
+        'user_rb_encrypted' => 'encrypted',
+        'password_rb_encrypted' => 'encrypted',
     ];
 
 

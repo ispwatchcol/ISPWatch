@@ -28,7 +28,7 @@ class BillingController extends Controller
         $query = Invoice::query()->with(['customer.customerProfile']);
 
         if ($request->filled('search')) {
-            $search = $request->search;
+            $search = str_replace(['%', '_'], ['\\%', '\\_'], $request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('number', 'like', "%$search%")
                     ->orWhereHas('customer', function ($cq) use ($search) {
@@ -56,8 +56,11 @@ class BillingController extends Controller
                 $query->where('period_start', 'like', $request->period . '%');
             }
         }
-        if ($request->has('tenant_id') || $request->has('tenant')) {
-            $tenantId = $request->tenant_id ?? $request->tenant;
+
+        // SECURITY FIX (OWASP A01): Always filter by authenticated user's tenant.
+        // Never accept tenant_id from query params — that allows cross-tenant invoice browsing.
+        $tenantId = $request->user()?->tenant_id;
+        if ($tenantId) {
             $query->where('tenant_id', $tenantId);
         }
 

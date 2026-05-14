@@ -21,12 +21,14 @@ class UserController extends Controller
      */
     public function index(Request $request)
     {
-        $tenantId = $request->input('tenant_id');
+        // SECURITY FIX (OWASP A01): Always derive tenant_id from authenticated user.
+        // Never accept tenant_id from request input — that allows cross-tenant enumeration.
+        $tenantId = $request->user()?->tenant_id;
 
         if (!$tenantId) {
             return response()->json([
-                'message' => 'tenant_id es requerido',
-            ], 400);
+                'message' => 'No se pudo determinar el tenant del usuario autenticado',
+            ], 403);
         }
 
         $users = User::with(['role', 'tenant'])
@@ -125,7 +127,14 @@ class UserController extends Controller
      */
     public function show($id)
     {
-        $user = User::with(['role', 'tenant'])->findOrFail($id);
+        $authTenantId = auth()->user()?->tenant_id;
+        if (!$authTenantId) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $user = User::with(['role', 'tenant'])
+            ->where('tenant_id', $authTenantId)
+            ->findOrFail($id);
         $userPermissions = $user->permissions ?? [];
 
         return response()->json([
@@ -151,7 +160,12 @@ class UserController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $user = User::findOrFail($id);
+        $authTenantId = auth()->user()?->tenant_id;
+        if (!$authTenantId) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $user = User::where('tenant_id', $authTenantId)->findOrFail($id);
 
         $data = $request->validate([
             'name' => 'sometimes|string|max:255',
@@ -199,7 +213,12 @@ class UserController extends Controller
      */
     public function destroy($id)
     {
-        $user = User::findOrFail($id);
+        $authTenantId = auth()->user()?->tenant_id;
+        if (!$authTenantId) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $user = User::where('tenant_id', $authTenantId)->findOrFail($id);
 
         $updates = [
             'email' => $user->email . '_deleted_' . time(),
@@ -223,8 +242,15 @@ class UserController extends Controller
      */
     private function fixSequence(string $table): void
     {
+        // ⚠️ SEGURIDAD: Validar nombre de tabla contra whitelist para prevenir SQL injection
+        $allowedTables = ['users', 'customers', 'router'];
+        if (!in_array($table, $allowedTables)) {
+            throw new \Exception("Invalid table name: {$table}");
+        }
+
         $maxId = \Illuminate\Support\Facades\DB::table($table)->max('id') ?? 0;
         $newValue = $maxId + 1;
-        \Illuminate\Support\Facades\DB::statement("SELECT setval('{$table}_id_seq', {$newValue}, false)");
+        // Usar setval con parámetros nombrados de manera segura
+        \Illuminate\Support\Facades\DB::statement("SELECT setval('{$table}_id_seq', ?, false)", [$newValue]);
     }
 }

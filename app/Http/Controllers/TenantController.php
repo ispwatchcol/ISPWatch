@@ -45,19 +45,22 @@ class TenantController extends Controller
     public function update(UpdateTenantRequest $request, $id)
     {
         try {
-            // Validate that the user is an administrator
-            $userId = $request->input('user_id');
+            // SECURITY FIX (OWASP A01): Use authenticated user, not user_id from input.
+            $user = $request->user();
 
-            if (!$userId) {
+            if (!$user) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Usuario no autenticado'
                 ], 401);
             }
 
-            $user = User::with('role')->find($userId);
+            // Eager-load role if not already loaded
+            if (!$user->relationLoaded('role')) {
+                $user->load('role');
+            }
 
-            if (!$user || !$user->role || strtolower($user->role->name) !== 'administrador') {
+            if (!$user->role || strtolower($user->role->name) !== 'administrador') {
                 return response()->json([
                     'success' => false,
                     'message' => 'No tienes permisos para realizar esta acción'

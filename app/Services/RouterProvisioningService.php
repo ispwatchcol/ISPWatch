@@ -122,8 +122,8 @@ class RouterProvisioningService
 
         $result = $this->suspensionManager->addSuspendedIpViaCore(
             $router->ip,
-            $router->user_rb,
-            $router->password_rb,
+            $router->user_rb_encrypted,
+            $router->password_rb_encrypted,
             $ip,
             $customerName,
             $port

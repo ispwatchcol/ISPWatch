@@ -39,12 +39,47 @@ class RouterApiService
     }
 
     /**
+     * Validar que la IP está en rango permitido para prevenir SSRF
+     */
+    private function validateRouterIp(string $ip): bool
+    {
+        // ⚠️ SEGURIDAD: Solo permitir IPs del rango de clientes VPN (172.16.0.0/12)
+        // Bloquear acceso a localhost, servicios internos, etc.
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+
+        $blockedRanges = [
+            '127.0.0.1',
+            '::1',
+            '0.0.0.0',
+            '255.255.255.255',
+        ];
+
+        if (in_array($ip, $blockedRanges)) {
+            return false;
+        }
+
+        // Permitir solo rango VPN: 172.16.0.0 - 172.31.255.255
+        $ipLong = ip2long($ip);
+        $rangeStart = ip2long('172.16.0.0');
+        $rangeEnd = ip2long('172.31.255.255');
+
+        return $ipLong >= $rangeStart && $ipLong <= $rangeEnd;
+    }
+
+    /**
      * Obtener todas las interfaces del router
      */
     public function getInterfaces(Router $router): array
     {
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
             return $this->error('Router sin credenciales configuradas');
+        }
+
+        if (!$this->validateRouterIp($router->ip)) {
+            Log::error('[RouterAPI] Router IP outside allowed range', ['ip' => $router->ip]);
+            return $this->error('IP del router no está en rango permitido');
         }
 
         // Use the API port configured in the router, default to 8728
@@ -67,7 +102,7 @@ class RouterApiService
 
         try {
             // LOGIN
-            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+            if (!$this->login($socket, $router->user_rb_encrypted, $router->password_rb_encrypted)) {
                 $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
@@ -126,7 +161,7 @@ class RouterApiService
      */
     public function applyBlockRules(Router $router): array
     {
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
             return $this->error('Router sin credenciales configuradas');
         }
 
@@ -172,7 +207,7 @@ class RouterApiService
 
         try {
             // LOGIN
-            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+            if (!$this->login($socket, $router->user_rb_encrypted, $router->password_rb_encrypted)) {
                 $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
@@ -261,7 +296,7 @@ class RouterApiService
      */
     public function syncCustomer(Router $router, $customer, $servicePlan): array
     {
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
             return $this->error('Router sin credenciales configuradas');
         }
 
@@ -291,7 +326,7 @@ class RouterApiService
         }
 
         try {
-            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+            if (!$this->login($socket, $router->user_rb_encrypted, $router->password_rb_encrypted)) {
                 $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
@@ -388,7 +423,7 @@ class RouterApiService
      */
     public function addSuspendedIp(Router $router, string $ip, string $customerName): array
     {
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
             return $this->error('Router sin credenciales configuradas');
         }
 
@@ -412,7 +447,7 @@ class RouterApiService
         }
 
         try {
-            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+            if (!$this->login($socket, $router->user_rb_encrypted, $router->password_rb_encrypted)) {
                 $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }
@@ -445,7 +480,7 @@ class RouterApiService
      */
     public function removeSuspendedIp(Router $router, string $ip): array
     {
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
             return $this->error('Router sin credenciales configuradas');
         }
 
@@ -468,7 +503,7 @@ class RouterApiService
         }
 
         try {
-            if (!$this->login($socket, $router->user_rb, $router->password_rb)) {
+            if (!$this->login($socket, $router->user_rb_encrypted, $router->password_rb_encrypted)) {
                 $this->closeSocket($socket);
                 return $this->error('Error de autenticación en el router');
             }

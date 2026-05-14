@@ -127,7 +127,7 @@ class AuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            // Log the full error for debugging
+            // Log the full error for debugging (internamente, nunca al usuario)
             Log::error('Login error', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -135,14 +135,10 @@ class AuthController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            // Return error details in development, generic message in production
+            // Nunca retornar información de debug al usuario
             return response()->json([
                 'success' => false,
-                'message' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor.',
-                'debug' => config('app.debug') ? [
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ] : null,
+                'message' => 'Error interno del servidor.',
             ], 500);
         }
     }
