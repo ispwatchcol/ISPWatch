@@ -111,6 +111,8 @@ class AuthController extends Controller
                 'ip' => $request->ip(),
             ]);
 
+            $user->load('role');
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -120,9 +122,10 @@ class AuthController extends Controller
                     'email_tenant' => $user->email_tenant,
                     'role_id' => $user->role_id,
                     'tenant_id' => $user->tenant_id,
-                    'role_name' => optional($user->role)->name ?? 'Sin rol',
-                    'permissions' => optional($user->role)->permissions ?? [],
+                    'role_name' => $user->role?->name ?? 'Sin rol',
+                    'permissions' => $user->role?->permissions ?? [],
                     'has_staff_profile' => $user->staffProfile !== null,
+                    'is_superadmin' => $user->is_superadmin ?? false,
                 ]
             ]);
 
