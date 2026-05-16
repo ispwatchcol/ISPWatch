@@ -15,24 +15,22 @@ class CheckPermission
      */
     public function handle(Request $request, Closure $next, string $permission): Response
     {
-        // For now, we'll get user from request (in production, use auth()->user())
-        // This assumes user_id is passed in request for testing
-        $userId = $request->user_id ?? $request->input('user_id') ?? 1;
+        $user = $request->user();
 
-        $user = \App\Models\User::with('role')->find($userId);
-
-        if (!$user || !$user->role) {
-            return response()->json([
-                'message' => 'Unauthorized - No user or role found'
-            ], 403);
+        if (!$user) {
+            return response()->json(['message' => 'No autenticado.'], 401);
         }
 
-        // Check if user's role has the required permission
-        if (!$user->role->hasPermission($permission)) {
+        // Si el usuario es superadmin, podría tener acceso total (depende de la lógica del rol, pero 
+        // normalmente el superadmin no se restringe por permisos, o tal vez sí en este sistema. 
+        // Me ceñiré a la petición estricta del usuario).
+        
+        $user->loadMissing('role');
+
+        if (!$user->role || !$user->role->hasPermission($permission)) {
             return response()->json([
-                'message' => 'Forbidden - You do not have permission to perform this action',
-                'required_permission' => $permission,
-                'your_permissions' => $user->role->permissions ?? []
+                'success' => false,
+                'message' => 'No tienes permisos suficientes para realizar esta acción.',
             ], 403);
         }
 
