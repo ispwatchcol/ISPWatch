@@ -2,10 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Billing;
+use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\Router;
 use App\Models\User;
 use App\Models\UserService;
 use App\Models\Tenant;
@@ -58,109 +61,184 @@ class BillingService
     }
 
     /**
-     * Generate monthly invoices for all eligible customers.
-     * Idempotent: safe to run multiple times for same period.
+     * Generate monthly invoices based on each router's billing configuration.
      *
-     * @param string|null $period Format: YYYY-MM (defaults to current month)
+     * For each router that has a billing config (billing_router_id):
+     *   1. Check if today's day-of-month >= the billing's create_invoice day
+     *   2. Find all active customers assigned to that router
+     *   3. Create an invoice for each customer with an active (non-gratis) service plan
+     *
+     * Idempotent: safe to run multiple times — duplicate invoices are skipped.
+     *
+     * The covered period depends on each router's billing_mode:
+     *   - 'anticipado' (default): the month the job runs (cobro adelantado)
+     *   - 'vencido'             : the previous month (cobro vencido)
+     * An explicit $period overrides the mode for ALL routers (manual backfill).
+     *
+     * @param string|null $period  Format: YYYY-MM. Null = derive per router.
      * @return int Number of invoices created
      */
     public function generateMonthlyInvoices(?string $period = null): int
     {
-        if (!$period) {
-            $period = now()->format('Y-m');
-        }
+        $periodExplicit = $period !== null;
+        $today          = now();
+        $created        = 0;
 
-        $periodStart = Carbon::parse($period . '-01')->startOfDay();
-        $periodEnd = $periodStart->copy()->endOfMonth()->startOfDay();
-        $issueDate = now()->startOfDay();
-        $dueDate = $issueDate->copy()->addDays(5);
-
-        $created = 0;
-
-        // Get all active customers with exactly ONE active user_service
-        $customers = User::whereHas('customerProfile')
-            ->whereHas('userServices', function ($q) {
-                $q->where('status', 'active');
-            })
-            ->with([
-                'userServices' => function ($q) {
-                    $q->where('status', 'active')->with('servicePlan');
-                }
-            ])
+        // ── Iterate routers that have a billing config ──────────────────────
+        $routers = Router::with(['billingConfig', 'customers'])
+            ->whereNotNull('billing_router_id')
             ->get();
 
-        foreach ($customers as $customer) {
-            $activeServices = $customer->userServices->where('status', 'active');
+        Log::info("Billing: Checking {$routers->count()} router(s) with billing config.");
 
-            // Enforce: only one active service per customer
-            if ($activeServices->count() !== 1) {
-                Log::warning("Customer {$customer->id} has " . $activeServices->count() . " active services (expected 1). Skipping invoice generation.");
+        foreach ($routers as $router) {
+            $billingConfig = $router->billingConfig;
+            if (!$billingConfig) {
                 continue;
             }
 
-            $userService = $activeServices->first();
-            $servicePlan = $userService->servicePlan;
+            // ── Check create_invoice day (clamped to this month's length) ───
+            // A configured day 31 becomes 30 in April / 28 in February so
+            // "último día" configs still fire; other days stay as set.
+            $rawCreateDay = Billing::dayOf($billingConfig->create_invoice);
+            $createDay    = Billing::clampDayToMonth($rawCreateDay, $today);
 
-            if (!$servicePlan) {
-                Log::warning("Customer {$customer->id} active service has no service_plan. Skipping.");
+            if ($createDay === null) {
+                Log::info("Billing: Router {$router->id} ({$router->name}) has no create_invoice day. Skipping.");
                 continue;
             }
 
-            $tenantId = $customer->tenant_id;
-
-            // Check if invoice already exists for this period (idempotency)
-            $existingInvoice = Invoice::where('tenant_id', $tenantId)
-                ->where('customer_id', $customer->id)
-                ->where('period_start', $periodStart)
-                ->where('period_end', $periodEnd)
-                ->first();
-
-            if ($existingInvoice) {
-                continue; // Already exists, skip
+            // Only generate if today's day >= the (clamped) creation day.
+            // This allows recovery if the system was down on the exact day.
+            if ($today->day < $createDay) {
+                Log::info("Billing: Router {$router->id} ({$router->name}) — create day is {$createDay}, today is {$today->day}. Not yet.");
+                continue;
             }
 
-            $subtotal = $servicePlan->cost_product ?? 0;
-            $tax = 0; // No taxes per requirement
-            $total = $subtotal + $tax;
+            // ── Resolve the period this invoice covers ──────────────────────
+            if ($periodExplicit) {
+                $periodMonth = Carbon::parse($period . '-01');
+            } else {
+                $mode = $billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO;
+                $periodMonth = $mode === Billing::MODE_VENCIDO
+                    ? $today->copy()->subMonthNoOverflow()
+                    : $today->copy();
+            }
+            $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
+            $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
 
-            try {
-                // Generate invoice number
-                $invoiceNumber = $this->generateInvoiceNumber($tenantId);
+            // ── Determine due date from payment_day config ──────────────────
+            $dueDay = $billingConfig->payment_day
+                ? Carbon::parse($billingConfig->payment_day)->day
+                : null;
 
-                $invoice = Invoice::create([
-                    'tenant_id' => $tenantId,
-                    'customer_id' => $customer->id,
-                    'service_id' => $servicePlan->id,
-                    'number' => $invoiceNumber,
-                    'issue_date' => $issueDate,
-                    'due_date' => $dueDate,
-                    'period_start' => $periodStart,
-                    'period_end' => $periodEnd,
-                    'currency' => 'COP',
-                    'subtotal' => $subtotal,
-                    'tax' => $tax,
-                    'total' => $total,
-                    'balance_due' => $total,
-                    'status' => 'issued',
-                ]);
+            $issueDate = $today->copy()->startOfDay();
 
-                // Create invoice item (monthly service)
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'type' => 'plan',
-                    'description' => "Servicio mensual: {$servicePlan->name}",
-                    'quantity' => 1,
-                    'unit_price' => $subtotal,
-                    'amount' => $subtotal,
-                ]);
+            if ($dueDay !== null) {
+                // Clamp due day to last day of current month
+                $lastDayOfMonth = $today->copy()->endOfMonth()->day;
+                $clampedDueDay  = min($dueDay, $lastDayOfMonth);
+                $dueDate = $today->copy()->setDay($clampedDueDay)->startOfDay();
+                // If due date is before issue date, push to next month
+                if ($dueDate->lt($issueDate)) {
+                    $dueDate = $dueDate->addMonth();
+                }
+            } else {
+                $dueDate = $issueDate->copy()->addDays(5);
+            }
 
-                $created++;
+            // ── Get active customers assigned to this router ────────────────
+            // NOTE: customer_profile.status is a BOOLEAN column (true = active).
+            // Comparing it to the string 'active' throws on PostgreSQL
+            // (SQLSTATE 22P02) and silently matches nothing on SQLite.
+            $customerProfiles = CustomerProfile::where('router_id', $router->id)
+                ->where('status', true)
+                ->get();
 
-                Log::info("Invoice {$invoiceNumber} created for customer {$customer->id}");
-            } catch (\Exception $e) {
-                Log::error("Failed to create invoice for customer {$customer->id}: {$e->getMessage()}");
+            Log::info("Billing: Router {$router->id} ({$router->name}) — {$customerProfiles->count()} active customer(s) to check.");
+
+            foreach ($customerProfiles as $profile) {
+                $customerId = $profile->user_id;
+
+                // Find the customer's active (billable) service
+                $userService = UserService::where('user_id', $customerId)
+                    ->where('status', UserService::STATUS_ACTIVE)
+                    ->with('servicePlan')
+                    ->first();
+
+                if (!$userService) {
+                    Log::info("Billing: Customer {$customerId} has no active service. Skipping.");
+                    continue;
+                }
+
+                $servicePlan = $userService->servicePlan;
+                if (!$servicePlan) {
+                    Log::warning("Billing: Customer {$customerId} active service has no plan. Skipping.");
+                    continue;
+                }
+
+                // Skip courtesy plans (they should be 'gratis' but double-check)
+                if ($servicePlan->is_courtesy) {
+                    Log::info("Billing: Customer {$customerId} has courtesy plan '{$servicePlan->name}'. Skipping.");
+                    continue;
+                }
+
+                $tenantId = $router->tenant_id;
+
+                // Idempotency check: skip if invoice already exists for this period
+                $exists = Invoice::where('tenant_id', $tenantId)
+                    ->where('customer_id', $customerId)
+                    ->where('period_start', $periodStart)
+                    ->where('period_end', $periodEnd)
+                    ->exists();
+
+                if ($exists) {
+                    continue;
+                }
+
+                $subtotal = $servicePlan->cost_product ?? 0;
+                $tax      = 0;
+                $total    = $subtotal + $tax;
+
+                try {
+                    $invoiceNumber = $this->generateInvoiceNumber($tenantId);
+
+                    $invoice = Invoice::create([
+                        'tenant_id'    => $tenantId,
+                        'customer_id'  => $customerId,
+                        'service_id'   => $servicePlan->id,
+                        'number'       => $invoiceNumber,
+                        'issue_date'   => $issueDate,
+                        'due_date'     => $dueDate,
+                        'period_start' => $periodStart,
+                        'period_end'   => $periodEnd,
+                        'currency'     => 'COP',
+                        'subtotal'     => $subtotal,
+                        'tax'          => $tax,
+                        'total'        => $total,
+                        'balance_due'  => $total,
+                        'status'       => 'issued',
+                    ]);
+
+                    InvoiceItem::create([
+                        'invoice_id' => $invoice->id,
+                        'type'       => 'plan',
+                        'description'=> "Servicio mensual: {$servicePlan->name}",
+                        'quantity'   => 1,
+                        'unit_price' => $subtotal,
+                        'amount'     => $subtotal,
+                    ]);
+
+                    $created++;
+
+                    Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id}).");
+                } catch (\Exception $e) {
+                    Log::error("Billing: Failed to create invoice for customer {$customerId}: {$e->getMessage()}");
+                }
             }
         }
+
+        Log::info("Billing: Generation complete. {$created} invoice(s) created for period {$period}.");
 
         return $created;
     }

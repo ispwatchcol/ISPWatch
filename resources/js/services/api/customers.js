@@ -34,4 +34,25 @@ export default {
     activate(id) {
         return apiClient.post(`/customers/${id}/activate`)
     },
+
+    // ─── Documents ───
+    getDocuments(id) {
+        return apiClient.get(`/customers/${id}/documents`)
+    },
+    uploadDocuments(id, formData) {
+        return apiClient.post(`/customers/${id}/documents`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
+    },
+    deleteDocument(documentId) {
+        return apiClient.delete(`/customers/documents/${documentId}`)
+    },
+
+    // ─── Contract ───
+    getContractData(id) {
+        return apiClient.get(`/customers/${id}/contract-data`)
+    },
+    signContract(id, payload) {
+        return apiClient.post(`/customers/${id}/contract-sign`, payload)
+    },
 }

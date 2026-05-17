@@ -4,11 +4,14 @@ namespace Tests\Feature\Billing;
 
 use App\Models\User;
 use App\Models\Tenant;
+use App\Models\Billing;
 use App\Models\Invoice;
+use App\Models\Router;
 use App\Models\UserService;
 use App\Models\Plan;
 use App\Models\CustomerProfile;
 use App\Services\BillingService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -22,23 +25,62 @@ class BillingModuleTest extends TestCase
     {
         parent::setUp();
         $this->billingService = app(BillingService::class);
+        // Freeze on the 15th so the router's create_invoice gate is deterministic.
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
     }
 
-    /** @test */
-    public function it_generates_monthly_invoices_idempotently()
+    protected function tearDown(): void
     {
-        // Arrange
-        $tenant = Tenant::factory()->create(['next_invoice_number' => 1]);
-        $plan = Plan::factory()->create(['cost_product' => 25000]);
-        $customer = User::factory()->create(['tenant_id' => $tenant->id]);
-        CustomerProfile::create(['user_id' => $customer->id, 'name' => 'Test', 'last_name' => 'Customer']);
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
 
+    /**
+     * Set up a router with a billing config (create_invoice = today's day)
+     * and one active customer assigned to it.
+     *
+     * @return array{tenant: Tenant, plan: Plan, router: Router, customer: User}
+     */
+    private function billingRouterWithCustomer(float $cost = 25000): array
+    {
+        $tenant = Tenant::factory()->create(['next_invoice_number' => 1]);
+        $plan = Plan::factory()->create(['tenant_id' => $tenant->id, 'cost_product' => $cost]);
+
+        $config = Billing::create([
+            'create_invoice' => Carbon::create(2026, 1, 15)->toDateString(), // day 15
+            'status' => 'pending',
+        ]);
+
+        $router = Router::create([
+            'name' => 'Router ' . uniqid(),
+            'tenant_id' => $tenant->id,
+            'billing_router_id' => $config->id,
+            'status' => 'active',
+        ]);
+
+        $customer = User::factory()->create(['tenant_id' => $tenant->id]);
+        CustomerProfile::create([
+            'user_id' => $customer->id,
+            'name' => 'Test',
+            'last_name' => 'Customer ' . uniqid(),
+            'router_id' => $router->id,
+            'status' => true, // boolean column (true = active), matches production
+        ]);
         UserService::create([
             'user_id' => $customer->id,
             'service_plan_id' => $plan->id,
             'status' => 'active',
             'start_date' => now(),
         ]);
+
+        return compact('tenant', 'plan', 'router', 'customer');
+    }
+
+    /** @test */
+    public function it_generates_monthly_invoices_idempotently()
+    {
+        // Arrange: a billing router with one assigned active customer
+        ['tenant' => $tenant, 'plan' => $plan, 'customer' => $customer] = $this->billingRouterWithCustomer(25000);
 
         $period = now()->format('Y-m');
 
@@ -280,35 +322,27 @@ class BillingModuleTest extends TestCase
     }
 
     /** @test */
-    public function it_skips_customers_without_exactly_one_active_service()
+    public function it_skips_customers_on_a_billing_router_without_an_active_service()
     {
-        // Arrange
-        $tenant = Tenant::factory()->create();
-        $plan = Plan::factory()->create(['cost_product' => 25000]);
+        // Arrange: a fully-configured billing router whose customer has NO
+        // active service — it must NOT be invoiced.
+        ['router' => $router, 'tenant' => $tenant] = $this->billingRouterWithCustomer();
 
-        // Customer with NO active services
-        $customer1 = User::factory()->create(['tenant_id' => $tenant->id]);
-        CustomerProfile::create(['user_id' => $customer1->id, 'name' => 'Test', 'last_name' => 'Customer1']);
-
-        // Customer with 2 active services (violation)
-        $customer2 = User::factory()->create(['tenant_id' => $tenant->id]);
-        CustomerProfile::create(['user_id' => $customer2->id, 'name' => 'Test', 'last_name' => 'Customer2']);
-        UserService::create([
-            'user_id' => $customer2->id,
-            'service_plan_id' => $plan->id,
-            'status' => 'active',
+        $orphan = User::factory()->create(['tenant_id' => $tenant->id]);
+        CustomerProfile::create([
+            'user_id' => $orphan->id,
+            'name' => 'No',
+            'last_name' => 'Service ' . uniqid(),
+            'router_id' => $router->id,
+            'status' => true,
         ]);
-        UserService::create([
-            'user_id' => $customer2->id,
-            'service_plan_id' => $plan->id,
-            'status' => 'active',
-        ]);
+        // No UserService row at all for $orphan.
 
         // Act
         $count = $this->billingService->generateMonthlyInvoices();
 
-        // Assert: No invoices created
-        $this->assertEquals(0, $count);
-        $this->assertEquals(0, Invoice::count());
+        // Assert: only the properly-configured customer is invoiced.
+        $this->assertEquals(1, $count);
+        $this->assertEquals(0, Invoice::where('customer_id', $orphan->id)->count());
     }
 }
