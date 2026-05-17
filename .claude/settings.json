@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr /R \"DB_\")",
+      "Bash(php -v)",
+      "Bash(git stash *)"
+    ]
+  }
+}

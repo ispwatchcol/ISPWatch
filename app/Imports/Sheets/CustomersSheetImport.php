@@ -25,6 +25,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
     protected $routers = [];
     protected $routersPppoe = [];
     protected $plans = [];
+    protected $courtesyPlanIds = [];
     protected $sectorials = [];
     protected $existingEmails = [];
     protected $existingIps = [];
@@ -53,6 +54,15 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
         $this->plans = Plan::where('tenant_id', $this->tenantId)
             ->pluck('id', 'name')
+            ->toArray();
+
+        // Courtesy plans -> their customers get user_services.status = 'gratis'
+        // so the monthly billing job never auto-invoices them. Flipped to use
+        // O(1) isset() lookups by plan id in flush().
+        $this->courtesyPlanIds = Plan::where('tenant_id', $this->tenantId)
+            ->where('is_courtesy', true)
+            ->pluck('id')
+            ->flip()
             ->toArray();
 
         $this->sectorials = Sectorial::pluck('id', 'name')->toArray();
@@ -324,7 +334,10 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                     $serviceRows[] = [
                         'user_id' => $userId,
                         'service_plan_id' => $p['plan_id'],
-                        'status' => 'active',
+                        // Courtesy plan -> 'gratis' (never auto-invoiced).
+                        'status' => isset($this->courtesyPlanIds[$p['plan_id']])
+                            ? UserService::STATUS_GRATIS
+                            : UserService::STATUS_ACTIVE,
                         'start_date' => $now,
                         'created_at' => $now,
                         'updated_at' => $now,

@@ -9,6 +9,7 @@ use App\Services\MikroTikSshService;
 use App\Http\Requests\StoreCustomerRequest;
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Models\UserService;
 use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\DB;
 
@@ -243,6 +244,11 @@ class CustomerProfileController extends Controller
                 'pppoe_username' => $data['pppoe_username'] ?? null,
                 'pppoe_password' => $data['pppoe_password'] ?? null,
             ]);
+
+            // Mirror the assigned plan into user_services so the monthly
+            // billing job sees this customer. Courtesy plans land as 'gratis'
+            // and are never auto-invoiced.
+            UserService::syncForCustomer($user->id, $data['service_id'] ?? null);
 
             DB::commit();
 
@@ -785,6 +791,13 @@ class CustomerProfileController extends Controller
                 'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
                 'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,
             ]);
+
+            // Keep user_services aligned with the (possibly changed) plan so
+            // billing/courtesy status stays correct after an edit.
+            $effectiveServiceId = array_key_exists('service_id', $data)
+                ? $data['service_id']
+                : $customer->service_id;
+            UserService::syncForCustomer($id, $effectiveServiceId ? (int) $effectiveServiceId : null);
 
             DB::commit();
 
