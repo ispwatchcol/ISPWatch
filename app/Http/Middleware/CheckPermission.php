@@ -21,10 +21,8 @@ class CheckPermission
             return response()->json(['message' => 'No autenticado.'], 401);
         }
 
-        // Si el usuario es superadmin, podría tener acceso total (depende de la lógica del rol, pero 
-        // normalmente el superadmin no se restringe por permisos, o tal vez sí en este sistema. 
-        // Me ceñiré a la petición estricta del usuario).
-        
+        // Si el usuario es superadmin, podría tener acceso total.
+
         $user->loadMissing('role');
 
         if (!$user->role || !$user->role->hasPermission($permission)) {

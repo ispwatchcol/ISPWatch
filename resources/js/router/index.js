@@ -41,7 +41,7 @@ const routes = [
   {
     path: '/staff',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'staff.view' },
     children: [
       {
         path: '',
@@ -68,7 +68,7 @@ const routes = [
   {
     path: '/routers',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'routers.view' },
     children: [
       {
         path: '',
@@ -95,7 +95,7 @@ const routes = [
   {
     path: '/planes',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'plans.view' },
     children: [
       {
         path: '',
@@ -123,7 +123,7 @@ const routes = [
   {
     path: '/customers',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'customers.view' },
     children: [
       {
         path: '',
@@ -162,7 +162,7 @@ const routes = [
   {
     path: '/sectorials',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'sectorials.view' },
     children: [
       {
         path: '',
@@ -228,7 +228,7 @@ const routes = [
   {
     path: '/billing',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'billing.view' },
     children: [
       {
         path: '',
@@ -271,7 +271,7 @@ const routes = [
   {
     path: '/mass-actions',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'mass_actions.execute' },
     children: [
       {
         path: '',
@@ -285,7 +285,7 @@ const routes = [
   {
     path: '/inventory',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'inventory.view' },
     children: [
       {
         path: '',
@@ -330,7 +330,7 @@ const routes = [
   {
     path: '/settings',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'settings.view' },
     children: [
       {
         path: '',

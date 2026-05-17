@@ -1,49 +1,53 @@
 <template>
     <div
-        class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 px-4 relative"
+        class="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 px-4 relative overflow-hidden"
     >
+        <!-- Background Decorative Elements -->
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-400/20 dark:bg-blue-600/10 blur-[120px] rounded-full animate-pulse"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-400/20 dark:bg-indigo-600/10 blur-[120px] rounded-full animate-pulse" style="animation-delay: 2s"></div>
+
         <!-- ✅ NOTIFICACIÓN DE VERIFICACIÓN EXITOSA -->
         <div 
           v-if="showVerificationSuccess" 
-          class="fixed top-4 right-4 z-50 w-full max-w-md animate-slide-in-right"
+          class="fixed top-4 right-4 z-[100] w-full max-w-md animate-slide-in-right px-4"
         >
-          <div class="bg-white rounded-2xl shadow-2xl p-6 border-2 border-green-400">
+          <div class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-green-200 dark:border-green-900/50">
             <!-- Header -->
             <div class="flex items-center gap-3 mb-4">
-              <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg class="w-6 h-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
               </div>
               <div>
-                <h3 class="font-bold text-gray-900">✅ Email Verificado</h3>
-                <p class="text-sm text-gray-500">Tu cuenta está lista</p>
+                <h3 class="font-bold text-slate-900 dark:text-white">✅ Email Verificado</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Tu cuenta está lista</p>
               </div>
               <button 
                 @click="closeVerificationNotification"
-                class="ml-auto p-1 hover:bg-gray-100 rounded-full transition"
+                class="ml-auto p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
               >
-                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
               </button>
             </div>
 
             <!-- Success Message -->
-            <div class="bg-green-50 rounded-xl p-4 mb-4">
-              <p class="text-sm text-green-800 mb-3">
+            <div class="bg-green-50/50 dark:bg-green-900/10 rounded-xl p-4 mb-4 border border-green-100 dark:border-green-900/20">
+              <p class="text-sm text-green-800 dark:text-green-300 mb-3">
                 🎉 <strong>¡Tu correo ha sido verificado exitosamente!</strong>
               </p>
-              <p class="text-sm text-green-700 mb-2">
+              <p class="text-xs text-green-700 dark:text-green-400/80 mb-2">
                 Ahora puedes iniciar sesión con tus credenciales:
               </p>
-              <div class="bg-white rounded-lg px-3 py-2 border border-green-200 font-mono text-sm text-gray-800">
+              <div class="bg-white/50 dark:bg-slate-800/50 rounded-lg px-3 py-2 border border-green-200 dark:border-green-900/30 font-mono text-sm text-slate-800 dark:text-slate-200">
                 👤 {{ verificationData.email_tenant }}
               </div>
             </div>
 
             <!-- Company info -->
-            <div class="text-center text-xs text-gray-500">
+            <div class="text-center text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold">
               {{ verificationData.company }}
             </div>
           </div>
@@ -52,212 +56,226 @@
         <!-- ✅ NOTIFICACIÓN DE CREDENCIALES (después del registro) -->
         <div 
           v-if="showCredentialsNotification" 
-          class="fixed top-4 right-4 z-50 w-full max-w-md animate-slide-in-right"
+          class="fixed top-4 right-4 z-[100] w-full max-w-md animate-slide-in-right px-4"
         >
-          <div class="bg-white rounded-2xl shadow-2xl p-6 border-2 border-green-400">
+          <div class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-green-200 dark:border-green-900/50">
             <!-- Header -->
             <div class="flex items-center gap-3 mb-4">
-              <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
               </div>
               <div>
-                <h3 class="font-bold text-gray-900">🎉 ¡Cuenta Creada Exitosamente!</h3>
-                <p class="text-sm text-gray-500">Usa estas credenciales para ingresar</p>
+                <h3 class="font-bold text-slate-900 dark:text-white">🎉 ¡Cuenta Creada Exitosamente!</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Usa estas credenciales para ingresar</p>
               </div>
               <button 
                 @click="closeCredentialsNotification"
-                class="ml-auto p-1 hover:bg-gray-100 rounded-full transition"
+                class="ml-auto p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
               >
-                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
               </button>
             </div>
 
             <!-- Credenciales -->
-            <div class="bg-blue-50 rounded-xl p-4 mb-3">
-              <label class="block text-xs font-medium text-blue-600 mb-1">👤 Tu usuario de acceso:</label>
-              <div class="font-mono font-bold text-blue-800 text-lg bg-white rounded-lg px-3 py-2 border border-blue-200">
+            <div class="bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-4 mb-3 border border-blue-100 dark:border-blue-900/20">
+              <label class="block text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">👤 Usuario de acceso:</label>
+              <div class="font-mono font-bold text-blue-800 dark:text-blue-200 text-lg bg-white/50 dark:bg-slate-800/50 rounded-lg px-3 py-2 border border-blue-200 dark:border-blue-900/30">
                 {{ newAccountCredentials.email_tenant }}
               </div>
             </div>
 
-            <div class="bg-green-50 rounded-xl p-4 mb-4">
-              <label class="block text-xs font-medium text-green-600 mb-1">🔑 Tu contraseña:</label>
-              <div class="font-medium text-green-800 bg-white rounded-lg px-3 py-2 border border-green-200">
+            <div class="bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl p-4 mb-4 border border-indigo-100 dark:border-indigo-900/20">
+              <label class="block text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">🔑 Contraseña:</label>
+              <div class="font-medium text-indigo-800 dark:text-indigo-200 bg-white/50 dark:bg-slate-800/50 rounded-lg px-3 py-2 border border-indigo-200 dark:border-indigo-900/30">
                 La que ingresaste al registrarte
               </div>
             </div>
 
             <!-- Advertencia -->
-            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700 flex gap-2">
-              <span>⚠️</span>
+            <div class="bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/50 dark:border-amber-900/30 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300 flex gap-2 items-center">
+              <span class="text-base">⚠️</span>
               <span><strong>Importante:</strong> Ingresa el usuario exacto mostrado arriba, NO tu correo personal.</span>
             </div>
           </div>
         </div>
 
-        <div class="bg-white shadow-2xl rounded-3xl p-10 w-full max-w-md">
-            <!-- Logo -->
-            <div class="flex justify-center mb-6">
-                <img
-                    src="../assets/Logo.png"
-                    alt="Logo"
-                    class="h-20 w-20 animate-bounce"
-                />
-            </div>
-
-            <!-- Título -->
-            <h2 class="text-3xl font-extrabold text-center text-gray-900 mb-2">
-                Bienvenido
-            </h2>
-            <p class="text-center text-gray-500 mb-8">
-                Inicia sesión para continuar
-            </p>
-
-            <!-- Mensaje de error -->
-            <div
-                v-if="errorMessage"
-                class="mb-4 text-red-500 text-center text-sm"
-            >
-                {{ errorMessage }}
-            </div>
-
-            <!-- Formulario -->
-            <form @submit.prevent="handleLogin" class="space-y-5">
-                <!-- EMAIL -->
-                <div>
-                    <label
-                        for="email"
-                        class="block text-gray-700 font-medium mb-1"
-                        >Correo electrónico</label
-                    >
-                    <input
-                        type="text"
-                        id="email_tenant"
-                        v-model="loginData.email_tenant"
-                        placeholder="usuario de ingreso"
-                        autocomplete="username"
-                        maxlength="100"
-                        minlength="3"
-                        pattern="^[a-zA-Z0-9@._\-]+$"
-                        class="w-full p-4 border border-gray-300 rounded-2xl"
-                        required
-                        @paste="handlePaste"
+        <!-- Login Card -->
+        <div class="relative z-10 w-full max-w-md py-8 md:py-12">
+            <!-- App Branding -->
+            <div class="flex flex-col items-center mb-6 md:mb-8 animate-fade-in-down">
+                <div class="bg-white dark:bg-slate-900 p-3 md:p-4 rounded-3xl shadow-xl mb-4 border border-slate-100 dark:border-slate-800 group transition-all hover:scale-110">
+                    <img
+                        src="../assets/Logo.png"
+                        alt="Logo"
+                        class="h-14 w-14 md:h-16 md:w-16 group-hover:rotate-12 transition-transform duration-500"
                     />
                 </div>
+                <h1 class="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">ISP<span class="text-blue-600">Watch</span></h1>
+                <p class="text-slate-500 dark:text-slate-400 text-xs md:text-sm font-medium mt-1">Gestión de ISP Inteligente</p>
+            </div>
 
-                <!-- PASSWORD con ojito -->
-                <div>
-                    <label
-                        for="password"
-                        class="block text-gray-700 font-medium mb-1"
-                        >Contraseña</label
-                    >
-                    <div class="relative">
-                        <input
-                            :type="showPassword ? 'text' : 'password'"
-                            id="password"
-                            v-model="loginData.password"
-                            placeholder="********"
-                            autocomplete="current-password"
-                            maxlength="100"
-                            minlength="4"
-                            class="w-full p-4 border border-gray-300 rounded-2xl"
-                            required
-                        />
-                        <button
-                            type="button"
-                            @click="showPassword = !showPassword"
-                            class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                        >
-                            <svg
-                                v-if="!showPassword"
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-5 w-5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                                />
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                                />
-                            </svg>
-                            <svg
-                                v-else
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-5 w-5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.973 9.973 0 012.878-4.642m3.743-2.39A9.969 9.969 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.031M3 3l18 18"
-                                />
-                            </svg>
-                        </button>
+            <div class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl shadow-2xl rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-10 border border-white/20 dark:border-slate-800">
+                <!-- Título -->
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-slate-900 dark:text-white">
+                        Bienvenido de nuevo
+                    </h2>
+                    <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">
+                        Ingresa tus credenciales para acceder al sistema
+                    </p>
+                </div>
+
+                <!-- Mensaje de error -->
+                <div
+                    v-if="errorMessage"
+                    class="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-2xl text-red-600 dark:text-red-400 text-center text-sm font-medium animate-shake"
+                >
+                    <div class="flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        {{ errorMessage }}
                     </div>
                 </div>
 
-                <!-- RECORDAR -->
-                <div class="flex items-center justify-between text-sm">
-                    <label
-                        for="remember"
-                        class="flex items-center gap-2 text-gray-600"
+                <!-- Formulario -->
+                <form @submit.prevent="handleLogin" class="space-y-6">
+                    <!-- EMAIL -->
+                    <div class="space-y-1.5">
+                        <label
+                            for="email_tenant"
+                            class="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest px-1"
+                            >Usuario de Acceso</label
+                        >
+                        <div class="relative group">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                </svg>
+                            </div>
+                            <input
+                                type="text"
+                                id="email_tenant"
+                                v-model="loginData.email_tenant"
+                                placeholder="p. ej. adm_miisp"
+                                autocomplete="username"
+                                class="w-full pl-11 pr-4 py-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 dark:focus:border-blue-500/50 transition-all outline-none text-slate-900 dark:text-white"
+                                required
+                                @paste="handlePaste"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- PASSWORD -->
+                    <div class="space-y-1.5">
+                        <label
+                            for="password"
+                            class="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest px-1"
+                            >Contraseña</label
+                        >
+                        <div class="relative group">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-500 transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                                </svg>
+                            </div>
+                            <input
+                                :type="showPassword ? 'text' : 'password'"
+                                id="password"
+                                v-model="loginData.password"
+                                placeholder="••••••••"
+                                autocomplete="current-password"
+                                class="w-full pl-11 pr-12 py-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 dark:focus:border-blue-500/50 transition-all outline-none text-slate-900 dark:text-white"
+                                required
+                            />
+                            <button
+                                type="button"
+                                @click="showPassword = !showPassword"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-500 transition-colors"
+                            >
+                                <svg v-if="!showPassword" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                                <svg v-else class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.973 9.973 0 012.878-4.642m3.743-2.39A9.969 9.969 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.031M3 3l18 18" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- RECORDAR & OLVIDO -->
+                    <div class="flex items-center justify-between text-xs font-bold uppercase tracking-widest">
+                        <label
+                            for="remember"
+                            class="flex items-center gap-2 text-slate-500 dark:text-slate-400 cursor-pointer group"
+                        >
+                            <div class="relative flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="remember"
+                                    v-model="loginData.remember"
+                                    class="peer h-5 w-5 cursor-pointer appearance-none rounded-lg border-2 border-slate-200 dark:border-slate-800 transition-all checked:bg-blue-600 checked:border-blue-600"
+                                />
+                                <svg class="absolute w-3 h-3 text-white pointer-events-none hidden peer-checked:block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                            </div>
+                            <span class="group-hover:text-slate-700 dark:group-hover:text-slate-200 transition-colors">Recordarme</span>
+                        </label>
+                        <a
+                            href="#"
+                            class="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                            >¿Olvidaste tu acceso?</a
+                        >
+                    </div>
+
+                    <!-- BOTÓN LOGIN -->
+                    <button
+                        type="submit"
+                        :disabled="loading"
+                        class="group relative w-full overflow-hidden rounded-2xl bg-blue-600 px-6 py-4 font-bold text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98] disabled:bg-slate-400 disabled:shadow-none disabled:scale-100 disabled:cursor-not-allowed"
                     >
-                        <input
-                            type="checkbox"
-                            id="remember"
-                            v-model="loginData.remember"
-                            class="form-checkbox text-blue-600 rounded"
-                        />
-                        Recordarme
-                    </label>
-                    <a
-                        href="#"
-                        class="text-blue-600 hover:underline font-medium"
-                        >¿Olvidaste tu contraseña?</a
-                    >
+                        <div class="relative z-10 flex items-center justify-center gap-2">
+                            <span v-if="loading" class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                            {{ loading ? "VERIFICANDO..." : "ENTRAR AL SISTEMA" }}
+                            <svg v-if="!loading" class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                            </svg>
+                        </div>
+                    </button>
+                </form>
+
+                <!-- SEPARADOR -->
+                <div class="relative my-8">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-slate-200 dark:border-slate-800"></div>
+                    </div>
+                    <div class="relative flex justify-center text-[10px] font-black uppercase tracking-widest">
+                        <span class="bg-white dark:bg-slate-900 px-4 text-slate-400">¿Eres nuevo aquí?</span>
+                    </div>
                 </div>
 
-                <!-- BOTÓN LOGIN -->
+                <!-- BOTÓN REGISTRO -->
                 <button
-                    type="submit"
-                    :disabled="loading"
-                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-2xl transition duration-300 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    @click="$router.push('/register')"
+                    class="w-full group px-6 py-4 rounded-2xl border-2 border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold transition-all hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-200 dark:hover:border-slate-700 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
                 >
-                    {{ loading ? "Iniciando sesión..." : "Iniciar sesión" }}
+                    <svg class="w-5 h-5 text-slate-400 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                    </svg>
+                    CREAR UNA CUENTA
                 </button>
-            </form>
-
-            <!-- SEPARADOR -->
-            <div class="flex items-center my-6">
-                <hr class="flex-1 border-gray-300" />
-                <span class="px-3 text-gray-400 font-medium">o</span>
-                <hr class="flex-1 border-gray-300" />
             </div>
 
-            <!-- BOTÓN REGISTRO -->
-            <button
-                @click="$router.push('/register')"
-                class="w-full border border-gray-300 text-gray-700 py-3 rounded-2xl hover:bg-gray-50 transition duration-300 font-medium shadow-sm"
-            >
-                Crear cuenta
-            </button>
+            <!-- Footer info -->
+            <p class="text-center text-slate-400 dark:text-slate-500 text-xs mt-8 font-medium">
+                &copy; 2026 ISPWatch Cloud. Todos los derechos reservados.
+            </p>
         </div>
     </div>
 </template>
@@ -520,11 +538,12 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
-body {
-    font-family: "Inter", sans-serif;
+/* Transiciones Globales */
+* {
+    transition: background-color 0.3s, border-color 0.3s, color 0.3s;
 }
 
-/* Animación de deslizamiento desde la derecha */
+/* Animaciones */
 @keyframes slide-in-right {
     0% {
         opacity: 0;
@@ -536,7 +555,47 @@ body {
     }
 }
 
+@keyframes fade-in-down {
+    0% {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+    20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
 .animate-slide-in-right {
-    animation: slide-in-right 0.4s ease-out;
+    animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-fade-in-down {
+    animation: fade-in-down 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-shake {
+    animation: shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.2);
+    border-radius: 10px;
+}
+.dark ::-webkit-scrollbar-thumb {
+    background: rgba(75, 85, 99, 0.3);
 }
 </style>

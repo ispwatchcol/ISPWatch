@@ -136,6 +136,8 @@ import {
   MdSend,
   RiBillLine,
   RiBankCardLine,
+  BiCalendarCheck,
+  HiChevronLeft,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -265,6 +267,8 @@ addIcons(
   MdSend,
   RiBillLine,
   RiBankCardLine,
+  BiCalendarCheck,
+  HiChevronLeft,
 );
 
 // -------------------------------
