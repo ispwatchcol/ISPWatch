@@ -127,6 +127,25 @@
                 </button>
             </div>
 
+            <!-- Registros por página -->
+            <div class="relative">
+                <select
+                    v-model="perPage"
+                    class="h-full appearance-none bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 pl-9 pr-8 py-2.5 sm:py-3 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base cursor-pointer font-medium"
+                    title="Registros por página"
+                >
+                    <option value="10">10 registros</option>
+                    <option value="100">100 registros</option>
+                    <option value="500">500 registros</option>
+                    <option value="1000">1000 registros</option>
+                    <option value="todos">Todos</option>
+                </select>
+                <icon-lucide-list class="absolute left-2.5 top-2.5 sm:top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                </svg>
+            </div>
+
             <!-- Provision button -->
             <button
                 @click="provisionCustomer"
@@ -161,22 +180,24 @@
                 <table class="w-full">
                 <thead class="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">#</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nombre</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Apellido</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Email</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">IP</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Plan</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Sectorial</th>
-                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Router</th>
-                    <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Estado</th>
+                    <th v-for="col in sortableColumns" :key="col.key"
+                        @click="toggleSort(col.key)"
+                        class="px-6 py-4 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase cursor-pointer select-none hover:text-gray-800 dark:hover:text-white transition-colors group"
+                        :class="col.align === 'center' ? 'text-center' : 'text-left'">
+                        <div class="flex items-center gap-1.5" :class="col.align === 'center' ? 'justify-center' : ''">
+                            <span class="leading-none">{{ col.label }}</span>
+                            <icon-lucide-arrow-up-down v-if="sortBy !== col.key" class="block shrink-0 w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
+                            <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="block shrink-0 w-3.5 h-3.5 text-blue-500" />
+                            <icon-lucide-arrow-down v-else class="block shrink-0 w-3.5 h-3.5 text-blue-500" />
+                        </div>
+                    </th>
                     <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="(customer, idx) in filteredCustomers" :key="customer.user_id"
+                    <tr v-for="(customer, idx) in pagedCustomers" :key="customer.user_id"
                         class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                    <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{{ idx + 1 }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{{ pageStart + idx + 1 }}</td>
                     <td class="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{{ customer.name }}</td>
                     <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">{{ customer.last_name }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.email }}</td>
@@ -254,11 +275,67 @@
                     </tr>
                 </tbody>
                 </table>
+
+                <!-- Paginación desktop -->
+                <div v-if="perPage !== 'todos' && totalPages > 1"
+                    class="bg-gray-50 dark:bg-gray-700/50 px-4 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
+                    <div class="text-sm text-gray-600 dark:text-gray-400 font-medium">
+                        {{ paginationInfo }}
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button
+                            @click="prevPage"
+                            :disabled="currentPage === 1"
+                            class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1"
+                        >
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                            </svg>
+                            Anterior
+                        </button>
+                        <div class="flex items-center gap-1">
+                            <button
+                                v-for="page in Math.min(5, totalPages)"
+                                :key="page"
+                                @click="goToPage(page)"
+                                :class="{
+                                    'bg-blue-600 text-white border-blue-600': currentPage === page,
+                                    'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700': currentPage !== page
+                                }"
+                                class="w-8 h-8 rounded-lg font-medium text-sm border transition-all"
+                            >
+                                {{ page }}
+                            </button>
+                            <span v-if="totalPages > 5" class="text-gray-500 dark:text-gray-400 px-2">...</span>
+                            <button
+                                v-if="totalPages > 5"
+                                @click="goToPage(totalPages)"
+                                :class="{
+                                    'bg-blue-600 text-white border-blue-600': currentPage === totalPages,
+                                    'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700': currentPage !== totalPages
+                                }"
+                                class="w-8 h-8 rounded-lg font-medium text-sm border transition-all"
+                            >
+                                {{ totalPages }}
+                            </button>
+                        </div>
+                        <button
+                            @click="nextPage"
+                            :disabled="currentPage === totalPages"
+                            class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1"
+                        >
+                            Siguiente
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <!-- Mobile cards -->
             <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
-                <div v-for="customer in filteredCustomers" :key="customer.user_id" class="p-4">
+                <div v-for="customer in pagedCustomers" :key="customer.user_id" class="p-4">
                 <div class="space-y-3">
                     <div class="flex justify-between items-start">
                     <div>
@@ -328,6 +405,39 @@
                 <div v-if="filteredCustomers.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
                 {{ searchQuery ? 'No se encontraron resultados' : 'No hay clientes registrados' }}
                 </div>
+
+                <!-- Paginación mobile -->
+                <div v-if="perPage !== 'todos' && totalPages > 1"
+                    class="bg-gray-50 dark:bg-gray-700/50 px-4 py-4 flex flex-col gap-3 border-t border-gray-200 dark:border-gray-700">
+                    <div class="text-sm text-gray-600 dark:text-gray-400 font-medium text-center">
+                        {{ paginationInfo }}
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <button
+                            @click="prevPage"
+                            :disabled="currentPage === 1"
+                            class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 flex-1 justify-center"
+                        >
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                            </svg>
+                            Anterior
+                        </button>
+                        <div class="text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 whitespace-nowrap">
+                            {{ currentPage }} / {{ totalPages }}
+                        </div>
+                        <button
+                            @click="nextPage"
+                            :disabled="currentPage === totalPages"
+                            class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 flex-1 justify-center"
+                        >
+                            Siguiente
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -339,6 +449,7 @@ import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import { useTableControls } from '@/composables/useTableControls'
 
 const router         = useRouter()
 const toast          = ref(null)
@@ -430,6 +541,47 @@ const filteredCustomers = computed(() => {
         (c.service_name?.toLowerCase() || '').includes(q) ||
         (c.router_name?.toLowerCase() || '').includes(q)
     )
+})
+
+// ── Orden + paginación (composable reutilizable, mismo patrón que Planes) ─────
+const sortableColumns = [
+    { key: 'num', label: '#', align: 'left' },
+    { key: 'name', label: 'Nombre', align: 'left' },
+    { key: 'last_name', label: 'Apellido', align: 'left' },
+    { key: 'email', label: 'Email', align: 'left' },
+    { key: 'ip', label: 'IP', align: 'left' },
+    { key: 'plan', label: 'Plan', align: 'left' },
+    { key: 'sectorial', label: 'Sectorial', align: 'left' },
+    { key: 'router', label: 'Router', align: 'left' },
+    { key: 'status', label: 'Estado', align: 'center' },
+]
+
+const {
+    perPage,
+    currentPage,
+    sortBy,
+    sortOrder,
+    paginatedItems: pagedCustomers,
+    totalPages,
+    paginationInfo,
+    pageStart,
+    toggleSort,
+    nextPage,
+    prevPage,
+    goToPage,
+} = useTableControls(filteredCustomers, {
+    defaultSort: 'num',
+    sortAccessors: {
+        num: c => c.user_id ?? 0,
+        name: c => c.name ?? '',
+        last_name: c => c.last_name ?? '',
+        email: c => c.email ?? '',
+        ip: c => c.ip_user ?? '',
+        plan: c => c.service_name ?? '',
+        sectorial: c => c.sectorial_name ?? '',
+        router: c => c.router_name ?? '',
+        status: c => !!c.status,
+    },
 })
 
 const loadCustomers = async () => {
