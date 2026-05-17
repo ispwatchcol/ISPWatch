@@ -64,6 +64,21 @@ const routes = [
     ],
   },
 
+  // ─── ROLES ───
+  {
+    path: '/roles',
+    component: () => import('@/layouts/DefaultLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'RolesManagement',
+        component: () => import('@/pages/RolesManagement.vue'),
+        meta: { title: 'Administración de Roles' },
+      },
+    ],
+  },
+
   // ─── ROUTERS ───
   {
     path: '/routers',

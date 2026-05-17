@@ -21,44 +21,61 @@ class DashboardController extends Controller
     public function stats(Request $request)
     {
         try {
-            $tenantId = $request->query('tenant_id');
+            $tenantId = $request->user()?->tenant_id;
+
+            if (!$tenantId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo determinar el tenant del usuario autenticado.',
+                ], 403);
+            }
 
             // Get current month dates
             $startOfMonth = Carbon::now()->startOfMonth();
             $endOfMonth = Carbon::now()->endOfMonth();
 
-            // Customer counts
-            $totalCustomers = CustomerProfile::count();
-            $activeCustomers = CustomerProfile::where('status', true)->count();
+            // Customer counts: only role=customer (3), active user accounts, scoped to tenant.
+            $customersQuery = CustomerProfile::query()
+                ->join('users', 'customer_profile.user_id', '=', 'users.id')
+                ->where('users.role_id', 3)
+                ->where('users.status', true)
+                ->where('users.tenant_id', $tenantId);
 
-            // Sectorial/Antenna counts
-            $totalSectorials = Sectorial::count();
+            $totalCustomers  = (clone $customersQuery)->count();
+            $activeCustomers = (clone $customersQuery)->where('customer_profile.status', true)->count();
 
-            // Router counts
-            $totalRouters = Router::count();
+            // SECURITY FIX (OWASP A04): All queries scoped to tenant
+            $totalSectorials = Sectorial::where('tenant_id', $tenantId)->count();
+            $totalRouters = Router::where('tenant_id', $tenantId)->count();
 
-            // Support tickets (open/pending)
-            $openTickets = SupportTicket::whereIn('status', ['open', 'in_progress'])->count();
-            $urgentTickets = SupportTicket::where('priority', 'urgent')
+            // Support tickets scoped to tenant
+            $openTickets = SupportTicket::where('tenant_id', $tenantId)
+                ->whereIn('status', ['open', 'in_progress'])->count();
+            $urgentTickets = SupportTicket::where('tenant_id', $tenantId)
+                ->where('priority', 'urgent')
                 ->whereIn('status', ['open', 'in_progress'])
                 ->count();
 
-            // Monthly revenue from invoices
-            $monthlyRevenue = Invoice::where('status', 'paid')
+            // Monthly revenue from invoices scoped to tenant
+            $monthlyRevenue = Invoice::where('tenant_id', $tenantId)
+                ->where('status', 'paid')
                 ->whereBetween('issue_date', [$startOfMonth, $endOfMonth])
                 ->sum('total') ?? 0;
 
-            // Monthly payments received
-            $monthlyPayments = Payment::where('status', 'completed')
+            // Monthly payments received scoped to tenant
+            $monthlyPayments = Payment::where('tenant_id', $tenantId)
+                ->where('status', 'completed')
                 ->whereBetween('payment_date', [$startOfMonth, $endOfMonth])
                 ->sum('amount') ?? 0;
 
-            // Pending invoices balance
-            $pendingBalance = Invoice::whereIn('status', ['pending', 'overdue'])
+            // Pending invoices balance scoped to tenant
+            $pendingBalance = Invoice::where('tenant_id', $tenantId)
+                ->whereIn('status', ['pending', 'overdue'])
                 ->sum('balance_due') ?? 0;
 
             // Calculate collection rate
-            $totalInvoicedThisMonth = Invoice::whereBetween('issue_date', [$startOfMonth, $endOfMonth])
+            $totalInvoicedThisMonth = Invoice::where('tenant_id', $tenantId)
+                ->whereBetween('issue_date', [$startOfMonth, $endOfMonth])
                 ->sum('total') ?? 0;
             $collectionRate = $totalInvoicedThisMonth > 0
                 ? round(($monthlyPayments / $totalInvoicedThisMonth) * 100, 1)

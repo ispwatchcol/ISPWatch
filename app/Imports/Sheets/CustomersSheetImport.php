@@ -20,10 +20,50 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
     protected $tenantId;
     public int $imported = 0;
     public array $errors = [];
+    protected $routers = [];
+    protected $routersPppoe = [];
+    protected $plans = [];
+    protected $sectorials = [];
+    protected $existingEmails = [];
+    protected $existingIps = [];
+    protected $tenantDomain = 'local';
 
     public function __construct($tenantId)
     {
         $this->tenantId = $tenantId;
+        $this->loadCaches();
+    }
+
+    protected function loadCaches(): void
+    {
+        $routerData = Router::where('tenant_id', $this->tenantId)
+            ->select('id', 'ip', 'pppoe')
+            ->get();
+
+        foreach ($routerData as $router) {
+            $this->routers[$router->ip] = $router->id;
+            $this->routersPppoe[$router->id] = $router->pppoe;
+        }
+
+        $this->plans = Plan::where('tenant_id', $this->tenantId)
+            ->pluck('id', 'name')
+            ->toArray();
+
+        $this->sectorials = Sectorial::pluck('id', 'name')->toArray();
+
+        $this->existingEmails = User::where('tenant_id', $this->tenantId)
+            ->pluck('email')
+            ->flip()
+            ->toArray();
+
+        $this->existingIps = CustomerProfile::whereHas('user', fn($q) => $q->where('tenant_id', $this->tenantId))
+            ->pluck('ip_user')
+            ->filter()
+            ->flip()
+            ->toArray();
+
+        $tenant = Tenant::find($this->tenantId);
+        $this->tenantDomain = strtolower($tenant->domain ?? 'local');
     }
 
     public function title(): string
@@ -67,10 +107,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            $router = Router::where('ip', $data['ip_router'])
-                ->where('tenant_id', $this->tenantId)
-                ->first();
-            if (!$router) {
+            if (!isset($this->routers[$data['ip_router']])) {
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
@@ -79,8 +116,9 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 ];
                 continue;
             }
+            $routerId = $this->routers[$data['ip_router']];
 
-            if ($router->pppoe) {
+            if ($this->routersPppoe[$routerId]) {
                 $pppoeMissing = [];
                 if (empty($data['usuario_pppoe'])) $pppoeMissing[] = 'usuario_pppoe';
                 if (empty($data['password_pppoe'])) $pppoeMissing[] = 'password_pppoe';
@@ -89,16 +127,13 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                         'sheet' => 'Clientes',
                         'row' => $rowNumber,
                         'field' => implode(', ', $pppoeMissing),
-                        'error' => "El router '{$router->name}' usa Control PPPOE — credenciales PPPoE obligatorias.",
+                        'error' => "El router usa Control PPPOE — credenciales PPPoE obligatorias.",
                     ];
                     continue;
                 }
             }
 
-            $plan = Plan::where('name', $data['nombre_plan'])
-                ->where('tenant_id', $this->tenantId)
-                ->first();
-            if (!$plan) {
+            if (!isset($this->plans[$data['nombre_plan']])) {
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
@@ -107,9 +142,9 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 ];
                 continue;
             }
+            $planId = $this->plans[$data['nombre_plan']];
 
-            $sectorial = Sectorial::where('name', $data['nombre_sectorial'])->first();
-            if (!$sectorial) {
+            if (!isset($this->sectorials[$data['nombre_sectorial']])) {
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
@@ -118,22 +153,29 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 ];
                 continue;
             }
-            $sectorialId = $sectorial->id;
+            $sectorialId = $this->sectorials[$data['nombre_sectorial']];
 
-            $tenant = Tenant::find($this->tenantId);
+            if (isset($this->existingIps[$data['ip_usuario']])) {
+                $this->errors[] = [
+                    'sheet' => 'Clientes',
+                    'row' => $rowNumber,
+                    'field' => 'ip_usuario',
+                    'error' => "La IP {$data['ip_usuario']} ya está asignada a otro cliente",
+                ];
+                continue;
+            }
+
             $firstName = strtolower(preg_replace('/\s+/', '', $data['nombre']));
             $lastName = strtolower(preg_replace('/\s+/', '', $data['apellido']));
-            $domain = $tenant ? strtolower($tenant->domain ?? 'local') : 'local';
-            $emailTenant = "{$firstName}.{$lastName}@{$domain}";
-
+            $emailTenant = "{$firstName}.{$lastName}@{$this->tenantDomain}";
             $customerEmail = !empty($data['email']) ? $data['email'] : $emailTenant;
 
-            if (User::where('email', $customerEmail)->exists()) {
+            if (isset($this->existingEmails[$customerEmail])) {
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
                     'field' => 'email',
-                    'error' => "El email {$customerEmail} ya está registrado",
+                    'error' => "El email {$customerEmail} ya está registrado. Si este cliente tiene un segundo servicio, especifique un email distinto en el Excel.",
                 ];
                 continue;
             }
@@ -161,8 +203,8 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                     'address' => $data['direccion'] ?? null,
                     'city' => $data['ciudad'] ?? null,
                     'ip_user' => $data['ip_usuario'] ?? null,
-                    'router_id' => $router->id,
-                    'service_id' => $plan->id,
+                    'router_id' => $routerId,
+                    'service_id' => $planId,
                     'sectorial_id' => $sectorialId,
                     'pppoe_username' => $data['usuario_pppoe'] ?? null,
                     'pppoe_password' => $data['password_pppoe'] ?? null,
@@ -171,12 +213,14 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
                 UserService::create([
                     'user_id' => $user->id,
-                    'service_plan_id' => $plan->id,
+                    'service_plan_id' => $planId,
                     'status' => 'active',
                     'start_date' => now(),
                 ]);
 
                 DB::commit();
+                $this->existingEmails[$customerEmail] = true;
+                $this->existingIps[$data['ip_usuario']] = true;
                 $this->imported++;
             } catch (\Throwable $e) {
                 DB::rollBack();

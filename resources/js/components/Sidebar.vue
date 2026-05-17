@@ -179,6 +179,18 @@
                     </RouterLink>
                 </li>
 
+                <!-- Administración de Roles -->
+                <li v-if="canSee.staff && isAdmin">
+                    <RouterLink
+                        to="/roles"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+                        active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
+                    >
+                        <v-icon name="md-adminpanelsettings-round" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
+                        <span class="text-sm font-medium">Roles</span>
+                    </RouterLink>
+                </li>
+
                 <SubmenuItem
                     v-if="isStaff && supportItems.length > 0"
                     icon="md-supportagent-round"
@@ -289,6 +301,11 @@ const tenantTimezone = ref("America/Bogota");
 // ─── Acciones Masivas ─── (moved to /mass-actions page)
 
 const isStaff = computed(() => isStaffOrAdmin());
+
+const isAdmin = computed(() => {
+    const role = user.value?.role_name || user.value?.role?.name || '';
+    return role.toLowerCase() === 'administrador';
+});
 
 const supportItems = computed(() => {
     const items = [];

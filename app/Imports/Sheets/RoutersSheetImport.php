@@ -13,10 +13,12 @@ class RoutersSheetImport implements ToCollection, WithHeadingRow, WithTitle
     protected $tenantId;
     public int $imported = 0;
     public array $errors = [];
+    protected $cutTypes = [];
 
     public function __construct($tenantId)
     {
         $this->tenantId = $tenantId;
+        $this->cutTypes = CutType::pluck('id', 'name')->toArray();
     }
 
     public function title(): string
@@ -78,8 +80,17 @@ class RoutersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            $cutType = CutType::where('name', $data['tipo_corte'])->first();
-            if (!$cutType) {
+            if (Router::where('name', $data['nombre'])->where('tenant_id', $this->tenantId)->exists()) {
+                $this->errors[] = [
+                    'sheet' => 'Routers',
+                    'row' => $rowNumber,
+                    'field' => 'nombre',
+                    'error' => "Ya existe un router con el nombre '{$data['nombre']}'",
+                ];
+                continue;
+            }
+
+            if (!isset($this->cutTypes[$data['tipo_corte']])) {
                 $this->errors[] = [
                     'sheet' => 'Routers',
                     'row' => $rowNumber,
@@ -96,7 +107,7 @@ class RoutersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                     'puerto_api' => $data['puerto'] ?? 8728,
                     'user_rb' => $data['usuario'],
                     'password_rb' => $data['password'],
-                    'cut_type_id' => $cutType->id,
+                    'cut_type_id' => $this->cutTypes[$data['tipo_corte']],
                     'wan_interface' => $data['wan_interface'] ?? 'ether1',
                     'pppoe' => $this->parseBool($data['pppoe'] ?? null),
                     'tenant_id' => $this->tenantId,

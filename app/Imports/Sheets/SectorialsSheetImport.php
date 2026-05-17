@@ -37,6 +37,16 @@ class SectorialsSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
+            if (Sectorial::where('name', $data['nombre'])->exists()) {
+                $this->errors[] = [
+                    'sheet' => 'Sectoriales',
+                    'row' => $rowNumber,
+                    'field' => 'nombre',
+                    'error' => "Ya existe una sectorial con el nombre '{$data['nombre']}'",
+                ];
+                continue;
+            }
+
             try {
                 Sectorial::create([
                     'name' => $data['nombre'],

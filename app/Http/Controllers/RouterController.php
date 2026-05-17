@@ -272,14 +272,23 @@ class RouterController extends Controller
             return response()->json(['error' => 'Missing credentials']);
         }
 
+        // SECURITY FIX (OWASP A03): Validate IP before using in shell commands
+        $validatedIp = filter_var($router->ip, FILTER_VALIDATE_IP);
+        if (!$validatedIp) {
+            return response()->json([
+                'error' => 'Invalid IP address format',
+                'ip' => $router->ip,
+            ], 400);
+        }
+
         $sshService = new MikroTikSshService();
         $ssh = $sshService->connect();
 
         $results = [];
 
         // 1. LOCAL CONNECTIVITY CHECK (Laravel -> Client)
-        // Ping local
-        $localPing = shell_exec("ping -n 2 {$router->ip} 2>&1");
+        // Ping local — use escapeshellarg to prevent command injection
+        $localPing = shell_exec("ping -n 2 " . escapeshellarg($validatedIp) . " 2>&1");
 
         // Fix for Windows console output encoding (sane default to avoid 500 error)
         $results['local_ping_from_laravel'] = mb_convert_encoding((string) $localPing, 'UTF-8', 'ISO-8859-1');
@@ -288,7 +297,7 @@ class RouterController extends Controller
         // probe through an SSH local-forward via the CORE.
         try {
             $tunnelManager = new SshTunnelManager();
-            $tunnel = $tunnelManager->open($router->ip, 8728);
+            $tunnel = $tunnelManager->open($validatedIp, 8728);
             $fp = @fsockopen($tunnel->localHost(), $tunnel->localPort(), $errno, $errstr, 2);
             if ($fp) {
                 $results['local_api_port_8728'] = "OPEN via CORE tunnel (local port {$tunnel->localPort()})";
@@ -311,17 +320,16 @@ class RouterController extends Controller
 
         // 2. REMOTE CONNECTIVITY CHECK (CORE -> Client)
         if ($ssh) {
-            // Ping from CORE to Client
-            $remotePing = $ssh->exec("ping count=2 {$router->ip}");
+            // Ping from CORE to Client — IP is already validated above
+            $remotePing = $ssh->exec("ping count=2 {$validatedIp}");
             $results['remote_ping_from_core'] = mb_convert_encoding((string) $remotePing, 'UTF-8', 'ISO-8859-1');
 
-            // Check direct API/SSH failing command output again just to confirm
-            $safePass = str_replace("'", "\\'", $router->password_rb);
-            $user = $router->user_rb;
-            $ip = $router->ip;
+            // SECURITY FIX: Sanitize user/password for MikroTik CLI context
+            // Only allow alphanumeric, dash, underscore, dot in username
+            $safeUser = preg_replace('/[^a-zA-Z0-9._\-]/', '', $router->user_rb);
 
             // Try without password param just to see syntax check
-            $cmd = ":do { /system ssh address=$ip user=$user command=\"/system identity print\" } on-error={ :put \"SSH_NO_PASS_ERROR\" }";
+            $cmd = ":do { /system ssh address={$validatedIp} user={$safeUser} command=\"/system identity print\" } on-error={ :put \"SSH_NO_PASS_ERROR\" }";
             $sshOut = $ssh->exec($cmd);
             $results['remote_ssh_test_no_pass'] = mb_convert_encoding((string) $sshOut, 'UTF-8', 'ISO-8859-1');
 
@@ -332,7 +340,7 @@ class RouterController extends Controller
 
         return response()->json([
             'router' => $router->name,
-            'client_ip' => $router->ip,
+            'client_ip' => $validatedIp,
             'results' => $results
         ]);
     }

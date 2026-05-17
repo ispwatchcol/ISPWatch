@@ -42,8 +42,10 @@ class SecurityHeaders
             // Permissions policy (formerly Feature-Policy)
             $response->header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 
-            // Strict Transport Security (HTTPS only) - uncomment in production with HTTPS
-            // $response->header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+            // Strict Transport Security (HTTPS only) - enable in production
+            if (!app()->environment('local')) {
+                $response->header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+            }
 
             // Content Security Policy - Allow Vite dev server in development
             // Check both environment AND if we're actually on localhost

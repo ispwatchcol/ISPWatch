@@ -30,7 +30,8 @@ class SshTunnelManager
 
     public function __construct()
     {
-        $this->coreHost       = env('MIKROTIK_CORE_SSH_HOST', '167.172.132.234');
+        // SECURITY FIX (OWASP A02): No hardcoded IPs in source code.
+        $this->coreHost       = env('MIKROTIK_CORE_SSH_HOST', '');
         $this->corePort       = (int) env('MIKROTIK_CORE_SSH_PORT', 22);
         $this->coreUser       = env('MIKROTIK_CORE_SSH_USER', 'admin');
         $this->privateKeyPath = env('MIKROTIK_CORE_SSH_KEY_PATH', storage_path('keys/mikrotik_core_id_ed25519'));

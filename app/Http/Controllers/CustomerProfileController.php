@@ -362,8 +362,13 @@ class CustomerProfileController extends Controller
      */
     public function show($id)
     {
+        $authTenantId = auth()->user()?->tenant_id;
+        if (!$authTenantId) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $user = User::where('tenant_id', $authTenantId)->findOrFail($id);
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
-        $user     = User::findOrFail($id);
 
         return response()->json([
             'user_id'      => $customer->user_id,
@@ -430,8 +435,8 @@ class CustomerProfileController extends Controller
 
         $queueResult = $mikrotik->syncQueueViaCore(
             $router->ip,
-            $router->user_rb,
-            $router->password_rb,
+            $router->user_rb_encrypted,
+            $router->password_rb_encrypted,
             $customer->ip_user,
             $customer->name,
             $customer->last_name,
@@ -716,8 +721,13 @@ class CustomerProfileController extends Controller
      */
     public function update(Request $request, $id)
     {
+        $authTenantId = auth()->user()?->tenant_id;
+        if (!$authTenantId) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $user = User::where('tenant_id', $authTenantId)->findOrFail($id);
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
-        $user     = User::findOrFail($id);
 
         $data = $request->validate([
             // user data
@@ -756,7 +766,7 @@ class CustomerProfileController extends Controller
             ];
 
             if (!empty($data['password'])) {
-                $userData['password'] = $data['password'];
+                $userData['password'] = \Illuminate\Support\Facades\Hash::make($data['password']);
             }
 
             $user->update($userData);
@@ -855,22 +865,20 @@ class CustomerProfileController extends Controller
     }
 
     /**
-     * Get current tenant ID from authenticated user or request
+     * Get current tenant ID from authenticated user.
+     *
+     * SECURITY FIX (OWASP A01): Never accept tenant_id from request input.
+     * Always derive from the authenticated user session.
      */
     private function getCurrentTenantId(Request $request): int
     {
-        // Try to get from request header or query param
-        if ($request->has('tenant_id')) {
-            return (int) $request->input('tenant_id');
-        }
-
-        // Try to get from authenticated user
+        // Always get from authenticated user
         if ($request->user() && $request->user()->tenant_id) {
             return $request->user()->tenant_id;
         }
 
-        // Default to tenant 1 for backward compatibility
-        return 1;
+        // No fallback — if we reach here, authentication is broken
+        abort(403, 'No se pudo determinar el tenant del usuario autenticado.');
     }
 
     /**

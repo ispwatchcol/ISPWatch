@@ -34,14 +34,16 @@ class VpnService
     {
         // Cargar configuración desde .env
         // IP Publica del MikroTik CORE (donde los clientes VPN se conectan)
-        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '167.172.132.234');
+        // SECURITY FIX (OWASP A02): No hardcoded credential fallbacks in source code.
+        // All secrets MUST come from .env — fail loudly if not configured.
+        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '');
         // IP para conexión API desde Laravel al CORE
-        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '167.172.132.234');
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '');
         $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
         $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
-        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', '');
         // IPsec Secret fijo para todos los clientes L2TP
-        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', 'Q9fZ7MrL2xSA8DkEpHwCy');
+        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', '');
     }
 
     // ==============================
@@ -146,24 +148,31 @@ class VpnService
             $vpnPassword = \Illuminate\Support\Str::random(20);
         }
 
-        // Guardar credentials VPN en la base de datos
+        // Guardar credentials VPN en la base de datos (encriptadas)
         $router->update([
             'vpn_username' => $vpnUsername,
             'vpn_password' => $vpnPassword,
+            'vpn_username_encrypted' => $vpnUsername,
+            'vpn_password_encrypted' => $vpnPassword,
         ]);
 
         // Generar credenciales de gestión local (INTERNO - no mostrar al usuario)
         $localUser = 'ispwatch';
-        if (empty($router->password_rb) || $router->password_rb === 'Sena2017') {
+        if (empty($router->password_rb_encrypted) || $router->password_rb === 'Sena2017') {
             $localPass = \Illuminate\Support\Str::random(16);
             $router->update([
                 'user_rb' => $localUser,
-                'password_rb' => $localPass
+                'password_rb' => $localPass,
+                'user_rb_encrypted' => $localUser,
+                'password_rb_encrypted' => $localPass,
             ]);
         } else {
-            $localPass = $router->password_rb;
+            $localPass = $router->password_rb_encrypted;
             if ($router->user_rb !== $localUser) {
-                $router->update(['user_rb' => $localUser]);
+                $router->update([
+                    'user_rb' => $localUser,
+                    'user_rb_encrypted' => $localUser,
+                ]);
             }
         }
 
@@ -272,9 +281,9 @@ SCRIPT;
                     'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
                     'assigned_ip' => $assignedIp,
                     'uptime' => $result['uptime'] ?? null,
-                    // Retornar credenciales del RB para sincronización en frontend
-                    'user_rb' => $router->user_rb,
-                    'password_rb' => $router->password_rb,
+                    // Retornar credenciales del RB para sincronización en frontend (encriptadas)
+                    'user_rb' => $router->user_rb_encrypted,
+                    'password_rb' => $router->password_rb_encrypted,
                 ];
             } else {
                 Log::info('[VPN] No hay PPP activo para usuario', [
@@ -306,8 +315,8 @@ SCRIPT;
         try {
             Log::info("[VPN] Sincronizando secret con el CORE", [
                 'user'            => $username,
-                'password_length' => strlen($password),
                 'profile'         => $profile,
+                // ⚠️ NUNCA loguear password_length o datos sensibles
             ]);
 
             $comment = $routerName
@@ -404,7 +413,7 @@ SCRIPT;
     public function getInterfaces(Router $router): array
     {
         // Validar que el router tenga credenciales configuradas
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
             return $this->error('Router sin credenciales configuradas. Verifica la conexión VPN primero.');
         }
 
@@ -444,8 +453,8 @@ SCRIPT;
         stream_set_timeout($socket, 15);
 
         try {
-            // LOGIN con las credenciales del router
-            $loginSuccess = $this->doLoginToClient($socket, $router->user_rb, $router->password_rb);
+            // LOGIN con las credenciales del router (encriptadas)
+            $loginSuccess = $this->doLoginToClient($socket, $router->user_rb_encrypted, $router->password_rb_encrypted);
 
             if (!$loginSuccess) {
                 @fclose($socket);

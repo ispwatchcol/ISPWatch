@@ -15,15 +15,24 @@ class CheckPermission
      */
     public function handle(Request $request, Closure $next, string $permission): Response
     {
-        // For now, we'll get user from request (in production, use auth()->user())
-        // This assumes user_id is passed in request for testing
-        $userId = $request->user_id ?? $request->input('user_id') ?? 1;
+        // SECURITY FIX (OWASP A01): Always use the authenticated user from Sanctum/session.
+        // Never trust user_id from request input — that allows privilege escalation.
+        $user = $request->user();
 
-        $user = \App\Models\User::with('role')->find($userId);
-
-        if (!$user || !$user->role) {
+        if (!$user) {
             return response()->json([
-                'message' => 'Unauthorized - No user or role found'
+                'message' => 'Unauthorized - Authentication required'
+            ], 401);
+        }
+
+        // Eager-load role if not already loaded
+        if (!$user->relationLoaded('role')) {
+            $user->load('role');
+        }
+
+        if (!$user->role) {
+            return response()->json([
+                'message' => 'Forbidden - No role assigned to your account'
             ], 403);
         }
 
@@ -32,7 +41,6 @@ class CheckPermission
             return response()->json([
                 'message' => 'Forbidden - You do not have permission to perform this action',
                 'required_permission' => $permission,
-                'your_permissions' => $user->role->permissions ?? []
             ], 403);
         }
 
