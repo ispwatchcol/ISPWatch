@@ -17,6 +17,8 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 
 class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 {
+    private const CHUNK = 200;
+
     protected $tenantId;
     public int $imported = 0;
     public array $errors = [];
@@ -85,6 +87,10 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
     public function collection(Collection $rows)
     {
+        // Fase 1: validación fila por fila (errores granulares como antes).
+        // Las filas válidas se acumulan; nada se inserta todavía.
+        $pending = [];
+
         foreach ($rows as $index => $row) {
             $rowNumber = $index + 2;
             $data = is_array($row) ? $row : $row->toArray();
@@ -95,7 +101,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
             // Límite de clientes del dominio/tenant. maxCustomers <= 0 = ilimitado.
             if ($this->maxCustomers > 0
-                && ($this->currentCustomerCount + $this->imported) >= $this->maxCustomers) {
+                && ($this->currentCustomerCount + count($pending)) >= $this->maxCustomers) {
                 if (!$this->limitReached) {
                     $this->limitReached = true;
                     $this->errors[] = [
@@ -209,57 +215,139 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            DB::beginTransaction();
-            try {
-                $user = User::create([
-                    'name' => trim($data['nombre'] . ' ' . $data['apellido']),
-                    'user_name' => $data['nombre'],
-                    'user_lastname' => $data['apellido'],
-                    'email' => $customerEmail,
-                    'email_tenant' => $emailTenant,
-                    'password' => Hash::make('default123'),
-                    'tel' => $data['telefono'] ?? null,
-                    'role_id' => 3,
-                    'tenant_id' => $this->tenantId,
-                    'status' => true,
-                    'email_verified_at' => now(),
-                ]);
+            // Reservar email/IP para que un duplicado posterior en el MISMO archivo
+            // se detecte aunque todavía no se haya insertado nada en la BD.
+            $this->existingEmails[$customerEmail] = true;
+            $this->existingIps[$data['ip_usuario']] = true;
 
-                CustomerProfile::create([
-                    'user_id' => $user->id,
-                    'name' => $data['nombre'],
-                    'last_name' => $data['apellido'],
-                    'address' => $data['direccion'] ?? null,
-                    'city' => $data['ciudad'] ?? null,
-                    'ip_user' => $data['ip_usuario'] ?? null,
-                    'router_id' => $routerId,
-                    'service_id' => $planId,
-                    'sectorial_id' => $sectorialId,
-                    'pppoe_username' => $data['usuario_pppoe'] ?? null,
-                    'pppoe_password' => $data['password_pppoe'] ?? null,
-                    'status' => true,
-                ]);
+            $pending[] = [
+                'name' => trim($data['nombre'] . ' ' . $data['apellido']),
+                'user_name' => $data['nombre'],
+                'user_lastname' => $data['apellido'],
+                'email' => $customerEmail,
+                'email_tenant' => $emailTenant,
+                'tel' => $data['telefono'] ?? null,
+                'router_id' => $routerId,
+                'plan_id' => $planId,
+                'sectorial_id' => $sectorialId,
+                'ip_user' => $data['ip_usuario'] ?? null,
+                'address' => $data['direccion'] ?? null,
+                'city' => $data['ciudad'] ?? null,
+                'pppoe_username' => $data['usuario_pppoe'] ?? null,
+                'pppoe_password' => $data['password_pppoe'] ?? null,
+            ];
+        }
 
-                UserService::create([
-                    'user_id' => $user->id,
-                    'service_plan_id' => $planId,
-                    'status' => 'active',
-                    'start_date' => now(),
-                ]);
+        if (empty($pending)) {
+            return;
+        }
 
-                DB::commit();
-                $this->existingEmails[$customerEmail] = true;
-                $this->existingIps[$data['ip_usuario']] = true;
-                $this->imported++;
-            } catch (\Throwable $e) {
-                DB::rollBack();
-                $this->errors[] = [
-                    'sheet' => 'Clientes',
-                    'row' => $rowNumber,
-                    'field' => '-',
-                    'error' => $e->getMessage(),
-                ];
-            }
+        $this->flush($pending);
+    }
+
+    /**
+     * Fase 2: inserción en bloque. Reemplaza la transacción+3 inserts por fila
+     * por inserts masivos en chunks, y hashea la contraseña por defecto UNA sola
+     * vez (bcrypt es el principal cuello de botella en cargas grandes).
+     */
+    protected function flush(array $pending): void
+    {
+        $now = now();
+        // Hash único reutilizado: la contraseña por defecto es constante, así que
+        // no tiene sentido pagar el costo de bcrypt una vez por cada fila.
+        $defaultPassword = Hash::make('default123');
+
+        $userRows = [];
+        foreach ($pending as $p) {
+            $userRows[] = [
+                // El hook booted()->saving de User (deriva `name` de user_name +
+                // user_lastname) NO se dispara con insert() masivo, por eso `name`
+                // se calcula aquí explícitamente.
+                'name' => $p['name'],
+                'user_name' => $p['user_name'],
+                'user_lastname' => $p['user_lastname'],
+                'email' => $p['email'],
+                'email_tenant' => $p['email_tenant'],
+                'tel' => $p['tel'],
+                'password' => $defaultPassword,
+                'role_id' => 3,
+                'tenant_id' => $this->tenantId,
+                'status' => true,
+                'email_verified_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        try {
+            DB::transaction(function () use ($pending, $userRows, $now) {
+                foreach (array_chunk($userRows, self::CHUNK) as $chunk) {
+                    User::insert($chunk);
+                }
+
+                // Resolver los IDs recién creados por email. El email es único en
+                // `users` y los emails ya existentes fueron rechazados en validación,
+                // así que este mapeo corresponde solo a las filas recién insertadas.
+                $emails = array_column($pending, 'email');
+                $idByEmail = [];
+                foreach (array_chunk($emails, 500) as $emailChunk) {
+                    $idByEmail += User::where('tenant_id', $this->tenantId)
+                        ->whereIn('email', $emailChunk)
+                        ->pluck('id', 'email')
+                        ->toArray();
+                }
+
+                $profileRows = [];
+                $serviceRows = [];
+                foreach ($pending as $p) {
+                    $userId = $idByEmail[$p['email']] ?? null;
+                    if ($userId === null) {
+                        // No debería ocurrir: el insert previo fue exitoso.
+                        throw new \RuntimeException("No se pudo resolver el ID para {$p['email']}");
+                    }
+
+                    $profileRows[] = [
+                        'user_id' => $userId,
+                        'name' => $p['user_name'],
+                        'last_name' => $p['user_lastname'],
+                        'address' => $p['address'],
+                        'city' => $p['city'],
+                        'ip_user' => $p['ip_user'],
+                        'router_id' => $p['router_id'],
+                        'service_id' => $p['plan_id'],
+                        'sectorial_id' => $p['sectorial_id'],
+                        'pppoe_username' => $p['pppoe_username'],
+                        'pppoe_password' => $p['pppoe_password'],
+                        'status' => true,
+                    ];
+
+                    $serviceRows[] = [
+                        'user_id' => $userId,
+                        'service_plan_id' => $p['plan_id'],
+                        'status' => 'active',
+                        'start_date' => $now,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+
+                foreach (array_chunk($profileRows, self::CHUNK) as $chunk) {
+                    CustomerProfile::insert($chunk);
+                }
+                foreach (array_chunk($serviceRows, self::CHUNK) as $chunk) {
+                    UserService::insert($chunk);
+                }
+            });
+
+            $this->imported += count($pending);
+        } catch (\Throwable $e) {
+            // La inserción es atómica: si falla, no se importó ningún cliente.
+            $this->errors[] = [
+                'sheet' => 'Clientes',
+                'row' => '-',
+                'field' => '-',
+                'error' => 'No se pudo guardar el lote de clientes: ' . $e->getMessage(),
+            ];
         }
     }
 }

@@ -160,6 +160,12 @@
                     </svg>
                     <span class="font-semibold text-sm">Analizador de IPs</span>
                   </div>
+                  <button
+                    v-if="!loadingFreeIps && parsedRanges.length > 0"
+                    type="button"
+                    @click="toggleAll"
+                    class="text-white/90 hover:text-white text-xs font-medium underline-offset-2 hover:underline"
+                  >{{ allExpanded ? 'Colapsar todo' : 'Expandir todo' }}</button>
                   <div v-if="loadingFreeIps" class="flex items-center gap-1.5 text-white/80 text-xs">
                     <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -196,13 +202,27 @@
                     <span class="text-xs font-medium text-gray-600 dark:text-gray-400 w-10 text-right">{{ ipStats.usagePercent }}%</span>
                   </div>
                 </div>
-                <!-- IP Grid per range -->
+                <!-- IP Grid per range (acordeón) -->
                 <div v-for="(range, idx) in parsedRanges" :key="idx" class="border-t border-gray-200 dark:border-gray-700">
-                  <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between">
-                    <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
-                    <span class="text-xs text-gray-500">{{ range.hosts.length }} hosts · {{ range.freeHosts.length }} libres</span>
-                  </div>
-                  <div class="px-4 py-3 max-h-48 overflow-y-auto">
+                  <button
+                    type="button"
+                    @click="toggleRange(idx)"
+                    class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between text-left hover:bg-gray-100 dark:hover:bg-gray-900/50 transition-colors"
+                  >
+                    <span class="flex items-center gap-2">
+                      <svg
+                        class="w-3.5 h-3.5 text-gray-400 transition-transform shrink-0"
+                        :class="expandedRanges.has(idx) ? 'rotate-90' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                      <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
+                    </span>
+                    <span class="text-xs text-gray-500">
+                      {{ range.hosts.length }} hosts ·
+                      <span class="text-green-600 dark:text-green-400 font-medium">{{ range.freeHosts.length }} libres</span>
+                    </span>
+                  </button>
+                  <div v-if="expandedRanges.has(idx)" class="px-4 py-3 max-h-48 overflow-y-auto">
                     <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
                       <button
                         v-for="ip in range.hosts"
@@ -356,6 +376,7 @@ const rangosIpStr    = ref('')
 const usedIpsSet     = ref(new Set())
 const loadingFreeIps  = ref(false)
 const freeIpsLoaded   = ref(false)
+const expandedRanges  = ref(new Set())   // índices de segmentos abiertos (acordeón)
 
 const parseCIDR = (cidr, usedSet) => {
     const m = cidr.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/)
@@ -382,6 +403,23 @@ const parsedRanges = computed(() => {
         .map(cidr => parseCIDR(cidr, usedIpsSet.value)).filter(Boolean)
 })
 
+// ── Acordeón de segmentos ────────────────────────────────────────────────────
+const toggleRange = (idx) => {
+    const s = new Set(expandedRanges.value)
+    s.has(idx) ? s.delete(idx) : s.add(idx)
+    expandedRanges.value = s
+}
+
+const allExpanded = computed(() =>
+    parsedRanges.value.length > 0 && expandedRanges.value.size === parsedRanges.value.length
+)
+
+const toggleAll = () => {
+    expandedRanges.value = allExpanded.value
+        ? new Set()
+        : new Set(parsedRanges.value.map((_, i) => i))
+}
+
 const ipStats = computed(() => {
     const total = parsedRanges.value.reduce((s, r) => s + r.hosts.length, 0)
     const free  = parsedRanges.value.reduce((s, r) => s + r.freeHosts.length, 0)
@@ -392,6 +430,7 @@ const ipStats = computed(() => {
 const loadFreeIps = async (routerId) => {
     rangosIpStr.value = ''
     usedIpsSet.value  = new Set()
+    expandedRanges.value = new Set()
     freeIpsLoaded.value = false
     if (!routerId) return
     loadingFreeIps.value = true
@@ -399,6 +438,12 @@ const loadFreeIps = async (routerId) => {
         const res = await api.routers.getFreeIps(routerId)
         rangosIpStr.value = res.data.rangos_ip ?? ''
         usedIpsSet.value  = new Set(res.data.used_ips ?? [])
+        // Abrir automáticamente el segmento que contiene la IP ya asignada
+        const currentIp = form.value.ip_user
+        if (currentIp) {
+            const idx = parsedRanges.value.findIndex(r => r.hosts.includes(currentIp))
+            if (idx !== -1) expandedRanges.value = new Set([idx])
+        }
     } catch (e) {
         console.warn('No se pudieron cargar IPs libres:', e)
     } finally {
