@@ -16,14 +16,33 @@
         </div>
         </div>
 
-        <!-- Loading -->
-        <div v-if="loadingData" class="text-center py-12">
+        <!-- Tabs -->
+        <div class="max-w-7xl mx-auto mb-4 sm:mb-6">
+          <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+            <button
+              v-for="tab in tabs" :key="tab.key"
+              @click="activeTab = tab.key"
+              type="button"
+              :class="[
+                'px-4 sm:px-6 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition',
+                activeTab === tab.key
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              ]"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Loading (solo pestaña Datos) -->
+        <div v-if="loadingData && activeTab === 'datos'" class="text-center py-12">
         <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
         <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando datos...</p>
         </div>
 
         <!-- Formulario -->
-        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+        <div v-else-if="activeTab === 'datos'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
         <form @submit.prevent="handleSubmit">
 
             <!-- Sección: Datos de Acceso -->
@@ -329,6 +348,16 @@
             </div>
         </form>
         </div>
+
+        <!-- Pestaña: Facturación -->
+        <div v-if="activeTab === 'facturacion'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+          <CustomerBilling :customer-id="route.params.id" @notify="onNotify" />
+        </div>
+
+        <!-- Pestaña: Documentos -->
+        <div v-if="activeTab === 'documentos'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+          <CustomerDocuments :customer-id="route.params.id" @notify="onNotify" />
+        </div>
     </div>
 </template>
 
@@ -337,10 +366,24 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import CustomerBilling from '@/components/customer/CustomerBilling.vue'
+import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 
 const router = useRouter()
 const route  = useRoute()
 const toast  = ref(null)
+
+const tabs = [
+  { key: 'datos',       label: 'Datos del Cliente' },
+  { key: 'facturacion', label: 'Facturación' },
+  { key: 'documentos',  label: 'Documentos' },
+]
+const activeTab = ref('datos')
+
+const onNotify = ({ type, title, message }) => {
+  const fn = toast.value?.[type] || toast.value?.info
+  fn?.(title, message)
+}
 
 const form = ref({
     email: '',

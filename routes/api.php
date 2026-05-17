@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerProfileController;
+use App\Http\Controllers\CustomerDocumentController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
@@ -59,6 +60,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:suspend_customers');
     Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate'])
         ->middleware('permission:suspend_customers');
+
+    // ─── CUSTOMER DOCUMENTS & CONTRACT ───
+    Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index']);
+    Route::post('/customers/{customer}/documents', [CustomerDocumentController::class, 'store']);
+    Route::delete('/customers/documents/{document}', [CustomerDocumentController::class, 'destroy']);
+    Route::get('/customers/{customer}/contract-data', [CustomerDocumentController::class, 'contractData']);
+    Route::post('/customers/{customer}/contract-sign', [CustomerDocumentController::class, 'signContract']);
 
     // ─── ROUTER MANAGEMENT ───
     Route::get('/routers/{router}/free-ips', [RouterController::class, 'getFreeIps']);
