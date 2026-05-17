@@ -3,7 +3,9 @@
     "allow": [
       "Bash(findstr /R \"DB_\")",
       "Bash(php -v)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(cd \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\" && ls \"C:\\\\Users\\\\User\\\\.claude\\\\projects\\\\c--Users-User-Desktop-GITHUB-ISPWatch\\\\memory\\\\\" 2>/dev/null)",
+      "Read(//c/Users/User/.claude/projects/c--Users-User-Desktop-GITHUB-ISPWatch/memory\" 2>/dev/**)"
     ]
   }
 }
