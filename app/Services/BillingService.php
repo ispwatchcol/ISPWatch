@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Billing;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -69,26 +70,26 @@ class BillingService
      *
      * Idempotent: safe to run multiple times — duplicate invoices are skipped.
      *
-     * @param string|null $period  Format: YYYY-MM (defaults to current month)
+     * The covered period depends on each router's billing_mode:
+     *   - 'anticipado' (default): the month the job runs (cobro adelantado)
+     *   - 'vencido'             : the previous month (cobro vencido)
+     * An explicit $period overrides the mode for ALL routers (manual backfill).
+     *
+     * @param string|null $period  Format: YYYY-MM. Null = derive per router.
      * @return int Number of invoices created
      */
     public function generateMonthlyInvoices(?string $period = null): int
     {
-        if (!$period) {
-            $period = now()->format('Y-m');
-        }
-
-        $periodStart = Carbon::parse($period . '-01')->startOfDay();
-        $periodEnd   = $periodStart->copy()->endOfMonth()->startOfDay();
-        $today       = now();
-        $created     = 0;
+        $periodExplicit = $period !== null;
+        $today          = now();
+        $created        = 0;
 
         // ── Iterate routers that have a billing config ──────────────────────
         $routers = Router::with(['billingConfig', 'customers'])
             ->whereNotNull('billing_router_id')
             ->get();
 
-        Log::info("Billing: Checking {$routers->count()} router(s) with billing config for period {$period}.");
+        Log::info("Billing: Checking {$routers->count()} router(s) with billing config.");
 
         foreach ($routers as $router) {
             $billingConfig = $router->billingConfig;
@@ -96,22 +97,35 @@ class BillingService
                 continue;
             }
 
-            // ── Check create_invoice day ────────────────────────────────────
-            $createDay = $billingConfig->create_invoice
-                ? Carbon::parse($billingConfig->create_invoice)->day
-                : null;
+            // ── Check create_invoice day (clamped to this month's length) ───
+            // A configured day 31 becomes 30 in April / 28 in February so
+            // "último día" configs still fire; other days stay as set.
+            $rawCreateDay = Billing::dayOf($billingConfig->create_invoice);
+            $createDay    = Billing::clampDayToMonth($rawCreateDay, $today);
 
             if ($createDay === null) {
                 Log::info("Billing: Router {$router->id} ({$router->name}) has no create_invoice day. Skipping.");
                 continue;
             }
 
-            // Only generate if today's day >= the configured creation day.
+            // Only generate if today's day >= the (clamped) creation day.
             // This allows recovery if the system was down on the exact day.
             if ($today->day < $createDay) {
                 Log::info("Billing: Router {$router->id} ({$router->name}) — create day is {$createDay}, today is {$today->day}. Not yet.");
                 continue;
             }
+
+            // ── Resolve the period this invoice covers ──────────────────────
+            if ($periodExplicit) {
+                $periodMonth = Carbon::parse($period . '-01');
+            } else {
+                $mode = $billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO;
+                $periodMonth = $mode === Billing::MODE_VENCIDO
+                    ? $today->copy()->subMonthNoOverflow()
+                    : $today->copy();
+            }
+            $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
+            $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
 
             // ── Determine due date from payment_day config ──────────────────
             $dueDay = $billingConfig->payment_day

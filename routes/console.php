@@ -14,3 +14,7 @@ Schedule::command('billing:generate-monthly')->daily();
 // Auto-cut: run every hour so it picks up routers whose cut_time has arrived
 Schedule::command('billing:auto-cut')->hourly();
 
+// Payment reminders: run daily — the service fires on each router's
+// billing.payment_reminder day and is idempotent per billing cycle
+Schedule::command('billing:send-reminders')->daily();
+

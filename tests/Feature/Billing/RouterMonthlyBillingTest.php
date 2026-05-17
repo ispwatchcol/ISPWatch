@@ -56,11 +56,15 @@ class RouterMonthlyBillingTest extends TestCase
      * Build a billing config. $createDay / $paymentDay are days of month;
      * only the day component is read by BillingService.
      */
-    private function makeBilling(int $createDay, ?int $paymentDay = null): Billing
-    {
+    private function makeBilling(
+        int $createDay,
+        ?int $paymentDay = null,
+        string $mode = Billing::MODE_ANTICIPADO,
+    ): Billing {
         return Billing::create([
             'create_invoice' => Carbon::create(2026, 1, $createDay)->toDateString(),
             'payment_day'    => $paymentDay ? Carbon::create(2026, 1, $paymentDay)->toDateString() : null,
+            'billing_mode'   => $mode,
             'status'         => 'pending',
         ]);
     }
@@ -363,5 +367,123 @@ class RouterMonthlyBillingTest extends TestCase
         $invoice = Invoice::where('customer_id', $user->id)->firstOrFail();
         $this->assertEquals('2026-06-01', Carbon::parse($invoice->period_start)->toDateString());
         $this->assertEquals('2026-06-30', Carbon::parse($invoice->period_end)->toDateString());
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Billing mode: anticipado (current month) vs vencido (previous month)
+    // ────────────────────────────────────────────────────────────────
+
+    #[Test]
+    public function anticipado_mode_covers_the_current_month(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 15, mode: Billing::MODE_ANTICIPADO);
+        $router = $this->makeRouter($tenant, $config);
+        $user   = $this->makeCustomer($tenant, $router, $plan);
+
+        $this->billing->generateMonthlyInvoices();
+
+        $invoice = Invoice::where('customer_id', $user->id)->firstOrFail();
+        $this->assertEquals('2026-06-01', Carbon::parse($invoice->period_start)->toDateString());
+        $this->assertEquals('2026-06-30', Carbon::parse($invoice->period_end)->toDateString());
+    }
+
+    #[Test]
+    public function vencido_mode_covers_the_previous_month(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 15, mode: Billing::MODE_VENCIDO);
+        $router = $this->makeRouter($tenant, $config);
+        $user   = $this->makeCustomer($tenant, $router, $plan);
+
+        $this->billing->generateMonthlyInvoices();
+
+        $invoice = Invoice::where('customer_id', $user->id)->firstOrFail();
+        // Job ran in June, but the invoice covers May (the consumed month).
+        $this->assertEquals('2026-05-01', Carbon::parse($invoice->period_start)->toDateString());
+        $this->assertEquals('2026-05-31', Carbon::parse($invoice->period_end)->toDateString());
+    }
+
+    #[Test]
+    public function explicit_period_argument_overrides_billing_mode(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        // Mode is vencido, but an explicit period must win.
+        $config = $this->makeBilling(createDay: 15, mode: Billing::MODE_VENCIDO);
+        $router = $this->makeRouter($tenant, $config);
+        $user   = $this->makeCustomer($tenant, $router, $plan);
+
+        $this->billing->generateMonthlyInvoices('2026-06');
+
+        $invoice = Invoice::where('customer_id', $user->id)->firstOrFail();
+        $this->assertEquals('2026-06-01', Carbon::parse($invoice->period_start)->toDateString());
+        $this->assertEquals('2026-06-30', Carbon::parse($invoice->period_end)->toDateString());
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // create_invoice day clamped to the month length ("último día")
+    // ────────────────────────────────────────────────────────────────
+
+    #[Test]
+    public function create_day_31_fires_on_the_last_day_of_a_30_day_month(): void
+    {
+        // June has 30 days; configured day 31 → clamped to 30.
+        Carbon::setTestNow(Carbon::create(2026, 6, 30, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 31);
+        $router = $this->makeRouter($tenant, $config);
+        $user   = $this->makeCustomer($tenant, $router, $plan);
+
+        $count = $this->billing->generateMonthlyInvoices();
+
+        $this->assertSame(1, $count);
+        $this->assertSame(1, Invoice::where('customer_id', $user->id)->count());
+    }
+
+    #[Test]
+    public function create_day_31_does_not_fire_before_the_clamped_last_day(): void
+    {
+        // June 29 — clamped create day is 30, so not yet.
+        Carbon::setTestNow(Carbon::create(2026, 6, 29, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 31);
+        $router = $this->makeRouter($tenant, $config);
+        $this->makeCustomer($tenant, $router, $plan);
+
+        $count = $this->billing->generateMonthlyInvoices();
+
+        $this->assertSame(0, $count);
+        $this->assertSame(0, Invoice::count());
+    }
+
+    #[Test]
+    public function create_day_31_fires_on_feb_28_in_a_non_leap_year(): void
+    {
+        // 2026 is not a leap year → February has 28 days.
+        Carbon::setTestNow(Carbon::create(2026, 2, 28, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 31);
+        $router = $this->makeRouter($tenant, $config);
+        $user   = $this->makeCustomer($tenant, $router, $plan);
+
+        $count = $this->billing->generateMonthlyInvoices();
+
+        $this->assertSame(1, $count);
+        $this->assertSame(1, Invoice::where('customer_id', $user->id)->count());
     }
 }

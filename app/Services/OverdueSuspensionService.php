@@ -86,10 +86,13 @@ class OverdueSuspensionService
                 continue;
             }
 
-            // ── Check cut_day (day-of-month) ───────────────────────────────────
-            $cutDayOfMonth = $billingConfig->cut_day
-                ? Carbon::parse($billingConfig->cut_day)->day
-                : null;
+            // ── Check cut_day (clamped to this month's length) ─────────────────
+            // A configured day 31 becomes 30 in April / 28 in February so the
+            // "último día" config still fires; other days stay as configured.
+            $cutDayOfMonth = Billing::clampDayToMonth(
+                Billing::dayOf($billingConfig->cut_day),
+                $now
+            );
 
             if ($cutDayOfMonth === null) {
                 Log::warning("Auto-cut: Router {$router->id} billing config has no cut_day. Skipping.");
