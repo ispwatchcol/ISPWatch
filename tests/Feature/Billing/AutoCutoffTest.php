@@ -38,7 +38,7 @@ class AutoCutoffTest extends TestCase
         $cutType = CutType::firstOrCreate(['name' => $cutTypeName]);
 
         return Router::create([
-            'name' => 'Router Test',
+            'name' => 'Router ' . uniqid(),
             'tenant_id' => $tenant->id,
             'cut_type_id' => $cutType->id,
             'billing_router_id' => $billing->id,
@@ -50,7 +50,8 @@ class AutoCutoffTest extends TestCase
     {
         CustomerProfile::updateOrCreate(
             ['user_id' => $user->id],
-            ['name' => 'Test', 'last_name' => 'User', 'router_id' => $router->id, 'status' => 'active']
+            // status is a BOOLEAN column (true = active), matching production.
+            ['name' => 'Test ' . uniqid(), 'last_name' => 'User', 'router_id' => $router->id, 'status' => true]
         );
 
         for ($i = 0; $i < $qty; $i++) {

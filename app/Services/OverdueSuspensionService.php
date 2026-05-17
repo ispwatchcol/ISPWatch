@@ -162,9 +162,11 @@ class OverdueSuspensionService
     {
         $maxOverdue = max(1, (int) ($billingConfig->overdue_invoices ?? 1));
 
-        // All active customers assigned to this router
+        // All active customers assigned to this router.
+        // customer_profile.status is a BOOLEAN column (true = active);
+        // comparing to the string 'active' throws on PostgreSQL.
         $profiles = CustomerProfile::where('router_id', $router->id)
-            ->where('status', 'active')
+            ->where('status', true)
             ->get();
 
         return $profiles->filter(function (CustomerProfile $profile) use ($maxOverdue) {
