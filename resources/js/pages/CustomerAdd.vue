@@ -312,6 +312,55 @@
             </div>
         </form>
         </div>
+
+        <!-- Modal: Límite de clientes del plan alcanzado -->
+        <div v-if="showLimitModal"
+            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            @click.self="showLimitModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 dark:border-gray-700">
+                <div class="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-6 text-center">
+                    <div class="mx-auto w-14 h-14 rounded-full bg-white/20 flex items-center justify-center mb-3">
+                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <h3 class="text-lg sm:text-xl font-bold text-white">Límite de plan alcanzado</h3>
+                </div>
+
+                <div class="px-6 py-5 text-center">
+                    <p class="text-gray-700 dark:text-gray-200 text-sm sm:text-base">
+                        Ya tienes <strong>{{ limitInfo.current }}</strong> de
+                        <strong>{{ limitInfo.limit }}</strong> clientes registrados en tu plan actual.
+                    </p>
+                    <p class="text-gray-500 dark:text-gray-400 text-sm mt-2">
+                        Amplía tu plan para poder agregar más clientes.
+                    </p>
+
+                    <div class="mt-4">
+                        <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style="width:100%"></div>
+                        </div>
+                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Capacidad del plan utilizada</p>
+                    </div>
+                </div>
+
+                <div class="px-6 pb-6 flex flex-col gap-2">
+                    <button type="button" @click="handleUpgrade"
+                        class="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Ampliar plan
+                    </button>
+                    <button type="button" @click="showLimitModal = false"
+                        class="w-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-2 text-sm transition">
+                        Entendido
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -344,6 +393,8 @@ const form = ref({
 
 const loading        = ref(false)
 const errorMsg       = ref('')
+const showLimitModal = ref(false)
+const limitInfo      = ref({ limit: 0, current: 0, message: '' })
 const pppoeUserError = ref('')
 const pppoePassError = ref('')
 const plans          = ref([])
@@ -506,11 +557,28 @@ const handleSubmit = async () => {
         }
     } catch (err) {
         console.error('Error al crear cliente:', err)
-        const msg = err.response?.data?.message || 'Error al crear el cliente.'
+        const data = err.response?.data
+
+        if (err.response?.status === 403 && data?.upgrade_required) {
+            limitInfo.value = {
+                limit: data.limit ?? 0,
+                current: data.current ?? 0,
+                message: data.message ?? '',
+            }
+            showLimitModal.value = true
+            return
+        }
+
+        const msg = data?.message || 'Error al crear el cliente.'
         errorMsg.value = msg
         toast.value?.error('Error al crear', msg)
     } finally {
         loading.value = false
     }
+}
+
+// Placeholder de ampliación de plan: por ahora solo informa, el modal sigue abierto
+const handleUpgrade = () => {
+    toast.value?.info('Función disponible próximamente', 'La ampliación de plan estará disponible pronto.')
 }
 </script>

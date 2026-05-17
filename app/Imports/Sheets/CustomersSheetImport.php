@@ -27,6 +27,10 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
     protected $existingEmails = [];
     protected $existingIps = [];
     protected $tenantDomain = 'local';
+    protected int $maxCustomers = 0;
+    protected int $currentCustomerCount = 0;
+    protected string $tenantStatus = 'trial';
+    protected bool $limitReached = false;
 
     public function __construct($tenantId)
     {
@@ -64,6 +68,14 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
         $tenant = Tenant::find($this->tenantId);
         $this->tenantDomain = strtolower($tenant->domain ?? 'local');
+
+        // 0 o null = ilimitado (solo cuando el plan está marcado como tal)
+        $this->maxCustomers = (int) ($tenant->max_customers ?? 0);
+        $this->tenantStatus = (string) ($tenant->status ?? 'trial');
+        $this->currentCustomerCount = CustomerProfile::whereHas(
+            'user',
+            fn($q) => $q->where('tenant_id', $this->tenantId)
+        )->count();
     }
 
     public function title(): string
@@ -79,6 +91,23 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
             if (empty(array_filter($data, fn($v) => $v !== null && $v !== ''))) {
                 continue;
+            }
+
+            // Límite de clientes del dominio/tenant. maxCustomers <= 0 = ilimitado.
+            if ($this->maxCustomers > 0
+                && ($this->currentCustomerCount + $this->imported) >= $this->maxCustomers) {
+                if (!$this->limitReached) {
+                    $this->limitReached = true;
+                    $this->errors[] = [
+                        'sheet' => 'Clientes',
+                        'row' => $rowNumber,
+                        'field' => 'limite',
+                        'error' => "Límite de {$this->maxCustomers} clientes alcanzado para tu plan {$this->tenantStatus}. "
+                            . "Las filas desde la {$rowNumber} en adelante no fueron importadas. "
+                            . "Contacta con soporte para ampliar tu plan.",
+                    ];
+                }
+                break;
             }
 
             $missing = [];

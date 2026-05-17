@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat \"c:/Users/User/.claude/projects/c--Users-User-Desktop-GITHUB-ISPWatch/memory/MEMORY.md\")",
+      "Read(//c/Users/User/.claude/projects/c--Users-User-Desktop-GITHUB-ISPWatch/memory/**)",
+      "Bash(php -l \"c:/Users/User/Desktop/GITHUB/ISPWatch/app/Imports/Sheets/CustomersSheetImport.php\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
+      "Bash(npx vite *)"
+    ]
+  }
+}
