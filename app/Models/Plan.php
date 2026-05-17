@@ -45,13 +45,17 @@ class Plan extends Model
         return $this->belongsTo(TypePlan::class, 'type_plan_id');
     }
 
-    public function activeClients()
+    public function userServices()
     {
-        return $this->hasMany(User::class, 'service_id')
-            ->where('role_id', 3)
-            ->where('status', true);
+        return $this->hasMany(UserService::class, 'service_plan_id');
     }
 
+    public function activeClients()
+    {
+        return $this->userServices()
+            ->whereHas('user', fn($q) => $q->where('status', true)->where('role_id', 3))
+            ->where('status', 'active');
+    }
 
     public function getActiveClientsCountAttribute()
     {

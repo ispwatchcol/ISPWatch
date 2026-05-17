@@ -13,10 +13,12 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
     protected $tenantId;
     public int $imported = 0;
     public array $errors = [];
+    protected $typePlans = [];
 
     public function __construct($tenantId)
     {
         $this->tenantId = $tenantId;
+        $this->typePlans = TypePlan::pluck('id', 'code')->toArray();
     }
 
     public function title(): string
@@ -63,13 +65,22 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            $typePlan = TypePlan::where('code', $data['tipo_plan'])->first();
-            if (!$typePlan) {
+            if (!isset($this->typePlans[$data['tipo_plan']])) {
                 $this->errors[] = [
                     'sheet' => 'Planes',
                     'row' => $rowNumber,
                     'field' => 'tipo_plan',
                     'error' => "Tipo de plan '{$data['tipo_plan']}' no encontrado (válidos: queue, pppoe, hotspot, pcq)",
+                ];
+                continue;
+            }
+
+            if (Plan::where('name', $data['nombre'])->where('tenant_id', $this->tenantId)->exists()) {
+                $this->errors[] = [
+                    'sheet' => 'Planes',
+                    'row' => $rowNumber,
+                    'field' => 'nombre',
+                    'error' => "Ya existe un plan con el nombre '{$data['nombre']}'",
                 ];
                 continue;
             }
@@ -81,7 +92,7 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
                     'is_courtesy' => $isCourtesy,
                     'speed_down' => $data['speed_down'],
                     'speed_up' => $data['speed_up'],
-                    'type_plan_id' => $typePlan->id,
+                    'type_plan_id' => $this->typePlans[$data['tipo_plan']],
                     'tenant_id' => $this->tenantId,
                 ]);
                 $this->imported++;

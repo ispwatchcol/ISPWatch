@@ -53,25 +53,44 @@
 
         <!-- BARRA DE HERRAMIENTAS (BUSCADOR Y FILTROS) -->
         <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-          
+
           <!-- Buscador con Lupa -->
-          <div class="relative w-full sm:w-96 group">
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <!-- Icono Lupa (SVG manual para asegurar visualización) -->
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+          <div class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div class="relative w-full sm:w-96 group">
+              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <!-- Icono Lupa (SVG manual para asegurar visualización) -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                v-model="search"
+                type="text"
+                placeholder="Buscar plan por nombre..."
+                class="pl-10 pr-4 py-2 w-full rounded-xl bg-gray-50 dark:bg-gray-900/50
+                       border border-gray-200 dark:border-gray-700
+                       focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:bg-white dark:focus:bg-gray-900
+                       text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500
+                       transition-all duration-200 text-sm outline-none"
+              />
             </div>
-            <input
-              v-model="search"
-              type="text"
-              placeholder="Buscar plan por nombre..."
-              class="pl-10 pr-4 py-2 w-full rounded-xl bg-gray-50 dark:bg-gray-900/50
-                     border border-gray-200 dark:border-gray-700 
+
+            <!-- Selector de Límite -->
+            <select
+              v-model="perPage"
+              class="px-4 py-2 rounded-xl bg-gray-50 dark:bg-gray-900/50
+                     border border-gray-200 dark:border-gray-700
                      focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:bg-white dark:focus:bg-gray-900
-                     text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500
-                     transition-all duration-200 text-sm outline-none"
-            />
+                     text-gray-700 dark:text-gray-200
+                     transition-all duration-200 text-sm outline-none cursor-pointer
+                     appearance-none pr-8"
+            >
+              <option value="10">Mostrar 10</option>
+              <option value="100">Mostrar 100</option>
+              <option value="500">Mostrar 500</option>
+              <option value="1000">Mostrar 1000</option>
+              <option value="todos">Mostrar todos</option>
+            </select>
           </div>
 
           <!-- Acciones de Selección Múltiple -->
@@ -485,6 +504,7 @@ const currentTab = ref('queue')
 const selectedPlans = ref([])
 const allPlans = ref([])
 const toast = ref(null)
+const perPage = ref(10)
 
 // Estados del modal eliminar
 const showDeleteModal = ref(false)
@@ -519,7 +539,7 @@ const currentTabName = computed(() => {
 })
 
 const filteredPlans = computed(() => {
-  return allPlans.value.filter(plan => {
+  let filtered = allPlans.value.filter(plan => {
     const matchesType =
       plan.type_plan?.code === currentTab.value
 
@@ -529,6 +549,12 @@ const filteredPlans = computed(() => {
 
     return matchesType && matchesSearch
   })
+
+  if (perPage.value !== 'todos') {
+    filtered = filtered.slice(0, parseInt(perPage.value))
+  }
+
+  return filtered
 })
 
 const selectAll = computed({
