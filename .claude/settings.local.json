@@ -8,7 +8,9 @@
       "Bash(npx vite *)",
       "Bash(php -l \"c:/Users/User/Desktop/GITHUB/ISPWatch/app/Http/Controllers/ImportController.php\")",
       "Bash(node -e \"const s=require\\('fs'\\).readFileSync\\('resources/js/pages/CustomerAdd.vue','utf8'\\);const o=\\(s.match\\(/<div\\\\b/g\\)||[]\\).length,c=\\(s.match\\(/<\\\\/div>/g\\)||[]\\).length;console.log\\('div open:',o,'div close:',c\\);\")",
-      "Bash(node -e \"const s=require\\('fs'\\).readFileSync\\('resources/js/pages/CustomerEdit.vue','utf8'\\);const o=\\(s.match\\(/<div\\\\b/g\\)||[]\\).length,c=\\(s.match\\(/<\\\\/div>/g\\)||[]\\).length;const bo=\\(s.match\\(/<button\\\\b/g\\)||[]\\).length,bc=\\(s.match\\(/<\\\\/button>/g\\)||[]\\).length;console.log\\('div',o,c,'button',bo,bc\\);\")"
+      "Bash(node -e \"const s=require\\('fs'\\).readFileSync\\('resources/js/pages/CustomerEdit.vue','utf8'\\);const o=\\(s.match\\(/<div\\\\b/g\\)||[]\\).length,c=\\(s.match\\(/<\\\\/div>/g\\)||[]\\).length;const bo=\\(s.match\\(/<button\\\\b/g\\)||[]\\).length,bc=\\(s.match\\(/<\\\\/button>/g\\)||[]\\).length;console.log\\('div',o,c,'button',bo,bc\\);\")",
+      "Bash(findstr /i \"user_service service billing\")",
+      "Bash(findstr /i \"DB_CONNECTION DB_DATABASE DB_HOST\")"
     ]
   }
 }
