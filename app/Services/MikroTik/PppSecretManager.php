@@ -522,4 +522,71 @@ class PppSecretManager
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
+
+    // ==================== FIREWALL ADDRESS-LIST (CORE) ====================
+
+    /**
+     * Ensure an entry exists in a CORE /ip firewall address-list. Idempotent:
+     * checks first and only adds if the exact list+address pair is missing.
+     *
+     * Used to auto-add each tenant's VPN /24 to the firewall bypass list so new
+     * tenants/routers never get blocked by the input chain's blacklist logic.
+     */
+    public function ensureCoreAddressListEntry(string $list, string $address, string $comment = 'ISPWatch Auto'): array
+    {
+        try {
+            $socket = $this->apiProtocol->connect(
+                $this->connectionManager->getApiHost(),
+                $this->connectionManager->getApiPort(),
+                10
+            );
+            if (!$socket) {
+                return ['success' => false, 'message' => 'API connection failed'];
+            }
+
+            if (!$this->apiProtocol->login(
+                $socket,
+                $this->connectionManager->getApiUser(),
+                $this->connectionManager->getApiPass()
+            )) {
+                $this->apiProtocol->close($socket);
+                return ['success' => false, 'message' => 'API authentication failed'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/print', [
+                '?list='    . $list,
+                '?address=' . $address,
+            ]);
+            $existing = $this->apiProtocol->readAllRecords($socket);
+
+            if (!empty($existing)) {
+                $this->apiProtocol->close($socket);
+                Log::debug('[PppSecretManager] Entrada address-list ya existe', [
+                    'list' => $list, 'address' => $address,
+                ]);
+                return ['success' => true, 'action' => 'exists'];
+            }
+
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/add', [
+                '=list='    . $list,
+                '=address=' . $address,
+                '=comment=' . $comment,
+            ]);
+            $error = $this->apiProtocol->readUntilDoneWithError($socket);
+            $this->apiProtocol->close($socket);
+
+            if ($error) {
+                return ['success' => false, 'message' => "API error: $error"];
+            }
+
+            Log::info('[PppSecretManager] Entrada address-list creada en CORE', [
+                'list' => $list, 'address' => $address,
+            ]);
+            return ['success' => true, 'action' => 'created'];
+
+        } catch (\Throwable $e) {
+            Log::error('[PppSecretManager] Error creando entrada address-list', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
 }
