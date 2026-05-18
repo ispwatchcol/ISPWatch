@@ -287,7 +287,9 @@ class CustomerProfileController extends Controller
                             $data['last_name'],
                             $servicePlan->speed_up,
                             $servicePlan->speed_down,
-                            $router->puerto_api ?? 8728
+                            $router->puerto_api ?? 8728,
+                            $data['pppoe_username'] ?? null,
+                            trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? ''))
                         );
 
                         if (!$queueResult['success']) {
@@ -327,7 +329,8 @@ class CustomerProfileController extends Controller
                             'pppoe',
                             $router->puerto_api ?? 8728,
                             $data['ip_user'] ?? null,
-                            $data['pppoe_local_address'] ?? null
+                            $data['pppoe_local_address'] ?? null,
+                            trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? ''))
                         );
 
                         if (!$pppoeResult['success']) {
@@ -456,7 +459,9 @@ class CustomerProfileController extends Controller
             $customer->last_name,
             $servicePlan->speed_up,
             $servicePlan->speed_down,
-            $router->puerto_api ?? 8728
+            $router->puerto_api ?? 8728,
+            $customer->pppoe_username,
+            trim($customer->name . ' ' . $customer->last_name)
         );
 
         $pppoeResult = null;
@@ -472,7 +477,8 @@ class CustomerProfileController extends Controller
                     'pppoe',
                     $router->puerto_api ?? 8728,
                     $customer->ip_user,
-                    $customer->pppoe_local_address
+                    $customer->pppoe_local_address,
+                    trim($customer->name . ' ' . $customer->last_name)
                 );
             } catch (\Throwable $e) {
                 \Log::warning('[CustomerProfile::provision] PPPoE secret exception', ['error' => $e->getMessage()]);
@@ -591,7 +597,9 @@ class CustomerProfileController extends Controller
                     $customer->last_name,
                     $servicePlan->speed_up,
                     $servicePlan->speed_down,
-                    $router->puerto_api ?? 8728
+                    $router->puerto_api ?? 8728,
+                    $customer->pppoe_username,
+                    trim($customer->name . ' ' . $customer->last_name)
                 );
             } catch (\Throwable $e) {
                 \Log::warning('[CustomerProfile::bulkProvision] Queue exception', [
@@ -617,7 +625,8 @@ class CustomerProfileController extends Controller
                             'pppoe',
                             $router->puerto_api ?? 8728,
                             $customer->ip_user,
-                            $customer->pppoe_local_address
+                            $customer->pppoe_local_address,
+                            trim($customer->name . ' ' . $customer->last_name)
                         );
                     } catch (\Throwable $e) {
                         \Log::warning('[CustomerProfile::bulkProvision] PPPoE secret exception', [
@@ -896,7 +905,8 @@ class CustomerProfileController extends Controller
                                 'pppoe',
                                 $router->puerto_api ?? 8728,
                                 $data['ip_user'] ?? $customer->ip_user,
-                                $data['pppoe_local_address'] ?? $customer->pppoe_local_address
+                                $data['pppoe_local_address'] ?? $customer->pppoe_local_address,
+                                trim(($data['name'] ?? $customer->name) . ' ' . ($data['last_name'] ?? $customer->last_name))
                             );
                         }
                     } catch (\Throwable $e) {
