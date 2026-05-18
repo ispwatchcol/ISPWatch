@@ -202,9 +202,15 @@ class VpnService
         // Determinar perfil VPN específico del tenant (o fallback a profile-vpn)
         $vpnProfile = 'profile-vpn';
         $tenantId   = $router->tenant_id;
+        // Red del túnel desde la que el CORE alcanza a ESTE router (su /24 de
+        // tenant; la IP del CORE en el túnel es la .1 de ese /24). Se usa para
+        // permitir gestión en el firewall del cliente. Fallback al supernet
+        // 172.16.0.0/12 (cubre todos los /24 que genera la fórmula de tenants).
+        $mgmtNet = '172.16.0.0/12';
         if ($tenantId) {
             $this->ensureTenantVpnResources((int) $tenantId);
             $vpnProfile = $this->getProfileName((int) $tenantId);
+            $mgmtNet    = $this->getTenantSubnet((int) $tenantId)['network_cidr'];
         }
 
         // Intentar crear/actualizar el secret en el CORE vía API
@@ -235,6 +241,17 @@ class VpnService
 # Habilitar servicios para gestión remota
 /ip service set api disabled=no port=8728
 /ip service set ssh disabled=no port=22
+
+# ====================================
+# ACCESO DE GESTIÓN DESDE EL CORE (TÚNEL VPN)
+# ====================================
+# Permite que ISPWatch llegue por el túnel (SSH/API/Winbox) sin tener que
+# buscar a mano entre cientos de reglas del firewall del router.
+# Idempotente: se identifica por comentario y se reinserta al TOPE del
+# chain input (antes de cualquier blacklist/drop), así re-aplicar el
+# script no duplica la regla ni requiere inspeccionar las reglas existentes.
+/ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
+/ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # CONFIGURACIÓN VPN L2TP
