@@ -568,6 +568,19 @@ class CustomerProfileController extends Controller
                 continue;
             }
 
+            // Fast pre-check: without management credentials every SSH attempt
+            // just times out (and stacks toward the gateway 504). Fail instantly.
+            if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+                $results[] = [
+                    'customer_id'   => $customerId,
+                    'customer_name' => "{$customer->name} {$customer->last_name}",
+                    'success'       => false,
+                    'message'       => "El router {$router->name} no tiene credenciales de gestión completas (IP VPN / usuario / contraseña). Genera y conecta el script VPN del router.",
+                ];
+                $failCount++;
+                continue;
+            }
+
             try {
                 $queueResult = $mikrotik->syncQueueViaCore(
                     $router->ip,
