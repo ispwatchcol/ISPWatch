@@ -56,7 +56,7 @@ class Plan extends Model
     {
         return $this->userServices()
             ->whereHas('user', fn($q) => $q->where('status', true)->where('role_id', 3))
-            ->where('status', 'active');
+            ->whereIn('status', [UserService::STATUS_ACTIVE, UserService::STATUS_GRATIS]);
     }
 
     public function getActiveClientsCountAttribute()

@@ -632,31 +632,56 @@ const provisionCustomer = async () => {
         const customerIds = filteredCustomers.value.map(c => c.user_id)
         const response    = await api.customers.bulkProvision(customerIds)
 
-        const { success_count, fail_count, pppoe_skipped_count } = response.data
+        const data    = response.data || {}
+        const results = Array.isArray(data.results) ? data.results : []
+        const { success_count = 0, fail_count = 0, pppoe_skipped_count = 0 } = data
 
-        if (fail_count > 0 && success_count > 0) {
-            toast.value?.warning(
-                'Provisionamiento parcial',
-                `${success_count} exitoso(s), ${fail_count} con error.`
-            )
+        if (results.length === 1) {
+            // Caso un solo cliente: reportamos queue y secret PPPoE por separado.
+            const r    = results[0]
+            const name = r.customer_name || 'El cliente'
+
+            if (r.success && r.pppoe_created) {
+                toast.value?.success('Cargado al router',
+                    `${name}: queue + secret PPPoE creados correctamente.`)
+            } else if (r.success && r.pppoe_skipped) {
+                toast.value?.warning('Queue cargado — PPPoE pendiente',
+                    `${name}: ${r.queue_message}. ${r.pppoe_message}. Edita el cliente para configurar las credenciales PPPoE.`,
+                    { duration: 9000 })
+            } else if (r.success && !r.pppoe_applies) {
+                toast.value?.success('Cargado al router', `${name}: ${r.queue_message}.`)
+            } else {
+                const reasons = []
+                if (!r.queue_ok) reasons.push(`Queue: ${r.queue_message}`)
+                if (r.pppoe_applies && !r.pppoe_skipped && !r.pppoe_created) reasons.push(`Secret PPPoE: ${r.pppoe_message}`)
+                toast.value?.error('No se pudo cargar al router',
+                    `${name} → ${reasons.join(' · ') || r.message || 'Error desconocido.'}`,
+                    { duration: 12000 })
+            }
+        } else if (fail_count > 0 && success_count > 0) {
+            const firstErr = results.find(x => !x.success)
+            toast.value?.warning('Provisionamiento parcial',
+                `${success_count} exitoso(s), ${fail_count} con error${firstErr ? ` (ej. ${firstErr.customer_name}: ${firstErr.message})` : ''}.`,
+                { duration: 9000 })
         } else if (fail_count > 0) {
-            toast.value?.error('Error al provisionar', `${fail_count} cliente(s) no pudieron ser provisionados.`)
+            const firstErr = results.find(x => !x.success)
+            toast.value?.error('Error al provisionar',
+                `${fail_count} cliente(s) con error${firstErr ? `: ${firstErr.message}` : ''}.`,
+                { duration: 9000 })
         } else if (pppoe_skipped_count > 0) {
-            toast.value?.warning(
-                'Queue cargado — PPPoE pendiente',
-                `Queue cargado en ${success_count} cliente(s). ${pppoe_skipped_count} cliente(s) con router PPPoE no tienen credenciales guardadas — edítalos para configurarlas.`
-            )
+            toast.value?.warning('Queue cargado — PPPoE pendiente',
+                `Queue cargado en ${success_count} cliente(s). ${pppoe_skipped_count} con router PPPoE sin credenciales guardadas — edítalos para configurarlas.`,
+                { duration: 9000 })
         } else {
-            const ri = selectedRouterInfo.value
-            const suffix = ri?.pppoe ? ' (queue + PPPoE secret)' : ''
-            toast.value?.success(
-                'Provisionamiento exitoso',
-                `${success_count} cliente(s) cargado(s) correctamente${suffix}.`
-            )
+            toast.value?.success('Provisionamiento exitoso',
+                `${success_count} cliente(s) cargado(s) correctamente.`)
         }
     } catch (err) {
         console.error('Error al provisionar:', err)
-        toast.value?.error('Error de conexión', err.response?.data?.message || 'No se pudo conectar con el router.')
+        const msg = err.response?.data?.message
+            || (err.code === 'ECONNABORTED' ? 'La operación tardó demasiado (timeout): el router/CORE no respondió.' : err.message)
+            || 'No se pudo conectar con el servidor.'
+        toast.value?.error('Error al cargar al router', msg, { duration: 11000 })
     } finally {
         loading.value = false
     }

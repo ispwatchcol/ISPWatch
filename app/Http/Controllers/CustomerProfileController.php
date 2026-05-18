@@ -568,17 +568,25 @@ class CustomerProfileController extends Controller
                 continue;
             }
 
-            $queueResult = $mikrotik->syncQueueViaCore(
-                $router->ip,
-                $router->user_rb,
-                $router->password_rb,
-                $customer->ip_user,
-                $customer->name,
-                $customer->last_name,
-                $servicePlan->speed_up,
-                $servicePlan->speed_down,
-                $router->puerto_api ?? 8728
-            );
+            try {
+                $queueResult = $mikrotik->syncQueueViaCore(
+                    $router->ip,
+                    $router->user_rb,
+                    $router->password_rb,
+                    $customer->ip_user,
+                    $customer->name,
+                    $customer->last_name,
+                    $servicePlan->speed_up,
+                    $servicePlan->speed_down,
+                    $router->puerto_api ?? 8728
+                );
+            } catch (\Throwable $e) {
+                \Log::warning('[CustomerProfile::bulkProvision] Queue exception', [
+                    'customer_id' => $customerId,
+                    'error'       => $e->getMessage(),
+                ]);
+                $queueResult = ['success' => false, 'message' => 'Error al cargar queue: ' . $e->getMessage()];
+            }
 
             $pppoeResult  = null;
             $pppoeSkipped = false;
@@ -618,6 +626,15 @@ class CustomerProfileController extends Controller
                 'customer_name'  => "{$customer->name} {$customer->last_name}",
                 'success'        => $rowSuccess,
                 'pppoe_skipped'  => $pppoeSkipped,
+                'pppoe_applies'  => (bool) $router->pppoe,
+                'pppoe_created'  => $pppoeResult !== null && ($pppoeResult['success'] ?? false),
+                'queue_ok'       => (bool) ($queueResult['success'] ?? false),
+                'queue_message'  => $queueResult['message'] ?? (($queueResult['success'] ?? false) ? 'Queue cargado' : 'Error en queue'),
+                'pppoe_message'  => $pppoeSkipped
+                    ? 'Credenciales PPPoE no configuradas en el cliente'
+                    : ($pppoeResult === null
+                        ? 'El router no usa PPPoE'
+                        : ($pppoeResult['message'] ?? (($pppoeResult['success'] ?? false) ? 'Secret PPPoE creado' : 'Error creando el secret PPPoE'))),
                 'message'        => $rowSuccess
                     ? ($pppoeSkipped ? 'Queue OK — credenciales PPPoE no configuradas' : 'OK')
                     : ($queueResult['message'] ?? ($pppoeResult['message'] ?? 'Error')),
