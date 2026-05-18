@@ -746,7 +746,7 @@ const activateCustomer = async (customer) => {
 const deleteCustomer = async (customer) => {
     const confirmed = await openConfirm({
         type: 'danger',
-        icon: 'md-deletepermanent',
+        icon: 'md-deleteforever',
         title: 'Eliminar cliente',
         message: `¿Estás seguro de eliminar a ${customer.name} ${customer.last_name}? Esta acción no se puede deshacer.`,
         confirmLabel: 'Eliminar',

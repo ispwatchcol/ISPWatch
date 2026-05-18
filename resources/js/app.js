@@ -137,6 +137,9 @@ import {
   MdSend,
   RiBillLine,
   RiBankCardLine,
+  MdPausecircle,
+  MdPlaycircle,
+  MdDeleteforever,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -267,6 +270,9 @@ addIcons(
   MdSend,
   RiBillLine,
   RiBankCardLine,
+  MdPausecircle,
+  MdPlaycircle,
+  MdDeleteforever,
 );
 
 // -------------------------------
