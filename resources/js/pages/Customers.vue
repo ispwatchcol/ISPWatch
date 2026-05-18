@@ -222,13 +222,8 @@
                         </span>
                     </td>
                     <td class="px-6 py-4 text-center">
-                        <span v-if="customer.status"
-                            class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-                            Activo
-                        </span>
-                        <span v-else
-                            class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
-                            Suspendido
+                        <span :class="['px-2 py-1 text-xs font-medium rounded-full', statusBadge(customer).cls]">
+                            {{ statusBadge(customer).label }}
                         </span>
                     </td>
                     <td class="px-6 py-4 text-center">
@@ -342,13 +337,8 @@
                         <h3 class="font-semibold text-gray-800 dark:text-white">{{ customer.name }} {{ customer.last_name }}</h3>
                         <p class="text-sm text-gray-500 dark:text-gray-400">{{ customer.email }}</p>
                     </div>
-                    <span v-if="customer.status"
-                        class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 shrink-0">
-                        Activo
-                    </span>
-                    <span v-else
-                        class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 shrink-0">
-                        Suspendido
+                    <span :class="['px-2 py-1 text-xs font-medium rounded-full shrink-0', statusBadge(customer).cls]">
+                        {{ statusBadge(customer).label }}
                     </span>
                     </div>
 
@@ -580,9 +570,21 @@ const {
         plan: c => c.service_name ?? '',
         sectorial: c => c.sectorial_name ?? '',
         router: c => c.router_name ?? '',
-        status: c => !!c.status,
+        status: c => c.service_status || (c.status ? 'activo' : 'suspendido'),
     },
 })
+
+// Estado de servicio → etiqueta + colores (refleja gratis/cancelado, no solo el booleano)
+const STATUS_BADGES = {
+    activo:     { label: 'Activo',     cls: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+    suspendido: { label: 'Suspendido', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+    cancelado:  { label: 'Cancelado',  cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+    gratis:     { label: 'Gratis',     cls: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+}
+const statusBadge = (c) => {
+    const key = c.service_status || (c.status ? 'activo' : 'suspendido')
+    return STATUS_BADGES[key] || STATUS_BADGES.activo
+}
 
 const loadCustomers = async () => {
     try {

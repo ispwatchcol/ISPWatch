@@ -47,6 +47,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.sectorial_id',
                 'customer_profile.router_id',
                 'customer_profile.status',
+                'customer_profile.service_status',
                 'customer_profile.pppoe_username',
                 'users.email',
                 'service_plan.name as service_name',

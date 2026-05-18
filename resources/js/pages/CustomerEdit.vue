@@ -168,7 +168,7 @@
             <div class="mt-5">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <label class="block text-gray-700 dark:text-gray-300 font-medium">Estado del servicio</label>
-                    <span v-if="isCourtesyPlan" class="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    <span v-if="isCourtesyPlan" class="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                         Plan de cortesía — fijado en Gratis automáticamente
                     </span>
@@ -558,7 +558,7 @@ const statusOptions = [
     { value: 'activo',     label: 'Activo',     activeClass: 'bg-green-500 text-white border-green-500',     dotClass: 'bg-green-500' },
     { value: 'suspendido', label: 'Suspendido', activeClass: 'bg-amber-500 text-white border-amber-500',     dotClass: 'bg-amber-500' },
     { value: 'cancelado',  label: 'Cancelado',  activeClass: 'bg-red-500 text-white border-red-500',         dotClass: 'bg-red-500' },
-    { value: 'gratis',     label: 'Gratis',     activeClass: 'bg-emerald-500 text-white border-emerald-500', dotClass: 'bg-emerald-500' },
+    { value: 'gratis',     label: 'Gratis',     activeClass: 'bg-indigo-500 text-white border-indigo-500', dotClass: 'bg-indigo-500' },
 ]
 
 // Detect PPPoE plan by type_plan name, plan name, or pppoe_pool field
