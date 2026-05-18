@@ -56,17 +56,29 @@ class QueueManager
             $maxLimit = "{$speedUp}/{$speedDown}";
             $queueName = "{$customerName} {$customerLastName}";
 
-            // Try direct API first
+            // 1. Try direct API to the client first.
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
                 $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
                 if ($socket) {
                     Log::info('[QueueManager] Conexión API directa al cliente exitosa');
-                    return $this->syncQueueDirectApi($socket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+                    $direct = $this->syncQueueDirectApi($socket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+                    if ($direct['success']) {
+                        return $direct;
+                    }
+                    // A direct-API failure must NOT be terminal — clients are
+                    // usually behind the L2TP tunnel. Fall through to the CORE
+                    // SSH path (mirrors the working profile/secret flow).
+                    Log::warning('[QueueManager] API directa falló, usando CORE SSH', [
+                        'reason' => $direct['message'] ?? 'unknown',
+                    ]);
                 }
             }
 
-            Log::info('[QueueManager] API directa no disponible, usando CORE');
-            return $this->syncQueueViaCoreNetwork($clientIp, $clientPort, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+            // 2. CORE SSH direct: SSH into CORE and ssh-exec into the client —
+            //    the SAME proven path profile/secret use (~17s). NOT the CORE
+            //    API-script tier, which times out (~60s).
+            Log::info('[QueueManager] API directa no disponible, usando CORE SSH');
+            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
 
         } catch (\Throwable $e) {
             Log::error('[QueueManager] Error sincronizando queue', [
@@ -158,11 +170,14 @@ class QueueManager
     }
 
     /**
-     * Sync queue via CORE ssh-exec
+     * Sync queue via CORE SSH direct: SSH into the CORE and run a single
+     * ssh-exec into the client. Mirrors PppProfileManager::secretViaCoreDirectSsh
+     * (the proven ~17s path). Single-level `:do { add } on-error={}; set [find]`
+     * command shape — no /system/script (API-script times out ~60s) and no
+     * nested on-error / :put / :if (escape-fragile over ssh-exec).
      */
-    private function syncQueueViaCoreNetwork(
+    private function syncQueueViaCoreDirectSsh(
         string $clientIp,
-        int $clientPort,
         string $clientUser,
         string $clientPass,
         string $targetIp,
@@ -170,97 +185,66 @@ class QueueManager
         string $maxLimit
     ): array {
         try {
-            $socket = $this->apiProtocol->connect(
-                $this->connectionManager->getApiHost(),
-                $this->connectionManager->getApiPort(),
-                10
-            );
+            $clientCommand = $this->buildQueueCommand($targetIp, $queueName, $maxLimit);
+            $safePass      = str_replace('"', '\\"', $clientPass);
+            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
 
-            if (!$socket) {
-                return ['success' => false, 'message' => 'No se pudo conectar al CORE'];
+            Log::info('[QueueManager] CORE SSH direct: ssh-exec queue', [
+                'client_ip' => $clientIp,
+                'target'    => $targetIp,
+            ]);
+
+            $result = $this->connectionManager->executeSsh($coreCommand);
+
+            if (!$result['success']) {
+                return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $result['message'] ?? 'No se pudo conectar al CORE via SSH'];
             }
 
-            if (
-                !$this->apiProtocol->login(
-                    $socket,
-                    $this->connectionManager->getApiUser(),
-                    $this->connectionManager->getApiPass()
-                )
-            ) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación al CORE'];
+            $output = trim((string) ($result['output'] ?? ''));
+
+            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+                return [
+                    'success'    => false,
+                    'method'     => 'CORE_SSH_DIRECT',
+                    'definitive' => true,
+                    'message'    => 'No se pudo crear/actualizar la queue. Detalle del router: ' . $output,
+                ];
             }
 
-            // Build command
-            $safePass = str_replace('"', '\\"', $clientPass);
-            $safeQueueName = str_replace('"', '\\"', $queueName);
-
-            // First remove existing queue, then add new one
-            $removeCmd = "/queue simple remove [find target={$targetIp}/32]";
-            $addCmd = "/queue simple add name=\"{$safeQueueName}\" target={$targetIp} max-limit={$maxLimit} comment=\"ISPWatch Auto-Provisioned\"";
-
-            // Execute remove
-            $scriptName = 'ispwatch_q_' . substr(uniqid(), -6);
-            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"{$removeCmd}\"";
-
-            $this->apiProtocol->sendCommand($socket, '/system/script/add', [
-                '=name=' . $scriptName,
-                '=source=' . $scriptSource,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            $this->apiProtocol->sendCommand($socket, '/system/script/run', [
-                '=number=' . $scriptName,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
-                '=numbers=' . $scriptName,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            // Execute add
-            $scriptName2 = 'ispwatch_qa_' . substr(uniqid(), -6);
-            $scriptSource2 = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($addCmd) . "\"";
-
-            $this->apiProtocol->sendCommand($socket, '/system/script/add', [
-                '=name=' . $scriptName2,
-                '=source=' . $scriptSource2,
-            ]);
-            $addError = $this->apiProtocol->readUntilDoneWithError($socket);
-
-            if ($addError) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error creando script: ' . $addError];
-            }
-
-            $this->apiProtocol->sendCommand($socket, '/system/script/run', [
-                '=number=' . $scriptName2,
-            ]);
-            $runError = $this->apiProtocol->readUntilDoneWithError($socket);
-
-            $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
-                '=numbers=' . $scriptName2,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            $this->apiProtocol->close($socket);
-
-            if ($runError && !str_contains($runError, 'no such item')) {
-                return ['success' => false, 'method' => 'CORE_SSH_EXEC', 'message' => 'Error: ' . $runError];
-            }
+            Log::info('[QueueManager] Queue creada/actualizada via CORE SSH', ['target' => $targetIp]);
 
             return [
-                'success' => true,
-                'method' => 'CORE_SSH_EXEC',
-                'message' => 'Queue sincronizada via CORE',
+                'success'    => true,
+                'method'     => 'CORE_SSH_DIRECT',
+                'action'     => 'upserted',
+                'message'    => 'Queue sincronizada via CORE',
                 'queue_name' => $queueName,
-                'max_limit' => $maxLimit,
+                'max_limit'  => $maxLimit,
             ];
-
         } catch (\Throwable $e) {
-            Log::error('[QueueManager] Error en syncQueueViaCoreNetwork', ['error' => $e->getMessage()]);
-            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+            Log::error('[QueueManager] CORE SSH queue exception', ['error' => $e->getMessage()]);
+            return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Build the idempotent /queue simple command in the proven safe shape:
+     * try add (ignore if it exists), then unconditionally set [find target].
+     */
+    private function buildQueueCommand(string $targetIp, string $queueName, string $maxLimit): string
+    {
+        $name  = $this->escapeRouterOsQuotedValue($queueName);
+        $limit = $this->escapeRouterOsQuotedValue($maxLimit);
+        $args  = ' max-limit="' . $limit . '" comment="ISPWatch Auto-Provisioned"';
+
+        $addCmd = '/queue simple add name="' . $name . '" target=' . $targetIp . $args;
+        $setCmd = '/queue simple set [find target=' . $targetIp . '/32] name="' . $name . '"' . $args;
+
+        return ':do { ' . $addCmd . ' } on-error={}; ' . $setCmd;
+    }
+
+    private function escapeRouterOsQuotedValue(string $value): string
+    {
+        return addcslashes($value, "\\\"");
     }
 }
