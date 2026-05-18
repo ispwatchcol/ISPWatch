@@ -164,6 +164,36 @@
                 </div>
             </div>
 
+            <!-- Estado del servicio -->
+            <div class="mt-5">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <label class="block text-gray-700 dark:text-gray-300 font-medium">Estado del servicio</label>
+                    <span v-if="isCourtesyPlan" class="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        Plan de cortesía — fijado en Gratis automáticamente
+                    </span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-2xl">
+                    <button
+                        v-for="opt in statusOptions"
+                        :key="opt.value"
+                        type="button"
+                        :disabled="isCourtesyPlan && opt.value !== 'gratis'"
+                        @click="!isCourtesyPlan && (form.service_status = opt.value)"
+                        :class="[
+                            'flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all',
+                            form.service_status === opt.value
+                                ? opt.activeClass + ' shadow-sm'
+                                : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500',
+                            (isCourtesyPlan && opt.value !== 'gratis') ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                        ]"
+                    >
+                        <span class="w-2 h-2 rounded-full" :class="form.service_status === opt.value ? 'bg-white' : opt.dotClass"></span>
+                        {{ opt.label }}
+                    </button>
+                </div>
+            </div>
+
             <!-- IP RANGE ANALYZER -->
             <div v-if="freeIpsLoaded && parsedRanges.length === 0 && form.router_id" class="mt-4 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
               <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -410,6 +440,7 @@ const form = ref({
     service_id: null,
     sectorial_id: null,
     router_id: null,
+    service_status: 'activo',
     create_pppoe_secret: false,
     pppoe_username: '',
     pppoe_password: '',
@@ -513,6 +544,23 @@ watch(() => form.value.router_id, (id) => { if (id) loadFreeIps(id) })
 const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
 
+// Courtesy plans force the 'gratis' state automatically.
+const isCourtesyPlan = computed(() => !!selectedPlan.value?.is_courtesy)
+watch(isCourtesyPlan, (courtesy) => {
+    if (courtesy) {
+        form.value.service_status = 'gratis'
+    } else if (form.value.service_status === 'gratis') {
+        form.value.service_status = 'activo'
+    }
+})
+
+const statusOptions = [
+    { value: 'activo',     label: 'Activo',     activeClass: 'bg-green-500 text-white border-green-500',     dotClass: 'bg-green-500' },
+    { value: 'suspendido', label: 'Suspendido', activeClass: 'bg-amber-500 text-white border-amber-500',     dotClass: 'bg-amber-500' },
+    { value: 'cancelado',  label: 'Cancelado',  activeClass: 'bg-red-500 text-white border-red-500',         dotClass: 'bg-red-500' },
+    { value: 'gratis',     label: 'Gratis',     activeClass: 'bg-indigo-500 text-white border-indigo-500', dotClass: 'bg-indigo-500' },
+]
+
 // Detect PPPoE plan by type_plan name, plan name, or pppoe_pool field
 const isPppoePlan = computed(() => {
     if (!selectedPlan.value) return false
@@ -570,6 +618,7 @@ const loadCustomer = async () => {
             service_id:   d.service_id || null,
             sectorial_id: d.sectorial_id || null,
             router_id:    d.router_id || null,
+            service_status: d.service_status || 'activo',
             create_pppoe_secret: false,
             pppoe_username: d.pppoe_username || '',
             pppoe_password: d.pppoe_password || '',

@@ -47,6 +47,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.sectorial_id',
                 'customer_profile.router_id',
                 'customer_profile.status',
+                'customer_profile.service_status',
                 'customer_profile.pppoe_username',
                 'users.email',
                 'service_plan.name as service_name',
@@ -244,6 +245,9 @@ class CustomerProfileController extends Controller
                 'pppoe_username' => $data['pppoe_username'] ?? null,
                 'pppoe_password' => $data['pppoe_password'] ?? null,
                 'pppoe_local_address' => $data['pppoe_local_address'] ?? null,
+                'service_status' => (!empty($data['service_id']) && optional(Plan::find($data['service_id']))->is_courtesy)
+                    ? 'gratis'
+                    : 'activo',
             ]);
 
             // Mirror the assigned plan into user_services so the monthly
@@ -390,6 +394,7 @@ class CustomerProfileController extends Controller
             'sectorial_id' => $customer->sectorial_id,
             'router_id'    => $customer->router_id,
             'status'         => $customer->status,
+            'service_status' => $customer->service_status ?: ($customer->status ? 'activo' : 'suspendido'),
             'pppoe_username' => $customer->pppoe_username,
             'pppoe_password' => $customer->pppoe_password,
             'pppoe_local_address' => $customer->pppoe_local_address,
@@ -650,7 +655,7 @@ class CustomerProfileController extends Controller
         }
 
         // Update status
-        $customer->update(['status' => false]);
+        $customer->update(['status' => false, 'service_status' => 'suspendido']);
 
         // If router assigned, add IP to block list via CORE
         if ($customer->router_id && $customer->ip_user) {
@@ -695,8 +700,12 @@ class CustomerProfileController extends Controller
             ], 400);
         }
 
-        // Update status
-        $customer->update(['status' => true]);
+        // Update status — courtesy plans stay 'gratis'
+        $activePlan = $customer->service_id ? Plan::find($customer->service_id) : null;
+        $customer->update([
+            'status' => true,
+            'service_status' => ($activePlan && $activePlan->is_courtesy) ? 'gratis' : 'activo',
+        ]);
 
         // If router assigned, remove IP from block list via CORE
         if ($customer->router_id && $customer->ip_user) {
@@ -764,6 +773,9 @@ class CustomerProfileController extends Controller
             'pppoe_username'      => 'nullable|string|max:255',
             'pppoe_password'      => 'nullable|string|max:255',
             'pppoe_local_address' => 'nullable|string|max:45',
+
+            // Service state
+            'service_status' => 'nullable|in:activo,suspendido,cancelado,gratis',
         ]);
 
         DB::beginTransaction();
@@ -783,6 +795,30 @@ class CustomerProfileController extends Controller
 
             $user->update($userData);
 
+            // Resolve the service state. A courtesy plan always forces 'gratis';
+            // 'gratis' is otherwise invalid and falls back to 'activo'. The
+            // legacy boolean `status` is kept in sync so the customer list,
+            // router block-list and billing keep working.
+            $prevStatusBool = (bool) $customer->status;
+            $effectiveServiceId = array_key_exists('service_id', $data)
+                ? $data['service_id']
+                : $customer->service_id;
+            $effectivePlan = $effectiveServiceId ? Plan::find($effectiveServiceId) : null;
+
+            $requestedStatus = (array_key_exists('service_status', $data) && $data['service_status'])
+                ? $data['service_status']
+                : ($customer->service_status ?: ($customer->status ? 'activo' : 'suspendido'));
+
+            if ($effectivePlan && $effectivePlan->is_courtesy) {
+                $serviceStatus = 'gratis';
+            } elseif ($requestedStatus === 'gratis') {
+                $serviceStatus = 'activo';
+            } else {
+                $serviceStatus = $requestedStatus;
+            }
+
+            $statusBool = in_array($serviceStatus, ['activo', 'gratis'], true);
+
             // update customer profile data
             $customer->update([
                 'name'        => $data['name'] ?? $customer->name,
@@ -797,13 +833,12 @@ class CustomerProfileController extends Controller
                 'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
                 'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,
                 'pppoe_local_address' => array_key_exists('pppoe_local_address', $data) ? $data['pppoe_local_address'] : $customer->pppoe_local_address,
+                'service_status' => $serviceStatus,
+                'status'         => $statusBool,
             ]);
 
             // Keep user_services aligned with the (possibly changed) plan so
             // billing/courtesy status stays correct after an edit.
-            $effectiveServiceId = array_key_exists('service_id', $data)
-                ? $data['service_id']
-                : $customer->service_id;
             UserService::syncForCustomer($id, $effectiveServiceId ? (int) $effectiveServiceId : null);
 
             DB::commit();
@@ -843,10 +878,47 @@ class CustomerProfileController extends Controller
                 }
             }
 
+            // Sync router block-list when the active/blocked state changed.
+            $statusRouterResult = null;
+            if ($statusBool !== $prevStatusBool && $customer->router_id && $customer->ip_user) {
+                try {
+                    $blockRouter = Router::find($customer->router_id);
+                    if ($blockRouter) {
+                        $mikrotik = new \App\Services\MikroTikSshService();
+                        if ($statusBool) {
+                            // Now activo/gratis -> unblock
+                            $statusRouterResult = $mikrotik->removeSuspendedIpViaCore(
+                                $blockRouter->ip,
+                                $blockRouter->user_rb,
+                                $blockRouter->password_rb,
+                                $customer->ip_user,
+                                $blockRouter->puerto_api ?? 8728
+                            );
+                        } else {
+                            // Now suspendido/cancelado -> block
+                            $statusRouterResult = $mikrotik->addSuspendedIpViaCore(
+                                $blockRouter->ip,
+                                $blockRouter->user_rb,
+                                $blockRouter->password_rb,
+                                $customer->ip_user,
+                                "{$customer->name} {$customer->last_name}",
+                                $blockRouter->puerto_api ?? 8728
+                            );
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Log::warning('[CustomerProfile] Status router sync exception (non-blocking)', [
+                        'error' => $e->getMessage(),
+                    ]);
+                    $statusRouterResult = ['success' => false, 'message' => $e->getMessage()];
+                }
+            }
+
             return response()->json([
                 'message'           => 'Cliente actualizado correctamente. ✅',
                 'customer'          => $customer,
                 'pppoe_provisioned' => $pppoeResult,
+                'status_router'     => $statusRouterResult,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();

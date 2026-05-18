@@ -326,7 +326,7 @@ class PppProfileManager
         $params = [
             '=name=' . $profileName,
             '=rate-limit=' . $rateLimit,
-            '=comment=ISPWatch Auto-Profile',
+            '=comment=ISPWatch - ' . $profileName,
         ];
 
         if ($localAddress !== null && trim($localAddress) !== '') {
@@ -352,7 +352,7 @@ class PppProfileManager
                 ? ' local-address="' . $this->escapeRouterOsQuotedValue(trim($localAddress)) . '"' : '')
             . ($remoteAddress !== null && trim($remoteAddress) !== ''
                 ? ' remote-address="' . $this->escapeRouterOsQuotedValue(trim($remoteAddress)) . '"' : '')
-            . ' comment="ISPWatch Auto-Profile"';
+            . ' comment="ISPWatch - ' . $escapedName . '"';
 
         // Try to add (ignore if already exists), then always set to apply latest params.
         // This avoids :local/:if conditionals which can be unreliable inside ssh-exec command strings.

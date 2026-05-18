@@ -33,6 +33,7 @@ class CustomerProfile extends Model
         'pppoe_password',
         'pppoe_local_address',
         'status',
+        'service_status',
     ];
 
     public function user()
