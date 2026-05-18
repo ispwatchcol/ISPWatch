@@ -25,6 +25,7 @@ class SshTunnelManager
     private int $corePort;
     private string $coreUser;
     private string $privateKeyPath;
+    private ?string $keyPassphrase;
     private float $readyTimeoutSeconds;
     private bool $enabled;
 
@@ -35,6 +36,11 @@ class SshTunnelManager
         $this->corePort       = (int) env('MIKROTIK_CORE_SSH_PORT', 22);
         $this->coreUser       = env('MIKROTIK_CORE_SSH_USER', 'admin');
         $this->privateKeyPath = env('MIKROTIK_CORE_SSH_KEY_PATH', storage_path('keys/mikrotik_core_id_ed25519'));
+        // The CORE deploy key is passphrase-protected. The system `ssh` runs with
+        // BatchMode=yes (no prompt) and there is no ssh-agent, so we must hand it
+        // a key it can use without a passphrase. When this is set we decrypt the
+        // key in memory and write a short-lived passphrase-less copy for ssh -i.
+        $this->keyPassphrase = env('MIKROTIK_CORE_SSH_KEY_PASSPHRASE', null) ?: null;
         $this->readyTimeoutSeconds = (float) env('MIKROTIK_TUNNEL_READY_TIMEOUT', 6.0);
 
         // Tunnel is only needed when the Laravel server cannot reach client
@@ -87,8 +93,10 @@ class SshTunnelManager
         $this->assertSshAvailable();
         $this->assertKeyExists();
 
+        [$effectiveKeyPath, $tempKeyPath] = $this->resolveEffectiveKeyPath();
+
         $localPort = $this->findFreeLocalPort();
-        $cmd       = $this->buildSshCommand($clientIp, $clientPort, $localPort);
+        $cmd       = $this->buildSshCommand($clientIp, $clientPort, $localPort, $effectiveKeyPath);
 
         Log::debug('[SshTunnelManager] opening tunnel', [
             'clientIp'   => $clientIp,
@@ -107,6 +115,9 @@ class SshTunnelManager
         $process = @proc_open($cmd, $descriptors, $pipes);
 
         if (!is_resource($process)) {
+            if ($tempKeyPath !== null && is_file($tempKeyPath)) {
+                @unlink($tempKeyPath);
+            }
             throw new \RuntimeException(
                 "Failed to spawn ssh subprocess for tunnel to {$clientIp}:{$clientPort}"
             );
@@ -124,12 +135,12 @@ class SshTunnelManager
             }
         }
 
-        $tunnel = new SshTunnel($process, $pipes, $localPort, $clientIp, $clientPort);
+        $tunnel = new SshTunnel($process, $pipes, $localPort, $clientIp, $clientPort, $tempKeyPath);
 
         try {
             $this->waitUntilReady($tunnel);
         } catch (\Throwable $e) {
-            $tunnel->close();
+            $tunnel->close(); // also unlinks $tempKeyPath
             throw $e;
         }
 
@@ -158,15 +169,19 @@ class SshTunnelManager
         return (int) substr($name, $colon + 1);
     }
 
-    private function buildSshCommand(string $clientIp, int $clientPort, int $localPort): string
+    private function buildSshCommand(string $clientIp, int $clientPort, int $localPort, string $keyPath): string
     {
         $forward = '127.0.0.1:' . $localPort . ':' . $clientIp . ':' . $clientPort;
 
+        // /dev/null does not exist on Windows; the equivalent null device is NUL.
+        $nullKnownHosts = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
+
         $parts = [
             'ssh',
-            '-i', escapeshellarg($this->privateKeyPath),
+            '-i', escapeshellarg($keyPath),
+            '-o', escapeshellarg('IdentitiesOnly=yes'),
             '-o', escapeshellarg('StrictHostKeyChecking=no'),
-            '-o', escapeshellarg('UserKnownHostsFile=/dev/null'),
+            '-o', escapeshellarg('UserKnownHostsFile=' . $nullKnownHosts),
             '-o', escapeshellarg('BatchMode=yes'),
             '-o', escapeshellarg('ConnectTimeout=5'),
             '-o', escapeshellarg('ServerAliveInterval=10'),
@@ -190,8 +205,7 @@ class SshTunnelManager
             if (!$tunnel->isRunning()) {
                 $stderr = trim($tunnel->drainStderr());
                 throw new \RuntimeException(
-                    "SSH tunnel process exited before becoming ready" .
-                    ($stderr !== '' ? ". stderr: {$stderr}" : '')
+                    $this->explainSshFailure($stderr, 'el proceso ssh terminó antes de establecer el túnel')
                 );
             }
 
@@ -218,11 +232,64 @@ class SshTunnelManager
 
         $stderr = trim($tunnel->drainStderr());
         throw new \RuntimeException(
-            "SSH tunnel to {$tunnel->clientIp()}:{$tunnel->clientPort()} " .
-            "did not become ready within {$this->readyTimeoutSeconds}s on " .
-            "127.0.0.1:{$tunnel->localPort()}. Last probe error: {$lastError}" .
-            ($stderr !== '' ? ". ssh stderr: {$stderr}" : '')
+            $this->explainSshFailure(
+                $stderr,
+                "el túnel a {$tunnel->clientIp()}:{$tunnel->clientPort()} no quedó listo en " .
+                "{$this->readyTimeoutSeconds}s (último error de sondeo: {$lastError})"
+            )
         );
+    }
+
+    /**
+     * Turn raw ssh stderr into an operator-facing message that says WHICH hop
+     * failed, so this stops being misdiagnosed as a router credential / API /
+     * client-firewall problem when it is really server→CORE reachability or the
+     * CORE deploy key.
+     */
+    private function explainSshFailure(string $stderr, string $context): string
+    {
+        $core = "{$this->coreUser}@{$this->coreHost}:{$this->corePort}";
+        $low  = strtolower($stderr);
+
+        $unreachable = str_contains($low, 'connection timed out')
+            || str_contains($low, 'connection refused')
+            || str_contains($low, 'no route to host')
+            || str_contains($low, 'network is unreachable')
+            || str_contains($low, 'operation timed out')
+            || str_contains($low, 'could not resolve hostname');
+
+        $authFailed = str_contains($low, 'permission denied')
+            || str_contains($low, 'too many authentication failures')
+            || str_contains($low, 'no matching host key');
+
+        $keyProblem = str_contains($low, 'load key')
+            || str_contains($low, 'incorrect passphrase')
+            || str_contains($low, 'invalid format')
+            || str_contains($low, 'bad permissions');
+
+        if ($unreachable) {
+            $msg = "No se pudo establecer SSH al CORE ({$core}) desde este servidor: host inalcanzable. " .
+                "Esto NO es un problema de credenciales del router cliente, de la API MikroTik ni del " .
+                "firewall del router — es alcance servidor→CORE: el firewall del CORE bloquea la IP de " .
+                "origen de este servidor (o no está en la lista ALLOWED_MGMT / está en BLACKLIST), o el " .
+                "CORE no expone SSH en esa IP/puerto.";
+        } elseif ($keyProblem) {
+            $msg = "SSH al CORE ({$core}) rechazado por la llave: no se pudo cargar/descifrar la clave " .
+                "privada del CORE. Si la llave tiene passphrase, configura MIKROTIK_CORE_SSH_KEY_PASSPHRASE " .
+                "(o usa una llave sin passphrase para el túnel). No es un problema del router cliente.";
+        } elseif ($authFailed) {
+            $msg = "SSH al CORE ({$core}) autenticación rechazada (publickey). La llave de este servidor no " .
+                "está autorizada en el CORE (/user ssh-keys), o la passphrase es incorrecta. No es un " .
+                "problema de credenciales del router cliente.";
+        } else {
+            $msg = "No se pudo establecer el túnel SSH a través del CORE ({$core}).";
+        }
+
+        $msg .= " [{$context}]";
+        if ($stderr !== '') {
+            $msg .= " ssh stderr: {$stderr}";
+        }
+        return $msg;
     }
 
     private function assertSshAvailable(): void
@@ -269,10 +336,111 @@ class SshTunnelManager
             );
         }
 
-        $perms = @fileperms($this->privateKeyPath);
-        if ($perms !== false && ($perms & 0077) !== 0) {
-            // ssh refuses world/group-readable keys. Try to fix on the fly.
-            @chmod($this->privateKeyPath, 0600);
+        // POSIX-only: ssh refuses world/group-readable keys. On Windows the
+        // permission model is ACL-based, fileperms() reports a meaningless
+        // 0666-ish value and chmod() is a no-op that just logs "Permission
+        // denied" noise — so skip the bit-check there entirely.
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $perms = @fileperms($this->privateKeyPath);
+            if ($perms !== false && ($perms & 0077) !== 0) {
+                @chmod($this->privateKeyPath, 0600);
+            }
         }
+    }
+
+    /**
+     * Resolve the key path the system `ssh` should use with `-i`.
+     *
+     * If MIKROTIK_CORE_SSH_KEY_PASSPHRASE is configured the on-disk key is
+     * passphrase-protected, which the BatchMode=yes ssh subprocess cannot
+     * decrypt (no prompt, no agent). We copy the key and strip the passphrase
+     * with OpenSSH's own `ssh-keygen -p`, returning the temp path as the second
+     * element so the caller can delete it when the tunnel closes.
+     *
+     * NOTE: we deliberately do NOT use phpseclib's toString('OpenSSH') here —
+     * for ed25519 it emits a private key the OpenSSH *client* loads but the
+     * server then rejects with "Permission denied (publickey)" (verified
+     * against the CORE). `ssh-keygen -p` round-trips correctly.
+     *
+     * On any failure we fall back to the original key path (behaviour is then
+     * no worse than before this fix) and return null as the temp path.
+     *
+     * @return array{0:string,1:?string} [effectiveKeyPath, tempKeyPathToCleanup]
+     */
+    private function resolveEffectiveKeyPath(): array
+    {
+        if ($this->keyPassphrase === null) {
+            return [$this->privateKeyPath, null];
+        }
+
+        try {
+            if (!is_file($this->privateKeyPath)) {
+                throw new \RuntimeException('could not read key file');
+            }
+
+            $tmp = tempnam(sys_get_temp_dir(), 'isptun_');
+            if ($tmp === false) {
+                throw new \RuntimeException('could not allocate temp key file');
+            }
+
+            if (!@copy($this->privateKeyPath, $tmp)) {
+                @unlink($tmp);
+                throw new \RuntimeException('could not copy key file');
+            }
+
+            // ssh refuses bad-perms keys (incl. Windows ACLs) — tighten BEFORE
+            // ssh-keygen touches it and before it is ever used by ssh.
+            $this->secureKeyFile($tmp);
+
+            // Strip the passphrase in-place with OpenSSH tooling.
+            $out = [];
+            $rc = -1;
+            @exec(
+                'ssh-keygen -p -P ' . escapeshellarg($this->keyPassphrase)
+                . ' -N "" -f ' . escapeshellarg($tmp) . ' 2>&1',
+                $out,
+                $rc
+            );
+            if ($rc !== 0) {
+                @unlink($tmp);
+                throw new \RuntimeException('ssh-keygen -p failed: ' . trim(implode(' ', $out)));
+            }
+            // ssh-keygen rewrote the file — re-assert perms.
+            $this->secureKeyFile($tmp);
+
+            Log::debug('[SshTunnelManager] using ssh-keygen-stripped passphrase-less key copy');
+            return [$tmp, $tmp];
+        } catch (\Throwable $e) {
+            Log::warning('[SshTunnelManager] could not materialize passphrase-less key, ' .
+                'falling back to original (ssh BatchMode will likely fail to auth)', [
+                'error' => $e->getMessage(),
+            ]);
+            return [$this->privateKeyPath, null];
+        }
+    }
+
+    /**
+     * Lock a private-key file down so OpenSSH will accept it.
+     *
+     * POSIX: chmod 0600. Windows: OpenSSH enforces ACLs (not POSIX bits) and
+     * rejects keys "accessible by others" — a temp file under %TEMP% inherits
+     * broad ACEs, so we strip inheritance and grant ONLY the current user.
+     */
+    private function secureKeyFile(string $path): void
+    {
+        if (PHP_OS_FAMILY !== 'Windows') {
+            @chmod($path, 0600);
+            return;
+        }
+
+        $me = trim((string) @shell_exec('whoami'));
+        if ($me === '') {
+            $me = (string) (getenv('USERDOMAIN') ? getenv('USERDOMAIN') . '\\' : '') . getenv('USERNAME');
+        }
+
+        // /inheritance:r removes inherited ACEs; /grant:r replaces with a single
+        // ACE for the current user. Result: owner-only access -> OpenSSH-clean.
+        @exec('icacls ' . escapeshellarg($path) . ' /inheritance:r /q 2>&1');
+        @exec('icacls ' . escapeshellarg($path) . ' /grant:r ' . escapeshellarg($me . ':F') . ' /q 2>&1');
     }
 }

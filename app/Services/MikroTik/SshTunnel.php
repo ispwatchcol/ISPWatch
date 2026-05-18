@@ -25,13 +25,21 @@ class SshTunnel
     private bool $closed = false;
     private bool $passthrough = false;
 
-    public function __construct($process, array $pipes, int $localPort, string $clientIp, int $clientPort)
+    /**
+     * Path to a temporary, decrypted private key created by SshTunnelManager
+     * when MIKROTIK_CORE_SSH_KEY_PASSPHRASE is set. Deleted on close() so the
+     * plaintext key never outlives the ssh subprocess.
+     */
+    private ?string $tempKeyPath = null;
+
+    public function __construct($process, array $pipes, int $localPort, string $clientIp, int $clientPort, ?string $tempKeyPath = null)
     {
-        $this->process    = $process;
-        $this->pipes      = $pipes;
-        $this->localPort  = $localPort;
-        $this->clientIp   = $clientIp;
-        $this->clientPort = $clientPort;
+        $this->process     = $process;
+        $this->pipes       = $pipes;
+        $this->localPort   = $localPort;
+        $this->clientIp    = $clientIp;
+        $this->clientPort  = $clientPort;
+        $this->tempKeyPath = $tempKeyPath;
     }
 
     /**
@@ -132,6 +140,14 @@ class SshTunnel
                 'stderr'    => trim($stderr),
             ]);
         }
+
+        // Delete the temporary decrypted key in EVERY close path (including the
+        // early returns below for already-dead / non-resource processes) so the
+        // plaintext key never lingers on disk after the tunnel goes away.
+        if ($this->tempKeyPath !== null && is_file($this->tempKeyPath)) {
+            @unlink($this->tempKeyPath);
+        }
+        $this->tempKeyPath = null;
 
         foreach ($this->pipes as $pipe) {
             if (is_resource($pipe)) {
