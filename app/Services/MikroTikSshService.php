@@ -151,11 +151,12 @@ class MikroTikSshService
         string $profile = 'default',
         string $service = 'pppoe',
         int $clientPort = 8728,
-        ?string $remoteAddress = null
+        ?string $remoteAddress = null,
+        ?string $localAddress = null
     ): array {
         return $this->pppProfileManager->ensurePppoeSecretOnRouter(
             $clientIp, $clientUser, $clientPass,
-            $username, $password, $profile, $service, $clientPort, $remoteAddress
+            $username, $password, $profile, $service, $clientPort, $remoteAddress, $localAddress
         );
     }
 

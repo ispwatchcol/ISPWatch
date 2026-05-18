@@ -242,17 +242,24 @@
               <!-- CAMPOS PPPOE -->
               <template v-if="planType === 'pppoe'">
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Pool de IPs (Remote)</label>
-                  <div class="relative">
-                    <select v-model="form.pppoe_pool" class="w-full h-11 px-4 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm appearance-none">
-                      <option value="">Seleccionar Pool...</option>
-                      <option value="pool_fibra">pool_fibra_optica</option>
-                      <option value="pool_radio">pool_radio_enlace</option>
-                    </select>
-                    <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 dark:text-gray-400">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </div>
-                  </div>
+                  <label class="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      v-model="usePool"
+                      class="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
+                    />
+                    <span>
+                      <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">Asignar Pool de IPs (Remote)</span>
+                      <span class="block text-xs text-gray-500 dark:text-gray-400">Por defecto el pool lo asigna el router. Actívalo solo si quieres forzar uno.</span>
+                    </span>
+                  </label>
+                  <input
+                    v-if="usePool"
+                    type="text"
+                    v-model="form.pppoe_pool"
+                    placeholder="Ej: pool-pppoe-clientes"
+                    class="mt-3 w-full h-11 px-4 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm"
+                  />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Local Address</label>
@@ -373,7 +380,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/services/api' // 👈 tu axios client
 import NotificationToast from '@/components/NotificationToast.vue'
@@ -424,6 +431,8 @@ const currentConfig = computed(
 
 const loading = ref(false)
 const showAdvancedSpeed = ref(false)
+// Pool de IPs opcional: por defecto lo asigna el router
+const usePool = ref(false)
 
 const typePlanMap = {
   queue: 1,
@@ -453,6 +462,11 @@ const form = ref({
 })
 
 const toast = ref(null)
+
+// Si se desactiva el pool, limpiar el valor para no enviarlo
+watch(usePool, (enabled) => {
+  if (!enabled) form.value.pppoe_pool = ''
+})
 
 
 const savePlan = async () => {
@@ -491,7 +505,7 @@ const payload = {
   priority: form.value.priority ? parseInt(form.value.priority) : null,
   burst_download: form.value.burst_download || null,
   burst_upload: form.value.burst_upload || null,
-  pppoe_pool: form.value.pppoe_pool || null,
+  pppoe_pool: usePool.value ? (form.value.pppoe_pool || null) : null,
   local_address: form.value.local_address || null,
   shared_users: form.value.shared_users ? parseInt(form.value.shared_users) : null,
   session_timeout: form.value.session_timeout || null,

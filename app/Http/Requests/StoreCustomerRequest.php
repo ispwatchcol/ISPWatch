@@ -37,6 +37,7 @@ class StoreCustomerRequest extends FormRequest
             'create_pppoe_secret' => 'nullable|boolean',
             'pppoe_username'      => 'nullable|string|max:255',
             'pppoe_password'      => 'nullable|string|max:255',
+            'pppoe_local_address' => 'nullable|string|max:45',
         ];
     }
 

@@ -243,6 +243,7 @@ class CustomerProfileController extends Controller
                 'router_id'      => $data['router_id'] ?? null,
                 'pppoe_username' => $data['pppoe_username'] ?? null,
                 'pppoe_password' => $data['pppoe_password'] ?? null,
+                'pppoe_local_address' => $data['pppoe_local_address'] ?? null,
             ]);
 
             // Mirror the assigned plan into user_services so the monthly
@@ -321,7 +322,8 @@ class CustomerProfileController extends Controller
                             $profile,
                             'pppoe',
                             $router->puerto_api ?? 8728,
-                            $data['ip_user'] ?? null
+                            $data['ip_user'] ?? null,
+                            $data['pppoe_local_address'] ?? null
                         );
 
                         if (!$pppoeResult['success']) {
@@ -390,6 +392,7 @@ class CustomerProfileController extends Controller
             'status'         => $customer->status,
             'pppoe_username' => $customer->pppoe_username,
             'pppoe_password' => $customer->pppoe_password,
+            'pppoe_local_address' => $customer->pppoe_local_address,
             'email'          => $user->email,
             'tel'            => $user->tel,
             'email_tenant'   => $user->email_tenant,
@@ -463,7 +466,8 @@ class CustomerProfileController extends Controller
                     $servicePlan->name,
                     'pppoe',
                     $router->puerto_api ?? 8728,
-                    $customer->ip_user
+                    $customer->ip_user,
+                    $customer->pppoe_local_address
                 );
             } catch (\Throwable $e) {
                 \Log::warning('[CustomerProfile::provision] PPPoE secret exception', ['error' => $e->getMessage()]);
@@ -586,7 +590,8 @@ class CustomerProfileController extends Controller
                             $servicePlan->name,
                             'pppoe',
                             $router->puerto_api ?? 8728,
-                            $customer->ip_user
+                            $customer->ip_user,
+                            $customer->pppoe_local_address
                         );
                     } catch (\Throwable $e) {
                         \Log::warning('[CustomerProfile::bulkProvision] PPPoE secret exception', [
@@ -758,6 +763,7 @@ class CustomerProfileController extends Controller
             'create_pppoe_secret' => 'nullable|boolean',
             'pppoe_username'      => 'nullable|string|max:255',
             'pppoe_password'      => 'nullable|string|max:255',
+            'pppoe_local_address' => 'nullable|string|max:45',
         ]);
 
         DB::beginTransaction();
@@ -790,6 +796,7 @@ class CustomerProfileController extends Controller
                 'router_id'      => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
                 'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
                 'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,
+                'pppoe_local_address' => array_key_exists('pppoe_local_address', $data) ? $data['pppoe_local_address'] : $customer->pppoe_local_address,
             ]);
 
             // Keep user_services aligned with the (possibly changed) plan so
@@ -823,7 +830,8 @@ class CustomerProfileController extends Controller
                                 $profile,
                                 'pppoe',
                                 $router->puerto_api ?? 8728,
-                                $data['ip_user'] ?? $customer->ip_user
+                                $data['ip_user'] ?? $customer->ip_user,
+                                $data['pppoe_local_address'] ?? $customer->pppoe_local_address
                             );
                         }
                     } catch (\Throwable $e) {

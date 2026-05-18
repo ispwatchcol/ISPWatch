@@ -312,6 +312,18 @@
                 <p v-if="pppoePassError" class="mt-1 text-xs text-red-500">{{ pppoePassError }}</p>
                 </div>
             </div>
+
+            <div class="mt-4">
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    IP Local <span class="text-gray-400 font-normal">(opcional)</span>
+                </label>
+                <input v-model="form.pppoe_local_address" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 10.0.0.1" />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Es el <strong>local-address</strong> del secret PPPoE. Déjalo vacío para que lo defina el perfil/router.
+                </p>
+            </div>
             </div>
 
             <!-- Error inline general -->
@@ -409,6 +421,7 @@ const form = ref({
     create_pppoe_secret: false,
     pppoe_username: '',
     pppoe_password: '',
+    pppoe_local_address: '',
 })
 
 const loading        = ref(false)

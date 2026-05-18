@@ -375,7 +375,8 @@ class PppProfileManager
         string $profile = 'default',
         string $service = 'pppoe',
         int $clientPort = 8728,
-        ?string $remoteAddress = null
+        ?string $remoteAddress = null,
+        ?string $localAddress = null
     ): array {
         try {
             Log::info('[PppProfileManager] Ensuring PPPoE secret on router', [
@@ -383,13 +384,14 @@ class PppProfileManager
                 'username'       => $username,
                 'profile'        => $profile,
                 'remote_address' => $remoteAddress,
+                'local_address'  => $localAddress,
             ]);
 
             // 1. Try direct API connection to client router
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
                 $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
                 if ($socket) {
-                    $result = $this->ensureSecretDirectApi($socket, $clientUser, $clientPass, $username, $password, $service, $profile, $remoteAddress);
+                    $result = $this->ensureSecretDirectApi($socket, $clientUser, $clientPass, $username, $password, $service, $profile, $remoteAddress, $localAddress);
                     if ($result['success']) {
                         return $result;
                     }
@@ -398,7 +400,7 @@ class PppProfileManager
             }
 
             // 2. CORE SSH exec fallback
-            $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress);
+            $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress, $localAddress);
             $safePass      = str_replace('"', '\\"', $clientPass);
             $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
 
@@ -442,7 +444,8 @@ class PppProfileManager
         string $password,
         string $service,
         string $profile,
-        ?string $remoteAddress = null
+        ?string $remoteAddress = null,
+        ?string $localAddress = null
     ): array {
         try {
             if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
@@ -460,6 +463,9 @@ class PppProfileManager
             ];
             if ($remoteAddress && trim($remoteAddress) !== '') {
                 $setParams[] = '=remote-address=' . trim($remoteAddress);
+            }
+            if ($localAddress && trim($localAddress) !== '') {
+                $setParams[] = '=local-address=' . trim($localAddress);
             }
 
             if (!empty($existing)) {
@@ -496,7 +502,7 @@ class PppProfileManager
         }
     }
 
-    private function buildSecretCommand(string $username, string $password, string $service, string $profile, ?string $remoteAddress = null): string
+    private function buildSecretCommand(string $username, string $password, string $service, string $profile, ?string $remoteAddress = null, ?string $localAddress = null): string
     {
         $escapedUser    = $this->escapeRouterOsQuotedValue($username);
         $escapedPass    = $this->escapeRouterOsQuotedValue($password);
@@ -504,11 +510,14 @@ class PppProfileManager
         $remoteAttr     = ($remoteAddress && trim($remoteAddress) !== '')
             ? ' remote-address="' . $this->escapeRouterOsQuotedValue(trim($remoteAddress)) . '"'
             : '';
+        $localAttr      = ($localAddress && trim($localAddress) !== '')
+            ? ' local-address="' . $this->escapeRouterOsQuotedValue(trim($localAddress)) . '"'
+            : '';
 
         return ':do { /ppp secret add name="' . $escapedUser . '" password="' . $escapedPass
-            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . ' comment="ISPWatch Auto" } on-error={};'
+            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr . ' comment="ISPWatch Auto" } on-error={};'
             . ' /ppp secret set [find name="' . $escapedUser . '"] password="' . $escapedPass
-            . '" profile="' . $escapedProfile . '"' . $remoteAttr;
+            . '" profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr;
     }
 
     private function buildRateLimit(string $speedUp, string $speedDown): string
