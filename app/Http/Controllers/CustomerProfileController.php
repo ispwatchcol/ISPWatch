@@ -449,8 +449,8 @@ class CustomerProfileController extends Controller
 
         $queueResult = $mikrotik->syncQueueViaCore(
             $router->ip,
-            $router->user_rb_encrypted,
-            $router->password_rb_encrypted,
+            $router->user_rb,
+            $router->password_rb,
             $customer->ip_user,
             $customer->name,
             $customer->last_name,

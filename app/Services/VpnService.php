@@ -178,7 +178,7 @@ class VpnService
 
         // Generar credenciales de gestión local (INTERNO - no mostrar al usuario)
         $localUser = 'ispwatch';
-        if (empty($router->password_rb_encrypted) || $router->password_rb === 'Sena2017') {
+        if (empty($router->password_rb) || $router->password_rb === 'Sena2017') {
             $localPass = \Illuminate\Support\Str::random(16);
             $router->update([
                 'user_rb' => $localUser,
@@ -187,7 +187,7 @@ class VpnService
                 'password_rb_encrypted' => $localPass,
             ]);
         } else {
-            $localPass = $router->password_rb_encrypted;
+            $localPass = $router->password_rb;
             if ($router->user_rb !== $localUser) {
                 $router->update([
                     'user_rb' => $localUser,
@@ -202,9 +202,15 @@ class VpnService
         // Determinar perfil VPN específico del tenant (o fallback a profile-vpn)
         $vpnProfile = 'profile-vpn';
         $tenantId   = $router->tenant_id;
+        // Red del túnel desde la que el CORE alcanza a ESTE router (su /24 de
+        // tenant; la IP del CORE en el túnel es la .1 de ese /24). Se usa para
+        // permitir gestión en el firewall del cliente. Fallback al supernet
+        // 172.16.0.0/12 (cubre todos los /24 que genera la fórmula de tenants).
+        $mgmtNet = '172.16.0.0/12';
         if ($tenantId) {
             $this->ensureTenantVpnResources((int) $tenantId);
             $vpnProfile = $this->getProfileName((int) $tenantId);
+            $mgmtNet    = $this->getTenantSubnet((int) $tenantId)['network_cidr'];
         }
 
         // Intentar crear/actualizar el secret en el CORE vía API
@@ -235,6 +241,17 @@ class VpnService
 # Habilitar servicios para gestión remota
 /ip service set api disabled=no port=8728
 /ip service set ssh disabled=no port=22
+
+# ====================================
+# ACCESO DE GESTIÓN DESDE EL CORE (TÚNEL VPN)
+# ====================================
+# Permite que ISPWatch llegue por el túnel (SSH/API/Winbox) sin tener que
+# buscar a mano entre cientos de reglas del firewall del router.
+# Idempotente: se identifica por comentario y se reinserta al TOPE del
+# chain input (antes de cualquier blacklist/drop), así re-aplicar el
+# script no duplica la regla ni requiere inspeccionar las reglas existentes.
+/ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
+/ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # CONFIGURACIÓN VPN L2TP
@@ -301,9 +318,10 @@ SCRIPT;
                     'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
                     'assigned_ip' => $assignedIp,
                     'uptime' => $result['uptime'] ?? null,
-                    // Retornar credenciales del RB para sincronización en frontend (encriptadas)
-                    'user_rb' => $router->user_rb_encrypted,
-                    'password_rb' => $router->password_rb_encrypted,
+                    // Credenciales de gestión del RB (columnas legacy = fuente de verdad,
+                    // las que escribe el formulario; *_encrypted no se mantiene — ver 4f24551)
+                    'user_rb' => $router->user_rb,
+                    'password_rb' => $router->password_rb,
                 ];
             } else {
                 Log::info('[VPN] No hay PPP activo para usuario', [
@@ -433,7 +451,7 @@ SCRIPT;
     public function getInterfaces(Router $router): array
     {
         // Validar que el router tenga credenciales configuradas
-        if (!$router->ip || !$router->user_rb_encrypted || !$router->password_rb_encrypted) {
+        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
             return $this->error('Router sin credenciales configuradas. Verifica la conexión VPN primero.');
         }
 
@@ -474,7 +492,7 @@ SCRIPT;
 
         try {
             // LOGIN con las credenciales del router (encriptadas)
-            $loginSuccess = $this->doLoginToClient($socket, $router->user_rb_encrypted, $router->password_rb_encrypted);
+            $loginSuccess = $this->doLoginToClient($socket, $router->user_rb, $router->password_rb);
 
             if (!$loginSuccess) {
                 @fclose($socket);
