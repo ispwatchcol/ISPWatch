@@ -464,19 +464,17 @@ class PppProfileManager
 
             $output = trim((string) ($result['output'] ?? ''));
 
-            // The router rejected both add and update of the secret. The most
-            // common cause by far is that the plan's PPP profile isn't loaded
-            // on THIS router yet.
-            if (str_contains($output, 'ISPWATCH_SECRET_FAIL')) {
+            // The trailing `/ppp secret set [find ...]` errors (and prints to
+            // stdout) when the secret could not be created — most often because
+            // the plan's PPP profile isn't loaded on THIS router, or the mgmt
+            // user lacks write perms on /ppp secret.
+            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',
                     'definitive' => true,
-                    'message'    => 'No se pudo crear el secret PPPoE. Causa más probable: el plan/perfil "' . $profile . '" NO está cargado en ESE router — cárgalo en Planes → cargar a la RB y reintenta. (Si el perfil ya estaba, revisa los permisos del usuario de gestión sobre /ppp secret.)',
+                    'message'    => 'No se pudo crear el secret PPPoE. Causa más probable: el plan/perfil "' . $profile . '" NO está cargado en ESE router — cárgalo en Planes → cargar a la RB y reintenta. (Si el perfil ya estaba, revisa permisos del usuario de gestión sobre /ppp secret.) Detalle del router: ' . $output,
                 ];
-            }
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b/i', $output)) {
-                return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error en router: ' . $output];
             }
 
             Log::info('[PppProfileManager] PPPoE secret created/updated via CORE SSH', ['username' => $username]);
@@ -663,12 +661,14 @@ class PppProfileManager
         $setCmd = '/ppp secret set [find name="' . $escapedUser . '"] password="' . $escapedPass
             . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr;
 
-        // Try add; if it fails (already exists / profile not on this router /
-        // no perms) fall back to update; if that ALSO fails print a token the
-        // PHP side detects. Only :do/on-error/:put literals — no :if/:len
-        // expressions: those are escape-fragile over ssh-exec and were causing
-        // the remote command to hang (gateway 504).
-        return ':do { ' . $addCmd . ' } on-error={ :do { ' . $setCmd . ' } on-error={ :put "ISPWATCH_SECRET_FAIL" } }';
+        // Mirror EXACTLY the proven (fast) PPP-profile command shape:
+        // single-level `:do { add } on-error={}` then an unconditional `set`.
+        // No nested on-error and no :if/:len/:put expressions — those are
+        // escape-fragile over ssh-exec and made the remote command hang until
+        // the gateway timed out (504). If the secret can't be created the
+        // trailing `set [find ...]` errors and prints to stdout, which the PHP
+        // side detects below.
+        return ':do { ' . $addCmd . ' } on-error={}; ' . $setCmd;
     }
 
     private function buildRateLimit(string $speedUp, string $speedDown): string
