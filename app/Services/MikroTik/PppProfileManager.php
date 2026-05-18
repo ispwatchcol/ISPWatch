@@ -407,6 +407,12 @@ class PppProfileManager
             if ($sshResult['success']) {
                 return $sshResult;
             }
+            // The router itself rejected the command (e.g. plan/profile not
+            // loaded there, or no perms). Retrying via the API-script tier hits
+            // the SAME router — pointless and would only lose the clear message.
+            if (!empty($sshResult['definitive'])) {
+                return $sshResult;
+            }
             Log::warning('[PppProfileManager] CORE SSH secret failed, trying CORE API script fallback', [
                 'reason' => $sshResult['message'] ?? 'unknown',
             ]);
@@ -457,6 +463,18 @@ class PppProfileManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // The router rejected both add and update of the secret. The most
+            // common cause by far is that the plan's PPP profile isn't loaded
+            // on THIS router yet.
+            if (str_contains($output, 'ISPWATCH_SECRET_FAIL')) {
+                return [
+                    'success'    => false,
+                    'method'     => 'CORE_SSH_DIRECT',
+                    'definitive' => true,
+                    'message'    => 'No se pudo crear el secret PPPoE. Causa más probable: el plan/perfil "' . $profile . '" NO está cargado en ESE router — cárgalo en Planes → cargar a la RB y reintenta. (Si el perfil ya estaba, revisa los permisos del usuario de gestión sobre /ppp secret.)',
+                ];
+            }
             if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b/i', $output)) {
                 return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error en router: ' . $output];
             }
@@ -640,10 +658,17 @@ class PppProfileManager
             ? ' local-address="' . $this->escapeRouterOsQuotedValue(trim($localAddress)) . '"'
             : '';
 
-        return ':do { /ppp secret add name="' . $escapedUser . '" password="' . $escapedPass
-            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr . ' comment="ISPWatch Auto" } on-error={};'
-            . ' /ppp secret set [find name="' . $escapedUser . '"] password="' . $escapedPass
-            . '" profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr;
+        $addCmd = '/ppp secret add name="' . $escapedUser . '" password="' . $escapedPass
+            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr . ' comment="ISPWatch Auto"';
+        $setCmd = '/ppp secret set [find name="' . $escapedUser . '"] password="' . $escapedPass
+            . '" service=' . $service . ' profile="' . $escapedProfile . '"' . $remoteAttr . $localAttr;
+
+        // Try add; if it fails (already exists / profile not on this router /
+        // no perms) fall back to update; if that ALSO fails print a token the
+        // PHP side detects. Only :do/on-error/:put literals — no :if/:len
+        // expressions: those are escape-fragile over ssh-exec and were causing
+        // the remote command to hang (gateway 504).
+        return ':do { ' . $addCmd . ' } on-error={ :do { ' . $setCmd . ' } on-error={ :put "ISPWATCH_SECRET_FAIL" } }';
     }
 
     private function buildRateLimit(string $speedUp, string $speedDown): string
