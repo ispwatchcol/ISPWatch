@@ -31,6 +31,7 @@ class CustomerProfile extends Model
         'router_id',
         'pppoe_username',
         'pppoe_password',
+        'pppoe_local_address',
         'status',
     ];
 

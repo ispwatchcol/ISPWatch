@@ -101,12 +101,99 @@
 
         <div class="bg-white shadow-2xl rounded-3xl p-10 w-full max-w-md">
             <!-- Logo -->
-            <div class="flex justify-center mb-6">
-                <img
-                    src="../assets/Logo.png"
-                    alt="Logo"
-                    class="h-20 w-20 animate-bounce"
-                />
+            <div class="flex flex-col items-center mb-6">
+                <div class="logo-float">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 100 100"
+                        class="h-24 w-24 rounded-[1.5rem] shadow-xl shadow-blue-500/30"
+                        role="img"
+                        aria-label="ISPWatch"
+                    >
+                        <defs>
+                            <linearGradient
+                                id="ispwatch-bg"
+                                x1="0%"
+                                y1="0%"
+                                x2="100%"
+                                y2="100%"
+                            >
+                                <stop offset="0%" stop-color="#3B5BFF" />
+                                <stop offset="100%" stop-color="#1E3ABF" />
+                            </linearGradient>
+                        </defs>
+
+                        <rect
+                            width="100"
+                            height="100"
+                            rx="24"
+                            fill="url(#ispwatch-bg)"
+                        />
+
+                        <!-- WiFi arcs -->
+                        <path
+                            d="M50 42 m-22 0 a22 22 0 0 1 44 0"
+                            fill="none"
+                            stroke="white"
+                            stroke-width="6"
+                            stroke-linecap="round"
+                            opacity="0.45"
+                        />
+                        <path
+                            d="M50 42 m-14 0 a14 14 0 0 1 28 0"
+                            fill="none"
+                            stroke="white"
+                            stroke-width="6"
+                            stroke-linecap="round"
+                            opacity="0.7"
+                        />
+                        <path
+                            d="M50 42 m-6 0 a6 6 0 0 1 12 0"
+                            fill="none"
+                            stroke="white"
+                            stroke-width="6"
+                            stroke-linecap="round"
+                        />
+
+                        <!-- Router body -->
+                        <rect
+                            x="18"
+                            y="58"
+                            width="64"
+                            height="24"
+                            rx="6"
+                            fill="white"
+                        />
+                        <line
+                            x1="30"
+                            y1="58"
+                            x2="26"
+                            y2="44"
+                            stroke="white"
+                            stroke-width="4"
+                            stroke-linecap="round"
+                        />
+                        <line
+                            x1="70"
+                            y1="58"
+                            x2="74"
+                            y2="44"
+                            stroke="white"
+                            stroke-width="4"
+                            stroke-linecap="round"
+                        />
+
+                        <!-- Status LEDs -->
+                        <circle cx="32" cy="70" r="3.5" fill="#3B5BFF" />
+                        <circle cx="43" cy="70" r="3.5" fill="#3B5BFF" />
+                        <circle cx="54" cy="70" r="3.5" fill="#3B5BFF" />
+                    </svg>
+                </div>
+                <span
+                    class="mt-4 text-2xl font-extrabold tracking-tight text-blue-700"
+                >
+                    ISP<span class="text-blue-500">Watch</span>
+                </span>
             </div>
 
             <!-- Título -->
@@ -538,5 +625,20 @@ body {
 
 .animate-slide-in-right {
     animation: slide-in-right 0.4s ease-out;
+}
+
+/* Flotación suave del logo */
+@keyframes logo-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+.logo-float {
+    animation: logo-float 3s ease-in-out infinite;
 }
 </style>
