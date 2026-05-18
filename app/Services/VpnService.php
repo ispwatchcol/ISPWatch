@@ -68,6 +68,7 @@ class VpnService
         return [
             'local_address' => "172.{$second}.{$third}.1",
             'pool_range'    => "172.{$second}.{$third}.2-172.{$second}.{$third}.254",
+            'network_cidr'  => "172.{$second}.{$third}.0/24",
         ];
     }
 
@@ -107,14 +108,33 @@ class VpnService
             return false;
         }
 
+        // Auto-add this tenant's /24 to the CORE firewall bypass list so its
+        // client routers' traffic never hits the input-chain blacklist/drop.
+        // Idempotent and non-blocking: a failure here must not stop script
+        // generation (the broad seed entry 172.16.0.0/12 still covers it).
+        $bypassResult = $sshService->ensureCoreAddressListEntry(
+            'ISPWATCH_VPN_POOLS',
+            $subnet['network_cidr'],
+            "VPN pool tenant {$tenantId}"
+        );
+        if (!($bypassResult['success'] ?? false)) {
+            Log::warning('[VPN] No se pudo agregar el pool del tenant al bypass del firewall', [
+                'tenantId' => $tenantId,
+                'cidr'     => $subnet['network_cidr'],
+                'error'    => $bypassResult['message'] ?? '',
+            ]);
+        }
+
         Log::info('[VPN] Recursos VPN de tenant listos', [
             'tenantId'      => $tenantId,
             'profile'       => $profileName,
             'pool'          => $poolName,
             'localAddress'  => $subnet['local_address'],
             'poolRange'     => $subnet['pool_range'],
+            'networkCidr'   => $subnet['network_cidr'],
             'poolAction'    => $poolResult['action'] ?? 'unknown',
             'profileAction' => $profileResult['action'] ?? 'unknown',
+            'bypassAction'  => $bypassResult['action'] ?? ($bypassResult['success'] ?? false ? 'ok' : 'failed'),
         ]);
 
         return true;

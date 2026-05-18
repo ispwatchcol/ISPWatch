@@ -140,6 +140,14 @@ class MikroTikSshService
     }
 
     /**
+     * Ensure an entry exists in a CORE firewall address-list (idempotent).
+     */
+    public function ensureCoreAddressListEntry(string $list, string $address, string $comment = 'ISPWatch Auto'): array
+    {
+        return $this->pppManager->ensureCoreAddressListEntry($list, $address, $comment);
+    }
+
+    /**
      * Create or update a PPPoE /ppp secret on a client router.
      */
     public function ensurePppoeSecretOnRouter(

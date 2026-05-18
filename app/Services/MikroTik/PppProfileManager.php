@@ -399,15 +399,13 @@ class PppProfileManager
                 }
             }
 
-            // 2. CORE API-script: connect to the CORE API (8728) and run a
-            //    temp script that ssh-execs into the client. This is the SAME
-            //    tier that makes the working PPP *profile* sync reliable in
-            //    production (syncViaCore), so the secret needs it for parity —
-            //    without it the secret failed whenever tier 1 didn't connect.
-            //    We deliberately SKIP the SSH-into-CORE tier (the slow ~15s
-            //    path): stacking it on top of the queue was what pushed
-            //    bulkProvision past the gateway timeout (HTTP 504).
-            return $this->secretViaCore(
+            // 2. CORE SSH direct: SSH into CORE and run ssh-exec from there.
+            //    This is the proven fast path (same mechanism the working PPP
+            //    profile sync uses). Return its result directly — NO extra
+            //    CORE API-script tier: stacking another SSH/API round-trip on
+            //    top of the queue made bulkProvision exceed the gateway
+            //    timeout (HTTP 504).
+            return $this->secretViaCoreDirectSsh(
                 $clientIp, $clientUser, $clientPass,
                 $username, $password, $service, $profile, $remoteAddress, $localAddress
             );
@@ -419,12 +417,10 @@ class PppProfileManager
     }
 
     /**
-     * CORE API-script path for the secret. Mirrors syncViaCore (PPP profile,
-     * the tier that makes plan-load reliable in production): connects to the
-     * CORE API, creates a temporary script that ssh-execs into the client
-     * router, runs it, then removes it.
+     * CORE SSH direct: SSH into CORE and run ssh-exec from there for the secret.
+     * Mirrors syncViaCoreDirectSsh (PPP profile) so the secret loads the same way.
      */
-    private function secretViaCore(
+    private function secretViaCoreDirectSsh(
         string $clientIp,
         string $clientUser,
         string $clientPass,
@@ -436,74 +432,48 @@ class PppProfileManager
         ?string $localAddress = null
     ): array {
         try {
-            $socket = $this->apiProtocol->connect(
-                $this->connectionManager->getApiHost(),
-                $this->connectionManager->getApiPort(),
-                10
-            );
-
-            if (!$socket) {
-                return ['success' => false, 'message' => 'No se pudo conectar al CORE'];
-            }
-
-            if (
-                !$this->apiProtocol->login(
-                    $socket,
-                    $this->connectionManager->getApiUser(),
-                    $this->connectionManager->getApiPass()
-                )
-            ) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticacion al CORE'];
-            }
-
-            $safePass      = str_replace('"', '\\"', $clientPass);
-            $scriptName    = 'ispwatch_sec_' . substr(uniqid(), -6);
             $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress, $localAddress);
-            $scriptSource  = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $safePass      = str_replace('"', '\\"', $clientPass);
+            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
 
-            $this->apiProtocol->sendCommand($socket, '/system/script/add', [
-                '=name=' . $scriptName,
-                '=source=' . $scriptSource,
+            Log::info('[PppProfileManager] CORE SSH direct: executing ssh-exec for secret', [
+                'client_ip' => $clientIp,
+                'username'  => $username,
             ]);
-            $addError = $this->apiProtocol->readUntilDoneWithError($socket);
 
-            if ($addError) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error creando script: ' . $addError];
+            $result = $this->connectionManager->executeSsh($coreCommand);
+
+            if (!$result['success']) {
+                return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $result['message'] ?? 'No se pudo conectar al CORE via SSH'];
             }
 
-            $this->apiProtocol->sendCommand($socket, '/system/script/run', [
-                '=number=' . $scriptName,
-            ]);
-            $runError = $this->apiProtocol->readUntilDoneWithError($socket);
+            $output = trim((string) ($result['output'] ?? ''));
 
-            $this->apiProtocol->sendCommand($socket, '/system/script/remove', [
-                '=numbers=' . $scriptName,
-            ]);
-            $this->apiProtocol->readUntilDone($socket);
-
-            $this->apiProtocol->close($socket);
-
-            if ($runError) {
-                return ['success' => false, 'method' => 'CORE_SSH_EXEC', 'message' => 'Error: ' . $runError];
+            // The trailing `/ppp secret set [find ...]` errors (and prints to
+            // stdout) when the secret could not be created — most often because
+            // the plan's PPP profile isn't loaded on THIS router, or the mgmt
+            // user lacks write perms on /ppp secret.
+            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+                return [
+                    'success'    => false,
+                    'method'     => 'CORE_SSH_DIRECT',
+                    'definitive' => true,
+                    'message'    => 'No se pudo crear el secret PPPoE. Causa más probable: el plan/perfil "' . $profile . '" NO está cargado en ESE router — cárgalo en Planes → cargar a la RB y reintenta. (Si el perfil ya estaba, revisa permisos del usuario de gestión sobre /ppp secret.) Detalle del router: ' . $output,
+                ];
             }
 
-            Log::info('[PppProfileManager] PPPoE secret created/updated via CORE API script', ['username' => $username]);
+            Log::info('[PppProfileManager] PPPoE secret created/updated via CORE SSH', ['username' => $username]);
 
             return [
                 'success'  => true,
-                'method'   => 'CORE_SSH_EXEC',
+                'method'   => 'CORE_SSH_DIRECT',
                 'action'   => 'upserted',
-                'message'  => 'PPPoE secret sincronizado via CORE',
+                'message'  => 'PPPoE secret sincronizado en router',
                 'username' => $username,
             ];
         } catch (\Throwable $e) {
-            Log::error('[PppProfileManager] CORE secret sync failed', [
-                'username' => $username,
-                'error'    => $e->getMessage(),
-            ]);
-            return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+            Log::error('[PppProfileManager] CORE SSH secret exception', ['error' => $e->getMessage()]);
+            return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error: ' . $e->getMessage()];
         }
     }
 
