@@ -35,13 +35,17 @@ class QueueManager
         string $customerLastName,
         string $speedUp,
         string $speedDown,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?string $secretName = null,
+        ?string $comment = null
     ): array {
         try {
+            $fullName = trim("{$customerName} {$customerLastName}");
+
             Log::info('[QueueManager] Sincronizando Simple Queue', [
                 'client_ip' => $clientIp,
                 'target_ip' => $targetIp,
-                'customer' => "$customerName $customerLastName",
+                'customer' => $fullName,
                 'speed' => "$speedUp/$speedDown",
             ]);
 
@@ -54,14 +58,23 @@ class QueueManager
             }
 
             $maxLimit = "{$speedUp}/{$speedDown}";
-            $queueName = "{$customerName} {$customerLastName}";
+
+            // Queue NAME mirrors the PPPoE secret name when one exists; the
+            // COMMENT is the person's full name (operator request). Fallbacks
+            // keep IP-only / non-PPPoE routers behaving as before.
+            $queueName = ($secretName !== null && trim($secretName) !== '')
+                ? trim($secretName)
+                : $fullName;
+            $queueComment = ($comment !== null && trim($comment) !== '')
+                ? trim($comment)
+                : $fullName;
 
             // 1. Try direct API to the client first.
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
                 $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
                 if ($socket) {
                     Log::info('[QueueManager] Conexión API directa al cliente exitosa');
-                    $direct = $this->syncQueueDirectApi($socket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+                    $direct = $this->syncQueueDirectApi($socket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment);
                     if ($direct['success']) {
                         return $direct;
                     }
@@ -78,7 +91,7 @@ class QueueManager
             //    the SAME proven path profile/secret use (~17s). NOT the CORE
             //    API-script tier, which times out (~60s).
             Log::info('[QueueManager] API directa no disponible, usando CORE SSH');
-            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit);
+            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment);
 
         } catch (\Throwable $e) {
             Log::error('[QueueManager] Error sincronizando queue', [
@@ -97,7 +110,8 @@ class QueueManager
         string $clientPass,
         string $targetIp,
         string $queueName,
-        string $maxLimit
+        string $maxLimit,
+        string $comment = 'ISPWatch Auto-Provisioned'
     ): array {
         try {
             if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
@@ -134,7 +148,7 @@ class QueueManager
                     '=name=' . $queueName,
                     '=target=' . $targetIp,
                     '=max-limit=' . $maxLimit,
-                    '=comment=ISPWatch Auto-Provisioned',
+                    '=comment=' . $comment,
                 ]);
             } else {
                 Log::info('[QueueManager] Creando nueva Simple Queue');
@@ -142,7 +156,7 @@ class QueueManager
                     '=name=' . $queueName,
                     '=target=' . $targetIp,
                     '=max-limit=' . $maxLimit,
-                    '=comment=ISPWatch Auto-Provisioned',
+                    '=comment=' . $comment,
                 ]);
             }
 
@@ -182,10 +196,11 @@ class QueueManager
         string $clientPass,
         string $targetIp,
         string $queueName,
-        string $maxLimit
+        string $maxLimit,
+        string $comment = 'ISPWatch Auto-Provisioned'
     ): array {
         try {
-            $clientCommand = $this->buildQueueCommand($targetIp, $queueName, $maxLimit);
+            $clientCommand = $this->buildQueueCommand($targetIp, $queueName, $maxLimit, $comment);
             $safePass      = str_replace('"', '\\"', $clientPass);
             $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
 
@@ -231,11 +246,12 @@ class QueueManager
      * Build the idempotent /queue simple command in the proven safe shape:
      * try add (ignore if it exists), then unconditionally set [find target].
      */
-    private function buildQueueCommand(string $targetIp, string $queueName, string $maxLimit): string
+    private function buildQueueCommand(string $targetIp, string $queueName, string $maxLimit, string $comment = 'ISPWatch Auto-Provisioned'): string
     {
-        $name  = $this->escapeRouterOsQuotedValue($queueName);
-        $limit = $this->escapeRouterOsQuotedValue($maxLimit);
-        $args  = ' max-limit="' . $limit . '" comment="ISPWatch Auto-Provisioned"';
+        $name    = $this->escapeRouterOsQuotedValue($queueName);
+        $limit   = $this->escapeRouterOsQuotedValue($maxLimit);
+        $comm    = $this->escapeRouterOsQuotedValue($comment);
+        $args  = ' max-limit="' . $limit . '" comment="' . $comm . '"';
 
         $addCmd = '/queue simple add name="' . $name . '" target=' . $targetIp . $args;
         $setCmd = '/queue simple set [find target=' . $targetIp . '/32] name="' . $name . '"' . $args;
