@@ -26,6 +26,7 @@ class Sectorial extends Model
         'comments',
         'ssid',
         'coordinates',
+        'coverage_radius_meters',
     ];
 
 

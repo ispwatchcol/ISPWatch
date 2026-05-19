@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Router;
+use App\Models\Sectorial;
 use App\Services\MikroTikSshService;
 use App\Http\Requests\StoreCustomerRequest;
 use Illuminate\Http\Request;
@@ -170,7 +171,12 @@ class CustomerProfileController extends Controller
     }
 
     /**
-     * Get customer locations for map display.
+     * Get customer locations plus network nodes for the customer map.
+     *
+     * Returns customers (with service_status for filtering), routers/nodes and
+     * sectorials (with coverage radius) so the frontend can render heatmaps,
+     * node→customer traceability lines and coverage zones. Routers and
+     * sectorials are tenant-scoped via the BelongsToTenant global scope.
      */
     public function mapData()
     {
@@ -191,13 +197,100 @@ class CustomerProfileController extends Controller
                 'customer_profile.latitude',
                 'customer_profile.longitude',
                 'customer_profile.router_id',
+                'customer_profile.service_status',
                 'users.email'
             )
             ->whereNotNull('customer_profile.latitude')
             ->whereNotNull('customer_profile.longitude')
             ->get();
 
-        return response()->json($customers);
+        // Routers / nodes. coordinates is a json column that, depending on how
+        // it was saved, holds either a {lat,lng} object or a WKT POINT string.
+        $routers = Router::query()
+            ->get(['id', 'name', 'coordinates'])
+            ->map(function ($router) {
+                $coords = $this->parseRouterCoordinates($router->coordinates);
+                if (!$coords) {
+                    return null;
+                }
+                return [
+                    'id' => $router->id,
+                    'name' => $router->name,
+                    'latitude' => $coords['lat'],
+                    'longitude' => $coords['lng'],
+                ];
+            })
+            ->filter()
+            ->values();
+
+        // Sectorials. The model accessor returns ['lat'=>, 'lng'=>] (or null).
+        $sectorials = Sectorial::query()
+            ->get(['id', 'name', 'coordinates', 'coverage_radius_meters', 'frequency', 'node_tower'])
+            ->map(function ($sectorial) {
+                $coords = $sectorial->coordinates;
+                if (!is_array($coords) || !isset($coords['lat'], $coords['lng'])) {
+                    return null;
+                }
+                return [
+                    'id' => $sectorial->id,
+                    'name' => $sectorial->name,
+                    'latitude' => (float) $coords['lat'],
+                    'longitude' => (float) $coords['lng'],
+                    'coverage_radius_meters' => $sectorial->coverage_radius_meters
+                        ? (int) $sectorial->coverage_radius_meters
+                        : null,
+                    'frequency' => $sectorial->frequency,
+                    'node_tower' => $sectorial->node_tower,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return response()->json([
+            'customers' => $customers,
+            'routers' => $routers,
+            'sectorials' => $sectorials,
+        ]);
+    }
+
+    /**
+     * Normalize a router's `coordinates` value (json {lat,lng} object or a
+     * WKT "POINT(lng lat)" string) into ['lat'=>float,'lng'=>float] or null.
+     */
+    private function parseRouterCoordinates($coords): ?array
+    {
+        $lat = null;
+        $lng = null;
+
+        if (is_array($coords)) {
+            $lat = $coords['lat'] ?? $coords['latitude'] ?? null;
+            $lng = $coords['lng'] ?? $coords['lon'] ?? $coords['longitude'] ?? null;
+        } elseif (is_string($coords) && $coords !== '') {
+            if (preg_match('/POINT\s*\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s*\)/i', $coords, $m)) {
+                // WKT is POINT(lng lat).
+                $lng = $m[1];
+                $lat = $m[2];
+            } else {
+                $decoded = json_decode($coords, true);
+                if (is_array($decoded)) {
+                    $lat = $decoded['lat'] ?? $decoded['latitude'] ?? null;
+                    $lng = $decoded['lng'] ?? $decoded['lon'] ?? $decoded['longitude'] ?? null;
+                }
+            }
+        }
+
+        if (!is_numeric($lat) || !is_numeric($lng)) {
+            return null;
+        }
+
+        $lat = (float) $lat;
+        $lng = (float) $lng;
+
+        if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+            return null;
+        }
+
+        return ['lat' => $lat, 'lng' => $lng];
     }
 
 
