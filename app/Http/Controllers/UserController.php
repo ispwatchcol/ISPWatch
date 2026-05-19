@@ -66,7 +66,9 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'tenant_id' => 'required|integer|exists:tenant,id',
+            // tenant_id is accepted for backward compatibility but ignored —
+            // see the forced override below.
+            'tenant_id' => 'nullable|integer',
             'role_id' => 'required|integer|exists:role,id',
             'name' => 'required|string|max:255',
             'user_name' => 'required|string|max:255',
@@ -77,6 +79,17 @@ class UserController extends Controller
             'password' => 'required|string|min:6',
             'permissions' => 'nullable|array',
         ]);
+
+        // SECURITY FIX (OWASP A01): never trust tenant_id from the request —
+        // that allows creating staff in another tenant. Always derive it from
+        // the authenticated user.
+        $authTenantId = $request->user()?->tenant_id;
+        if (!$authTenantId) {
+            return response()->json([
+                'message' => 'No se pudo determinar el tenant del usuario autenticado',
+            ], 403);
+        }
+        $data['tenant_id'] = $authTenantId;
 
         $existingDisabledUser = User::where('email', $data['email'])
             ->where('status', false)

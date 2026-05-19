@@ -39,6 +39,14 @@ class QueueManager
         ?string $secretName = null,
         ?string $comment = null
     ): array {
+        // SECURITY (OWASP A03): targetIp is interpolated unquoted into the
+        // RouterOS command (target=<ip>); reject anything that is not an IP so
+        // it can never carry a script payload.
+        if (filter_var(trim($targetIp), FILTER_VALIDATE_IP) === false) {
+            return ['success' => false, 'message' => 'IP del cliente (target) inválida.'];
+        }
+        $targetIp = trim($targetIp);
+
         try {
             $fullName = trim("{$customerName} {$customerLastName}");
 
@@ -261,6 +269,10 @@ class QueueManager
 
     private function escapeRouterOsQuotedValue(string $value): string
     {
-        return addcslashes($value, "\\\"");
+        // SECURITY (OWASP A03): strip control chars / newlines, then escape
+        // RouterOS quoted-string metacharacters — backslash, double-quote and
+        // $ (variable/command substitution inside "...").
+        $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value) ?? '';
+        return addcslashes($value, "\\\"\$");
     }
 }
