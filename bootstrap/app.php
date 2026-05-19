@@ -22,7 +22,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Register custom middleware aliases
         $middleware->alias([
-            'can_do' => \App\Http\Middleware\CheckPermission::class,
+            'can_do'        => \App\Http\Middleware\CheckPermission::class,
+            'permission'    => \App\Http\Middleware\CheckPermission::class,
             'staff_profile' => \App\Http\Middleware\CheckStaffProfile::class,
         ]);
 

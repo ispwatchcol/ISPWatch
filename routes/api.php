@@ -74,26 +74,27 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
 
     // ─── BILLING ───
-    Route::get('/billing/stats', [BillingController::class, 'getStats']);
-    Route::get('/billing/invoices', [BillingController::class, 'index']);
-    Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
-    Route::post('/billing/invoices', [BillingController::class, 'store']);
-    Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
-    Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
-    Route::get('/billing/payments', [BillingController::class, 'getPayments']);
-    Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
-    Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
-    Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
-    Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
-    Route::get('/billing/configs', [BillingController::class, 'getBillingConfigs']);
-    Route::put('/billing/configs/{id}', [BillingController::class, 'updateBillingConfig']);
-    Route::post('/billing/run-auto-cut', [BillingController::class, 'runAutoCut']);
+    Route::middleware(['permission:billing.view'])->group(function () {
+        Route::get('/billing/stats', [BillingController::class, 'getStats']);
+        Route::get('/billing/invoices', [BillingController::class, 'index']);
+        Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
+        Route::post('/billing/invoices', [BillingController::class, 'store']);
+        Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
+        Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
+        Route::get('/billing/payments', [BillingController::class, 'getPayments']);
+        Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
+        Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
+        Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
+        Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
+        Route::get('/billing/configs', [BillingController::class, 'getBillingConfigs']);
+        Route::put('/billing/configs/{id}', [BillingController::class, 'updateBillingConfig']);
+        Route::post('/billing/run-auto-cut', [BillingController::class, 'runAutoCut']);
 
-
-    // Payment Reminders
-    Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
-    Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
-    Route::get('/billing/whatsapp-status', [PaymentReminderController::class, 'checkWhatsAppStatus']);
+        // Payment Reminders
+        Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
+        Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
+        Route::get('/billing/whatsapp-status', [PaymentReminderController::class, 'checkWhatsAppStatus']);
+    });
 
     // ─── SUPPORT (requires staff profile) ───
     Route::middleware(['staff_profile'])->group(function () {
@@ -106,25 +107,31 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // ─── CRUD RESOURCES ───
     Route::apiResources([
-        'customers' => CustomerProfileController::class,
-        'routers' => RouterController::class,
-        'inventory' => InventoryDeviceController::class,
-        'staff' => UserController::class,
-        'plans' => PlanController::class,
+        'customers'  => CustomerProfileController::class,
+        'routers'    => RouterController::class,
+        'inventory'  => InventoryDeviceController::class,
+        'plans'      => PlanController::class,
         'sectorials' => SectorialController::class,
-        'support' => SupportTicketController::class,
+        'support'    => SupportTicketController::class,
     ]);
+
+    // ─── STAFF ───
+    Route::middleware(['permission:staff.view'])->group(function () {
+        Route::apiResource('staff', UserController::class);
+    });
 
     // ─── CATALOGS ───
     Route::get('/tenants/{id}', [TenantController::class, 'show']);
     Route::put('/tenants/{id}', [TenantController::class, 'update']);
     Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig']);
 
-    // ─── SYSTEM ───
-    Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
+    // ─── SETTINGS ───
+    Route::middleware(['permission:settings.view'])->group(function () {
+        Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
+    });
 
-    // ─── IMPORT ───
-    Route::prefix('import')->group(function () {
+    // ─── MASS ACTIONS / IMPORT ───
+    Route::middleware(['permission:mass_actions.execute'])->prefix('import')->group(function () {
         Route::get('template', [ImportController::class, 'downloadUnifiedTemplate']);
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);
