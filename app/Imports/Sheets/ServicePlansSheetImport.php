@@ -13,10 +13,12 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
     protected $tenantId;
     public int $imported = 0;
     public array $errors = [];
+    protected $typePlans = [];
 
     public function __construct($tenantId)
     {
         $this->tenantId = $tenantId;
+        $this->typePlans = TypePlan::pluck('id', 'code')->toArray();
     }
 
     public function title(): string
@@ -50,18 +52,20 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
-            if (!is_numeric($data['costo'])) {
+            $isCourtesy = is_string($data['costo'])
+                && strtoupper(trim($data['costo'])) === 'CORTESIA';
+
+            if (!$isCourtesy && !is_numeric($data['costo'])) {
                 $this->errors[] = [
                     'sheet' => 'Planes',
                     'row' => $rowNumber,
                     'field' => 'costo',
-                    'error' => 'El costo debe ser numérico',
+                    'error' => "El costo debe ser numérico o 'CORTESIA'",
                 ];
                 continue;
             }
 
-            $typePlan = TypePlan::where('code', $data['tipo_plan'])->first();
-            if (!$typePlan) {
+            if (!isset($this->typePlans[$data['tipo_plan']])) {
                 $this->errors[] = [
                     'sheet' => 'Planes',
                     'row' => $rowNumber,
@@ -71,13 +75,24 @@ class ServicePlansSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
+            if (Plan::where('name', $data['nombre'])->where('tenant_id', $this->tenantId)->exists()) {
+                $this->errors[] = [
+                    'sheet' => 'Planes',
+                    'row' => $rowNumber,
+                    'field' => 'nombre',
+                    'error' => "Ya existe un plan con el nombre '{$data['nombre']}'",
+                ];
+                continue;
+            }
+
             try {
                 Plan::create([
                     'name' => $data['nombre'],
-                    'cost_product' => $data['costo'],
+                    'cost_product' => $isCourtesy ? 0 : $data['costo'],
+                    'is_courtesy' => $isCourtesy,
                     'speed_down' => $data['speed_down'],
                     'speed_up' => $data['speed_up'],
-                    'type_plan_id' => $typePlan->id,
+                    'type_plan_id' => $this->typePlans[$data['tipo_plan']],
                     'tenant_id' => $this->tenantId,
                 ]);
                 $this->imported++;

@@ -3,7 +3,7 @@
     <Transition name="notification-container">
       <div
         v-if="notifications.length > 0"
-        class="fixed top-4 right-4 z-50 space-y-3 max-w-sm w-full px-4"
+        class="fixed top-4 right-4 z-[100] space-y-3 max-w-sm w-full px-4"
       >
         <TransitionGroup name="notification">
           <div

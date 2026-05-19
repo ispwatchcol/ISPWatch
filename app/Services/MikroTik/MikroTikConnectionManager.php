@@ -36,7 +36,9 @@ class MikroTikConnectionManager
     public function __construct(?MikroTikApiProtocol $apiProtocol = null)
     {
         // SSH Configuration
-        $this->sshHost = env('MIKROTIK_CORE_SSH_HOST', env('MIKROTIK_CORE_API_HOST', '167.172.132.234'));
+        // SECURITY FIX (OWASP A02): No hardcoded credential fallbacks in source code.
+        // All secrets MUST come from .env — fail loudly if not configured.
+        $this->sshHost = env('MIKROTIK_CORE_SSH_HOST', env('MIKROTIK_CORE_API_HOST', ''));
         $this->sshPort = (int) env('MIKROTIK_CORE_SSH_PORT', 22);
         $this->sshUsername = env('MIKROTIK_CORE_SSH_USER', 'admin');
         $this->sshPassword = env('MIKROTIK_CORE_SSH_PASS', null);
@@ -44,10 +46,10 @@ class MikroTikConnectionManager
         $this->keyPassphrase = env('MIKROTIK_CORE_SSH_KEY_PASSPHRASE', null);
 
         // API Configuration
-        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '167.172.132.234');
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '');
         $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
         $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
-        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', '');
 
         $this->timeout = 15;
         $this->apiProtocol = $apiProtocol ?? new MikroTikApiProtocol();

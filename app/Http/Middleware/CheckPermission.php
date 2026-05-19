@@ -15,10 +15,25 @@ class CheckPermission
      */
     public function handle(Request $request, Closure $next, string $permission): Response
     {
+        // SECURITY FIX (OWASP A01): Always use the authenticated user from Sanctum/session.
+        // Never trust user_id from request input — that allows privilege escalation.
         $user = $request->user();
 
         if (!$user) {
-            return response()->json(['message' => 'No autenticado.'], 401);
+            return response()->json([
+                'message' => 'Unauthorized - Authentication required'
+            ], 401);
+        }
+
+        // Eager-load role if not already loaded
+        if (!$user->relationLoaded('role')) {
+            $user->load('role');
+        }
+
+        if (!$user->role) {
+            return response()->json([
+                'message' => 'Forbidden - No role assigned to your account'
+            ], 403);
         }
 
         // Si el usuario es superadmin, podría tener acceso total.
@@ -27,8 +42,8 @@ class CheckPermission
 
         if (!$user->role || !$user->role->hasPermission($permission)) {
             return response()->json([
-                'success' => false,
-                'message' => 'No tienes permisos suficientes para realizar esta acción.',
+                'message' => 'Forbidden - You do not have permission to perform this action',
+                'required_permission' => $permission,
             ], 403);
         }
 

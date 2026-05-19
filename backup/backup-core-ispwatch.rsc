@@ -1,128 +1,108 @@
 # ============================================
-# RouterOS 6.40.x - Configuracion CORE-ISPWATCH
-# MikroTik Central para ISPWatch
-# IP Publica VPN MikroTik: 138.197.30.155
-# Servidor Laravel DigitalOcean: 162.159.140.98
+# RouterOS 7.22.x - CORE-ISPWATCH (CHR @ DigitalOcean)
+# Hub central / concentrador VPN L2TP de ISPWatch
+# Host de gestion (publico): 167.172.132.234
 # ============================================
-# NOTA: Los PPP secrets son creados dinamicamente por Laravel
-# NO agregar credenciales manualmente aqui
+# ALCANCE: este archivo es la REFERENCIA DE SEGURIDAD versionada
+# (firewall, NAT, address-lists, servicios). Refleja exactamente el
+# ruleset corregido y probado el 2026-05-18.
+#
+# NO incluye:
+#  - PPP profiles / secrets / pools por-tenant  -> los crea Laravel
+#    dinamicamente (VpnService / PppSecretManager). NO agregar a mano.
+#  - Secretos reales (ipsec-secret, passwords)  -> placeholders <...>.
+#    Los valores vivos van SOLO en .env / en el equipo, nunca en git.
+#  - LAN/bridge/DHCP: el CHR de DO solo tiene ether1 + l2tp dinamicas.
 # ============================================
-
-############################
-# INTERFACES (BRIDGE EN VEZ DE MASTER-PORT)
-############################
-/interface bridge
-add name=bridge-lan protocol-mode=none comment="LAN Bridge"
-
-/interface bridge port
-add bridge=bridge-lan interface=ether2
-add bridge=bridge-lan interface=ether3
-add bridge=bridge-lan interface=ether4
-add bridge=bridge-lan interface=ether5
-
-############################
-# LISTAS DE INTERFACES
-############################
-/interface list
-add name=WAN comment=defconf
-add name=LAN comment=defconf
-
-/interface list member
-add interface=ether1 list=WAN
-add interface=bridge-lan list=LAN
-
-############################
-# IP ADDRESS (REQUERIDO)
-############################
-/ip address
-add address=192.168.88.1/24 interface=bridge-lan network=192.168.88.0 comment="LAN Gateway"
-
-############################
-# POOLS
-############################
-/ip pool
-add name=default-dhcp ranges=192.168.88.10-192.168.88.254
-add name=vpn-pool ranges=172.31.200.2-172.31.200.254
-
-############################
-# DHCP SERVER
-############################
-/ip dhcp-server
-add name=defconf interface=bridge-lan address-pool=default-dhcp disabled=no
-
-/ip dhcp-server network
-add address=192.168.88.0/24 gateway=192.168.88.1 dns-server=192.168.88.1
-
-############################
-# DNS
-############################
-/ip dns
-set servers=8.8.8.8,1.1.1.1 allow-remote-requests=yes
-
-/ip dns static
-add name=router.lan address=192.168.88.1
-
-############################
-# L2TP + IPSEC (VPN SERVER)
-############################
-/ppp profile
-add name=vpn-profile local-address=172.31.200.1 remote-address=vpn-pool use-encryption=yes
-
-/interface l2tp-server server
-set enabled=yes use-ipsec=yes ipsec-secret="Q9fZ7MrL2xSA8DkEpHwCy" authentication=mschap2 default-profile=vpn-profile
-
-# IMPORTANTE: Los /ppp secret son creados por Laravel via API
-# NO agregar credenciales aqui manualmente
-
-############################
-# API SERVICE - HABILITAR PARA LARAVEL
-# IP del servidor Laravel DigitalOcean: 162.159.140.98
-############################
-/ip service
-set api address=162.159.140.98/32,192.168.88.0/24,172.31.200.0/24 disabled=no port=8728
-set api-ssl disabled=yes
-set www disabled=yes
-set telnet disabled=yes
-set winbox address=192.168.88.0/24,172.31.200.0/24
-
-############################
-# FIREWALL ADDRESS LIST
-############################
-/ip firewall address-list
-add list=ISPWATCH_SUSPENDIDOS comment="Control ISPWatch - Lista inicial"
-# BLACKLIST - Atacantes identificados
-add list=BLACKLIST address=87.120.191.13 comment="Ataque API Brute force"
-add list=BLACKLIST address=109.158.143.240 comment="Ataque Telnet Brute force"
-add list=BLACKLIST address=59.12.158.62 comment="Ataque Telnet Brute force"
-
-add list=ISPWATCH_ALLOWED_API address=162.159.140.98 comment="Servidor Laravel DigitalOcean"
-add list=ISPWATCH_ALLOWED_API address=192.168.88.0/24 comment="LAN Local"
-add list=ISPWATCH_ALLOWED_API address=172.31.200.0/24 comment="VPN Clientes"
-
-############################
-# FIREWALL FILTER
-############################
-/ip firewall filter
-add chain=input action=accept connection-state=established,related comment="Accept established"
-add chain=input action=drop connection-state=invalid comment="Drop invalid"
-add chain=input action=accept protocol=tcp dst-port=8728 src-address-list=ISPWATCH_ALLOWED_API comment="API MikroTik - ISPWatch"
-add chain=input action=accept protocol=udp dst-port=500,1701,4500 comment="L2TP/IPsec"
-add chain=input action=accept protocol=ipsec-esp comment="IPsec ESP"
-add chain=input action=accept src-address=172.31.200.0/24 comment="VPN Access"
-add chain=input action=drop src-address-list=BLACKLIST comment="Drop Blacklisted IPs"
-add chain=input action=drop in-interface-list=WAN comment="Drop WAN input"
-
-############################
-# NAT
-############################
-/ip firewall nat
-add chain=srcnat out-interface-list=WAN action=masquerade comment="Internet NAT"
-add chain=srcnat src-address=172.31.200.0/24 dst-address=192.168.88.252 action=masquerade comment="VPN to Portal"
-add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=80 action=dst-nat to-addresses=192.168.88.252 to-ports=8000 comment="ISPWatch HTTP Redirect"
-add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=443 action=dst-nat to-addresses=192.168.88.252 to-ports=8000 comment="ISPWatch HTTPS Redirect"
 
 ############################
 # SYSTEM IDENTITY
 ############################
 /system identity
 set name="CORE-ISPWATCH"
+
+############################
+# SERVICIOS DE GESTION
+# El control de origen lo hace el firewall (no se restringe por
+# /ip service address). DO bloquea el 22 saliente -> ver dstnat 2222.
+############################
+/ip service
+set ssh   disabled=no port=22
+set winbox disabled=no port=8291
+set api   disabled=no port=8728
+set api-ssl disabled=yes
+set www   disabled=yes
+set www-ssl disabled=yes
+set ftp   disabled=yes
+set telnet disabled=yes
+
+############################
+# L2TP + IPSEC (VPN SERVER)
+# El ipsec-secret REAL va en .env (MIKROTIK_IPSEC_SECRET). Aqui placeholder.
+############################
+/interface l2tp-server server
+set enabled=yes use-ipsec=yes ipsec-secret="<MIKROTIK_IPSEC_SECRET>" \
+    authentication=mschap2
+
+############################
+# FIREWALL ADDRESS-LISTS
+############################
+/ip firewall address-list
+# --- Gestion autorizada (SSH 22 / Winbox 8291 / ICMP / API 8728) ---
+# IPs de egreso de la app (DO App Platform: pueden rotar; mantener al dia).
+add list=ALLOWED_MGMT address=190.14.255.110  comment="App - IP Autorizada 1"
+add list=ALLOWED_MGMT address=129.212.176.143 comment="App - IP Autorizada 2"
+add list=ALLOWED_MGMT address=134.199.204.61  comment="App - IP Autorizada 3"
+add list=ALLOWED_MGMT address=181.225.70.27   comment="App - IP Autorizada 4"
+# add list=ALLOWED_MGMT address=<IP_ADMIN>     comment="Admin PC"
+# --- Lista legacy de API (la regla API acepta ALLOWED_MGMT ademas) ---
+add list=ISPWATCH_ALLOWED_API address=190.14.255.110  comment="App - API 1"
+add list=ISPWATCH_ALLOWED_API address=129.212.176.143 comment="App - API 2"
+add list=ISPWATCH_ALLOWED_API address=134.199.204.61  comment="App - API 3"
+add list=ISPWATCH_ALLOWED_API address=10.10.10.0/24   comment="VPN Clientes"
+# --- Bypass de pools VPN por-tenant (auto-poblado por Laravel) ---
+# Laravel agrega el /24 de cada tenant via ensureCoreAddressListEntry.
+# El /12 cubre todos los /24 que genera la formula aunque el add falle.
+add list=ISPWATCH_VPN_POOLS address=10.10.10.0/24    comment="VPN clientes legacy"
+add list=ISPWATCH_VPN_POOLS address=172.16.0.0/12    comment="Tenant VPN pools (formula)"
+add list=ISPWATCH_VPN_POOLS address=172.123.155.0/24 comment="VEN_CORE_VEGA legacy"
+# --- Control ISPWatch (suspendidos) ---
+add list=ISPWATCH_SUSPENDIDOS address=0.0.0.0 comment="Control ISPWatch - vacio inicial"
+# BLACKLIST: dinamica (la pueblan las reglas [AUTO]); no se versiona.
+
+############################
+# FIREWALL FILTER  (orden CRITICO)
+# Regla clave: los accept de gestion van ANTES del bloque blacklist,
+# asi una IP de ALLOWED_MGMT NUNCA se auto-bloquea aunque rote.
+############################
+/ip firewall filter
+add chain=input action=accept connection-state=established,related comment="Accept established/related"
+add chain=input action=drop   connection-state=invalid comment="Drop invalid"
+add chain=input action=accept in-interface=lo comment="Accept loopback"
+add chain=input action=accept src-address-list=ISPWATCH_VPN_POOLS comment="VPN clientes (bypass total)"
+add chain=input action=accept protocol=icmp src-address-list=ALLOWED_MGMT comment="ICMP autorizado"
+add chain=input action=accept protocol=tcp dst-port=22   src-address-list=ALLOWED_MGMT comment="SSH autorizado (cubre 2222->22)"
+add chain=input action=accept protocol=tcp dst-port=8291 src-address-list=ALLOWED_MGMT comment="Winbox autorizado"
+add chain=input action=accept protocol=tcp dst-port=8728 src-address-list=ALLOWED_MGMT comment="API (ALLOWED_MGMT)"
+add chain=input action=accept protocol=tcp dst-port=8728 src-address-list=ISPWATCH_ALLOWED_API comment="API (lista legacy)"
+add chain=input action=accept protocol=udp dst-port=500,1701,4500 comment="L2TP/IPsec routers cliente"
+add chain=input action=accept protocol=ipsec-esp comment="IPsec ESP"
+add chain=input action=add-src-to-address-list address-list=BLACKLIST address-list-timeout=4w2d protocol=tcp dst-port=23   in-interface=ether1 comment="[AUTO] Blacklist Telnet"
+add chain=input action=add-src-to-address-list address-list=BLACKLIST address-list-timeout=4w2d protocol=tcp dst-port=22   in-interface=ether1 src-address-list=!ALLOWED_MGMT comment="[AUTO] Blacklist SSH no autorizado"
+add chain=input action=add-src-to-address-list address-list=BLACKLIST address-list-timeout=4w2d protocol=tcp dst-port=8291 in-interface=ether1 src-address-list=!ALLOWED_MGMT comment="[AUTO] Blacklist Winbox no autorizado"
+add chain=input action=drop src-address-list=BLACKLIST comment="Drop Blacklist"
+add chain=input action=log  in-interface=ether1 log-prefix="[BLOQUEADO]" comment="Log intentos WAN"
+add chain=input action=drop in-interface=ether1 comment="DROP todo desde WAN"
+add chain=forward action=drop   connection-state=invalid comment="Drop forward invalidos"
+add chain=forward action=accept connection-state=established,related comment="Accept forward establecidos"
+add chain=forward action=accept src-address=10.10.10.0/24 comment="VPN forward"
+
+############################
+# NAT
+# El redirect 2222->22 es el workaround de DO (bloquea el 22 saliente):
+# la app de produccion conecta al CORE por :2222 (MIKROTIK_CORE_SSH_PORT=2222).
+############################
+/ip firewall nat
+add chain=srcnat action=masquerade out-interface=ether1 comment="NAT Internet"
+add chain=srcnat action=masquerade src-address=10.10.10.0/24 dst-address=192.168.88.252 comment="VPN to Portal ISPWatch"
+add chain=dstnat action=redirect protocol=tcp dst-port=2222 to-ports=22 comment="SSH alt for DO App Platform (DO blocks outbound :22)"

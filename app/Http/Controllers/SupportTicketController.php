@@ -20,7 +20,13 @@ class SupportTicketController extends Controller
      */
     public function index(Request $request)
     {
+        // SECURITY FIX (OWASP A01): Scope to authenticated user's tenant
+        $tenantId = $request->user()?->tenant_id;
         $query = SupportTicket::with(['user', 'staff', 'messages', 'attachments']);
+
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
 
         // Filtros
         if ($request->has('status') && $request->status != 'all') {
@@ -41,7 +47,7 @@ class SupportTicketController extends Controller
 
         // Búsqueda
         if ($request->has('search')) {
-            $search = $request->search;
+            $search = str_replace(['%', '_'], ['\\%', '\\_'], $request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('subject', 'like', "%{$search}%")
                     ->orWhere('description', 'like', "%{$search}%");
@@ -71,10 +77,11 @@ class SupportTicketController extends Controller
 
         try {
             // Crear el ticket
+            // SECURITY FIX (OWASP A01): Derive tenant_id from authenticated user
             $ticket = SupportTicket::create([
                 'user_id' => $data['user_id'],
                 'staff_id' => $data['staff_id'] ?? null,
-                'tenant_id' => $request->tenant ?? 1,
+                'tenant_id' => $request->user()?->tenant_id ?? 1,
                 'subject' => $data['subject'],
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'] ?? 'general',
@@ -279,20 +286,27 @@ class SupportTicketController extends Controller
     /**
      * Get support statistics.
      */
-    public function statistics()
+    public function statistics(Request $request)
     {
-        $totalTickets = SupportTicket::count();
-        $openTickets = SupportTicket::where('status', SupportTicket::STATUS_OPEN)->count();
-        $inProgressTickets = SupportTicket::where('status', SupportTicket::STATUS_IN_PROGRESS)->count();
+        // SECURITY FIX (OWASP A04): Scope all statistics to the authenticated user's tenant
+        $tenantId = $request->user()?->tenant_id;
+        $baseQuery = SupportTicket::query();
+        if ($tenantId) {
+            $baseQuery->where('tenant_id', $tenantId);
+        }
+
+        $totalTickets = (clone $baseQuery)->count();
+        $openTickets = (clone $baseQuery)->where('status', SupportTicket::STATUS_OPEN)->count();
+        $inProgressTickets = (clone $baseQuery)->where('status', SupportTicket::STATUS_IN_PROGRESS)->count();
 
         // Tickets resueltos este mes
         $startOfMonth = now()->startOfMonth();
-        $resolvedThisMonth = SupportTicket::where('status', SupportTicket::STATUS_RESOLVED)
+        $resolvedThisMonth = (clone $baseQuery)->where('status', SupportTicket::STATUS_RESOLVED)
             ->where('resolved_at', '>=', $startOfMonth)
             ->count();
 
         // Tiempo promedio de resolución (en días)
-        $resolvedTickets = SupportTicket::whereNotNull('resolved_at')->get();
+        $resolvedTickets = (clone $baseQuery)->whereNotNull('resolved_at')->get();
         $avgResolutionTime = 0;
         if ($resolvedTickets->count() > 0) {
             $totalDays = 0;
@@ -303,7 +317,7 @@ class SupportTicketController extends Controller
         }
 
         // Distribución por prioridad (only if priority exists)
-        $byPriority = SupportTicket::select('priority', DB::raw('count(*) as count'))
+        $byPriority = (clone $baseQuery)->select('priority', DB::raw('count(*) as count'))
             ->whereNotNull('priority')
             ->groupBy('priority')
             ->get()
@@ -315,7 +329,7 @@ class SupportTicketController extends Controller
             });
 
         // Distribución por estado
-        $byStatus = SupportTicket::select('status', DB::raw('count(*) as count'))
+        $byStatus = (clone $baseQuery)->select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
             ->get()
             ->map(function ($item) {
@@ -326,7 +340,7 @@ class SupportTicketController extends Controller
             });
 
         // Distribución por categoría (only if category exists)
-        $byCategory = SupportTicket::select('category', DB::raw('count(*) as count'))
+        $byCategory = (clone $baseQuery)->select('category', DB::raw('count(*) as count'))
             ->whereNotNull('category')
             ->groupBy('category')
             ->get()
@@ -343,7 +357,7 @@ class SupportTicketController extends Controller
             $monthStart = now()->subMonths($i)->startOfMonth();
             $monthEnd = now()->subMonths($i)->endOfMonth();
 
-            $count = SupportTicket::whereBetween('created_at', [$monthStart, $monthEnd])->count();
+            $count = (clone $baseQuery)->whereBetween('created_at', [$monthStart, $monthEnd])->count();
 
             $monthlyTrend[] = [
                 'month' => $monthStart->locale('es')->format('M'),
@@ -352,7 +366,7 @@ class SupportTicketController extends Controller
         }
 
         // Tickets recientes
-        $recentTickets = SupportTicket::with(['user', 'staff'])
+        $recentTickets = (clone $baseQuery)->with(['user', 'staff'])
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get();

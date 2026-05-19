@@ -640,6 +640,7 @@ const form = reactive({
     notificar_wpp: false,
     remember_day: null,
     notification_type: 'email',
+    billing_mode: 'anticipado',
   }
 })
 
@@ -736,6 +737,7 @@ const loadRouterData = async () => {
         form.billing.comentarios = data.billing.comments || ''
         form.billing.notificar_wpp = !!data.billing.notificar_wpp
         form.billing.notification_type = data.billing.notification_type || 'email'
+        form.billing.billing_mode = data.billing.billing_mode || 'anticipado'
     }
 
   } catch (e) {
@@ -786,6 +788,7 @@ const saveBilling = async () => {
     status: 'pending',
     notificar_wpp: form.billing.notificar_wpp || false,
     notification_type: form.billing.notification_type || 'email',
+    billing_mode: form.billing.billing_mode || 'anticipado',
     comments: form.billing.comentarios || null,
     tenant_id: tenantId,
     updated_at: new Date().toISOString(),

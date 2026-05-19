@@ -10,6 +10,7 @@ use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\OverdueSuspensionService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use PHPUnit\Framework\Attributes\Test;
@@ -38,7 +39,7 @@ class AutoCutoffTest extends TestCase
         $cutType = CutType::firstOrCreate(['name' => $cutTypeName]);
 
         return Router::create([
-            'name' => 'Router Test',
+            'name' => 'Router ' . uniqid(),
             'tenant_id' => $tenant->id,
             'cut_type_id' => $cutType->id,
             'billing_router_id' => $billing->id,
@@ -50,7 +51,8 @@ class AutoCutoffTest extends TestCase
     {
         CustomerProfile::updateOrCreate(
             ['user_id' => $user->id],
-            ['name' => 'Test', 'last_name' => 'User', 'router_id' => $router->id, 'status' => 'active']
+            // status is a BOOLEAN column (true = active), matching production.
+            ['name' => 'Test ' . uniqid(), 'last_name' => 'User', 'router_id' => $router->id, 'status' => true]
         );
 
         for ($i = 0; $i < $qty; $i++) {
@@ -202,8 +204,34 @@ class AutoCutoffTest extends TestCase
         $this->assertEquals(1, $stats['routers_processed']);
     }
 
+    #[Test]
+    public function cut_day_31_fires_on_feb_28_in_a_non_leap_year(): void
+    {
+        // 2026 is not a leap year → February has 28 days; a configured
+        // cut_day of 31 must clamp to 28 so the cut still happens.
+        Carbon::setTestNow(Carbon::create(2026, 2, 28, 9, 0, 0));
+
+        $tenant  = Tenant::factory()->create();
+        $billing = $this->makeBilling([
+            'cut_day'          => Carbon::create(2026, 1, 31)->toDateString(),
+            'cut_time'         => '00:00:00',
+            'overdue_invoices' => 1,
+        ]);
+        $router   = $this->makeRouter('Corte Automático', $billing, $tenant);
+        $customer = User::factory()->create(['tenant_id' => $tenant->id]);
+        $this->makeCustomerWithOverdueInvoices($customer, $router, 1);
+
+        $mock = $this->mockProvisioning();
+        $mock->shouldReceive('suspendCustomer')->once()->andReturn(true);
+
+        $stats = app(OverdueSuspensionService::class)->processOverdueInvoices();
+
+        $this->assertEquals(1, $stats['suspended']);
+    }
+
     protected function tearDown(): void
     {
+        Carbon::setTestNow();
         Mockery::close();
         parent::tearDown();
     }

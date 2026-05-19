@@ -140,6 +140,14 @@ class MikroTikSshService
     }
 
     /**
+     * Ensure an entry exists in a CORE firewall address-list (idempotent).
+     */
+    public function ensureCoreAddressListEntry(string $list, string $address, string $comment = 'ISPWatch Auto'): array
+    {
+        return $this->pppManager->ensureCoreAddressListEntry($list, $address, $comment);
+    }
+
+    /**
      * Create or update a PPPoE /ppp secret on a client router.
      */
     public function ensurePppoeSecretOnRouter(
@@ -151,11 +159,13 @@ class MikroTikSshService
         string $profile = 'default',
         string $service = 'pppoe',
         int $clientPort = 8728,
-        ?string $remoteAddress = null
+        ?string $remoteAddress = null,
+        ?string $localAddress = null,
+        ?string $comment = null
     ): array {
         return $this->pppProfileManager->ensurePppoeSecretOnRouter(
             $clientIp, $clientUser, $clientPass,
-            $username, $password, $profile, $service, $clientPort, $remoteAddress
+            $username, $password, $profile, $service, $clientPort, $remoteAddress, $localAddress, $comment
         );
     }
 
@@ -291,7 +301,9 @@ class MikroTikSshService
         string $customerLastName,
         string $speedUp,
         string $speedDown,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?string $secretName = null,
+        ?string $comment = null
     ): array {
         return $this->queueManager->syncQueueViaCore(
             $clientIp,
@@ -302,7 +314,9 @@ class MikroTikSshService
             $customerLastName,
             $speedUp,
             $speedDown,
-            $clientPort
+            $clientPort,
+            $secretName,
+            $comment
         );
     }
 

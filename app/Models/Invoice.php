@@ -25,7 +25,8 @@ class Invoice extends Model
         'total',
         'balance_due',
         'status',
-        'notes'
+        'notes',
+        'last_reminder_sent',
     ];
 
     protected $casts = [
@@ -37,6 +38,7 @@ class Invoice extends Model
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
         'balance_due' => 'decimal:2',
+        'last_reminder_sent' => 'datetime',
     ];
 
     public function items()

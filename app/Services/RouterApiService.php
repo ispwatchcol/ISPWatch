@@ -39,12 +39,55 @@ class RouterApiService
     }
 
     /**
+     * Validar que la IP está en rango permitido para prevenir SSRF
+     */
+    private function validateRouterIp(string $ip): bool
+    {
+        // SEGURIDAD (anti-SSRF): bloquear sólo los destinos peligrosos
+        // (loopback, link-local, metadata cloud, multicast/broadcast).
+        // NO usar una allow-list 172.16/12: en esta red los routers cliente
+        // viven en rangos privados variados (192.168.x, 172.123.x, 172.16.x)
+        // detrás del overlay L2TP del CORE — una allow-list estrecha rechaza
+        // routers reales y rompe revisar-WAN/plan/secret (regresión e526204).
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+
+        $ipLong = ip2long($ip);
+        if ($ipLong === false) {
+            return false;
+        }
+
+        $blockedCidrs = [
+            ['0.0.0.0', 8],          // "this" network
+            ['127.0.0.0', 8],        // loopback
+            ['169.254.0.0', 16],     // link-local + cloud metadata (169.254.169.254)
+            ['224.0.0.0', 4],        // multicast
+            ['240.0.0.0', 4],        // reserved / 255.255.255.255 broadcast
+        ];
+
+        foreach ($blockedCidrs as [$net, $bits]) {
+            $mask = -1 << (32 - $bits);
+            if ((ip2long($net) & $mask) === ($ipLong & $mask)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Obtener todas las interfaces del router
      */
     public function getInterfaces(Router $router): array
     {
         if (!$router->ip || !$router->user_rb || !$router->password_rb) {
             return $this->error('Router sin credenciales configuradas');
+        }
+
+        if (!$this->validateRouterIp($router->ip)) {
+            Log::error('[RouterAPI] Router IP outside allowed range', ['ip' => $router->ip]);
+            return $this->error('IP del router no está en rango permitido');
         }
 
         // Use the API port configured in the router, default to 8728

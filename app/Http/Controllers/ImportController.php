@@ -20,6 +20,9 @@ class ImportController extends Controller
             'file' => 'required|mimes:xlsx,xls|max:10240',
         ]);
 
+        // Cargas masivas grandes pueden superar el max_execution_time por defecto (60s)
+        @set_time_limit(120);
+
         $tenantId = auth()->user()->tenant_id;
         $import = new UnifiedImport($tenantId);
 

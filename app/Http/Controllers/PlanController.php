@@ -14,9 +14,14 @@ class PlanController extends Controller
     use FixesSequences;
     public function index(Request $request)
     {
-        // BelongsToTenant scope auto-filters by tenant query param
         return response()->json([
-            'data' => Plan::with('typePlan')->get()
+            'data' => Plan::with('typePlan')
+                ->withCount(['userServices' => fn($q) => $q->whereHas('user', fn($u) => $u->where('status', true)->where('role_id', 3))->whereIn('status', ['active', 'gratis'])])
+                ->get()
+                ->map(fn($plan) => [
+                    ...$plan->toArray(),
+                    'active_clients_count' => $plan->user_services_count,
+                ])
         ]);
     }
 

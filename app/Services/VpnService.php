@@ -34,14 +34,16 @@ class VpnService
     {
         // Cargar configuración desde .env
         // IP Publica del MikroTik CORE (donde los clientes VPN se conectan)
-        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '167.172.132.234');
+        // SECURITY FIX (OWASP A02): No hardcoded credential fallbacks in source code.
+        // All secrets MUST come from .env — fail loudly if not configured.
+        $this->vpnPublicIp = env('MIKROTIK_CORE_VPN_IP', '');
         // IP para conexión API desde Laravel al CORE
-        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '167.172.132.234');
+        $this->apiHost = env('MIKROTIK_CORE_API_HOST', '');
         $this->apiPort = (int) env('MIKROTIK_CORE_API_PORT', 8728);
         $this->apiUser = env('MIKROTIK_CORE_API_USER', 'admin');
-        $this->apiPass = env('MIKROTIK_CORE_API_PASS', 'Colombia2018');
+        $this->apiPass = env('MIKROTIK_CORE_API_PASS', '');
         // IPsec Secret fijo para todos los clientes L2TP
-        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', 'Q9fZ7MrL2xSA8DkEpHwCy');
+        $this->ipsecSecret = env('MIKROTIK_IPSEC_SECRET', '');
     }
 
     // ==============================
@@ -66,6 +68,7 @@ class VpnService
         return [
             'local_address' => "172.{$second}.{$third}.1",
             'pool_range'    => "172.{$second}.{$third}.2-172.{$second}.{$third}.254",
+            'network_cidr'  => "172.{$second}.{$third}.0/24",
         ];
     }
 
@@ -105,14 +108,33 @@ class VpnService
             return false;
         }
 
+        // Auto-add this tenant's /24 to the CORE firewall bypass list so its
+        // client routers' traffic never hits the input-chain blacklist/drop.
+        // Idempotent and non-blocking: a failure here must not stop script
+        // generation (the broad seed entry 172.16.0.0/12 still covers it).
+        $bypassResult = $sshService->ensureCoreAddressListEntry(
+            'ISPWATCH_VPN_POOLS',
+            $subnet['network_cidr'],
+            "VPN pool tenant {$tenantId}"
+        );
+        if (!($bypassResult['success'] ?? false)) {
+            Log::warning('[VPN] No se pudo agregar el pool del tenant al bypass del firewall', [
+                'tenantId' => $tenantId,
+                'cidr'     => $subnet['network_cidr'],
+                'error'    => $bypassResult['message'] ?? '',
+            ]);
+        }
+
         Log::info('[VPN] Recursos VPN de tenant listos', [
             'tenantId'      => $tenantId,
             'profile'       => $profileName,
             'pool'          => $poolName,
             'localAddress'  => $subnet['local_address'],
             'poolRange'     => $subnet['pool_range'],
+            'networkCidr'   => $subnet['network_cidr'],
             'poolAction'    => $poolResult['action'] ?? 'unknown',
             'profileAction' => $profileResult['action'] ?? 'unknown',
+            'bypassAction'  => $bypassResult['action'] ?? ($bypassResult['success'] ?? false ? 'ok' : 'failed'),
         ]);
 
         return true;
@@ -146,10 +168,12 @@ class VpnService
             $vpnPassword = \Illuminate\Support\Str::random(20);
         }
 
-        // Guardar credentials VPN en la base de datos
+        // Guardar credentials VPN en la base de datos (encriptadas)
         $router->update([
             'vpn_username' => $vpnUsername,
             'vpn_password' => $vpnPassword,
+            'vpn_username_encrypted' => $vpnUsername,
+            'vpn_password_encrypted' => $vpnPassword,
         ]);
 
         // Generar credenciales de gestión local (INTERNO - no mostrar al usuario)
@@ -158,12 +182,17 @@ class VpnService
             $localPass = \Illuminate\Support\Str::random(16);
             $router->update([
                 'user_rb' => $localUser,
-                'password_rb' => $localPass
+                'password_rb' => $localPass,
+                'user_rb_encrypted' => $localUser,
+                'password_rb_encrypted' => $localPass,
             ]);
         } else {
             $localPass = $router->password_rb;
             if ($router->user_rb !== $localUser) {
-                $router->update(['user_rb' => $localUser]);
+                $router->update([
+                    'user_rb' => $localUser,
+                    'user_rb_encrypted' => $localUser,
+                ]);
             }
         }
 
@@ -173,9 +202,15 @@ class VpnService
         // Determinar perfil VPN específico del tenant (o fallback a profile-vpn)
         $vpnProfile = 'profile-vpn';
         $tenantId   = $router->tenant_id;
+        // Red del túnel desde la que el CORE alcanza a ESTE router (su /24 de
+        // tenant; la IP del CORE en el túnel es la .1 de ese /24). Se usa para
+        // permitir gestión en el firewall del cliente. Fallback al supernet
+        // 172.16.0.0/12 (cubre todos los /24 que genera la fórmula de tenants).
+        $mgmtNet = '172.16.0.0/12';
         if ($tenantId) {
             $this->ensureTenantVpnResources((int) $tenantId);
             $vpnProfile = $this->getProfileName((int) $tenantId);
+            $mgmtNet    = $this->getTenantSubnet((int) $tenantId)['network_cidr'];
         }
 
         // Intentar crear/actualizar el secret en el CORE vía API
@@ -206,6 +241,17 @@ class VpnService
 # Habilitar servicios para gestión remota
 /ip service set api disabled=no port=8728
 /ip service set ssh disabled=no port=22
+
+# ====================================
+# ACCESO DE GESTIÓN DESDE EL CORE (TÚNEL VPN)
+# ====================================
+# Permite que ISPWatch llegue por el túnel (SSH/API/Winbox) sin tener que
+# buscar a mano entre cientos de reglas del firewall del router.
+# Idempotente: se identifica por comentario y se reinserta al TOPE del
+# chain input (antes de cualquier blacklist/drop), así re-aplicar el
+# script no duplica la regla ni requiere inspeccionar las reglas existentes.
+/ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
+/ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # CONFIGURACIÓN VPN L2TP
@@ -272,7 +318,8 @@ SCRIPT;
                     'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
                     'assigned_ip' => $assignedIp,
                     'uptime' => $result['uptime'] ?? null,
-                    // Retornar credenciales del RB para sincronización en frontend
+                    // Credenciales de gestión del RB (columnas legacy = fuente de verdad,
+                    // las que escribe el formulario; *_encrypted no se mantiene — ver 4f24551)
                     'user_rb' => $router->user_rb,
                     'password_rb' => $router->password_rb,
                 ];
@@ -306,8 +353,8 @@ SCRIPT;
         try {
             Log::info("[VPN] Sincronizando secret con el CORE", [
                 'user'            => $username,
-                'password_length' => strlen($password),
                 'profile'         => $profile,
+                // ⚠️ NUNCA loguear password_length o datos sensibles
             ]);
 
             $comment = $routerName
@@ -444,7 +491,7 @@ SCRIPT;
         stream_set_timeout($socket, 15);
 
         try {
-            // LOGIN con las credenciales del router
+            // LOGIN con las credenciales del router (encriptadas)
             $loginSuccess = $this->doLoginToClient($socket, $router->user_rb, $router->password_rb);
 
             if (!$loginSuccess) {

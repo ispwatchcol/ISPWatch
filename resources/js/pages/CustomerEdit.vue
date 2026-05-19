@@ -16,14 +16,33 @@
         </div>
         </div>
 
-        <!-- Loading -->
-        <div v-if="loadingData" class="text-center py-12">
+        <!-- Tabs -->
+        <div class="max-w-7xl mx-auto mb-4 sm:mb-6">
+          <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+            <button
+              v-for="tab in tabs" :key="tab.key"
+              @click="activeTab = tab.key"
+              type="button"
+              :class="[
+                'px-4 sm:px-6 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition',
+                activeTab === tab.key
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              ]"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Loading (solo pestaña Datos) -->
+        <div v-if="loadingData && activeTab === 'datos'" class="text-center py-12">
         <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
         <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando datos...</p>
         </div>
 
         <!-- Formulario -->
-        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+        <div v-else-if="activeTab === 'datos'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
         <form @submit.prevent="handleSubmit">
 
             <!-- Sección: Datos de Acceso -->
@@ -145,6 +164,36 @@
                 </div>
             </div>
 
+            <!-- Estado del servicio -->
+            <div class="mt-5">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <label class="block text-gray-700 dark:text-gray-300 font-medium">Estado del servicio</label>
+                    <span v-if="isCourtesyPlan" class="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        Plan de cortesía — fijado en Gratis automáticamente
+                    </span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-2xl">
+                    <button
+                        v-for="opt in statusOptions"
+                        :key="opt.value"
+                        type="button"
+                        :disabled="isCourtesyPlan && opt.value !== 'gratis'"
+                        @click="!isCourtesyPlan && (form.service_status = opt.value)"
+                        :class="[
+                            'flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all',
+                            form.service_status === opt.value
+                                ? opt.activeClass + ' shadow-sm'
+                                : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500',
+                            (isCourtesyPlan && opt.value !== 'gratis') ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                        ]"
+                    >
+                        <span class="w-2 h-2 rounded-full" :class="form.service_status === opt.value ? 'bg-white' : opt.dotClass"></span>
+                        {{ opt.label }}
+                    </button>
+                </div>
+            </div>
+
             <!-- IP RANGE ANALYZER -->
             <div v-if="freeIpsLoaded && parsedRanges.length === 0 && form.router_id" class="mt-4 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2">
               <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -160,6 +209,12 @@
                     </svg>
                     <span class="font-semibold text-sm">Analizador de IPs</span>
                   </div>
+                  <button
+                    v-if="!loadingFreeIps && parsedRanges.length > 0"
+                    type="button"
+                    @click="toggleAll"
+                    class="text-white/90 hover:text-white text-xs font-medium underline-offset-2 hover:underline"
+                  >{{ allExpanded ? 'Colapsar todo' : 'Expandir todo' }}</button>
                   <div v-if="loadingFreeIps" class="flex items-center gap-1.5 text-white/80 text-xs">
                     <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -196,13 +251,27 @@
                     <span class="text-xs font-medium text-gray-600 dark:text-gray-400 w-10 text-right">{{ ipStats.usagePercent }}%</span>
                   </div>
                 </div>
-                <!-- IP Grid per range -->
+                <!-- IP Grid per range (acordeón) -->
                 <div v-for="(range, idx) in parsedRanges" :key="idx" class="border-t border-gray-200 dark:border-gray-700">
-                  <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between">
-                    <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
-                    <span class="text-xs text-gray-500">{{ range.hosts.length }} hosts · {{ range.freeHosts.length }} libres</span>
-                  </div>
-                  <div class="px-4 py-3 max-h-48 overflow-y-auto">
+                  <button
+                    type="button"
+                    @click="toggleRange(idx)"
+                    class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between text-left hover:bg-gray-100 dark:hover:bg-gray-900/50 transition-colors"
+                  >
+                    <span class="flex items-center gap-2">
+                      <svg
+                        class="w-3.5 h-3.5 text-gray-400 transition-transform shrink-0"
+                        :class="expandedRanges.has(idx) ? 'rotate-90' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                      <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
+                    </span>
+                    <span class="text-xs text-gray-500">
+                      {{ range.hosts.length }} hosts ·
+                      <span class="text-green-600 dark:text-green-400 font-medium">{{ range.freeHosts.length }} libres</span>
+                    </span>
+                  </button>
+                  <div v-if="expandedRanges.has(idx)" class="px-4 py-3 max-h-48 overflow-y-auto">
                     <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
                       <button
                         v-for="ip in range.hosts"
@@ -289,6 +358,18 @@
                 <p v-if="pppoePassError" class="mt-1 text-xs text-red-500">{{ pppoePassError }}</p>
                 </div>
             </div>
+
+            <div class="mt-4">
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    IP Local <span class="text-gray-400 font-normal">(opcional)</span>
+                </label>
+                <input v-model="form.pppoe_local_address" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 10.0.0.1" />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Es el <strong>local-address</strong> del secret PPPoE. Déjalo vacío para que lo defina el perfil/router.
+                </p>
+            </div>
             </div>
 
             <!-- Error inline general -->
@@ -309,6 +390,16 @@
             </div>
         </form>
         </div>
+
+        <!-- Pestaña: Facturación -->
+        <div v-if="activeTab === 'facturacion'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+          <CustomerBilling :customer-id="route.params.id" @notify="onNotify" />
+        </div>
+
+        <!-- Pestaña: Documentos -->
+        <div v-if="activeTab === 'documentos'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+          <CustomerDocuments :customer-id="route.params.id" @notify="onNotify" />
+        </div>
     </div>
 </template>
 
@@ -317,10 +408,24 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import CustomerBilling from '@/components/customer/CustomerBilling.vue'
+import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 
 const router = useRouter()
 const route  = useRoute()
 const toast  = ref(null)
+
+const tabs = [
+  { key: 'datos',       label: 'Datos del Cliente' },
+  { key: 'facturacion', label: 'Facturación' },
+  { key: 'documentos',  label: 'Documentos' },
+]
+const activeTab = ref('datos')
+
+const onNotify = ({ type, title, message }) => {
+  const fn = toast.value?.[type] || toast.value?.info
+  fn?.(title, message)
+}
 
 const form = ref({
     email: '',
@@ -335,9 +440,11 @@ const form = ref({
     service_id: null,
     sectorial_id: null,
     router_id: null,
+    service_status: 'activo',
     create_pppoe_secret: false,
     pppoe_username: '',
     pppoe_password: '',
+    pppoe_local_address: '',
 })
 
 const loading        = ref(false)
@@ -356,6 +463,7 @@ const rangosIpStr    = ref('')
 const usedIpsSet     = ref(new Set())
 const loadingFreeIps  = ref(false)
 const freeIpsLoaded   = ref(false)
+const expandedRanges  = ref(new Set())   // índices de segmentos abiertos (acordeón)
 
 const parseCIDR = (cidr, usedSet) => {
     const m = cidr.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/)
@@ -382,6 +490,23 @@ const parsedRanges = computed(() => {
         .map(cidr => parseCIDR(cidr, usedIpsSet.value)).filter(Boolean)
 })
 
+// ── Acordeón de segmentos ────────────────────────────────────────────────────
+const toggleRange = (idx) => {
+    const s = new Set(expandedRanges.value)
+    s.has(idx) ? s.delete(idx) : s.add(idx)
+    expandedRanges.value = s
+}
+
+const allExpanded = computed(() =>
+    parsedRanges.value.length > 0 && expandedRanges.value.size === parsedRanges.value.length
+)
+
+const toggleAll = () => {
+    expandedRanges.value = allExpanded.value
+        ? new Set()
+        : new Set(parsedRanges.value.map((_, i) => i))
+}
+
 const ipStats = computed(() => {
     const total = parsedRanges.value.reduce((s, r) => s + r.hosts.length, 0)
     const free  = parsedRanges.value.reduce((s, r) => s + r.freeHosts.length, 0)
@@ -392,6 +517,7 @@ const ipStats = computed(() => {
 const loadFreeIps = async (routerId) => {
     rangosIpStr.value = ''
     usedIpsSet.value  = new Set()
+    expandedRanges.value = new Set()
     freeIpsLoaded.value = false
     if (!routerId) return
     loadingFreeIps.value = true
@@ -399,6 +525,12 @@ const loadFreeIps = async (routerId) => {
         const res = await api.routers.getFreeIps(routerId)
         rangosIpStr.value = res.data.rangos_ip ?? ''
         usedIpsSet.value  = new Set(res.data.used_ips ?? [])
+        // Abrir automáticamente el segmento que contiene la IP ya asignada
+        const currentIp = form.value.ip_user
+        if (currentIp) {
+            const idx = parsedRanges.value.findIndex(r => r.hosts.includes(currentIp))
+            if (idx !== -1) expandedRanges.value = new Set([idx])
+        }
     } catch (e) {
         console.warn('No se pudieron cargar IPs libres:', e)
     } finally {
@@ -411,6 +543,23 @@ watch(() => form.value.router_id, (id) => { if (id) loadFreeIps(id) })
 
 const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
+
+// Courtesy plans force the 'gratis' state automatically.
+const isCourtesyPlan = computed(() => !!selectedPlan.value?.is_courtesy)
+watch(isCourtesyPlan, (courtesy) => {
+    if (courtesy) {
+        form.value.service_status = 'gratis'
+    } else if (form.value.service_status === 'gratis') {
+        form.value.service_status = 'activo'
+    }
+})
+
+const statusOptions = [
+    { value: 'activo',     label: 'Activo',     activeClass: 'bg-green-500 text-white border-green-500',     dotClass: 'bg-green-500' },
+    { value: 'suspendido', label: 'Suspendido', activeClass: 'bg-amber-500 text-white border-amber-500',     dotClass: 'bg-amber-500' },
+    { value: 'cancelado',  label: 'Cancelado',  activeClass: 'bg-red-500 text-white border-red-500',         dotClass: 'bg-red-500' },
+    { value: 'gratis',     label: 'Gratis',     activeClass: 'bg-indigo-500 text-white border-indigo-500', dotClass: 'bg-indigo-500' },
+]
 
 // Detect PPPoE plan by type_plan name, plan name, or pppoe_pool field
 const isPppoePlan = computed(() => {
@@ -469,9 +618,11 @@ const loadCustomer = async () => {
             service_id:   d.service_id || null,
             sectorial_id: d.sectorial_id || null,
             router_id:    d.router_id || null,
+            service_status: d.service_status || 'activo',
             create_pppoe_secret: false,
             pppoe_username: d.pppoe_username || '',
             pppoe_password: d.pppoe_password || '',
+            pppoe_local_address: d.pppoe_local_address || '',
         }
         emailTenant.value = d.email_tenant || ''
     } catch (err) {

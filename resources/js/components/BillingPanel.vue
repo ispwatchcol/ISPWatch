@@ -173,6 +173,26 @@
           </select>
         </div>
 
+        <!-- Modo de facturación -->
+        <div class="col-span-1 md:col-span-2">
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
+            Modo de facturación
+          </label>
+          <select
+            v-model="billing.billing_mode"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                  border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                  focus:ring focus:ring-blue-500 transition-colors"
+          >
+            <option value="anticipado">Anticipado — la factura cubre el mes en curso</option>
+            <option value="vencido">Vencido — la factura cubre el mes anterior (ya consumido)</option>
+          </select>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Anticipado: al crear la factura el día configurado, el periodo es el mes actual.
+            Vencido: el periodo es el mes anterior.
+          </p>
+        </div>
+
         <!-- Comentarios -->
         <div class="col-span-1 md:col-span-2 mt-0">
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">

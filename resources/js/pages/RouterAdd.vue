@@ -666,6 +666,7 @@ const form = reactive({
     remember_day: null,
     pay_day: null,
     notification_type: 'email',
+    billing_mode: 'anticipado',
   }
 })
 
@@ -823,6 +824,7 @@ const saveBilling = async () => {
     status: 'pending',
     notificar_wpp: form.billing.notificar_wpp || false,
     notification_type: form.billing.notification_type || 'email',
+    billing_mode: form.billing.billing_mode || 'anticipado',
     comments: form.billing.comentarios || null,
     tenant_id: tenantId,
     created_at: now,

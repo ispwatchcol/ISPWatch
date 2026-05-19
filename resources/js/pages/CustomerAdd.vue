@@ -163,6 +163,12 @@
                     </svg>
                     <span class="font-semibold text-sm">Analizador de IPs</span>
                   </div>
+                  <button
+                    v-if="!loadingFreeIps && parsedRanges.length > 0"
+                    type="button"
+                    @click="toggleAll"
+                    class="text-white/90 hover:text-white text-xs font-medium underline-offset-2 hover:underline"
+                  >{{ allExpanded ? 'Colapsar todo' : 'Expandir todo' }}</button>
                   <div v-if="loadingFreeIps" class="flex items-center gap-1.5 text-white/80 text-xs">
                     <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -199,13 +205,27 @@
                     <span class="text-xs font-medium text-gray-600 dark:text-gray-400 w-10 text-right">{{ ipStats.usagePercent }}%</span>
                   </div>
                 </div>
-                <!-- IP Grid per range -->
+                <!-- IP Grid per range (acordeón) -->
                 <div v-for="(range, idx) in parsedRanges" :key="idx" class="border-t border-gray-200 dark:border-gray-700">
-                  <div class="px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between">
-                    <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
-                    <span class="text-xs text-gray-500">{{ range.hosts.length }} hosts · {{ range.freeHosts.length }} libres</span>
-                  </div>
-                  <div class="px-4 py-3 max-h-48 overflow-y-auto">
+                  <button
+                    type="button"
+                    @click="toggleRange(idx)"
+                    class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-between text-left hover:bg-gray-100 dark:hover:bg-gray-900/50 transition-colors"
+                  >
+                    <span class="flex items-center gap-2">
+                      <svg
+                        class="w-3.5 h-3.5 text-gray-400 transition-transform shrink-0"
+                        :class="expandedRanges.has(idx) ? 'rotate-90' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                      <span class="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300">🌐 {{ range.cidr }}</span>
+                    </span>
+                    <span class="text-xs text-gray-500">
+                      {{ range.hosts.length }} hosts ·
+                      <span class="text-green-600 dark:text-green-400 font-medium">{{ range.freeHosts.length }} libres</span>
+                    </span>
+                  </button>
+                  <div v-if="expandedRanges.has(idx)" class="px-4 py-3 max-h-48 overflow-y-auto">
                     <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
                       <button
                         v-for="ip in range.hosts"
@@ -292,6 +312,18 @@
                 <p v-if="pppoePassError" class="mt-1 text-xs text-red-500">{{ pppoePassError }}</p>
                 </div>
             </div>
+
+            <div class="mt-4">
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    IP Local <span class="text-gray-400 font-normal">(opcional)</span>
+                </label>
+                <input v-model="form.pppoe_local_address" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 10.0.0.1" />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Es el <strong>local-address</strong> del secret PPPoE. Déjalo vacío para que lo defina el perfil/router.
+                </p>
+            </div>
             </div>
 
             <!-- Error inline general -->
@@ -311,6 +343,55 @@
             </button>
             </div>
         </form>
+        </div>
+
+        <!-- Modal: Límite de clientes del plan alcanzado -->
+        <div v-if="showLimitModal"
+            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            @click.self="showLimitModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 dark:border-gray-700">
+                <div class="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-6 text-center">
+                    <div class="mx-auto w-14 h-14 rounded-full bg-white/20 flex items-center justify-center mb-3">
+                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <h3 class="text-lg sm:text-xl font-bold text-white">Límite de plan alcanzado</h3>
+                </div>
+
+                <div class="px-6 py-5 text-center">
+                    <p class="text-gray-700 dark:text-gray-200 text-sm sm:text-base">
+                        Ya tienes <strong>{{ limitInfo.current }}</strong> de
+                        <strong>{{ limitInfo.limit }}</strong> clientes registrados en tu plan actual.
+                    </p>
+                    <p class="text-gray-500 dark:text-gray-400 text-sm mt-2">
+                        Amplía tu plan para poder agregar más clientes.
+                    </p>
+
+                    <div class="mt-4">
+                        <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style="width:100%"></div>
+                        </div>
+                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Capacidad del plan utilizada</p>
+                    </div>
+                </div>
+
+                <div class="px-6 pb-6 flex flex-col gap-2">
+                    <button type="button" @click="handleUpgrade"
+                        class="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Ampliar plan
+                    </button>
+                    <button type="button" @click="showLimitModal = false"
+                        class="w-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-2 text-sm transition">
+                        Entendido
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </template>
@@ -340,10 +421,13 @@ const form = ref({
     create_pppoe_secret: false,
     pppoe_username: '',
     pppoe_password: '',
+    pppoe_local_address: '',
 })
 
 const loading        = ref(false)
 const errorMsg       = ref('')
+const showLimitModal = ref(false)
+const limitInfo      = ref({ limit: 0, current: 0, message: '' })
 const pppoeUserError = ref('')
 const pppoePassError = ref('')
 const plans          = ref([])
@@ -355,6 +439,7 @@ const rangosIpStr    = ref('')
 const usedIpsSet     = ref(new Set())
 const loadingFreeIps  = ref(false)
 const freeIpsLoaded   = ref(false)
+const expandedRanges  = ref(new Set())   // índices de segmentos abiertos (acordeón)
 
 const parseCIDR = (cidr, usedSet) => {
     const m = cidr.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/)
@@ -381,6 +466,23 @@ const parsedRanges = computed(() => {
         .map(cidr => parseCIDR(cidr, usedIpsSet.value)).filter(Boolean)
 })
 
+// ── Acordeón de segmentos ────────────────────────────────────────────────────
+const toggleRange = (idx) => {
+    const s = new Set(expandedRanges.value)
+    s.has(idx) ? s.delete(idx) : s.add(idx)
+    expandedRanges.value = s
+}
+
+const allExpanded = computed(() =>
+    parsedRanges.value.length > 0 && expandedRanges.value.size === parsedRanges.value.length
+)
+
+const toggleAll = () => {
+    expandedRanges.value = allExpanded.value
+        ? new Set()
+        : new Set(parsedRanges.value.map((_, i) => i))
+}
+
 const ipStats = computed(() => {
     const total = parsedRanges.value.reduce((s, r) => s + r.hosts.length, 0)
     const free  = parsedRanges.value.reduce((s, r) => s + r.freeHosts.length, 0)
@@ -391,6 +493,7 @@ const ipStats = computed(() => {
 const loadFreeIps = async (routerId) => {
     rangosIpStr.value = ''
     usedIpsSet.value  = new Set()
+    expandedRanges.value = new Set()
     freeIpsLoaded.value = false
     if (!routerId) return
     loadingFreeIps.value = true
@@ -506,11 +609,28 @@ const handleSubmit = async () => {
         }
     } catch (err) {
         console.error('Error al crear cliente:', err)
-        const msg = err.response?.data?.message || 'Error al crear el cliente.'
+        const data = err.response?.data
+
+        if (err.response?.status === 403 && data?.upgrade_required) {
+            limitInfo.value = {
+                limit: data.limit ?? 0,
+                current: data.current ?? 0,
+                message: data.message ?? '',
+            }
+            showLimitModal.value = true
+            return
+        }
+
+        const msg = data?.message || 'Error al crear el cliente.'
         errorMsg.value = msg
         toast.value?.error('Error al crear', msg)
     } finally {
         loading.value = false
     }
+}
+
+// Placeholder de ampliación de plan: por ahora solo informa, el modal sigue abierto
+const handleUpgrade = () => {
+    toast.value?.info('Función disponible próximamente', 'La ampliación de plan estará disponible pronto.')
 }
 </script>

@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerProfileController;
+use App\Http\Controllers\CustomerDocumentController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
@@ -51,22 +52,38 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ─── CUSTOMERS (custom routes before apiResource) ───
     Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
     Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
-    Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision']);
-    Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision']);
-    Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend']);
-    Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate']);
+    Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision'])
+        ->middleware('permission:manage_customers');
+    Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision'])
+        ->middleware('permission:manage_customers');
+    Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend'])
+        ->middleware('permission:suspend_customers');
+    Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate'])
+        ->middleware('permission:suspend_customers');
+
+    // ─── CUSTOMER DOCUMENTS & CONTRACT ───
+    Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index']);
+    Route::post('/customers/{customer}/documents', [CustomerDocumentController::class, 'store']);
+    Route::delete('/customers/documents/{document}', [CustomerDocumentController::class, 'destroy']);
+    Route::get('/customers/{customer}/contract-data', [CustomerDocumentController::class, 'contractData']);
+    Route::post('/customers/{customer}/contract-sign', [CustomerDocumentController::class, 'signContract']);
 
     // ─── ROUTER MANAGEMENT ───
     Route::get('/routers/{router}/free-ips', [RouterController::class, 'getFreeIps']);
-    Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript']);
-    Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection']);
+    Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript'])
+        ->middleware('permission:manage_routers');
+    Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection'])
+        ->middleware('permission:manage_routers');
     Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
-    Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface']);
-    Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules']);
+    Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface'])
+        ->middleware('permission:manage_routers');
+    Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules'])
+        ->middleware('permission:suspend_customers');
     Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
     Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
     Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
-    Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+    Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync'])
+        ->middleware('permission:manage_routers');
     Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
     Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
 
@@ -107,10 +124,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // ─── CRUD RESOURCES ───
     Route::apiResources([
-        'customers'  => CustomerProfileController::class,
-        'routers'    => RouterController::class,
-        'inventory'  => InventoryDeviceController::class,
-        'plans'      => PlanController::class,
+        'customers' => CustomerProfileController::class,
+        'routers' => RouterController::class,
+        'inventory' => InventoryDeviceController::class,
+        'plans' => PlanController::class,
         'sectorials' => SectorialController::class,
         'support'    => SupportTicketController::class,
     ]);
@@ -121,9 +138,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // ─── CATALOGS ───
-    Route::get('/tenants/{id}', [TenantController::class, 'show']);
-    Route::put('/tenants/{id}', [TenantController::class, 'update']);
-    Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig']);
+    Route::get('/roles/permissions', [RoleController::class, 'permissions'])
+        ->middleware('permission:manage_roles');
+    Route::middleware('permission:manage_roles')->group(function () {
+        Route::apiResource('roles', RoleController::class);
+    });
+
+    Route::get('/tenants/{id}', [TenantController::class, 'show'])
+        ->middleware('permission:manage_tenant');
+    Route::put('/tenants/{id}', [TenantController::class, 'update'])
+        ->middleware('permission:manage_tenant');
+    Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig'])
+        ->middleware('permission:manage_tenant');
 
     // ─── SETTINGS ───
     Route::middleware(['permission:settings.view'])->group(function () {

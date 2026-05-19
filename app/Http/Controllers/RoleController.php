@@ -3,16 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Models\Role;
+use App\Constants\Permissions;
 use Illuminate\Http\Request;
 
 class RoleController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Display a listing of all roles.
      */
     public function index()
     {
-        $roles = Role::all();
+        $roles = Role::all()->map(function ($role) {
+            return [
+                'id' => $role->id,
+                'name' => $role->name,
+                'permissions' => $role->permissions ?? [],
+                'created_at' => $role->created_at,
+                'updated_at' => $role->updated_at,
+            ];
+        });
 
         return response()->json([
             'success' => true,
@@ -21,50 +30,113 @@ class RoleController extends Controller
     }
 
     /**
-     * Show the form for creating a new resource.
+     * Get all available permissions for UI selection
      */
-    public function create()
+    public function permissions()
     {
-        //
+        $allPermissions = Permissions::getAllPermissions();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'available' => $allPermissions,
+            ],
+        ]);
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Store a newly created role.
      */
     public function store(Request $request)
     {
-        //
+        $data = $request->validate([
+            'name' => 'required|string|max:255|unique:role,name',
+            'permissions' => 'nullable|array',
+        ]);
+
+        $data['permissions'] = $data['permissions'] ?? [];
+
+        $role = Role::create($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rol creado correctamente.',
+            'data' => $role,
+        ], 201);
     }
 
     /**
-     * Display the specified resource.
+     * Display the specified role.
      */
-    public function show(Role $role)
+    public function show($id)
     {
-        //
+        $role = Role::findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $role->id,
+                'name' => $role->name,
+                'permissions' => $role->permissions ?? [],
+                'created_at' => $role->created_at,
+                'updated_at' => $role->updated_at,
+            ],
+        ]);
     }
 
     /**
-     * Show the form for editing the specified resource.
+     * Update the specified role.
      */
-    public function edit(Role $role)
+    public function update(Request $request, $id)
     {
-        //
+        $role = Role::findOrFail($id);
+
+        $data = $request->validate([
+            'name' => 'sometimes|string|max:255|unique:role,name,' . $role->id,
+            'permissions' => 'nullable|array',
+        ]);
+
+        if (isset($data['permissions'])) {
+            $data['permissions'] = $data['permissions'];
+        }
+
+        $role->update($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rol actualizado correctamente.',
+            'data' => $role,
+        ]);
     }
 
     /**
-     * Update the specified resource in storage.
+     * Delete the specified role.
      */
-    public function update(Request $request, Role $role)
+    public function destroy($id)
     {
-        //
-    }
+        $role = Role::findOrFail($id);
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Role $role)
-    {
-        //
+        // Prevent deletion of core roles
+        if (in_array($role->name, ['Administrador', 'Cliente', 'Técnico', 'Contabilidad'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pueden eliminar los roles predefinidos.',
+            ], 403);
+        }
+
+        // Check if role is in use
+        if ($role->users()->count() > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede eliminar un rol que está en uso.',
+            ], 403);
+        }
+
+        $role->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rol eliminado correctamente.',
+        ]);
     }
 }

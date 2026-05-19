@@ -54,25 +54,50 @@
 
         <!-- BARRA DE HERRAMIENTAS (BUSCADOR Y FILTROS) -->
         <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-          
+
           <!-- Buscador con Lupa -->
-          <div class="relative w-full sm:w-96 group">
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <!-- Icono Lupa (SVG manual para asegurar visualización) -->
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          <div class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div class="relative w-full sm:w-96 group">
+              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <!-- Icono Lupa (SVG manual para asegurar visualización) -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                v-model="search"
+                type="text"
+                placeholder="Buscar plan por nombre..."
+                class="pl-10 pr-4 py-2 w-full rounded-xl bg-gray-50 dark:bg-gray-900/50
+                       border border-gray-200 dark:border-gray-700
+                       focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:bg-white dark:focus:bg-gray-900
+                       text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500
+                       transition-all duration-200 text-sm outline-none"
+              />
+            </div>
+
+            <!-- Selector de Límite -->
+            <div class="relative">
+              <select
+                v-model="perPage"
+                class="pl-10 pr-4 py-2 rounded-xl bg-gray-50 dark:bg-gray-900/50
+                       border border-gray-200 dark:border-gray-700
+                       focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:bg-white dark:focus:bg-gray-900
+                       text-gray-700 dark:text-gray-200
+                       transition-all duration-200 text-sm outline-none cursor-pointer
+                       appearance-none pr-8 font-medium"
+              >
+                <option value="10">10 registros</option>
+                <option value="100">100 registros</option>
+                <option value="500">500 registros</option>
+                <option value="1000">1000 registros</option>
+                <option value="todos">Todos</option>
+              </select>
+              <icon-lucide-list class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400 pointer-events-none" />
+              <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
               </svg>
             </div>
-            <input
-              v-model="search"
-              type="text"
-              placeholder="Buscar plan por nombre..."
-              class="pl-10 pr-4 py-2 w-full rounded-xl bg-gray-50 dark:bg-gray-900/50
-                     border border-gray-200 dark:border-gray-700 
-                     focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:bg-white dark:focus:bg-gray-900
-                     text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500
-                     transition-all duration-200 text-sm outline-none"
-            />
           </div>
 
           <!-- Acciones de Selección Múltiple -->
@@ -121,7 +146,7 @@
                   <!-- Checkbox Header Custom -->
                   <label class="flex items-center cursor-pointer relative">
                     <input type="checkbox" v-model="selectAll" class="peer sr-only" />
-                    <div class="w-5 h-5 bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-500 rounded-md 
+                    <div class="w-5 h-5 bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-500 rounded-md
                                 peer-checked:bg-blue-600 peer-checked:border-blue-600 peer-hover:border-blue-400
                                 transition-all duration-200 flex items-center justify-center">
                       <svg class="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -130,10 +155,42 @@
                     </div>
                   </label>
                 </th>
-                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Plan</th>
-                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Precio</th>
-                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Velocidad</th>
-                <th class="px-4 py-3.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Activos</th>
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                    @click="toggleSort('name')">
+                  <div class="flex items-center gap-2">
+                    Plan
+                    <icon-lucide-arrow-up-down v-if="sortBy !== 'name'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                    @click="toggleSort('price')">
+                  <div class="flex items-center gap-2">
+                    Precio
+                    <icon-lucide-arrow-up-down v-if="sortBy !== 'price'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                    @click="toggleSort('speed')">
+                  <div class="flex items-center gap-2">
+                    Velocidad
+                    <icon-lucide-arrow-up-down v-if="sortBy !== 'speed'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
+                  </div>
+                </th>
+                <th class="px-4 py-3.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                    @click="toggleSort('active')">
+                  <div class="flex items-center justify-center gap-2">
+                    Activos
+                    <icon-lucide-arrow-up-down v-if="sortBy !== 'active'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
+                  </div>
+                </th>
                 <th class="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
             </thead>
@@ -223,6 +280,71 @@
               </tr>
             </tbody>
           </table>
+
+          <!-- PAGINACIÓN -->
+          <div v-if="perPage !== 'todos' && totalPages > 1" class="bg-gray-50 dark:bg-gray-700/50 px-4 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
+            <div class="text-sm text-gray-600 dark:text-gray-400 font-medium">
+              {{ paginationInfo }}
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                @click="prevPage"
+                :disabled="currentPage === 1"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300
+                       bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                       hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-all duration-200 flex items-center gap-1"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Anterior
+              </button>
+
+              <div class="flex items-center gap-1">
+                <button
+                  v-for="page in Math.min(5, totalPages)"
+                  :key="page"
+                  @click="goToPage(page)"
+                  :class="{
+                    'bg-blue-600 text-white border-blue-600': currentPage === page,
+                    'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700': currentPage !== page
+                  }"
+                  class="w-8 h-8 rounded-lg font-medium text-sm border
+                         transition-all duration-200"
+                >
+                  {{ page }}
+                </button>
+                <span v-if="totalPages > 5" class="text-gray-500 dark:text-gray-400 px-2">...</span>
+                <button
+                  v-if="totalPages > 5"
+                  @click="goToPage(totalPages)"
+                  :class="{
+                    'bg-blue-600 text-white border-blue-600': currentPage === totalPages,
+                    'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700': currentPage !== totalPages
+                  }"
+                  class="w-8 h-8 rounded-lg font-medium text-sm border
+                         transition-all duration-200"
+                >
+                  {{ totalPages }}
+                </button>
+              </div>
+
+              <button
+                @click="nextPage"
+                :disabled="currentPage === totalPages"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300
+                       bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                       hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-all duration-200 flex items-center gap-1"
+              >
+                Siguiente
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- MOBILE CARDS -->
@@ -300,6 +422,46 @@
                 class="flex-1 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-trash-2 class="w-4 h-4" /> Eliminar
+              </button>
+            </div>
+          </div>
+
+          <!-- PAGINACIÓN MOBILE -->
+          <div v-if="perPage !== 'todos' && totalPages > 1" class="md:hidden bg-gray-50 dark:bg-gray-700/50 px-4 py-4 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-3">
+            <div class="text-sm text-gray-600 dark:text-gray-400 font-medium text-center">
+              {{ paginationInfo }}
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <button
+                @click="prevPage"
+                :disabled="currentPage === 1"
+                class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300
+                       bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                       hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-all duration-200 flex items-center gap-2 flex-1"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                Anterior
+              </button>
+
+              <div class="text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600">
+                {{ currentPage }} / {{ totalPages }}
+              </div>
+
+              <button
+                @click="nextPage"
+                :disabled="currentPage === totalPages"
+                class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300
+                       bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600
+                       hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-all duration-200 flex items-center gap-2 flex-1"
+              >
+                Siguiente
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
               </button>
             </div>
           </div>
@@ -493,6 +655,10 @@ const currentTab = ref('queue')
 const selectedPlans = ref([])
 const allPlans = ref([])
 const toast = ref(null)
+const perPage = ref(10)
+const currentPage = ref(1)
+const sortBy = ref('name')
+const sortOrder = ref('asc')
 
 // Estados del modal eliminar
 const showDeleteModal = ref(false)
@@ -526,8 +692,8 @@ const currentTabName = computed(() => {
   return tab ? tab.name.replace('Planes', '').trim() : ''
 })
 
-const filteredPlans = computed(() => {
-  return allPlans.value.filter(plan => {
+const allFilteredPlans = computed(() => {
+  let filtered = allPlans.value.filter(plan => {
     const matchesType =
       plan.type_plan?.code === currentTab.value
 
@@ -537,6 +703,68 @@ const filteredPlans = computed(() => {
 
     return matchesType && matchesSearch
   })
+
+  // Aplicar ordenamiento
+  filtered.sort((a, b) => {
+    let aVal, bVal
+
+    switch (sortBy.value) {
+      case 'name':
+        aVal = a.name.toLowerCase()
+        bVal = b.name.toLowerCase()
+        break
+      case 'price':
+        aVal = a.cost_product || 0
+        bVal = b.cost_product || 0
+        break
+      case 'speed':
+        aVal = parseInt(a.speed_down) || 0
+        bVal = parseInt(b.speed_down) || 0
+        break
+      case 'active':
+        aVal = a.active_clients_count || 0
+        bVal = b.active_clients_count || 0
+        break
+      default:
+        return 0
+    }
+
+    if (aVal < bVal) return sortOrder.value === 'asc' ? -1 : 1
+    if (aVal > bVal) return sortOrder.value === 'asc' ? 1 : -1
+    return 0
+  })
+
+  return filtered
+})
+
+const totalPages = computed(() => {
+  if (perPage.value === 'todos') return 1
+  const total = allFilteredPlans.value.length
+  const limit = parseInt(perPage.value)
+  return Math.ceil(total / limit)
+})
+
+const filteredPlans = computed(() => {
+  if (perPage.value === 'todos') {
+    return allFilteredPlans.value
+  }
+
+  const limit = parseInt(perPage.value)
+  const start = (currentPage.value - 1) * limit
+  const end = start + limit
+
+  return allFilteredPlans.value.slice(start, end)
+})
+
+const paginationInfo = computed(() => {
+  if (perPage.value === 'todos') {
+    return `Total: ${allFilteredPlans.value.length} registros`
+  }
+  const limit = parseInt(perPage.value)
+  const total = allFilteredPlans.value.length
+  const start = (currentPage.value - 1) * limit + 1
+  const end = Math.min(currentPage.value * limit, total)
+  return `${start}-${end} de ${total}`
 })
 
 const selectAll = computed({
@@ -580,6 +808,43 @@ const formatCurrency = (value) => {
     currency: 'COP',
     minimumFractionDigits: 0
   }).format(value)
+}
+
+const nextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++
+  }
+}
+
+const prevPage = () => {
+  if (currentPage.value > 1) {
+    currentPage.value--
+  }
+}
+
+const goToPage = (page) => {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+  }
+}
+
+const resetPagination = () => {
+  currentPage.value = 1
+}
+
+const toggleSort = (column) => {
+  if (sortBy.value === column) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortBy.value = column
+    sortOrder.value = 'asc'
+  }
+  resetPagination()
+}
+
+const getSortIcon = (column) => {
+  if (sortBy.value !== column) return null
+  return sortOrder.value === 'asc' ? 'arrow-up' : 'arrow-down'
 }
 
 const getTenantId = () => {
@@ -802,6 +1067,15 @@ const deleteBulkPlans = async () => {
   }
 }
 
+
+/* ---------------------------
+   WATCHERS
+----------------------------*/
+import { watch } from 'vue'
+
+watch([search, currentTab, perPage], () => {
+  resetPagination()
+})
 
 /* ---------------------------
    LIFECYCLE

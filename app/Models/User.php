@@ -42,6 +42,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'status',
         'last_access',
         'deleted_at',
+        'permissions',
     ];
 
     protected $hidden = [
@@ -52,7 +53,24 @@ class User extends Authenticatable implements MustVerifyEmail
         'status' => 'boolean',
         'last_access' => 'datetime',
         'deleted_at' => 'datetime',
+        'permissions' => 'array',
     ];
+
+    protected static function booted(): void
+    {
+        // Keep users.name derived from user_name + user_lastname so the legacy
+        // `name` column never diverges from the split first/last name fields.
+        // Reason: three name columns (name, user_name, user_lastname) were drifting
+        // because update flows touched only some of them — see CustomerProfileController.update.
+        static::saving(function (self $user) {
+            $first = trim((string) ($user->user_name ?? ''));
+            $last  = trim((string) ($user->user_lastname ?? ''));
+            $derived = trim($first . ' ' . $last);
+            if ($derived !== '') {
+                $user->name = $derived;
+            }
+        });
+    }
 
     public function tenant()
     {
