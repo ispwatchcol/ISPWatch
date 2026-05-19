@@ -21,6 +21,7 @@ use Illuminate\Support\Str;
  * @property string|null $city City of the billing address
  * @property string|null $department Department or state of the billing address
  * @property string|null $country Two-letter country code
+ * @property string|null $google_maps_api_key Per-tenant Google Maps JavaScript API key for the customer map
  */
 class Tenant extends Model
 {
@@ -55,6 +56,7 @@ class Tenant extends Model
         'city',
         'department',
         'country',
+        'google_maps_api_key',
     ];
 
     /** Auto-generate UUID on creation if not provided */

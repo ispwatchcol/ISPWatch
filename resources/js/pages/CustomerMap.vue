@@ -29,6 +29,48 @@
             </p>
         </div>
 
+        <!-- Google Maps API key not configured -->
+        <div
+            v-else-if="apiKeyMissing"
+            class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 p-10 text-center max-w-2xl mx-auto"
+        >
+            <div
+                class="mx-auto w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-5"
+            >
+                <v-icon
+                    name="ri-map-2-line"
+                    class="w-8 h-8 text-blue-600 dark:text-blue-400"
+                />
+            </div>
+            <h2
+                class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2"
+            >
+                Configura Google Maps para tu empresa
+            </h2>
+            <p
+                class="text-gray-500 dark:text-gray-400 mb-6 leading-relaxed"
+            >
+                Para usar el Mapa de Clientes debes ingresar la clave de API de
+                Google Maps de tu empresa. Es una sola clave por empresa: una
+                vez guardada, el mapa se mostrará automáticamente aquí.
+            </p>
+            <button
+                v-if="isAdmin"
+                @click="router.push('/settings')"
+                class="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white px-6 py-3 rounded-xl font-medium transition-all shadow-lg hover:shadow-xl"
+            >
+                <v-icon name="ri-settings-4-line" class="w-5 h-5" />
+                Ir a Configuración
+            </button>
+            <p
+                v-else
+                class="text-sm text-amber-600 dark:text-amber-400"
+            >
+                Solicita a un administrador que registre la clave de API de
+                Google Maps en <strong>Configuración</strong>.
+            </p>
+        </div>
+
         <!-- Error -->
         <div
             v-else-if="error"
@@ -121,7 +163,7 @@
             <div
                 class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-gray-700"
             >
-                <div id="map" class="w-full h-[600px]"></div>
+                <div ref="mapEl" class="w-full h-[600px]"></div>
             </div>
 
             <!-- Legend -->
@@ -157,19 +199,37 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import api from "../services/api";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import tenantApi from "../services/api/tenant";
 
 const router = useRouter();
 
 const customers = ref([]);
 const loading = ref(true);
 const error = ref("");
+const apiKeyMissing = ref(false);
+const mapEl = ref(null);
+
 let map = null;
+let infoWindow = null;
 let markers = [];
+
+// Resolve admin role the same way Settings.vue does, to decide whether to
+// offer the "Ir a Configuración" shortcut on the empty state.
+const isAdmin = computed(() => {
+    try {
+        const raw =
+            localStorage.getItem("userData") ||
+            sessionStorage.getItem("userData");
+        if (!raw) return false;
+        const u = JSON.parse(raw);
+        return u?.role_name?.toLowerCase() === "administrador";
+    } catch {
+        return false;
+    }
+});
 
 // Department color mapping
 const departmentColors = ref({
@@ -200,94 +260,142 @@ const getMarkerColor = (department) => {
     );
 };
 
-const createCustomIcon = (color) => {
-    const svgIcon = `
-        <svg width="32" height="42" viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg">
-            <path d="M16 0C7.163 0 0 7.163 0 16c0 12 16 26 16 26s16-14 16-26C32 7.163 24.837 0 16 0z" 
-                  fill="${color}" stroke="#fff" stroke-width="2"/>
-            <circle cx="16" cy="16" r="6" fill="#fff"/>
-        </svg>
-    `;
+const createPinUrl = (color) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42"><path d="M16 0C7.163 0 0 7.163 0 16c0 12 16 26 16 26s16-14 16-26C32 7.163 24.837 0 16 0z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="6" fill="#fff"/></svg>`;
+    return "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+};
 
-    return L.divIcon({
-        html: svgIcon,
-        className: "custom-marker",
-        iconSize: [32, 42],
-        iconAnchor: [16, 42],
-        popupAnchor: [0, -42],
+const escapeHtml = (value) =>
+    String(value ?? "").replace(
+        /[&<>"']/g,
+        (ch) =>
+            ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+            }[ch])
+    );
+
+const popupHtml = (customer) => `
+    <div style="padding:12px;min-width:220px;font-family:inherit;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <div style="width:40px;height:40px;border-radius:9999px;background:#DBEAFE;display:flex;align-items:center;justify-content:center;font-size:18px;">👤</div>
+            <div>
+                <h3 style="font-weight:700;color:#1F2937;margin:0;">${escapeHtml(
+                    customer.name
+                )} ${escapeHtml(customer.last_name)}</h3>
+                <p style="font-size:12px;color:#6B7280;margin:0;">${escapeHtml(
+                    customer.email
+                )}</p>
+            </div>
+        </div>
+        <div style="font-size:13px;color:#4B5563;line-height:1.5;">
+            <p style="margin:2px 0;"><strong>Departamento:</strong> ${escapeHtml(
+                customer.department || "N/A"
+            )}</p>
+            <p style="margin:2px 0;"><strong>Posición:</strong> ${escapeHtml(
+                customer.position || "N/A"
+            )}</p>
+            <p style="margin:2px 0;"><strong>Ciudad:</strong> ${escapeHtml(
+                customer.city || "N/A"
+            )}</p>
+            <p style="margin:2px 0;"><strong>Dirección:</strong> ${escapeHtml(
+                customer.address || "N/A"
+            )}</p>
+        </div>
+        <div style="margin-top:12px;">
+            <a href="/customers/${encodeURIComponent(customer.user_id)}/edit"
+               style="display:block;text-align:center;background:#2563EB;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;text-decoration:none;">
+                Editar
+            </a>
+        </div>
+    </div>
+`;
+
+// Single shared loader promise so the Google Maps script is injected once.
+let googleMapsPromise = null;
+
+const loadGoogleMaps = (apiKey) => {
+    if (window.google && window.google.maps) {
+        return Promise.resolve(window.google);
+    }
+    if (googleMapsPromise) return googleMapsPromise;
+
+    googleMapsPromise = new Promise((resolve, reject) => {
+        const callbackName = "__ispwatchInitGmaps__";
+        window[callbackName] = () => {
+            resolve(window.google);
+            delete window[callbackName];
+        };
+
+        const script = document.createElement("script");
+        script.src =
+            `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+                apiKey
+            )}` + `&callback=${callbackName}&loading=async&v=weekly`;
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => {
+            googleMapsPromise = null;
+            reject(new Error("SCRIPT_LOAD_ERROR"));
+        };
+        document.head.appendChild(script);
     });
+
+    return googleMapsPromise;
 };
 
 const initMap = () => {
-    // Initialize Leaflet map
-    if (map) {
-        map.off();
-        map.remove();
-        map = null;
-    }
-    map = L.map("map").setView([4.5709, -74.2973], 6); // Centered on Bogotá, Colombia
+    if (!mapEl.value || !window.google?.maps) return;
 
-    // Add OpenStreetMap tiles
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors",
-        maxZoom: 18,
-        minZoom: 5,
-    }).addTo(map);
+    const g = window.google;
 
-    // Add markers for each customer
-    customers.value.forEach((customer) => {
-        if (customer.latitude && customer.longitude) {
-            const color = getMarkerColor(customer.department);
-            const icon = createCustomIcon(color);
-
-            const marker = L.marker([customer.latitude, customer.longitude], {
-                icon,
-            }).addTo(map).bindPopup(`
-                    <div class="p-3 min-w-[200px]">
-                        <div class="flex items-center gap-2 mb-2">
-                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                                <span class="text-blue-600 font-bold text-lg">👤</span>
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-gray-800">${
-                                    customer.name
-                                } ${customer.last_name}</h3>
-                                <p class="text-xs text-gray-500">${
-                                    customer.email
-                                }</p>
-                            </div>
-                        </div>
-                        <div class="space-y-1 text-sm">
-                            <p class="text-gray-600"><strong>Departamento:</strong> ${
-                                customer.department || "N/A"
-                            }</p>
-                            <p class="text-gray-600"><strong>Posición:</strong> ${
-                                customer.position || "N/A"
-                            }</p>
-                            <p class="text-gray-600"><strong>Ciudad:</strong> ${
-                                customer.city || "N/A"
-                            }</p>
-                            <p class="text-gray-600"><strong>Dirección:</strong> ${
-                                customer.address || "N/A"
-                            }</p>
-                        </div>
-                        <div class="mt-3 flex gap-2">
-                            <a href="/customers/${customer.user_id}/edit" 
-                               class="flex-1 text-center bg-blue-600 text-white px-3 py-1.5 rounded text-xs hover:bg-blue-700">
-                                Editar
-                            </a>
-                        </div>
-                    </div>
-                `);
-
-            markers.push(marker);
-        }
+    map = new g.maps.Map(mapEl.value, {
+        center: { lat: 4.5709, lng: -74.2973 }, // Colombia
+        zoom: 6,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
     });
 
-    // Fit bounds to show all markers
+    infoWindow = new g.maps.InfoWindow();
+    markers = [];
+    const bounds = new g.maps.LatLngBounds();
+
+    customers.value.forEach((customer) => {
+        const lat = Number(customer.latitude);
+        const lng = Number(customer.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        const color = getMarkerColor(customer.department);
+        const marker = new g.maps.Marker({
+            position: { lat, lng },
+            map,
+            title: `${customer.name} ${customer.last_name}`,
+            icon: {
+                url: createPinUrl(color),
+                scaledSize: new g.maps.Size(32, 42),
+                anchor: new g.maps.Point(16, 42),
+            },
+        });
+
+        marker.addListener("click", () => {
+            infoWindow.setContent(popupHtml(customer));
+            infoWindow.open({ anchor: marker, map });
+        });
+
+        markers.push(marker);
+        bounds.extend(marker.getPosition());
+    });
+
     if (markers.length > 0) {
-        const group = L.featureGroup(markers);
-        map.fitBounds(group.getBounds().pad(0.1));
+        map.fitBounds(bounds);
+        // Don't zoom in too far when there's a single location.
+        g.maps.event.addListenerOnce(map, "idle", () => {
+            if (map.getZoom() > 16) map.setZoom(16);
+        });
     }
 };
 
@@ -295,24 +403,39 @@ const loadMapData = async () => {
     try {
         loading.value = true;
         error.value = "";
+        apiKeyMissing.value = false;
+
+        // 1. Resolve the tenant's Google Maps API key (one per company).
+        const configResponse = await tenantApi.getMapsConfig();
+        const config = configResponse.data?.data || {};
+
+        if (!config.has_key || !config.google_maps_api_key) {
+            apiKeyMissing.value = true;
+            loading.value = false;
+            return;
+        }
+
+        // Surface invalid/unauthorized key errors raised by Google.
+        window.gm_authFailure = () => {
+            error.value =
+                "La clave de API de Google Maps no es válida o no está autorizada. Verifica la clave en Configuración y las restricciones en Google Cloud Console.";
+            loading.value = false;
+        };
+
+        // 2. Load customer locations.
         const response = await api.customers.getMapData();
         customers.value = response.data;
 
-        // Stop loading BEFORE trying to init map so the v-else div renders
-        loading.value = false;
+        // 3. Load Google Maps with the tenant key, then render.
+        await loadGoogleMaps(config.google_maps_api_key);
 
-        // Wait for DOM update to ensure #map div exists
-        setTimeout(() => {
-            initMap();
-            if (customers.value.length === 0) {
-                // Optionally log or handle empty state, but don't hide the map
-                console.info("No hay clientes con ubicación registrada en el mapa.");
-            }
-        }, 100);
+        loading.value = false;
+        await nextTick();
+        initMap();
     } catch (err) {
-        console.error("Error al cargar datos del mapa:", err);
+        console.error("Error al cargar el mapa:", err);
         error.value =
-            "Error al cargar los datos del mapa. Por favor, intenta nuevamente.";
+            "Error al cargar el mapa. Por favor, intenta nuevamente.";
         loading.value = false;
     }
 };
@@ -322,29 +445,12 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    if (map) {
-        map.remove();
+    if (markers.length) {
+        markers.forEach((m) => m.setMap(null));
+        markers = [];
     }
+    if (infoWindow) infoWindow.close();
+    map = null;
+    delete window.gm_authFailure;
 });
 </script>
-
-<style scoped>
-#map {
-    z-index: 1;
-}
-
-:deep(.leaflet-popup-content-wrapper) {
-    border-radius: 8px;
-    padding: 0;
-}
-
-:deep(.leaflet-popup-content) {
-    margin: 0;
-    min-width: 250px;
-}
-
-:deep(.custom-marker) {
-    background: none;
-    border: none;
-}
-</style>

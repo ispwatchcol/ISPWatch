@@ -151,6 +151,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::apiResource('roles', RoleController::class);
     });
 
+    // Maps config: readable by any authenticated user so non-admins can view
+    // the customer map. Writing the key still goes through the manage_tenant
+    // protected /tenants/{id} update below.
+    Route::get('/tenant/maps-config', [TenantController::class, 'mapsConfig']);
+
     Route::get('/tenants/{id}', [TenantController::class, 'show'])
         ->middleware('permission:manage_tenant');
     Route::put('/tenants/{id}', [TenantController::class, 'update'])
