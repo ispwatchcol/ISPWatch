@@ -91,40 +91,27 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
 
     // ─── BILLING ───
-    Route::get('/billing/stats', [BillingController::class, 'getStats'])
-        ->middleware('permission:view_billing');
-    Route::get('/billing/invoices', [BillingController::class, 'index'])
-        ->middleware('permission:view_billing');
-    Route::get('/billing/invoices/{id}', [BillingController::class, 'show'])
-        ->middleware('permission:view_billing');
-    Route::post('/billing/invoices', [BillingController::class, 'store'])
-        ->middleware('permission:manage_billing');
-    Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems'])
-        ->middleware('permission:manage_billing');
-    Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf'])
-        ->middleware('permission:view_billing');
-    Route::get('/billing/payments', [BillingController::class, 'getPayments'])
-        ->middleware('permission:view_billing');
-    Route::post('/billing/payments', [BillingController::class, 'registerPayment'])
-        ->middleware('permission:manage_billing');
-    Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance'])
-        ->middleware('permission:view_billing');
-    Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration'])
-        ->middleware('permission:manage_billing');
-    Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue'])
-        ->middleware('permission:manage_billing');
-    Route::get('/billing/configs', [BillingController::class, 'getBillingConfigs'])
-        ->middleware('permission:manage_billing');
-    Route::put('/billing/configs/{id}', [BillingController::class, 'updateBillingConfig'])
-        ->middleware('permission:manage_billing');
-    Route::post('/billing/run-auto-cut', [BillingController::class, 'runAutoCut'])
-        ->middleware('permission:manage_billing');
+    Route::middleware(['permission:billing.view'])->group(function () {
+        Route::get('/billing/stats', [BillingController::class, 'getStats']);
+        Route::get('/billing/invoices', [BillingController::class, 'index']);
+        Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
+        Route::post('/billing/invoices', [BillingController::class, 'store']);
+        Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
+        Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
+        Route::get('/billing/payments', [BillingController::class, 'getPayments']);
+        Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
+        Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
+        Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
+        Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
+        Route::get('/billing/configs', [BillingController::class, 'getBillingConfigs']);
+        Route::put('/billing/configs/{id}', [BillingController::class, 'updateBillingConfig']);
+        Route::post('/billing/run-auto-cut', [BillingController::class, 'runAutoCut']);
 
-
-    // Payment Reminders
-    Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
-    Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
-    Route::get('/billing/whatsapp-status', [PaymentReminderController::class, 'checkWhatsAppStatus']);
+        // Payment Reminders
+        Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
+        Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
+        Route::get('/billing/whatsapp-status', [PaymentReminderController::class, 'checkWhatsAppStatus']);
+    });
 
     // ─── SUPPORT (requires staff profile) ───
     Route::middleware(['staff_profile'])->group(function () {
@@ -142,11 +129,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         'inventory' => InventoryDeviceController::class,
         'plans' => PlanController::class,
         'sectorials' => SectorialController::class,
-        'support' => SupportTicketController::class,
+        'support'    => SupportTicketController::class,
     ]);
 
-    // ─── STAFF MANAGEMENT (requires admin permissions) ───
-    Route::middleware('permission:manage_staff')->group(function () {
+    // ─── STAFF ───
+    Route::middleware(['permission:staff.view'])->group(function () {
         Route::apiResource('staff', UserController::class);
     });
 
@@ -164,12 +151,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig'])
         ->middleware('permission:manage_tenant');
 
-    // ─── SYSTEM ───
-    Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache'])
-        ->middleware('permission:manage_tenant');
+    // ─── SETTINGS ───
+    Route::middleware(['permission:settings.view'])->group(function () {
+        Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
+    });
 
-    // ─── IMPORT ───
-    Route::prefix('import')->group(function () {
+    // ─── MASS ACTIONS / IMPORT ───
+    Route::middleware(['permission:mass_actions.execute'])->prefix('import')->group(function () {
         Route::get('template', [ImportController::class, 'downloadUnifiedTemplate']);
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);

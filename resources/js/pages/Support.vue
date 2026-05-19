@@ -200,8 +200,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
-import { hasPermission } from '../services/auth'
+import { usePermissions } from '@/composables/usePermissions'
 import NotificationToast from '../components/NotificationToast.vue'
+
+const { can } = usePermissions()
 
 const router = useRouter()
 
@@ -218,9 +220,9 @@ const filters = ref({
     staff: 'all'
 })
 
-const canCreate = computed(() => hasPermission('support.create'))
-const canEdit = computed(() => hasPermission('support.update'))
-const canDelete = computed(() => hasPermission('support.delete'))
+const canCreate = computed(() => can('support.create'))
+const canEdit = computed(() => can('support.update'))
+const canDelete = computed(() => can('support.delete'))
 
 const filteredTickets = computed(() => {
     let result = tickets.value

@@ -41,25 +41,25 @@ const routes = [
   {
     path: '/staff',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'staff.view' },
     children: [
       {
         path: '',
         name: 'Staff',
         component: () => import('@/pages/Staff.vue'),
-        meta: { title: 'Personal' },
+        meta: { title: 'Personal', permission: 'staff.view' },
       },
       {
         path: 'create',
         name: 'StaffNew',
         component: () => import('@/pages/StaffNew.vue'),
-        meta: { title: 'Nuevo Personal' },
+        meta: { title: 'Nuevo Personal', permission: 'staff.create' },
       },
       {
         path: ':id/edit',
         name: 'StaffEdit',
         component: () => import('@/pages/EditStaff.vue'),
-        meta: { title: 'Editar Personal' },
+        meta: { title: 'Editar Personal', permission: 'staff.edit' },
       },
     ],
   },
@@ -83,25 +83,25 @@ const routes = [
   {
     path: '/routers',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'routers.view' },
     children: [
       {
         path: '',
         name: 'Routers',
         component: () => import('@/pages/Routers.vue'),
-        meta: { title: 'Routers' },
+        meta: { title: 'Routers', permission: 'routers.view' },
       },
       {
         path: 'add',
         name: 'RouterAdd',
         component: () => import('@/pages/RouterAdd.vue'),
-        meta: { title: 'Nuevo Router' },
+        meta: { title: 'Nuevo Router', permission: 'routers.create' },
       },
       {
         path: ':id/edit',
         name: 'RouterEdit',
         component: () => import('@/pages/RouterEdit.vue'),
-        meta: { title: 'Editar Router' },
+        meta: { title: 'Editar Router', permission: 'routers.edit' },
       },
     ],
   },
@@ -110,26 +110,26 @@ const routes = [
   {
     path: '/planes',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'plans.view' },
     children: [
       {
         path: '',
         name: 'PlanList',
         component: () => import('@/pages/PlanList.vue'),
-        meta: { title: 'Planes' },
+        meta: { title: 'Planes', permission: 'plans.view' },
       },
       {
         path: 'create',
         name: 'PlanCreate',
         component: () => import('@/pages/PlanCreate.vue'),
-        meta: { title: 'Nuevo Plan' },
+        meta: { title: 'Nuevo Plan', permission: 'plans.create' },
       },
       {
         path: ':id/edit',
         name: 'plan-edit',
         component: () => import('@/pages/PlanEdit.vue'),
         props: true,
-        meta: { title: 'Editar Plan' },
+        meta: { title: 'Editar Plan', permission: 'plans.edit' },
       },
     ],
   },
@@ -138,37 +138,37 @@ const routes = [
   {
     path: '/customers',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'customers.view' },
     children: [
       {
         path: '',
         name: 'Customers',
         component: () => import('@/pages/Customers.vue'),
-        meta: { title: 'Clientes' },
+        meta: { title: 'Clientes', permission: 'customers.view' },
       },
       {
         path: 'create',
         name: 'CustomerAdd',
         component: () => import('@/pages/CustomerAdd.vue'),
-        meta: { title: 'Nuevo Cliente' },
+        meta: { title: 'Nuevo Cliente', permission: 'customers.create' },
       },
       {
         path: ':id/edit',
         name: 'CustomerEdit',
         component: () => import('@/pages/CustomerEdit.vue'),
-        meta: { title: 'Editar Cliente' },
+        meta: { title: 'Editar Cliente', permission: 'customers.edit' },
       },
       {
         path: 'statistics',
         name: 'CustomerStatistics',
         component: () => import('@/pages/CustomerStatistics.vue'),
-        meta: { title: 'Estadísticas' },
+        meta: { title: 'Estadísticas', permission: 'customers.stats' },
       },
       {
         path: 'map',
         name: 'CustomerMap',
         component: () => import('@/pages/CustomerMap.vue'),
-        meta: { title: 'Mapa' },
+        meta: { title: 'Mapa', permission: 'customers.map' },
       },
     ],
   },
@@ -177,25 +177,25 @@ const routes = [
   {
     path: '/sectorials',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'sectorials.view' },
     children: [
       {
         path: '',
         name: 'Sectorials',
         component: () => import('@/pages/Sectorial.vue'),
-        meta: { title: 'Sectoriales' },
+        meta: { title: 'Sectoriales', permission: 'sectorials.view' },
       },
       {
         path: 'create',
         name: 'SectorialAdd',
         component: () => import('@/pages/SectorialAdd.vue'),
-        meta: { title: 'Nueva Sectorial' },
+        meta: { title: 'Nueva Sectorial', permission: 'sectorials.create' },
       },
       {
         path: ':id/edit',
         name: 'SectorialEdit',
         component: () => import('@/pages/SectorialEdit.vue'),
-        meta: { title: 'Editar Sectorial' },
+        meta: { title: 'Editar Sectorial', permission: 'sectorials.edit' },
       },
     ],
   },
@@ -204,7 +204,7 @@ const routes = [
   {
     path: '/support',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true, requiresStaff: true },
+    meta: { requiresAuth: true, permission: 'support.view' },
     children: [
       {
         path: '',
@@ -222,7 +222,7 @@ const routes = [
         path: ':id',
         name: 'SupportDetail',
         component: () => import('@/pages/SupportDetail.vue'),
-        meta: { title: 'Ticket' },
+        meta: { title: 'Ticket', permission: 'support.view' },
       },
       {
         path: ':id/edit',
@@ -243,13 +243,13 @@ const routes = [
   {
     path: '/billing',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'billing.view' },
     children: [
       {
         path: '',
         name: 'BillingDashboard',
         component: () => import('@/pages/Billing/BillingDashboard.vue'),
-        meta: { title: 'Facturación' },
+        meta: { title: 'Facturación', permission: 'billing.view' },
       },
       {
         path: 'dashboard',
@@ -259,25 +259,25 @@ const routes = [
         path: 'invoices',
         name: 'InvoicesList',
         component: () => import('@/pages/Billing/InvoicesList.vue'),
-        meta: { title: 'Facturas' },
+        meta: { title: 'Facturas', permission: 'billing.view' },
       },
       {
         path: 'invoices/:id',
         name: 'InvoiceDetail',
         component: () => import('@/pages/Billing/InvoiceDetail.vue'),
-        meta: { title: 'Factura' },
+        meta: { title: 'Factura', permission: 'billing.view' },
       },
       {
         path: 'payments',
         name: 'PaymentsList',
         component: () => import('@/pages/Billing/PaymentsList.vue'),
-        meta: { title: 'Pagos' },
+        meta: { title: 'Pagos', permission: 'billing.view' },
       },
       {
         path: 'payments/new',
         name: 'RegisterPayment',
         component: () => import('@/pages/Billing/RegisterPayment.vue'),
-        meta: { title: 'Registrar Pago' },
+        meta: { title: 'Registrar Pago', permission: 'billing.payments' },
       },
     ],
   },
@@ -286,13 +286,13 @@ const routes = [
   {
     path: '/mass-actions',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'mass_actions.execute' },
     children: [
       {
         path: '',
         name: 'MassActions',
         component: () => import('@/pages/MassActions.vue'),
-        meta: { title: 'Acciones Masivas' },
+        meta: { title: 'Acciones Masivas', permission: 'mass_actions.execute' },
       },
     ],
   },
@@ -300,43 +300,43 @@ const routes = [
   {
     path: '/inventory',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'inventory.view' },
     children: [
       {
         path: '',
         name: 'Inventory',
         component: () => import('@/pages/Inventory.vue'),
-        meta: { title: 'Inventario' },
+        meta: { title: 'Inventario', permission: 'inventory.view' },
       },
       {
         path: 'create',
         name: 'InventoryCreate',
         component: () => import('@/pages/InventoryForm.vue'),
-        meta: { title: 'Agregar Producto' },
+        meta: { title: 'Agregar Producto', permission: 'inventory.create' },
       },
       {
         path: ':id/edit',
         name: 'InventoryEdit',
         component: () => import('@/pages/InventoryForm.vue'),
-        meta: { title: 'Editar Producto' },
+        meta: { title: 'Editar Producto', permission: 'inventory.edit' },
       },
       {
         path: 'stocks',
         name: 'InventoryStocks',
         component: () => import('@/pages/StockList.vue'),
-        meta: { title: 'Stocks' },
+        meta: { title: 'Stocks', permission: 'inventory.view' },
       },
       {
         path: 'providers',
         name: 'InventoryProviders',
         component: () => import('@/pages/ProviderList.vue'),
-        meta: { title: 'Proveedores' },
+        meta: { title: 'Proveedores', permission: 'inventory.view' },
       },
       {
         path: 'branches',
         name: 'InventoryBranches',
         component: () => import('@/pages/BranchList.vue'),
-        meta: { title: 'Sucursales' },
+        meta: { title: 'Sucursales', permission: 'inventory.view' },
       },
     ],
   },
@@ -345,13 +345,13 @@ const routes = [
   {
     path: '/settings',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, permission: 'settings.view' },
     children: [
       {
         path: '',
         name: 'Settings',
         component: () => import('@/pages/Settings.vue'),
-        meta: { title: 'Configuración' },
+        meta: { title: 'Configuración', permission: 'settings.view' },
       },
     ],
   },
@@ -405,12 +405,10 @@ router.beforeEach((to, _from, next) => {
   }
 
   if (to.meta.requiresStaff && !auth.isStaffOrAdmin) {
-    alert('No tienes permisos para acceder a esta sección. Solo el personal autorizado puede acceder al módulo de Soporte.');
     return next({ name: 'Dashboard' });
   }
 
   if (to.meta.permission && !auth.hasPermission(to.meta.permission)) {
-    alert('No tienes permisos para acceder a esta sección.');
     return next({ name: 'Dashboard' });
   }
 

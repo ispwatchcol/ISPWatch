@@ -36,8 +36,11 @@ class CheckPermission
             ], 403);
         }
 
-        // Check if user's role has the required permission
-        if (!$user->role->hasPermission($permission)) {
+        // Si el usuario es superadmin, podría tener acceso total.
+
+        $user->loadMissing('role');
+
+        if (!$user->role || !$user->role->hasPermission($permission)) {
             return response()->json([
                 'message' => 'Forbidden - You do not have permission to perform this action',
                 'required_permission' => $permission,
