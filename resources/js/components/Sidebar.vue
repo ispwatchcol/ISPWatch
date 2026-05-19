@@ -64,107 +64,28 @@
                     v-if="canSee.usuarios"
                     icon="bi-people"
                     title="Usuarios"
-                    :items="[
-                        {
-                            name: 'Lista de usuarios',
-                            to: '/customers',
-                            icon: 'bi-people',
-                        },
-                        {
-                            name: 'Agregar usuario',
-                            to: '/customers/create',
-                            icon: 'bi-person-plus',
-                        },
-                        {
-                            name: 'Estadísticas',
-                            to: '/customers/statistics',
-                            icon: 'md-dashboard-outlined',
-                        },
-                        {
-                            name: 'Mapa de usuarios',
-                            to: '/customers/map',
-                            icon: 'ri-map-pin-user-line',
-                        },
-                    ]"
+                    :items="usuariosItems"
                 />
 
                 <SubmenuItem
                     v-if="canSee.gestion"
                     icon="ri-list-settings-line"
                     title="Gestión"
-                    :items="[
-                        {
-                            name: 'Lista de Routers',
-                            to: '/routers',
-                            icon: 'bi-router',
-                        },
-                        {
-                            name: 'Plan de Internet',
-                            to: '/planes',
-                            icon: 'bi-speedometer2',
-                        },
-                        {
-                            name: 'Sectoriales',
-                            to: '/sectorials',
-                            icon: 'bi-broadcast-pin',
-                        },
-                    ]"
+                    :items="gestionItems"
                 />
 
                 <SubmenuItem
                     v-if="canSee.inventarios"
                     icon="oi-package"
                     title="Inventarios"
-                    :items="[
-                        {
-                            name: 'Lista de equipos',
-                            to: '/inventory',
-                            icon: 'bi-hdd-network',
-                        },
-                        {
-                            name: 'Agregar equipo',
-                            to: '/inventory/create',
-                            icon: 'oi-diff-added',
-                        },
-                        {
-                            name: 'Stock / Modelos',
-                            to: '/inventory/stocks',
-                            icon: 'md-inventory-round',
-                        },
-                        {
-                            name: 'Proveedores',
-                            to: '/inventory/providers',
-                            icon: 'bi-building',
-                        },
-                        {
-                            name: 'Sucursales',
-                            to: '/inventory/branches',
-                            icon: 'md-storemalldirectory',
-                        },
-                    ]"
+                    :items="inventariosItems"
                 />
 
                 <SubmenuItem
                     v-if="canSee.finanzas"
                     icon="ri-money-dollar-circle-line"
                     title="Finanzas"
-                    :items="[
-                        {
-                            name: 'Resumen',
-                            to: '/billing/dashboard',
-                            icon: 'md-dashboard-outlined',
-                        },
-                        {
-                            name: 'Facturación',
-                            to: '/billing/invoices',
-                            icon: 'la-money-bill-wave-solid',
-                        },
-                        {
-                            name: 'Pagos / Recaudos',
-                            to: '/billing/payments',
-                            icon: 'md-payments-outlined',
-                        },
-                    ]"
+                    :items="finanzasItems"
                 />
 
                 <!-- Staff -->
@@ -320,109 +241,70 @@ const supportItems = computed(() => {
     return items;
 });
 
-// Role-based menu visibility
-const userRole = computed(() => {
-    // Check both possible property paths for role name
-    const roleName = user.value?.role_name || user.value?.role?.name || '';
-    return roleName.toLowerCase();
+const canSee = computed(() => ({
+    dashboard:       hasPermission('dashboard.view'),
+    usuarios:        hasPermission('customers.view'),
+    gestion:         hasPermission('routers.view'),
+    inventarios:     hasPermission('inventory.view'),
+    finanzas:        hasPermission('billing.view'),
+    staff:           hasPermission('staff.view'),
+    configuracion:   hasPermission('settings.view'),
+    manual:          true,
+    accionesMasivas: hasPermission('mass_actions.execute'),
+}));
+
+// ─── Submenú: Usuarios ───
+const usuariosItems = computed(() => {
+    const items = [];
+    if (hasPermission('customers.view'))
+        items.push({ name: 'Lista de usuarios', to: '/customers', icon: 'bi-people' });
+    if (hasPermission('customers.create'))
+        items.push({ name: 'Agregar usuario', to: '/customers/create', icon: 'bi-person-plus' });
+    if (hasPermission('customers.stats'))
+        items.push({ name: 'Estadísticas', to: '/customers/statistics', icon: 'md-dashboard-outlined' });
+    if (hasPermission('customers.map'))
+        items.push({ name: 'Mapa de usuarios', to: '/customers/map', icon: 'ri-map-pin-user-line' });
+    return items;
 });
 
-const canSee = computed(() => {
-    const role = userRole.value;
-    
-    // Administrador sees everything
-    if (role === 'administrador') {
-        return {
-            dashboard: true,
-            usuarios: true,
-            gestion: true,
-            inventarios: true,
-            finanzas: true,
-            staff: true,
-            soporte: true,
-            configuracion: true,
-            manual: true,
-            accionesMasivas: true,
-        };
-    }
-    
-    // Técnico: Usuarios, Gestión, Soporte (Tickets)
-    if (role === 'tecnico') {
-        return {
-            dashboard: true,
-            usuarios: true,
-            gestion: true,
-            inventarios: false,
-            finanzas: false,
-            staff: false,
-            soporte: true,
-            configuracion: false,
-            manual: true,
-            accionesMasivas: false,
-        };
-    }
-    
-    // Contabilidad: Finanzas, Clientes (Usuarios)
-    if (role === 'contabilidad') {
-        return {
-            dashboard: true,
-            usuarios: true,
-            gestion: false,
-            inventarios: false,
-            finanzas: true,
-            staff: false,
-            soporte: false,
-            configuracion: false,
-            manual: true,
-            accionesMasivas: true,
-        };
-    }
-    
-    // Almacenista: Inventario, Clientes (Usuarios), Staff
-    if (role === 'almacenista') {
-        return {
-            dashboard: true,
-            usuarios: true,
-            gestion: false,
-            inventarios: true,
-            finanzas: false,
-            staff: true,
-            soporte: false,
-            configuracion: false,
-            manual: true,
-            accionesMasivas: false,
-        };
-    }
-    
-    // Staff genérico: acceso limitado
-    if (role === 'staff') {
-        return {
-            dashboard: true,
-            usuarios: false,
-            gestion: false,
-            inventarios: false,
-            finanzas: false,
-            staff: false,
-            soporte: true,
-            configuracion: false,
-            manual: true,
-            accionesMasivas: false,
-        };
-    }
-    
-    // Default: solo dashboard y manual
-    return {
-        dashboard: true,
-        usuarios: false,
-        gestion: false,
-        inventarios: false,
-        finanzas: false,
-        staff: false,
-        soporte: false,
-        configuracion: false,
-        manual: true,
-        accionesMasivas: false,
-    };
+// ─── Submenú: Gestión ───
+const gestionItems = computed(() => {
+    const items = [];
+    if (hasPermission('routers.view'))
+        items.push({ name: 'Lista de Routers', to: '/routers', icon: 'bi-router' });
+    if (hasPermission('plans.view'))
+        items.push({ name: 'Plan de Internet', to: '/planes', icon: 'bi-speedometer2' });
+    if (hasPermission('sectorials.view'))
+        items.push({ name: 'Sectoriales', to: '/sectorials', icon: 'bi-broadcast-pin' });
+    return items;
+});
+
+// ─── Submenú: Inventarios ───
+const inventariosItems = computed(() => {
+    const items = [];
+    if (hasPermission('inventory.view'))
+        items.push({ name: 'Lista de equipos', to: '/inventory', icon: 'bi-hdd-network' });
+    if (hasPermission('inventory.create'))
+        items.push({ name: 'Agregar equipo', to: '/inventory/create', icon: 'oi-diff-added' });
+    if (hasPermission('inventory.view'))
+        items.push({ name: 'Stock / Modelos', to: '/inventory/stocks', icon: 'md-inventory-round' });
+    if (hasPermission('inventory.view'))
+        items.push({ name: 'Proveedores', to: '/inventory/providers', icon: 'bi-building' });
+    if (hasPermission('inventory.view'))
+        items.push({ name: 'Sucursales', to: '/inventory/branches', icon: 'md-storemalldirectory' });
+    return items;
+});
+
+// ─── Submenú: Finanzas ───
+const finanzasItems = computed(() => {
+    const items = [];
+    if (hasPermission('billing.view'))
+        items.push({ name: 'Resumen', to: '/billing/dashboard', icon: 'md-dashboard-outlined' });
+    if (hasPermission('billing.view'))
+        items.push({ name: 'Facturación', to: '/billing/invoices', icon: 'la-money-bill-wave-solid' });
+    if (hasPermission('billing.view'))
+        items.push({ name: 'Pagos / Recaudos', to: '/billing/payments', icon: 'md-payments-outlined' });
+    return items;
 });
 
 onMounted(() => {
