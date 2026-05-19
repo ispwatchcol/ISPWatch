@@ -23,6 +23,30 @@ class SuspensionManager
         $this->apiProtocol = $apiProtocol ?? $this->connectionManager->getApiProtocol();
     }
 
+    // ==================== INPUT HARDENING ====================
+
+    /**
+     * SECURITY (OWASP A03): customer-controlled values flow into RouterOS
+     * commands and /system/script sources. Reject anything that is not a
+     * real IP so an address/target field can never carry script payload.
+     */
+    private function isValidIp(string $ip): bool
+    {
+        return filter_var(trim($ip), FILTER_VALIDATE_IP) !== false;
+    }
+
+    /**
+     * Strip characters that have meaning inside a RouterOS quoted string /
+     * script ("$ ; { } [ ] \ " backtick, control chars). The comment is a
+     * cosmetic label, so this neutralises injection without changing
+     * provisioning behaviour.
+     */
+    private function sanitizeRouterComment(string $value): string
+    {
+        $value = preg_replace('/[^\p{L}\p{N}\s._\-:@#]/u', '', $value) ?? '';
+        return mb_substr(trim($value), 0, 60);
+    }
+
     // ==================== CORE ROUTER OPERATIONS ====================
 
     /**
@@ -30,10 +54,14 @@ class SuspensionManager
      */
     public function addSuspendedIp(string $ip, string $comment = ''): array
     {
+        if (!$this->isValidIp($ip)) {
+            return ['success' => false, 'message' => 'IP inválida.'];
+        }
+
         $cmd = sprintf(
             '/ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address=%s comment="%s"',
-            escapeshellarg($ip),
-            addslashes($comment)
+            trim($ip),
+            $this->sanitizeRouterComment($comment)
         );
 
         return $this->connectionManager->executeSsh($cmd);
@@ -44,9 +72,13 @@ class SuspensionManager
      */
     public function removeSuspendedIp(string $ip): array
     {
+        if (!$this->isValidIp($ip)) {
+            return ['success' => false, 'message' => 'IP inválida.'];
+        }
+
         $removeCmd = sprintf(
             '/ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address=%s]',
-            escapeshellarg($ip)
+            trim($ip)
         );
 
         return $this->connectionManager->executeSsh($removeCmd);
@@ -65,6 +97,13 @@ class SuspensionManager
         string $customerName,
         int $clientPort = 8728
     ): array {
+        if (!$this->isValidIp($suspendedIp)) {
+            return ['success' => false, 'message' => 'IP del cliente inválida.'];
+        }
+        // Neutralise RouterOS script metacharacters before the name reaches
+        // any command/script source (OWASP A03 — authenticated RCE path).
+        $customerName = $this->sanitizeRouterComment($customerName);
+
         try {
             Log::info('[SuspensionManager] Agregando IP a lista de suspendidos en router cliente', [
                 'client_ip' => $clientIp,
@@ -102,6 +141,10 @@ class SuspensionManager
         string $suspendedIp,
         int $clientPort = 8728
     ): array {
+        if (!$this->isValidIp($suspendedIp)) {
+            return ['success' => false, 'message' => 'IP del cliente inválida.'];
+        }
+
         try {
             Log::info('[SuspensionManager] Removiendo IP de lista de suspendidos', [
                 'client_ip' => $clientIp,

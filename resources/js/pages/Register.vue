@@ -9,7 +9,7 @@
       <!-- App Branding -->
       <div class="flex flex-col items-center mb-6 md:mb-8 animate-fade-in-down">
         <div class="bg-white dark:bg-slate-900 p-3 md:p-4 rounded-3xl shadow-xl mb-4 border border-slate-100 dark:border-slate-800 group transition-all hover:scale-110 cursor-pointer" @click="$router.push('/')">
-          <img src="../assets/Logo.png" alt="Logo" class="h-14 w-14 md:h-16 md:w-16 group-hover:rotate-12 transition-transform duration-500" />
+          <img src="../assets/favicon.svg" alt="Logo" class="h-14 w-14 md:h-16 md:w-16 group-hover:rotate-12 transition-transform duration-500" />
         </div>
         <h1 class="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">ISP<span class="text-blue-600">Watch</span></h1>
         <p class="text-slate-500 dark:text-slate-400 text-xs md:text-sm font-medium mt-1">Gestión de ISP Inteligente</p>

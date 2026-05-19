@@ -36,9 +36,6 @@ Route::get('/verify-email/{id}/{hash}', [VerificationController::class, 'verify'
 Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
     ->name('verification.resend');
 
-// ─── PUBLIC CATALOGS (no auth required) ───
-Route::get('/roles', [RoleController::class, 'index']);
-
 /*
 |--------------------------------------------------------------------------
 | PROTECTED ROUTES (require auth:sanctum)
@@ -48,6 +45,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // ─── DASHBOARD ───
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
+
+    // ─── ROLE CATALOG (read-only, any authenticated user) ───
+    // SECURITY FIX (OWASP A01): role names + their permission sets must not
+    // be exposed unauthenticated. Read stays open to any logged-in user
+    // (needed for staff/role dropdowns); create/update/delete remain gated
+    // by permission:manage_roles via the apiResource below.
+    Route::get('/roles', [RoleController::class, 'index']);
 
     // ─── CUSTOMERS (custom routes before apiResource) ───
     Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
@@ -84,7 +88,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
     Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync'])
         ->middleware('permission:manage_routers');
-    Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync']);
+    // SECURITY FIX (OWASP A01): the GET variant must require the same
+    // permission as POST — otherwise it is a method-based authz bypass.
+    Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync'])
+        ->middleware('permission:manage_routers');
     Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
 
     // PPPoE plan sync

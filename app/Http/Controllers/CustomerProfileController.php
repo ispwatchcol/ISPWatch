@@ -66,11 +66,19 @@ class CustomerProfileController extends Controller
      */
     public function statistics()
     {
-        $totalCustomers = CustomerProfile::count();
+        // SECURITY (OWASP A01): CustomerProfile has no tenant_id of its own;
+        // every aggregate must be scoped through users.tenant_id or it leaks
+        // cross-tenant counts/PII.
+        $tenantId = $this->authTenantId();
+
+        $totalCustomers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
+            ->count();
 
         // Get customers from this month
         $startOfMonth = now()->startOfMonth();
         $newThisMonth = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
             ->where('users.created_at', '>=', $startOfMonth)
             ->count();
 
@@ -78,6 +86,7 @@ class CustomerProfileController extends Controller
         $startOfLastMonth = now()->subMonth()->startOfMonth();
         $endOfLastMonth = now()->subMonth()->endOfMonth();
         $lastMonthCustomers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
             ->whereBetween('users.created_at', [$startOfLastMonth, $endOfLastMonth])
             ->count();
 
@@ -90,8 +99,10 @@ class CustomerProfileController extends Controller
         $activeCustomers = $totalCustomers;
 
         // Distribution by department
-        $byDepartment = CustomerProfile::select('department', \DB::raw('count(*) as count'))
-            ->groupBy('department')
+        $byDepartment = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
+            ->select('customer_profile.department', \DB::raw('count(*) as count'))
+            ->groupBy('customer_profile.department')
             ->orderBy('count', 'desc')
             ->get()
             ->map(function ($item) {
@@ -102,8 +113,10 @@ class CustomerProfileController extends Controller
             });
 
         // Distribution by position
-        $byPosition = CustomerProfile::select('position', \DB::raw('count(*) as count'))
-            ->groupBy('position')
+        $byPosition = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
+            ->select('customer_profile.position', \DB::raw('count(*) as count'))
+            ->groupBy('customer_profile.position')
             ->orderBy('count', 'desc')
             ->get()
             ->map(function ($item) {
@@ -120,6 +133,7 @@ class CustomerProfileController extends Controller
             $monthEnd = now()->subMonths($i)->endOfMonth();
 
             $count = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+                ->where('users.tenant_id', $tenantId)
                 ->where('users.created_at', '<=', $monthEnd)
                 ->count();
 
@@ -131,6 +145,7 @@ class CustomerProfileController extends Controller
 
         // Recent customers (last 5)
         $recentCustomers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
             ->select(
                 'customer_profile.user_id',
                 'customer_profile.name',
@@ -159,7 +174,10 @@ class CustomerProfileController extends Controller
      */
     public function mapData()
     {
+        $tenantId = $this->authTenantId();
+
         $customers = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
             ->select(
                 'customer_profile.user_id',
                 'customer_profile.name',
@@ -413,7 +431,7 @@ class CustomerProfileController extends Controller
      */
     public function provision($id)
     {
-        $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+        $customer = $this->findTenantCustomerOrFail($id);
 
         if (!$customer->router_id) {
             return response()->json([
@@ -507,6 +525,8 @@ class CustomerProfileController extends Controller
             'customer_ids.*' => 'integer|exists:customer_profile,user_id',
         ]);
 
+        $tenantId = $this->authTenantId();
+
         $results           = [];
         $successCount      = 0;
         $failCount         = 0;
@@ -515,7 +535,14 @@ class CustomerProfileController extends Controller
         $mikrotik = app(MikroTikSshService::class);
 
         foreach ($data['customer_ids'] as $customerId) {
-            $customer = CustomerProfile::where('user_id', $customerId)->first();
+            // SECURITY (OWASP A01): a customer from another tenant is reported
+            // exactly like a non-existent one — no cross-tenant enumeration.
+            $belongsToTenant = User::where('tenant_id', $tenantId)
+                ->whereKey($customerId)
+                ->exists();
+            $customer = $belongsToTenant
+                ? CustomerProfile::where('user_id', $customerId)->first()
+                : null;
 
             if (!$customer) {
                 $results[] = [
@@ -685,7 +712,7 @@ class CustomerProfileController extends Controller
      */
     public function suspend($id)
     {
-        $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+        $customer = $this->findTenantCustomerOrFail($id);
 
         if ($customer->status === false) {
             return response()->json([
@@ -731,7 +758,7 @@ class CustomerProfileController extends Controller
      */
     public function activate($id)
     {
-        $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+        $customer = $this->findTenantCustomerOrFail($id);
 
         if ($customer->status === true) {
             return response()->json([
@@ -974,8 +1001,10 @@ class CustomerProfileController extends Controller
      */
     public function destroy($id)
     {
+        $tenantId = $this->authTenantId();
+        // Tenant-scoped lookups: a cross-tenant id resolves to 404, never deletes.
+        $user = User::where('tenant_id', $tenantId)->findOrFail($id);
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
-        $user = User::findOrFail($id);
 
         DB::beginTransaction();
 
@@ -995,6 +1024,31 @@ class CustomerProfileController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Resolve the authenticated user's tenant id or abort.
+     *
+     * SECURITY (OWASP A01): single source of truth for tenant scoping.
+     */
+    private function authTenantId(): int
+    {
+        $tenantId = auth()->user()?->tenant_id;
+        abort_if(!$tenantId, 403, 'No autorizado: usuario sin tenant asignado.');
+        return (int) $tenantId;
+    }
+
+    /**
+     * Resolve a customer by id, asserting it belongs to the authenticated
+     * user's tenant. Prevents cross-tenant IDOR (OWASP A01).
+     */
+    private function findTenantCustomerOrFail($id): CustomerProfile
+    {
+        $tenantId = $this->authTenantId();
+        // findOrFail throws 404 when the user belongs to another tenant,
+        // so cross-tenant ids are indistinguishable from non-existent ones.
+        User::where('tenant_id', $tenantId)->findOrFail($id);
+        return CustomerProfile::where('user_id', $id)->firstOrFail();
     }
 
     /**
