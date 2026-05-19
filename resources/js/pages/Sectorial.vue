@@ -9,6 +9,7 @@
             <p class="text-gray-500 dark:text-gray-400 mt-1">Gestión de sectoriales y configuración por zonas</p>
         </div>
         <button
+            v-if="can('routers.create')"
             @click="router.push('/sectorials/create')"
             class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
@@ -106,6 +107,7 @@
                 <td class="px-6 py-4">
                     <div class="flex justify-center gap-2">
                     <button
+                        v-if="can('routers.edit')"
                         @click="router.push(`/sectorials/${sectorial.id}/edit`)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-blue-50 text-blue-700 border border-blue-200
@@ -126,6 +128,7 @@
                         Detalles
                     </button>
                     <button
+                        v-if="can('routers.delete')"
                         @click="deleteSectorial(sectorial.id)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-red-50 text-red-700 border border-red-200
@@ -334,6 +337,9 @@ import { supabase } from '@/supabase.js'
 import api from '../services/api'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
+import { usePermissions } from '@/composables/usePermissions'
+
+const { can } = usePermissions()
 
 const router = useRouter()
 

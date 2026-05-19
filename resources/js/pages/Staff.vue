@@ -15,6 +15,7 @@
         </div>
 
         <button
+          v-if="can('staff.create')"
           @click="$router.push('/staff/create')"
           class="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-white shadow-md transition-all hover:bg-blue-700"
         >
@@ -156,6 +157,7 @@
                 </td>
                 <td class="flex gap-2 py-3 px-4">
                   <button
+                    v-if="can('staff.edit')"
                     @click="$router.push(`/staff/${member.id}/edit`)"
                     class="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition-all hover:scale-[1.03] hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
                   >
@@ -164,6 +166,7 @@
                   </button>
 
                   <button
+                    v-if="can('staff.delete')"
                     @click="openDeleteModal(member)"
                     class="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition-all hover:scale-[1.03] hover:bg-red-100 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-800/50"
                   >
@@ -259,6 +262,9 @@ import { computed, onMounted, ref } from 'vue'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
 import api from '../services/api.js'
+import { usePermissions } from '@/composables/usePermissions'
+
+const { can } = usePermissions()
 
 const search = ref('')
 const staff = ref([])

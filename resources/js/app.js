@@ -4,6 +4,7 @@ import { createPinia } from "pinia";
 import App from "./App.vue";
 import router from "./router";
 import "../css/app.css";
+import { vCan } from "@/directives/can";
 
 // -------------------------------
 // CONFIGURACIÓN DE OH-VUE-ICONS
@@ -140,6 +141,8 @@ import {
   MdPausecircle,
   MdPlaycircle,
   MdDeleteforever,
+  BiCalendarCheck,
+  HiChevronLeft,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -273,6 +276,8 @@ addIcons(
   MdPausecircle,
   MdPlaycircle,
   MdDeleteforever,
+  BiCalendarCheck,
+  HiChevronLeft,
 );
 
 // -------------------------------
@@ -289,6 +294,9 @@ app.component("v-icon", OhVueIcon);
 
 // Router
 app.use(router);
+
+// Global custom directives
+app.directive('can', vCan);
 
 // Mount
 app.mount("#app");
