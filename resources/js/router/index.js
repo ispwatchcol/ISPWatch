@@ -147,13 +147,13 @@ const routes = [
         path: 'statistics',
         name: 'CustomerStatistics',
         component: () => import('@/pages/CustomerStatistics.vue'),
-        meta: { title: 'Estadísticas' },
+        meta: { title: 'Estadísticas', permission: 'customers.stats' },
       },
       {
         path: 'map',
         name: 'CustomerMap',
         component: () => import('@/pages/CustomerMap.vue'),
-        meta: { title: 'Mapa' },
+        meta: { title: 'Mapa', permission: 'customers.map' },
       },
     ],
   },
@@ -189,7 +189,7 @@ const routes = [
   {
     path: '/support',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true, requiresStaff: true },
+    meta: { requiresAuth: true, permission: 'support.view' },
     children: [
       {
         path: '',
@@ -207,7 +207,7 @@ const routes = [
         path: ':id',
         name: 'SupportDetail',
         component: () => import('@/pages/SupportDetail.vue'),
-        meta: { title: 'Ticket' },
+        meta: { title: 'Ticket', permission: 'support.view' },
       },
       {
         path: ':id/edit',
@@ -309,19 +309,19 @@ const routes = [
         path: 'stocks',
         name: 'InventoryStocks',
         component: () => import('@/pages/StockList.vue'),
-        meta: { title: 'Stocks' },
+        meta: { title: 'Stocks', permission: 'inventory.view' },
       },
       {
         path: 'providers',
         name: 'InventoryProviders',
         component: () => import('@/pages/ProviderList.vue'),
-        meta: { title: 'Proveedores' },
+        meta: { title: 'Proveedores', permission: 'inventory.view' },
       },
       {
         path: 'branches',
         name: 'InventoryBranches',
         component: () => import('@/pages/BranchList.vue'),
-        meta: { title: 'Sucursales' },
+        meta: { title: 'Sucursales', permission: 'inventory.view' },
       },
     ],
   },
@@ -390,12 +390,10 @@ router.beforeEach((to, _from, next) => {
   }
 
   if (to.meta.requiresStaff && !auth.isStaffOrAdmin) {
-    alert('No tienes permisos para acceder a esta sección. Solo el personal autorizado puede acceder al módulo de Soporte.');
     return next({ name: 'Dashboard' });
   }
 
   if (to.meta.permission && !auth.hasPermission(to.meta.permission)) {
-    alert('No tienes permisos para acceder a esta sección.');
     return next({ name: 'Dashboard' });
   }
 
