@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import billingService from '@/services/billing'
+import { usePermissions } from '@/composables/usePermissions'
+
+const { can } = usePermissions()
 
 const stats = ref(null)
 const loading = ref(true)
@@ -124,21 +127,21 @@ onMounted(() => {
                 <button @click="fetchStats" class="p-3 bg-white dark:bg-gray-800 text-slate-600 dark:text-slate-300 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-700 transition-all active:scale-[0.95]">
                     <v-icon name="bi-arrow-repeat" class="w-6 h-6" :class="{ 'animate-spin': loading }" />
                 </button>
-                <button @click="openPeriodModal" class="px-6 py-3 rounded-2xl flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] font-semibold shadow-sm
+                <button v-if="can('billing.generate')" @click="openPeriodModal" class="px-6 py-3 rounded-2xl flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] font-semibold shadow-sm
                     bg-slate-50 text-slate-700 border border-slate-200
                     hover:bg-slate-100
                     dark:bg-gray-800 dark:text-slate-300 dark:border-gray-700 dark:hover:bg-gray-700">
                     <v-icon name="bi-calendar" class="w-6 h-6" />
                     Generar Mes
                 </button>
-                <button @click="showConfirmOverdue = true" class="px-6 py-3 rounded-2xl flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] font-semibold shadow-sm
+                <button v-if="can('billing.overdue')" @click="showConfirmOverdue = true" class="px-6 py-3 rounded-2xl flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] font-semibold shadow-sm
                     bg-rose-50 text-rose-700 border border-rose-100
                     hover:bg-rose-100
                     dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50 dark:hover:bg-rose-900/30">
                     <v-icon name="md-warningamber-round" class="w-6 h-6" />
                     Procesar Cortes
                 </button>
-                <button @click="$router.push('/billing/payments/new')" class="inline-flex items-center px-6 py-3 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] font-semibold shadow-sm
+                <button v-if="can('billing.payments')" @click="$router.push('/billing/payments/new')" class="inline-flex items-center px-6 py-3 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] font-semibold shadow-sm
                     bg-indigo-50 text-indigo-700 border border-indigo-100
                     hover:bg-indigo-100
                     dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800/50 dark:hover:bg-indigo-900/30">

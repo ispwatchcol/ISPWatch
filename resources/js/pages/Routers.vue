@@ -18,6 +18,7 @@
         </div>
         <!-- Botón Agregar Router -->
           <button
+            v-if="can('routers.create')"
             @click="goToAddRouter"
             class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
           >
@@ -134,6 +135,7 @@
                 <td class="py-3 px-4 flex gap-2 flex-wrap">
                   <!-- Botón Editar -->
                   <button
+                    v-if="can('routers.edit')"
                     @click="$router.push({ name: 'RouterEdit', params: { id: router.id } })"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-blue-50 text-blue-700 border border-blue-200
@@ -183,6 +185,7 @@
 
                   <!-- Botón Eliminar -->
                   <button
+                    v-if="can('routers.delete')"
                     @click="deleteRouter(router.id)"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-red-50 text-red-700 border border-red-200
@@ -879,7 +882,9 @@ import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
 import api from '@/services/api.js'
+import { usePermissions } from '@/composables/usePermissions'
 
+const { can } = usePermissions()
 const router = useRouter()
 const search = ref('')
 const routers = ref([])

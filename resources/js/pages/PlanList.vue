@@ -19,6 +19,7 @@
 
         <!-- Crear -->
         <button
+          v-if="can('billing.create')"
           @click="createPlan"
           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl shadow-md flex items-center gap-2 transition-all duration-200 w-full sm:w-auto justify-center"
         >
@@ -202,6 +203,7 @@
                       <icon-lucide-upload class="w-4 h-4" />
                     </button>
                     <button
+                      v-if="can('billing.edit')"
                       @click="editPlan(plan)"
                       class="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-500 dark:hover:text-blue-400 transition-all duration-200"
                       title="Editar"
@@ -209,6 +211,7 @@
                       <icon-lucide-pencil class="w-4 h-4" />
                     </button>
                     <button
+                      v-if="can('billing.delete')"
                       @click="deletePlan(plan.id)"
                       class="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:text-gray-500 dark:hover:text-red-400 transition-all duration-200"
                       title="Eliminar"
@@ -285,12 +288,14 @@
                 <icon-lucide-upload class="w-4 h-4" /> Cargar RB
               </button>
               <button
+                v-if="can('billing.edit')"
                 @click="editPlan(plan)"
                 class="flex-1 py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-pencil class="w-4 h-4" /> Editar
               </button>
               <button
+                v-if="can('billing.delete')"
                 @click="deletePlan(plan.id)"
                 class="flex-1 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition flex items-center justify-center gap-2"
               >
@@ -474,6 +479,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api.js'
 import NotificationToast from '@/components/NotificationToast.vue'
+import { usePermissions } from '@/composables/usePermissions'
+
+const { can } = usePermissions()
 
 /* ---------------------------
    STATE
