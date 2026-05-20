@@ -642,18 +642,29 @@ const provisionCustomer = async () => {
 
         if (results.length === 1) {
             // Caso un solo cliente: reportamos queue y secret PPPoE por separado.
-            const r    = results[0]
-            const name = r.customer_name || 'El cliente'
+            const r             = results[0]
+            const name          = r.customer_name || 'El cliente'
+            const alreadyOnRb   = r.queue_result?.action === 'updated' || r.pppoe_result?.action === 'updated'
 
             if (r.success && r.pppoe_created) {
-                toast.value?.success('Cargado al router',
-                    `${name}: queue + secret PPPoE creados correctamente.`)
+                if (alreadyOnRb) {
+                    toast.value?.warning('Cliente ya estaba en el router',
+                        `${name}: ya existía en el router — no se creó, solo se actualizó la queue y el secret PPPoE.`)
+                } else {
+                    toast.value?.success('Cargado al router',
+                        `${name}: queue + secret PPPoE creados correctamente.`)
+                }
             } else if (r.success && r.pppoe_skipped) {
                 toast.value?.warning('Queue cargado — PPPoE pendiente',
                     `${name}: ${r.queue_message}. ${r.pppoe_message}. Edita el cliente para configurar las credenciales PPPoE.`,
                     { duration: 9000 })
             } else if (r.success && !r.pppoe_applies) {
-                toast.value?.success('Cargado al router', `${name}: ${r.queue_message}.`)
+                if (alreadyOnRb) {
+                    toast.value?.warning('Cliente ya estaba en el router',
+                        `${name}: ya existía en el router — no se creó, solo se actualizó la queue.`)
+                } else {
+                    toast.value?.success('Cargado al router', `${name}: ${r.queue_message}.`)
+                }
             } else {
                 const reasons = []
                 if (!r.queue_ok) reasons.push(`Queue: ${r.queue_message}`)
@@ -677,8 +688,19 @@ const provisionCustomer = async () => {
                 `Queue cargado en ${success_count} cliente(s). ${pppoe_skipped_count} con router PPPoE sin credenciales guardadas — edítalos para configurarlas.`,
                 { duration: 9000 })
         } else {
-            toast.value?.success('Provisionamiento exitoso',
-                `${success_count} cliente(s) cargado(s) correctamente.`)
+            const alreadyCount = results.filter(r => r.success && (r.queue_result?.action === 'updated' || r.pppoe_result?.action === 'updated')).length
+            if (alreadyCount === success_count) {
+                toast.value?.warning('Clientes ya estaban en el router',
+                    `${alreadyCount} cliente(s) ya existían en el router — no se crearon, solo se actualizó la queue.`,
+                    { duration: 9000 })
+            } else if (alreadyCount > 0) {
+                toast.value?.warning('Carga con advertencias',
+                    `${success_count - alreadyCount} cliente(s) creado(s). ${alreadyCount} ya existían en el router (solo se actualizó la queue).`,
+                    { duration: 9000 })
+            } else {
+                toast.value?.success('Provisionamiento exitoso',
+                    `${success_count} cliente(s) cargado(s) correctamente.`)
+            }
         }
     } catch (err) {
         console.error('Error al provisionar:', err)

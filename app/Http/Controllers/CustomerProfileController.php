@@ -613,6 +613,8 @@ class CustomerProfileController extends Controller
      */
     public function bulkProvision(Request $request)
     {
+        set_time_limit(600);
+
         $data = $request->validate([
             'customer_ids' => 'required|array',
             'customer_ids.*' => 'integer|exists:customer_profile,user_id',

@@ -26,7 +26,7 @@ export default {
         return apiClient.post(`/customers/${id}/provision`)
     },
     bulkProvision(customerIds) {
-        return apiClient.post('/customers/bulk-provision', { customer_ids: customerIds })
+        return apiClient.post('/customers/bulk-provision', { customer_ids: customerIds }, { timeout: 600000 })
     },
     suspend(id) {
         return apiClient.post(`/customers/${id}/suspend`)

@@ -118,11 +118,30 @@
               </span>
               <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
               <button
+                @click="selectedPlans = []"
+                class="text-xs font-medium text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors flex items-center gap-1"
+                title="Quitar selección"
+              >
+                <icon-lucide-x class="w-3.5 h-3.5" />
+                Quitar
+              </button>
+              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+              <button
                 @click="deleteBulkPlans"
                 class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors flex items-center gap-1"
               >
                 <icon-lucide-trash-2 class="w-3.5 h-3.5" />
                 Eliminar
+              </button>
+              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+              <button
+                @click="openBulkSyncModal"
+                :disabled="selectedPppoePlans.length === 0"
+                :title="selectedPppoePlans.length === 0 ? 'Selecciona planes PPPoE para cargar a RB' : `Cargar ${selectedPppoePlans.length} plan(es) PPPoE a una RB`"
+                class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <icon-lucide-upload class="w-3.5 h-3.5" />
+                Cargar a RB
               </button>
             </div>
           </transition>
@@ -146,10 +165,11 @@
                   <!-- Checkbox Header Custom -->
                   <label class="flex items-center cursor-pointer relative">
                     <input type="checkbox" v-model="selectAll" class="peer sr-only" />
-                    <div class="w-5 h-5 bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-500 rounded-md
-                                peer-checked:bg-blue-600 peer-checked:border-blue-600 peer-hover:border-blue-400
-                                transition-all duration-200 flex items-center justify-center">
-                      <svg class="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div :class="selectAll
+                        ? 'bg-blue-600 border-blue-600'
+                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-500 hover:border-blue-400'"
+                      class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center">
+                      <svg :class="selectAll ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
@@ -205,12 +225,12 @@
                 <td class="px-4 py-4">
                   <!-- Checkbox Row Custom -->
                   <label class="flex items-center cursor-pointer relative">
-                    <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="peer sr-only" />
-                    <div class="w-5 h-5 bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-md 
-                                peer-checked:bg-blue-600 peer-checked:border-blue-600 peer-hover:border-blue-400
-                                group-hover:border-gray-400 dark:group-hover:border-gray-500
-                                transition-all duration-200 flex items-center justify-center shadow-sm">
-                      <svg class="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="sr-only" />
+                    <div :class="selectedPlans.includes(plan.id)
+                        ? 'bg-blue-600 border-blue-600'
+                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 group-hover:border-gray-400 dark:group-hover:border-gray-500'"
+                      class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center shadow-sm">
+                      <svg :class="selectedPlans.includes(plan.id) ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
@@ -358,11 +378,12 @@
             <!-- Checkbox Mobile Posicionado Absoluto -->
             <div class="absolute top-4 right-4 z-10">
                <label class="flex items-center cursor-pointer relative">
-                  <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="peer sr-only" />
-                  <div class="w-6 h-6 bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-full 
-                              peer-checked:bg-blue-600 peer-checked:border-blue-600 
-                              transition-all duration-200 flex items-center justify-center shadow-sm">
-                    <svg class="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="sr-only" />
+                  <div :class="selectedPlans.includes(plan.id)
+                      ? 'bg-blue-600 border-blue-600'
+                      : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600'"
+                    class="w-6 h-6 border-2 rounded-full transition-all duration-200 flex items-center justify-center shadow-sm">
+                    <svg :class="selectedPlans.includes(plan.id) ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
@@ -485,6 +506,256 @@
 
       </div>
     </main>
+
+    <!-- Modal: Confirmación eliminación masiva de planes -->
+    <div
+      v-if="showBulkDeleteModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="closeBulkDeleteModal"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <icon-lucide-trash-2 class="w-6 h-6 text-red-600" />
+            Eliminar planes
+          </h2>
+          <button
+            @click="closeBulkDeleteModal"
+            :disabled="deletingPlan"
+            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors disabled:opacity-40"
+          >
+            <icon-lucide-x class="w-6 h-6" />
+          </button>
+        </div>
+
+        <div class="space-y-4">
+          <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+            <div class="flex items-start gap-3">
+              <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p class="text-sm font-semibold text-red-800 dark:text-red-300">Esta acción no se puede deshacer</p>
+                <p class="text-sm text-red-700 dark:text-red-400 mt-1">
+                  Se eliminarán permanentemente <strong>{{ selectedPlans.length }} plan(es)</strong> seleccionados.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Escribe <span class="font-mono font-bold text-red-600 dark:text-red-400">borrar_plan</span> para confirmar
+            </label>
+            <input
+              v-model="bulkDeleteConfirmText"
+              type="text"
+              placeholder="borrar_plan"
+              @keyup.enter="bulkDeleteConfirmText === 'borrar_plan' && confirmBulkDelete()"
+              class="w-full px-4 py-2.5 rounded-xl border text-sm outline-none transition-all
+                     bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white
+                     focus:ring-2 focus:ring-red-500/20 focus:border-red-500
+                     border-gray-200 dark:border-gray-600"
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="closeBulkDeleteModal"
+            :disabled="deletingPlan"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmBulkDelete"
+            :disabled="deletingPlan || bulkDeleteConfirmText !== 'borrar_plan'"
+            class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700
+                   disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <icon-lucide-loader-2 v-if="deletingPlan" class="w-4 h-4 animate-spin" />
+            <icon-lucide-trash-2 v-else class="w-4 h-4" />
+            {{ deletingPlan ? 'Eliminando...' : `Eliminar ${selectedPlans.length} plan(es)` }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Carga masiva de planes a RB -->
+    <div
+      v-if="showBulkSyncModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      @click.self="closeBulkSyncModal"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-xl m-4 max-h-[90vh] flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between p-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <icon-lucide-upload class="w-6 h-6 text-emerald-600" />
+              Carga masiva a RB
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              {{ bulkSyncPlansToUpload.length }} plan(es) PPPoE seleccionados
+            </p>
+          </div>
+          <button
+            @click="closeBulkSyncModal"
+            :disabled="bulkSyncing"
+            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors disabled:opacity-40"
+          >
+            <icon-lucide-x class="w-6 h-6" />
+          </button>
+        </div>
+
+        <!-- Body (scrollable) -->
+        <div class="flex-1 overflow-y-auto p-6 space-y-5">
+
+          <!-- Router selector (hidden after done) -->
+          <div v-if="!bulkSyncDone">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Router destino
+            </label>
+            <select
+              v-model="bulkSyncRouterId"
+              :disabled="loadingSyncRouters || bulkSyncing || availableRouters.length === 0"
+              class="w-full h-11 px-4 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600
+                     text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500
+                     outline-none text-sm appearance-none disabled:opacity-60"
+            >
+              <option value="">
+                {{ loadingSyncRouters ? 'Cargando routers...' : 'Seleccionar router...' }}
+              </option>
+              <option v-for="rb in availableRouters" :key="rb.id" :value="String(rb.id)">
+                {{ rb.name }} — {{ rb.ip }}{{ rb.pppoe ? ' • PPPoE' : '' }}
+              </option>
+            </select>
+            <p v-if="bulkSyncRouter" class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              Los perfiles se cargarán en <strong>{{ bulkSyncRouter.name }}</strong> ({{ bulkSyncRouter.ip }}).
+            </p>
+          </div>
+
+          <!-- Plan checklist (only before upload starts) -->
+          <div v-if="!bulkSyncing && !bulkSyncDone">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Planes a cargar
+              <span class="font-normal text-gray-400">(desmarca los que no quieras subir)</span>
+            </label>
+            <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+              <label
+                v-for="plan in selectedPppoePlans"
+                :key="plan.id"
+                class="flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors"
+                :class="bulkSyncPlansToUpload.includes(plan.id)
+                  ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10'
+                  : 'border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40'"
+              >
+                <input
+                  type="checkbox"
+                  :value="plan.id"
+                  v-model="bulkSyncPlansToUpload"
+                  class="w-4 h-4 rounded accent-emerald-600 cursor-pointer flex-shrink-0"
+                />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{{ plan.name }}</p>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">↓ {{ plan.speed_down }} / ↑ {{ plan.speed_up }}</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- During upload: progress bar + partial results -->
+          <div v-if="bulkSyncing" class="space-y-3">
+            <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+              <span>Cargando perfiles...</span>
+              <span class="font-semibold">{{ bulkSyncProgress }} / {{ bulkSyncPlansToUpload.length }}</span>
+            </div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div
+                class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                :style="{ width: `${(bulkSyncProgress / bulkSyncPlansToUpload.length) * 100}%` }"
+              ></div>
+            </div>
+            <div class="space-y-1.5">
+              <div
+                v-for="res in bulkSyncResults"
+                :key="res.plan.id"
+                class="flex items-center gap-2 text-sm px-3 py-2 rounded-lg"
+                :class="res.success
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'"
+              >
+                <icon-lucide-check-circle v-if="res.success" class="w-4 h-4 flex-shrink-0" />
+                <icon-lucide-x-circle v-else class="w-4 h-4 flex-shrink-0" />
+                <span class="truncate font-medium">{{ res.plan.name }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- After upload: full results -->
+          <div v-if="bulkSyncDone" class="space-y-3">
+            <div
+              class="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border"
+              :class="bulkSyncResults.every(r => r.success)
+                ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300'"
+            >
+              <icon-lucide-check-circle v-if="bulkSyncResults.every(r => r.success)" class="w-5 h-5 flex-shrink-0" />
+              <icon-lucide-alert-triangle v-else class="w-5 h-5 flex-shrink-0" />
+              {{ bulkSyncResults.filter(r => r.success).length }} cargado(s) correctamente
+              <template v-if="bulkSyncResults.some(r => !r.success)">
+                · {{ bulkSyncResults.filter(r => !r.success).length }} con error
+              </template>
+            </div>
+            <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              <div
+                v-for="res in bulkSyncResults"
+                :key="res.plan.id"
+                class="flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-sm"
+                :class="res.success
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                  : 'bg-red-50 dark:bg-red-900/20'"
+              >
+                <icon-lucide-check-circle v-if="res.success" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                <icon-lucide-x-circle v-else class="w-4 h-4 text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div class="min-w-0">
+                  <p class="font-medium text-gray-800 dark:text-gray-100 truncate">{{ res.plan.name }}</p>
+                  <p class="text-xs mt-0.5 truncate"
+                    :class="res.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">
+                    {{ res.message }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 p-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            @click="closeBulkSyncModal"
+            :disabled="bulkSyncing"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700
+                   rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+          >
+            {{ bulkSyncDone ? 'Cerrar' : 'Cancelar' }}
+          </button>
+          <button
+            v-if="!bulkSyncDone"
+            @click="runBulkSync"
+            :disabled="bulkSyncing || !bulkSyncRouterId || bulkSyncPlansToUpload.length === 0"
+            class="px-5 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700
+                   disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <icon-lucide-loader-2 v-if="bulkSyncing" class="w-4 h-4 animate-spin" />
+            <icon-lucide-upload v-else class="w-4 h-4" />
+            {{ bulkSyncing
+              ? `Cargando ${bulkSyncProgress}/${bulkSyncPlansToUpload.length}...`
+              : `Cargar ${bulkSyncPlansToUpload.length} plan(es)` }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div
       v-if="showSyncModal"
@@ -660,18 +931,31 @@ const currentPage = ref(1)
 const sortBy = ref('name')
 const sortOrder = ref('asc')
 
-// Estados del modal eliminar
+// Estados del modal eliminar (individual)
 const showDeleteModal = ref(false)
 const planToDelete = ref(null)
 const deletingPlan = ref(false)
 
-// Estados del modal sync PPPoE
+// Estados del modal eliminar masivo
+const showBulkDeleteModal = ref(false)
+const bulkDeleteConfirmText = ref('')
+
+// Estados del modal sync PPPoE (individual)
 const showSyncModal = ref(false)
 const planToSync = ref(null)
 const syncingProfile = ref(false)
 const loadingSyncRouters = ref(false)
 const selectedSyncRouterId = ref('')
 const routers = ref([])
+
+// Estados del modal carga masiva a RB
+const showBulkSyncModal = ref(false)
+const bulkSyncPlansToUpload = ref([])
+const bulkSyncRouterId = ref('')
+const bulkSyncing = ref(false)
+const bulkSyncProgress = ref(0)
+const bulkSyncResults = ref([])
+const bulkSyncDone = ref(false)
 
 /* ---------------------------
    TABS
@@ -798,6 +1082,14 @@ const selectedSyncRouter = computed(() => {
   return availableRouters.value.find(rb => String(rb.id) === String(selectedSyncRouterId.value)) || null
 })
 
+const selectedPppoePlans = computed(() =>
+  allPlans.value.filter(p => selectedPlans.value.includes(p.id) && isPppoePlan(p))
+)
+
+const bulkSyncRouter = computed(() =>
+  availableRouters.value.find(rb => String(rb.id) === String(bulkSyncRouterId.value)) || null
+)
+
 /* ---------------------------
    METHODS
 ----------------------------*/
@@ -923,6 +1215,60 @@ const closeSyncModal = () => {
   selectedSyncRouterId.value = ''
 }
 
+const openBulkSyncModal = async () => {
+  bulkSyncPlansToUpload.value = selectedPppoePlans.value.map(p => p.id)
+  bulkSyncRouterId.value = ''
+  bulkSyncResults.value = []
+  bulkSyncDone.value = false
+  bulkSyncProgress.value = 0
+  showBulkSyncModal.value = true
+  await loadRouters()
+  const preferred = availableRouters.value.find(rb => rb.pppoe) || availableRouters.value[0]
+  if (preferred) bulkSyncRouterId.value = String(preferred.id)
+}
+
+const closeBulkSyncModal = () => {
+  if (bulkSyncing.value) return
+  showBulkSyncModal.value = false
+  bulkSyncPlansToUpload.value = []
+  bulkSyncResults.value = []
+  bulkSyncDone.value = false
+  bulkSyncProgress.value = 0
+}
+
+const runBulkSync = async () => {
+  if (!bulkSyncRouterId.value || bulkSyncPlansToUpload.value.length === 0) return
+  bulkSyncing.value = true
+  bulkSyncResults.value = []
+  bulkSyncProgress.value = 0
+
+  for (let i = 0; i < bulkSyncPlansToUpload.value.length; i++) {
+    const planId = bulkSyncPlansToUpload.value[i]
+    const plan = allPlans.value.find(p => p.id === planId)
+    if (!plan) continue
+    bulkSyncProgress.value = i + 1
+    try {
+      const { data } = await api.plan.syncPppoeProfile(planId, { router_id: Number(bulkSyncRouterId.value) })
+      bulkSyncResults.value.push({ plan, success: true, message: data.message || 'Cargado correctamente' })
+    } catch (err) {
+      bulkSyncResults.value.push({ plan, success: false, message: err.response?.data?.message || 'Error al cargar' })
+    }
+  }
+
+  bulkSyncing.value = false
+  bulkSyncDone.value = true
+
+  const ok   = bulkSyncResults.value.filter(r => r.success).length
+  const fail = bulkSyncResults.value.filter(r => !r.success).length
+  if (fail === 0) {
+    toast.value?.success('Planes cargados', `${ok} perfil(es) PPPoE cargados en la RB correctamente.`)
+  } else if (ok > 0) {
+    toast.value?.warning('Carga parcial', `${ok} cargado(s), ${fail} con error.`, { duration: 7000 })
+  } else {
+    toast.value?.error('Error al cargar', 'No se pudo cargar ningún perfil PPPoE en la RB.')
+  }
+}
+
 const syncPppoePlanToRouter = async () => {
   if (!planToSync.value || !selectedSyncRouterId.value) {
     toast.value?.warning(
@@ -1028,18 +1374,27 @@ const confirmDelete = async () => {
   }
 }
 
-// Eliminar planes seleccionados (bulk delete)
-const deleteBulkPlans = async () => {
+// Eliminar planes seleccionados (bulk delete) — abre modal de confirmación
+const deleteBulkPlans = () => {
   if (selectedPlans.value.length === 0) return
-  
-  const confirmMsg = `¿Estás seguro de eliminar ${selectedPlans.value.length} plan(es) seleccionado(s)? Esta acción no se puede deshacer.`
-  
-  if (!confirm(confirmMsg)) return
-  
+  bulkDeleteConfirmText.value = ''
+  showBulkDeleteModal.value = true
+}
+
+const closeBulkDeleteModal = () => {
+  if (deletingPlan.value) return
+  showBulkDeleteModal.value = false
+  bulkDeleteConfirmText.value = ''
+}
+
+const confirmBulkDelete = async () => {
+  if (bulkDeleteConfirmText.value !== 'borrar_plan' || selectedPlans.value.length === 0) return
+
+  deletingPlan.value = true
   const plansToDelete = [...selectedPlans.value]
   let successCount = 0
   let errorCount = 0
-  
+
   for (const planId of plansToDelete) {
     try {
       await api.plan.delete(planId)
@@ -1051,19 +1406,16 @@ const deleteBulkPlans = async () => {
       errorCount++
     }
   }
-  
+
+  deletingPlan.value = false
+  showBulkDeleteModal.value = false
+  bulkDeleteConfirmText.value = ''
+
   if (successCount > 0) {
-    toast.value?.success(
-      'Planes eliminados',
-      `${successCount} plan(es) eliminado(s) correctamente`
-    )
+    toast.value?.success('Planes eliminados', `${successCount} plan(es) eliminado(s) correctamente.`)
   }
-  
   if (errorCount > 0) {
-    toast.value?.error(
-      'Error parcial',
-      `No se pudieron eliminar ${errorCount} plan(es)`
-    )
+    toast.value?.error('Error parcial', `No se pudieron eliminar ${errorCount} plan(es).`)
   }
 }
 
