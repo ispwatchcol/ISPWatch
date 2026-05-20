@@ -1,13 +1,15 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import billingService from '@/services/billing'
 import api, { apiClient } from '@/services/api'
+import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 
 const user = ref({})
 const customers = ref([])
 const paymentMethods = ref([])
 const loading = ref(false)
 const successInfo = ref(null)
+const errorMsg = ref('')
 
 const form = ref({
     customer_id: '',
@@ -19,7 +21,36 @@ const form = ref({
     tenant_id: null
 })
 
-const customerBalance = ref(0)
+const customerBalance  = ref(0)   // sum of open invoice balance_due
+const creditBalance    = ref(0)   // unallocated credit from overpayments
+const netBalance       = ref(0)   // what the customer effectively owes
+const showPaymentModal = ref(false)
+
+// 'exact' | 'partial' | 'excess'  — compared against the net balance owed
+const paymentType = computed(() => {
+    const amt = Number(form.value.amount)
+    const bal = netBalance.value
+    if (!amt || bal === undefined) return null
+    if (amt === bal) return 'exact'
+    if (amt < bal)   return 'partial'
+    return 'excess'
+})
+
+const paymentTypeMeta = computed(() => ({
+    exact:   { label: 'Pago exacto',    classes: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-700', icon: '✓' },
+    partial: { label: 'Pago parcial',   classes: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-700',   icon: '⬇' },
+    excess:  { label: 'Pago en exceso', classes: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-700',         icon: '⬆' },
+}[paymentType.value] ?? null))
+
+const modalMessage = computed(() => {
+    const amt     = Number(form.value.amount).toLocaleString('es-CO')
+    const bal     = Number(netBalance.value).toLocaleString('es-CO')
+    const surplus = Number(form.value.amount - netBalance.value).toLocaleString('es-CO')
+    if (paymentType.value === 'excess') {
+        return `El monto ingresado ($${amt}) supera el saldo pendiente ($${bal}). El excedente de $${surplus} quedará registrado como saldo a favor del cliente y se aplicará automáticamente a la próxima factura.`
+    }
+    return ''
+})
 
 const fetchCustomers = async () => {
     try {
@@ -43,24 +74,33 @@ const fetchPaymentMethods = async () => {
 }
 
 const getBalance = async () => {
-    if(!form.value.customer_id) return
+    if (!form.value.customer_id) return
+    customerBalance.value = 0
+    creditBalance.value   = 0
+    netBalance.value      = 0
     try {
         const res = await billingService.getBalance(form.value.customer_id)
-        customerBalance.value = res.data.balance
+        customerBalance.value = res.data.balance        ?? 0
+        creditBalance.value   = res.data.credit_balance ?? 0
+        netBalance.value      = res.data.net_balance    ?? res.data.balance ?? 0
     } catch (e) {
         // ignore
     }
 }
 
-const submitPayment = async () => {
-    // Validar exceso de pago
-    if (form.value.amount > customerBalance.value) {
-        const confirmOverpayment = confirm(`El monto ingresado ($${Number(form.value.amount).toLocaleString()}) supera el saldo pendiente del cliente ($${Number(customerBalance.value).toLocaleString()}). ¿Está seguro que desea registrar este pago en exceso?`)
-        if (!confirmOverpayment) return
-    }
-
-    loading.value = true
+const submitPayment = () => {
+    errorMsg.value = ''
     successInfo.value = null
+    if (paymentType.value === 'excess') {
+        showPaymentModal.value = true
+    } else {
+        doRegister()
+    }
+}
+
+const doRegister = async () => {
+    showPaymentModal.value = false
+    loading.value = true
     try {
         const res = await billingService.registerPayment(form.value)
         successInfo.value = res.data
@@ -69,7 +109,7 @@ const submitPayment = async () => {
         form.value.notes = ''
         getBalance()
     } catch (e) {
-        alert('Error: ' + (e.response?.data?.message || e.message))
+        errorMsg.value = e.response?.data?.message || e.message || 'Error al registrar el pago.'
     } finally {
         loading.value = false
     }
@@ -90,7 +130,7 @@ onMounted(() => {
     <div class="p-6 min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
         <div class="max-w-3xl mx-auto">
             <h1 class="text-4xl font-medium text-slate-900 dark:text-white mb-10 tracking-tight">Registrar Recaudo</h1>
-            
+
             <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <!-- Form Column -->
                 <div class="md:col-span-2 space-y-6">
@@ -103,11 +143,11 @@ onMounted(() => {
                                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                                         <v-icon name="bi-person" class="h-5 w-5 text-slate-400" />
                                     </div>
-                                    <select v-model="form.customer_id" @change="getBalance" 
+                                    <select v-model="form.customer_id" @change="getBalance"
                                         class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all appearance-none" required>
                                         <option value="">Seleccione un cliente</option>
                                         <option v-for="c in customers" :key="c.user_id || c.id" :value="c.user_id || c.id">
-                                            {{ c.name }} {{ c.last_name }} 
+                                            {{ c.name }} {{ c.last_name }}
                                         </option>
                                     </select>
                                 </div>
@@ -121,10 +161,17 @@ onMounted(() => {
                                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                                             <v-icon name="la-dollar-sign-solid" class="h-5 w-5 text-emerald-500" />
                                         </div>
-                                        <input v-model="form.amount" type="number" step="0.01" 
-                                            class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all font-medium text-xl" 
+                                        <input v-model="form.amount" type="number" step="0.01"
+                                            class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all font-medium text-xl"
                                             placeholder="0.00" required>
                                     </div>
+                                    <!-- Payment type badge -->
+                                    <Transition name="fade">
+                                        <div v-if="paymentTypeMeta" class="mt-2 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-xl border w-fit" :class="paymentTypeMeta.classes">
+                                            <span>{{ paymentTypeMeta.icon }}</span>
+                                            <span>{{ paymentTypeMeta.label }}</span>
+                                        </div>
+                                    </Transition>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Forma de Pago</label>
@@ -159,7 +206,13 @@ onMounted(() => {
                                 <textarea v-model="form.notes" rows="3" class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all"></textarea>
                             </div>
 
-                            <button type="submit" :disabled="loading" 
+                            <!-- Error message -->
+                            <div v-if="errorMsg" class="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                                <span class="text-lg">⚠</span>
+                                {{ errorMsg }}
+                            </div>
+
+                            <button type="submit" :disabled="loading"
                                 class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-lg rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none disabled:bg-slate-300 dark:disabled:bg-slate-800 flex items-center justify-center gap-2">
                                 <v-icon v-if="loading" name="bi-arrow-repeat" class="w-6 h-6 animate-spin" />
                                 {{ loading ? 'Procesando...' : 'Confirmar Recaudo' }}
@@ -168,7 +221,7 @@ onMounted(() => {
                     </div>
 
                     <!-- Success Alert -->
-                    <div v-if="successInfo" class="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 p-6 rounded-3xl animate-bounce">
+                    <div v-if="successInfo" class="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 p-6 rounded-3xl">
                         <div class="flex items-center gap-4">
                             <v-icon name="bi-check-circle-fill" class="w-10 h-10 text-emerald-500" />
                             <div>
@@ -183,9 +236,12 @@ onMounted(() => {
                 <div class="space-y-6">
                     <!-- Balance Card -->
                     <div class="bg-indigo-600 p-8 rounded-3xl text-white shadow-2xl shadow-indigo-300 dark:shadow-none">
-                        <h4 class="text-xs font-medium uppercase tracking-widest opacity-80 mb-4">Saldo Pendiente</h4>
-                        <div class="text-4xl font-medium mb-2">${{ Number(customerBalance).toLocaleString() }}</div>
-                        <p class="text-sm opacity-70">Este es el total de todas las facturas abiertas del cliente.</p>
+                        <h4 class="text-xs font-medium uppercase tracking-widest opacity-80 mb-1">Saldo Pendiente</h4>
+                        <div class="text-4xl font-medium mb-1">${{ Number(netBalance).toLocaleString('es-CO') }}</div>
+                        <p v-if="creditBalance > 0" class="text-xs font-medium bg-white/20 rounded-lg px-2 py-1 mb-2 inline-block">
+                            + ${{ Number(creditBalance).toLocaleString('es-CO') }} de saldo a favor
+                        </p>
+                        <p class="text-sm opacity-70">Saldo neto descontando crédito disponible.</p>
                     </div>
 
                     <!-- Help Card -->
@@ -199,4 +255,22 @@ onMounted(() => {
             </div>
         </div>
     </div>
+
+    <!-- Overpayment confirmation modal -->
+    <ConfirmModal
+        :visible="showPaymentModal"
+        variant="info"
+        title="Pago en exceso"
+        :message="modalMessage"
+        confirm-text="Registrar de todos modos"
+        cancel-text="Cancelar"
+        :loading="loading"
+        @confirm="doRegister"
+        @cancel="showPaymentModal = false"
+    />
 </template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.fade-enter-from, .fade-leave-to       { opacity: 0; transform: translateY(-4px); }
+</style>

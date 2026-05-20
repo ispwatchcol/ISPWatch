@@ -141,6 +141,32 @@ class BillingController extends Controller
         return response()->json($payment->load('allocations'), 201);
     }
 
+    // Update Payment
+    public function updatePayment(Request $request, $id)
+    {
+        $payment = Payment::findOrFail($id);
+
+        $data = $request->validate([
+            'amount'       => 'sometimes|numeric|min:0.01',
+            'payment_date' => 'sometimes|date',
+            'method'       => 'sometimes|string',
+            'reference'    => 'nullable|string|max:255',
+            'notes'        => 'nullable|string',
+        ]);
+
+        $payment = $this->billingService->updatePayment($payment, $data);
+
+        return response()->json($payment->load('allocations'));
+    }
+
+    // Delete Payment
+    public function deletePayment($id)
+    {
+        $payment = Payment::findOrFail($id);
+        $this->billingService->deletePayment($payment);
+        return response()->json(['message' => 'Pago eliminado correctamente.']);
+    }
+
     // PDF Download
     public function downloadPdf($id)
     {
@@ -161,10 +187,16 @@ class BillingController extends Controller
     // Customer Balance
     public function getCustomerBalance($customerId)
     {
-        $balance = Invoice::where('customer_id', $customerId)
-            ->sum('balance_due');
+        $balance       = (float) Invoice::where('customer_id', $customerId)->sum('balance_due');
+        $customer      = \App\Models\CustomerProfile::where('user_id', $customerId)->first();
+        $creditBalance = $customer ? (float) $customer->credit_balance : 0;
+        $netBalance    = max(0, $balance - $creditBalance);
 
-        return response()->json(['balance' => $balance]);
+        return response()->json([
+            'balance'        => $balance,
+            'credit_balance' => $creditBalance,
+            'net_balance'    => $netBalance,
+        ]);
     }
 
     // List Payments

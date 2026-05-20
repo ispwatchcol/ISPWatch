@@ -25,6 +25,7 @@ class CustomerProfile extends Model
         'country',
         'latitude',
         'longitude',
+        'credit_balance',
         'ip_user',
         'service_id',
         'sectorial_id',
