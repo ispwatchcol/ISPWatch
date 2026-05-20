@@ -503,6 +503,8 @@ class CustomerProfileController extends Controller
             'cedula'       => $customer->cedula,
             'city'         => $customer->city,
             'state'        => $customer->state,
+            'latitude'     => $customer->latitude,
+            'longitude'    => $customer->longitude,
             'ip_user'      => $customer->ip_user,
             'service_id'   => $customer->service_id,
             'sectorial_id' => $customer->sectorial_id,
@@ -922,6 +924,8 @@ class CustomerProfileController extends Controller
             'cedula'    => 'nullable|string|max:20',
             'city'      => 'nullable|string|max:255',
             'state'     => 'nullable|string|max:255',
+            'latitude'  => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
 
             // service configuration
             'ip_user'      => 'nullable|string|max:45',
@@ -987,6 +991,8 @@ class CustomerProfileController extends Controller
                 'cedula'      => array_key_exists('cedula', $data) ? $data['cedula'] : $customer->cedula,
                 'city'        => array_key_exists('city', $data) ? $data['city'] : $customer->city,
                 'state'       => array_key_exists('state', $data) ? $data['state'] : $customer->state,
+                'latitude'    => array_key_exists('latitude', $data) ? ($data['latitude'] !== '' ? $data['latitude'] : null) : $customer->latitude,
+                'longitude'   => array_key_exists('longitude', $data) ? ($data['longitude'] !== '' ? $data['longitude'] : null) : $customer->longitude,
                 'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
                 'service_id'  => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
                 'sectorial_id'=> array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
