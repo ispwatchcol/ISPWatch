@@ -83,11 +83,11 @@ class RegistrationController extends Controller
                     ], 400);
                 }
             } else {
-                // Email already verified
                 return response()->json([
                     'success' => false,
-                    'message' => 'Este correo electrónico ya está registrado y verificado. Por favor, inicia sesión.',
-                ], 400);
+                    'message' => 'Ya tienes una cuenta registrada con este correo. Ingresa con tus credenciales.',
+                    'already_registered' => true,
+                ], 409);
             }
         }
 
