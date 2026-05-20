@@ -58,12 +58,16 @@
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 
+const props = defineProps({
+  url: { type: String, default: '/api/import/docs' },
+});
+
 const docs = ref({});
 const loading = ref(true);
 
 onMounted(async () => {
   try {
-    const response = await axios.get('/api/import/docs');
+    const response = await axios.get(props.url);
     docs.value = response.data;
   } catch (error) {
     console.error('Error loading field docs:', error);

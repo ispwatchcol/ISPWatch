@@ -25,7 +25,7 @@
         <!-- Trial Badge -->
         <div class="mb-8 p-4 bg-green-500/10 border border-green-500/20 rounded-2xl text-center group transition-all hover:bg-green-500/20">
           <p class="text-sm text-green-700 dark:text-green-400 font-bold flex items-center justify-center gap-2">
-            <span class="text-xl">🎉</span> Plan Trial: <strong>30 días gratis</strong>
+            <span class="text-xl">🎉</span> Plan Trial: <strong>30 Clientes Gratis</strong>
           </p>
         </div>
 

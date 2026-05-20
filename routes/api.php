@@ -174,5 +174,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);
         Route::post('errors-excel', [ImportController::class, 'exportErrors']);
+
+        // Bulk customer update (separate flow from initial bulk load)
+        Route::get('customers-update-template', [ImportController::class, 'downloadCustomersUpdateTemplate']);
+        Route::post('customers-update', [ImportController::class, 'importCustomersUpdate']);
+        Route::get('customers-update-docs', [ImportController::class, 'customersUpdateFieldDocs']);
     });
 });
