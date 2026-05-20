@@ -422,6 +422,7 @@
         <div v-if="activeTab === 'documentos'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
           <CustomerDocuments :customer-id="route.params.id" @notify="onNotify" />
         </div>
+
     </div>
 </template>
 
@@ -438,9 +439,9 @@ const route  = useRoute()
 const toast  = ref(null)
 
 const tabs = [
-  { key: 'datos',       label: 'Datos del Cliente' },
-  { key: 'facturacion', label: 'Facturación' },
-  { key: 'documentos',  label: 'Documentos' },
+  { key: 'datos',         label: 'Datos del Cliente' },
+  { key: 'facturacion',   label: 'Facturación' },
+  { key: 'documentos',    label: 'Documentos' },
 ]
 const activeTab = ref('datos')
 

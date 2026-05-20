@@ -200,6 +200,21 @@ const routes = [
     ],
   },
 
+  // ─── INSTALLATIONS ───
+  {
+    path: '/installations',
+    component: () => import('@/layouts/DefaultLayout.vue'),
+    meta: { requiresAuth: true, permission: 'support.view' },
+    children: [
+      {
+        path: '',
+        name: 'Installations',
+        component: () => import('@/pages/Installations.vue'),
+        meta: { title: 'Instalaciones', permission: 'support.view' },
+      },
+    ],
+  },
+
   // ─── SUPPORT ───
   {
     path: '/support',

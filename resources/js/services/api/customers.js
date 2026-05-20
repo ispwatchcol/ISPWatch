@@ -48,6 +48,23 @@ export default {
         return apiClient.delete(`/customers/documents/${documentId}`)
     },
 
+    // ─── Installations ───
+    getAllInstallations(params = {}) {
+        return apiClient.get('/installations', { params })
+    },
+    getInstallations(id) {
+        return apiClient.get(`/customers/${id}/installations`)
+    },
+    createInstallation(id, data) {
+        return apiClient.post(`/customers/${id}/installations`, data)
+    },
+    updateInstallation(installationId, data) {
+        return apiClient.put(`/customers/installations/${installationId}`, data)
+    },
+    deleteInstallation(installationId) {
+        return apiClient.delete(`/customers/installations/${installationId}`)
+    },
+
     // ─── Contract ───
     getContractData(id) {
         return apiClient.get(`/customers/${id}/contract-data`)

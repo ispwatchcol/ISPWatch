@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerProfileController;
 use App\Http\Controllers\CustomerDocumentController;
+use App\Http\Controllers\CustomerInstallationController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
@@ -65,6 +66,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:suspend_customers');
     Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate'])
         ->middleware('permission:suspend_customers');
+
+    // ─── CUSTOMER INSTALLATIONS ───
+    Route::get('/installations', [CustomerInstallationController::class, 'all']);
+    Route::get('/customers/{customer}/installations', [CustomerInstallationController::class, 'index']);
+    Route::post('/customers/{customer}/installations', [CustomerInstallationController::class, 'store']);
+    Route::put('/customers/installations/{installation}', [CustomerInstallationController::class, 'update']);
+    Route::delete('/customers/installations/{installation}', [CustomerInstallationController::class, 'destroy']);
 
     // ─── CUSTOMER DOCUMENTS & CONTRACT ───
     Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index']);
