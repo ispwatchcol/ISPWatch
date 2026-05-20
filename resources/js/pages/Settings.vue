@@ -518,53 +518,52 @@
                     >
                         <div class="space-y-4">
                             <div>
-                                <label class="label"
-                                    >Clave de API de Google Maps</label
-                                >
-                                <input
-                                    v-model="settings.google_maps_api_key"
-                                    type="text"
-                                    autocomplete="off"
-                                    spellcheck="false"
-                                    placeholder="AIzaSy..."
-                                    class="input font-mono"
-                                    :class="{
-                                        'border-red-500':
-                                            errors.google_maps_api_key,
-                                    }"
-                                    :disabled="!isAdmin"
-                                    @input="hasChanges = true"
-                                />
-                                <p
-                                    v-if="errors.google_maps_api_key"
-                                    class="text-xs text-red-500 mt-1"
-                                >
+                                <label class="label">Clave de API de Google Maps</label>
+
+                                <!-- Admin: write-only, nunca se precarga el valor, sin botón de revelar -->
+                                <div v-if="isAdmin" class="relative">
+                                    <input
+                                        v-model="settings.google_maps_api_key"
+                                        type="password"
+                                        autocomplete="new-password"
+                                        spellcheck="false"
+                                        :placeholder="hasGoogleMapsKey ? '••••••••••••••••••••••••••••••••••••••• (escribe para reemplazar)' : 'AIzaSy...'"
+                                        class="input font-mono"
+                                        :class="{ 'border-red-500': errors.google_maps_api_key }"
+                                        @input="hasChanges = true; apiKeyModified = true"
+                                    />
+                                </div>
+
+                                <!-- No-admin: bloque solo visual, sin valor -->
+                                <div v-else class="flex items-center gap-3 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-4 py-3">
+                                    <svg class="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                    </svg>
+                                    <span class="font-mono text-gray-400 dark:text-gray-500 tracking-widest text-sm select-none">••••••••••••••••••••••••••••••••</span>
+                                </div>
+
+                                <!-- Badge "clave configurada" -->
+                                <div v-if="isAdmin && hasGoogleMapsKey && !apiKeyModified"
+                                    class="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 px-2.5 py-1 rounded-lg">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                                    </svg>
+                                    Clave configurada y cifrada
+                                </div>
+
+                                <p v-if="errors.google_maps_api_key" class="text-xs text-red-500 mt-1">
                                     {{ errors.google_maps_api_key[0] }}
                                 </p>
-                                <p
-                                    v-if="!isAdmin"
-                                    class="text-xs text-amber-600 dark:text-amber-400 mt-1"
-                                >
-                                    ℹ️ Solo los administradores pueden editar
-                                    este campo
+                                <p v-if="!isAdmin" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                    🔒 Solo los administradores pueden editar esta clave.
                                 </p>
-                                <p
-                                    v-else
-                                    class="text-xs text-gray-500 dark:text-gray-400 mt-2 leading-relaxed"
-                                >
+                                <p v-else class="text-xs text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
                                     Obtén la clave en
-                                    <a
-                                        href="https://console.cloud.google.com/google/maps-apis/credentials"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        class="text-indigo-600 dark:text-indigo-400 underline"
-                                        >Google Cloud Console</a
-                                    >
-                                    (habilita «Maps JavaScript API»). Una vez
-                                    guardada, el Mapa de Clientes se mostrará con
-                                    Google Maps. Por seguridad, restringe la
-                                    clave por dominio (HTTP referrer) en la
-                                    consola de Google.
+                                    <a href="https://console.cloud.google.com/google/maps-apis/credentials"
+                                        target="_blank" rel="noopener noreferrer"
+                                        class="text-indigo-600 dark:text-indigo-400 underline">Google Cloud Console</a>
+                                    (habilita «Maps JavaScript API»). Una vez guardada, el Mapa de Clientes se mostrará con Google Maps.
+                                    Por seguridad, restringe la clave por dominio (HTTP referrer) en la consola de Google.
                                 </p>
                             </div>
                         </div>
@@ -1047,7 +1046,9 @@ const userData = ref(null);
 const isAdmin = computed(
     () => userData.value?.role_name?.toLowerCase() === "administrador",
 );
-const loading = ref(false);
+const loading          = ref(false);
+const apiKeyModified   = ref(false);  // solo enviar la clave si el admin la reemplazó
+const hasGoogleMapsKey = ref(false);  // indica si ya hay una clave configurada (sin revelarla)
 const toast = ref(null);
 const errors = ref({});
 
@@ -1152,7 +1153,9 @@ const saveAllSettings = async () => {
                 city: settings.value.city,
                 department: settings.value.department,
                 country: settings.value.country,
-                google_maps_api_key: settings.value.google_maps_api_key,
+                // Only send API key if the admin explicitly changed it, preventing
+                // a masked/stale value from overwriting the real key in the database.
+                ...(apiKeyModified.value ? { google_maps_api_key: settings.value.google_maps_api_key } : {}),
             };
 
             // Use the new /tenant/config endpoint if preferred, or stick to /tenants/id
@@ -1315,8 +1318,11 @@ const loadTenantData = async () => {
             settings.value.city = tenant.city || "";
             settings.value.department = tenant.department || "";
             settings.value.country = tenant.country || "CO";
-            settings.value.google_maps_api_key =
-                tenant.google_maps_api_key || "";
+            // Never pre-fill the API key — it's write-only from the frontend.
+            // Only track whether one is already configured.
+            settings.value.google_maps_api_key = "";
+            hasGoogleMapsKey.value = !!tenant.has_google_maps_key;
+            apiKeyModified.value   = false;
         }
     } catch (error) {
         console.error("Error loading tenant data:", error);

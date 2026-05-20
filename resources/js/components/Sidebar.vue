@@ -68,6 +68,13 @@
                 />
 
                 <SubmenuItem
+                    v-if="isStaff && supportItems.length > 0"
+                    icon="md-supportagent-round"
+                    title="Soporte"
+                    :items="supportItems"
+                />
+
+                <SubmenuItem
                     v-if="canSee.gestion"
                     icon="ri-list-settings-line"
                     title="Gestión"
@@ -111,13 +118,6 @@
                         <span class="text-sm font-medium">Roles</span>
                     </RouterLink>
                 </li>
-
-                <SubmenuItem
-                    v-if="isStaff && supportItems.length > 0"
-                    icon="md-supportagent-round"
-                    title="Soporte"
-                    :items="supportItems"
-                />
 
                 <!-- Configuración -->
                 <li v-if="canSee.configuracion">
@@ -230,7 +230,7 @@ const isAdmin = computed(() => {
 
 const supportItems = computed(() => {
     const items = [];
-    
+
     if (hasPermission('support.view') || hasPermission('support.view.own')) {
         items.push({
             name: 'Tickets',
@@ -238,7 +238,7 @@ const supportItems = computed(() => {
             icon: 'hi-ticket',
         });
     }
-    
+
     if (hasPermission('support.create')) {
         items.push({
             name: 'Nuevo Ticket',
@@ -246,7 +246,15 @@ const supportItems = computed(() => {
             icon: 'oi-diff-added',
         });
     }
-    
+
+    if (hasPermission('support.view') || hasPermission('support.view.own')) {
+        items.push({
+            name: 'Instalaciones',
+            to: '/installations',
+            icon: 'md-build',
+        });
+    }
+
     if (hasPermission('support.statistics')) {
         items.push({
             name: 'Estadísticas',
@@ -254,7 +262,7 @@ const supportItems = computed(() => {
             icon: 'md-dashboard-outlined',
         });
     }
-    
+
     return items;
 });
 

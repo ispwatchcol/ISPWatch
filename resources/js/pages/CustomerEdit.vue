@@ -422,6 +422,12 @@
         <div v-if="activeTab === 'documentos'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
           <CustomerDocuments :customer-id="route.params.id" @notify="onNotify" />
         </div>
+
+        <!-- Pestaña: Tickets -->
+        <div v-if="activeTab === 'tickets'" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 sm:p-6 md:p-8 max-w-7xl mx-auto border border-gray-100 dark:border-gray-700">
+          <CustomerTickets :customer-id="route.params.id" />
+        </div>
+
     </div>
 </template>
 
@@ -432,6 +438,7 @@ import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import CustomerBilling from '@/components/customer/CustomerBilling.vue'
 import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
+import CustomerTickets from '@/components/customer/CustomerTickets.vue'
 
 const router = useRouter()
 const route  = useRoute()
@@ -441,6 +448,7 @@ const tabs = [
   { key: 'datos',       label: 'Datos del Cliente' },
   { key: 'facturacion', label: 'Facturación' },
   { key: 'documentos',  label: 'Documentos' },
+  { key: 'tickets',     label: 'Tickets' },
 ]
 const activeTab = ref('datos')
 

@@ -11,7 +11,10 @@ use Illuminate\Support\Facades\DB;
 class TenantController extends Controller
 {
     /**
-     * Get tenant information by ID
+     * Get tenant information by ID.
+     * google_maps_api_key is declared $hidden on the model so it is NEVER
+     * included in toArray()/toJson(). We only expose a boolean flag so the
+     * frontend can show a "key configured" placeholder without seeing the value.
      */
     public function show($id)
     {
@@ -25,15 +28,20 @@ class TenantController extends Controller
                 ], 404);
             }
 
+            // toArray() already excludes google_maps_api_key (it's in $hidden).
+            // We add a safe boolean so the UI knows whether a key is set.
+            $data = $tenant->toArray();
+            $data['has_google_maps_key'] = !empty($tenant->google_maps_api_key);
+
             return response()->json([
                 'success' => true,
-                'data' => $tenant
+                'data'    => $data,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener información del tenant',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
