@@ -108,6 +108,46 @@ class TenantController extends Controller
     }
 
     /**
+     * Return the Google Maps configuration for the authenticated user's tenant.
+     *
+     * Readable by any authenticated user (so non-admins can view the customer
+     * map), unlike the full tenant payload which requires manage_tenant.
+     * The Maps JavaScript API key is necessarily exposed client-side, so
+     * returning it here is safe; it should be restricted by HTTP referrer in
+     * the Google Cloud Console.
+     */
+    public function mapsConfig(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user || !$user->tenant_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Usuario no autenticado o no pertenece a ningún tenant'
+            ], 401);
+        }
+
+        $tenant = Tenant::find($user->tenant_id);
+
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant no encontrado'
+            ], 404);
+        }
+
+        $apiKey = $tenant->google_maps_api_key;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'google_maps_api_key' => $apiKey,
+                'has_key' => !empty($apiKey),
+            ],
+        ]);
+    }
+
+    /**
      * Update current tenant configuration
      */
     public function updateConfig(UpdateTenantRequest $request)

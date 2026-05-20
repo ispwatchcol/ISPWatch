@@ -510,6 +510,65 @@
                             </div>
                         </div>
                     </SettingsSection>
+
+                    <SettingsSection
+                        title="Integración de Mapas (Google Maps)"
+                        description="Clave de API usada para mostrar el Mapa de Clientes. Es una sola por empresa."
+                        icon="ri-map-2-line"
+                    >
+                        <div class="space-y-4">
+                            <div>
+                                <label class="label"
+                                    >Clave de API de Google Maps</label
+                                >
+                                <input
+                                    v-model="settings.google_maps_api_key"
+                                    type="text"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    placeholder="AIzaSy..."
+                                    class="input font-mono"
+                                    :class="{
+                                        'border-red-500':
+                                            errors.google_maps_api_key,
+                                    }"
+                                    :disabled="!isAdmin"
+                                    @input="hasChanges = true"
+                                />
+                                <p
+                                    v-if="errors.google_maps_api_key"
+                                    class="text-xs text-red-500 mt-1"
+                                >
+                                    {{ errors.google_maps_api_key[0] }}
+                                </p>
+                                <p
+                                    v-if="!isAdmin"
+                                    class="text-xs text-amber-600 dark:text-amber-400 mt-1"
+                                >
+                                    ℹ️ Solo los administradores pueden editar
+                                    este campo
+                                </p>
+                                <p
+                                    v-else
+                                    class="text-xs text-gray-500 dark:text-gray-400 mt-2 leading-relaxed"
+                                >
+                                    Obtén la clave en
+                                    <a
+                                        href="https://console.cloud.google.com/google/maps-apis/credentials"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="text-indigo-600 dark:text-indigo-400 underline"
+                                        >Google Cloud Console</a
+                                    >
+                                    (habilita «Maps JavaScript API»). Una vez
+                                    guardada, el Mapa de Clientes se mostrará con
+                                    Google Maps. Por seguridad, restringe la
+                                    clave por dominio (HTTP referrer) en la
+                                    consola de Google.
+                                </p>
+                            </div>
+                        </div>
+                    </SettingsSection>
                 </div>
 
                 <!-- Appearance Settings -->
@@ -1024,6 +1083,9 @@ const settings = ref({
     department: "",
     country: "CO",
 
+    // Integrations (from tenant)
+    google_maps_api_key: "",
+
     // Appearance (localStorage only)
     theme: "system",
     compact_mode: false,
@@ -1088,6 +1150,7 @@ const saveAllSettings = async () => {
                 city: settings.value.city,
                 department: settings.value.department,
                 country: settings.value.country,
+                google_maps_api_key: settings.value.google_maps_api_key,
             };
 
             // Use the new /tenant/config endpoint if preferred, or stick to /tenants/id
@@ -1250,6 +1313,8 @@ const loadTenantData = async () => {
             settings.value.city = tenant.city || "";
             settings.value.department = tenant.department || "";
             settings.value.country = tenant.country || "CO";
+            settings.value.google_maps_api_key =
+                tenant.google_maps_api_key || "";
         }
     } catch (error) {
         console.error("Error loading tenant data:", error);

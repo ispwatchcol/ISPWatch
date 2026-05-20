@@ -57,6 +57,9 @@ class UpdateTenantRequest extends FormRequest
             'city' => ['sometimes', 'nullable', 'string', 'max:100'],
             'department' => ['sometimes', 'nullable', 'string', 'max:100'],
             'country' => ['sometimes', 'nullable', 'string', 'size:2'],
+
+            // ── Integrations ────────────────────────────────────────────────────
+            'google_maps_api_key' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }
 
@@ -85,6 +88,7 @@ class UpdateTenantRequest extends FormRequest
             'city' => 'ciudad',
             'department' => 'departamento',
             'country' => 'país',
+            'google_maps_api_key' => 'clave de API de Google Maps',
         ];
     }
 
