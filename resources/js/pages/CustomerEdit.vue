@@ -116,6 +116,28 @@
                     placeholder="Ej: Cundinamarca" />
                 </div>
             </div>
+
+            <!-- Ubicación en mapa -->
+            <div class="mt-4">
+                <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Ubicación en Mapa</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Latitud</label>
+                    <input v-model="form.latitude" type="number" step="any"
+                        class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Ej: 4.710989" />
+                </div>
+                <div>
+                    <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Longitud</label>
+                    <input v-model="form.longitude" type="number" step="any"
+                        class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Ej: -74.072092" />
+                </div>
+                </div>
+                <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                    Las coordenadas permiten mostrar al cliente en el mapa de cobertura. Puedes obtenerlas haciendo clic derecho en Google Maps.
+                </p>
+            </div>
             </div>
 
             <!-- Sección: Configuración del Servicio -->
@@ -436,6 +458,8 @@ const form = ref({
     cedula: '',
     city: '',
     state: '',
+    latitude: '',
+    longitude: '',
     ip_user: '',
     service_id: null,
     sectorial_id: null,
@@ -614,6 +638,8 @@ const loadCustomer = async () => {
             cedula:       d.cedula || '',
             city:         d.city || '',
             state:        d.state || '',
+            latitude:     d.latitude ?? '',
+            longitude:    d.longitude ?? '',
             ip_user:      d.ip_user || '',
             service_id:   d.service_id || null,
             sectorial_id: d.sectorial_id || null,

@@ -33,6 +33,16 @@ export default {
     return apiClient.post('/billing/payments', data)
   },
 
+  // Update Payment
+  updatePayment(id, data) {
+    return apiClient.put(`/billing/payments/${id}`, data)
+  },
+
+  // Delete Payment
+  deletePayment(id) {
+    return apiClient.delete(`/billing/payments/${id}`)
+  },
+
   // Customer Balance
   getBalance(customerId) {
     return apiClient.get(`/billing/customers/${customerId}/balance`)

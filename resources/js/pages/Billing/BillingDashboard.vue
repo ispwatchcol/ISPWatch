@@ -102,11 +102,26 @@ const runOverdue = async () => {
 
 const getStatusColor = (status) => {
     switch (status) {
-        case 'paid': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-        case 'pending': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-        default: return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+        case 'paid':      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+        case 'partial':   return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+        case 'pending':   return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+        case 'overdue':   return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+        case 'issued':    return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+        case 'cancelled': return 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+        case 'void':      return 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+        default:          return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
     }
 }
+
+const getStatusLabel = (status) => ({
+    paid:      'Pagada',
+    partial:   'Parcial',
+    pending:   'Pendiente',
+    overdue:   'Vencida',
+    issued:    'Emitida',
+    cancelled: 'Cancelada',
+    void:      'Anulada',
+}[status] ?? status)
 
 onMounted(() => {
     const stored = localStorage.getItem('userData') || sessionStorage.getItem('userData')
@@ -252,7 +267,7 @@ onMounted(() => {
                             </div>
                             <div class="text-right">
                                 <div class="font-medium text-slate-900 dark:text-white">${{ Number(invoice.total).toLocaleString() }}</div>
-                                <span :class="getStatusColor(invoice.status)" class="px-2 py-0.5 rounded-lg text-[10px] font-medium uppercase">{{ invoice.status }}</span>
+                                <span :class="getStatusColor(invoice.status)" class="px-2 py-0.5 rounded-lg text-[10px] font-medium uppercase">{{ getStatusLabel(invoice.status) }}</span>
                             </div>
                         </div>
                     </div>

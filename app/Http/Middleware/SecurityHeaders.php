@@ -59,7 +59,7 @@ class SecurityHeaders
                 $response->header(
                     'Content-Security-Policy',
                     "default-src 'self' http://localhost:5173 ws://localhost:5173; " .
-                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 ws://localhost:5173 https://maps.googleapis.com; " .
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 ws://localhost:5173 https://maps.googleapis.com https://unpkg.com; " .
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com http://localhost:5173; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: blob: http://localhost:5173; " .
@@ -74,7 +74,7 @@ class SecurityHeaders
                 $response->header(
                     'Content-Security-Policy',
                     "default-src 'self' {$currentOrigin}; " .
-                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$currentOrigin} https://maps.googleapis.com; " .
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$currentOrigin} https://maps.googleapis.com https://unpkg.com; " .
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com {$currentOrigin}; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: http: blob:; " .
