@@ -152,34 +152,6 @@
             margin: 0;
         }
 
-        .backup-url {
-            margin: 28px 0 0 0;
-            padding: 18px 20px;
-            background-color: #f9fafb;
-            border-radius: 8px;
-            text-align: center;
-        }
-
-        .backup-url p {
-            color: #6b7280;
-            font-size: 13px;
-            margin: 0 0 10px 0;
-            line-height: 1.5;
-        }
-
-        .backup-url code {
-            display: block;
-            background-color: #ffffff;
-            border: 1px solid #e5e7eb;
-            padding: 12px;
-            border-radius: 6px;
-            font-size: 11px;
-            color: #374151;
-            word-break: break-all;
-            margin-top: 8px;
-            text-align: left;
-        }
-
         .footer {
             background-color: #f9fafb;
             padding: 28px 30px;
@@ -201,12 +173,6 @@
 
         .footer-link:hover {
             text-decoration: underline;
-        }
-
-        .divider {
-            border: none;
-            border-top: 1px solid #e5e7eb;
-            margin: 28px 0;
         }
 
         .ignore-text {
@@ -316,15 +282,7 @@
                                     Una vez verificada tu cuenta, podrás iniciar sesión y comenzar a configurar tu ISP.
                                 </p>
 
-                                <hr class="divider">
-
-                                {{-- Backup URL --}}
-                                <div class="backup-url">
-                                    <p>Si el botón no funciona, copia y pega este enlace en tu navegador:</p>
-                                    <code>{{ $url }}</code>
-                                </div>
-
-                                <p class="ignore-text" style="margin-top: 24px;">
+                                <p class="ignore-text" style="margin-top: 8px;">
                                     Si no creaste una cuenta en ISPWatch, puedes ignorar este correo de forma segura.
                                 </p>
 
