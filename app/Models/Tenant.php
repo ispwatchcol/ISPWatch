@@ -59,6 +59,19 @@ class Tenant extends Model
         'google_maps_api_key',
     ];
 
+    /**
+     * Encrypt the API key at rest. The value is transparently decrypted by
+     * Laravel when accessed in PHP, but never serialised in toArray/toJson.
+     */
+    protected $casts = [
+        'google_maps_api_key' => 'encrypted',
+    ];
+
+    /** Never include the raw key in any JSON response. */
+    protected $hidden = [
+        'google_maps_api_key',
+    ];
+
     /** Auto-generate UUID on creation if not provided */
     protected static function booted(): void
     {
