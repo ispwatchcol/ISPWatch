@@ -1,8 +1,10 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Exports\CustomersUpdateTemplateExport;
 use App\Exports\ImportErrorsExport;
 use App\Exports\UnifiedTemplateExport;
+use App\Imports\CustomersUpdateImport;
 use App\Imports\UnifiedImport;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -49,6 +51,86 @@ class ImportController extends Controller
             'errors' => $errors,
             'message' => $this->buildSummaryMessage($summary, $errors),
         ], $hasErrors && !$hasAnyImport ? 422 : 200);
+    }
+
+    public function downloadCustomersUpdateTemplate()
+    {
+        return Excel::download(new CustomersUpdateTemplateExport(), 'plantilla_actualizacion_clientes.xlsx');
+    }
+
+    public function importCustomersUpdate(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls|max:10240',
+        ]);
+
+        @set_time_limit(120);
+
+        $tenantId = auth()->user()->tenant_id;
+        $import = new CustomersUpdateImport($tenantId);
+
+        try {
+            Excel::import($import, $request->file('file'));
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar el archivo: ' . $e->getMessage(),
+                'summary' => ['clientes' => $import->updated],
+                'errors' => $import->errors,
+            ], 500);
+        }
+
+        $errors = $import->errors;
+        $updated = $import->updated;
+        $hasErrors = !empty($errors);
+
+        return response()->json([
+            'success' => !$hasErrors,
+            'partial' => $hasErrors && $updated > 0,
+            'summary' => ['clientes' => $updated],
+            'errors' => $errors,
+            'message' => $this->buildUpdateSummaryMessage($updated, $errors),
+        ], $hasErrors && $updated === 0 ? 422 : 200);
+    }
+
+    public function customersUpdateFieldDocs()
+    {
+        return response()->json([
+            'Clientes' => [
+                ['field' => 'email_actual', 'required' => true, 'description' => 'Email actual del cliente — sirve como llave para identificarlo. NO se modifica salvo que indiques nuevo_email.', 'example' => 'juan@mail.com'],
+                ['field' => 'nuevo_email', 'required' => false, 'description' => 'Nuevo email del cliente. Debe ser único en el tenant.', 'example' => 'juan.nuevo@mail.com'],
+                ['field' => 'nombre', 'required' => false, 'description' => 'Nuevo nombre del cliente. Deja vacío para no cambiar.', 'example' => 'Juan'],
+                ['field' => 'apellido', 'required' => false, 'description' => 'Nuevo apellido. Deja vacío para no cambiar.', 'example' => 'Pérez'],
+                ['field' => 'cedula', 'required' => false, 'description' => 'Cédula / documento de identidad.', 'example' => '1010101010'],
+                ['field' => 'telefono', 'required' => false, 'description' => 'Teléfono de contacto.', 'example' => '3001234567'],
+                ['field' => 'direccion', 'required' => false, 'description' => 'Dirección física.', 'example' => 'Calle 1 #2-3'],
+                ['field' => 'ciudad', 'required' => false, 'description' => 'Ciudad.', 'example' => 'Bogotá'],
+                ['field' => 'ip_usuario', 'required' => false, 'description' => 'Nueva IP del cliente. Debe ser única entre clientes del tenant.', 'example' => '10.0.0.5'],
+                ['field' => 'ip_router', 'required' => false, 'description' => 'IP del router al que se quiere mover al cliente. Debe existir.', 'example' => '192.168.1.1'],
+                ['field' => 'nombre_plan', 'required' => false, 'description' => 'Nombre del plan al que se quiere cambiar. Debe existir.', 'example' => 'Internet 10MB'],
+                ['field' => 'nombre_sectorial', 'required' => false, 'description' => 'Nombre de la sectorial destino. Debe existir.', 'example' => 'Sectorial Norte'],
+                ['field' => 'usuario_pppoe', 'required' => false, 'description' => 'Usuario PPPoE.', 'example' => 'juan.perez'],
+                ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE.', 'example' => 'secret123'],
+                ['field' => 'password', 'required' => false, 'description' => 'Nueva contraseña de acceso del cliente (mínimo 6 caracteres).', 'example' => 'NuevaPass123'],
+            ],
+        ]);
+    }
+
+    private function buildUpdateSummaryMessage(int $updated, array $errors): string
+    {
+        if ($updated === 0 && empty($errors)) {
+            return 'No se encontraron filas para actualizar.';
+        }
+
+        $msg = $updated > 0
+            ? "Actualizado(s): {$updated} cliente(s)"
+            : 'Ningún cliente actualizado';
+
+        if (!empty($errors)) {
+            $msg .= '. Se encontraron ' . count($errors) . ' errores.';
+        }
+
+        return $msg;
     }
 
     public function exportErrors(Request $request)

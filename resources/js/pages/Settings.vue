@@ -1024,6 +1024,7 @@
                 <!-- Import Data Settings -->
                 <div v-if="activeTab === 'import'" class="space-y-6">
                     <ImportSection />
+                    <CustomersUpdateSection />
                 </div>
             </div>
         </main>
@@ -1035,6 +1036,7 @@ import { ref, onMounted, computed } from "vue";
 import SettingsSection from "@/components/SettingsSection.vue";
 import NotificationToast from "@/components/NotificationToast.vue";
 import ImportSection from "@/components/import/ImportSection.vue";
+import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.vue";
 import { apiClient } from "@/services/api";
 
 // State

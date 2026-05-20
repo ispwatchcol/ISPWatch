@@ -96,13 +96,10 @@
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Método</label>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Forma de Pago</label>
               <select v-model="payForm.method"
                 class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="cash">Efectivo</option>
-                <option value="transfer">Transferencia</option>
-                <option value="consignation">Consignación</option>
-                <option value="other">Otro</option>
+                <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
               </select>
             </div>
             <div>
@@ -143,6 +140,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import billingService from '@/services/billing'
+import { apiClient } from '@/services/api'
 
 const props = defineProps({
   customerId: { type: [String, Number], required: true },
@@ -158,10 +156,11 @@ const modalError = ref('')
 const targetInvoice = ref(null)
 
 const tenantId = ref(null)
+const paymentMethods = ref([])
 
 const payForm = ref({
   amount: 0,
-  method: 'cash',
+  method: '',
   payment_date: new Date().toISOString().split('T')[0],
   reference: '',
   notes: '',
@@ -200,12 +199,21 @@ const fetchData = async () => {
   }
 }
 
+const loadPaymentMethods = async () => {
+  try {
+    const { data } = await apiClient.get('/billing/payment-methods')
+    paymentMethods.value = data.filter(m => m.is_active)
+  } catch (e) {
+    console.error('Error cargando formas de pago:', e)
+  }
+}
+
 const openPaymentModal = (inv) => {
   targetInvoice.value = inv
   modalError.value = ''
   payForm.value = {
     amount: inv ? Number(inv.balance_due) : Number(balance.value) || 0,
-    method: 'cash',
+    method: paymentMethods.value[0]?.name ?? '',
     payment_date: new Date().toISOString().split('T')[0],
     reference: '',
     notes: '',
@@ -263,5 +271,6 @@ onMounted(() => {
   const stored = localStorage.getItem('userData') || sessionStorage.getItem('userData')
   if (stored) tenantId.value = JSON.parse(stored).tenant_id
   fetchData()
+  loadPaymentMethods()
 })
 </script>

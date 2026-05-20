@@ -82,7 +82,7 @@ class DashboardController extends Controller
                 : 0;
 
             // Recent activities - combine multiple sources
-            $activities = $this->getRecentActivities();
+            $activities = $this->getRecentActivities($tenantId);
 
             return response()->json([
                 'success' => true,
@@ -135,28 +135,33 @@ class DashboardController extends Controller
     /**
      * Get recent activities from multiple sources
      */
-    private function getRecentActivities()
+    private function getRecentActivities(int $tenantId)
     {
         $activities = collect();
 
-        // Recent customers (last 7 days)
+        // Recent customers scoped to tenant (customer_profile has no timestamps; use users.created_at)
         $recentCustomers = CustomerProfile::with('user')
-            ->orderBy('user_id', 'desc')
+            ->join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
+            ->select('customer_profile.*', 'users.created_at as user_created_at')
+            ->orderBy('users.created_at', 'desc')
             ->limit(5)
             ->get()
             ->map(function ($customer) {
+                $createdAt = $customer->user_created_at ? \Carbon\Carbon::parse($customer->user_created_at) : now();
                 return [
                     'action' => 'Cliente ' . ($customer->name ?? 'Nuevo') . ' ' . ($customer->last_name ?? '') . ' registrado',
                     'user' => 'Sistema',
-                    'time' => 'Reciente',
+                    'time' => $createdAt->diffForHumans(),
                     'type' => 'success',
-                    'created_at' => now(),
+                    'created_at' => $createdAt,
                 ];
             });
         $activities = $activities->merge($recentCustomers);
 
-        // Recent tickets
+        // Recent tickets scoped to tenant
         $recentTickets = SupportTicket::with('user')
+            ->where('tenant_id', $tenantId)
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get()
@@ -176,8 +181,9 @@ class DashboardController extends Controller
             });
         $activities = $activities->merge($recentTickets);
 
-        // Recent payments
+        // Recent payments scoped to tenant
         $recentPayments = Payment::with('customer')
+            ->where('tenant_id', $tenantId)
             ->where('status', 'completed')
             ->orderBy('created_at', 'desc')
             ->limit(5)

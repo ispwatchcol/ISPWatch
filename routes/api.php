@@ -19,6 +19,7 @@ use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\ImportController;
+use App\Http\Controllers\PaymentMethodController;
 
 /*
 |--------------------------------------------------------------------------
@@ -118,6 +119,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
         Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
         Route::get('/billing/whatsapp-status', [PaymentReminderController::class, 'checkWhatsAppStatus']);
+
+        // Payment Methods (formas de pago)
+        Route::get('/billing/payment-methods', [PaymentMethodController::class, 'index']);
+        Route::post('/billing/payment-methods', [PaymentMethodController::class, 'store']);
+        Route::put('/billing/payment-methods/{id}', [PaymentMethodController::class, 'update']);
+        Route::delete('/billing/payment-methods/{id}', [PaymentMethodController::class, 'destroy']);
     });
 
     // ─── SUPPORT (requires staff profile) ───
@@ -174,5 +181,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);
         Route::post('errors-excel', [ImportController::class, 'exportErrors']);
+
+        // Bulk customer update (separate flow from initial bulk load)
+        Route::get('customers-update-template', [ImportController::class, 'downloadCustomersUpdateTemplate']);
+        Route::post('customers-update', [ImportController::class, 'importCustomersUpdate']);
+        Route::get('customers-update-docs', [ImportController::class, 'customersUpdateFieldDocs']);
     });
 });
