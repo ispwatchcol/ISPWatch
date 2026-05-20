@@ -321,6 +321,8 @@ const finanzasItems = computed(() => {
         items.push({ name: 'Facturación', to: '/billing/invoices', icon: 'la-money-bill-wave-solid' });
     if (hasPermission('billing.view'))
         items.push({ name: 'Pagos / Recaudos', to: '/billing/payments', icon: 'md-payments-outlined' });
+    if (hasPermission('billing.view'))
+        items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
     return items;
 });
 

@@ -279,6 +279,12 @@ const routes = [
         component: () => import('@/pages/Billing/RegisterPayment.vue'),
         meta: { title: 'Registrar Pago', permission: 'billing.payments' },
       },
+      {
+        path: 'payment-methods',
+        name: 'PaymentMethods',
+        component: () => import('@/pages/Billing/PaymentMethods.vue'),
+        meta: { title: 'Formas de Pago', permission: 'billing.view' },
+      },
     ],
   },
 

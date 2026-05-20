@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import billingService from '@/services/billing'
-import api from '@/services/api'
+import api, { apiClient } from '@/services/api'
 
 const user = ref({})
 const customers = ref([])
+const paymentMethods = ref([])
 const loading = ref(false)
 const successInfo = ref(null)
 
@@ -12,7 +13,7 @@ const form = ref({
     customer_id: '',
     amount: 0,
     payment_date: new Date().toISOString().split('T')[0],
-    method: 'cash',
+    method: '',
     reference: '',
     notes: '',
     tenant_id: null
@@ -23,8 +24,19 @@ const customerBalance = ref(0)
 const fetchCustomers = async () => {
     try {
         const res = await api.customers.getAll()
-        // Handle both paginated and flat array responses
         customers.value = res.data.data || res.data
+    } catch (e) {
+        console.error(e)
+    }
+}
+
+const fetchPaymentMethods = async () => {
+    try {
+        const { data } = await apiClient.get('/billing/payment-methods')
+        paymentMethods.value = data.filter(m => m.is_active)
+        if (paymentMethods.value.length > 0 && !form.value.method) {
+            form.value.method = paymentMethods.value[0].name
+        }
     } catch (e) {
         console.error(e)
     }
@@ -70,6 +82,7 @@ onMounted(() => {
         form.value.tenant_id = user.value.tenant_id
     }
     fetchCustomers()
+    fetchPaymentMethods()
 })
 </script>
 
@@ -114,12 +127,9 @@ onMounted(() => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Método</label>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Forma de Pago</label>
                                     <select v-model="form.method" class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
-                                        <option value="cash">Efectivo</option>
-                                        <option value="transfer">Bank Transfer</option>
-                                        <option value="consignation">Consignación</option>
-                                        <option value="other">Otro</option>
+                                        <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
                                     </select>
                                 </div>
                             </div>
