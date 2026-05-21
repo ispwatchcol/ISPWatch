@@ -111,13 +111,13 @@ class SuspensionManager
                 'customer' => $customerName,
             ]);
 
-            // Try direct API first
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
-                if ($socket) {
-                    Log::info('[SuspensionManager] Conexión API directa al cliente exitosa');
-                    return $this->addSuspendedIpDirectApi($socket, $clientUser, $clientPass, $suspendedIp, $customerName);
-                }
+            // Tunnelled API — connectClientApi() handles SSH local-forward + login.
+            // The old code called apiProtocol->connect($clientIp, ...) directly,
+            // which silently failed in production (overlay IPs aren't routable).
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                Log::info('[SuspensionManager] Conexión API directa al cliente via túnel exitosa');
+                return $this->addSuspendedIpDirectApi($socket, $clientUser, $clientPass, $suspendedIp, $customerName);
             }
 
             Log::info('[SuspensionManager] API directa no disponible, usando CORE ssh-exec');
@@ -151,13 +151,11 @@ class SuspensionManager
                 'suspended_ip' => $suspendedIp,
             ]);
 
-            // Try direct API first
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
-                if ($socket) {
-                    Log::info('[SuspensionManager] Conexión API directa al cliente exitosa');
-                    return $this->removeSuspendedIpDirectApi($socket, $clientUser, $clientPass, $suspendedIp);
-                }
+            // Tunnelled API — connectClientApi() handles SSH local-forward + login.
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                Log::info('[SuspensionManager] Conexión API directa al cliente via túnel exitosa');
+                return $this->removeSuspendedIpDirectApi($socket, $clientUser, $clientPass, $suspendedIp);
             }
 
             Log::info('[SuspensionManager] API directa no disponible, usando CORE ssh-exec');
@@ -181,15 +179,12 @@ class SuspensionManager
         string $customerName
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
+            // Socket is already authenticated by connectClientApi — go straight to operations.
 
             $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/add', [
                 '=list=ISPWATCH_SUSPENDIDOS',
                 '=address=' . $suspendedIp,
-                '=comment=Cliente: ' . $customerName,
+                '=comment=ISPWatch - Cliente: ' . $customerName,
             ]);
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
 
@@ -201,7 +196,7 @@ class SuspensionManager
             // pass the freshly-installed drop rule.
             $connectionsKilled = $this->flushConnectionsForIpDirectApi($socket, $suspendedIp);
 
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error && !str_contains($error, 'already have')) {
                 return ['success' => false, 'message' => 'Error al agregar IP: ' . $error];
@@ -219,7 +214,7 @@ class SuspensionManager
             ];
 
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
@@ -278,10 +273,7 @@ class SuspensionManager
         string $suspendedIp
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
+            // Socket is already authenticated by connectClientApi — go straight to operations.
 
             // Find the entry
             $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/print', [
@@ -291,7 +283,7 @@ class SuspensionManager
             $records = $this->apiProtocol->readAllRecords($socket);
 
             if (empty($records)) {
-                $this->apiProtocol->close($socket);
+                $this->connectionManager->closeClientApi($socket);
                 return [
                     'success' => true,
                     'method' => 'DIRECT_API',
@@ -310,7 +302,7 @@ class SuspensionManager
                 }
             }
 
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             return [
                 'success' => true,
@@ -320,7 +312,7 @@ class SuspensionManager
             ];
 
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }

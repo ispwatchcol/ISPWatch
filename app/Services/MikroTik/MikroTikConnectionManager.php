@@ -279,7 +279,29 @@ class MikroTikConnectionManager
             return false;
         }
 
-        if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
+        // Use loginDetailed() to distinguish Login Protection (socket_closed)
+        // from wrong credentials (trap) — the generic login() collapsed both
+        // into "Error de autenticación" making debugging impossible.
+        $loginResult = $this->apiProtocol->loginDetailed($socket, $clientUser, $clientPass);
+        if (!$loginResult['success']) {
+            $reason = $loginResult['reason'] ?? 'unknown';
+            $message = $loginResult['message'] ?? '';
+
+            if ($reason === 'socket_closed') {
+                Log::error('[MikroTikConnectionManager] Login Protection o firewall bloqueó la conexión API', [
+                    'client' => "{$clientIp}:{$clientPort}",
+                    'user' => $clientUser,
+                    'hint' => 'RouterOS "Login Protection" cierra el socket sin responder cuando la IP de origen tiene demasiados intentos fallidos. Espera ~10min o agrega la IP del CORE a /ip services allowed-from.',
+                ]);
+            } else {
+                Log::error('[MikroTikConnectionManager] Credenciales rechazadas por el router cliente', [
+                    'client' => "{$clientIp}:{$clientPort}",
+                    'user' => $clientUser,
+                    'reason' => $reason,
+                    'message' => $message,
+                ]);
+            }
+
             $this->apiProtocol->close($socket);
             $this->activeClientTunnel->close();
             $this->activeClientTunnel = null;

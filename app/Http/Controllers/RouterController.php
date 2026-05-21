@@ -230,7 +230,8 @@ class RouterController extends Controller
             $router->password_rb,
             $router->wan_interface,
             $portalIp,
-            $apiPort
+            $apiPort,
+            $router->firmware_version
         );
 
         return response()->json($result);
