@@ -24,7 +24,31 @@ class FirewallRulesManager
     }
 
     /**
-     * Apply block rules to a client router
+     * Apply block rules to a client router.
+     *
+     * The ruleset installed (after these fixes) actually blocks suspended clients:
+     *
+     *   FILTER chain=forward (rules go to top via place-before=0, in REVERSE add order):
+     *     [0] accept   src-address-list=ISPWATCH_SUSPENDIDOS dst-address=<portal>   ← portal stays reachable
+     *     [1] drop     src-address-list=ISPWATCH_SUSPENDIDOS                          ← unconditional drop, no out-interface dep
+     *
+     *   NAT chain=dstnat (at top of chain):
+     *     [0] dst-nat  src-address-list=ISPWATCH_SUSPENDIDOS proto=tcp dport=80  → <portal>:80
+     *     [1] dst-nat  src-address-list=ISPWATCH_SUSPENDIDOS proto=tcp dport=443 → <portal>:443
+     *
+     * Why each piece matters (lessons from "customer was in the list and never got cut"):
+     *   - place-before=0  : original code appended to end-of-chain; pre-existing accept rules
+     *                       (established/related/fasttrack) matched FIRST and the drop never ran.
+     *   - allow-portal    : without it, after the dst-nat the portal-bound packets would also
+     *                       hit the drop rule if the portal is reachable through WAN.
+     *   - drop has NO out-interface : the old version required out-interface=<wan_interface>,
+     *                       which silently misses everything when the operator picked the wrong
+     *                       interface in the DB (e.g. selected ether1 but real WAN is pppoe-out1)
+     *                       or when client uses a tunnel as WAN.
+     *
+     * The caller MUST also flush the suspended IP's active connections after adding it to the
+     * address-list, otherwise the stateful conntrack lets in-flight TCP/UDP keep flowing.
+     * That is wired up in SuspensionManager::addSuspendedIpViaCore (post-fix).
      */
     public function applyBlockRulesViaCore(
         string $clientIp,
@@ -37,14 +61,35 @@ class FirewallRulesManager
         Log::info('[FirewallRulesManager] Aplicando reglas de bloqueo', [
             'client_ip' => $clientIp,
             'portal_ip' => $portalIp,
+            'wan_interface' => $wanInterface,
         ]);
 
-        // Try direct API first
+        // Try direct API first — MUST go through the SSH tunnel just like InterfaceReader
+        // does. The previous code called apiProtocol->connect($clientIp, $apiPort) directly,
+        // which silently failed in production (overlay IP unreachable from Laravel) and
+        // collapsed into "Error de autenticación" without ever attempting the real network.
         if ($this->connectionManager->tryDirectClientConnection($clientIp, $apiPort)) {
-            $socket = $this->apiProtocol->connect($clientIp, $apiPort, 5);
-            if ($socket) {
-                Log::info('[FirewallRulesManager] Conexión API directa exitosa');
-                return $this->applyBlockRulesDirectApi($socket, $clientUser, $clientPass, $wanInterface, $portalIp);
+            $tunnelManager = new SshTunnelManager();
+            try {
+                $tunnel = $tunnelManager->open($clientIp, $apiPort);
+            } catch (\Throwable $e) {
+                Log::warning('[FirewallRulesManager] Tunnel open failed, falling back to CORE ssh-exec', [
+                    'error' => $e->getMessage(),
+                ]);
+                return $this->applyBlockRulesViaCoreApi($clientIp, $clientUser, $clientPass, $wanInterface, $portalIp);
+            }
+
+            try {
+                $socket = $this->apiProtocol->connect($tunnel->localHost(), $tunnel->localPort(), 5);
+                if ($socket) {
+                    Log::info('[FirewallRulesManager] Conexión API directa via túnel exitosa', [
+                        'tunnel_local_port' => $tunnel->localPort(),
+                    ]);
+                    return $this->applyBlockRulesDirectApi($socket, $clientUser, $clientPass, $wanInterface, $portalIp);
+                }
+                Log::warning('[FirewallRulesManager] Túnel abierto pero la API no respondió, fallback CORE');
+            } finally {
+                $tunnel->close();
             }
         }
 
@@ -119,11 +164,25 @@ class FirewallRulesManager
 
             $safePass = str_replace('"', '\\"', $clientPass);
 
+            // Order matters: each rule is added with place-before=0 (jump to top of chain).
+            // Adding in REVERSE display order makes the final chain layout match the comment
+            // diagram in applyBlockRulesViaCore. Idempotent installs use comment-based find
+            // so re-applying does not stack duplicates.
             $commands = [
-                "/ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address=0.0.0.0 comment=\"Control ISPWatch\"",
-                "/ip firewall nat add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=80 action=dst-nat to-addresses={$portalIp} to-ports=80 comment=\"ISPWatch Portal HTTP\"",
-                "/ip firewall nat add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=443 action=dst-nat to-addresses={$portalIp} to-ports=443 comment=\"ISPWatch Portal HTTPS\"",
-                "/ip firewall filter add chain=forward src-address-list=ISPWATCH_SUSPENDIDOS out-interface={$wanInterface} action=drop comment=\"ISPWatch - Bloqueo general\"",
+                // Address-list anchor (so the list exists even before any customer is added).
+                ':if ([:len [/ip firewall address-list find list=ISPWATCH_SUSPENDIDOS address=0.0.0.0]] = 0) do={ /ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address=0.0.0.0 comment="ISPWatch placeholder" }',
+
+                // FILTER: drop everything else from suspended (added first → ends up BELOW the allow rule once allow is added next).
+                ':if ([:len [/ip firewall filter find comment="ISPWatch-DROP-SUSPENDED"]] = 0) do={ /ip firewall filter add chain=forward src-address-list=ISPWATCH_SUSPENDIDOS action=drop comment="ISPWatch-DROP-SUSPENDED" place-before=0 }',
+
+                // FILTER: allow portal access (added second → ends up at position 0, above the drop).
+                ':if ([:len [/ip firewall filter find comment="ISPWatch-ALLOW-PORTAL"]] = 0) do={ /ip firewall filter add chain=forward src-address-list=ISPWATCH_SUSPENDIDOS dst-address=' . $portalIp . ' action=accept comment="ISPWatch-ALLOW-PORTAL" place-before=0 }',
+
+                // NAT: HTTPS redirect (added first → ends up below HTTP).
+                ':if ([:len [/ip firewall nat find comment="ISPWatch-NAT-HTTPS"]] = 0) do={ /ip firewall nat add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=443 action=dst-nat to-addresses=' . $portalIp . ' to-ports=443 comment="ISPWatch-NAT-HTTPS" place-before=0 }',
+
+                // NAT: HTTP redirect (added second → ends up at position 0).
+                ':if ([:len [/ip firewall nat find comment="ISPWatch-NAT-HTTP"]] = 0) do={ /ip firewall nat add chain=dstnat src-address-list=ISPWATCH_SUSPENDIDOS protocol=tcp dst-port=80 action=dst-nat to-addresses=' . $portalIp . ' to-ports=80 comment="ISPWatch-NAT-HTTP" place-before=0 }',
             ];
 
             $results = [];
@@ -180,53 +239,97 @@ class FirewallRulesManager
     }
 
     /**
-     * Apply firewall rules using API protocol
+     * Apply firewall rules using API protocol.
+     *
+     * See applyBlockRulesViaCore() comment block for the rationale behind each piece
+     * (place-before, allow-portal, drop without out-interface, idempotent install).
+     * The $wanInterface parameter is kept in the signature for backward compat but
+     * is intentionally NOT used — the drop rule is now unconditional on outbound
+     * interface so it works regardless of whether the operator picked the right
+     * physical port from the dropdown.
      */
     private function applyFirewallRulesViaApi($socket, string $wanInterface, string $portalIp): void
     {
-        // Address-list
-        $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/add', [
-            '=list=ISPWATCH_SUSPENDIDOS',
-            '=address=0.0.0.0',
-            '=comment=Control ISPWatch',
-        ]);
-        $this->apiProtocol->readUntilDone($socket);
+        // Address-list anchor — idempotent: only add the placeholder if not already there.
+        if (!$this->ruleExists($socket, '/ip/firewall/address-list/print', '?list=ISPWATCH_SUSPENDIDOS', '?address=0.0.0.0')) {
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/add', [
+                '=list=ISPWATCH_SUSPENDIDOS',
+                '=address=0.0.0.0',
+                '=comment=ISPWatch placeholder',
+            ]);
+            $this->apiProtocol->readUntilDone($socket);
+        }
 
-        // NAT HTTP
-        $this->apiProtocol->sendCommand($socket, '/ip/firewall/nat/add', [
-            '=chain=dstnat',
-            '=src-address-list=ISPWATCH_SUSPENDIDOS',
-            '=protocol=tcp',
-            '=dst-port=80',
-            '=action=dst-nat',
-            '=to-addresses=' . $portalIp,
-            '=to-ports=80',
-            '=comment=ISPWatch Portal HTTP',
-        ]);
-        $this->apiProtocol->readUntilDone($socket);
+        // FILTER: drop rule first (will be position 0 after we push it down with allow).
+        // No out-interface dependency: blocks ALL forward traffic from suspended IPs.
+        if (!$this->ruleExists($socket, '/ip/firewall/filter/print', '?comment=ISPWatch-DROP-SUSPENDED')) {
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/filter/add', [
+                '=chain=forward',
+                '=src-address-list=ISPWATCH_SUSPENDIDOS',
+                '=action=drop',
+                '=comment=ISPWatch-DROP-SUSPENDED',
+                '=place-before=0',
+            ]);
+            $this->apiProtocol->readUntilDone($socket);
+        }
 
-        // NAT HTTPS
-        $this->apiProtocol->sendCommand($socket, '/ip/firewall/nat/add', [
-            '=chain=dstnat',
-            '=src-address-list=ISPWATCH_SUSPENDIDOS',
-            '=protocol=tcp',
-            '=dst-port=443',
-            '=action=dst-nat',
-            '=to-addresses=' . $portalIp,
-            '=to-ports=443',
-            '=comment=ISPWatch Portal HTTPS',
-        ]);
-        $this->apiProtocol->readUntilDone($socket);
+        // FILTER: allow-portal — keeps the captive portal reachable; added AFTER drop with
+        // place-before=0 so it lands at position 0 and the drop becomes position 1.
+        if (!$this->ruleExists($socket, '/ip/firewall/filter/print', '?comment=ISPWatch-ALLOW-PORTAL')) {
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/filter/add', [
+                '=chain=forward',
+                '=src-address-list=ISPWATCH_SUSPENDIDOS',
+                '=dst-address=' . $portalIp,
+                '=action=accept',
+                '=comment=ISPWatch-ALLOW-PORTAL',
+                '=place-before=0',
+            ]);
+            $this->apiProtocol->readUntilDone($socket);
+        }
 
-        // Filter DROP
-        $this->apiProtocol->sendCommand($socket, '/ip/firewall/filter/add', [
-            '=chain=forward',
-            '=src-address-list=ISPWATCH_SUSPENDIDOS',
-            '=out-interface=' . $wanInterface,
-            '=action=drop',
-            '=comment=ISPWatch - Bloqueo general',
-        ]);
-        $this->apiProtocol->readUntilDone($socket);
+        // NAT: HTTPS redirect first.
+        if (!$this->ruleExists($socket, '/ip/firewall/nat/print', '?comment=ISPWatch-NAT-HTTPS')) {
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/nat/add', [
+                '=chain=dstnat',
+                '=src-address-list=ISPWATCH_SUSPENDIDOS',
+                '=protocol=tcp',
+                '=dst-port=443',
+                '=action=dst-nat',
+                '=to-addresses=' . $portalIp,
+                '=to-ports=443',
+                '=comment=ISPWatch-NAT-HTTPS',
+                '=place-before=0',
+            ]);
+            $this->apiProtocol->readUntilDone($socket);
+        }
+
+        // NAT: HTTP redirect last (ends up at position 0).
+        if (!$this->ruleExists($socket, '/ip/firewall/nat/print', '?comment=ISPWatch-NAT-HTTP')) {
+            $this->apiProtocol->sendCommand($socket, '/ip/firewall/nat/add', [
+                '=chain=dstnat',
+                '=src-address-list=ISPWATCH_SUSPENDIDOS',
+                '=protocol=tcp',
+                '=dst-port=80',
+                '=action=dst-nat',
+                '=to-addresses=' . $portalIp,
+                '=to-ports=80',
+                '=comment=ISPWatch-NAT-HTTP',
+                '=place-before=0',
+            ]);
+            $this->apiProtocol->readUntilDone($socket);
+        }
+    }
+
+    /**
+     * Idempotency helper: returns true if a router-side rule already matches the given
+     * print query. The MikroTik API accepts multiple ?key=value filters via varargs;
+     * we pass them through unchanged.
+     */
+    private function ruleExists($socket, string $printCmd, string ...$filters): bool
+    {
+        $this->apiProtocol->sendCommand($socket, $printCmd, $filters);
+        $records = $this->apiProtocol->readAllRecords($socket);
+        return !empty($records);
     }
 
     /**

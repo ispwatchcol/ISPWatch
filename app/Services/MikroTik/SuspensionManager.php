@@ -193,6 +193,14 @@ class SuspensionManager
             ]);
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
 
+            // CRITICAL: even with the IP now in the list, the stateful conntrack lets every
+            // in-flight TCP/UDP keep flowing (matched by accept established,related at the
+            // top of the chain). Without flushing, a customer "blocked" mid-session keeps
+            // browsing on existing flows until they idle out — minutes or hours. Flush every
+            // connection whose src OR dst is the suspended IP so the next packet has to
+            // pass the freshly-installed drop rule.
+            $connectionsKilled = $this->flushConnectionsForIpDirectApi($socket, $suspendedIp);
+
             $this->apiProtocol->close($socket);
 
             if ($error && !str_contains($error, 'already have')) {
@@ -202,14 +210,65 @@ class SuspensionManager
             return [
                 'success' => true,
                 'method' => 'DIRECT_API',
-                'message' => 'Cliente suspendido - IP agregada',
-                'details' => ['ip' => $suspendedIp, 'customer' => $customerName],
+                'message' => 'Cliente suspendido - IP agregada y conexiones activas cerradas',
+                'details' => [
+                    'ip' => $suspendedIp,
+                    'customer' => $customerName,
+                    'connections_killed' => $connectionsKilled,
+                ],
             ];
 
         } catch (\Throwable $e) {
             @$this->apiProtocol->close($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Flush every active connection-tracking entry whose src or dst is the given IP.
+     *
+     * Returns the number of entries removed (best-effort — we don't fail the suspend
+     * if conntrack is empty or the API rejects a delete, the drop rule will catch the
+     * next packet anyway).
+     */
+    private function flushConnectionsForIpDirectApi($socket, string $ip): int
+    {
+        $killed = 0;
+
+        try {
+            // Find connections involving the IP (src OR dst). RouterOS API filters are AND,
+            // so we issue two queries and dedupe by .id.
+            $ids = [];
+            foreach (['src-address', 'dst-address'] as $field) {
+                $this->apiProtocol->sendCommand($socket, '/ip/firewall/connection/print', [
+                    '?' . $field . '~' . $ip,
+                    '.proplist=.id',
+                ]);
+                foreach ($this->apiProtocol->readAllRecords($socket) as $rec) {
+                    if (!empty($rec['.id'])) {
+                        $ids[$rec['.id']] = true;
+                    }
+                }
+            }
+
+            foreach (array_keys($ids) as $id) {
+                $this->apiProtocol->sendCommand($socket, '/ip/firewall/connection/remove', [
+                    '=.id=' . $id,
+                ]);
+                $err = $this->apiProtocol->readUntilDoneWithError($socket);
+                if (!$err) {
+                    $killed++;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[SuspensionManager] flush connections failed (non-fatal)', [
+                'ip' => $ip,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Log::info('[SuspensionManager] flushed conntrack entries', ['ip' => $ip, 'killed' => $killed]);
+        return $killed;
     }
 
     private function removeSuspendedIpDirectApi(
@@ -275,11 +334,22 @@ class SuspensionManager
         string $suspendedIp,
         string $customerName
     ): array {
+        // Two RouterOS statements in one script:
+        //   1. add the IP to the suspended list (idempotent — ignore "already have")
+        //   2. remove every conntrack entry whose src/dst is that IP so in-flight TCP/UDP
+        //      can't keep flowing past the freshly-installed drop rule.
+        // Wrapped in :do/on-error so a benign "already have" on step 1 doesn't skip step 2.
+        $compoundCmd =
+            ':do { /ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address=' . $suspendedIp .
+            ' comment=\"Cliente: ' . $customerName . '\" } on-error={}; ' .
+            '/ip firewall connection remove [find where src-address~\"' . $suspendedIp .
+            '\" or dst-address~\"' . $suspendedIp . '\"]';
+
         return $this->executeSshExecViaCore(
             $clientIp,
             $clientUser,
             $clientPass,
-            "/ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address={$suspendedIp} comment=\"Cliente: {$customerName}\"",
+            $compoundCmd,
             'ispwatch_s_',
             'suspend',
             $suspendedIp

@@ -145,7 +145,8 @@ class RouterController extends Controller
             $router->ip,
             $router->user_rb,
             $router->password_rb,
-            $router->puerto_api ?? 8728
+            $router->puerto_api ?? 8728,
+            $router->firmware_version  // lets InterfaceReader pick v6/v7-aware command syntax
         );
 
         // If successful, attach current WAN

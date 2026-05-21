@@ -166,6 +166,81 @@ class MikroTikApiProtocol
     }
 
     /**
+     * Like login() but returns a structured result so callers can distinguish
+     * wrong credentials (router sent !trap) from Login Protection blocking
+     * (router closed the TCP connection before answering).
+     *
+     * @param resource $socket
+     * @return array{success: bool, reason: 'ok'|'trap'|'socket_closed'|'no_response', message: string}
+     */
+    public function loginDetailed($socket, string $user, string $pass): array
+    {
+        $this->sendCommand($socket, '/login', [
+            '=name=' . $user,
+            '=password=' . $pass,
+        ]);
+
+        $challenge   = null;
+        $sawDone     = false;
+        $sawTrap     = false;
+        $trapMessage = null;
+
+        while (true) {
+            $word = $this->readWord($socket);
+            if ($word === '') {
+                if ($this->isSocketClosed($socket)) {
+                    Log::error('[MikroTikApiProtocol] loginDetailed: socket closed before reply', ['user' => $user]);
+                    return ['success' => false, 'reason' => 'socket_closed', 'message' => 'socket_closed'];
+                }
+                break;
+            }
+            if ($word === '!done')                            { $sawDone = true; continue; }
+            if ($word === '!trap')                            { $sawTrap = true; continue; }
+            if ($sawTrap && str_starts_with($word, '=message=')) { $trapMessage = substr($word, 9); continue; }
+            if (str_starts_with($word, '=ret='))              { $challenge = substr($word, 5); }
+        }
+
+        if ($sawTrap) {
+            Log::error('[MikroTikApiProtocol] loginDetailed rejected', ['user' => $user, 'message' => $trapMessage]);
+            return ['success' => false, 'reason' => 'trap', 'message' => $trapMessage ?? 'login trap'];
+        }
+
+        if ($challenge) {
+            $hash = md5(chr(0) . $pass . hex2bin($challenge));
+            $this->sendCommand($socket, '/login', ['=name=' . $user, '=response=00' . $hash]);
+
+            $sawDone = false; $sawTrap = false; $trapMessage = null;
+            while (true) {
+                $word = $this->readWord($socket);
+                if ($word === '') {
+                    if ($this->isSocketClosed($socket)) {
+                        return ['success' => false, 'reason' => 'socket_closed', 'message' => 'socket_closed'];
+                    }
+                    break;
+                }
+                if ($word === '!done')                            { $sawDone = true; continue; }
+                if ($word === '!trap')                            { $sawTrap = true; continue; }
+                if ($sawTrap && str_starts_with($word, '=message=')) { $trapMessage = substr($word, 9); }
+            }
+
+            if ($sawTrap) {
+                return ['success' => false, 'reason' => 'trap', 'message' => $trapMessage ?? 'login trap (MD5)'];
+            }
+            if (!$sawDone) {
+                return ['success' => false, 'reason' => 'no_response', 'message' => 'no_done_md5'];
+            }
+            return ['success' => true, 'reason' => 'ok', 'message' => ''];
+        }
+
+        if (!$sawDone) {
+            Log::error('[MikroTikApiProtocol] loginDetailed: no !done and no challenge', ['user' => $user]);
+            return ['success' => false, 'reason' => 'no_response', 'message' => 'no_done'];
+        }
+
+        return ['success' => true, 'reason' => 'ok', 'message' => ''];
+    }
+
+    /**
      * Cheap "is the socket still alive" check that doesn't consume bytes.
      */
     private function isSocketClosed($socket): bool
