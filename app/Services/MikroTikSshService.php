@@ -259,15 +259,34 @@ class MikroTikSshService
     /**
      * Get interfaces from a client router
      */
-    public function getRouterInterfaces(string $clientIp, string $clientUser, string $clientPass, int $clientPort = 8728): array
-    {
-        return $this->interfaceReader->getRouterInterfaces($clientIp, $clientUser, $clientPass, $clientPort);
+    public function getRouterInterfaces(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        int $clientPort = 8728,
+        ?string $clientFirmwareVersion = null
+    ): array {
+        return $this->interfaceReader->getRouterInterfaces(
+            $clientIp,
+            $clientUser,
+            $clientPass,
+            $clientPort,
+            $clientFirmwareVersion
+        );
     }
 
     /**
      * Apply block rules to a client router
      */
-    public function applyBlockRulesViaCore(string $clientIp, string $clientUser, string $clientPass, string $wanInterface, string $portalIp, int $apiPort = 8728): array
+    public function applyBlockRulesViaCore(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $wanInterface,
+        string $portalIp,
+        int $apiPort = 8728,
+        ?string $clientFirmwareVersion = null
+    ): array
     {
         return $this->firewallManager->applyBlockRulesViaCore(
             $clientIp,
@@ -275,7 +294,8 @@ class MikroTikSshService
             $clientPass,
             $wanInterface,
             $portalIp,
-            $apiPort
+            $apiPort,
+            $clientFirmwareVersion
         );
     }
 

@@ -533,7 +533,15 @@
                   <ul class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
                     <li class="flex items-start gap-2">
                       <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                      <span>Crear address-list "ISPWATCH_SUSPENDIDOS" para gestionar usuarios morosos</span>
+                      <span>Crear address-list <code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded text-xs">ISPWATCH_SUSPENDIDOS</code> para gestionar usuarios morosos</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <icon-lucide-check class="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <span>Regla filter <code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded text-xs">ALLOW-PORTAL</code> — permitir acceso al portal de pago para usuarios suspendidos</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <icon-lucide-check class="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                      <span>Regla filter <code class="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded text-xs">DROP-SUSPENDED</code> — bloquear todo el tráfico de usuarios suspendidos</span>
                     </li>
                     <li class="flex items-start gap-2">
                       <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
@@ -542,10 +550,6 @@
                     <li class="flex items-start gap-2">
                       <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
                       <span>Regla NAT para redirigir HTTPS (puerto 443) al portal de pago</span>
-                    </li>
-                    <li class="flex items-start gap-2">
-                      <icon-lucide-check class="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                      <span>Regla de firewall para bloquear todo el resto del tráfico hacia {{ selectedBlockRouter.wan_interface }}</span>
                     </li>
                   </ul>
                 </div>

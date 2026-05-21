@@ -55,8 +55,9 @@ class CustomVerifyEmail extends VerifyEmailBase
             'verification.verify',
             Carbon::now()->addMinutes(60),
             [
-                'id' => $notifiable->getKey(),
-                'hash' => sha1($notifiable->getEmailForVerification()),
+                'id'    => $notifiable->getKey(),
+                'hash'  => sha1($notifiable->getEmailForVerification()),
+                'token' => $notifiable->email_verification_token,
             ]
         );
     }

@@ -11,6 +11,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use App\Notifications\CustomVerifyEmail;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
@@ -24,6 +25,8 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function sendEmailVerificationNotification()
     {
+        $token = Str::random(64);
+        $this->updateQuietly(['email_verification_token' => $token]);
         $this->notify(new CustomVerifyEmail());
     }
 
@@ -43,6 +46,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'last_access',
         'deleted_at',
         'permissions',
+        'email_verification_token',
     ];
 
     protected $hidden = [

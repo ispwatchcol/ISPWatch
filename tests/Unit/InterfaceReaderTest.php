@@ -43,9 +43,9 @@ class InterfaceReaderTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame('CORE_SSH_EXEC', $result['method']);
-        $this->assertCount(2, $result['interfaces']);
+        // Only physical ether/sfp ports are valid WAN candidates; vlan, bridge, l2tp are excluded.
+        $this->assertCount(1, $result['interfaces']);
         $this->assertSame('ether1', $result['interfaces'][0]['name']);
-        $this->assertSame('vlan105', $result['interfaces'][1]['name']);
     }
 
     public function test_it_falls_back_to_terse_output_parser(): void
@@ -62,12 +62,11 @@ class InterfaceReaderTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame('CORE_SSH_EXEC', $result['method']);
-        $this->assertCount(2, $result['interfaces']);
+        // Only ether1 OLT survives — vlan/l2tp/bridge are excluded as non-physical WAN candidates.
+        $this->assertCount(1, $result['interfaces']);
         $this->assertTrue($result['interfaces'][0]['running']);
-        $this->assertTrue($result['interfaces'][1]['disabled']);
         $this->assertSame('ether1 OLT', $result['interfaces'][0]['name']);
-        $this->assertSame('vlan 104 WAN', $result['interfaces'][1]['name']);
-        $this->assertSame('vlan', $result['interfaces'][1]['type']);
+        $this->assertSame('ether', $result['interfaces'][0]['type']);
     }
 
     public function test_it_parses_wrapped_ssh_exec_output(): void
@@ -79,9 +78,9 @@ class InterfaceReaderTest extends TestCase
         $result = $reader->getRouterInterfaces('172.123.155.254', 'admin', 'secret');
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['interfaces']);
+        // Only the physical ether port survives the WAN filter; vlan/bridge are excluded.
+        $this->assertCount(1, $result['interfaces']);
         $this->assertSame('ether3 Router', $result['interfaces'][0]['name']);
-        $this->assertSame('vlan104', $result['interfaces'][1]['name']);
     }
 
     public function test_it_surfaces_router_command_errors_from_ssh_exec_output(): void
@@ -92,6 +91,40 @@ class InterfaceReaderTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('no such item', $result['message']);
+        $this->assertSame([], $result['interfaces']);
+    }
+
+    public function test_it_parses_envelope_with_isp_markers_and_extracts_interfaces(): void
+    {
+        // Simulates the new :do/:put envelope output from the CORE script.
+        // tostr_envelope variant on RouterOS 7.x would produce something like this.
+        $envelope = "ISP_BEGIN\n" .
+                    "exit-code=0;output=Flags: X - disabled, R - running\n" .
+                    " 0  R name=\"ether1\" type=\"ether\" running=yes disabled=no\n" .
+                    "ISP_END:0\n";
+
+        $reader = $this->makeReaderWithSshOutput($envelope);
+
+        $result = $reader->getRouterInterfaces('172.16.16.254', 'admin', 'secret');
+
+        $this->assertTrue($result['success'], 'should parse envelope and extract interface (got: ' . ($result['message'] ?? 'no message') . ')');
+        $this->assertSame('CORE_SSH_EXEC', $result['method']);
+        $this->assertCount(1, $result['interfaces']);
+        $this->assertSame('ether1', $result['interfaces'][0]['name']);
+    }
+
+    public function test_it_detects_isp_fail_marker_when_ssh_exec_throws_on_client(): void
+    {
+        // Simulates the case where /system ssh-exec hits on-error (e.g. client SSH
+        // auth fails or client is unreachable). The envelope contains ISP_FAIL.
+        $envelope = "ISP_BEGIN\nISP_FAIL\nISP_END:1\n";
+
+        $reader = $this->makeReaderWithSshOutput($envelope);
+
+        $result = $reader->getRouterInterfaces('172.16.16.254', 'admin', 'secret');
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('no pudo ejecutar ssh-exec', $result['message']);
         $this->assertSame([], $result['interfaces']);
     }
 

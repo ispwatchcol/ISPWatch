@@ -207,10 +207,13 @@ class VpnService
         // permitir gestión en el firewall del cliente. Fallback al supernet
         // 172.16.0.0/12 (cubre todos los /24 que genera la fórmula de tenants).
         $mgmtNet = '172.16.0.0/12';
+        $coreTunnelIp = '';
         if ($tenantId) {
             $this->ensureTenantVpnResources((int) $tenantId);
-            $vpnProfile = $this->getProfileName((int) $tenantId);
-            $mgmtNet    = $this->getTenantSubnet((int) $tenantId)['network_cidr'];
+            $vpnProfile   = $this->getProfileName((int) $tenantId);
+            $subnet       = $this->getTenantSubnet((int) $tenantId);
+            $mgmtNet      = $subnet['network_cidr'];
+            $coreTunnelIp = $subnet['local_address'];
         }
 
         // Intentar crear/actualizar el secret en el CORE vía API
@@ -228,6 +231,33 @@ class VpnService
 
 
         // ==============================
+        // BLOQUE OPCIONAL: ruta de gestión + watchdog netwatch
+        // ==============================
+        // Solo se aplica cuando hay tenantId, porque el fallback /12 es
+        // demasiado amplio para enrutar todo por el túnel sin riesgo.
+        $tenantBlock = '';
+        if ($coreTunnelIp) {
+            $tenantBlock = <<<TENANT
+
+
+# ====================================
+# RUTA DE GESTIÓN POR EL TÚNEL
+# ====================================
+# Asegura que el tráfico hacia la red de gestión del CORE ({$mgmtNet})
+# viaje por el túnel L2TP. Idempotente por comentario.
+/ip route remove [find comment="ISPWatch-VPN-MGMT-Route"]
+/ip route add dst-address={$mgmtNet} gateway=ISPWatch-VPN-CORE comment="ISPWatch-VPN-MGMT-Route" disabled=no
+
+# ====================================
+# WATCHDOG DE SALUD VPN (Netwatch)
+# ====================================
+# Ping al CORE ({$coreTunnelIp}) cada 60s por el túnel. Si no responde,
+# reinicia automáticamente el L2TP. También registra eventos UP/DOWN en
+# /log para diagnóstico. Idempotente por comentario.
+/tool netwatch remove [find comment="ISPWatch-VPN-Watchdog"]
+/tool netwatch add host={$coreTunnelIp} interval=60s timeout=5s comment="ISPWatch-VPN-Watchdog" up-script=":log info \"ISPWatch: VPN UP - CORE {$coreTunnelIp} alcanzable\"" down-script=":local d [/interface l2tp-client get [find name=ISPWatch-VPN-CORE] disabled]; :if (\$d = false) do={/interface l2tp-client disable [find name=ISPWatch-VPN-CORE]; :delay 3s; /interface l2tp-client enable [find name=ISPWatch-VPN-CORE]; :log warning \"ISPWatch: VPN DOWN - reiniciando L2TP (watchdog)\"}"
+TENANT;
+        }
 
         // Script con configuración completa: usuario de gestión + VPN
         return <<<SCRIPT
@@ -272,6 +302,15 @@ add name="ISPWatch-VPN-CORE" \\
 
 # Asegurar que la interfaz inicie habilitada
 /interface l2tp-client enable [find name="ISPWatch-VPN-CORE"]
+
+# ====================================
+# AUTO-REINICIO PROGRAMADO DE LA VPN
+# ====================================
+# Reinicia el túnel L2TP cada 6 horas (a las 04:00, 10:00, 16:00, 22:00)
+# para evitar conexiones colgadas. Idempotente por comentario: re-aplicar
+# el script no duplica el scheduler.
+/system scheduler remove [find comment="ISPWatch-VPN-Health"]
+/system scheduler add name="ISPWatch-VPN-Health" comment="ISPWatch-VPN-Health" interval=6h start-time=04:00:00 policy=read,write on-event="/interface l2tp-client disable [find name=ISPWatch-VPN-CORE]; :delay 5s; /interface l2tp-client enable [find name=ISPWatch-VPN-CORE]; :log info \"ISPWatch: VPN reiniciada por scheduler\""{$tenantBlock}
 SCRIPT;
     }
 
