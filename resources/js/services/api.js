@@ -47,6 +47,7 @@ export { default as inventoryApi } from './api/inventory'
 export { default as sectorialsApi } from './api/sectorials'
 export { default as tenantApi } from './api/tenant'
 export { default as rolesApi } from './api/roles'
+export { default as helpCenterApi } from './api/help-center'
 
 // =========================
 // LEGACY DEFAULT EXPORT (backward-compatible)
@@ -61,6 +62,7 @@ import inventoryApi from './api/inventory'
 import sectorialsApi from './api/sectorials'
 import tenantApi from './api/tenant'
 import rolesApi from './api/roles'
+import helpCenterApi from './api/help-center'
 
 export default {
   auth: authApi,
@@ -74,4 +76,5 @@ export default {
   sectorials: sectorialsApi,
   tenant: tenantApi,
   roles: rolesApi,
+  helpCenter: helpCenterApi,
 }

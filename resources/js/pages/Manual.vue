@@ -1,12 +1,12 @@
 <template>
-  <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+  <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
     <!-- Header -->
-    <div class="flex justify-between items-center mb-6">
+    <div class="flex justify-between items-center mb-4">
       <div>
-        <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
           Centro de Ayuda
         </h1>
-        <p class="text-gray-500 dark:text-gray-400 mt-1">Documentación oficial y guías de uso del sistema</p>
+        <p class="text-gray-500 dark:text-gray-400 text-sm">Documentación oficial y guías de uso del sistema</p>
       </div>
       <div v-if="isSuperadmin" class="flex gap-2">
         <button @click="openCategoryModal()" class="px-4 py-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-white border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition flex items-center gap-2">
@@ -24,23 +24,23 @@
     </div>
     
     <div v-else class="mx-auto w-full">
-      <div v-if="categories.length === 0" class="text-center py-20 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+      <div v-if="categories.length === 0" class="text-center py-16 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
         <v-icon name="hi-book-open" class="w-16 h-16 mx-auto mb-4 opacity-50" />
         <p class="text-lg">Aún no hay artículos publicados en el Centro de Ayuda.</p>
       </div>
 
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
         <!-- Category Card -->
-        <div 
-          v-for="category in categories" 
-          :key="category.id" 
-          class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden"
+        <div
+          v-for="category in categories"
+          :key="category.id"
+          class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden"
         >
-          <div class="px-5 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-               <v-icon v-if="category.icon" :name="category.icon" class="text-indigo-600 dark:text-indigo-400 w-5 h-5" />
-               <v-icon v-else name="hi-folder" class="text-indigo-600 dark:text-indigo-400 w-5 h-5" />
-              <h3 class="font-semibold text-gray-900 dark:text-white">{{ category.name }}</h3>
+          <div class="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/80 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+               <v-icon v-if="category.icon" :name="category.icon" class="text-indigo-500 dark:text-indigo-400 w-4 h-4" />
+               <v-icon v-else name="hi-folder" class="text-indigo-500 dark:text-indigo-400 w-4 h-4" />
+              <h3 class="font-semibold text-sm text-gray-900 dark:text-white">{{ category.name }}</h3>
             </div>
             
             <div v-if="isSuperadmin" class="flex gap-1">
@@ -53,31 +53,31 @@
             </div>
           </div>
           
-          <ul class="py-2">
-            <li v-if="!category.articles.length" class="px-5 py-6 text-sm text-center text-gray-400 dark:text-gray-500 italic">
+          <ul class="py-1">
+            <li v-if="!category.articles.length" class="px-4 py-4 text-xs text-center text-gray-400 dark:text-gray-500 italic">
               No hay artículos en esta categoría.
             </li>
-            <li 
-              v-for="item in category.articles" 
+            <li
+              v-for="item in category.articles"
               :key="item.id"
               class="group flex justify-between items-center px-1"
             >
-              <button 
+              <button
                 @click="openItem(item)"
-                class="flex-1 text-left px-4 py-2.5 mx-2 my-0.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-gray-700 hover:text-indigo-700 dark:hover:text-indigo-300 text-sm font-medium transition-colors flex justify-between items-center"
+                class="flex-1 text-left px-3 py-1.5 mx-1.5 my-0.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-gray-700 hover:text-indigo-700 dark:hover:text-indigo-300 text-sm transition-colors flex justify-between items-center"
               >
-                <div class="flex items-center gap-2">
-                  <span v-if="!item.is_published" class="w-2 h-2 rounded-full bg-orange-400" title="Borrador"></span>
+                <div class="flex items-center gap-1.5">
+                  <span v-if="!item.is_published" class="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" title="Borrador"></span>
                   {{ item.title }}
                 </div>
-                <v-icon name="hi-chevron-right" class="text-gray-300 dark:text-gray-600 w-4 h-4 group-hover:text-indigo-400 transition-colors" />
+                <v-icon name="hi-chevron-right" class="text-gray-300 dark:text-gray-600 w-3.5 h-3.5 shrink-0 group-hover:text-indigo-400 transition-colors" />
               </button>
-              
-              <div v-if="isSuperadmin" class="pr-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                 <button @click.stop="openArticleModal(item)" class="p-1.5 text-gray-400 hover:text-indigo-600 rounded">
+
+              <div v-if="isSuperadmin" class="pr-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                 <button @click.stop="openArticleModal(item)" class="p-1 text-gray-400 hover:text-indigo-600 rounded">
                     <v-icon name="md-edit" class="w-3 h-3"/>
                  </button>
-                 <button @click.stop="deleteArticle(item.id)" class="p-1.5 text-gray-400 hover:text-red-600 rounded">
+                 <button @click.stop="deleteArticle(item.id)" class="p-1 text-gray-400 hover:text-red-600 rounded">
                     <v-icon name="md-delete" class="w-3 h-3"/>
                  </button>
               </div>

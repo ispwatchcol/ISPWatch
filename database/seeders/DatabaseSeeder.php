@@ -26,6 +26,7 @@ class DatabaseSeeder extends Seeder
             RouterSeeder::class,
             UsersSeeder::class,
             CustomerSeeder::class,
+            HelpCenterSeeder::class,
         ]);
 
         echo "✅ Database Seeded Successfully!\n";
