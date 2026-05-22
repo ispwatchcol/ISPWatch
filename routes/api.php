@@ -125,6 +125,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/billing/configs/{id}', [BillingController::class, 'updateBillingConfig']);
         Route::post('/billing/run-auto-cut', [BillingController::class, 'runAutoCut']);
 
+        // Additional charges (cargo adicional sin ticket)
+        Route::post('/billing/additional-charges', [BillingController::class, 'storeAdditionalCharge']);
+
         // Payment Reminders
         Route::post('/billing/invoices/{id}/send-reminder', [PaymentReminderController::class, 'sendReminder']);
         Route::post('/billing/invoices/bulk-reminders', [PaymentReminderController::class, 'sendBulkReminders']);
@@ -144,6 +147,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
         Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
         Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
+        // Ticket charges
+        Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge']);
+        Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges']);
     });
 
     // ─── CRUD RESOURCES ───

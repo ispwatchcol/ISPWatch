@@ -639,6 +639,7 @@ const form = reactive({
     metodo: "",
     notificar_wpp: false,
     remember_day: null,
+    payment_reminder_enabled: true,
     notification_type: 'email',
     billing_mode: 'anticipado',
   }
@@ -736,6 +737,9 @@ const loadRouterData = async () => {
         form.billing.metodo = data.billing.id_type
         form.billing.comentarios = data.billing.comments || ''
         form.billing.notificar_wpp = !!data.billing.notificar_wpp
+        // payment_reminder_enabled defaults to true when undefined/null for backwards compat
+        // with rows created before the column existed.
+        form.billing.payment_reminder_enabled = data.billing.payment_reminder_enabled === false ? false : true
         form.billing.notification_type = data.billing.notification_type || 'email'
         form.billing.billing_mode = data.billing.billing_mode || 'anticipado'
     }
@@ -782,6 +786,7 @@ const saveBilling = async () => {
     cut_day: dayToDate(form.billing.cut_day),
     payment_day: dayToDate(form.billing.pay_day),
     payment_reminder: dayToDate(form.billing.remember_day),
+    payment_reminder_enabled: form.billing.payment_reminder_enabled !== false,
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),

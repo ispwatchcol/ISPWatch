@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
@@ -15,9 +16,14 @@ use App\Models\Tenant;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class BillingService
 {
+    public function __construct(protected WhatsAppService $whatsAppService)
+    {
+    }
+
     /**
      * Get the active service plan for a customer via user_services.
      *
@@ -75,19 +81,26 @@ class BillingService
      *   - 'vencido'             : the previous month (cobro vencido)
      * An explicit $period overrides the mode for ALL routers (manual backfill).
      *
-     * @param string|null $period  Format: YYYY-MM. Null = derive per router.
+     * @param string|null $period   Format: YYYY-MM. Null = derive per router.
+     * @param int|null    $routerId Limit to a specific router (null = all). Used by the
+     *                              simulator/manual ops to focus a single tenant.
      * @return int Number of invoices created
      */
-    public function generateMonthlyInvoices(?string $period = null): int
+    public function generateMonthlyInvoices(?string $period = null, ?int $routerId = null): int
     {
         $periodExplicit = $period !== null;
         $today          = now();
         $created        = 0;
 
         // ── Iterate routers that have a billing config ──────────────────────
-        $routers = Router::with(['billingConfig', 'customers'])
-            ->whereNotNull('billing_router_id')
-            ->get();
+        $routerQuery = Router::with(['billingConfig', 'customers'])
+            ->whereNotNull('billing_router_id');
+
+        if ($routerId !== null) {
+            $routerQuery->where('id', $routerId);
+        }
+
+        $routers = $routerQuery->get();
 
         Log::info("Billing: Checking {$routers->count()} router(s) with billing config.");
 
@@ -236,6 +249,16 @@ class BillingService
                     $created++;
 
                     Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id}).");
+
+                    // Notify customer that a new invoice was issued (email / whatsapp / both
+                    // per the router's notification_type). Failure to notify must NOT
+                    // roll back the invoice creation.
+                    try {
+                        $invoice->refresh()->load('tenant');
+                        $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+                    } catch (\Throwable $e) {
+                        Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+                    }
                 } catch (\Exception $e) {
                     Log::error("Billing: Failed to create invoice for customer {$customerId}: {$e->getMessage()}");
                 }
@@ -245,6 +268,72 @@ class BillingService
         Log::info("Billing: Generation complete. {$created} invoice(s) created for period {$period}.");
 
         return $created;
+    }
+
+    /**
+     * Generate a service charge invoice (from a ticket or as a standalone additional charge).
+     *
+     * @param array $data {tenant_id, customer_id, items[], ticket_id?, invoice_type?, due_date?, notes?}
+     * @return Invoice
+     */
+    public function generateServiceChargeInvoice(array $data): Invoice
+    {
+        return DB::transaction(function () use ($data) {
+            $tenantId   = $data['tenant_id'];
+            $customerId = $data['customer_id'];
+            $ticketId   = $data['ticket_id'] ?? null;
+            $items      = $data['items'];
+            $issueDate  = now()->startOfDay();
+            $dueDate    = isset($data['due_date'])
+                ? \Carbon\Carbon::parse($data['due_date'])->startOfDay()
+                : $issueDate->copy()->addDays(5);
+            $notes      = $data['notes'] ?? null;
+            $type       = $data['invoice_type'] ?? ($ticketId ? Invoice::TYPE_SERVICE_CHARGE : Invoice::TYPE_ADDITIONAL);
+
+            $subtotal = collect($items)->sum(fn($item) => (float) $item['quantity'] * (float) $item['unit_price']);
+
+            $invoiceNumber = $this->generateInvoiceNumber($tenantId);
+
+            $invoice = Invoice::create([
+                'tenant_id'    => $tenantId,
+                'customer_id'  => $customerId,
+                'ticket_id'    => $ticketId,
+                'invoice_type' => $type,
+                'number'       => $invoiceNumber,
+                'issue_date'   => $issueDate,
+                'due_date'     => $dueDate,
+                'period_start' => $issueDate,
+                'period_end'   => $dueDate,
+                'currency'     => 'COP',
+                'subtotal'     => $subtotal,
+                'tax'          => 0,
+                'total'        => $subtotal,
+                'balance_due'  => $subtotal,
+                'status'       => 'issued',
+                'notes'        => $notes,
+            ]);
+
+            foreach ($items as $item) {
+                $amount = (float) $item['quantity'] * (float) $item['unit_price'];
+                InvoiceItem::create([
+                    'invoice_id'  => $invoice->id,
+                    'type'        => $item['type'] ?? 'service',
+                    'description' => $item['description'],
+                    'quantity'    => $item['quantity'],
+                    'unit_price'  => $item['unit_price'],
+                    'amount'      => $amount,
+                ]);
+            }
+
+            $profile = \App\Models\CustomerProfile::where('user_id', $customerId)->first();
+            if ($profile) {
+                $this->applyCreditToInvoice($invoice, $profile);
+            }
+
+            Log::info("Billing: Service charge invoice {$invoiceNumber} created for customer {$customerId}" . ($ticketId ? " (ticket #{$ticketId})" : '') . '.');
+
+            return $invoice->load(['items', 'customer.customerProfile', 'tenant']);
+        });
     }
 
     /**
@@ -455,6 +544,48 @@ class BillingService
             $this->reversePaymentAllocations($payment);
             $payment->delete();
         });
+    }
+
+    /**
+     * Notify the customer that a new invoice was issued, using the channel
+     * configured in the router's billing config (email / whatsapp / both).
+     * Silent no-op when a channel is selected but contact info or external
+     * credentials are missing — the failure is logged inside the caller's
+     * try/catch.
+     */
+    protected function notifyInvoiceCreated(Invoice $invoice, CustomerProfile $profile, Billing $billingConfig): void
+    {
+        $customer = $invoice->customer;
+        if (!$customer) {
+            return;
+        }
+
+        $periodLabel = $invoice->period_start
+            ? Carbon::parse($invoice->period_start)->locale('es')->isoFormat('MMMM YYYY')
+            : null;
+
+        $data = [
+            'customer_name'  => trim("{$profile->name} {$profile->last_name}") ?: ($customer->name ?? 'Cliente'),
+            'invoice_number' => $invoice->number,
+            'amount'         => $invoice->balance_due ?? $invoice->total,
+            'due_date'       => $invoice->due_date,
+            'issue_date'     => $invoice->issue_date,
+            'company_name'   => $invoice->tenant?->name ?? 'ISPWatch',
+            'period_label'   => $periodLabel,
+        ];
+
+        $type = $billingConfig->notification_type ?: 'email';
+
+        if (in_array($type, ['email', 'both'], true) && $customer->email) {
+            Mail::to($customer->email)->send(new InvoiceCreatedMail($data));
+        }
+
+        if (in_array($type, ['whatsapp', 'both'], true)) {
+            $phone = $profile->phone ?? $customer->tel ?? null;
+            if ($phone && $this->whatsAppService->isConfigured()) {
+                $this->whatsAppService->sendInvoiceCreated($phone, $data);
+            }
+        }
     }
 
     /**

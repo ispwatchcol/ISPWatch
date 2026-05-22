@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Invoice;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketMessage;
 use App\Models\SupportTicketAttachment;
 use App\Models\User;
+use App\Services\BillingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -516,5 +518,61 @@ class SupportTicketController extends Controller
         return response()->json([
             'message' => 'Mensaje eliminado correctamente. ✅'
         ]);
+    }
+
+    /**
+     * Generate a charge invoice linked to this ticket.
+     */
+    public function generateCharge(Request $request, $id)
+    {
+        $ticket = SupportTicket::findOrFail($id);
+
+        $data = $request->validate([
+            'items'               => 'required|array|min:1',
+            'items.*.description' => 'required|string|max:255',
+            'items.*.quantity'    => 'required|numeric|min:0.01',
+            'items.*.unit_price'  => 'required|numeric|min:0',
+            'items.*.type'        => 'nullable|string|max:50',
+            'due_date'            => 'nullable|date',
+            'notes'               => 'nullable|string',
+        ]);
+
+        try {
+            $billingService = app(BillingService::class);
+
+            $invoice = $billingService->generateServiceChargeInvoice([
+                'tenant_id'   => $ticket->tenant_id,
+                'customer_id' => $ticket->user_id,
+                'ticket_id'   => $ticket->id,
+                'items'       => $data['items'],
+                'due_date'    => $data['due_date'] ?? null,
+                'notes'       => $data['notes'] ?? "Cargo por ticket #{$ticket->id}: {$ticket->subject}",
+            ]);
+
+            return response()->json([
+                'message' => 'Cargo generado correctamente. ✅',
+                'invoice' => $invoice,
+            ], 201);
+        } catch (\Exception $e) {
+            \Log::error('Error generating ticket charge: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al generar el cargo.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * List all charge invoices linked to this ticket.
+     */
+    public function getCharges($id)
+    {
+        $ticket  = SupportTicket::findOrFail($id);
+        $charges = Invoice::with(['items', 'payments'])
+            ->where('ticket_id', $ticket->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json($charges);
     }
 }
