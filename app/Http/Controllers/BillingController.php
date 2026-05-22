@@ -48,6 +48,9 @@ class BillingController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
+        if ($request->filled('invoice_type')) {
+            $query->where('invoice_type', $request->invoice_type);
+        }
         if ($request->filled('period')) {
             try {
                 $period = \Illuminate\Support\Carbon::parse($request->period)->format('Y-m');
@@ -70,7 +73,7 @@ class BillingController extends Controller
     // Show Invoice
     public function show($id)
     {
-        return response()->json(Invoice::with(['customer', 'items', 'payments'])->findOrFail($id));
+        return response()->json(Invoice::with(['customer', 'items', 'payments', 'ticket'])->findOrFail($id));
     }
 
     // Manual Create (Draft)
@@ -167,10 +170,49 @@ class BillingController extends Controller
         return response()->json(['message' => 'Pago eliminado correctamente.']);
     }
 
+    // Create standalone additional charge (not linked to a ticket)
+    public function storeAdditionalCharge(Request $request)
+    {
+        $data = $request->validate([
+            'customer_id'         => 'required|exists:users,id',
+            'items'               => 'required|array|min:1',
+            'items.*.description' => 'required|string|max:255',
+            'items.*.quantity'    => 'required|numeric|min:0.01',
+            'items.*.unit_price'  => 'required|numeric|min:0',
+            'items.*.type'        => 'nullable|string|max:50',
+            'due_date'            => 'nullable|date',
+            'notes'               => 'nullable|string',
+        ]);
+
+        $tenantId = $request->user()?->tenant_id;
+
+        try {
+            $invoice = $this->billingService->generateServiceChargeInvoice([
+                'tenant_id'    => $tenantId,
+                'customer_id'  => $data['customer_id'],
+                'invoice_type' => Invoice::TYPE_ADDITIONAL,
+                'items'        => $data['items'],
+                'due_date'     => $data['due_date'] ?? null,
+                'notes'        => $data['notes'] ?? null,
+            ]);
+
+            return response()->json([
+                'message' => 'Cargo adicional generado correctamente. ✅',
+                'invoice' => $invoice,
+            ], 201);
+        } catch (\Exception $e) {
+            \Log::error('Error generating additional charge: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al generar el cargo adicional.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     // PDF Download
     public function downloadPdf($id)
     {
-        $invoice = Invoice::with(['customer.customerProfile', 'items', 'tenant'])->findOrFail($id);
+        $invoice = Invoice::with(['customer.customerProfile', 'items', 'tenant', 'ticket'])->findOrFail($id);
 
         $pdf = Pdf::loadView('billing.invoice_pdf', compact('invoice'));
         return $pdf->download('Invoice-' . $invoice->number . '.pdf');

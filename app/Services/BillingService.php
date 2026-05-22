@@ -271,6 +271,72 @@ class BillingService
     }
 
     /**
+     * Generate a service charge invoice (from a ticket or as a standalone additional charge).
+     *
+     * @param array $data {tenant_id, customer_id, items[], ticket_id?, invoice_type?, due_date?, notes?}
+     * @return Invoice
+     */
+    public function generateServiceChargeInvoice(array $data): Invoice
+    {
+        return DB::transaction(function () use ($data) {
+            $tenantId   = $data['tenant_id'];
+            $customerId = $data['customer_id'];
+            $ticketId   = $data['ticket_id'] ?? null;
+            $items      = $data['items'];
+            $issueDate  = now()->startOfDay();
+            $dueDate    = isset($data['due_date'])
+                ? \Carbon\Carbon::parse($data['due_date'])->startOfDay()
+                : $issueDate->copy()->addDays(5);
+            $notes      = $data['notes'] ?? null;
+            $type       = $data['invoice_type'] ?? ($ticketId ? Invoice::TYPE_SERVICE_CHARGE : Invoice::TYPE_ADDITIONAL);
+
+            $subtotal = collect($items)->sum(fn($item) => (float) $item['quantity'] * (float) $item['unit_price']);
+
+            $invoiceNumber = $this->generateInvoiceNumber($tenantId);
+
+            $invoice = Invoice::create([
+                'tenant_id'    => $tenantId,
+                'customer_id'  => $customerId,
+                'ticket_id'    => $ticketId,
+                'invoice_type' => $type,
+                'number'       => $invoiceNumber,
+                'issue_date'   => $issueDate,
+                'due_date'     => $dueDate,
+                'period_start' => $issueDate,
+                'period_end'   => $dueDate,
+                'currency'     => 'COP',
+                'subtotal'     => $subtotal,
+                'tax'          => 0,
+                'total'        => $subtotal,
+                'balance_due'  => $subtotal,
+                'status'       => 'issued',
+                'notes'        => $notes,
+            ]);
+
+            foreach ($items as $item) {
+                $amount = (float) $item['quantity'] * (float) $item['unit_price'];
+                InvoiceItem::create([
+                    'invoice_id'  => $invoice->id,
+                    'type'        => $item['type'] ?? 'service',
+                    'description' => $item['description'],
+                    'quantity'    => $item['quantity'],
+                    'unit_price'  => $item['unit_price'],
+                    'amount'      => $amount,
+                ]);
+            }
+
+            $profile = \App\Models\CustomerProfile::where('user_id', $customerId)->first();
+            if ($profile) {
+                $this->applyCreditToInvoice($invoice, $profile);
+            }
+
+            Log::info("Billing: Service charge invoice {$invoiceNumber} created for customer {$customerId}" . ($ticketId ? " (ticket #{$ticketId})" : '') . '.');
+
+            return $invoice->load(['items', 'customer.customerProfile', 'tenant']);
+        });
+    }
+
+    /**
      * Register a payment and allocate it to invoices.
      *
      * @param array $data

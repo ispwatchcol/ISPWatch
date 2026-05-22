@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Invoice;
 
 class SupportTicket extends Model
 {
@@ -66,6 +67,11 @@ class SupportTicket extends Model
     public function attachments()
     {
         return $this->hasMany(SupportTicketAttachment::class, 'ticket_id');
+    }
+
+    public function charges()
+    {
+        return $this->hasMany(Invoice::class, 'ticket_id')->orderBy('created_at', 'desc');
     }
 
     // Scopes

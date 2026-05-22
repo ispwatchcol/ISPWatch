@@ -20,6 +20,14 @@
         'cancelled' => '#6b7280',
     ][strtolower($invoice->status)] ?? '#1e5fa8';
 
+    $invoiceType  = $invoice->invoice_type ?? 'monthly';
+    $isCharge     = in_array($invoiceType, ['service_charge', 'additional']);
+    $typeLabel    = match($invoiceType) {
+        'service_charge' => 'CARGO POR SERVICIO',
+        'additional'     => 'CARGO ADICIONAL',
+        default          => 'DE VENTA DE SERVICIOS',
+    };
+
     $tenant      = $invoice->tenant;
     $companyName = $tenant->legal_name ?? $tenant->name ?? 'ISP Provider';
     $tradeName   = $tenant->trade_name ?? '';
@@ -40,6 +48,8 @@
     $custAddress = $profile?->address ?? '';
     $custCity    = $profile?->city ?? '';
     $custPhone   = $profile?->phone ?? $customer->phone ?? '';
+
+    $ticket = $invoice->ticket ?? null;
 @endphp
 <!DOCTYPE html>
 <html lang="es">
@@ -129,7 +139,7 @@
         </td>
         <td class="hdr-right">
             <div class="inv-title">FACTURA</div>
-            <div class="inv-sub">DE VENTA DE SERVICIOS</div>
+            <div class="inv-sub">{{ $typeLabel }}</div>
             <div class="inv-num">N° {{ $invoice->number }}</div>
         </td>
     </tr>
@@ -139,10 +149,14 @@
 <table width="100%" class="sbar">
     <tr>
         <td style="width:38%;">
-            <strong>Período:</strong>
-            {{ $invoice->period_start ? \Carbon\Carbon::parse($invoice->period_start)->format('d/m/Y') : '—' }}
-            al
-            {{ $invoice->period_end ? \Carbon\Carbon::parse($invoice->period_end)->format('d/m/Y') : '—' }}
+            @if($isCharge && $ticket)
+                <strong>Ticket Ref.:</strong> #{{ $ticket->id }} — {{ $ticket->subject }}
+            @else
+                <strong>Período:</strong>
+                {{ $invoice->period_start ? \Carbon\Carbon::parse($invoice->period_start)->format('d/m/Y') : '—' }}
+                al
+                {{ $invoice->period_end ? \Carbon\Carbon::parse($invoice->period_end)->format('d/m/Y') : '—' }}
+            @endif
         </td>
         <td style="width:22%; text-align:center;">
             <strong>Emisión:</strong> {{ $invoice->issue_date->format('d/m/Y') }}

@@ -10,10 +10,16 @@ class Invoice extends Model
 {
     use HasFactory, BelongsToTenant;
 
+    const TYPE_MONTHLY = 'monthly';
+    const TYPE_SERVICE_CHARGE = 'service_charge';
+    const TYPE_ADDITIONAL = 'additional';
+
     protected $fillable = [
         'tenant_id',
         'customer_id',
         'service_id',
+        'invoice_type',
+        'ticket_id',
         'number',
         'issue_date',
         'due_date',
@@ -61,5 +67,10 @@ class Invoice extends Model
         return $this->belongsToMany(Payment::class, 'payment_allocations')
             ->withPivot('amount')
             ->withTimestamps();
+    }
+
+    public function ticket()
+    {
+        return $this->belongsTo(SupportTicket::class, 'ticket_id');
     }
 }
