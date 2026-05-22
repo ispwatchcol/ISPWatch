@@ -186,6 +186,7 @@ class ImportController extends Controller
                 ['field' => 'nombre_plan', 'required' => true, 'description' => 'Nombre del plan (debe existir o estar en la hoja Planes)', 'example' => 'Internet 10MB'],
                 ['field' => 'nombre_sectorial', 'required' => true, 'description' => 'Nombre de la sectorial asignada (debe existir)', 'example' => 'Sectorial Norte'],
                 ['field' => 'email', 'required' => false, 'description' => 'Email único. Si se omite, se genera como nombre.apellido@dominio-tenant', 'example' => 'juan@mail.com'],
+                ['field' => 'cedula', 'required' => false, 'description' => 'Cédula / documento de identidad del cliente', 'example' => '1010101010'],
                 ['field' => 'telefono', 'required' => false, 'description' => 'Teléfono de contacto', 'example' => '3001234567'],
                 ['field' => 'direccion', 'required' => false, 'description' => 'Dirección física', 'example' => 'Calle 1 #2-3'],
                 ['field' => 'ciudad', 'required' => false, 'description' => 'Ciudad de residencia', 'example' => 'Bogotá'],
