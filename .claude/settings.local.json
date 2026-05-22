@@ -14,7 +14,8 @@
       "Bash(php -l app/Services/MikroTik/SuspensionManager.php)",
       "Bash(php -l app/Services/MikroTik/FirewallRulesManager.php)",
       "Bash(php vendor/bin/phpunit --filter FirewallRulesManagerTest)",
-      "Bash(php vendor/bin/phpunit --filter \"FirewallRules|Suspension\")"
+      "Bash(php vendor/bin/phpunit --filter \"FirewallRules|Suspension\")",
+      "Bash(php -l \"c:/Users/User/Desktop/GITHUB/ISPWatch/database/seeders/HelpCenterSeeder.php\")"
     ]
   }
 }

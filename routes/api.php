@@ -21,6 +21,7 @@ use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PaymentMethodController;
+use App\Http\Controllers\HelpCenterController;
 
 /*
 |--------------------------------------------------------------------------
@@ -190,6 +191,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['permission:settings.view'])->group(function () {
         Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
     });
+
+    // ─── HELP CENTER / MANUAL ───
+    Route::get('/help-center', [HelpCenterController::class, 'index']);
+    Route::post('/help-center/categories', [HelpCenterController::class, 'storeCategory']);
+    Route::put('/help-center/categories/{id}', [HelpCenterController::class, 'updateCategory']);
+    Route::delete('/help-center/categories/{id}', [HelpCenterController::class, 'destroyCategory']);
+    Route::post('/help-center/articles', [HelpCenterController::class, 'storeArticle']);
+    Route::put('/help-center/articles/{id}', [HelpCenterController::class, 'updateArticle']);
+    Route::delete('/help-center/articles/{id}', [HelpCenterController::class, 'destroyArticle']);
 
     // ─── MASS ACTIONS / IMPORT ───
     Route::middleware(['permission:mass_actions.execute'])->prefix('import')->group(function () {
