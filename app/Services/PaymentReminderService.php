@@ -26,9 +26,10 @@ class PaymentReminderService
     }
 
     /**
+     * @param int|null $routerId Limit processing to a specific router (null = all).
      * @return array{reminded:int, errors:int, routers_processed:int, skipped_not_due:int}
      */
-    public function sendDueReminders(): array
+    public function sendDueReminders(?int $routerId = null): array
     {
         $stats = [
             'reminded'          => 0,
@@ -39,9 +40,14 @@ class PaymentReminderService
 
         $now = Carbon::now();
 
-        $routers = Router::with('billingConfig')
-            ->whereNotNull('billing_router_id')
-            ->get();
+        $routerQuery = Router::with('billingConfig')
+            ->whereNotNull('billing_router_id');
+
+        if ($routerId !== null) {
+            $routerQuery->where('id', $routerId);
+        }
+
+        $routers = $routerQuery->get();
 
         Log::info("Reminders: checking {$routers->count()} router(s) with billing config.");
 

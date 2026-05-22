@@ -81,19 +81,26 @@ class BillingService
      *   - 'vencido'             : the previous month (cobro vencido)
      * An explicit $period overrides the mode for ALL routers (manual backfill).
      *
-     * @param string|null $period  Format: YYYY-MM. Null = derive per router.
+     * @param string|null $period   Format: YYYY-MM. Null = derive per router.
+     * @param int|null    $routerId Limit to a specific router (null = all). Used by the
+     *                              simulator/manual ops to focus a single tenant.
      * @return int Number of invoices created
      */
-    public function generateMonthlyInvoices(?string $period = null): int
+    public function generateMonthlyInvoices(?string $period = null, ?int $routerId = null): int
     {
         $periodExplicit = $period !== null;
         $today          = now();
         $created        = 0;
 
         // ── Iterate routers that have a billing config ──────────────────────
-        $routers = Router::with(['billingConfig', 'customers'])
-            ->whereNotNull('billing_router_id')
-            ->get();
+        $routerQuery = Router::with(['billingConfig', 'customers'])
+            ->whereNotNull('billing_router_id');
+
+        if ($routerId !== null) {
+            $routerQuery->where('id', $routerId);
+        }
+
+        $routers = $routerQuery->get();
 
         Log::info("Billing: Checking {$routers->count()} router(s) with billing config.");
 
