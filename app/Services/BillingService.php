@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
@@ -15,9 +16,14 @@ use App\Models\Tenant;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class BillingService
 {
+    public function __construct(protected WhatsAppService $whatsAppService)
+    {
+    }
+
     /**
      * Get the active service plan for a customer via user_services.
      *
@@ -236,6 +242,16 @@ class BillingService
                     $created++;
 
                     Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id}).");
+
+                    // Notify customer that a new invoice was issued (email / whatsapp / both
+                    // per the router's notification_type). Failure to notify must NOT
+                    // roll back the invoice creation.
+                    try {
+                        $invoice->refresh()->load('tenant');
+                        $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+                    } catch (\Throwable $e) {
+                        Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+                    }
                 } catch (\Exception $e) {
                     Log::error("Billing: Failed to create invoice for customer {$customerId}: {$e->getMessage()}");
                 }
@@ -455,6 +471,48 @@ class BillingService
             $this->reversePaymentAllocations($payment);
             $payment->delete();
         });
+    }
+
+    /**
+     * Notify the customer that a new invoice was issued, using the channel
+     * configured in the router's billing config (email / whatsapp / both).
+     * Silent no-op when a channel is selected but contact info or external
+     * credentials are missing — the failure is logged inside the caller's
+     * try/catch.
+     */
+    protected function notifyInvoiceCreated(Invoice $invoice, CustomerProfile $profile, Billing $billingConfig): void
+    {
+        $customer = $invoice->customer;
+        if (!$customer) {
+            return;
+        }
+
+        $periodLabel = $invoice->period_start
+            ? Carbon::parse($invoice->period_start)->locale('es')->isoFormat('MMMM YYYY')
+            : null;
+
+        $data = [
+            'customer_name'  => trim("{$profile->name} {$profile->last_name}") ?: ($customer->name ?? 'Cliente'),
+            'invoice_number' => $invoice->number,
+            'amount'         => $invoice->balance_due ?? $invoice->total,
+            'due_date'       => $invoice->due_date,
+            'issue_date'     => $invoice->issue_date,
+            'company_name'   => $invoice->tenant?->name ?? 'ISPWatch',
+            'period_label'   => $periodLabel,
+        ];
+
+        $type = $billingConfig->notification_type ?: 'email';
+
+        if (in_array($type, ['email', 'both'], true) && $customer->email) {
+            Mail::to($customer->email)->send(new InvoiceCreatedMail($data));
+        }
+
+        if (in_array($type, ['whatsapp', 'both'], true)) {
+            $phone = $profile->phone ?? $customer->tel ?? null;
+            if ($phone && $this->whatsAppService->isConfigured()) {
+                $this->whatsAppService->sendInvoiceCreated($phone, $data);
+            }
+        }
     }
 
     /**

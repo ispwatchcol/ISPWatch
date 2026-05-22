@@ -128,6 +128,31 @@ class WhatsAppService
     }
 
     /**
+     * Send "invoice created" notification via WhatsApp
+     *
+     * @param string $phoneNumber Customer phone number
+     * @param array $data Invoice data (customer_name, invoice_number, amount, due_date, company_name)
+     * @return array
+     */
+    public function sendInvoiceCreated(string $phoneNumber, array $data): array
+    {
+        $components = [
+            [
+                'type' => 'body',
+                'parameters' => [
+                    ['type' => 'text', 'text' => $data['customer_name']],
+                    ['type' => 'text', 'text' => $data['invoice_number']],
+                    ['type' => 'text', 'text' => number_format($data['amount'], 0, ',', '.')],
+                    ['type' => 'text', 'text' => $data['due_date']],
+                    ['type' => 'text', 'text' => $data['company_name'] ?? 'ISPWatch'],
+                ]
+            ]
+        ];
+
+        return $this->sendTemplateMessage($phoneNumber, 'invoice_created', $components);
+    }
+
+    /**
      * Check if WhatsApp is properly configured
      */
     public function isConfigured(): bool

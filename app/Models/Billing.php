@@ -20,6 +20,7 @@ class Billing extends Model
         'create_invoice',
         'payment_day',
         'payment_reminder',
+        'payment_reminder_enabled',
         'cut_day',
         'cut_time',
         'overdue_invoices',
@@ -33,12 +34,14 @@ class Billing extends Model
 
     protected $attributes = [
         'billing_mode' => self::MODE_ANTICIPADO,
+        'payment_reminder_enabled' => true,
     ];
 
     protected $casts = [
         'create_invoice' => 'date',
         'payment_day' => 'date',
         'payment_reminder' => 'date',
+        'payment_reminder_enabled' => 'boolean',
         'cut_day' => 'date',
         'overdue_invoices' => 'integer',
         'amount' => 'decimal:2',

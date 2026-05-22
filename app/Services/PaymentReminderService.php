@@ -51,6 +51,11 @@ class PaymentReminderService
                 continue;
             }
 
+            // Respect the per-router enable flag (UI toggle "Recordatorio de pago").
+            if (!$config->payment_reminder_enabled) {
+                continue;
+            }
+
             // Clamp the configured reminder day to this month's length.
             $reminderDay = Billing::clampDayToMonth(
                 Billing::dayOf($config->payment_reminder),

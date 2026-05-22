@@ -294,6 +294,7 @@ class BillingController extends Controller
             'create_invoice' => 'nullable|date',
             'payment_day' => 'nullable|date',
             'payment_reminder' => 'nullable|date',
+            'payment_reminder_enabled' => 'nullable|boolean',
             'cut_day' => 'nullable|date',
             'cut_time' => 'nullable|date_format:H:i,H:i:s',
             'overdue_invoices' => 'nullable|integer|min:1',
