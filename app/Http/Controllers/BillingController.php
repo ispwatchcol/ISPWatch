@@ -170,7 +170,7 @@ class BillingController extends Controller
     // PDF Download
     public function downloadPdf($id)
     {
-        $invoice = Invoice::with(['customer', 'items', 'tenant'])->findOrFail($id);
+        $invoice = Invoice::with(['customer.customerProfile', 'items', 'tenant'])->findOrFail($id);
 
         $pdf = Pdf::loadView('billing.invoice_pdf', compact('invoice'));
         return $pdf->download('Invoice-' . $invoice->number . '.pdf');
