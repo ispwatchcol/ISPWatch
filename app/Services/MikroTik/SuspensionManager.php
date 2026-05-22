@@ -331,11 +331,17 @@ class SuspensionManager
         //   2. remove every conntrack entry whose src/dst is that IP so in-flight TCP/UDP
         //      can't keep flowing past the freshly-installed drop rule.
         // Wrapped in :do/on-error so a benign "already have" on step 1 doesn't skip step 2.
+        // Quotes here MUST be plain `"`, not `\"`. The whole compound is later
+        // run through addslashes() inside executeSshExecViaCore(), which adds the
+        // backslash needed to survive the CORE-side RouterOS script parser. Using
+        // `\"` in the PHP source double-escapes and the client router receives a
+        // bare backslash before each quote — `add` then aborts silently inside the
+        // :do/on-error wrapper, and the IP never reaches the address-list.
         $compoundCmd =
             ':do { /ip firewall address-list add list=ISPWATCH_SUSPENDIDOS address=' . $suspendedIp .
-            ' comment=\"Cliente: ' . $customerName . '\" } on-error={}; ' .
-            '/ip firewall connection remove [find where src-address~\"' . $suspendedIp .
-            '\" or dst-address~\"' . $suspendedIp . '\"]';
+            ' comment="Cliente: ' . $customerName . '" } on-error={}; ' .
+            ':do { /ip firewall connection remove [find where src-address~"' . $suspendedIp .
+            '" or dst-address~"' . $suspendedIp . '"] } on-error={}';
 
         return $this->executeSshExecViaCore(
             $clientIp,
