@@ -96,7 +96,7 @@
             <div class="relative">
               <select
                 v-model="newMember.role_id"
-                @change="onRoleChange"
+  
                 class="w-full pl-3 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 cursor-pointer appearance-none hover:border-blue-400 dark:hover:border-blue-500"
               >
                 <option disabled value="">Selecciona un rol</option>

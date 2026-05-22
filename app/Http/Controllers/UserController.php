@@ -5,8 +5,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use App\Models\Role;
-use App\Constants\Permissions;
 use App\Traits\FixesSequences;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -77,7 +75,6 @@ class UserController extends Controller
             'email_tenant' => 'nullable|string',
             'tel' => 'nullable|string|max:20',
             'password' => 'required|string|min:6',
-            'permissions' => 'nullable|array',
         ]);
 
         // SECURITY FIX (OWASP A01): never trust tenant_id from the request —
@@ -103,16 +100,6 @@ class UserController extends Controller
         $data['password'] = Hash::make($data['password']);
         $data['status'] = true;
         $data['created_at'] = now();
-
-        // If no permissions provided, assign default permissions based on role
-        if (empty($data['permissions'])) {
-            $role = Role::find($data['role_id']);
-            if ($role) {
-                $data['permissions'] = Permissions::getPermissionsByRole($role->name);
-            } else {
-                $data['permissions'] = [];
-            }
-        }
 
         try {
             $user = User::create($data);
@@ -189,7 +176,6 @@ class UserController extends Controller
             'email_tenant' => 'nullable|string',
             'tel' => 'nullable|string|max:20',
             'password' => 'nullable|string|min:6',
-            'permissions' => 'nullable|array',
         ]);
 
         if (isset($data['email'])) {
