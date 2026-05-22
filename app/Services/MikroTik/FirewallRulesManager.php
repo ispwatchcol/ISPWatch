@@ -493,38 +493,44 @@ class FirewallRulesManager
             ':do { /ip firewall nat remove [find comment="ISPWatch Portal HTTP"] } on-error={}',
             ':do { /ip firewall nat remove [find comment="ISPWatch Portal HTTPS"] } on-error={}',
 
+            // Every statement MUST be wrapped in :do { ... } on-error={}. The whole
+            // compound is joined with `;` and run as one RouterOS script — any
+            // unwrapped failure (e.g. `set [find]` on an empty result because the
+            // previous `add` silently no-op'd) aborts the entire script and the
+            // remaining rules never get installed. That is what produced "DROP
+            // exists but ALLOW-PORTAL is missing" after re-applying.
             ':do { /ip firewall filter add chain=forward src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' action=drop comment="' . self::FILTER_DROP_COMMENT . '" } on-error={}',
-            '/ip firewall filter set [find comment="' . self::FILTER_DROP_COMMENT . '"]'
+            ':do { /ip firewall filter set [find comment="' . self::FILTER_DROP_COMMENT . '"]'
                 . ' chain=forward src-address-list=' . self::ADDRESS_LIST_NAME
-                . ' action=drop disabled=no',
+                . ' action=drop disabled=no } on-error={}',
             ':do { /ip firewall filter move [find comment="' . self::FILTER_DROP_COMMENT . '"] 0 } on-error={}',
 
             ':do { /ip firewall filter add chain=forward src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' dst-address=' . $portalIp
                 . ' action=accept comment="' . self::FILTER_ALLOW_COMMENT . '" } on-error={}',
-            '/ip firewall filter set [find comment="' . self::FILTER_ALLOW_COMMENT . '"]'
+            ':do { /ip firewall filter set [find comment="' . self::FILTER_ALLOW_COMMENT . '"]'
                 . ' chain=forward src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' dst-address=' . $portalIp
-                . ' action=accept disabled=no',
+                . ' action=accept disabled=no } on-error={}',
             ':do { /ip firewall filter move [find comment="' . self::FILTER_ALLOW_COMMENT . '"] 0 } on-error={}',
 
             ':do { /ip firewall nat add chain=dstnat src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' protocol=tcp dst-port=443 action=dst-nat to-addresses=' . $portalIp
                 . ' to-ports=443 comment="' . self::NAT_HTTPS_COMMENT . '" } on-error={}',
-            '/ip firewall nat set [find comment="' . self::NAT_HTTPS_COMMENT . '"]'
+            ':do { /ip firewall nat set [find comment="' . self::NAT_HTTPS_COMMENT . '"]'
                 . ' chain=dstnat src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' protocol=tcp dst-port=443 action=dst-nat to-addresses=' . $portalIp
-                . ' to-ports=443 disabled=no',
+                . ' to-ports=443 disabled=no } on-error={}',
             ':do { /ip firewall nat move [find comment="' . self::NAT_HTTPS_COMMENT . '"] 0 } on-error={}',
 
             ':do { /ip firewall nat add chain=dstnat src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' protocol=tcp dst-port=80 action=dst-nat to-addresses=' . $portalIp
                 . ' to-ports=80 comment="' . self::NAT_HTTP_COMMENT . '" } on-error={}',
-            '/ip firewall nat set [find comment="' . self::NAT_HTTP_COMMENT . '"]'
+            ':do { /ip firewall nat set [find comment="' . self::NAT_HTTP_COMMENT . '"]'
                 . ' chain=dstnat src-address-list=' . self::ADDRESS_LIST_NAME
                 . ' protocol=tcp dst-port=80 action=dst-nat to-addresses=' . $portalIp
-                . ' to-ports=80 disabled=no',
+                . ' to-ports=80 disabled=no } on-error={}',
             ':do { /ip firewall nat move [find comment="' . self::NAT_HTTP_COMMENT . '"] 0 } on-error={}',
         ];
 
