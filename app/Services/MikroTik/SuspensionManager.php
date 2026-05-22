@@ -275,14 +275,29 @@ class SuspensionManager
         try {
             // Socket is already authenticated by connectClientApi — go straight to operations.
 
-            // Find the entry
+            // List ALL entries in ISPWATCH_SUSPENDIDOS (no address filter) and compare
+            // in PHP. RouterOS stores address-list entries inconsistently across
+            // versions: a value added as `192.168.1.5` may come back as `192.168.1.5`
+            // OR `192.168.1.5/32` depending on the API view, so `?address=X` exact
+            // filtering would miss the entry and leave the client suspended.
             $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/print', [
                 '?list=ISPWATCH_SUSPENDIDOS',
-                '?address=' . $suspendedIp,
+                '.proplist=.id,address',
             ]);
             $records = $this->apiProtocol->readAllRecords($socket);
 
-            if (empty($records)) {
+            $target = $this->normalizeAddressListAddress($suspendedIp);
+            $idsToRemove = [];
+            foreach ($records as $record) {
+                if (empty($record['.id'])) {
+                    continue;
+                }
+                if ($this->normalizeAddressListAddress($record['address'] ?? '') === $target) {
+                    $idsToRemove[] = $record['.id'];
+                }
+            }
+
+            if ($idsToRemove === []) {
                 $this->connectionManager->closeClientApi($socket);
                 return [
                     'success' => true,
@@ -291,15 +306,11 @@ class SuspensionManager
                 ];
             }
 
-            // Remove each entry
-            foreach ($records as $record) {
-                $id = $record['.id'] ?? null;
-                if ($id) {
-                    $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/remove', [
-                        '=.id=' . $id,
-                    ]);
-                    $this->apiProtocol->readUntilDone($socket);
-                }
+            foreach ($idsToRemove as $id) {
+                $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/remove', [
+                    '=.id=' . $id,
+                ]);
+                $this->apiProtocol->readUntilDone($socket);
             }
 
             $this->connectionManager->closeClientApi($socket);
@@ -308,13 +319,29 @@ class SuspensionManager
                 'success' => true,
                 'method' => 'DIRECT_API',
                 'message' => 'Cliente activado - IP removida',
-                'details' => ['ip' => $suspendedIp],
+                'details' => [
+                    'ip' => $suspendedIp,
+                    'entries_removed' => count($idsToRemove),
+                ],
             ];
 
         } catch (\Throwable $e) {
             $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Drop a `/32` suffix and whitespace so the same address compares equal
+     * regardless of how RouterOS surfaced it back through the API.
+     */
+    private function normalizeAddressListAddress(string $value): string
+    {
+        $trimmed = trim($value);
+        if (str_ends_with($trimmed, '/32')) {
+            $trimmed = substr($trimmed, 0, -3);
+        }
+        return $trimmed;
     }
 
     // ==================== CORE SSH-EXEC METHODS ====================
@@ -360,11 +387,20 @@ class SuspensionManager
         string $clientPass,
         string $suspendedIp
     ): array {
+        // Address-list entries may come back as `X.X.X.X` or `X.X.X.X/32` depending
+        // on the RouterOS build. `[find address=X]` with a single literal misses
+        // the other form and the entry stays in the list, leaving the customer
+        // suspended forever. Match against both, and wrap each in :do/on-error so
+        // an empty find doesn't abort the script.
+        $cmd =
+            ':do { /ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address="' . $suspendedIp . '"] } on-error={}; ' .
+            ':do { /ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address="' . $suspendedIp . '/32"] } on-error={}';
+
         return $this->executeSshExecViaCore(
             $clientIp,
             $clientUser,
             $clientPass,
-            "/ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address={$suspendedIp}]",
+            $cmd,
             'ispwatch_a_',
             'activate',
             $suspendedIp
