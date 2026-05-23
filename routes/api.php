@@ -46,6 +46,9 @@ Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
 */
 Route::middleware(['auth:sanctum'])->group(function () {
 
+    // ─── AUTH ───
+    Route::get('/auth/me', [AuthController::class, 'me']);
+
     // ─── DASHBOARD ───
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 

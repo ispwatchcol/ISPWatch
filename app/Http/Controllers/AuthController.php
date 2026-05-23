@@ -215,4 +215,29 @@ class AuthController extends Controller
 
         return false;
     }
+
+    /**
+     * Retorna el usuario autenticado con su rol y permisos actuales.
+     * Usado por el frontend para refrescar permisos sin cerrar sesión.
+     */
+    public function me(Request $request)
+    {
+        $user = $request->user()->load('role');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id'               => $user->id,
+                'user_name'        => $user->user_name,
+                'user_lastname'    => $user->user_lastname,
+                'email_tenant'     => $user->email_tenant,
+                'role_id'          => $user->role_id,
+                'tenant_id'        => $user->tenant_id,
+                'role_name'        => $user->role?->name ?? 'Sin rol',
+                'permissions'      => $user->role?->permissions ?? [],
+                'has_staff_profile' => $user->staffProfile !== null,
+                'is_superadmin'    => $user->is_superadmin ?? false,
+            ],
+        ]);
+    }
 }

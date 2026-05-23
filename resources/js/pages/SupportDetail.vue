@@ -294,14 +294,15 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
-import { hasPermission } from '../services/auth'
+import { useAuthStore } from '../stores/auth'
 import NotificationToast from '../components/NotificationToast.vue'
 
 const router = useRouter()
 const route = useRoute()
 const ticketId = route.params.id
 
-const canEdit = computed(() => hasPermission('view_support'))
+const authStore = useAuthStore()
+const canEdit = computed(() => authStore.hasPermission('view_support'))
 
 const ticket = ref({})
 const loading = ref(true)

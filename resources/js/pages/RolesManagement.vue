@@ -221,6 +221,7 @@
 import { ref, onMounted } from 'vue'
 import api from '../services/api.js'
 import NotificationToast from '@/components/NotificationToast.vue'
+import { useAuthStore } from '@/stores/auth.js'
 
 const roles = ref([])
 const loading = ref(false)
@@ -229,6 +230,8 @@ const showModal = ref(false)
 const toast = ref(null)
 const availablePermissions = ref({})
 const editingRole = ref(null)
+
+const authStore = useAuthStore()
 
 const formData = ref({
   name: '',
@@ -311,6 +314,8 @@ const saveRole = async () => {
   }
 
   saving.value = true
+  const editedRoleId = editingRole.value?.id
+  
   try {
     let response
     if (editingRole.value) {
@@ -322,6 +327,10 @@ const saveRole = async () => {
     }
 
     if (response.data?.success) {
+      if (editedRoleId && Number(editedRoleId) === Number(authStore.roleId)) {
+        await authStore.refreshUserPermissions()
+      }
+
       closeModal()
       await loadRoles()
     }

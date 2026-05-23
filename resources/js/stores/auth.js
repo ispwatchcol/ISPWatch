@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import api from '../services/api.js'
 
 export const useAuthStore = defineStore('auth', () => {
     // ─── State ───
@@ -50,12 +51,37 @@ export const useAuthStore = defineStore('auth', () => {
 
     function hasPermission(permission) {
         if (!user.value) return false
-        if (isAdmin.value || permissions.value.includes('*')) return true
+        if (permissions.value.includes('*')) return true
         return permissions.value.includes(permission)
     }
 
     function hasStaffProfile() {
         return user.value?.has_staff_profile === true
+    }
+
+    async function refreshUserPermissions() {
+        if (!user.value) return
+
+        try {
+            const response = await api.auth.me()
+            
+            if (response.data?.success && response.data?.data) {
+                const refreshedUser = response.data.data
+                
+                // Update the state
+                user.value = {
+                    ...user.value,
+                    ...refreshedUser
+                }
+                
+                // Update storage if needed
+                const isRemembered = localStorage.getItem('isLoggedIn') === 'true'
+                const storage = isRemembered ? localStorage : sessionStorage
+                storage.setItem('userData', JSON.stringify(user.value))
+            }
+        } catch (error) {
+            console.error('Error refreshing user permissions:', error)
+        }
     }
 
     return {
@@ -77,5 +103,6 @@ export const useAuthStore = defineStore('auth', () => {
         logout,
         hasPermission,
         hasStaffProfile,
+        refreshUserPermissions,
     }
 })

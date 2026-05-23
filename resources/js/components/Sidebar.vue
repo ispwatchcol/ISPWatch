@@ -33,10 +33,10 @@
                 </div>
                 <div class="flex-1 min-w-0">
                     <p class="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
-                        {{ user?.role_name }}
+                        {{ authStore.roleName }}
                     </p>
                     <p class="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
-                        {{ user?.user_name }} {{ user?.user_lastname }}
+                        {{ authStore.user?.user_name }} {{ authStore.user?.user_lastname }}
                     </p>
                 </div>
             </div>
@@ -108,7 +108,7 @@
                 </li>
 
                 <!-- Administración de Roles -->
-                <li v-if="canSee.staff && isAdmin">
+                <li v-if="canSee.staff && authStore.isAdmin">
                     <RouterLink
                         to="/roles"
                         class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
@@ -210,28 +210,23 @@
 import { ref, onMounted, computed } from "vue";
 import SubmenuItem from "./SubmenuItem.vue";
 import TimezoneClock from "./TimezoneClock.vue";
-import { hasPermission, isStaffOrAdmin } from "../services/auth";
+import { useAuthStore } from "../stores/auth";
 import { apiClient } from "../services/api";
 import api from "../services/api";
 import axios from "axios";
 
-const user = ref({});
+const authStore = useAuthStore();
 const theme = ref("system");
 const tenantTimezone = ref("America/Bogota");
 
 // ─── Acciones Masivas ─── (moved to /mass-actions page)
 
-const isStaff = computed(() => isStaffOrAdmin());
-
-const isAdmin = computed(() => {
-    const role = user.value?.role_name || user.value?.role?.name || '';
-    return role.toLowerCase() === 'administrador';
-});
+const isStaff = computed(() => authStore.isStaffOrAdmin);
 
 const supportItems = computed(() => {
     const items = [];
 
-    if (hasPermission('view_support')) {
+    if (authStore.hasPermission('view_support')) {
         items.push({
             name: 'Tickets',
             to: '/support',
@@ -239,7 +234,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (hasPermission('view_support')) {
+    if (authStore.hasPermission('view_support')) {
         items.push({
             name: 'Nuevo Ticket',
             to: '/support/create',
@@ -247,7 +242,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (hasPermission('view_support')) {
+    if (authStore.hasPermission('view_support')) {
         items.push({
             name: 'Instalaciones',
             to: '/installations',
@@ -255,7 +250,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (hasPermission('view_support')) {
+    if (authStore.hasPermission('view_support')) {
         items.push({
             name: 'Estadísticas',
             to: '/support/statistics',
@@ -267,27 +262,27 @@ const supportItems = computed(() => {
 });
 
 const canSee = computed(() => ({
-    dashboard:       hasPermission('view_dashboard_stats'),
-    usuarios:        hasPermission('view_clients'),
-    gestion:         hasPermission('manage_routers'),
-    inventarios:     hasPermission('view_inventory'),
-    finanzas:        hasPermission('view_billing'),
-    staff:           hasPermission('view_staff'),
-    configuracion:   hasPermission('view_settings'),
+    dashboard:       authStore.hasPermission('view_dashboard_stats'),
+    usuarios:        authStore.hasPermission('view_clients'),
+    gestion:         authStore.hasPermission('manage_routers'),
+    inventarios:     authStore.hasPermission('view_inventory'),
+    finanzas:        authStore.hasPermission('view_billing'),
+    staff:           authStore.hasPermission('view_staff'),
+    configuracion:   authStore.hasPermission('view_settings'),
     manual:          true,
-    accionesMasivas: hasPermission('execute_mass_actions'),
+    accionesMasivas: authStore.hasPermission('execute_mass_actions'),
 }));
 
 // ─── Submenú: Usuarios ───
 const usuariosItems = computed(() => {
     const items = [];
-    if (hasPermission('view_clients'))
+    if (authStore.hasPermission('view_clients'))
         items.push({ name: 'Lista de usuarios', to: '/customers', icon: 'bi-people' });
-    if (hasPermission('add_clients'))
+    if (authStore.hasPermission('add_clients'))
         items.push({ name: 'Agregar usuario', to: '/customers/create', icon: 'bi-person-plus' });
-    if (hasPermission('view_clients'))
+    if (authStore.hasPermission('view_clients'))
         items.push({ name: 'Estadísticas', to: '/customers/statistics', icon: 'md-dashboard-outlined' });
-    if (hasPermission('view_clients'))
+    if (authStore.hasPermission('view_clients'))
         items.push({ name: 'Mapa de usuarios', to: '/customers/map', icon: 'ri-map-pin-user-line' });
     return items;
 });
@@ -295,11 +290,11 @@ const usuariosItems = computed(() => {
 // ─── Submenú: Gestión ───
 const gestionItems = computed(() => {
     const items = [];
-    if (hasPermission('manage_routers'))
+    if (authStore.hasPermission('manage_routers'))
         items.push({ name: 'Lista de Routers', to: '/routers', icon: 'bi-router' });
-    if (hasPermission('view_plans'))
+    if (authStore.hasPermission('view_plans'))
         items.push({ name: 'Plan de Internet', to: '/planes', icon: 'bi-speedometer2' });
-    if (hasPermission('view_sectorials'))
+    if (authStore.hasPermission('view_sectorials'))
         items.push({ name: 'Sectoriales', to: '/sectorials', icon: 'bi-broadcast-pin' });
     return items;
 });
@@ -307,15 +302,15 @@ const gestionItems = computed(() => {
 // ─── Submenú: Inventarios ───
 const inventariosItems = computed(() => {
     const items = [];
-    if (hasPermission('view_inventory'))
+    if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Lista de equipos', to: '/inventory', icon: 'bi-hdd-network' });
-    if (hasPermission('view_inventory'))
+    if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Agregar equipo', to: '/inventory/create', icon: 'oi-diff-added' });
-    if (hasPermission('view_inventory'))
+    if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Stock / Modelos', to: '/inventory/stocks', icon: 'md-inventory-round' });
-    if (hasPermission('view_inventory'))
+    if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Proveedores', to: '/inventory/providers', icon: 'bi-building' });
-    if (hasPermission('view_inventory'))
+    if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Sucursales', to: '/inventory/branches', icon: 'md-storemalldirectory' });
     return items;
 });
@@ -323,31 +318,18 @@ const inventariosItems = computed(() => {
 // ─── Submenú: Finanzas ───
 const finanzasItems = computed(() => {
     const items = [];
-    if (hasPermission('view_billing'))
+    if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Resumen', to: '/billing/dashboard', icon: 'md-dashboard-outlined' });
-    if (hasPermission('view_billing'))
+    if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Facturación', to: '/billing/invoices', icon: 'la-money-bill-wave-solid' });
-    if (hasPermission('view_billing'))
+    if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Pagos / Recaudos', to: '/billing/payments', icon: 'md-payments-outlined' });
-    if (hasPermission('view_billing'))
+    if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
     return items;
 });
 
 onMounted(() => {
-    const localData = localStorage.getItem("userData");
-    const sessionData = sessionStorage.getItem("userData");
-
-    const storedJson = localData || sessionData;
-
-    if (storedJson) {
-        try {
-            user.value = JSON.parse(storedJson);
-        } catch (e) {
-            console.error("Error parseando userData:", e);
-            user.value = {};
-        }
-    }
 
     // Cargar tema guardado o usar el sistema
     const savedTheme = localStorage.getItem("theme") || "system";
@@ -377,9 +359,9 @@ const setTheme = (mode) => {
 
 const loadTenantTimezone = async () => {
     try {
-        if (!user.value?.tenant_id) return;
+        if (!authStore.tenantId) return;
         
-        const response = await apiClient.get(`/tenants/${user.value.tenant_id}`);
+        const response = await apiClient.get(`/tenants/${authStore.tenantId}`);
         
         if (response.data.success && response.data.data) {
             tenantTimezone.value = response.data.data.zone_tenant || 'America/Bogota';
@@ -390,10 +372,7 @@ const loadTenantTimezone = async () => {
 };
 
 const logout = () => {
-    localStorage.removeItem("isLoggedIn");
-    localStorage.removeItem("userData");
-    sessionStorage.removeItem("isLoggedIn");
-    sessionStorage.removeItem("userData");
+    authStore.logout();
     window.location.replace("/");
 };
 </script>
