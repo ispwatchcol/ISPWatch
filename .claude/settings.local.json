@@ -15,7 +15,20 @@
       "Bash(php -l app/Services/MikroTik/FirewallRulesManager.php)",
       "Bash(php vendor/bin/phpunit --filter FirewallRulesManagerTest)",
       "Bash(php vendor/bin/phpunit --filter \"FirewallRules|Suspension\")",
-      "Bash(php -l \"c:/Users/User/Desktop/GITHUB/ISPWatch/database/seeders/HelpCenterSeeder.php\")"
+      "Bash(php -l \"c:/Users/User/Desktop/GITHUB/ISPWatch/database/seeders/HelpCenterSeeder.php\")",
+      "Bash(xargs grep -l \"storeAdditionalCharge\\\\|generateCharge\\\\|servicios.*adicionales\")",
+      "Bash(xargs grep -l \"Invoice\\\\|Ticket\")",
+      "Bash(tasklist)",
+      "Bash(findstr /i \"node\")",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-NetTCPConnection -State Listen -LocalPort 5173 -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 5173, 8000, 3000 } | Select-Object LocalPort, OwningProcess)",
+      "PowerShell(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)",
+      "PowerShell(netstat -ano)",
+      "PowerShell(findstr -v 127.0.0.1:1)",
+      "PowerShell(Get-Process -Id 23860, 26292 -ErrorAction SilentlyContinue)",
+      "Bash(curl -s http://localhost:5173/@vite/client)",
+      "Bash(curl -s \"http://localhost:5173/resources/js/pages/Billing/AdditionalCharges.vue\")"
     ]
   }
 }

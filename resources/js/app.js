@@ -144,6 +144,7 @@ import {
   MdDeleteforever,
   BiCalendarCheck,
   HiChevronLeft,
+  BiPlusCircle,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -280,6 +281,7 @@ addIcons(
   MdDeleteforever,
   BiCalendarCheck,
   HiChevronLeft,
+  BiPlusCircle,
 );
 
 // -------------------------------

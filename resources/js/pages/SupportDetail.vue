@@ -205,6 +205,131 @@
                         </div>
                     </Teleport>
                    
+                   <!-- Cargos del Ticket (Staff Only) -->
+                    <div v-if="canEdit" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Cargos del Ticket</h2>
+                            <button
+                                @click="showChargeForm = !showChargeForm"
+                                class="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg flex items-center gap-1 transition"
+                            >
+                                <v-icon name="md-add" class="w-4 h-4" />
+                                Nuevo Cargo
+                            </button>
+                        </div>
+
+                        <!-- Formulario nuevo cargo -->
+                        <div v-if="showChargeForm" class="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600 space-y-4">
+                            <div class="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm">
+                                <v-icon name="bi-person" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                <span class="text-gray-600 dark:text-gray-300">Se cobrará a:</span>
+                                <strong class="text-gray-800 dark:text-white">{{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}</strong>
+                            </div>
+                            <div class="space-y-3">
+                                <div v-for="(item, idx) in chargeForm.items" :key="idx" class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Descripción</label>
+                                        <input
+                                            v-model="item.description"
+                                            type="text"
+                                            placeholder="Ej: Cambio de antena"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Cantidad</label>
+                                        <input
+                                            v-model.number="item.quantity"
+                                            type="number"
+                                            min="0.01"
+                                            step="0.01"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Precio unitario</label>
+                                        <input
+                                            v-model.number="item.unit_price"
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            onwheel="this.blur()"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                        />
+                                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">= {{ formatCurrency(item.unit_price) }}</p>
+                                    </div>
+                                    <div class="flex items-center justify-between sm:col-span-2">
+                                        <span class="text-sm text-gray-600 dark:text-gray-300">
+                                            Subtotal: <strong>{{ formatCurrency(item.quantity * item.unit_price) }}</strong>
+                                        </span>
+                                        <button v-if="chargeForm.items.length > 1" @click="removeChargeItem(idx)" class="text-red-500 hover:text-red-700">
+                                            <v-icon name="md-delete" class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button @click="addChargeItem" class="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 flex items-center gap-1">
+                                <v-icon name="md-add" class="w-4 h-4" />
+                                Agregar ítem
+                            </button>
+
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Fecha de vencimiento (opcional)</label>
+                                <input
+                                    v-model="chargeForm.due_date"
+                                    type="date"
+                                    class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Notas (opcional)</label>
+                                <textarea
+                                    v-model="chargeForm.notes"
+                                    rows="2"
+                                    class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                ></textarea>
+                            </div>
+
+                            <div class="flex justify-between items-center border-t border-gray-200 dark:border-gray-600 pt-3">
+                                <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                    Total: <span class="text-lg text-green-600 dark:text-green-400">{{ formatCurrency(chargeTotal) }}</span>
+                                </span>
+                                <div class="flex gap-2">
+                                    <button @click="cancelCharge" class="px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">Cancelar</button>
+                                    <button
+                                        @click="submitCharge"
+                                        :disabled="submittingCharge || !isChargeFormValid"
+                                        class="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition disabled:opacity-50"
+                                    >
+                                        {{ submittingCharge ? 'Generando...' : 'Generar Cargo' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lista de cargos existentes -->
+                        <div v-if="loadingCharges" class="text-center py-4 text-sm text-gray-500 dark:text-gray-400">Cargando cargos...</div>
+                        <div v-else-if="ticketCharges.length > 0" class="space-y-3">
+                            <div v-for="charge in ticketCharges" :key="charge.id"
+                                class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                                <div>
+                                    <p class="text-sm font-semibold text-gray-800 dark:text-white">Factura #{{ charge.number }}</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(charge.created_at) }}</p>
+                                    <p v-if="charge.notes" class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ charge.notes }}</p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-sm font-bold text-green-600 dark:text-green-400">{{ formatCurrency(charge.total) }}</p>
+                                    <span :class="chargeStatusClass(charge.status)" class="text-xs px-2 py-0.5 rounded-full font-medium">{{ chargeStatusLabel(charge.status) }}</span>
+                                    <a :href="`/billing/invoices/${charge.id}`" class="block text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1">Ver factura</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="text-center py-4 text-sm text-gray-500 dark:text-gray-400 italic">
+                            No hay cargos registrados en este ticket.
+                        </div>
+                    </div>
+
                    <!-- Gestión del Ticket (Staff Only) -->
                     <div v-if="canEdit" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                          <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Gestión del Ticket</h2>
@@ -309,6 +434,94 @@ const selectedFiles = ref([])
 const updating = ref(false)
 const fileInput = ref(null)
 const toast = ref(null)
+
+// ── Cargos del Ticket ──
+const ticketCharges = ref([])
+const loadingCharges = ref(false)
+const showChargeForm = ref(false)
+const submittingCharge = ref(false)
+
+const defaultChargeItem = () => ({ description: '', quantity: 1, unit_price: 0 })
+
+const chargeForm = ref({
+    items: [defaultChargeItem()],
+    due_date: '',
+    notes: '',
+})
+
+const addChargeItem = () => chargeForm.value.items.push(defaultChargeItem())
+const removeChargeItem = (i) => chargeForm.value.items.splice(i, 1)
+
+const chargeTotal = computed(() =>
+    chargeForm.value.items.reduce((sum, i) => sum + (i.quantity || 0) * (i.unit_price || 0), 0)
+)
+
+const isChargeFormValid = computed(() =>
+    chargeForm.value.items.every(i => i.description.trim() && i.quantity > 0 && i.unit_price >= 0)
+)
+
+const cancelCharge = () => {
+    showChargeForm.value = false
+    chargeForm.value = { items: [defaultChargeItem()], due_date: '', notes: '' }
+}
+
+const loadCharges = async () => {
+    if (!canEdit.value) return
+    try {
+        loadingCharges.value = true
+        const res = await api.support.getCharges(ticketId)
+        ticketCharges.value = res.data
+    } catch (e) {
+        console.error('Error cargando cargos:', e)
+    } finally {
+        loadingCharges.value = false
+    }
+}
+
+const submitCharge = async () => {
+    if (!isChargeFormValid.value) return
+    try {
+        submittingCharge.value = true
+        const payload = {
+            items: chargeForm.value.items.map(i => ({
+                description: i.description,
+                quantity: i.quantity,
+                unit_price: i.unit_price,
+            })),
+            due_date: chargeForm.value.due_date || undefined,
+            notes: chargeForm.value.notes || undefined,
+        }
+        const res = await api.support.generateCharge(ticketId, payload)
+        toast.value?.success('Cargo generado', res.data.message || 'El cargo fue creado correctamente.')
+        cancelCharge()
+        loadCharges()
+    } catch (e) {
+        const msg = e.response?.data?.message || 'No se pudo generar el cargo.'
+        toast.value?.error('Error', msg)
+    } finally {
+        submittingCharge.value = false
+    }
+}
+
+const formatCurrency = (val) => {
+    const n = parseFloat(val) || 0
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+}
+
+const chargeStatusClass = (status) => {
+    const map = {
+        paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+        pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+        overdue: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
+        issued: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    }
+    return map[status] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+}
+
+const chargeStatusLabel = (status) => {
+    const map = { paid: 'Pagado', pending: 'Pendiente', overdue: 'Vencido', issued: 'Emitido', cancelled: 'Cancelado' }
+    return map[status] || status
+}
 
 // Bitácora de Trabajo state
 const showNoteForm = ref(false)
@@ -512,5 +725,6 @@ const formatDate = (date) => {
 
 onMounted(() => {
     loadTicket()
+    loadCharges()
 })
 </script>

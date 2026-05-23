@@ -11,6 +11,7 @@ const loading = ref(true)
 const user = ref({})
 const filters = ref({
     status: '',
+    invoice_type: '',
     period: new Date().toISOString().slice(0, 7), // Default to current month
     search: ''
 })
@@ -88,6 +89,21 @@ const getStatusLabel = (status) => ({
     cancelled: 'Cancelada',
     void:      'Anulada',
 }[status] ?? status)
+
+const getInvoiceTypeLabel = (type) => ({
+    monthly:        'Plan Mensual',
+    additional:     'Adicional',
+    service_charge: 'Cargo Ticket',
+}[type] ?? (type || 'Plan Mensual'))
+
+const getInvoiceTypeColor = (type) => {
+    switch (type) {
+        case 'monthly':        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+        case 'additional':     return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+        case 'service_charge': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+        default:               return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+    }
+}
 
 const downloadPdf = async (id, number) => {
     try {
@@ -216,7 +232,7 @@ const sendBulkReminders = async () => {
                         class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all">
                 </div>
                 
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex items-center gap-2">
                         <v-icon name="bi-filter" class="w-5 h-5 text-slate-400" />
                         <select v-model="filters.status" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
@@ -227,7 +243,14 @@ const sendBulkReminders = async () => {
                         </select>
                     </div>
 
-                    <input v-model="filters.period" type="month" 
+                    <select v-model="filters.invoice_type" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
+                        <option value="">Todos los Tipos</option>
+                        <option value="monthly">Plan Mensual</option>
+                        <option value="additional">Servicio Adicional</option>
+                        <option value="service_charge">Cargo de Ticket</option>
+                    </select>
+
+                    <input v-model="filters.period" type="month"
                         class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
                     
                     <button @click="fetchInvoices" class="p-2 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 rounded-xl transition-colors">
@@ -272,6 +295,7 @@ const sendBulkReminders = async () => {
                             </th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Número</th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Tipo</th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Total</th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Saldo</th>
                             <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Estado</th>
@@ -281,7 +305,7 @@ const sendBulkReminders = async () => {
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-gray-700">
                         <tr v-if="loading">
-                            <td colspan="8" class="px-6 py-20 text-center">
+                            <td colspan="9" class="px-6 py-20 text-center">
                                 <div class="flex flex-col items-center justify-center">
                                     <v-icon name="bi-arrow-repeat" class="w-10 h-10 text-indigo-500 animate-spin mb-4" />
                                     <p class="text-slate-500 dark:text-slate-400 font-medium animate-pulse">Cargando facturas...</p>
@@ -289,7 +313,7 @@ const sendBulkReminders = async () => {
                             </td>
                         </tr>
                         <tr v-else-if="invoices.data.length === 0">
-                            <td colspan="8" class="px-6 py-12 text-center">
+                            <td colspan="9" class="px-6 py-12 text-center">
                                 <v-icon name="la-money-bill-wave-solid" class="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
                                 <p class="text-slate-500 dark:text-slate-400 font-medium">No se encontraron facturas.</p>
                             </td>
@@ -316,6 +340,11 @@ const sendBulkReminders = async () => {
                                     {{ invoice.customer?.customer_profile ? (invoice.customer.customer_profile.name + ' ' + invoice.customer.customer_profile.last_name) : (invoice.customer?.user_name || 'Desconocido') }}
                                 </div>
                                 <div class="text-xs text-slate-500 dark:text-slate-400">{{ invoice.customer?.email }}</div>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span :class="getInvoiceTypeColor(invoice.invoice_type)" class="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap">
+                                    {{ getInvoiceTypeLabel(invoice.invoice_type) }}
+                                </span>
                             </td>
                             <td class="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
                                 ${{ Number(invoice.total).toLocaleString() }}
