@@ -231,7 +231,7 @@ const isAdmin = computed(() => {
 const supportItems = computed(() => {
     const items = [];
 
-    if (hasPermission('support.view') || hasPermission('support.view.own')) {
+    if (hasPermission('view_support')) {
         items.push({
             name: 'Tickets',
             to: '/support',
@@ -239,7 +239,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (hasPermission('support.create')) {
+    if (hasPermission('view_support')) {
         items.push({
             name: 'Nuevo Ticket',
             to: '/support/create',
@@ -247,7 +247,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (hasPermission('support.view') || hasPermission('support.view.own')) {
+    if (hasPermission('view_support')) {
         items.push({
             name: 'Instalaciones',
             to: '/installations',
@@ -255,7 +255,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (hasPermission('support.statistics')) {
+    if (hasPermission('view_support')) {
         items.push({
             name: 'Estadísticas',
             to: '/support/statistics',
@@ -267,27 +267,27 @@ const supportItems = computed(() => {
 });
 
 const canSee = computed(() => ({
-    dashboard:       hasPermission('dashboard.view'),
-    usuarios:        hasPermission('customers.view'),
-    gestion:         hasPermission('routers.view'),
-    inventarios:     hasPermission('inventory.view'),
-    finanzas:        hasPermission('billing.view'),
-    staff:           hasPermission('staff.view'),
-    configuracion:   hasPermission('settings.view'),
+    dashboard:       hasPermission('view_dashboard_stats'),
+    usuarios:        hasPermission('view_clients'),
+    gestion:         hasPermission('manage_routers'),
+    inventarios:     hasPermission('view_inventory'),
+    finanzas:        hasPermission('view_billing'),
+    staff:           hasPermission('view_staff'),
+    configuracion:   hasPermission('view_settings'),
     manual:          true,
-    accionesMasivas: hasPermission('mass_actions.execute'),
+    accionesMasivas: hasPermission('execute_mass_actions'),
 }));
 
 // ─── Submenú: Usuarios ───
 const usuariosItems = computed(() => {
     const items = [];
-    if (hasPermission('customers.view'))
+    if (hasPermission('view_clients'))
         items.push({ name: 'Lista de usuarios', to: '/customers', icon: 'bi-people' });
-    if (hasPermission('customers.create'))
+    if (hasPermission('add_clients'))
         items.push({ name: 'Agregar usuario', to: '/customers/create', icon: 'bi-person-plus' });
-    if (hasPermission('customers.stats'))
+    if (hasPermission('view_clients'))
         items.push({ name: 'Estadísticas', to: '/customers/statistics', icon: 'md-dashboard-outlined' });
-    if (hasPermission('customers.map'))
+    if (hasPermission('view_clients'))
         items.push({ name: 'Mapa de usuarios', to: '/customers/map', icon: 'ri-map-pin-user-line' });
     return items;
 });
@@ -295,11 +295,11 @@ const usuariosItems = computed(() => {
 // ─── Submenú: Gestión ───
 const gestionItems = computed(() => {
     const items = [];
-    if (hasPermission('routers.view'))
+    if (hasPermission('manage_routers'))
         items.push({ name: 'Lista de Routers', to: '/routers', icon: 'bi-router' });
-    if (hasPermission('plans.view'))
+    if (hasPermission('view_plans'))
         items.push({ name: 'Plan de Internet', to: '/planes', icon: 'bi-speedometer2' });
-    if (hasPermission('sectorials.view'))
+    if (hasPermission('view_sectorials'))
         items.push({ name: 'Sectoriales', to: '/sectorials', icon: 'bi-broadcast-pin' });
     return items;
 });
@@ -307,15 +307,15 @@ const gestionItems = computed(() => {
 // ─── Submenú: Inventarios ───
 const inventariosItems = computed(() => {
     const items = [];
-    if (hasPermission('inventory.view'))
+    if (hasPermission('view_inventory'))
         items.push({ name: 'Lista de equipos', to: '/inventory', icon: 'bi-hdd-network' });
-    if (hasPermission('inventory.create'))
+    if (hasPermission('view_inventory'))
         items.push({ name: 'Agregar equipo', to: '/inventory/create', icon: 'oi-diff-added' });
-    if (hasPermission('inventory.view'))
+    if (hasPermission('view_inventory'))
         items.push({ name: 'Stock / Modelos', to: '/inventory/stocks', icon: 'md-inventory-round' });
-    if (hasPermission('inventory.view'))
+    if (hasPermission('view_inventory'))
         items.push({ name: 'Proveedores', to: '/inventory/providers', icon: 'bi-building' });
-    if (hasPermission('inventory.view'))
+    if (hasPermission('view_inventory'))
         items.push({ name: 'Sucursales', to: '/inventory/branches', icon: 'md-storemalldirectory' });
     return items;
 });
@@ -323,13 +323,13 @@ const inventariosItems = computed(() => {
 // ─── Submenú: Finanzas ───
 const finanzasItems = computed(() => {
     const items = [];
-    if (hasPermission('billing.view'))
+    if (hasPermission('view_billing'))
         items.push({ name: 'Resumen', to: '/billing/dashboard', icon: 'md-dashboard-outlined' });
-    if (hasPermission('billing.view'))
+    if (hasPermission('view_billing'))
         items.push({ name: 'Facturación', to: '/billing/invoices', icon: 'la-money-bill-wave-solid' });
-    if (hasPermission('billing.view'))
+    if (hasPermission('view_billing'))
         items.push({ name: 'Pagos / Recaudos', to: '/billing/payments', icon: 'md-payments-outlined' });
-    if (hasPermission('billing.view'))
+    if (hasPermission('view_billing'))
         items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
     return items;
 });

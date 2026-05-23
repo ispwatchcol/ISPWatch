@@ -301,7 +301,7 @@ const router = useRouter()
 const route = useRoute()
 const ticketId = route.params.id
 
-const canEdit = computed(() => hasPermission('support.update'))
+const canEdit = computed(() => hasPermission('view_support'))
 
 const ticket = ref({})
 const loading = ref(true)
