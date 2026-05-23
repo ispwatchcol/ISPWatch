@@ -300,6 +300,12 @@ const routes = [
         component: () => import('@/pages/Billing/PaymentMethods.vue'),
         meta: { title: 'Formas de Pago', permission: 'billing.view' },
       },
+      {
+        path: 'additional-charges',
+        name: 'AdditionalCharges',
+        component: () => import('@/pages/Billing/AdditionalCharges.vue'),
+        meta: { title: 'Servicios Adicionales', permission: 'billing.view' },
+      },
     ],
   },
 

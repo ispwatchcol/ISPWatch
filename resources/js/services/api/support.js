@@ -40,4 +40,10 @@ export default {
     updateStatus(ticketId, status) {
         return apiClient.patch(`/support/${ticketId}/status`, { status })
     },
+    generateCharge(ticketId, data) {
+        return apiClient.post(`/support/${ticketId}/charge`, data)
+    },
+    getCharges(ticketId) {
+        return apiClient.get(`/support/${ticketId}/charges`)
+    },
 }
