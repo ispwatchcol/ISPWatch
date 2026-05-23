@@ -17,7 +17,7 @@
         </div>
         
         <button
-          v-if="can('inventory.create')"
+          v-if="can('view_inventory')"
           @click="openAddModal"
           class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800
                  text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
@@ -124,7 +124,7 @@
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-2">
                     <button
-                      v-if="can('inventory.edit')"
+                      v-if="can('view_inventory')"
                       @click="openEditModal(item)"
                       class="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-all hover:scale-110"
                       title="Editar"
@@ -132,7 +132,7 @@
                       <v-icon name="fa-edit" class="w-4 h-4" />
                     </button>
                     <button
-                      v-if="can('inventory.delete')"
+                      v-if="can('view_inventory')"
                       @click="confirmDelete(item)"
                       class="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-all hover:scale-110"
                       title="Eliminar"
@@ -199,7 +199,7 @@
             <!-- Actions -->
             <div class="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
               <button
-                v-if="can('inventory.edit')"
+                v-if="can('view_inventory')"
                 @click="openEditModal(item)"
                 class="py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
                        transition-colors text-sm font-medium flex items-center justify-center gap-1"
@@ -208,7 +208,7 @@
                 Editar
               </button>
               <button
-                v-if="can('inventory.delete')"
+                v-if="can('view_inventory')"
                 @click="confirmDelete(item)"
                 class="py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg
                        transition-colors text-sm font-medium flex items-center justify-center gap-1"
