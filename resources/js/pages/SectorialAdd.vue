@@ -450,8 +450,10 @@ const handleSubmit = async () => {
             router.push({ name: 'Sectorials' })
         }, 1500)
     } catch (err) {
-        console.error('Error al crear sectorial:', err)
-        error.value = err.response?.data?.message || 'Error al crear la sectorial'
+        const detail = err.response?.data?.error
+        const msg = err.response?.data?.message || 'Error al crear la sectorial'
+        error.value = detail ? `${msg}: ${detail}` : msg
+        console.error('Error al crear sectorial:', err.response?.data ?? err)
         toast.value?.error('Error al crear', error.value)
     } finally {
         loading.value = false

@@ -51,12 +51,18 @@ class SectorialController extends Controller
         try {
             $sectorial = $this->createWithSequenceFix(Sectorial::class, $data);
 
-            SectorialHistory::log(
-                $sectorial->id,
-                'created',
-                'Se creó el elemento "' . $sectorial->name . '" (' . $sectorial->element_type . ')',
-                ['element_type' => $sectorial->element_type]
-            );
+            try {
+                SectorialHistory::log(
+                    $sectorial->id,
+                    'created',
+                    'Se creó el elemento "' . $sectorial->name . '" (' . $sectorial->element_type . ')',
+                    ['element_type' => $sectorial->element_type]
+                );
+            } catch (\Exception $historyEx) {
+                \Log::warning('SectorialHistory::log failed (table may be missing in this schema)', [
+                    'error' => $historyEx->getMessage(),
+                ]);
+            }
 
             return response()->json([
                 'message' => 'Elemento creado correctamente.',
@@ -67,6 +73,11 @@ class SectorialController extends Controller
                 'message' => 'Ya existe un elemento con ese nombre en tu red.',
             ], 422);
         } catch (\Exception $e) {
+            \Log::error('SectorialController@store failed', [
+                'error' => $e->getMessage(),
+                'class' => get_class($e),
+                'data'  => $data,
+            ]);
             return response()->json([
                 'message' => 'Error al crear el elemento.',
                 'error' => $e->getMessage()
