@@ -40,7 +40,7 @@
                     <!-- Tipo de elemento (Sectorial / Switch / Nodo) -->
                     <div class="mb-6">
                         <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                            <v-icon name="md-filter-list" class="w-4 h-4 text-indigo-500" />
+                            <v-icon name="md-filterlist" class="w-4 h-4 text-indigo-500" />
                             Tipo de elemento <span class="text-red-500">*</span>
                         </label>
                         <div class="grid grid-cols-3 gap-3">
