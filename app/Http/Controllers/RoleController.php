@@ -49,12 +49,15 @@ class RoleController extends Controller
      */
     public function store(Request $request)
     {
+        $tenantId = auth()->user()->tenant_id;
+
         $data = $request->validate([
-            'name' => 'required|string|max:255|unique:role,name',
+            'name' => 'required|string|max:255|unique:role,name,NULL,id,tenant_id,' . $tenantId,
             'permissions' => 'nullable|array',
         ]);
 
         $data['permissions'] = $data['permissions'] ?? [];
+        $data['tenant_id'] = $tenantId;
 
         $role = Role::create($data);
 
@@ -90,9 +93,10 @@ class RoleController extends Controller
     public function update(Request $request, $id)
     {
         $role = Role::findOrFail($id);
+        $tenantId = auth()->user()->tenant_id;
 
         $data = $request->validate([
-            'name' => 'sometimes|string|max:255|unique:role,name,' . $role->id,
+            'name' => 'sometimes|string|max:255|unique:role,name,' . $role->id . ',id,tenant_id,' . $tenantId,
             'permissions' => 'nullable|array',
         ]);
 
