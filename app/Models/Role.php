@@ -9,6 +9,7 @@ class Role extends Model
     protected $table = 'role';
     protected $fillable = [
         'name',
+        'code',
         'permissions',
         'tenant_id',
     ];

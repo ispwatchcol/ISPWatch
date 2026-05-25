@@ -138,21 +138,22 @@ class RegistrationController extends Controller
 
             // 2. Create default roles for this new tenant
             $defaultRoles = [
-                'Administrador' => \App\Constants\Permissions::getPermissionsByRole('Administrador'),
-                'Staff'         => \App\Constants\Permissions::getPermissionsByRole('Staff'),
-                'Cliente'       => \App\Constants\Permissions::getPermissionsByRole('Cliente'),
-                'Contabilidad'  => \App\Constants\Permissions::getPermissionsByRole('Contabilidad'),
-                'Técnico'       => \App\Constants\Permissions::getPermissionsByRole('Técnico'),
+                'Administrador' => ['code' => 'admin',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('Administrador')],
+                'Staff'         => ['code' => 'staff',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('Staff')],
+                'Cliente'       => ['code' => 'client',     'permissions' => \App\Constants\Permissions::getPermissionsByRole('Cliente')],
+                'Contabilidad'  => ['code' => 'accounting', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('Contabilidad')],
+                'Técnico'       => ['code' => 'technician', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('Técnico')],
             ];
 
             $adminRoleId = null;
-            foreach ($defaultRoles as $roleName => $perms) {
+            foreach ($defaultRoles as $roleName => $config) {
                 $role = Role::create([
-                    'name' => $roleName,
-                    'permissions' => $perms,
-                    'tenant_id' => $tenant->id,
+                    'name'       => $roleName,
+                    'code'       => $config['code'],
+                    'permissions' => $config['permissions'],
+                    'tenant_id'  => $tenant->id,
                 ]);
-                if ($roleName === 'Administrador') {
+                if ($config['code'] === 'admin') {
                     $adminRoleId = $role->id;
                 }
             }

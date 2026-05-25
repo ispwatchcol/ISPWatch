@@ -17,9 +17,10 @@ export const useAuthStore = defineStore('auth', () => {
     })
     const roleName = computed(() => user.value?.role_name || user.value?.role || '')
     const roleId = computed(() => user.value?.role_id ?? null)
+    const roleCode = computed(() => user.value?.role_code ?? null)
     const permissions = computed(() => user.value?.permissions || [])
-    const isStaffOrAdmin = computed(() => [1, 2].includes(Number(roleId.value)))
-    const isAdmin = computed(() => Number(roleId.value) === 1)
+    const isStaffOrAdmin = computed(() => ['admin', 'staff'].includes(roleCode.value))
+    const isAdmin = computed(() => roleCode.value === 'admin')
 
     // ─── Actions ───
     function loadFromStorage() {
@@ -94,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
         userName,
         roleName,
         roleId,
+        roleCode,
         permissions,
         isStaffOrAdmin,
         isAdmin,
