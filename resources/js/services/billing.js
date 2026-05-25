@@ -80,5 +80,10 @@ export default {
   // Check WhatsApp configuration status
   getWhatsAppStatus() {
     return apiClient.get('/billing/whatsapp-status')
-  }
+  },
+
+  // Create additional charge (not linked to a ticket)
+  storeAdditionalCharge(data) {
+    return apiClient.post('/billing/additional-charges', data)
+  },
 }

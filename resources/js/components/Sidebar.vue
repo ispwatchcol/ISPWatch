@@ -326,6 +326,8 @@ const finanzasItems = computed(() => {
         items.push({ name: 'Pagos / Recaudos', to: '/billing/payments', icon: 'md-payments-outlined' });
     if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
+    if (hasPermission('billing.view'))
+        items.push({ name: 'Servicios Adicionales', to: '/billing/additional-charges', icon: 'bi-plus-circle' });
     return items;
 });
 

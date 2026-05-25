@@ -36,11 +36,13 @@ class CheckPermission
             ], 403);
         }
 
-        // Si el usuario es superadmin, podría tener acceso total.
+        // Superadmin bypass: role_id == 1 (Administrador) has full access.
+        // Mirrors frontend logic in resources/js/services/auth.js
+        if ((int) $user->role_id === 1) {
+            return $next($request);
+        }
 
-        $user->loadMissing('role');
-
-        if (!$user->role || !$user->role->hasPermission($permission)) {
+        if (!$user->role->hasPermission($permission)) {
             return response()->json([
                 'message' => 'Forbidden - You do not have permission to perform this action',
                 'required_permission' => $permission,

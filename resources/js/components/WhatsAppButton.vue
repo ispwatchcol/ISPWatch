@@ -151,12 +151,11 @@ const isModalOpen = ref(false);
 const name = ref('');
 const company = ref('');
 const issue = ref('');
-const phoneNumber = '573054164764'; // Colombia country code + number
+const phoneNumber = '573125759381'; // Colombia country code + number
 
 const formattedPhone = computed(() => {
-    // Format: 305 416 4764
-    const number = '3054164764';
-    return `${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}`;
+    const number = '3125759381';
+    return `${number.slice(0, 3)} ${number.slice(3)}`;
 });
 
 const isFormValid = computed(() => {

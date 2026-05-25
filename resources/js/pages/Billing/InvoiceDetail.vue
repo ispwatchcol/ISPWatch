@@ -54,6 +54,13 @@ const getStatusColor = (status) => {
     }
 }
 
+const formatDate = (date) => {
+    if (!date) return '—'
+    const d = new Date(date)
+    if (isNaN(d.getTime())) return date
+    return d.toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: '2-digit' })
+}
+
 onMounted(fetchInvoice)
 </script>
 
@@ -94,11 +101,11 @@ onMounted(fetchInvoice)
                              <div class="flex items-center gap-6 mt-6">
                                  <div class="flex flex-col">
                                      <span class="text-[10px] font-medium uppercase opacity-60">Emisión</span>
-                                     <span class="font-medium">{{ invoice.issue_date }}</span>
+                                     <span class="font-medium">{{ formatDate(invoice.issue_date) }}</span>
                                  </div>
                                  <div class="flex flex-col">
                                      <span class="text-[10px] font-medium uppercase opacity-60">Vencimiento</span>
-                                     <span class="font-medium text-indigo-200">{{ invoice.due_date }}</span>
+                                     <span class="font-medium text-indigo-200">{{ formatDate(invoice.due_date) }}</span>
                                  </div>
                              </div>
                          </div>
@@ -141,7 +148,7 @@ onMounted(fetchInvoice)
                                 </div>
                                 <div class="flex justify-between items-center text-sm">
                                     <span class="text-slate-400">Periodo:</span>
-                                    <span class="text-slate-600 dark:text-slate-300 font-medium">{{ invoice.period_start }} — {{ invoice.period_end }}</span>
+                                    <span class="text-slate-600 dark:text-slate-300 font-medium">{{ formatDate(invoice.period_start) }} — {{ formatDate(invoice.period_end) }}</span>
                                 </div>
                             </div>
                         </div>
