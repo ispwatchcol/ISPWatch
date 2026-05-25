@@ -18,7 +18,7 @@
         </div>
         <!-- Botón Agregar Router -->
           <button
-            v-if="can('routers.create')"
+            v-if="can('manage_routers')"
             @click="goToAddRouter"
             class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
           >
@@ -135,7 +135,7 @@
                 <td class="py-3 px-4 flex gap-2 flex-wrap">
                   <!-- Botón Editar -->
                   <button
-                    v-if="can('routers.edit')"
+                    v-if="can('manage_routers')"
                     @click="$router.push({ name: 'RouterEdit', params: { id: router.id } })"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-blue-50 text-blue-700 border border-blue-200
@@ -185,7 +185,7 @@
 
                   <!-- Botón Eliminar -->
                   <button
-                    v-if="can('routers.delete')"
+                    v-if="can('manage_routers')"
                     @click="deleteRouter(router.id)"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                           bg-red-50 text-red-700 border border-red-200

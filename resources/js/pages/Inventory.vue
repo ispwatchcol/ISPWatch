@@ -15,7 +15,7 @@
         </div>
         
         <button
-          v-if="can('inventory.create')"
+          v-if="can('view_inventory')"
           @click="$router.push('/inventory/create')"
           class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 
                  text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 
@@ -217,7 +217,7 @@
                       <v-icon name="md-visibility" class="w-4 h-4 fill-current" />
                     </button>
                     <button
-                      v-if="can('inventory.edit')"
+                      v-if="can('view_inventory')"
                       @click="editDevice(device)"
                       class="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 
                              rounded-lg transition-all hover:scale-110"
@@ -226,7 +226,7 @@
                       <v-icon name="md-edit" class="w-4 h-4 fill-current" />
                     </button>
                     <button
-                      v-if="can('inventory.delete')"
+                      v-if="can('view_inventory')"
                       @click="deleteDevice(device)"
                       class="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 
                              rounded-lg transition-all hover:scale-110"

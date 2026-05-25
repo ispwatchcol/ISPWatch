@@ -14,6 +14,27 @@ class Permissions
     const VIEW_CLIENT_TRAFFIC = 'view_client_traffic';
     const ADD_CLIENTS = 'add_clients';
 
+    // Infraestructura permissions
+    const MANAGE_ROUTERS = 'manage_routers';
+    const VIEW_PLANS = 'view_plans';
+    const VIEW_SECTORIALS = 'view_sectorials';
+
+    // Inventario permissions
+    const VIEW_INVENTORY = 'view_inventory';
+
+    // Soporte permissions
+    const VIEW_SUPPORT = 'view_support';
+
+    // Facturación permissions
+    const VIEW_BILLING = 'view_billing';
+
+    // Sistema / Administración permissions
+    const VIEW_STAFF = 'view_staff';
+    const MANAGE_ROLES = 'manage_roles';
+    const MANAGE_TENANT = 'manage_tenant';
+    const VIEW_SETTINGS = 'view_settings';
+    const EXECUTE_MASS_ACTIONS = 'execute_mass_actions';
+
     // Facturas permissions
     const VIEW_DASHBOARD_STATS = 'view_dashboard_stats';
     const ADD_EXPENSE = 'add_expense';
@@ -65,10 +86,31 @@ class Permissions
                 self::VIEW_INVOICES => 'Lista de Facturas',
                 self::ADD_TRANSFER => 'Agregar Transferencia',
             ],
+            'Infraestructura' => [
+                self::MANAGE_ROUTERS => 'Gestionar Routers',
+                self::VIEW_PLANS => 'Ver Planes de Internet',
+                self::VIEW_SECTORIALS => 'Ver Sectoriales',
+            ],
+            'Inventario' => [
+                self::VIEW_INVENTORY => 'Ver Inventario',
+            ],
+            'Soporte' => [
+                self::VIEW_SUPPORT => 'Ver Soporte Técnico',
+            ],
+            'Facturación' => [
+                self::VIEW_BILLING => 'Ver Facturación',
+            ],
+            'Sistema' => [
+                self::VIEW_STAFF => 'Ver Personal',
+                self::MANAGE_ROLES => 'Gestionar Roles',
+                self::MANAGE_TENANT => 'Gestionar Configuración de Empresa',
+                self::VIEW_SETTINGS => 'Ver Ajustes del Sistema',
+                self::EXECUTE_MASS_ACTIONS => 'Ejecutar Acciones Masivas',
+            ],
         ];
     }
 
-    public static function getPermissionsByRole(string $roleName): array
+    public static function getPermissionsByRole(string $role): array
     {
         $allPerms = self::getAllPermissions();
         $allPermissions = [];
@@ -76,9 +118,9 @@ class Permissions
             $allPermissions = array_merge($allPermissions, array_keys($group));
         }
 
-        return match ($roleName) {
-            'Administrador' => $allPermissions,
-            'Técnico' => [
+        return match ($role) {
+            'admin', 'Administrador' => $allPermissions,
+            'technician', 'Técnico' => [
                 self::ACTIVATE_DEACTIVATE_CLIENTS,
                 self::DELETE_INSTALLATIONS,
                 self::EDIT_PENDING_BALANCE,
@@ -87,7 +129,7 @@ class Permissions
                 self::VIEW_CLIENT_TRAFFIC,
                 self::ADD_CLIENTS,
             ],
-            'Contabilidad' => [
+            'accounting', 'Contabilidad' => [
                 self::EDIT_DISCOUNT,
                 self::EDIT_PENDING_BALANCE,
                 self::EDIT_INTERNET_SERVICE,
@@ -104,11 +146,31 @@ class Permissions
                 self::ADD_TRANSFER,
                 self::DELETE_TRANSFER,
             ],
+            'staff', 'Staff' => [
+                self::VIEW_CLIENTS,
+                self::ADD_CLIENTS,
+                self::EDIT_DISCOUNT,
+                self::ACTIVATE_DEACTIVATE_CLIENTS,
+                self::EDIT_PENDING_BALANCE,
+                self::EDIT_INTERNET_SERVICE,
+                self::VIEW_CLIENT_TRAFFIC,
+                self::VIEW_PLANS,
+                self::VIEW_SECTORIALS,
+                self::VIEW_INVENTORY,
+                self::VIEW_SUPPORT,
+                self::VIEW_BILLING,
+                self::VIEW_DASHBOARD_STATS,
+                self::SEARCH_INVOICES,
+                self::REGISTER_PAYMENTS,
+                self::MANAGE_PAYMENT_PROMISES,
+                self::VIEW_INVOICES,
+            ],
+            'client', 'Cliente' => [],
             default => [],
         };
     }
 
-    public static function getPermissionsByRoleFlat(string $roleName): string
+    public static function getPermissionsByRoleFlat(string $role): string
     {
         $groupedPerms = self::getAllPermissions();
         $permissionLabels = [];
@@ -119,7 +181,7 @@ class Permissions
             }
         }
 
-        $rolePerms = self::getPermissionsByRole($roleName);
+        $rolePerms = self::getPermissionsByRole($role);
         $result = [];
 
         foreach ($rolePerms as $perm) {

@@ -1037,15 +1037,16 @@ import NotificationToast from "@/components/NotificationToast.vue";
 import ImportSection from "@/components/import/ImportSection.vue";
 import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.vue";
 import { apiClient } from "@/services/api";
+import { useAuthStore } from "@/stores/auth";
+
+const authStore = useAuthStore()
 
 // State
 const activeTab = ref("general");
 const hasChanges = ref(false);
 const currentTheme = ref("system");
 const userData = ref(null);
-const isAdmin = computed(
-    () => userData.value?.role_name?.toLowerCase() === "administrador",
-);
+const isAdmin = computed(() => authStore.isAdmin);
 const loading          = ref(false);
 const apiKeyModified   = ref(false);  // solo enviar la clave si el admin la reemplazó
 const hasGoogleMapsKey = ref(false);  // indica si ya hay una clave configurada (sin revelarla)

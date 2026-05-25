@@ -9,7 +9,9 @@ class Role extends Model
     protected $table = 'role';
     protected $fillable = [
         'name',
+        'code',
         'permissions',
+        'tenant_id',
     ];
 
     protected $casts = [
@@ -19,6 +21,20 @@ class Role extends Model
     public function users()
     {
         return $this->hasMany(User::class);
+    }
+
+    public function tenant()
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('tenant', function ($builder) {
+            if (auth()->check() && auth()->user()->tenant_id) {
+                $builder->where('role.tenant_id', auth()->user()->tenant_id);
+            }
+        });
     }
 
     /**

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import api from '../services/api.js'
 
 export const useAuthStore = defineStore('auth', () => {
     // ─── State ───
@@ -16,9 +17,10 @@ export const useAuthStore = defineStore('auth', () => {
     })
     const roleName = computed(() => user.value?.role_name || user.value?.role || '')
     const roleId = computed(() => user.value?.role_id ?? null)
+    const roleCode = computed(() => user.value?.role_code ?? null)
     const permissions = computed(() => user.value?.permissions || [])
-    const isStaffOrAdmin = computed(() => [1, 2].includes(Number(roleId.value)))
-    const isAdmin = computed(() => Number(roleId.value) === 1)
+    const isStaffOrAdmin = computed(() => ['admin', 'staff'].includes(roleCode.value))
+    const isAdmin = computed(() => roleCode.value === 'admin')
 
     // ─── Actions ───
     function loadFromStorage() {
@@ -50,13 +52,37 @@ export const useAuthStore = defineStore('auth', () => {
 
     function hasPermission(permission) {
         if (!user.value) return false
-        // Bypass: admin by ID, admin by role name, or wildcard permission
-        if (isAdmin.value || roleName.value === 'Administrador' || permissions.value.includes('*')) return true
+        if (permissions.value.includes('*')) return true
         return permissions.value.includes(permission)
     }
 
     function hasStaffProfile() {
         return user.value?.has_staff_profile === true
+    }
+
+    async function refreshUserPermissions() {
+        if (!user.value) return
+
+        try {
+            const response = await api.auth.me()
+            
+            if (response.data?.success && response.data?.data) {
+                const refreshedUser = response.data.data
+                
+                // Update the state
+                user.value = {
+                    ...user.value,
+                    ...refreshedUser
+                }
+                
+                // Update storage if needed
+                const isRemembered = localStorage.getItem('isLoggedIn') === 'true'
+                const storage = isRemembered ? localStorage : sessionStorage
+                storage.setItem('userData', JSON.stringify(user.value))
+            }
+        } catch (error) {
+            console.error('Error refreshing user permissions:', error)
+        }
     }
 
     return {
@@ -69,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
         userName,
         roleName,
         roleId,
+        roleCode,
         permissions,
         isStaffOrAdmin,
         isAdmin,
@@ -78,5 +105,6 @@ export const useAuthStore = defineStore('auth', () => {
         logout,
         hasPermission,
         hasStaffProfile,
+        refreshUserPermissions,
     }
 })

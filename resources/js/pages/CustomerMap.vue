@@ -303,8 +303,10 @@ import {
 import { useRouter } from "vue-router";
 import api from "../services/api";
 import tenantApi from "../services/api/tenant";
+import { useAuthStore } from "../stores/auth";
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 const allCustomers = ref([]);
 const routers = ref([]);
@@ -347,18 +349,7 @@ let traceLines = [];
 let nodeMarkers = [];
 let mapReady = false;
 
-const isAdmin = computed(() => {
-    try {
-        const raw =
-            localStorage.getItem("userData") ||
-            sessionStorage.getItem("userData");
-        if (!raw) return false;
-        const u = JSON.parse(raw);
-        return u?.role_name?.toLowerCase() === "administrador";
-    } catch {
-        return false;
-    }
-});
+const isAdmin = computed(() => authStore.isAdmin);
 
 const departmentColors = ref({
     Ventas: "#3B82F6",
