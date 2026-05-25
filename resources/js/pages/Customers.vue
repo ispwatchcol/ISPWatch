@@ -83,7 +83,7 @@
             </button>
 
             <button
-                v-if="can('customers.create')"
+                v-if="can('add_clients')"
                 @click="router.push('/customers/create')"
                 class="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition"
             >
@@ -229,7 +229,7 @@
                     </td>
                     <td class="px-6 py-4 text-center">
                         <div class="flex justify-center gap-2 flex-wrap">
-                        <button v-if="can('customers.edit')" @click="router.push(`/customers/${customer.user_id}/edit`)"
+                        <button v-if="can('view_clients')" @click="router.push(`/customers/${customer.user_id}/edit`)"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                                 bg-blue-50 text-blue-700 border border-blue-200
                                 hover:bg-blue-100 hover:scale-[1.03] transition-all
@@ -237,7 +237,7 @@
                             <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
                         </button>
 
-                        <button v-if="can('customers.edit') && customer.status" @click="suspendCustomer(customer)"
+                        <button v-if="can('activate_deactivate_clients') && customer.status" @click="suspendCustomer(customer)"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                                 bg-orange-50 text-orange-700 border border-orange-200
                                 hover:bg-orange-100 hover:scale-[1.03] transition-all
@@ -245,7 +245,7 @@
                             <icon-lucide-pause-circle class="w-3.5 h-3.5" /> Suspender
                         </button>
 
-                        <button v-else-if="can('customers.edit') && !customer.status" @click="activateCustomer(customer)"
+                        <button v-else-if="can('activate_deactivate_clients') && !customer.status" @click="activateCustomer(customer)"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                                 bg-green-50 text-green-700 border border-green-200
                                 hover:bg-green-100 hover:scale-[1.03] transition-all
@@ -253,7 +253,7 @@
                             <icon-lucide-play-circle class="w-3.5 h-3.5" /> Activar
                         </button>
 
-                        <button v-if="can('customers.delete')" @click="deleteCustomer(customer)"
+                        <button v-if="can('activate_deactivate_clients')" @click="deleteCustomer(customer)"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                                 bg-red-50 text-red-700 border border-red-200
                                 hover:bg-red-100 hover:scale-[1.03] transition-all
@@ -362,28 +362,28 @@
                     </div>
 
                     <div class="flex flex-wrap gap-2 pt-1">
-                    <button v-if="can('customers.edit')" @click="router.push(`/customers/${customer.user_id}/edit`)"
+                    <button v-if="can('view_clients')" @click="router.push(`/customers/${customer.user_id}/edit`)"
                         class="flex-1 min-w-[90px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                             bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all
                             dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">
                         <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
                     </button>
 
-                    <button v-if="can('customers.edit') && customer.status" @click="suspendCustomer(customer)"
+                    <button v-if="can('activate_deactivate_clients') && customer.status" @click="suspendCustomer(customer)"
                         class="flex-1 min-w-[90px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                             bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition-all
                             dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800">
                         <icon-lucide-pause-circle class="w-3.5 h-3.5" /> Suspender
                     </button>
 
-                    <button v-else-if="can('customers.edit') && !customer.status" @click="activateCustomer(customer)"
+                    <button v-else-if="can('activate_deactivate_clients') && !customer.status" @click="activateCustomer(customer)"
                         class="flex-1 min-w-[90px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                             bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-all
                             dark:bg-green-900/30 dark:text-green-300 dark:border-green-800">
                         <icon-lucide-play-circle class="w-3.5 h-3.5" /> Activar
                     </button>
 
-                    <button v-if="can('customers.delete')" @click="deleteCustomer(customer)"
+                    <button v-if="can('activate_deactivate_clients')" @click="deleteCustomer(customer)"
                         class="px-3 py-2 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-all
                             dark:bg-red-900/30 dark:text-red-300 dark:border-red-800">
