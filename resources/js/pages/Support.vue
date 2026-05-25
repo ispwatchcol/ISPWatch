@@ -220,9 +220,9 @@ const filters = ref({
     staff: 'all'
 })
 
-const canCreate = computed(() => can('support.create'))
-const canEdit = computed(() => can('support.update'))
-const canDelete = computed(() => can('support.delete'))
+const canCreate = computed(() => can('view_support'))
+const canEdit = computed(() => can('view_support'))
+const canDelete = computed(() => can('view_support'))
 
 const filteredTickets = computed(() => {
     let result = tickets.value

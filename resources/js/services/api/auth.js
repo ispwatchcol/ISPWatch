@@ -21,4 +21,8 @@ export default {
     async resendVerification(email) {
         return apiClient.post('/verify-email/resend', { email })
     },
+
+    async me() {
+        return apiClient.get('/auth/me')
+    },
 }

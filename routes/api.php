@@ -49,6 +49,9 @@ Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
 */
 Route::middleware(['auth:sanctum'])->group(function () {
 
+    // ─── AUTH ───
+    Route::get('/auth/me', [AuthController::class, 'me']);
+
     // ─── DASHBOARD ───
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
@@ -63,13 +66,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
     Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
     Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision'])
-        ->middleware('permission:manage_customers');
+        ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision'])
-        ->middleware('permission:manage_customers');
+        ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend'])
-        ->middleware('permission:suspend_customers');
+        ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate'])
-        ->middleware('permission:suspend_customers');
+        ->middleware('permission:activate_deactivate_clients');
 
     // ─── CUSTOMER INSTALLATIONS ───
     Route::get('/installations', [CustomerInstallationController::class, 'all']);
@@ -95,7 +98,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface'])
         ->middleware('permission:manage_routers');
     Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules'])
-        ->middleware('permission:suspend_customers');
+        ->middleware('permission:activate_deactivate_clients');
     Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
     Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
     Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
@@ -111,7 +114,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
 
     // ─── BILLING ───
-    Route::middleware(['permission:billing.view'])->group(function () {
+    Route::middleware(['permission:view_billing'])->group(function () {
         Route::get('/billing/stats', [BillingController::class, 'getStats']);
         Route::get('/billing/invoices', [BillingController::class, 'index']);
         Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
@@ -180,7 +183,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     ]);
 
     // ─── STAFF ───
-    Route::middleware(['permission:staff.view'])->group(function () {
+    Route::middleware(['permission:view_staff'])->group(function () {
         Route::apiResource('staff', UserController::class);
     });
 
@@ -204,7 +207,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:manage_tenant');
 
     // ─── SETTINGS ───
-    Route::middleware(['permission:settings.view'])->group(function () {
+    Route::middleware(['permission:view_settings'])->group(function () {
         Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
     });
 
@@ -218,7 +221,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/help-center/articles/{id}', [HelpCenterController::class, 'destroyArticle']);
 
     // ─── MASS ACTIONS / IMPORT ───
-    Route::middleware(['permission:mass_actions.execute'])->prefix('import')->group(function () {
+    Route::middleware(['permission:execute_mass_actions'])->prefix('import')->group(function () {
         Route::get('template', [ImportController::class, 'downloadUnifiedTemplate']);
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);

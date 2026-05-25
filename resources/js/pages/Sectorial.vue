@@ -9,7 +9,7 @@
             <p class="text-gray-500 dark:text-gray-400 mt-1">Sectoriales, switches y nodos de la infraestructura</p>
         </div>
         <button
-            v-if="can('routers.create')"
+            v-if="can('view_sectorials')"
             @click="router.push('/sectorials/create')"
             class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >

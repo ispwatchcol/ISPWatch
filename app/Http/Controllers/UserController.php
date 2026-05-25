@@ -67,7 +67,13 @@ class UserController extends Controller
             // tenant_id is accepted for backward compatibility but ignored —
             // see the forced override below.
             'tenant_id' => 'nullable|integer',
-            'role_id' => 'required|integer|exists:role,id',
+            'role_id' => [
+                'required',
+                'integer',
+                \Illuminate\Validation\Rule::exists('role', 'id')->where(function ($query) use ($request) {
+                    $query->where('tenant_id', $request->user()?->tenant_id);
+                }),
+            ],
             'name' => 'required|string|max:255',
             'user_name' => 'required|string|max:255',
             'user_lastname' => 'required|string|max:255',
@@ -169,7 +175,13 @@ class UserController extends Controller
 
         $data = $request->validate([
             'name' => 'sometimes|string|max:255',
-            'role_id' => 'sometimes|integer|exists:role,id',
+            'role_id' => [
+                'sometimes',
+                'integer',
+                \Illuminate\Validation\Rule::exists('role', 'id')->where(function ($query) use ($request) {
+                    $query->where('tenant_id', $request->user()?->tenant_id);
+                }),
+            ],
             'user_name' => 'sometimes|string|max:255',
             'user_lastname' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|unique:users,email,' . $user->id,

@@ -136,9 +136,28 @@ class RegistrationController extends Controller
                 'tel_tenant' => $sanitizedData['phone'],
             ]);
 
-            // 2. Get Administrator role (role_id = 1)
-            $adminRole = Role::where('name', 'Administrador')->first();
-            $roleId = $adminRole ? $adminRole->id : 1;
+            // 2. Create default roles for this new tenant
+            $defaultRoles = [
+                'Administrador' => ['code' => 'admin',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('admin')],
+                'Staff'         => ['code' => 'staff',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('staff')],
+                'Cliente'       => ['code' => 'client',     'permissions' => \App\Constants\Permissions::getPermissionsByRole('client')],
+                'Contabilidad'  => ['code' => 'accounting', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('accounting')],
+                'Técnico'       => ['code' => 'technician', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('technician')],
+            ];
+
+            $adminRoleId = null;
+            foreach ($defaultRoles as $roleName => $config) {
+                $role = Role::create([
+                    'name'       => $roleName,
+                    'code'       => $config['code'],
+                    'permissions' => $config['permissions'],
+                    'tenant_id'  => $tenant->id,
+                ]);
+                if ($config['code'] === 'admin') {
+                    $adminRoleId = $role->id;
+                }
+            }
+            $roleId = $adminRoleId ?? 1;
 
             // 3. Create Admin User for this tenant
             $nameParts = explode(' ', $sanitizedData['name'], 2);
