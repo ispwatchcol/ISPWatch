@@ -12,8 +12,8 @@ export const hasPermission = (permission) => {
     const user = getStoredUser();
     if (!user) return false;
 
-    // Admin role override (just in case permissions array is missing but role is admin)
-    if (user.role_id == 1 || (user.permissions && user.permissions.includes('*'))) {
+    // Admin bypass: role_id==1 OR role_name==='Administrador' (guards against seeder ID mismatches)
+    if (user.role_id == 1 || user.role_name === 'Administrador' || (user.permissions && user.permissions.includes('*'))) {
         return true;
     }
 
