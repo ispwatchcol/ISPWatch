@@ -10,6 +10,9 @@ use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SectorialController;
+use App\Http\Controllers\SectorialPhotoController;
+use App\Http\Controllers\SectorialNoteController;
+use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
@@ -155,6 +158,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge']);
         Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges']);
     });
+
+    // ─── SECTORIAL: photos / notes / history / linked tickets ───
+    Route::get('/sectorials/{sectorial}/photos',  [SectorialPhotoController::class, 'index']);
+    Route::post('/sectorials/{sectorial}/photos', [SectorialPhotoController::class, 'store']);
+    Route::delete('/sectorials/{sectorial}/photos/{photo}', [SectorialPhotoController::class, 'destroy']);
+
+    Route::get('/sectorials/{sectorial}/notes',  [SectorialNoteController::class, 'index']);
+    Route::post('/sectorials/{sectorial}/notes', [SectorialNoteController::class, 'store']);
+    Route::put('/sectorials/{sectorial}/notes/{note}', [SectorialNoteController::class, 'update']);
+    Route::delete('/sectorials/{sectorial}/notes/{note}', [SectorialNoteController::class, 'destroy']);
+
+    Route::get('/sectorials/{sectorial}/history', [SectorialHistoryController::class, 'index']);
+    Route::get('/sectorials/{sectorial}/tickets', [SectorialHistoryController::class, 'tickets']);
 
     // ─── CRUD RESOURCES ───
     Route::apiResources([

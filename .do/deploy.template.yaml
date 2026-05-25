@@ -11,18 +11,12 @@ spec:
     routes:
     - path: /
     run_command: |
-      cp .env.production .env
-      # Decode the MikroTik CORE SSH private key from MIKROTIK_CORE_SSH_KEY_B64
-      # so SshTunnelManager can spawn `ssh -L` tunnels to client routers that
-      # are only reachable through the L2TP overlay.
       mkdir -p storage/keys
       if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
         printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
         chmod 600 storage/keys/mikrotik_core_id_ed25519
       fi
-      php artisan config:cache
-      php artisan route:cache
-      php artisan view:cache
+      php artisan migrate --force
       heroku-php-apache2 public/
     build_command: |
       composer install --no-dev --optimize-autoloader

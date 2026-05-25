@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Sectorial;
+use App\Models\SectorialHistory;
 use App\Traits\FixesSequences;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -10,22 +11,29 @@ use Illuminate\Support\Facades\DB;
 class SectorialController extends Controller
 {
     use FixesSequences;
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+
+    public function index(Request $request)
     {
-        $sectorials = Sectorial::all();
+        $query = Sectorial::query();
+
+        $tenantId = $request->user()?->tenant_id;
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        if ($request->filled('element_type') && $request->element_type !== 'all') {
+            $query->where('element_type', $request->element_type);
+        }
+
+        $sectorials = $query->orderBy('created_at', 'desc')->get();
         return response()->json($sectorials);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         $data = $request->validate([
             'name' => 'required|string|max:255',
+            'element_type' => 'nullable|in:sectorial,switch,nodo',
             'ip' => 'nullable|string|max:255',
             'type' => 'nullable|string|max:255',
             'user_rb' => 'nullable|string|max:255',
@@ -38,51 +46,59 @@ class SectorialController extends Controller
             'coordinates' => 'nullable|json',
         ]);
 
+        $data['element_type'] = $data['element_type'] ?? Sectorial::ELEMENT_SECTORIAL;
+
         try {
             $sectorial = $this->createWithSequenceFix(Sectorial::class, $data);
 
+            SectorialHistory::log(
+                $sectorial->id,
+                'created',
+                'Se creó el elemento "' . $sectorial->name . '" (' . $sectorial->element_type . ')',
+                ['element_type' => $sectorial->element_type]
+            );
+
             return response()->json([
-                'message' => 'Sectorial creado correctamente. ✅',
+                'message' => 'Elemento creado correctamente.',
                 'sectorial' => $sectorial
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al crear el sectorial. ❌',
+                'message' => 'Error al crear el elemento.',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
-    /**
-     *  Display the specified resource.
-     */
     public function show($id)
     {
         try {
-            $sectorial = Sectorial::findOrFail($id);
+            $sectorial = Sectorial::with([
+                'photos.user:id,user_name,user_lastname',
+                'notes.user:id,user_name,user_lastname',
+            ])->findOrFail($id);
+
             return response()->json($sectorial);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
-                'message' => 'Sectorial no encontrada',
-                'error' => 'No se encontró una sectorial con el ID: ' . $id
+                'message' => 'Elemento no encontrado',
+                'error' => 'No existe un elemento con el ID: ' . $id
             ], 404);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al cargar la sectorial',
+                'message' => 'Error al cargar el elemento',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, $id)
     {
         $sectorial = Sectorial::findOrFail($id);
 
         $data = $request->validate([
             'name' => 'sometimes|required|string|max:255',
+            'element_type' => 'nullable|in:sectorial,switch,nodo',
             'ip' => 'nullable|string|max:255',
             'type' => 'nullable|string|max:255',
             'user_rb' => 'nullable|string|max:255',
@@ -96,24 +112,36 @@ class SectorialController extends Controller
         ]);
 
         try {
+            $original = $sectorial->getAttributes();
             $sectorial->update($data);
 
+            $changedFields = collect($data)
+                ->keys()
+                ->filter(fn($k) => array_key_exists($k, $original) && $original[$k] !== $sectorial->getAttribute($k))
+                ->values()
+                ->all();
+
+            if (!empty($changedFields)) {
+                SectorialHistory::log(
+                    $sectorial->id,
+                    'updated',
+                    'Se actualizó el elemento "' . $sectorial->name . '"',
+                    ['fields' => $changedFields]
+                );
+            }
+
             return response()->json([
-                'message' => 'Sectorial actualizada correctamente. ✅',
+                'message' => 'Elemento actualizado correctamente.',
                 'sectorial' => $sectorial
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al actualizar la sectorial.',
+                'message' => 'Error al actualizar el elemento.',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy($id)
     {
         try {
@@ -121,12 +149,11 @@ class SectorialController extends Controller
             $sectorial->delete();
 
             return response()->json([
-                'message' => 'Sectorial eliminada correctamente. ✅'
+                'message' => 'Elemento eliminado correctamente.'
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al eliminar la sectorial.',
+                'message' => 'Error al eliminar el elemento.',
                 'error' => $e->getMessage()
             ], 500);
         }

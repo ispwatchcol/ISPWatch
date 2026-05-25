@@ -197,6 +197,12 @@ const routes = [
         component: () => import('@/pages/SectorialEdit.vue'),
         meta: { title: 'Editar Sectorial', permission: 'view_sectorials' },
       },
+      {
+        path: ':id',
+        name: 'SectorialDetail',
+        component: () => import('@/pages/SectorialDetail.vue'),
+        meta: { title: 'Detalle de Elemento', permission: 'sectorials.view' },
+      },
     ],
   },
 

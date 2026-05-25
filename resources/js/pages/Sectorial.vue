@@ -5,8 +5,8 @@
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
         <div>
-            <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Sectoriales del Sistema</h1>
-            <p class="text-gray-500 dark:text-gray-400 mt-1">Gestión de sectoriales y configuración por zonas</p>
+            <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Elementos de Red</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-1">Sectoriales, switches y nodos de la infraestructura</p>
         </div>
         <button
             v-if="can('view_sectorials')"
@@ -14,7 +14,7 @@
             class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
         >
             <icon-lucide-plus class="w-4 h-4" />
-            Agregar Sectorial
+            Agregar Elemento
         </button>
         </div>
 
@@ -38,6 +38,24 @@
             >
               Limpiar
             </button>
+
+            <!-- Filtro por tipo de elemento -->
+            <div class="flex items-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm h-[42px]">
+              <button
+                v-for="opt in elementFilters"
+                :key="opt.value"
+                @click="elementFilter = opt.value"
+                :class="[
+                  'px-3 h-full text-xs font-medium transition-all flex items-center gap-1.5',
+                  elementFilter === opt.value
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ]"
+              >
+                <v-icon v-if="opt.icon" :name="opt.icon" class="w-3.5 h-3.5" />
+                {{ opt.label }}
+              </button>
+            </div>
           </div>
 
           <!-- Lado Derecho: Botones Exportar -->
@@ -81,9 +99,9 @@
             <table class="w-full">
             <thead class="bg-gray-50 dark:bg-gray-700">
                 <tr>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Elemento</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nombre</th>
-                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Tipo</th>
-                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Usuario RB</th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Subtipo</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Router</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Frecuencia</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nodo Torre</th>
@@ -91,10 +109,15 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                <tr v-for="sectorial in filteredSectorials" :key="sectorial.id" class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                <tr v-for="sectorial in filteredSectorials" :key="sectorial.id" class="hover:bg-gray-50 dark:hover:bg-gray-700 transition cursor-pointer" @click="router.push(`/sectorials/${sectorial.id}`)">
+                <td class="px-6 py-4">
+                    <span :class="elementBadge(sectorial.element_type)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border">
+                        <v-icon :name="elementIcon(sectorial.element_type)" class="w-3.5 h-3.5" />
+                        {{ elementLabel(sectorial.element_type) }}
+                    </span>
+                </td>
                 <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">{{ sectorial.name }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.type || '-' }}</td>
-                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.user_rb || '-' }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                     <span v-if="getRouterName(sectorial.zona_id)" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-md text-xs font-medium">
                         <v-icon name="bi-router" class="w-3 h-3" />
@@ -104,10 +127,20 @@
                 </td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.frequency || '-' }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.node_tower || '-' }}</td>
-                <td class="px-6 py-4">
+                <td class="px-6 py-4" @click.stop>
                     <div class="flex justify-center gap-2">
                     <button
-                        v-if="can('view_sectorials')"
+                        @click="router.push(`/sectorials/${sectorial.id}`)"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
+                            bg-cyan-50 text-cyan-700 border border-cyan-200
+                            hover:bg-cyan-100 hover:scale-[1.03] transition-all
+                            dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800 dark:hover:bg-cyan-800/50"
+                    >
+                        <icon-lucide-eye class="w-4 h-4" />
+                        Ver
+                    </button>
+                    <button
+                        v-if="can('routers.edit')"
                         @click="router.push(`/sectorials/${sectorial.id}/edit`)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-blue-50 text-blue-700 border border-blue-200
@@ -118,17 +151,7 @@
                         Editar
                     </button>
                     <button
-                        @click="openDetailsModal(sectorial)"
-                        class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
-                            bg-cyan-50 text-cyan-700 border border-cyan-200
-                            hover:bg-cyan-100 hover:scale-[1.03] transition-all
-                            dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800 dark:hover:bg-cyan-800/50"
-                    >
-                        <icon-lucide-bar-chart-3 class="w-4 h-4" />
-                        Detalles
-                    </button>
-                    <button
-                        v-if="can('view_sectorials')"
+                        v-if="can('routers.delete')"
                         @click="deleteSectorial(sectorial.id)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-red-50 text-red-700 border border-red-200
@@ -144,7 +167,7 @@
 
                 <tr v-if="filteredSectorials.length === 0 && !loading">
                 <td colspan="7" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                    {{ searchQuery ? 'No se encontraron resultados' : 'No hay sectoriales registradas' }}
+                    {{ searchQuery || elementFilter !== 'all' ? 'No se encontraron resultados' : 'No hay elementos registrados' }}
                 </td>
                 </tr>
             </tbody>
@@ -348,7 +371,24 @@ const routers = ref([])
 const loading = ref(true)
 const error = ref('')
 const searchQuery = ref('')
+const elementFilter = ref('all')
 const toast = ref(null)
+
+const elementFilters = [
+    { value: 'all',       label: 'Todos',     icon: '' },
+    { value: 'sectorial', label: 'Sectoriales', icon: 'md-router' },
+    { value: 'switch',    label: 'Switches',  icon: 'bi-hdd-network' },
+    { value: 'nodo',      label: 'Nodos',     icon: 'bi-diagram-3' },
+]
+
+const ELEMENT_META = {
+    sectorial: { label: 'Sectorial', icon: 'md-router',       color: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800' },
+    switch:    { label: 'Switch',    icon: 'bi-hdd-network',  color: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800' },
+    nodo:      { label: 'Nodo',      icon: 'bi-diagram-3',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' },
+}
+const elementLabel = (t) => ELEMENT_META[t]?.label || 'Sectorial'
+const elementIcon  = (t) => ELEMENT_META[t]?.icon  || 'md-router'
+const elementBadge = (t) => ELEMENT_META[t]?.color || ELEMENT_META.sectorial.color
 
 // Estados del modal eliminar
 const showDeleteModal = ref(false)
@@ -361,13 +401,16 @@ const selectedDetailsSectorial = ref(null)
 
 // Computed para filtrar sectoriales
 const filteredSectorials = computed(() => {
-    if (!searchQuery.value) {
-        return sectorials.value
+    let list = sectorials.value
+
+    if (elementFilter.value !== 'all') {
+        list = list.filter(s => (s.element_type || 'sectorial') === elementFilter.value)
     }
 
+    if (!searchQuery.value) return list
+
     const query = searchQuery.value.toLowerCase().trim()
-    
-    return sectorials.value.filter(sectorial => {
+    return list.filter(sectorial => {
         const name = sectorial.name?.toLowerCase() || ''
         const type = sectorial.type?.toLowerCase() || ''
         const userRb = sectorial.user_rb?.toLowerCase() || ''

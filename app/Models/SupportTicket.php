@@ -30,6 +30,7 @@ class SupportTicket extends Model
     protected $fillable = [
         'user_id',
         'staff_id',
+        'sectorial_id',
         'tenant_id',
         'subject',
         'description',
@@ -72,6 +73,11 @@ class SupportTicket extends Model
     public function charges()
     {
         return $this->hasMany(Invoice::class, 'ticket_id')->orderBy('created_at', 'desc');
+    }
+
+    public function sectorial()
+    {
+        return $this->belongsTo(Sectorial::class, 'sectorial_id');
     }
 
     // Scopes
