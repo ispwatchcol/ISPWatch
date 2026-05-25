@@ -138,11 +138,11 @@ class RegistrationController extends Controller
 
             // 2. Create default roles for this new tenant
             $defaultRoles = [
-                'Administrador' => ['code' => 'admin',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('Administrador')],
-                'Staff'         => ['code' => 'staff',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('Staff')],
-                'Cliente'       => ['code' => 'client',     'permissions' => \App\Constants\Permissions::getPermissionsByRole('Cliente')],
-                'Contabilidad'  => ['code' => 'accounting', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('Contabilidad')],
-                'Técnico'       => ['code' => 'technician', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('Técnico')],
+                'Administrador' => ['code' => 'admin',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('admin')],
+                'Staff'         => ['code' => 'staff',      'permissions' => \App\Constants\Permissions::getPermissionsByRole('staff')],
+                'Cliente'       => ['code' => 'client',     'permissions' => \App\Constants\Permissions::getPermissionsByRole('client')],
+                'Contabilidad'  => ['code' => 'accounting', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('accounting')],
+                'Técnico'       => ['code' => 'technician', 'permissions' => \App\Constants\Permissions::getPermissionsByRole('technician')],
             ];
 
             $adminRoleId = null;

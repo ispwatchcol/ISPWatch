@@ -110,7 +110,7 @@ class Permissions
         ];
     }
 
-    public static function getPermissionsByRole(string $roleName): array
+    public static function getPermissionsByRole(string $role): array
     {
         $allPerms = self::getAllPermissions();
         $allPermissions = [];
@@ -118,9 +118,9 @@ class Permissions
             $allPermissions = array_merge($allPermissions, array_keys($group));
         }
 
-        return match ($roleName) {
-            'Administrador' => $allPermissions,
-            'Técnico' => [
+        return match ($role) {
+            'admin', 'Administrador' => $allPermissions,
+            'technician', 'Técnico' => [
                 self::ACTIVATE_DEACTIVATE_CLIENTS,
                 self::DELETE_INSTALLATIONS,
                 self::EDIT_PENDING_BALANCE,
@@ -129,7 +129,7 @@ class Permissions
                 self::VIEW_CLIENT_TRAFFIC,
                 self::ADD_CLIENTS,
             ],
-            'Contabilidad' => [
+            'accounting', 'Contabilidad' => [
                 self::EDIT_DISCOUNT,
                 self::EDIT_PENDING_BALANCE,
                 self::EDIT_INTERNET_SERVICE,
@@ -146,7 +146,7 @@ class Permissions
                 self::ADD_TRANSFER,
                 self::DELETE_TRANSFER,
             ],
-            'Staff' => [
+            'staff', 'Staff' => [
                 self::VIEW_CLIENTS,
                 self::ADD_CLIENTS,
                 self::EDIT_DISCOUNT,
@@ -165,12 +165,12 @@ class Permissions
                 self::MANAGE_PAYMENT_PROMISES,
                 self::VIEW_INVOICES,
             ],
-            'Cliente' => [],
+            'client', 'Cliente' => [],
             default => [],
         };
     }
 
-    public static function getPermissionsByRoleFlat(string $roleName): string
+    public static function getPermissionsByRoleFlat(string $role): string
     {
         $groupedPerms = self::getAllPermissions();
         $permissionLabels = [];
@@ -181,7 +181,7 @@ class Permissions
             }
         }
 
-        $rolePerms = self::getPermissionsByRole($roleName);
+        $rolePerms = self::getPermissionsByRole($role);
         $result = [];
 
         foreach ($rolePerms as $perm) {
