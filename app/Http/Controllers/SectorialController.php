@@ -62,6 +62,10 @@ class SectorialController extends Controller
                 'message' => 'Elemento creado correctamente.',
                 'sectorial' => $sectorial
             ], 201);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            return response()->json([
+                'message' => 'Ya existe un elemento con ese nombre en tu red.',
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Error al crear el elemento.',
