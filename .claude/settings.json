@@ -9,7 +9,8 @@
       "Bash(curl -s \"http://localhost:8000/api/billing/invoices?period=2026-05\" -H \"Accept: application/json\")",
       "Bash(php -r 'require '\\\\''vendor/autoload.php'\\\\''; $app = require_once '\\\\''bootstrap/app.php'\\\\''; echo \\\\Illuminate\\\\Support\\\\Carbon::parse\\('\\\\''2026-05'\\\\''\\)->format\\('\\\\''Y-m'\\\\''\\) . PHP_EOL;')",
       "Bash(Get-Content storage\\\\logs\\\\laravel.log -Tail 50)",
-      "Bash(php -r ' *)"
+      "Bash(php -r ' *)",
+      "Bash(dir \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\" /b)"
     ]
   }
 }

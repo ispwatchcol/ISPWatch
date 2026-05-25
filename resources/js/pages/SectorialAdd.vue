@@ -40,7 +40,7 @@
                     <!-- Tipo de elemento (Sectorial / Switch / Nodo) -->
                     <div class="mb-6">
                         <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                            <v-icon name="md-filter-list" class="w-4 h-4 text-indigo-500" />
+                            <v-icon name="md-filterlist" class="w-4 h-4 text-indigo-500" />
                             Tipo de elemento <span class="text-red-500">*</span>
                         </label>
                         <div class="grid grid-cols-3 gap-3">
@@ -450,8 +450,10 @@ const handleSubmit = async () => {
             router.push({ name: 'Sectorials' })
         }, 1500)
     } catch (err) {
-        console.error('Error al crear sectorial:', err)
-        error.value = err.response?.data?.message || 'Error al crear la sectorial'
+        const detail = err.response?.data?.error
+        const msg = err.response?.data?.message || 'Error al crear la sectorial'
+        error.value = detail ? `${msg}: ${detail}` : msg
+        console.error('Error al crear sectorial:', err.response?.data ?? err)
         toast.value?.error('Error al crear', error.value)
     } finally {
         loading.value = false

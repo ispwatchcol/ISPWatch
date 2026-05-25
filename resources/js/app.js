@@ -145,6 +145,7 @@ import {
   BiCalendarCheck,
   HiChevronLeft,
   BiPlusCircle,
+  MdSettings,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -282,6 +283,7 @@ addIcons(
   BiCalendarCheck,
   HiChevronLeft,
   BiPlusCircle,
+  MdSettings,
 );
 
 // -------------------------------
