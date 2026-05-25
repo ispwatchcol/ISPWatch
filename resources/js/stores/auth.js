@@ -50,7 +50,8 @@ export const useAuthStore = defineStore('auth', () => {
 
     function hasPermission(permission) {
         if (!user.value) return false
-        if (isAdmin.value || permissions.value.includes('*')) return true
+        // Bypass: admin by ID, admin by role name, or wildcard permission
+        if (isAdmin.value || roleName.value === 'Administrador' || permissions.value.includes('*')) return true
         return permissions.value.includes(permission)
     }
 
