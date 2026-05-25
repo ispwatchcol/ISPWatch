@@ -72,6 +72,7 @@ class SupportTicketController extends Controller
             'category' => 'nullable|in:technical,billing,services,general',
             'user_id' => 'required|exists:users,id',
             'staff_id' => 'nullable|exists:users,id',
+            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
 
@@ -83,6 +84,7 @@ class SupportTicketController extends Controller
             $ticket = SupportTicket::create([
                 'user_id' => $data['user_id'],
                 'staff_id' => $data['staff_id'] ?? null,
+                'sectorial_id' => $data['sectorial_id'] ?? null,
                 'tenant_id' => $request->user()?->tenant_id ?? 1,
                 'subject' => $data['subject'],
                 'description' => $data['description'] ?? null,
@@ -90,6 +92,15 @@ class SupportTicketController extends Controller
                 'priority' => SupportTicket::PRIORITY_MEDIUM,
                 'status' => SupportTicket::STATUS_OPEN,
             ]);
+
+            if (!empty($data['sectorial_id'])) {
+                \App\Models\SectorialHistory::log(
+                    (int) $data['sectorial_id'],
+                    'ticket_linked',
+                    'Se vinculó el ticket #' . $ticket->id . ': ' . $ticket->subject,
+                    ['ticket_id' => $ticket->id]
+                );
+            }
 
             // Subir archivos adjuntos si existen
             if ($request->hasFile('attachments')) {
@@ -168,6 +179,7 @@ class SupportTicketController extends Controller
             'priority' => 'sometimes|in:low,medium,high,urgent',
             'status' => 'sometimes|in:open,in_progress,resolved,closed',
             'staff_id' => 'sometimes|nullable|exists:users,id',
+            'sectorial_id' => 'sometimes|nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
         ]);
 

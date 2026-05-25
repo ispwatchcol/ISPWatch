@@ -15,6 +15,7 @@ class Sectorial extends Model
     protected $primaryKey = 'id';
     protected $fillable = [
         'name',
+        'element_type',
         'tenant_id',
         'ip',
         'type',
@@ -28,6 +29,30 @@ class Sectorial extends Model
         'coordinates',
         'coverage_radius_meters',
     ];
+
+    public const ELEMENT_SECTORIAL = 'sectorial';
+    public const ELEMENT_SWITCH    = 'switch';
+    public const ELEMENT_NODO      = 'nodo';
+
+    public function photos()
+    {
+        return $this->hasMany(SectorialPhoto::class)->orderBy('created_at', 'desc');
+    }
+
+    public function notes()
+    {
+        return $this->hasMany(SectorialNote::class)->orderBy('created_at', 'desc');
+    }
+
+    public function history()
+    {
+        return $this->hasMany(SectorialHistory::class)->orderBy('created_at', 'desc');
+    }
+
+    public function tickets()
+    {
+        return $this->hasMany(SupportTicket::class, 'sectorial_id')->orderBy('created_at', 'desc');
+    }
 
 
     /**

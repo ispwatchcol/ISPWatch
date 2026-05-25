@@ -21,10 +21,10 @@
                         </div>
                         <div>
                             <h1 class="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white">
-                                Editar Sectorial
+                                Editar Elemento
                             </h1>
                             <p class="text-sm text-gray-500 dark:text-gray-400">
-                                Modifica los datos del punto de acceso
+                                Modifica los datos del elemento de red
                             </p>
                         </div>
                     </div>
@@ -44,7 +44,33 @@
         <div v-else class="max-w-5xl mx-auto">
             <form @submit.prevent="handleSubmit">
                 <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700 p-6 md:p-8">
-                    
+
+                    <!-- Tipo de elemento -->
+                    <div class="mb-6">
+                        <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                            <v-icon name="md-filter-list" class="w-4 h-4 text-indigo-500" />
+                            Tipo de elemento <span class="text-red-500">*</span>
+                        </label>
+                        <div class="grid grid-cols-3 gap-3">
+                            <button
+                                v-for="opt in elementTypes"
+                                :key="opt.value"
+                                type="button"
+                                @click="form.element_type = opt.value"
+                                :class="[
+                                    'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all',
+                                    form.element_type === opt.value
+                                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 shadow-md'
+                                        : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 hover:border-indigo-300'
+                                ]"
+                            >
+                                <v-icon :name="opt.icon" class="w-7 h-7" :class="form.element_type === opt.value ? 'text-indigo-600 dark:text-indigo-300' : 'text-gray-500 dark:text-gray-400'" />
+                                <span class="text-sm font-semibold" :class="form.element_type === opt.value ? 'text-indigo-700 dark:text-indigo-200' : 'text-gray-700 dark:text-gray-300'">{{ opt.label }}</span>
+                                <span class="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-tight">{{ opt.hint }}</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                         <!-- Nombre -->
                         <div class="group">
@@ -68,12 +94,11 @@
                         <div class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <v-icon name="md-router" class="w-4 h-4 text-blue-500" />
-                                Dirección IP <span class="text-red-500">*</span>
+                                Dirección IP
                             </label>
                             <input
                                 v-model="form.ip"
                                 type="text"
-                                required
                                 class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
                                        bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
                                        focus:border-blue-500 dark:focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10
@@ -82,11 +107,11 @@
                             />
                         </div>
 
-                        <!-- Tipo -->
-                        <div class="group">
+                        <!-- Subtipo (solo aplica a sectorial) -->
+                        <div v-if="form.element_type === 'sectorial'" class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <v-icon name="md-filterlist" class="w-4 h-4 text-purple-500" />
-                                Tipo
+                                Subtipo
                             </label>
                             <div class="relative">
                                 <select
@@ -293,7 +318,7 @@
                         >
                             <v-icon v-if="!loading" name="md-save" class="w-5 h-5" />
                             <div v-else class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            {{ loading ? 'Guardando...' : 'Actualizar Sectorial' }}
+                            {{ loading ? 'Guardando...' : 'Actualizar Elemento' }}
                         </button>
                         <button
                             type="button"
@@ -324,6 +349,7 @@ const route = useRoute()
 
 const form = ref({
     name: '',
+    element_type: 'sectorial',
     ip: '',
     type: '',
     user_rb: '',
@@ -334,6 +360,12 @@ const form = ref({
     comments: '',
     ssid: ''
 })
+
+const elementTypes = [
+    { value: 'sectorial', label: 'Sectorial', icon: 'md-router',      hint: 'Punto de acceso wireless' },
+    { value: 'switch',    label: 'Switch',    icon: 'bi-hdd-network', hint: 'Switch / equipo de capa 2' },
+    { value: 'nodo',      label: 'Nodo',      icon: 'bi-diagram-3',   hint: 'Nodo / sitio / torre' },
+]
 
 const coordinates = ref({
     lat: '',
@@ -381,6 +413,7 @@ const loadSectorial = async () => {
 
         form.value = {
             name: sectorial.name || '',
+            element_type: sectorial.element_type || 'sectorial',
             ip: sectorial.ip || '',
             type: sectorial.type || '',
             user_rb: sectorial.user_rb || '',
