@@ -13,54 +13,60 @@ return new class extends Migration {
             }
         });
 
-        Schema::create('sectorial_photo', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('sectorial_id');
-            $table->unsignedBigInteger('user_id')->nullable();
-            $table->unsignedBigInteger('tenant_id')->nullable();
-            $table->string('file_name');
-            $table->string('file_path', 500);
-            $table->integer('file_size')->nullable();
-            $table->string('mime_type', 100)->nullable();
-            $table->string('caption')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('sectorial_photo')) {
+            Schema::create('sectorial_photo', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('sectorial_id');
+                $table->unsignedBigInteger('user_id')->nullable();
+                $table->unsignedBigInteger('tenant_id')->nullable();
+                $table->string('file_name');
+                $table->string('file_path', 500);
+                $table->integer('file_size')->nullable();
+                $table->string('mime_type', 100)->nullable();
+                $table->string('caption')->nullable();
+                $table->timestamps();
 
-            $table->foreign('sectorial_id')->references('id')->on('sectorial')->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
-            $table->foreign('tenant_id')->references('id')->on('tenant')->onDelete('cascade');
-            $table->index(['sectorial_id', 'created_at']);
-        });
+                $table->foreign('sectorial_id')->references('id')->on('sectorial')->onDelete('cascade');
+                $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
+                $table->foreign('tenant_id')->references('id')->on('tenant')->onDelete('cascade');
+                $table->index(['sectorial_id', 'created_at']);
+            });
+        }
 
-        Schema::create('sectorial_note', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('sectorial_id');
-            $table->unsignedBigInteger('user_id')->nullable();
-            $table->unsignedBigInteger('tenant_id')->nullable();
-            $table->string('title')->nullable();
-            $table->text('content');
-            $table->timestamps();
+        if (!Schema::hasTable('sectorial_note')) {
+            Schema::create('sectorial_note', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('sectorial_id');
+                $table->unsignedBigInteger('user_id')->nullable();
+                $table->unsignedBigInteger('tenant_id')->nullable();
+                $table->string('title')->nullable();
+                $table->text('content');
+                $table->timestamps();
 
-            $table->foreign('sectorial_id')->references('id')->on('sectorial')->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
-            $table->foreign('tenant_id')->references('id')->on('tenant')->onDelete('cascade');
-            $table->index(['sectorial_id', 'created_at']);
-        });
+                $table->foreign('sectorial_id')->references('id')->on('sectorial')->onDelete('cascade');
+                $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
+                $table->foreign('tenant_id')->references('id')->on('tenant')->onDelete('cascade');
+                $table->index(['sectorial_id', 'created_at']);
+            });
+        }
 
-        Schema::create('sectorial_history', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('sectorial_id');
-            $table->unsignedBigInteger('user_id')->nullable();
-            $table->unsignedBigInteger('tenant_id')->nullable();
-            $table->string('action', 50);
-            $table->string('description');
-            $table->json('metadata')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+        if (!Schema::hasTable('sectorial_history')) {
+            Schema::create('sectorial_history', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('sectorial_id');
+                $table->unsignedBigInteger('user_id')->nullable();
+                $table->unsignedBigInteger('tenant_id')->nullable();
+                $table->string('action', 50);
+                $table->string('description');
+                $table->json('metadata')->nullable();
+                $table->timestamp('created_at')->useCurrent();
 
-            $table->foreign('sectorial_id')->references('id')->on('sectorial')->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
-            $table->foreign('tenant_id')->references('id')->on('tenant')->onDelete('cascade');
-            $table->index(['sectorial_id', 'created_at']);
-        });
+                $table->foreign('sectorial_id')->references('id')->on('sectorial')->onDelete('cascade');
+                $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
+                $table->foreign('tenant_id')->references('id')->on('tenant')->onDelete('cascade');
+                $table->index(['sectorial_id', 'created_at']);
+            });
+        }
 
         Schema::table('support_ticket', function (Blueprint $table) {
             if (!Schema::hasColumn('support_ticket', 'sectorial_id')) {
