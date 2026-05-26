@@ -1,6 +1,5 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-    <main class="flex-1 p-4 md:p-8">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
       
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
@@ -135,7 +134,7 @@
       </div>
 
       <!-- Desktop Table View -->
-      <div class="hidden lg:block bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
+      <div class="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead class="bg-gray-100 dark:bg-gray-700">
@@ -283,7 +282,7 @@
       </div>
 
       <!-- Mobile Card View -->
-      <div class="lg:hidden space-y-4">
+      <div class="md:hidden space-y-4">
         <div
           v-for="bill in filteredBillings"
           :key="bill.id"
@@ -421,7 +420,6 @@
         </div>
       </div>
 
-    </main>
   </div>
 </template>
 

@@ -1,15 +1,14 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 sm:p-6">
     <!-- Notification Toast -->
     <NotificationToast ref="toast" />
 
     <!-- Contenido principal -->
-    <main class="flex-1 p-6 overflow-y-auto">
-      <!-- Encabezado -->
-      <div class="flex items-center justify-between mb-8">
+    <!-- Encabezado -->
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
         <div>
-            <h1 class="text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <v-icon name="bi-hdd-rack" class="text-blue-600 w-7 h-7" />
+            <h1 class="text-2xl sm:text-3xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <v-icon name="bi-hdd-rack" class="text-blue-600 w-6 h-6 sm:w-7 sm:h-7" />
               Routers del Sistema
             </h1>
             <p class="text-gray-500 dark:text-gray-400 text-sm mt-1">
@@ -20,7 +19,7 @@
           <button
             v-if="can('manage_routers')"
             @click="goToAddRouter"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center gap-2 transition-all"
+            class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all w-full sm:w-auto"
           >
             <icon-lucide-plus class="w-4 h-4" />
             Agregar Router
@@ -28,31 +27,31 @@
       </div>
 
       <!-- Tarjeta principal -->
-      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow p-6">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow p-4 sm:p-6">
         <!-- Filtros -->
-        <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
+        <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between mb-6 gap-4">
           <!-- Lado Izquierdo: Búsqueda y Limpiar -->
-          <div class="flex items-center gap-2 w-full sm:w-auto">
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto flex-1">
             <input
               v-model="search"
               type="text"
               placeholder="Buscar por nombre, IP o usuario..."
-              class="border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-2 w-full sm:w-80 focus:ring-2 focus:ring-blue-300 outline-none dark:bg-gray-900 dark:text-white"
+              class="border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-2.5 sm:py-2 w-full md:max-w-md focus:ring-2 focus:ring-blue-300 outline-none dark:bg-gray-900 dark:text-white"
             />
             <button
               @click="clearSearch"
-              class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all whitespace-nowrap"
+              class="text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-4 py-2.5 sm:py-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-center"
             >
               Limpiar
             </button>
           </div>
 
           <!-- Lado Derecho: Acciones -->
-            <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-stretch sm:justify-end">
                <!-- Export CSV -->
             <button
               @click="exportToCSV"
-              class="text-sm bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-lg hover:bg-blue-100 transition-all flex items-center gap-2 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
+              class="flex-1 sm:flex-none text-sm bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2.5 sm:py-2 rounded-xl hover:bg-blue-100 transition-all flex items-center justify-center gap-2 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800"
               title="Exportar archivo CSV puro"
             >
               <icon-lucide-file-text class="w-4 h-4" />
@@ -62,7 +61,7 @@
              <!-- Export Excel -->
             <button
               @click="exportToExcel"
-              class="text-sm bg-green-50 text-green-700 border border-green-200 px-3 py-2 rounded-lg hover:bg-green-100 transition-all flex items-center gap-2 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50"
+              class="flex-1 sm:flex-none text-sm bg-green-50 text-green-700 border border-green-200 px-3 py-2.5 sm:py-2 rounded-xl hover:bg-green-100 transition-all flex items-center justify-center gap-2 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
               title="Exportar archivo compatible con Excel"
             >
               <icon-lucide-file-spreadsheet class="w-4 h-4" />
@@ -71,7 +70,7 @@
 
               <button
                 @click="openBlockRulesInfo"
-                class="text-sm bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-md"
+                class="w-full sm:w-auto text-sm bg-orange-600 hover:bg-orange-700 text-white px-4 py-2.5 sm:py-2 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md mt-2 sm:mt-0"
               >
                 <icon-lucide-shield-ban class="w-4 h-4" />
                 Configurar Reglas de Bloqueo
@@ -85,8 +84,11 @@
           <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando routers...</p>
         </div>
 
-        <!-- Tabla -->
-        <div v-if="!loading" class="overflow-x-auto">
+        <!-- Tabla / Cards -->
+        <div v-if="!loading" class="border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
+          
+          <!-- Desktop Table -->
+          <div class="hidden md:block overflow-x-auto">
           <table class="min-w-full border-collapse">
             <thead>
               <tr class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide">
@@ -103,7 +105,7 @@
               <tr
                 v-for="router in filteredRouters"
                 :key="router.id"
-                class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all"
+                class="border-b border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-700/40 transition-all bg-white dark:bg-gray-800"
               >
                 <td class="py-3 px-4 font-medium text-gray-800 dark:text-gray-100">
                   <div class="flex items-center gap-2">
@@ -204,6 +206,77 @@
               </tr>
             </tbody>
           </table>
+          </div>
+
+          <!-- Mobile Cards -->
+          <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+            <div v-for="router in filteredRouters" :key="router.id" class="p-4 bg-white dark:bg-gray-800">
+              <div class="flex justify-between items-start mb-3">
+                <div class="flex items-center gap-2">
+                  <h3 class="font-semibold text-gray-800 dark:text-gray-100 text-sm">{{ router.name }}</h3>
+                  <span
+                    v-if="router.falla_general"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300"
+                  >
+                    <icon-lucide-alert-triangle class="w-3 h-3" /> Falla general
+                  </span>
+                </div>
+                <span
+                  class="px-2.5 py-1 text-xs font-semibold rounded-full"
+                  :class="router.status === 'active'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                    : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'"
+                >
+                  {{ router.status || '—' }}
+                </span>
+              </div>
+              
+              <div class="grid grid-cols-2 gap-2 text-xs mb-4">
+                <div><span class="text-gray-500 dark:text-gray-400">IP:</span> <span class="text-gray-800 dark:text-gray-200 ml-1">{{ router.ip }}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">Usuario:</span> <span class="text-gray-800 dark:text-gray-200 ml-1">{{ router.user_rb }}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">LAN:</span> <span class="text-gray-800 dark:text-gray-200 ml-1">{{ router.lan_interface || '—' }}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">Firmware:</span> <span class="text-gray-800 dark:text-gray-200 ml-1">{{ getScriptName(router.firmware_version) }}</span></div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-if="can('manage_routers')"
+                  @click="$router.push({ name: 'RouterEdit', params: { id: router.id } })"
+                  class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800"
+                >
+                  <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
+                </button>
+                <button
+                  @click="openWanModal(router)"
+                  class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1 bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800"
+                >
+                  <icon-lucide-network class="w-3.5 h-3.5" /> WAN
+                </button>
+                <button
+                  @click="openAutoCutModal(router)"
+                  class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1 bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                >
+                  <icon-lucide-scissors class="w-3.5 h-3.5" /> Corte
+                </button>
+                <button
+                  @click="openDetailsModal(router)"
+                  class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1 bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800"
+                >
+                  <icon-lucide-bar-chart-3 class="w-3.5 h-3.5" /> Detalles
+                </button>
+                <button
+                  v-if="can('manage_routers')"
+                  @click="deleteRouter(router.id)"
+                  class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1 bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                >
+                  <icon-lucide-trash class="w-3.5 h-3.5" /> Eliminar
+                </button>
+              </div>
+            </div>
+            <div v-if="filteredRouters.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
+              No se encontraron routers.
+            </div>
+          </div>
         </div>
       </div>
 
@@ -875,7 +948,6 @@
           </div>
         </div>
       </div>
-    </main>
   </div>
 </template>
 

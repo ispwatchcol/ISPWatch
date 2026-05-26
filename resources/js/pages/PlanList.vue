@@ -1,9 +1,7 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 sm:p-6 lg:p-10 flex flex-col gap-6">
     <!-- Notification Toast -->
     <NotificationToast ref="toast" />
-    <!-- CONTENIDO -->
-    <main class="flex-1 p-4 sm:p-6 lg:p-10 overflow-y-auto flex flex-col gap-6">
 
       <!-- ENCABEZADO -->
       <div class="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
@@ -111,38 +109,40 @@
           >
             <div
               v-if="selectedPlans.length > 0"
-              class="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-800"
+              class="flex flex-wrap items-center gap-2 sm:gap-3 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-800"
             >
-              <span class="text-sm font-medium text-blue-700 dark:text-blue-300">
+              <span class="text-sm font-medium text-blue-700 dark:text-blue-300 w-full sm:w-auto text-center sm:text-left">
                 {{ selectedPlans.length }} seleccionados
               </span>
-              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
-              <button
-                @click="selectedPlans = []"
-                class="text-xs font-medium text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors flex items-center gap-1"
-                title="Quitar selección"
-              >
-                <icon-lucide-x class="w-3.5 h-3.5" />
-                Quitar
-              </button>
-              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
-              <button
-                @click="deleteBulkPlans"
-                class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors flex items-center gap-1"
-              >
-                <icon-lucide-trash-2 class="w-3.5 h-3.5" />
-                Eliminar
-              </button>
-              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
-              <button
-                @click="openBulkSyncModal"
-                :disabled="selectedPppoePlans.length === 0"
-                :title="selectedPppoePlans.length === 0 ? 'Selecciona planes PPPoE para cargar a RB' : `Cargar ${selectedPppoePlans.length} plan(es) PPPoE a una RB`"
-                class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <icon-lucide-upload class="w-3.5 h-3.5" />
-                Cargar a RB
-              </button>
+              <div class="hidden sm:block h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+              <div class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto justify-center sm:justify-start">
+                <button
+                  @click="selectedPlans = []"
+                  class="text-xs font-medium text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors flex items-center gap-1"
+                  title="Quitar selección"
+                >
+                  <icon-lucide-x class="w-3.5 h-3.5" />
+                  Quitar
+                </button>
+                <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+                <button
+                  @click="deleteBulkPlans"
+                  class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors flex items-center gap-1"
+                >
+                  <icon-lucide-trash-2 class="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+                <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+                <button
+                  @click="openBulkSyncModal"
+                  :disabled="selectedPppoePlans.length === 0"
+                  :title="selectedPppoePlans.length === 0 ? 'Selecciona planes PPPoE para cargar a RB' : `Cargar ${selectedPppoePlans.length} plan(es) PPPoE a una RB`"
+                  class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <icon-lucide-upload class="w-3.5 h-3.5" />
+                  Cargar a RB
+                </button>
+              </div>
             </div>
           </transition>
         </div>
@@ -422,25 +422,25 @@
               </div>
             </div>
 
-            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700 mt-1">
+            <div class="flex flex-wrap justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700 mt-1">
               <button
                 v-if="isPppoePlan(plan)"
                 @click="openSyncModal(plan)"
-                class="flex-1 py-2 rounded-lg text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition flex items-center justify-center gap-2"
+                class="flex-1 min-w-[100px] py-2 rounded-lg text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-upload class="w-4 h-4" /> Cargar RB
               </button>
               <button
                 v-if="can('view_plans')"
                 @click="editPlan(plan)"
-                class="flex-1 py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition flex items-center justify-center gap-2"
+                class="flex-1 min-w-[80px] py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-pencil class="w-4 h-4" /> Editar
               </button>
               <button
                 v-if="can('view_plans')"
                 @click="deletePlan(plan.id)"
-                class="flex-1 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition flex items-center justify-center gap-2"
+                class="flex-1 min-w-[80px] py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-trash-2 class="w-4 h-4" /> Eliminar
               </button>
@@ -505,7 +505,6 @@
         </div>
 
       </div>
-    </main>
 
     <!-- Modal: Confirmación eliminación masiva de planes -->
     <div
