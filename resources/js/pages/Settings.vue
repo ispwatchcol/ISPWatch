@@ -1,5 +1,5 @@
 <template>
-    <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
+    <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8 overflow-x-auto">
         <!-- Notification Toast -->
         <NotificationToast ref="toast" />
 
@@ -220,7 +220,7 @@
                                     {{ errors.trade_name[0] }}
                                 </p>
                             </div>
-                            <div class="grid grid-cols-4 gap-2">
+                            <div class="grid grid-cols-4 sm:grid-cols-4 gap-2">
                                 <div class="col-span-3">
                                     <label class="label">NIT</label>
                                     <input
@@ -235,7 +235,7 @@
                                         @input="hasChanges = true"
                                     />
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="label">DV</label>
                                     <input
                                         v-model="
