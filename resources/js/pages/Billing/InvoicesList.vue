@@ -3,6 +3,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import billingService from '@/services/billing'
 import api from '@/services/api'
 import { useRouter } from 'vue-router'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const router = useRouter()
 
@@ -20,12 +21,15 @@ const showCreateModal = ref(false)
 const customers = ref([])
 const newInvoice = ref({
     customer_id: '',
+    total: 0,
     issue_date: new Date().toISOString().split('T')[0],
     due_date: new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0],
     period_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     period_end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
     notes: ''
 })
+
+const customerLabel = (c) => `${c.name} ${c.last_name}`
 
 const fetchCustomers = async () => {
     try {
@@ -364,11 +368,15 @@ const sendBulkReminders = async () => {
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex justify-center gap-2">
-                                    <button @click="$router.push(`/billing/invoices/${invoice.id}`)" 
+                                    <button @click="$router.push(`/billing/invoices/${invoice.id}`)"
                                         class="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors" title="Ver Detalle">
                                         <v-icon name="fa-eye" class="w-5 h-5" />
                                     </button>
-                                    <button @click="downloadPdf(invoice.id, invoice.number)" 
+                                    <button @click="$router.push(`/billing/invoices/${invoice.id}/edit`)"
+                                        class="p-2 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-colors" title="Editar Factura">
+                                        <v-icon name="md-edit" class="w-5 h-5" />
+                                    </button>
+                                    <button @click="downloadPdf(invoice.id, invoice.number)"
                                         class="p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-600 rounded-lg transition-colors" title="Descargar PDF">
                                         <v-icon name="md-download" class="w-5 h-5" />
                                     </button>
@@ -405,13 +413,29 @@ const sendBulkReminders = async () => {
                     <form @submit.prevent="createIndividual" class="space-y-6">
                         <div>
                             <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Seleccionar Cliente</label>
-                            <select v-model="newInvoice.customer_id" required
-                                class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
-                                <option value="">Seleccione un cliente</option>
-                                <option v-for="c in customers" :key="c.user_id || c.id" :value="c.user_id || c.id">
-                                    {{ c.name }} {{ c.last_name }}
-                                </option>
-                            </select>
+                            <SearchableSelect
+                                v-model="newInvoice.customer_id"
+                                :items="customers"
+                                item-key="user_id"
+                                :item-label="customerLabel"
+                                item-icon="bi-person"
+                                placeholder="Seleccione un cliente"
+                                search-placeholder="Buscar por nombre..."
+                                :required="true"
+                            />
+                        </div>
+
+                        <!-- Valor -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Valor Total</label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <v-icon name="la-dollar-sign-solid" class="h-5 w-5 text-emerald-500" />
+                                </div>
+                                <input type="number" v-model.number="newInvoice.total" min="0" step="0.01" required
+                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 pl-11 pr-4 focus:ring-2 focus:ring-indigo-500 dark:text-white font-medium text-lg"
+                                    placeholder="0">
+                            </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-4">

@@ -59,21 +59,16 @@
                   <v-icon name="bi-router" class="w-4 h-4 mr-1 inline" />
                   Router / Cliente *
                 </label>
-                <select
+                <SearchableSelect
                   v-model="form.router_id"
-                  required
-                  class="input"
-                  :disabled="loading"
-                >
-                  <option value="">Selecciona un router...</option>
-                  <option
-                    v-for="router in routers"
-                    :key="router.id"
-                    :value="router.id"
-                  >
-                    {{ router.name }} - {{ router.ip || 'Sin IP' }}
-                  </option>
-                </select>
+                  :items="routers"
+                  item-key="id"
+                  :item-label="routerLabel"
+                  item-icon="bi-router"
+                  placeholder="Selecciona un router..."
+                  search-placeholder="Buscar router o IP..."
+                  :required="true"
+                />
                 <p class="hint">Selecciona el router asociado a esta factura</p>
               </div>
 
@@ -326,6 +321,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '@/supabase.js'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -351,6 +347,8 @@ const form = ref({
 })
 
 // Methods
+const routerLabel = (r) => `${r.name} - ${r.ip || 'Sin IP'}`
+
 const loadRouters = async () => {
   try {
     const { data, error } = await supabase

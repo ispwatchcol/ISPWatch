@@ -47,12 +47,23 @@ const downloadPdf = async () => {
 
 const getStatusColor = (status) => {
     switch (status) {
-        case 'paid': return 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-        case 'pending': return 'text-amber-500 bg-amber-50 dark:bg-amber-900/20'
-        case 'overdue': return 'text-rose-500 bg-rose-50 dark:bg-rose-900/20'
-        default: return 'text-slate-500 bg-slate-50 dark:bg-slate-800'
+        case 'paid':      return 'text-emerald-700 bg-emerald-100'
+        case 'pending':   return 'text-amber-700 bg-amber-100'
+        case 'overdue':   return 'text-rose-700 bg-rose-100'
+        case 'issued':    return 'text-indigo-700 bg-white'
+        case 'cancelled': return 'text-slate-700 bg-slate-200'
+        default:          return 'text-slate-700 bg-slate-200'
     }
 }
+
+const statusLabels = {
+    paid:      'Pagado',
+    pending:   'Pendiente de pago',
+    overdue:   'Vencida',
+    issued:    'Emitida',
+    cancelled: 'Cancelada',
+}
+const getStatusLabel = (status) => statusLabels[status] ?? status
 
 const formatDate = (date) => {
     if (!date) return '—'
@@ -111,7 +122,7 @@ onMounted(fetchInvoice)
                          </div>
                          <div class="flex flex-col items-end">
                              <div :class="getStatusColor(invoice.status)" class="px-6 py-2 rounded-2xl font-medium uppercase text-sm tracking-widest shadow-lg">
-                                 {{ invoice.status }}
+                                 {{ getStatusLabel(invoice.status) }}
                              </div>
                              <div class="mt-8 text-right">
                                  <p class="text-xs font-medium opacity-70">Total del Periodo</p>

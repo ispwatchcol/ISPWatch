@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import billingService from '@/services/billing'
 import api, { apiClient } from '@/services/api'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const user = ref({})
 const customers = ref([])
@@ -51,6 +52,10 @@ const modalMessage = computed(() => {
     }
     return ''
 })
+
+const customerLabel = (c) => `${c.name} ${c.last_name}`
+
+watch(() => form.value.customer_id, (val) => { if (val) getBalance() })
 
 const fetchCustomers = async () => {
     try {
@@ -139,18 +144,16 @@ onMounted(() => {
                             <!-- Customer Select -->
                             <div>
                                 <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Cliente</label>
-                                <div class="relative">
-                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                        <v-icon name="bi-person" class="h-5 w-5 text-slate-400" />
-                                    </div>
-                                    <select v-model="form.customer_id" @change="getBalance"
-                                        class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all appearance-none" required>
-                                        <option value="">Seleccione un cliente</option>
-                                        <option v-for="c in customers" :key="c.user_id || c.id" :value="c.user_id || c.id">
-                                            {{ c.name }} {{ c.last_name }}
-                                        </option>
-                                    </select>
-                                </div>
+                                <SearchableSelect
+                                    v-model="form.customer_id"
+                                    :items="customers"
+                                    item-key="user_id"
+                                    :item-label="customerLabel"
+                                    item-icon="bi-person"
+                                    placeholder="Seleccione un cliente"
+                                    search-placeholder="Buscar por nombre..."
+                                    :required="true"
+                                />
                             </div>
 
                             <!-- Amount -->
@@ -175,9 +178,15 @@ onMounted(() => {
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Forma de Pago</label>
-                                    <select v-model="form.method" class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
-                                        <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
-                                    </select>
+                                    <SearchableSelect
+                                        v-model="form.method"
+                                        :items="paymentMethods"
+                                        item-key="name"
+                                        item-label="name"
+                                        item-icon="bi-credit-card"
+                                        placeholder="Seleccione forma de pago"
+                                        search-placeholder="Buscar método..."
+                                    />
                                 </div>
                             </div>
 

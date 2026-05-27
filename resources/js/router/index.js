@@ -289,6 +289,12 @@ const routes = [
         meta: { title: 'Factura', permission: 'view_billing' },
       },
       {
+        path: 'invoices/:id/edit',
+        name: 'InvoiceEdit',
+        component: () => import('@/pages/Billing/InvoiceEdit.vue'),
+        meta: { title: 'Editar Factura', permission: 'view_billing' },
+      },
+      {
         path: 'payments',
         name: 'PaymentsList',
         component: () => import('@/pages/Billing/PaymentsList.vue'),

@@ -81,25 +81,47 @@ class BillingController extends Controller
     {
         $data = $request->validate([
             'customer_id' => 'required|exists:users,id',
-            'tenant_id' => 'required',
-            'issue_date' => 'required|date',
-            'due_date' => 'required|date',
-            'period_start' => 'required|date',
-            'period_end' => 'required|date',
-            'notes' => 'nullable|string',
+            'tenant_id'   => 'required',
+            'issue_date'  => 'required|date',
+            'due_date'    => 'required|date',
+            'period_start'=> 'required|date',
+            'period_end'  => 'required|date',
+            'total'       => 'nullable|numeric|min:0',
+            'notes'       => 'nullable|string',
         ]);
 
-        $data['status'] = 'issued';
-        $data['subtotal'] = 0;
-        $data['total'] = 0;
-        $data['balance_due'] = 0;
-        $data['currency'] = 'COP';
+        $total = $data['total'] ?? 0;
+        $data['status']      = 'issued';
+        $data['subtotal']    = $total;
+        $data['total']       = $total;
+        $data['balance_due'] = $total;
+        $data['currency']    = 'COP';
 
         // Generate invoice number using BillingService
         $data['number'] = $this->billingService->generateInvoiceNumber($data['tenant_id']);
 
         $invoice = Invoice::create($data);
         return response()->json($invoice, 201);
+    }
+
+    // Update Invoice
+    public function update(Request $request, $id)
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        $data = $request->validate([
+            'status'       => 'sometimes|in:issued,pending,paid,overdue,cancelled',
+            'issue_date'   => 'sometimes|date',
+            'due_date'     => 'sometimes|date',
+            'period_start' => 'sometimes|nullable|date',
+            'period_end'   => 'sometimes|nullable|date',
+            'total'        => 'sometimes|numeric|min:0',
+            'balance_due'  => 'sometimes|numeric|min:0',
+            'notes'        => 'nullable|string',
+        ]);
+
+        $invoice->update($data);
+        return response()->json($invoice->fresh(['customer', 'items', 'payments']));
     }
 
     // Add Items
