@@ -111,7 +111,7 @@ class AuthController extends Controller
                 'ip' => $request->ip(),
             ]);
 
-            $user->load('role');
+            $user->load(['role' => fn($q) => $q->withoutGlobalScope('tenant')]);
 
             return response()->json([
                 'success' => true,

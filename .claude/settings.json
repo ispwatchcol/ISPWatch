@@ -10,7 +10,9 @@
       "Bash(php -r 'require '\\\\''vendor/autoload.php'\\\\''; $app = require_once '\\\\''bootstrap/app.php'\\\\''; echo \\\\Illuminate\\\\Support\\\\Carbon::parse\\('\\\\''2026-05'\\\\''\\)->format\\('\\\\''Y-m'\\\\''\\) . PHP_EOL;')",
       "Bash(Get-Content storage\\\\logs\\\\laravel.log -Tail 50)",
       "Bash(php -r ' *)",
-      "Bash(dir \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\" /b)"
+      "Bash(dir \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\" /b)",
+      "Bash(Get-Content \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\\\\storage\\\\logs\\\\laravel.log\" -Tail 80)",
+      "Bash(git fetch *)"
     ]
   }
 }
