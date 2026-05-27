@@ -218,6 +218,12 @@ const routes = [
         component: () => import('@/pages/Installations.vue'),
         meta: { title: 'Instalaciones', permission: 'view_support' },
       },
+      {
+        path: ':id',
+        name: 'InstallationDetail',
+        component: () => import('@/pages/InstallationDetail.vue'),
+        meta: { title: 'Detalle de instalación', permission: 'view_support' },
+      },
     ],
   },
 

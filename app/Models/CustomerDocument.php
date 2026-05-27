@@ -13,6 +13,7 @@ class CustomerDocument extends Model
     protected $fillable = [
         'tenant_id',
         'customer_id',
+        'installation_id',
         'type',
         'file_name',
         'file_path',

@@ -5,6 +5,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerProfileController;
 use App\Http\Controllers\CustomerDocumentController;
 use App\Http\Controllers\CustomerInstallationController;
+use App\Http\Controllers\ProspectController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
@@ -76,10 +77,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // ─── CUSTOMER INSTALLATIONS ───
     Route::get('/installations', [CustomerInstallationController::class, 'all']);
+    Route::post('/installations', [CustomerInstallationController::class, 'createWithProspect']);
+    Route::get('/installations/technicians', [CustomerInstallationController::class, 'technicians']);
+    Route::get('/installations/customers', [CustomerInstallationController::class, 'customersForInstallation']);
+    Route::get('/installations/{installation}', [CustomerInstallationController::class, 'show']);
+    Route::put('/installations/{installation}/prospect', [CustomerInstallationController::class, 'updateProspect']);
     Route::get('/customers/{customer}/installations', [CustomerInstallationController::class, 'index']);
     Route::post('/customers/{customer}/installations', [CustomerInstallationController::class, 'store']);
     Route::put('/customers/installations/{installation}', [CustomerInstallationController::class, 'update']);
     Route::delete('/customers/installations/{installation}', [CustomerInstallationController::class, 'destroy']);
+    Route::put('/installations/{installation}/sheet', [CustomerInstallationController::class, 'saveSheet']);
+    Route::post('/installations/{installation}/photos', [CustomerInstallationController::class, 'uploadPhotos']);
+    Route::post('/installations/{installation}/sign', [CustomerInstallationController::class, 'sign']);
+
+    // ─── PROSPECTS ───
+    Route::apiResource('prospects', ProspectController::class);
+    Route::post('/prospects/{prospect}/mark-converted', [ProspectController::class, 'markConverted']);
+    Route::post('/prospects/{prospect}/installations', [CustomerInstallationController::class, 'storeForProspect']);
 
     // ─── CUSTOMER DOCUMENTS & CONTRACT ───
     Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index']);

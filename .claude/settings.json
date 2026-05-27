@@ -16,7 +16,19 @@
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\\\\resources\\\\views\" -Recurse -Filter \"*create*\" -Type f)",
       "Bash(Select-Object FullName)",
       "Bash(Select-String \"customer_profile\")",
-      "Bash(Select-Object -Last 5)"
+      "Bash(Select-Object -Last 5)",
+      "Bash(curl -sS -i http://localhost:8000/api/roles)",
+      "Bash(awk '/^\\\\[2026/ {print}' storage/logs/laravel.log)",
+      "Bash(curl -sS -o /tmp/r1.json -w 'HTTP %{http_code}\\\\n' -H 'Authorization: Bearer 1|Nb1m8TwVscPLReNb2iuyCsqDAaEp8OoJUbPUQm8mf3f81f45' -H 'Accept: application/json' http://localhost:8000/api/roles)",
+      "Read(//tmp/**)",
+      "Bash(curl -sS -o /tmp/r2.json -w 'HTTP %{http_code}\\\\n' -H 'Authorization: Bearer 1|Nb1m8TwVscPLReNb2iuyCsqDAaEp8OoJUbPUQm8mf3f81f45' -H 'Accept: application/json' http://localhost:8000/api/installations)",
+      "Bash(curl -sS -c /tmp/cj.txt -b /tmp/cj.txt http://localhost:8000/sanctum/csrf-cookie -o /dev/null -w \"csrf %{http_code}\\\\n\")",
+      "Bash(awk '/XSRF-TOKEN/ {print $7}' /tmp/cj.txt)",
+      "Bash(curl -sS -b /tmp/cj.txt -c /tmp/cj.txt -i -H \"Accept: application/json\" -H \"X-XSRF-TOKEN: $\\(awk '/XSRF-TOKEN/ {print $7}' /tmp/cj.txt)",
+      "Bash(rm -f /tmp/cj.txt)",
+      "Bash(curl -sS -c /tmp/cj.txt http://localhost:8000/sanctum/csrf-cookie -o /dev/null -w \"csrf %{http_code}\\\\n\")",
+      "Bash(awk '{print $7}')",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

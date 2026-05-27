@@ -52,6 +52,17 @@ export default {
     getAllInstallations(params = {}) {
         return apiClient.get('/installations', { params })
     },
+    /** Unified create: prospect + installation in one transaction. */
+    createInstallationWithProspect(data) {
+        return apiClient.post('/installations', data)
+    },
+    /** Inline edit of the prospect data attached to an installation. */
+    updateInstallationProspect(installationId, data) {
+        return apiClient.put(`/installations/${installationId}/prospect`, data)
+    },
+    getInstallation(installationId) {
+        return apiClient.get(`/installations/${installationId}`)
+    },
     getInstallations(id) {
         return apiClient.get(`/customers/${id}/installations`)
     },
@@ -63,6 +74,23 @@ export default {
     },
     deleteInstallation(installationId) {
         return apiClient.delete(`/customers/installations/${installationId}`)
+    },
+    listTechnicians() {
+        return apiClient.get('/installations/technicians')
+    },
+    listCustomersForInstallation() {
+        return apiClient.get('/installations/customers')
+    },
+    saveInstallationSheet(installationId, sheet) {
+        return apiClient.put(`/installations/${installationId}/sheet`, { sheet })
+    },
+    uploadInstallationPhotos(installationId, formData) {
+        return apiClient.post(`/installations/${installationId}/photos`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
+    },
+    signInstallation(installationId, payload) {
+        return apiClient.post(`/installations/${installationId}/sign`, payload)
     },
 
     // ─── Contract ───
