@@ -17,9 +17,14 @@ export const apiClient = axios.create({
 // =========================
 apiClient.interceptors.request.use(
   config => {
-    const userData =
-      JSON.parse(localStorage.getItem('userData')) ||
-      JSON.parse(sessionStorage.getItem('userData'))
+    let userData = null
+    try {
+      userData =
+        JSON.parse(localStorage.getItem('userData') ?? 'null') ||
+        JSON.parse(sessionStorage.getItem('userData') ?? 'null')
+    } catch {
+      userData = null
+    }
 
     if (userData?.tenant_id) {
       config.params = {
@@ -32,6 +37,32 @@ apiClient.interceptors.request.use(
     return config
   },
   error => Promise.reject(error)
+)
+
+// =========================
+// INTERCEPTOR: HANDLE EXPIRED SESSION (401)
+// =========================
+// If a request comes back 401 (Sanctum cookie expired / invalidated), wipe
+// the cached userData and bounce to /login so the user can re-authenticate.
+// Without this, pages silently render their empty state because the failed
+// promise has no global handler — which looks like "nothing loads".
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    const status = error?.response?.status
+    const url    = error?.config?.url || ''
+    const isLogin = url.includes('/login')
+
+    if (status === 401 && !isLogin && typeof window !== 'undefined') {
+      try { localStorage.removeItem('userData') } catch {}
+      try { sessionStorage.removeItem('userData') } catch {}
+      // The Vue login page is mounted at "/", not "/login".
+      if (window.location.pathname !== '/') {
+        window.location.assign('/')
+      }
+    }
+    return Promise.reject(error)
+  }
 )
 
 // =========================
@@ -54,6 +85,7 @@ export { default as helpCenterApi } from './api/help-center'
 // =========================
 import authApi from './api/auth'
 import customersApi from './api/customers'
+import prospectsApi from './api/prospects'
 import routersApi from './api/routers'
 import plansApi from './api/plans'
 import staffApi from './api/staff'
@@ -67,6 +99,7 @@ import helpCenterApi from './api/help-center'
 export default {
   auth: authApi,
   customers: customersApi,
+  prospects: prospectsApi,
   routers: routersApi,
   plan: plansApi,
   plans: { getAll: plansApi.getAll },

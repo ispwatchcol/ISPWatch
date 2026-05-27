@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
+use App\Models\BillingActionLog;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -214,53 +215,23 @@ class BillingService
                 $total    = $subtotal + $tax;
 
                 try {
-                    $invoiceNumber = $this->generateInvoiceNumber($tenantId);
-
-                    $invoice = Invoice::create([
-                        'tenant_id'    => $tenantId,
-                        'customer_id'  => $customerId,
-                        'service_id'   => $servicePlan->id,
-                        'number'       => $invoiceNumber,
-                        'issue_date'   => $issueDate,
-                        'due_date'     => $dueDate,
-                        'period_start' => $periodStart,
-                        'period_end'   => $periodEnd,
-                        'currency'     => 'COP',
-                        'subtotal'     => $subtotal,
-                        'tax'          => $tax,
-                        'total'        => $total,
-                        'balance_due'  => $total,
-                        'status'       => 'issued',
-                    ]);
-
-                    InvoiceItem::create([
-                        'invoice_id' => $invoice->id,
-                        'type'       => 'plan',
-                        'description'=> "Servicio mensual: {$servicePlan->name}",
-                        'quantity'   => 1,
-                        'unit_price' => $subtotal,
-                        'amount'     => $subtotal,
-                    ]);
-
-                    // Auto-apply any existing credit balance to the new invoice
-                    $profile->refresh();
-                    $this->applyCreditToInvoice($invoice, $profile);
-
+                    $invoice = $this->createMonthlyInvoiceFor(
+                        tenantId:    $tenantId,
+                        customerId:  $customerId,
+                        router:      $router,
+                        profile:     $profile,
+                        servicePlan: $servicePlan,
+                        issueDate:   $issueDate,
+                        dueDate:     $dueDate,
+                        periodStart: $periodStart,
+                        periodEnd:   $periodEnd,
+                        billingConfig: $billingConfig,
+                    );
                     $created++;
-
-                    Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id}).");
-
-                    // Notify customer that a new invoice was issued (email / whatsapp / both
-                    // per the router's notification_type). Failure to notify must NOT
-                    // roll back the invoice creation.
-                    try {
-                        $invoice->refresh()->load('tenant');
-                        $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
-                    } catch (\Throwable $e) {
-                        Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
-                    }
-                } catch (\Exception $e) {
+                    $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $invoice->id);
+                } catch (\Throwable $e) {
                     Log::error("Billing: Failed to create invoice for customer {$customerId}: {$e->getMessage()}");
+                    $this->markActionLogFailed($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $e->getMessage());
                 }
             }
         }
@@ -268,6 +239,257 @@ class BillingService
         Log::info("Billing: Generation complete. {$created} invoice(s) created for period {$period}.");
 
         return $created;
+    }
+
+    /**
+     * Shared invoice-creation block used by the monthly run AND by failover retries.
+     * Throws on failure so the caller can log it.
+     */
+    protected function createMonthlyInvoiceFor(
+        int $tenantId,
+        int $customerId,
+        Router $router,
+        CustomerProfile $profile,
+        \App\Models\Plan $servicePlan,
+        Carbon $issueDate,
+        Carbon $dueDate,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        Billing $billingConfig,
+    ): Invoice {
+        $subtotal = $servicePlan->cost_product ?? 0;
+        $tax      = 0;
+        $total    = $subtotal + $tax;
+
+        $invoiceNumber = $this->generateInvoiceNumber($tenantId);
+
+        $invoice = Invoice::create([
+            'tenant_id'    => $tenantId,
+            'customer_id'  => $customerId,
+            'service_id'   => $servicePlan->id,
+            'number'       => $invoiceNumber,
+            'issue_date'   => $issueDate,
+            'due_date'     => $dueDate,
+            'period_start' => $periodStart,
+            'period_end'   => $periodEnd,
+            'currency'     => 'COP',
+            'subtotal'     => $subtotal,
+            'tax'          => $tax,
+            'total'        => $total,
+            'balance_due'  => $total,
+            'status'       => 'issued',
+        ]);
+
+        InvoiceItem::create([
+            'invoice_id' => $invoice->id,
+            'type'       => 'plan',
+            'description'=> "Servicio mensual: {$servicePlan->name}",
+            'quantity'   => 1,
+            'unit_price' => $subtotal,
+            'amount'     => $subtotal,
+        ]);
+
+        $profile->refresh();
+        $this->applyCreditToInvoice($invoice, $profile);
+
+        Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id}).");
+
+        // Notification failure must NOT roll back the invoice.
+        try {
+            $invoice->refresh()->load('tenant');
+            $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+        } catch (\Throwable $e) {
+            Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Retry a previously-failed monthly invoice from its action log row.
+     * Increments attempts, recomputes next_retry_at, and marks success/exhausted.
+     *
+     * @return bool true if the invoice was created (or already existed), false otherwise
+     */
+    public function retryFailedInvoice(BillingActionLog $log): bool
+    {
+        if (!$log->isReadyToRetry()) {
+            return false;
+        }
+
+        $router = Router::with('billingConfig')->find($log->router_id);
+        if (!$router || !$router->billingConfig) {
+            $log->update([
+                'status'     => BillingActionLog::STATUS_EXHAUSTED,
+                'last_error' => 'Router or billing config no longer exists',
+                'attempts'   => $log->attempts + 1,
+            ]);
+            return false;
+        }
+
+        $profile = CustomerProfile::where('user_id', $log->customer_id)->first();
+        if (!$profile || !$profile->status) {
+            $log->update([
+                'status'     => BillingActionLog::STATUS_EXHAUSTED,
+                'last_error' => 'Customer profile inactive or missing',
+                'attempts'   => $log->attempts + 1,
+            ]);
+            return false;
+        }
+
+        $userService = UserService::where('user_id', $log->customer_id)
+            ->where('status', UserService::STATUS_ACTIVE)
+            ->with('servicePlan')
+            ->first();
+
+        if (!$userService || !$userService->servicePlan || $userService->servicePlan->is_courtesy) {
+            $log->update([
+                'status'     => BillingActionLog::STATUS_EXHAUSTED,
+                'last_error' => 'No active billable service plan',
+                'attempts'   => $log->attempts + 1,
+            ]);
+            return false;
+        }
+
+        // Idempotency: if the invoice already exists, just mark success.
+        $existing = Invoice::where('tenant_id', $log->tenant_id)
+            ->where('customer_id', $log->customer_id)
+            ->where('period_start', $log->period_start)
+            ->where('period_end', $log->period_end)
+            ->first();
+
+        if ($existing) {
+            $log->update([
+                'status'     => BillingActionLog::STATUS_SUCCESS,
+                'invoice_id' => $existing->id,
+                'attempts'   => $log->attempts + 1,
+                'last_error' => null,
+            ]);
+            return true;
+        }
+
+        // Recompute due date from billing config (mirror of main loop).
+        $today      = now();
+        $billingConfig = $router->billingConfig;
+        $dueDay     = $billingConfig->payment_day
+            ? Carbon::parse($billingConfig->payment_day)->day
+            : null;
+        $issueDate  = $today->copy()->startOfDay();
+        if ($dueDay !== null) {
+            $lastDayOfMonth = $today->copy()->endOfMonth()->day;
+            $clampedDueDay  = min($dueDay, $lastDayOfMonth);
+            $dueDate = $today->copy()->setDay($clampedDueDay)->startOfDay();
+            if ($dueDate->lt($issueDate)) {
+                $dueDate = $dueDate->addMonth();
+            }
+        } else {
+            $dueDate = $issueDate->copy()->addDays(5);
+        }
+
+        try {
+            $invoice = $this->createMonthlyInvoiceFor(
+                tenantId:    $log->tenant_id,
+                customerId:  $log->customer_id,
+                router:      $router,
+                profile:     $profile,
+                servicePlan: $userService->servicePlan,
+                issueDate:   $issueDate,
+                dueDate:     $dueDate,
+                periodStart: Carbon::parse($log->period_start)->startOfDay(),
+                periodEnd:   Carbon::parse($log->period_end)->startOfDay(),
+                billingConfig: $billingConfig,
+            );
+
+            $log->update([
+                'status'        => BillingActionLog::STATUS_SUCCESS,
+                'invoice_id'    => $invoice->id,
+                'attempts'      => $log->attempts + 1,
+                'last_error'    => null,
+                'next_retry_at' => null,
+            ]);
+            return true;
+        } catch (\Throwable $e) {
+            $attempts = $log->attempts + 1;
+            $exhausted = $attempts >= BillingActionLog::MAX_ATTEMPTS;
+
+            $log->update([
+                'status'        => $exhausted ? BillingActionLog::STATUS_EXHAUSTED : BillingActionLog::STATUS_FAILED,
+                'attempts'      => $attempts,
+                'last_error'    => $e->getMessage(),
+                'next_retry_at' => $exhausted ? null : now()->addSeconds(
+                    BillingActionLog::RETRY_BACKOFF_SECONDS[$attempts] ?? 3600
+                ),
+            ]);
+            Log::error("Billing: Retry attempt {$attempts} failed for log {$log->id} (customer {$log->customer_id}): {$e->getMessage()}");
+            return false;
+        }
+    }
+
+    /**
+     * Upsert an action log row marking a failed invoice creation attempt.
+     * Increments attempts and computes next_retry_at via backoff.
+     */
+    protected function markActionLogFailed(int $tenantId, ?int $routerId, int $customerId, Carbon $periodStart, Carbon $periodEnd, string $errorMessage): void
+    {
+        $existing = BillingActionLog::where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->where('period_start', $periodStart->toDateString())
+            ->where('action', BillingActionLog::ACTION_GENERATE_MONTHLY)
+            ->first();
+
+        if ($existing) {
+            $attempts = $existing->attempts + 1;
+            $exhausted = $attempts >= BillingActionLog::MAX_ATTEMPTS;
+            $existing->update([
+                'router_id'     => $routerId,
+                'status'        => $exhausted ? BillingActionLog::STATUS_EXHAUSTED : BillingActionLog::STATUS_FAILED,
+                'attempts'      => $attempts,
+                'last_error'    => $errorMessage,
+                'next_retry_at' => $exhausted ? null : now()->addSeconds(
+                    BillingActionLog::RETRY_BACKOFF_SECONDS[$attempts] ?? 3600
+                ),
+            ]);
+        } else {
+            BillingActionLog::create([
+                'tenant_id'     => $tenantId,
+                'router_id'     => $routerId,
+                'customer_id'   => $customerId,
+                'action'        => BillingActionLog::ACTION_GENERATE_MONTHLY,
+                'period_start'  => $periodStart->toDateString(),
+                'period_end'    => $periodEnd->toDateString(),
+                'status'        => BillingActionLog::STATUS_FAILED,
+                'attempts'      => 1,
+                'last_error'    => $errorMessage,
+                'next_retry_at' => now()->addSeconds(BillingActionLog::RETRY_BACKOFF_SECONDS[1]),
+            ]);
+        }
+    }
+
+    /**
+     * Close a previously-failed log row when the invoice finally succeeds.
+     * No-op if there's no prior failed row — we keep the log lean and focused
+     * on trouble cases (failed / exhausted), not on every successful invoice.
+     */
+    protected function markActionLogSuccess(int $tenantId, ?int $routerId, int $customerId, Carbon $periodStart, Carbon $periodEnd, int $invoiceId): void
+    {
+        $existing = BillingActionLog::where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->where('period_start', $periodStart->toDateString())
+            ->where('action', BillingActionLog::ACTION_GENERATE_MONTHLY)
+            ->first();
+
+        if (!$existing) {
+            return;
+        }
+
+        $existing->update([
+            'router_id'     => $routerId,
+            'period_end'    => $periodEnd->toDateString(),
+            'invoice_id'    => $invoiceId,
+            'status'        => BillingActionLog::STATUS_SUCCESS,
+            'last_error'    => null,
+            'next_retry_at' => null,
+        ]);
     }
 
     /**

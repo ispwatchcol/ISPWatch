@@ -634,11 +634,45 @@ const provisionCustomer = async () => {
     try {
         loading.value = true
         const customerIds = filteredCustomers.value.map(c => c.user_id)
-        const response    = await api.customers.bulkProvision(customerIds)
 
-        const data    = response.data || {}
-        const results = Array.isArray(data.results) ? data.results : []
-        const { success_count = 0, fail_count = 0, pppoe_skipped_count = 0 } = data
+        // Chunking: cada lote termina holgadamente bajo el timeout del proxy
+        // (Cloudflare ≈100s). Sin esto, una selección grande dispara 504 porque
+        // bulkProvision procesa los clientes secuencialmente vía SSH a CORE.
+        const CHUNK_SIZE = 5
+        const results    = []
+        let success_count = 0, fail_count = 0, pppoe_skipped_count = 0
+
+        for (let i = 0; i < customerIds.length; i += CHUNK_SIZE) {
+            const chunk = customerIds.slice(i, i + CHUNK_SIZE)
+            try {
+                const resp = await api.customers.bulkProvision(chunk)
+                const d    = resp.data || {}
+                if (Array.isArray(d.results)) results.push(...d.results)
+                success_count       += d.success_count       || 0
+                fail_count          += d.fail_count          || 0
+                pppoe_skipped_count += d.pppoe_skipped_count || 0
+            } catch (err) {
+                const isTimeout = err.response?.status === 504 || err.code === 'ECONNABORTED'
+                const chunkMsg  = isTimeout
+                    ? 'Timeout: el router/CORE no respondió a tiempo.'
+                    : (err.response?.data?.message || err.message || 'Error de red')
+                for (const id of chunk) {
+                    const c = filteredCustomers.value.find(x => x.user_id === id)
+                    results.push({
+                        customer_id  : id,
+                        customer_name: c ? `${c.name} ${c.last_name}` : `#${id}`,
+                        success      : false,
+                        queue_ok     : false,
+                        queue_message: chunkMsg,
+                        pppoe_applies: false,
+                        message      : chunkMsg,
+                    })
+                    fail_count++
+                }
+            }
+        }
+
+        const data = { success: fail_count === 0, success_count, fail_count, pppoe_skipped_count, results }
 
         if (results.length === 1) {
             // Caso un solo cliente: reportamos queue y secret PPPoE por separado.

@@ -435,13 +435,15 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const router = useRouter()
+const route  = useRoute()
 const toast  = ref(null)
+const prospectId = ref(null)
 
 const form = ref({
     email: '',
@@ -602,7 +604,30 @@ const loadCatalogs = async () => {
     }
 }
 
-onMounted(loadCatalogs)
+const loadProspect = async () => {
+    const pid = Number(route.query.prospect_id)
+    if (!pid) return
+    try {
+        const { data } = await api.prospects.getOne(pid)
+        prospectId.value = pid
+        form.value.name      = data.name      ?? form.value.name
+        form.value.last_name = data.last_name ?? form.value.last_name
+        form.value.cedula    = data.cedula    ?? form.value.cedula
+        form.value.email     = data.email     ?? form.value.email
+        form.value.tel       = data.tel       ?? form.value.tel
+        form.value.address   = data.address   ?? form.value.address
+        form.value.city      = data.city      ?? form.value.city
+        form.value.state     = data.state     ?? form.value.state
+        toast.value?.info('Datos del prospecto cargados', 'Completá los campos faltantes y guardá.')
+    } catch (err) {
+        console.error('No se pudo cargar el prospecto:', err)
+    }
+}
+
+onMounted(async () => {
+    await loadCatalogs()
+    await loadProspect()
+})
 
 const handleSubmit = async () => {
     errorMsg.value     = ''
@@ -635,6 +660,18 @@ const handleSubmit = async () => {
     try {
         const res   = await api.customers.create(form.value)
         const pppoe = res.data?.pppoe_provisioned
+        const newUserId = res.data?.user?.id
+
+        // If this client was created from a prospect, link them so the
+        // prospect's installations/documents get re-homed to the new user
+        // and the prospect transitions to status="convertido".
+        if (prospectId.value && newUserId) {
+            try {
+                await api.prospects.markConverted(prospectId.value, newUserId)
+            } catch (e) {
+                console.warn('No se pudo marcar el prospecto como convertido:', e)
+            }
+        }
 
         if (showPppoeSection.value && pppoe && !pppoe.success) {
             toast.value?.warning(
