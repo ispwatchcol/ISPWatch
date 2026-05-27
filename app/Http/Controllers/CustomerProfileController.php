@@ -336,7 +336,7 @@ class CustomerProfileController extends Controller
                 'email_tenant' => $emailTenant,
                 'password'     => bcrypt($data['password']),
                 'tel'          => $data['tel'] ?? null,
-                'role_id'      => 3,
+                'role_id'      => \App\Models\Role::idByName('Cliente', $tenantId) ?? 3,
                 'tenant_id'    => $tenantId,
                 'status'       => true,
             ]);

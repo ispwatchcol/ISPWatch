@@ -120,8 +120,11 @@ class RoleController extends Controller
     {
         $role = Role::findOrFail($id);
 
-        // Prevent deletion of core roles
-        if (in_array($role->code, ['admin', 'client', 'technician', 'accounting', 'staff'])) {
+        // Prevent deletion of core roles (check both code and name)
+        $coreCodes = ['admin', 'client', 'technician', 'accounting', 'staff'];
+        $coreNames = ['Administrador', 'Cliente', 'Tecnico', 'Técnico', 'Contabilidad', 'Staff'];
+
+        if (in_array($role->code, $coreCodes) || in_array($role->name, $coreNames)) {
             return response()->json([
                 'success' => false,
                 'message' => 'No se pueden eliminar los roles predefinidos.',
