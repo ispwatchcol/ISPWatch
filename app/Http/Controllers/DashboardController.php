@@ -70,13 +70,14 @@ class DashboardController extends Controller
                 ->whereBetween('payment_date', [$startOfMonth, $endOfMonth])
                 ->sum('amount') ?? 0;
 
-            // Pending invoices balance scoped to tenant
+            // Pending invoices balance: 'issued' = unpaid awaiting payment, 'overdue' = past due
             $pendingBalance = Invoice::where('tenant_id', $tenantId)
-                ->whereIn('status', ['pending', 'overdue'])
+                ->whereIn('status', ['issued', 'overdue'])
                 ->sum('balance_due') ?? 0;
 
-            // Calculate collection rate
+            // Collection rate: paid payments vs total invoiced this month
             $totalInvoicedThisMonth = Invoice::where('tenant_id', $tenantId)
+                ->whereNotIn('status', ['void', 'cancelled'])
                 ->whereBetween('issue_date', [$startOfMonth, $endOfMonth])
                 ->sum('total') ?? 0;
             $collectionRate = $totalInvoicedThisMonth > 0

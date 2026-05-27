@@ -6,6 +6,9 @@
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
+import { useAuthStore } from './stores/auth';
+
+const authStore = useAuthStore();
 
 const applyPreferences = (prefs) => {
     const html = document.documentElement;
@@ -29,7 +32,7 @@ const handlePrefsUpdate = (event) => {
     applyPreferences(event.detail);
 }
 
-onMounted(() => {
+onMounted(async () => {
     // Load initial preferences
     const saved = localStorage.getItem('uiPreferences');
     if (saved) {
@@ -39,7 +42,13 @@ onMounted(() => {
             console.error('Error loading UI prefs:', e);
         }
     }
-    
+
+    // Refresh permissions from server so role_code and permissions stay in sync
+    // without requiring re-login after role/permission changes
+    if (authStore.isAuthenticated) {
+        await authStore.refreshUserPermissions();
+    }
+
     window.addEventListener('ui-preferences-updated', handlePrefsUpdate);
 });
 

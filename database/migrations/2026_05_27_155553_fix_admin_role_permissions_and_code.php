@@ -1,21 +1,13 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasColumn('role', 'code')) {
-            Schema::table('role', function (Blueprint $table) {
-                $table->string('code', 50)->nullable()->after('name');
-            });
-        }
-
-        // Populate standard codes based on role name (all tenants, only where null)
+        // Ensure codes are set (in case the previous migration missed any)
         DB::statement("
             UPDATE role SET code = CASE
                 WHEN LOWER(name) LIKE '%administrador%' THEN 'admin'
@@ -29,14 +21,21 @@ return new class extends Migration
             WHERE code IS NULL
         ");
 
+        // Assign the full permission set to every admin role across all tenants
+        $allPermissions = array_keys(
+            array_merge(...array_values(\App\Constants\Permissions::getAllPermissions()))
+        );
+
+        $adminRoles = DB::table('role')->where('code', 'admin')->get(['id']);
+        foreach ($adminRoles as $role) {
+            DB::table('role')->where('id', $role->id)->update([
+                'permissions' => json_encode($allPermissions),
+            ]);
+        }
     }
 
     public function down(): void
     {
-        if (Schema::hasColumn('role', 'code')) {
-            Schema::table('role', function (Blueprint $table) {
-                $table->dropColumn('code');
-            });
-        }
+        // Not reversible: permissions were in an unknown state before this migration
     }
 };
