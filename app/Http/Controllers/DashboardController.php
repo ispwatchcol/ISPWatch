@@ -34,10 +34,12 @@ class DashboardController extends Controller
             $startOfMonth = Carbon::now()->startOfMonth();
             $endOfMonth = Carbon::now()->endOfMonth();
 
-            // Customer counts: only role=customer (3), active user accounts, scoped to tenant.
+            // Customer counts: users with a "Cliente" role for this tenant (tenant-specific or global).
+            $customerRoleIds = \App\Models\Role::idsByName('Cliente', $tenantId);
+
             $customersQuery = CustomerProfile::query()
                 ->join('users', 'customer_profile.user_id', '=', 'users.id')
-                ->where('users.role_id', 3)
+                ->whereIn('users.role_id', $customerRoleIds)
                 ->where('users.status', true)
                 ->where('users.tenant_id', $tenantId);
 
@@ -68,13 +70,14 @@ class DashboardController extends Controller
                 ->whereBetween('payment_date', [$startOfMonth, $endOfMonth])
                 ->sum('amount') ?? 0;
 
-            // Pending invoices balance scoped to tenant
+            // Pending invoices balance: 'issued' = unpaid awaiting payment, 'overdue' = past due
             $pendingBalance = Invoice::where('tenant_id', $tenantId)
-                ->whereIn('status', ['pending', 'overdue'])
+                ->whereIn('status', ['issued', 'overdue'])
                 ->sum('balance_due') ?? 0;
 
-            // Calculate collection rate
+            // Collection rate: paid payments vs total invoiced this month
             $totalInvoicedThisMonth = Invoice::where('tenant_id', $tenantId)
+                ->whereNotIn('status', ['void', 'cancelled'])
                 ->whereBetween('issue_date', [$startOfMonth, $endOfMonth])
                 ->sum('total') ?? 0;
             $collectionRate = $totalInvoicedThisMonth > 0

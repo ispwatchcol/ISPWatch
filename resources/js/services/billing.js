@@ -16,6 +16,11 @@ export default {
     return apiClient.post('/billing/invoices', data)
   },
 
+  // Update Invoice
+  updateInvoice(id, data) {
+    return apiClient.put(`/billing/invoices/${id}`, data)
+  },
+
   // Add Items
   addItems(id, data) {
     return apiClient.post(`/billing/invoices/${id}/items`, data)

@@ -25,6 +25,8 @@ class StoreCustomerRequest extends FormRequest
             'cedula'         => 'required|string|max:20',
             'city'           => 'nullable|string|max:255',
             'state'          => 'nullable|string|max:255',
+            'address'        => 'nullable|string|max:500',
+            'precinto'       => 'nullable|string|max:100',
 
             // Service configuration
             'ip_user'        => 'nullable|string|max:45',

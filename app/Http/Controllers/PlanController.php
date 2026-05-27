@@ -16,7 +16,14 @@ class PlanController extends Controller
     {
         return response()->json([
             'data' => Plan::with('typePlan')
-                ->withCount(['userServices' => fn($q) => $q->whereHas('user', fn($u) => $u->where('status', true)->where('role_id', 3))->whereIn('status', ['active', 'gratis'])])
+                ->withCount(['userServices' => function ($q) use ($request) {
+                    $tenantId = $request->user()?->tenant_id;
+                    $customerRoleIds = $tenantId
+                        ? \App\Models\Role::idsByName('Cliente', $tenantId)
+                        : [3];
+                    $q->whereHas('user', fn($u) => $u->where('status', true)->whereIn('role_id', $customerRoleIds))
+                      ->whereIn('status', ['active', 'gratis']);
+                }])
                 ->get()
                 ->map(fn($plan) => [
                     ...$plan->toArray(),
