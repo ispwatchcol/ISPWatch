@@ -91,4 +91,21 @@ export default {
   storeAdditionalCharge(data) {
     return apiClient.post('/billing/additional-charges', data)
   },
+
+  // ── Failover: billing action logs ─────────────────────
+  getActionLogs(params = {}) {
+    return apiClient.get('/billing/action-logs', { params })
+  },
+
+  getActionLogStats(params = {}) {
+    return apiClient.get('/billing/action-logs/stats', { params })
+  },
+
+  retryActionLog(id) {
+    return apiClient.post(`/billing/action-logs/${id}/retry`)
+  },
+
+  retryAllActionLogs(period = null) {
+    return apiClient.post('/billing/action-logs/retry-all', period ? { period } : {})
+  },
 }

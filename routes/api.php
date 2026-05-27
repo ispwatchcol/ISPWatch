@@ -19,6 +19,7 @@ use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\BillingActionLogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\VerificationController;
@@ -160,6 +161,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/payment-methods', [PaymentMethodController::class, 'store']);
         Route::put('/billing/payment-methods/{id}', [PaymentMethodController::class, 'update']);
         Route::delete('/billing/payment-methods/{id}', [PaymentMethodController::class, 'destroy']);
+    });
+
+    // ─── BILLING ACTION LOGS (failover de facturación) ───
+    Route::middleware(['permission:execute_mass_actions'])->group(function () {
+        Route::get('/billing/action-logs',             [BillingActionLogController::class, 'index']);
+        Route::get('/billing/action-logs/stats',       [BillingActionLogController::class, 'stats']);
+        Route::post('/billing/action-logs/{id}/retry', [BillingActionLogController::class, 'retry']);
+        Route::post('/billing/action-logs/retry-all',  [BillingActionLogController::class, 'retryAll']);
     });
 
     // ─── SUPPORT (requires staff profile) ───

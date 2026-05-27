@@ -28,7 +28,12 @@
       "Bash(rm -f /tmp/cj.txt)",
       "Bash(curl -sS -c /tmp/cj.txt http://localhost:8000/sanctum/csrf-cookie -o /dev/null -w \"csrf %{http_code}\\\\n\")",
       "Bash(awk '{print $7}')",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(php -l app/Services/BillingService.php)",
+      "Bash(php -l app/Models/BillingActionLog.php)",
+      "Bash(php -l app/Console/Commands/RetryFailedInvoices.php)",
+      "Bash(php -l app/Http/Controllers/BillingActionLogController.php)"
     ]
   }
 }

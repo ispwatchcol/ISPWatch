@@ -11,6 +11,10 @@ Artisan::command('inspire', function () {
 // Run daily — BillingService checks each router's billing.create_invoice day internally
 Schedule::command('billing:generate-monthly')->daily();
 
+// Failover: reintenta facturas que fallaron en la generación mensual.
+// Backoff escalonado (2h/6h/24h) — corre cada hora pero solo procesa rows con next_retry_at vencido.
+Schedule::command('billing:retry-failed')->hourly();
+
 // Auto-cut: run every hour so it picks up routers whose cut_time has arrived
 Schedule::command('billing:auto-cut')->hourly();
 
