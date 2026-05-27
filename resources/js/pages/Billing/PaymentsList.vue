@@ -113,7 +113,7 @@ const confirmDelete = async () => {
 </script>
 
 <template>
-    <div class="p-6 min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
+    <div class="p-6 min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300 min-w-0">
 
         <!-- Header -->
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -144,9 +144,11 @@ const confirmDelete = async () => {
             </div>
         </div>
 
-        <!-- Table -->
-        <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200 dark:border-gray-700 overflow-hidden">
-            <div class="overflow-x-auto">
+        <!-- Table / Cards -->
+        <div class="bg-white dark:bg-gray-800 rounded-3xl md:rounded-xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200 dark:border-gray-700 overflow-hidden">
+            
+            <!-- Desktop Table -->
+            <div class="hidden md:block overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-slate-50/50 dark:bg-gray-900/50 border-b border-slate-200 dark:border-gray-700">
@@ -221,6 +223,56 @@ const confirmDelete = async () => {
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Mobile Cards -->
+            <div class="md:hidden divide-y divide-slate-100 dark:divide-gray-700">
+                <div v-if="loading" class="p-8 text-center">
+                    <div class="flex flex-col items-center justify-center">
+                        <v-icon name="bi-arrow-repeat" class="w-8 h-8 text-indigo-500 animate-spin mb-3" />
+                        <p class="text-slate-500 dark:text-slate-400 text-sm font-medium animate-pulse">Cargando recaudos...</p>
+                    </div>
+                </div>
+
+                <div v-else-if="payments.data.length === 0" class="p-8 text-center">
+                    <v-icon name="md-payments-outlined" class="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                    <p class="text-slate-500 dark:text-slate-400 text-sm font-medium">No hay registros de recaudos.</p>
+                </div>
+
+                <div v-else v-for="payment in payments.data" :key="payment.id" class="p-4 bg-white dark:bg-gray-800">
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="font-semibold text-slate-900 dark:text-white text-sm leading-tight">
+                            {{ customerName(payment) }}
+                        </div>
+                        <span class="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full text-[10px] font-medium uppercase tracking-wider">
+                            {{ payment.method }}
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-xs mb-3">
+                        <div><span class="text-slate-500 dark:text-slate-400">Fecha:</span> <span class="text-slate-700 dark:text-slate-300 ml-1 font-mono">{{ String(payment.payment_date).split('T')[0] }}</span></div>
+                        <div class="text-right"><span class="text-slate-500 dark:text-slate-400">Monto:</span> <span class="text-emerald-600 dark:text-emerald-400 ml-1 font-semibold">${{ fmt(payment.amount) }}</span></div>
+                        <div class="col-span-2"><span class="text-slate-500 dark:text-slate-400">Referencia:</span> <span class="text-slate-700 dark:text-slate-300 ml-1 font-mono">{{ payment.reference || 'N/A' }}</span></div>
+                        <div class="col-span-2 mt-1 flex flex-wrap gap-1 items-center">
+                            <span class="text-slate-500 dark:text-slate-400 mr-1">Facturas:</span>
+                            <span v-for="alloc in payment.allocations" :key="alloc.id"
+                                class="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded text-[10px] font-medium">
+                                #{{ alloc.invoice?.number }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2 pt-3 border-t border-slate-100 dark:border-gray-700">
+                        <button @click="openEdit(payment)"
+                            class="flex-1 py-2 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/30 transition flex items-center justify-center gap-1.5">
+                            <v-icon name="md-edit" class="w-3.5 h-3.5" /> Editar
+                        </button>
+                        <button @click="openDelete(payment)"
+                            class="flex-1 py-2 rounded-lg text-xs font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 dark:text-rose-400 dark:bg-rose-900/20 dark:hover:bg-rose-900/30 transition flex items-center justify-center gap-1.5">
+                            <v-icon name="md-delete" class="w-3.5 h-3.5" /> Eliminar
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

@@ -1,9 +1,7 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 sm:p-6 lg:p-10 flex flex-col gap-6">
     <!-- Notification Toast -->
     <NotificationToast ref="toast" />
-    <!-- CONTENIDO -->
-    <main class="flex-1 p-4 sm:p-6 lg:p-10 overflow-y-auto flex flex-col gap-6">
 
       <!-- ENCABEZADO -->
       <div class="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
@@ -56,7 +54,7 @@
         <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
 
           <!-- Buscador con Lupa -->
-          <div class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+          <div class="flex flex-col sm:flex-row items-center gap-3 w-full">
             <div class="relative w-full sm:w-96 group">
               <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <!-- Icono Lupa (SVG manual para asegurar visualización) -->
@@ -77,10 +75,10 @@
             </div>
 
             <!-- Selector de Límite -->
-            <div class="relative">
+            <div class="relative w-full sm:w-auto">
               <select
                 v-model="perPage"
-                class="pl-10 pr-4 py-2 rounded-xl bg-gray-50 dark:bg-gray-900/50
+                class="pl-10 pr-4 py-2 rounded-xl w-full sm:w-auto bg-gray-50 dark:bg-gray-900/50
                        border border-gray-200 dark:border-gray-700
                        focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:bg-white dark:focus:bg-gray-900
                        text-gray-700 dark:text-gray-200
@@ -111,38 +109,40 @@
           >
             <div
               v-if="selectedPlans.length > 0"
-              class="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-800"
+              class="flex flex-wrap items-center gap-2 sm:gap-3 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-800"
             >
-              <span class="text-sm font-medium text-blue-700 dark:text-blue-300">
+              <span class="text-sm font-medium text-blue-700 dark:text-blue-300 w-full sm:w-auto text-center sm:text-left">
                 {{ selectedPlans.length }} seleccionados
               </span>
-              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
-              <button
-                @click="selectedPlans = []"
-                class="text-xs font-medium text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors flex items-center gap-1"
-                title="Quitar selección"
-              >
-                <icon-lucide-x class="w-3.5 h-3.5" />
-                Quitar
-              </button>
-              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
-              <button
-                @click="deleteBulkPlans"
-                class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors flex items-center gap-1"
-              >
-                <icon-lucide-trash-2 class="w-3.5 h-3.5" />
-                Eliminar
-              </button>
-              <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
-              <button
-                @click="openBulkSyncModal"
-                :disabled="selectedPppoePlans.length === 0"
-                :title="selectedPppoePlans.length === 0 ? 'Selecciona planes PPPoE para cargar a RB' : `Cargar ${selectedPppoePlans.length} plan(es) PPPoE a una RB`"
-                class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <icon-lucide-upload class="w-3.5 h-3.5" />
-                Cargar a RB
-              </button>
+              <div class="hidden sm:block h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+              <div class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto justify-center sm:justify-start">
+                <button
+                  @click="selectedPlans = []"
+                  class="text-xs font-medium text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200 transition-colors flex items-center gap-1"
+                  title="Quitar selección"
+                >
+                  <icon-lucide-x class="w-3.5 h-3.5" />
+                  Quitar
+                </button>
+                <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+                <button
+                  @click="deleteBulkPlans"
+                  class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors flex items-center gap-1"
+                >
+                  <icon-lucide-trash-2 class="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+                <div class="h-4 w-px bg-blue-200 dark:bg-blue-700"></div>
+                <button
+                  @click="openBulkSyncModal"
+                  :disabled="selectedPppoePlans.length === 0"
+                  :title="selectedPppoePlans.length === 0 ? 'Selecciona planes PPPoE para cargar a RB' : `Cargar ${selectedPppoePlans.length} plan(es) PPPoE a una RB`"
+                  class="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <icon-lucide-upload class="w-3.5 h-3.5" />
+                  Cargar a RB
+                </button>
+              </div>
             </div>
           </transition>
         </div>
@@ -156,150 +156,152 @@
         <!-- TABLA DESKTOP -->
         <div
           v-else
-          class="hidden md:block overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm"
+          class="hidden md:block rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-x-auto"
         >
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-700/50">
-              <tr>
-                <th class="px-4 py-3.5 w-12">
-                  <!-- Checkbox Header Custom -->
-                  <label class="flex items-center cursor-pointer relative">
-                    <input type="checkbox" v-model="selectAll" class="peer sr-only" />
-                    <div :class="selectAll
-                        ? 'bg-blue-600 border-blue-600'
-                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-500 hover:border-blue-400'"
-                      class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center">
-                      <svg :class="selectAll ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-                      </svg>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead class="bg-gray-50 dark:bg-gray-700/50">
+                <tr>
+                  <th class="px-4 py-3.5 w-12">
+                    <!-- Checkbox Header Custom -->
+                    <label class="flex items-center cursor-pointer relative">
+                      <input type="checkbox" v-model="selectAll" class="peer sr-only" />
+                      <div :class="selectAll
+                          ? 'bg-blue-600 border-blue-600'
+                          : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-500 hover:border-blue-400'"
+                        class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center">
+                        <svg :class="selectAll ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    </label>
+                  </th>
+                  <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                      @click="toggleSort('name')">
+                    <div class="flex items-center gap-2">
+                      Plan
+                      <icon-lucide-arrow-up-down v-if="sortBy !== 'name'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                      <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                      <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
                     </div>
-                  </label>
-                </th>
-                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
-                    @click="toggleSort('name')">
-                  <div class="flex items-center gap-2">
-                    Plan
-                    <icon-lucide-arrow-up-down v-if="sortBy !== 'name'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
-                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
-                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
-                  </div>
-                </th>
-                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
-                    @click="toggleSort('price')">
-                  <div class="flex items-center gap-2">
-                    Precio
-                    <icon-lucide-arrow-up-down v-if="sortBy !== 'price'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
-                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
-                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
-                  </div>
-                </th>
-                <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
-                    @click="toggleSort('speed')">
-                  <div class="flex items-center gap-2">
-                    Velocidad
-                    <icon-lucide-arrow-up-down v-if="sortBy !== 'speed'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
-                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
-                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
-                  </div>
-                </th>
-                <th class="px-4 py-3.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
-                    @click="toggleSort('active')">
-                  <div class="flex items-center justify-center gap-2">
-                    Activos
-                    <icon-lucide-arrow-up-down v-if="sortBy !== 'active'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
-                    <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
-                    <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
-                  </div>
-                </th>
-                <th class="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
-              </tr>
-            </thead>
-
-            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              <tr
-                v-for="plan in filteredPlans"
-                :key="plan.id"
-                class="group hover:bg-blue-50/30 dark:hover:bg-gray-700/30 transition-colors duration-150"
-                :class="{'bg-blue-50/40 dark:bg-blue-900/10': selectedPlans.includes(plan.id)}"
-              >
-                <td class="px-4 py-4">
-                  <!-- Checkbox Row Custom -->
-                  <label class="flex items-center cursor-pointer relative">
-                    <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="sr-only" />
-                    <div :class="selectedPlans.includes(plan.id)
-                        ? 'bg-blue-600 border-blue-600'
-                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 group-hover:border-gray-400 dark:group-hover:border-gray-500'"
-                      class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center shadow-sm">
-                      <svg :class="selectedPlans.includes(plan.id) ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-                      </svg>
+                  </th>
+                  <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                      @click="toggleSort('price')">
+                    <div class="flex items-center gap-2">
+                      Precio
+                      <icon-lucide-arrow-up-down v-if="sortBy !== 'price'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                      <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                      <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
                     </div>
-                  </label>
-                </td>
-
-                <td class="px-4 py-4">
-                  <div class="font-medium text-gray-900 dark:text-white leading-tight">
-                    {{ plan.name }}
-                  </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-tight line-clamp-1">
-                    {{ plan.commit }}
-                  </div>
-                </td>
-
-                <td class="px-4 py-4">
-                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300 border border-green-200 dark:border-green-500/30">
-                    {{ formatCurrency(plan.cost_product) }}
-                  </span>
-                </td>
-
-                <td class="px-4 py-4">
-                  <div class="flex items-center gap-3">
-                    <div class="flex items-center gap-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
-                      <icon-lucide-arrow-down class="w-3 h-3" /> {{ plan.speed_down }}
+                  </th>
+                  <th class="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                      @click="toggleSort('speed')">
+                    <div class="flex items-center gap-2">
+                      Velocidad
+                      <icon-lucide-arrow-up-down v-if="sortBy !== 'speed'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                      <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                      <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
                     </div>
-                    <div class="flex items-center gap-1.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-1 rounded">
-                      <icon-lucide-arrow-up class="w-3 h-3" /> {{ plan.speed_up }}
+                  </th>
+                  <th class="px-4 py-3.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors group"
+                      @click="toggleSort('active')">
+                    <div class="flex items-center justify-center gap-2">
+                      Activos
+                      <icon-lucide-arrow-up-down v-if="sortBy !== 'active'" class="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+                      <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
+                      <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
                     </div>
-                  </div>
-                </td>
+                  </th>
+                  <th class="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
+                </tr>
+              </thead>
 
-                <td class="px-4 py-4 text-center">
-                   <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-xs font-semibold text-gray-700 dark:text-gray-200">
-                    {{ plan.active_clients_count }}
-                   </span>
-                </td>
+              <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                <tr
+                  v-for="plan in filteredPlans"
+                  :key="plan.id"
+                  class="group hover:bg-blue-50/30 dark:hover:bg-gray-700/30 transition-colors duration-150"
+                  :class="{'bg-blue-50/40 dark:bg-blue-900/10': selectedPlans.includes(plan.id)}"
+                >
+                  <td class="px-4 py-4">
+                    <!-- Checkbox Row Custom -->
+                    <label class="flex items-center cursor-pointer relative">
+                      <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="sr-only" />
+                      <div :class="selectedPlans.includes(plan.id)
+                          ? 'bg-blue-600 border-blue-600'
+                          : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 group-hover:border-gray-400 dark:group-hover:border-gray-500'"
+                        class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center shadow-sm">
+                        <svg :class="selectedPlans.includes(plan.id) ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    </label>
+                  </td>
 
-                <td class="px-4 py-4">
-                  <div class="flex items-center justify-end gap-2">
-                    <button
-                      v-if="isPppoePlan(plan)"
-                      @click="openSyncModal(plan)"
-                      class="p-2 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:text-gray-500 dark:hover:text-emerald-400 transition-all duration-200"
-                      title="Cargar a RB"
-                    >
-                      <icon-lucide-upload class="w-4 h-4" />
-                    </button>
-                    <button
-                      v-if="can('view_plans')"
-                      @click="editPlan(plan)"
-                      class="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-500 dark:hover:text-blue-400 transition-all duration-200"
-                      title="Editar"
-                    >
-                      <icon-lucide-pencil class="w-4 h-4" />
-                    </button>
-                    <button
-                      v-if="can('view_plans')"
-                      @click="deletePlan(plan.id)"
-                      class="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:text-gray-500 dark:hover:text-red-400 transition-all duration-200"
-                      title="Eliminar"
-                    >
-                      <icon-lucide-trash-2 class="w-4 h-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                  <td class="px-4 py-4">
+                    <div class="font-medium text-gray-900 dark:text-white leading-tight">
+                      {{ plan.name }}
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-tight line-clamp-1">
+                      {{ plan.commit }}
+                    </div>
+                  </td>
+
+                  <td class="px-4 py-4">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300 border border-green-200 dark:border-green-500/30">
+                      {{ formatCurrency(plan.cost_product) }}
+                    </span>
+                  </td>
+
+                  <td class="px-4 py-4">
+                    <div class="flex items-center gap-3">
+                      <div class="flex items-center gap-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
+                        <icon-lucide-arrow-down class="w-3 h-3" /> {{ plan.speed_down }}
+                      </div>
+                      <div class="flex items-center gap-1.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-1 rounded">
+                        <icon-lucide-arrow-up class="w-3 h-3" /> {{ plan.speed_up }}
+                      </div>
+                    </div>
+                  </td>
+
+                  <td class="px-4 py-4 text-center">
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-xs font-semibold text-gray-700 dark:text-gray-200">
+                      {{ plan.active_clients_count }}
+                    </span>
+                  </td>
+
+                  <td class="px-4 py-4">
+                    <div class="flex items-center justify-end gap-2">
+                      <button
+                        v-if="isPppoePlan(plan)"
+                        @click="openSyncModal(plan)"
+                        class="p-2 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:text-gray-500 dark:hover:text-emerald-400 transition-all duration-200"
+                        title="Cargar a RB"
+                      >
+                        <icon-lucide-upload class="w-4 h-4" />
+                      </button>
+                      <button
+                        v-if="can('view_plans')"
+                        @click="editPlan(plan)"
+                        class="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-gray-500 dark:hover:text-blue-400 transition-all duration-200"
+                        title="Editar"
+                      >
+                        <icon-lucide-pencil class="w-4 h-4" />
+                      </button>
+                      <button
+                        v-if="can('view_plans')"
+                        @click="deletePlan(plan.id)"
+                        class="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:text-gray-500 dark:hover:text-red-400 transition-all duration-200"
+                        title="Eliminar"
+                      >
+                        <icon-lucide-trash-2 class="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
           <!-- PAGINACIÓN -->
           <div v-if="perPage !== 'todos' && totalPages > 1" class="bg-gray-50 dark:bg-gray-700/50 px-4 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
@@ -372,7 +374,7 @@
           <div
             v-for="plan in filteredPlans"
             :key="plan.id"
-            class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 flex flex-col gap-3 relative overflow-hidden"
+            class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 flex flex-col gap-3 relative overflow-x-auto"
             :class="{'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900': selectedPlans.includes(plan.id)}"
           >
             <!-- Checkbox Mobile Posicionado Absoluto -->
@@ -422,25 +424,25 @@
               </div>
             </div>
 
-            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700 mt-1">
+            <div class="flex flex-wrap justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700 mt-1">
               <button
                 v-if="isPppoePlan(plan)"
                 @click="openSyncModal(plan)"
-                class="flex-1 py-2 rounded-lg text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition flex items-center justify-center gap-2"
+                class="flex-1 min-w-[100px] py-2 rounded-lg text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-upload class="w-4 h-4" /> Cargar RB
               </button>
               <button
                 v-if="can('view_plans')"
                 @click="editPlan(plan)"
-                class="flex-1 py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition flex items-center justify-center gap-2"
+                class="flex-1 min-w-[80px] py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-pencil class="w-4 h-4" /> Editar
               </button>
               <button
                 v-if="can('view_plans')"
                 @click="deletePlan(plan.id)"
-                class="flex-1 py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition flex items-center justify-center gap-2"
+                class="flex-1 min-w-[80px] py-2 rounded-lg text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition flex items-center justify-center gap-2"
               >
                 <icon-lucide-trash-2 class="w-4 h-4" /> Eliminar
               </button>
@@ -505,7 +507,6 @@
         </div>
 
       </div>
-    </main>
 
     <!-- Modal: Confirmación eliminación masiva de planes -->
     <div
