@@ -14,7 +14,9 @@
       "Bash(Get-Content \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\\\\storage\\\\logs\\\\laravel.log\" -Tail 80)",
       "Bash(git fetch *)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\\\\resources\\\\views\" -Recurse -Filter \"*create*\" -Type f)",
-      "Bash(Select-Object FullName)"
+      "Bash(Select-Object FullName)",
+      "Bash(Select-String \"customer_profile\")",
+      "Bash(Select-Object -Last 5)"
     ]
   }
 }

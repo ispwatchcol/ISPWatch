@@ -70,7 +70,7 @@
 
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Apellido <span class="text-red-500">*</span>
+                    Apellidos <span class="text-red-500">*</span>
                 </label>
                 <input v-model="form.last_name" type="text" required
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -99,6 +99,22 @@
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Ej: Cundinamarca" />
                 </div>
+
+                <div class="md:col-span-2">
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Dirección</label>
+                <input v-model="form.address" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: Calle 10 #5-20, Barrio El Centro" />
+                </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Precinto <span class="text-gray-400 font-normal text-sm">(fibra óptica)</span>
+                </label>
+                <input v-model="form.precinto" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: PR-00123" />
+                </div>
             </div>
             </div>
 
@@ -122,29 +138,50 @@
 
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Plan de Servicio</label>
-                <select v-model="form.service_id"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option :value="null">Seleccionar plan...</option>
-                    <option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option>
-                </select>
+                <SearchableSelect
+                    :model-value="form.service_id"
+                    @update:model-value="form.service_id = $event || null"
+                    :items="plans"
+                    item-key="id"
+                    item-label="name"
+                    item-icon="md-speed"
+                    placeholder="Seleccionar plan..."
+                    search-placeholder="Buscar plan..."
+                    :clearable="true"
+                    clear-label="Sin plan"
+                />
                 </div>
 
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Sectorial</label>
-                <select v-model="form.sectorial_id"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option :value="null">Seleccionar sectorial...</option>
-                    <option v-for="s in sectorials" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
+                <SearchableSelect
+                    :model-value="form.sectorial_id"
+                    @update:model-value="form.sectorial_id = $event || null"
+                    :items="sectorials"
+                    item-key="id"
+                    item-label="name"
+                    item-icon="md-celltower"
+                    placeholder="Seleccionar sectorial..."
+                    search-placeholder="Buscar sectorial..."
+                    :clearable="true"
+                    clear-label="Sin sectorial"
+                />
                 </div>
 
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Router</label>
-                <select v-model="form.router_id"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option :value="null">Seleccionar router...</option>
-                    <option v-for="rb in routers" :key="rb.id" :value="rb.id">{{ rb.name }}</option>
-                </select>
+                <SearchableSelect
+                    :model-value="form.router_id"
+                    @update:model-value="form.router_id = $event || null"
+                    :items="routers"
+                    item-key="id"
+                    item-label="name"
+                    item-icon="bi-hdd-network"
+                    placeholder="Seleccionar router..."
+                    search-placeholder="Buscar router..."
+                    :clearable="true"
+                    clear-label="Sin router"
+                />
                 </div>
             </div>
 
@@ -401,6 +438,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const router = useRouter()
 const toast  = ref(null)
@@ -414,6 +452,8 @@ const form = ref({
     cedula: '',
     city: '',
     state: '',
+    address: '',
+    precinto: '',
     ip_user: '',
     service_id: null,
     sectorial_id: null,
