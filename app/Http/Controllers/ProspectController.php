@@ -65,6 +65,7 @@ class ProspectController extends Controller
             'address'   => 'nullable|string|max:255',
             'city'      => 'nullable|string|max:120',
             'state'     => 'nullable|string|max:120',
+            'estrato'   => 'nullable|integer|between:1,6',
             'notes'     => 'nullable|string|max:2000',
             'status'    => 'nullable|in:' . implode(',', Prospect::STATUSES),
         ]);
@@ -94,6 +95,7 @@ class ProspectController extends Controller
             'address'   => 'nullable|string|max:255',
             'city'      => 'nullable|string|max:120',
             'state'     => 'nullable|string|max:120',
+            'estrato'   => 'nullable|integer|between:1,6',
             'notes'     => 'nullable|string|max:2000',
             'status'    => 'nullable|in:' . implode(',', Prospect::STATUSES),
         ]);

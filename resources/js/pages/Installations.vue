@@ -188,6 +188,14 @@
             <input v-model="createForm.state" type="text"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
           </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Estrato</label>
+            <select v-model="createForm.estrato"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Sin definir —</option>
+              <option v-for="n in 6" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Notas del prospecto</label>
             <textarea v-model="createForm.prospect_notes" rows="2"
@@ -268,10 +276,18 @@
               <input v-model="editForm.prospect.tel" type="text"
                 class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
             </div>
-            <div class="sm:col-span-2">
+            <div>
               <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Email</label>
               <input v-model="editForm.prospect.email" type="email"
                 class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Estrato</label>
+              <select v-model="editForm.prospect.estrato"
+                class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+                <option :value="null">— Sin definir —</option>
+                <option v-for="n in 6" :key="n" :value="n">{{ n }}</option>
+              </select>
             </div>
           </div>
         </div>
@@ -352,7 +368,7 @@ const technicians = ref([])
 const blankCreate = () => ({
   // Prospect data
   name: '', last_name: '', cedula: '', email: '', tel: '',
-  address: '', city: '', state: '', prospect_notes: '',
+  address: '', city: '', state: '', estrato: null, prospect_notes: '',
   // Installation data
   scheduled_date: new Date().toISOString().slice(0, 10),
   technician_id: null,
@@ -439,6 +455,7 @@ const openEdit = (inst) => {
           cedula:    inst.prospect.cedula ?? '',
           email:     inst.prospect.email ?? '',
           tel:       inst.prospect.tel ?? '',
+          estrato:   inst.prospect.estrato ?? null,
         }
       : null,
   }

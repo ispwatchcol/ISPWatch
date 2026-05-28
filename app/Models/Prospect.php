@@ -20,6 +20,7 @@ class Prospect extends Model
         'address',
         'city',
         'state',
+        'estrato',
         'notes',
         'status',
         'converted_user_id',

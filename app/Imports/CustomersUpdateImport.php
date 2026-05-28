@@ -8,7 +8,6 @@ use App\Models\Sectorial;
 use App\Models\User;
 use App\Models\UserService;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
@@ -72,6 +71,35 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
 
     public function collection(Collection $rows)
     {
+        // Cargas grandes (200+ filas) contra la BD remota se quedaban sin tiempo
+        // y el gateway respondía 504. Antes hacíamos 3-4 SELECT + una transacción
+        // por fila; ahora precargamos en bloque los modelos que se van a tocar y
+        // escribimos con el mínimo de round-trips.
+        @set_time_limit(0);
+
+        $targetIds = [];
+        foreach ($rows as $row) {
+            $d = is_array($row) ? $row : $row->toArray();
+            $emailActual = trim((string) ($d['email_actual'] ?? ''));
+            if ($emailActual !== '' && isset($this->emailToUserId[$emailActual])) {
+                $targetIds[$this->emailToUserId[$emailActual]] = true;
+            }
+        }
+        $targetIds = array_keys($targetIds);
+
+        $userModels = $targetIds
+            ? User::whereIn('id', $targetIds)->get()->keyBy('id')
+            : collect();
+        $profileModels = $targetIds
+            ? CustomerProfile::whereIn('user_id', $targetIds)->get()->keyBy('user_id')
+            : collect();
+        $serviceModels = $targetIds
+            ? UserService::whereIn('user_id', $targetIds)
+                ->whereIn('status', [UserService::STATUS_ACTIVE, UserService::STATUS_GRATIS])
+                ->get()
+                ->keyBy('user_id')
+            : collect();
+
         foreach ($rows as $index => $row) {
             $rowNumber = $index + 2;
             $data = is_array($row) ? $row : $row->toArray();
@@ -241,38 +269,70 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
                 $profilePatch['installation_date'] = $installationDate;
             }
 
+            if (isset($data['estrato']) && $data['estrato'] !== '') {
+                $estrato = (int) $data['estrato'];
+                if ($estrato < 1 || $estrato > 6) {
+                    $this->errors[] = [
+                        'sheet' => 'Clientes',
+                        'row' => $rowNumber,
+                        'field' => 'estrato',
+                        'error' => 'Estrato inválido. Debe ser un número entre 1 y 6.',
+                    ];
+                    continue;
+                }
+                $profilePatch['estrato'] = $estrato;
+            }
+
             if (empty($userPatch) && empty($profilePatch)) {
                 continue;
             }
 
-            $courtesyPlanIds = $this->courtesyPlanIds;
-
             try {
-                DB::transaction(function () use ($userId, $userPatch, $profilePatch, $newPlanId, $courtesyPlanIds) {
-                    if (!empty($userPatch)) {
-                        // Use Eloquent so User::booted() keeps `name` derived from
-                        // user_name + user_lastname.
-                        $user = User::find($userId);
+                if (!empty($userPatch)) {
+                    // Eloquent (no query builder) para que User::booted() mantenga
+                    // `name` derivado de user_name + user_lastname.
+                    $user = $userModels->get($userId);
+                    if ($user) {
                         $user->fill($userPatch);
                         $user->save();
                     }
+                }
 
-                    if (!empty($profilePatch)) {
-                        $profile = CustomerProfile::where('user_id', $userId)->first();
-                        if ($profile) {
-                            $profile->fill($profilePatch);
-                            if ($newPlanId && isset($courtesyPlanIds[$newPlanId])) {
-                                $profile->service_status = 'gratis';
-                                $profile->status = true;
-                            }
-                            $profile->save();
+                if (!empty($profilePatch)) {
+                    $profile = $profileModels->get($userId);
+                    if ($profile) {
+                        $profile->fill($profilePatch);
+                        if ($newPlanId && isset($this->courtesyPlanIds[$newPlanId])) {
+                            $profile->service_status = 'gratis';
+                            $profile->status = true;
                         }
+                        $profile->save();
                     }
+                }
 
-                    if ($newPlanId) {
-                        UserService::syncForCustomer($userId, (int) $newPlanId);
+                if ($newPlanId) {
+                    // Equivalente a UserService::syncForCustomer pero usando el
+                    // estado de plan ya cacheado y el service precargado, para no
+                    // hacer un Plan::find + SELECT por cada fila.
+                    $status = isset($this->courtesyPlanIds[$newPlanId])
+                        ? UserService::STATUS_GRATIS
+                        : UserService::STATUS_ACTIVE;
+                    $service = $serviceModels->get($userId);
+                    if ($service) {
+                        $service->update([
+                            'service_plan_id' => $newPlanId,
+                            'status' => $status,
+                        ]);
+                    } else {
+                        $service = UserService::create([
+                            'user_id' => $userId,
+                            'service_plan_id' => $newPlanId,
+                            'status' => $status,
+                            'start_date' => now(),
+                        ]);
+                        $serviceModels->put($userId, $service);
                     }
-                });
+                }
 
                 // Refresh caches so subsequent rows see the new state.
                 if (!empty($userPatch['email'])) {

@@ -121,6 +121,17 @@
                 <input v-model="form.installation_date" type="date"
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Estrato <span class="text-gray-400 font-normal text-sm">(facturación)</span>
+                </label>
+                <select v-model="form.estrato"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option :value="null">— Sin definir —</option>
+                    <option v-for="n in 6" :key="n" :value="n">{{ n }}</option>
+                </select>
+                </div>
             </div>
             </div>
 
@@ -463,6 +474,7 @@ const form = ref({
     address: '',
     precinto: '',
     installation_date: '',
+    estrato: null,
     ip_user: '',
     service_id: null,
     sectorial_id: null,
@@ -625,6 +637,7 @@ const loadProspect = async () => {
         form.value.address   = data.address   ?? form.value.address
         form.value.city      = data.city      ?? form.value.city
         form.value.state     = data.state     ?? form.value.state
+        form.value.estrato   = data.estrato   ?? form.value.estrato
         toast.value?.info('Datos del prospecto cargados', 'Completá los campos faltantes y guardá.')
     } catch (err) {
         console.error('No se pudo cargar el prospecto:', err)

@@ -64,7 +64,10 @@ class ImportController extends Controller
             'file' => 'required|mimes:xlsx,xls|max:10240',
         ]);
 
-        @set_time_limit(120);
+        // Cargas grandes pueden tardar; evitamos que PHP corte la ejecución.
+        // (El 504 venía del gateway por el costo por-fila, ya reducido en el import.)
+        @set_time_limit(0);
+        @ignore_user_abort(true);
 
         $tenantId = auth()->user()->tenant_id;
         $import = new CustomersUpdateImport($tenantId);
@@ -113,6 +116,7 @@ class ImportController extends Controller
                 ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE.', 'example' => 'secret123'],
                 ['field' => 'password', 'required' => false, 'description' => 'Nueva contraseña de acceso del cliente (mínimo 6 caracteres).', 'example' => 'NuevaPass123'],
                 ['field' => 'fecha_instalacion', 'required' => false, 'description' => 'Fecha de instalación del servicio (formato AAAA-MM-DD). Deja vacío para no cambiar.', 'example' => '2026-05-28'],
+                ['field' => 'estrato', 'required' => false, 'description' => 'Estrato socioeconómico (número del 1 al 6). Deja vacío para no cambiar.', 'example' => '3'],
             ],
         ]);
     }
@@ -194,6 +198,7 @@ class ImportController extends Controller
                 ['field' => 'usuario_pppoe', 'required' => false, 'description' => 'Usuario PPPoE (obligatorio si el router tiene Control PPPOE activo)', 'example' => 'juan.perez'],
                 ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE (obligatoria si el router tiene Control PPPOE activo)', 'example' => 'secret123'],
                 ['field' => 'fecha_instalacion', 'required' => false, 'description' => 'Fecha de instalación del servicio (formato AAAA-MM-DD)', 'example' => '2026-05-28'],
+                ['field' => 'estrato', 'required' => false, 'description' => 'Estrato socioeconómico (número del 1 al 6)', 'example' => '3'],
             ],
         ]);
     }
