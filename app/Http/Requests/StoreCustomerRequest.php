@@ -15,7 +15,11 @@ class StoreCustomerRequest extends FormRequest
     {
         return [
             // Access data
+            // email: correo PERSONAL/de contacto del cliente (no se usa para login).
             'email'          => 'required|email|unique:users,email',
+            // email_tenant: correo de ACCESO (login). Si viene vacío el controlador
+            // lo autogenera como nombre.apellido@dominio. Debe ser único.
+            'email_tenant'   => 'nullable|string|max:100|unique:users,email_tenant',
             'password'       => 'required|string|min:6',
             'tel'            => 'nullable|string|max:20',
 
@@ -48,9 +52,10 @@ class StoreCustomerRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.required'     => 'El correo electrónico es obligatorio.',
-            'email.email'        => 'El correo electrónico no es válido.',
-            'email.unique'       => 'Este correo electrónico ya está registrado.',
+            'email.required'     => 'El correo personal es obligatorio.',
+            'email.email'        => 'El correo personal no es válido.',
+            'email.unique'       => 'Este correo personal ya está registrado.',
+            'email_tenant.unique' => 'Este correo de acceso ya está en uso por otro usuario.',
             'password.required'  => 'La contraseña es obligatoria.',
             'password.min'       => 'La contraseña debe tener al menos 6 caracteres.',
             'name.required'      => 'El nombre es obligatorio.',

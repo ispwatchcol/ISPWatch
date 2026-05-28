@@ -27,6 +27,9 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
     protected array $existingEmails = [];
     protected array $ipToUserId = [];
 
+    /** cedula => [user_id, ...]. Si una cédula apunta a varios clientes es ambigua. */
+    protected array $cedulaToUserIds = [];
+
     public function __construct(int $tenantId)
     {
         $this->tenantId = $tenantId;
@@ -60,13 +63,43 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
         }
 
         $profiles = CustomerProfile::whereHas('user', fn($q) => $q->where('tenant_id', $this->tenantId))
-            ->select('user_id', 'ip_user')
+            ->select('user_id', 'ip_user', 'cedula')
             ->get();
         foreach ($profiles as $p) {
             if ($p->ip_user) {
                 $this->ipToUserId[$p->ip_user] = $p->user_id;
             }
+            $cedula = trim((string) ($p->cedula ?? ''));
+            if ($cedula !== '') {
+                $this->cedulaToUserIds[$cedula][] = $p->user_id;
+            }
         }
+    }
+
+    /**
+     * Resuelve a qué cliente apunta una fila. La llave principal es email_actual;
+     * si falta o no existe, se usa la cédula (dato que casi siempre se tiene).
+     * Devuelve [userId|null, reason] donde reason ∈ missing|not_found|ambiguous.
+     */
+    protected function resolveUserId(string $emailActual, string $cedula): array
+    {
+        if ($emailActual !== '' && isset($this->emailToUserId[$emailActual])) {
+            return [$this->emailToUserId[$emailActual], null];
+        }
+
+        if ($cedula !== '' && isset($this->cedulaToUserIds[$cedula])) {
+            $ids = array_values(array_unique($this->cedulaToUserIds[$cedula]));
+            if (count($ids) === 1) {
+                return [$ids[0], null];
+            }
+            return [null, 'ambiguous'];
+        }
+
+        if ($emailActual === '' && $cedula === '') {
+            return [null, 'missing'];
+        }
+
+        return [null, 'not_found'];
     }
 
     public function collection(Collection $rows)
@@ -80,9 +113,12 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
         $targetIds = [];
         foreach ($rows as $row) {
             $d = is_array($row) ? $row : $row->toArray();
-            $emailActual = trim((string) ($d['email_actual'] ?? ''));
-            if ($emailActual !== '' && isset($this->emailToUserId[$emailActual])) {
-                $targetIds[$this->emailToUserId[$emailActual]] = true;
+            [$uid] = $this->resolveUserId(
+                trim((string) ($d['email_actual'] ?? '')),
+                trim((string) ($d['cedula'] ?? ''))
+            );
+            if ($uid !== null) {
+                $targetIds[$uid] = true;
             }
         }
         $targetIds = array_keys($targetIds);
@@ -109,26 +145,23 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
             }
 
             $emailActual = trim((string) ($data['email_actual'] ?? ''));
-            if ($emailActual === '') {
-                $this->errors[] = [
-                    'sheet' => 'Clientes',
-                    'row' => $rowNumber,
-                    'field' => 'email_actual',
-                    'error' => 'El email_actual es obligatorio para identificar al cliente',
-                ];
-                continue;
-            }
+            $cedulaActual = trim((string) ($data['cedula'] ?? ''));
 
-            if (!isset($this->emailToUserId[$emailActual])) {
+            [$userId, $reason] = $this->resolveUserId($emailActual, $cedulaActual);
+            if ($userId === null) {
+                $message = match ($reason) {
+                    'missing'   => 'Debes indicar email_actual o cedula para identificar al cliente',
+                    'ambiguous' => "La cédula {$cedulaActual} corresponde a más de un cliente; usa email_actual para identificarlo",
+                    default     => 'No existe cliente con ' . ($emailActual !== '' ? "email {$emailActual}" : "cédula {$cedulaActual}") . ' en este tenant',
+                };
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
-                    'field' => 'email_actual',
-                    'error' => "No existe cliente con email {$emailActual} en este tenant",
+                    'field' => $emailActual !== '' ? 'email_actual' : 'cedula',
+                    'error' => $message,
                 ];
                 continue;
             }
-            $userId = $this->emailToUserId[$emailActual];
 
             $userPatch = [];
             $profilePatch = [];
