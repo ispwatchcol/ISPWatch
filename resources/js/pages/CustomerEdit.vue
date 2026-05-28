@@ -50,11 +50,20 @@
             <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
                 Datos de Acceso
             </h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Email</label>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Correo personal (contacto)</label>
                 <input v-model="form.email" type="email" required
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Correo del cliente para contacto/notificaciones. <b>No</b> se usa para iniciar sesión.</p>
+                </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Correo de acceso (inicio de sesión)</label>
+                <input :value="emailTenant" type="text" readonly tabindex="-1"
+                    class="w-full bg-gray-100 dark:bg-gray-900 text-gray-600 dark:text-gray-300 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 cursor-not-allowed focus:outline-none"
+                    placeholder="—" />
+                <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Con este correo el cliente <b>inicia sesión</b>. No se puede editar para no romper su acceso.</p>
                 </div>
 
                 <div>
@@ -70,11 +79,6 @@
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
             </div>
-
-            <p v-if="emailTenant" class="mt-3 text-xs text-gray-400 dark:text-gray-500">
-                Email tenant (generado automáticamente):
-                <span class="font-medium text-gray-600 dark:text-gray-300">{{ emailTenant }}</span>
-            </p>
             </div>
 
             <!-- Sección: Información del Cliente -->

@@ -25,14 +25,25 @@
             <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
                 Datos de Acceso
             </h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
-                    Email <span class="text-red-500">*</span>
+                    Correo personal (contacto) <span class="text-red-500">*</span>
                 </label>
                 <input v-model="form.email" type="email" required
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="ejemplo@empresa.com" />
+                <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Correo del cliente para contacto/notificaciones. <b>No</b> se usa para iniciar sesión.</p>
+                </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Correo de acceso (inicio de sesión)
+                </label>
+                <input v-model="form.email_tenant" type="text" autocomplete="off"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Se genera automáticamente si lo dejas vacío" />
+                <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Con este correo el cliente <b>inicia sesión</b>. Si lo dejas vacío se genera como <code>nombre.apellido@dominio</code>.</p>
                 </div>
 
                 <div>
@@ -464,6 +475,7 @@ const prospectId = ref(null)
 
 const form = ref({
     email: '',
+    email_tenant: '',
     password: '',
     tel: '',
     name: '',
@@ -701,8 +713,10 @@ const handleSubmit = async () => {
             setTimeout(() => router.push('/customers'), 2500)
         } else {
             const extra = showPppoeSection.value ? ` Secret PPPoE creado en ${selectedRouter.value?.name}.` : ''
-            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${extra}`)
-            setTimeout(() => router.push('/customers'), 1500)
+            const loginEmail = res.data?.email_tenant
+            const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
+            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${loginInfo}${extra}`)
+            setTimeout(() => router.push('/customers'), loginEmail ? 3000 : 1500)
         }
     } catch (err) {
         console.error('Error al crear cliente:', err)

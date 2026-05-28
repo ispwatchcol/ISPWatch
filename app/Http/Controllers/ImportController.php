@@ -100,11 +100,11 @@ class ImportController extends Controller
     {
         return response()->json([
             'Clientes' => [
-                ['field' => 'email_actual', 'required' => true, 'description' => 'Email actual del cliente — sirve como llave para identificarlo. NO se modifica salvo que indiques nuevo_email.', 'example' => 'juan@mail.com'],
+                ['field' => 'email_actual', 'required' => false, 'description' => 'Email actual del cliente — llave principal para identificarlo. NO se modifica salvo que indiques nuevo_email. Si lo dejas vacío o no existe, se usa la cédula para identificar al cliente.', 'example' => 'juan@mail.com'],
                 ['field' => 'nuevo_email', 'required' => false, 'description' => 'Nuevo email del cliente. Debe ser único en el tenant.', 'example' => 'juan.nuevo@mail.com'],
                 ['field' => 'nombre', 'required' => false, 'description' => 'Nuevo nombre del cliente. Deja vacío para no cambiar.', 'example' => 'Juan'],
                 ['field' => 'apellido', 'required' => false, 'description' => 'Nuevo apellido. Deja vacío para no cambiar.', 'example' => 'Pérez'],
-                ['field' => 'cedula', 'required' => false, 'description' => 'Cédula / documento de identidad.', 'example' => '1010101010'],
+                ['field' => 'cedula', 'required' => false, 'description' => 'Cédula / documento de identidad. Sirve como identificador alterno cuando no hay email_actual (debe ser única; si dos clientes la comparten se pedirá usar email_actual).', 'example' => '1010101010'],
                 ['field' => 'telefono', 'required' => false, 'description' => 'Teléfono de contacto.', 'example' => '3001234567'],
                 ['field' => 'direccion', 'required' => false, 'description' => 'Dirección física.', 'example' => 'Calle 1 #2-3'],
                 ['field' => 'ciudad', 'required' => false, 'description' => 'Ciudad.', 'example' => 'Bogotá'],

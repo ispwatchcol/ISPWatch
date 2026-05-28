@@ -317,12 +317,18 @@ class CustomerProfileController extends Controller
             ], 403);
         }
 
-        // Auto-generate email_tenant as nombre.apellido@tenant-domain
-        $tenant = \App\Models\Tenant::find($tenantId);
-        $firstName = strtolower(preg_replace('/\s+/', '', $data['name'] ?? ''));
-        $lastName  = strtolower(preg_replace('/\s+/', '', $data['last_name'] ?? ''));
-        $domain    = $tenant ? strtolower($tenant->domain) : 'local';
-        $emailTenant = "{$firstName}.{$lastName}@{$domain}";
+        // email_tenant = correo de ACCESO (login), distinto del correo personal.
+        // El operador puede fijarlo al crear; si lo deja vacío se autogenera como
+        // nombre.apellido@dominio-del-tenant.
+        if (!empty($data['email_tenant'])) {
+            $emailTenant = strtolower(trim($data['email_tenant']));
+        } else {
+            $tenant = \App\Models\Tenant::find($tenantId);
+            $firstName = strtolower(preg_replace('/\s+/', '', $data['name'] ?? ''));
+            $lastName  = strtolower(preg_replace('/\s+/', '', $data['last_name'] ?? ''));
+            $domain    = $tenant ? strtolower($tenant->domain) : 'local';
+            $emailTenant = "{$firstName}.{$lastName}@{$domain}";
+        }
 
         DB::beginTransaction();
 
