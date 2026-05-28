@@ -370,6 +370,16 @@ class CustomerInstallationController extends Controller
             'sheet.antenna_model'    => 'nullable|string|max:120',
             'sheet.materials'        => 'nullable|string|max:1000',
             'sheet.observations'     => 'nullable|string|max:2000',
+            // Conexión / red
+            'sheet.sectorial_id'         => 'nullable|integer',
+            'sheet.router_id'            => 'nullable|integer',
+            'sheet.plan_id'              => 'nullable|integer',
+            'sheet.client_ip'            => 'nullable|string|max:64',
+            'sheet.pppoe_username'       => 'nullable|string|max:120',
+            'sheet.pppoe_password'       => 'nullable|string|max:120',
+            'sheet.pppoe_local_address'  => 'nullable|string|max:64',
+            'sheet.local_address_manual' => 'nullable|boolean',
+            'sheet.vlan'                 => 'nullable|string|max:20',
         ]);
 
         $installation->update(['sheet' => $data['sheet']]);
@@ -493,6 +503,11 @@ class CustomerInstallationController extends Controller
             ->where('type', 'instalacion')
             ->get();
 
+        $sheet = $installation->sheet ?? [];
+        $sectorial = !empty($sheet['sectorial_id']) ? \App\Models\Sectorial::find($sheet['sectorial_id']) : null;
+        $router    = !empty($sheet['router_id'])    ? \App\Models\Router::find($sheet['router_id'])       : null;
+        $plan      = !empty($sheet['plan_id'])      ? \App\Models\Plan::find($sheet['plan_id'])           : null;
+
         $pdf = Pdf::loadView('documents.installation_sheet_pdf', [
             'installation'         => $installation,
             'customer'             => $customer,
@@ -501,6 +516,9 @@ class CustomerInstallationController extends Controller
             'tenant'               => $tenant,
             'technician'           => $tech,
             'photos'               => $photos,
+            'sectorial'            => $sectorial,
+            'router'               => $router,
+            'plan'                 => $plan,
             'customer_signature'   => $custSig,
             'technician_signature' => $techSig,
             'date'                 => now()->format('d/m/Y H:i'),
