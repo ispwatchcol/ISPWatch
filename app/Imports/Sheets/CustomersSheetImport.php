@@ -239,6 +239,20 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 }
             }
 
+            $estrato = null;
+            if (isset($data['estrato']) && $data['estrato'] !== '') {
+                $estrato = (int) $data['estrato'];
+                if ($estrato < 1 || $estrato > 6) {
+                    $this->errors[] = [
+                        'sheet' => 'Clientes',
+                        'row' => $rowNumber,
+                        'field' => 'estrato',
+                        'error' => 'Estrato inválido. Debe ser un número entre 1 y 6.',
+                    ];
+                    continue;
+                }
+            }
+
             // Reservar email/IP para que un duplicado posterior en el MISMO archivo
             // se detecte aunque todavía no se haya insertado nada en la BD.
             $this->existingEmails[$customerEmail] = true;
@@ -261,6 +275,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 'pppoe_username' => $data['usuario_pppoe'] ?? null,
                 'pppoe_password' => $data['password_pppoe'] ?? null,
                 'installation_date' => $installationDate,
+                'estrato' => $estrato,
             ];
         }
 
@@ -346,6 +361,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                         'pppoe_username' => $p['pppoe_username'],
                         'pppoe_password' => $p['pppoe_password'],
                         'installation_date' => $p['installation_date'],
+                        'estrato' => $p['estrato'],
                         'status' => true,
                     ];
 

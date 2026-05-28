@@ -31,14 +31,15 @@ class CustomersUpdateTemplateExport implements FromCollection, WithHeadings, Wit
             'password_pppoe',
             'password',
             'fecha_instalacion',
+            'estrato',
         ];
     }
 
     public function collection()
     {
         return collect([
-            ['juan@mail.com', '', 'Juan', 'Pérez', '1010101010', '3001234567', 'Calle 1 #2-3', 'Bogotá', '10.0.0.5', '192.168.1.1', 'Internet 10MB', 'Sectorial Norte', '', '', '', '2026-05-28'],
-            ['maria@mail.com', 'maria.nueva@mail.com', '', '', '', '', '', '', '10.0.0.11', '192.168.1.2', '', 'Sectorial Sur', '', '', '', ''],
+            ['juan@mail.com', '', 'Juan', 'Pérez', '1010101010', '3001234567', 'Calle 1 #2-3', 'Bogotá', '10.0.0.5', '192.168.1.1', 'Internet 10MB', 'Sectorial Norte', '', '', '', '2026-05-28', '3'],
+            ['maria@mail.com', 'maria.nueva@mail.com', '', '', '', '', '', '', '10.0.0.11', '192.168.1.2', '', 'Sectorial Sur', '', '', '', '', ''],
         ]);
     }
 }

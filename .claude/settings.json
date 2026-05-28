@@ -40,7 +40,10 @@
       "Bash(php -l app/Exports/Sheets/CustomersSheet.php)",
       "Bash(php -l app/Exports/CustomersUpdateTemplateExport.php)",
       "Bash(php -l app/Http/Requests/StoreCustomerRequest.php)",
-      "Bash(php -l app/Http/Controllers/CustomerProfileController.php)"
+      "Bash(php -l app/Http/Controllers/CustomerProfileController.php)",
+      "Bash(npm run *)",
+      "PowerShell(php -l app/Imports/CustomersUpdateImport.php)",
+      "PowerShell(php -l app/Http/Controllers/ImportController.php)"
     ]
   }
 }

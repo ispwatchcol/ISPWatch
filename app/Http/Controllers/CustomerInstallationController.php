@@ -177,6 +177,7 @@ class CustomerInstallationController extends Controller
             'address'        => 'nullable|string|max:255',
             'city'           => 'nullable|string|max:120',
             'state'          => 'nullable|string|max:120',
+            'estrato'        => 'nullable|integer|between:1,6',
             'prospect_notes' => 'nullable|string|max:2000',
             // Installation data
             'scheduled_date' => 'required|date',
@@ -199,6 +200,7 @@ class CustomerInstallationController extends Controller
                 'address'    => $data['address'] ?? null,
                 'city'       => $data['city'] ?? null,
                 'state'      => $data['state'] ?? null,
+                'estrato'    => $data['estrato'] ?? null,
                 'notes'      => $data['prospect_notes'] ?? null,
                 'status'     => 'agendado',
                 'created_by' => $request->user()?->id,
@@ -244,6 +246,7 @@ class CustomerInstallationController extends Controller
             'address'   => 'nullable|string|max:255',
             'city'      => 'nullable|string|max:120',
             'state'     => 'nullable|string|max:120',
+            'estrato'   => 'nullable|integer|between:1,6',
             'notes'     => 'nullable|string|max:2000',
         ]);
 

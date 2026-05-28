@@ -21,6 +21,7 @@ class CustomerProfile extends Model
         'address',
         'city',
         'installation_date',
+        'estrato',
         'state',
         'postal_code',
         'country',
