@@ -508,6 +508,7 @@ class CustomerProfileController extends Controller
             'state'        => $customer->state,
             'address'      => $customer->address,
             'precinto'     => $customer->precinto,
+            'installation_date' => $customer->installation_date,
             'latitude'     => $customer->latitude,
             'longitude'    => $customer->longitude,
             'ip_user'      => $customer->ip_user,
@@ -931,6 +932,7 @@ class CustomerProfileController extends Controller
             'state'     => 'nullable|string|max:255',
             'address'   => 'nullable|string|max:500',
             'precinto'  => 'nullable|string|max:100',
+            'installation_date' => 'nullable|date',
             'latitude'  => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
 
@@ -1000,6 +1002,7 @@ class CustomerProfileController extends Controller
                 'state'       => array_key_exists('state', $data) ? $data['state'] : $customer->state,
                 'address'     => array_key_exists('address', $data) ? $data['address'] : $customer->address,
                 'precinto'    => array_key_exists('precinto', $data) ? $data['precinto'] : $customer->precinto,
+                'installation_date' => array_key_exists('installation_date', $data) ? $data['installation_date'] : $customer->installation_date,
                 'latitude'    => array_key_exists('latitude', $data) ? ($data['latitude'] !== '' ? $data['latitude'] : null) : $customer->latitude,
                 'longitude'   => array_key_exists('longitude', $data) ? ($data['longitude'] !== '' ? $data['longitude'] : null) : $customer->longitude,
                 'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
