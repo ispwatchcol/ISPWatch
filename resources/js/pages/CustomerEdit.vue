@@ -131,6 +131,12 @@
                     class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Ej: PR-00123" />
                 </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Fecha de instalación</label>
+                <input v-model="form.installation_date" type="date"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
             </div>
 
             <!-- Ubicación en mapa -->
@@ -506,6 +512,7 @@ const form = ref({
     state: '',
     address: '',
     precinto: '',
+    installation_date: '',
     latitude: '',
     longitude: '',
     ip_user: '',
@@ -688,6 +695,7 @@ const loadCustomer = async () => {
             state:        d.state || '',
             address:      d.address || '',
             precinto:     d.precinto || '',
+            installation_date: (d.installation_date || '').slice(0, 10),
             latitude:     d.latitude ?? '',
             longitude:    d.longitude ?? '',
             ip_user:      d.ip_user || '',
