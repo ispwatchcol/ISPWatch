@@ -80,6 +80,118 @@
         </div>
       </div>
 
+      <!-- Conexión / Red -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+        <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Conexión / Red</h2>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Sectorial / Switch / Nodo</label>
+            <select v-model.number="sheet.sectorial_id"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Seleccionar —</option>
+              <optgroup v-if="sectorialsByType.sectorial?.length" label="Sectoriales">
+                <option v-for="s in sectorialsByType.sectorial" :key="`s-${s.id}`" :value="s.id">
+                  {{ s.name }}{{ s.ip ? ` — ${s.ip}` : '' }}
+                </option>
+              </optgroup>
+              <optgroup v-if="sectorialsByType.switch?.length" label="Switches">
+                <option v-for="s in sectorialsByType.switch" :key="`w-${s.id}`" :value="s.id">
+                  {{ s.name }}{{ s.ip ? ` — ${s.ip}` : '' }}
+                </option>
+              </optgroup>
+              <optgroup v-if="sectorialsByType.nodo?.length" label="Nodos">
+                <option v-for="s in sectorialsByType.nodo" :key="`n-${s.id}`" :value="s.id">
+                  {{ s.name }}{{ s.ip ? ` — ${s.ip}` : '' }}
+                </option>
+              </optgroup>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Core / Router</label>
+            <select v-model.number="sheet.router_id"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Seleccionar —</option>
+              <option v-for="r in routers" :key="r.id" :value="r.id">
+                {{ r.name }}{{ r.ip ? ` — ${r.ip}` : '' }}
+                {{ r.pppoe ? ' · PPPoE' : '' }}
+              </option>
+            </select>
+            <p v-if="selectedRouter" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Autenticación: <strong>{{ selectedRouter.pppoe ? 'PPPoE' : 'IP estática / DHCP' }}</strong>
+            </p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Plan del cliente</label>
+            <select v-model.number="sheet.plan_id"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Seleccionar —</option>
+              <option v-for="p in plans" :key="p.id" :value="p.id">
+                {{ p.name }}{{ p.speed_down ? ` — ${p.speed_down}${p.speed_up ? '/' + p.speed_up : ''} Mbps` : '' }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">VLAN (opcional)</label>
+            <input v-model="sheet.vlan" type="text" placeholder="100"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+          </div>
+        </div>
+
+        <!-- IP del cliente con analizador (solo cuando NO es PPPoE) -->
+        <div v-if="!isPppoeRouter" class="mt-4">
+          <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+            IP del cliente
+            <span v-if="!sheet.router_id" class="ml-1 text-[10px] normal-case text-gray-400">— selecciona un core para ver IPs libres</span>
+          </label>
+          <input v-model="sheet.client_ip" type="text" placeholder="192.168.1.100"
+            class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
+          <IpRangeAnalyzer v-if="sheet.router_id" v-model="sheet.client_ip" :router-id="sheet.router_id" />
+        </div>
+
+        <!-- Sección PPPoE (solo cuando el core tiene PPPoE activo) -->
+        <div v-if="isPppoeRouter" class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4">
+          <h3 class="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-3 flex items-center gap-2">
+            <span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+            Credenciales PPPoE
+            <span class="text-[10px] font-normal text-gray-500">(el core usa Control PPPOE)</span>
+          </h3>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Usuario PPPoE</label>
+              <input v-model="sheet.pppoe_username" type="text" placeholder="juan.perez"
+                class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Contraseña PPPoE</label>
+              <input v-model="sheet.pppoe_password" type="text"
+                class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input v-model="sheet.local_address_manual" type="checkbox"
+                class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+              <span class="text-sm text-gray-700 dark:text-gray-300">Asignar IP local manualmente</span>
+            </label>
+            <p class="ml-6 mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Si lo dejas desmarcado, la IP local se toma del plan
+              <strong v-if="planLocalAddress">({{ planLocalAddress }})</strong>
+              <strong v-else>(definida en el perfil PPPoE del plan)</strong>.
+            </p>
+
+            <div v-if="sheet.local_address_manual" class="mt-3">
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">IP local PPPoE</label>
+              <input v-model="sheet.pppoe_local_address" type="text" placeholder="10.0.0.1"
+                class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
+              <IpRangeAnalyzer v-model="sheet.pppoe_local_address" :router-id="sheet.router_id" />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Hoja de instalación -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Hoja técnica de instalación</h2>
@@ -238,6 +350,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -249,6 +362,17 @@ const installation = ref(null)
 const loading = ref(true)
 
 const sheet = ref({
+  // Conexión / red
+  sectorial_id: null,
+  router_id: null,
+  plan_id: null,
+  vlan: '',
+  client_ip: '',
+  pppoe_username: '',
+  pppoe_password: '',
+  pppoe_local_address: '',
+  local_address_manual: false,
+  // Hoja técnica
   cable_meters: '',
   signal_level: '',
   modem_brand: '',
@@ -260,6 +384,21 @@ const sheet = ref({
   observations: '',
 })
 const savingSheet = ref(false)
+
+const sectorials = ref([])
+const routers    = ref([])
+const plans      = ref([])
+
+const sectorialsByType = computed(() => ({
+  sectorial: sectorials.value.filter(s => (s.element_type || 'sectorial') === 'sectorial'),
+  switch:    sectorials.value.filter(s => s.element_type === 'switch'),
+  nodo:      sectorials.value.filter(s => s.element_type === 'nodo'),
+}))
+
+const selectedRouter = computed(() => routers.value.find(r => r.id === sheet.value.router_id))
+const selectedPlan   = computed(() => plans.value.find(p => p.id === sheet.value.plan_id))
+const isPppoeRouter  = computed(() => !!selectedRouter.value?.pppoe)
+const planLocalAddress = computed(() => selectedPlan.value?.local_address || selectedPlan.value?.pppoe_pool || '')
 
 const photos = ref([])
 const fileInput = ref(null)
@@ -281,6 +420,21 @@ const loadInstallation = async () => {
     const { data } = await api.customers.getInstallation(installationId.value)
     installation.value = data
     if (data.sheet) sheet.value = { ...sheet.value, ...data.sheet }
+
+    const profile = data.customer?.customer_profile
+    if (profile) {
+      if (sheet.value.sectorial_id == null && profile.sectorial_id) sheet.value.sectorial_id = Number(profile.sectorial_id)
+      if (sheet.value.router_id    == null && profile.router_id)    sheet.value.router_id    = Number(profile.router_id)
+      if (sheet.value.plan_id      == null && profile.service_id)   sheet.value.plan_id      = Number(profile.service_id)
+      if (!sheet.value.client_ip       && profile.ip_user)              sheet.value.client_ip           = profile.ip_user
+      if (!sheet.value.pppoe_username  && profile.pppoe_username)       sheet.value.pppoe_username      = profile.pppoe_username
+      if (!sheet.value.pppoe_password  && profile.pppoe_password)       sheet.value.pppoe_password      = profile.pppoe_password
+      if (!sheet.value.pppoe_local_address && profile.pppoe_local_address) {
+        sheet.value.pppoe_local_address  = profile.pppoe_local_address
+        sheet.value.local_address_manual = true
+      }
+    }
+
     photos.value = (data.documents || []).filter(d => d.type === 'instalacion' && /\.(jpe?g|png|webp)$/i.test(d.file_name))
   } catch {
     installation.value = null
@@ -290,12 +444,67 @@ const loadInstallation = async () => {
   }
 }
 
+const unwrap = (res) => {
+  const d = res?.data
+  if (Array.isArray(d)) return d
+  if (Array.isArray(d?.data)) return d.data
+  if (Array.isArray(d?.items)) return d.items
+  return []
+}
+
+const loadNetworkResources = async () => {
+  const results = await Promise.allSettled([
+    api.sectorials.getAll(),
+    api.routers.getAll(),
+    api.plans.getAll(),
+  ])
+  const [sectorialsRes, routersRes, plansRes] = results
+  const errors = []
+
+  if (sectorialsRes.status === 'fulfilled') sectorials.value = unwrap(sectorialsRes.value)
+  else errors.push(`sectoriales (${sectorialsRes.reason?.response?.status || 'red'})`)
+
+  if (routersRes.status === 'fulfilled') routers.value = unwrap(routersRes.value)
+  else errors.push(`routers (${routersRes.reason?.response?.status || 'red'})`)
+
+  if (plansRes.status === 'fulfilled') plans.value = unwrap(plansRes.value)
+  else errors.push(`planes (${plansRes.reason?.response?.status || 'red'})`)
+
+  console.log('[Conexión/Red] cargados:', {
+    sectoriales: sectorials.value.length,
+    routers: routers.value.length,
+    planes: plans.value.length,
+  })
+
+  if (errors.length) {
+    toast.value?.error('Sin permisos / error de red', `No se pudo cargar: ${errors.join(', ')}.`)
+  } else if (!sectorials.value.length && !routers.value.length && !plans.value.length) {
+    toast.value?.info('Catálogos vacíos', 'No hay sectoriales/routers/planes creados todavía en este tenant.')
+  }
+}
+
 const saveSheet = async () => {
   savingSheet.value = true
   try {
     const payload = { ...sheet.value }
     if (payload.cable_meters === '') delete payload.cable_meters
     else payload.cable_meters = Number(payload.cable_meters)
+
+    for (const k of ['sectorial_id', 'router_id', 'plan_id']) {
+      if (payload[k] == null || payload[k] === '') delete payload[k]
+      else payload[k] = Number(payload[k])
+    }
+
+    if (isPppoeRouter.value) {
+      delete payload.client_ip
+      if (!payload.local_address_manual) delete payload.pppoe_local_address
+    } else {
+      delete payload.pppoe_username
+      delete payload.pppoe_password
+      delete payload.pppoe_local_address
+      delete payload.local_address_manual
+    }
+
     await api.customers.saveInstallationSheet(installationId.value, payload)
     toast.value?.success('Guardado', 'Hoja de instalación actualizada.')
   } catch (e) {
@@ -432,7 +641,7 @@ const formatDate = (d) => {
 }
 
 onMounted(async () => {
-  await loadInstallation()
+  await Promise.all([loadInstallation(), loadNetworkResources()])
   await nextTick()
   ctxCust = setupCanvas(canvasCustomer.value)
   ctxTech = setupCanvas(canvasTech.value)

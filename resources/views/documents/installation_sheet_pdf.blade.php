@@ -43,6 +43,12 @@
             : ($installation->technician ?? '—');
         $sheet = $installation->sheet ?? [];
         $clientLabel = $customer ? 'Cliente' : 'Prospecto';
+        $sectorial = $sectorial ?? null;
+        $router    = $router ?? null;
+        $plan      = $plan ?? null;
+        $hasNetwork = $sectorial || $router || $plan
+            || !empty($sheet['client_ip']) || !empty($sheet['pppoe_username'])
+            || !empty($sheet['pppoe_local_address']) || !empty($sheet['vlan']);
     @endphp
 
     <div class="header">
@@ -68,6 +74,47 @@
         <tr><td class="label">Observaciones</td><td>{{ $installation->notes ?? '—' }}</td></tr>
         <tr><td class="label">Estado</td><td><span class="badge">{{ strtoupper($installation->status) }}</span></td></tr>
     </table>
+
+    @if($hasNetwork)
+        @php
+            $isPppoe = (bool) ($router?->pppoe);
+            $localFromPlan = $plan?->local_address ?: $plan?->pppoe_pool;
+            $effectiveLocal = !empty($sheet['local_address_manual']) && !empty($sheet['pppoe_local_address'])
+                ? $sheet['pppoe_local_address']
+                : $localFromPlan;
+        @endphp
+        <h2>Conexión / Red</h2>
+        <table class="info">
+            @if($sectorial)
+                <tr><td class="label">{{ ucfirst($sectorial->element_type ?? 'sectorial') }}</td>
+                    <td>{{ $sectorial->name }}@if($sectorial->ip) — {{ $sectorial->ip }}@endif</td></tr>
+            @endif
+            @if($router)
+                <tr><td class="label">Core / Router</td>
+                    <td>{{ $router->name }}@if($router->ip) — {{ $router->ip }}@endif
+                        <span class="badge">{{ $isPppoe ? 'PPPoE' : 'IP estática / DHCP' }}</span></td></tr>
+            @endif
+            @if($plan)
+                <tr><td class="label">Plan</td>
+                    <td>{{ $plan->name }}@if($plan->speed_down) — {{ $plan->speed_down }}@if($plan->speed_up)/{{ $plan->speed_up }}@endif Mbps@endif</td></tr>
+            @endif
+            @if(!empty($sheet['vlan']))<tr><td class="label">VLAN</td><td>{{ $sheet['vlan'] }}</td></tr>@endif
+
+            @if($isPppoe)
+                @if(!empty($sheet['pppoe_username']))<tr><td class="label">Usuario PPPoE</td><td>{{ $sheet['pppoe_username'] }}</td></tr>@endif
+                @if($effectiveLocal)
+                    <tr><td class="label">IP local PPPoE</td>
+                        <td>{{ $effectiveLocal }}
+                            @if(empty($sheet['local_address_manual']) && $localFromPlan)
+                                <span style="color:#6b7280; font-size:10px;">(tomada del plan)</span>
+                            @endif
+                        </td></tr>
+                @endif
+            @else
+                @if(!empty($sheet['client_ip']))<tr><td class="label">IP del cliente</td><td>{{ $sheet['client_ip'] }}</td></tr>@endif
+            @endif
+        </table>
+    @endif
 
     @if(!empty($sheet))
         <h2>Hoja Técnica</h2>
