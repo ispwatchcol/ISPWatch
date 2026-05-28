@@ -161,8 +161,16 @@ const confirmActiveItem = () => {
 const computeDropdownPosition = () => {
     if (!triggerRef.value) return
     const rect = triggerRef.value.getBoundingClientRect()
+    const margin = 4
+    const dropdownH = dropdownRef.value?.offsetHeight || 300
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+    const openUp = spaceBelow < dropdownH + margin && spaceAbove > spaceBelow
+    const top = openUp
+        ? Math.max(margin, rect.top - dropdownH - margin)
+        : rect.bottom + margin
     dropdownStyle.value = {
-        top: `${rect.bottom + 4}px`,
+        top: `${top}px`,
         left: `${rect.left}px`,
         width: `${rect.width}px`,
     }
@@ -176,6 +184,7 @@ const toggleDropdown = async () => {
     computeDropdownPosition()
     dropdownOpen.value = true
     await nextTick()
+    computeDropdownPosition()
     searchInputRef.value?.focus()
 }
 

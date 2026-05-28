@@ -27,6 +27,7 @@ class StoreCustomerRequest extends FormRequest
             'state'          => 'nullable|string|max:255',
             'address'        => 'nullable|string|max:500',
             'precinto'       => 'nullable|string|max:100',
+            'installation_date' => 'nullable|date',
 
             // Service configuration
             'ip_user'        => 'nullable|string|max:45',

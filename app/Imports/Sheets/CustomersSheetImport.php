@@ -225,6 +225,20 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 continue;
             }
 
+            $installationDate = null;
+            if (isset($data['fecha_instalacion']) && $data['fecha_instalacion'] !== '') {
+                $installationDate = $this->parseExcelDate($data['fecha_instalacion']);
+                if ($installationDate === null) {
+                    $this->errors[] = [
+                        'sheet' => 'Clientes',
+                        'row' => $rowNumber,
+                        'field' => 'fecha_instalacion',
+                        'error' => 'Fecha de instalación inválida. Usa el formato AAAA-MM-DD (ej. 2026-05-28).',
+                    ];
+                    continue;
+                }
+            }
+
             // Reservar email/IP para que un duplicado posterior en el MISMO archivo
             // se detecte aunque todavía no se haya insertado nada en la BD.
             $this->existingEmails[$customerEmail] = true;
@@ -246,6 +260,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 'city' => $data['ciudad'] ?? null,
                 'pppoe_username' => $data['usuario_pppoe'] ?? null,
                 'pppoe_password' => $data['password_pppoe'] ?? null,
+                'installation_date' => $installationDate,
             ];
         }
 
@@ -330,6 +345,7 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                         'sectorial_id' => $p['sectorial_id'],
                         'pppoe_username' => $p['pppoe_username'],
                         'pppoe_password' => $p['pppoe_password'],
+                        'installation_date' => $p['installation_date'],
                         'status' => true,
                     ];
 
@@ -363,6 +379,27 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 'field' => '-',
                 'error' => 'No se pudo guardar el lote de clientes: ' . $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * Convierte una celda de Excel (número serial o texto) a 'Y-m-d'.
+     * Devuelve null si el valor no es una fecha válida.
+     */
+    protected function parseExcelDate($value): ?string
+    {
+        if (is_numeric($value)) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            } catch (\Throwable $e) {
+                return null;
+            }
+        }
+
+        try {
+            return \Carbon\Carbon::parse(trim((string) $value))->format('Y-m-d');
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 }

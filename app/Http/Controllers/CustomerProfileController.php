@@ -351,6 +351,7 @@ class CustomerProfileController extends Controller
                 'state'       => $data['state'] ?? null,
                 'address'     => $data['address'] ?? null,
                 'precinto'    => $data['precinto'] ?? null,
+                'installation_date' => $data['installation_date'] ?? null,
                 'ip_user'        => $data['ip_user'] ?? null,
                 'service_id'     => $data['service_id'] ?? null,
                 'sectorial_id'   => $data['sectorial_id'] ?? null,

@@ -112,6 +112,7 @@ class ImportController extends Controller
                 ['field' => 'usuario_pppoe', 'required' => false, 'description' => 'Usuario PPPoE.', 'example' => 'juan.perez'],
                 ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE.', 'example' => 'secret123'],
                 ['field' => 'password', 'required' => false, 'description' => 'Nueva contraseña de acceso del cliente (mínimo 6 caracteres).', 'example' => 'NuevaPass123'],
+                ['field' => 'fecha_instalacion', 'required' => false, 'description' => 'Fecha de instalación del servicio (formato AAAA-MM-DD). Deja vacío para no cambiar.', 'example' => '2026-05-28'],
             ],
         ]);
     }
@@ -192,6 +193,7 @@ class ImportController extends Controller
                 ['field' => 'ciudad', 'required' => false, 'description' => 'Ciudad de residencia', 'example' => 'Bogotá'],
                 ['field' => 'usuario_pppoe', 'required' => false, 'description' => 'Usuario PPPoE (obligatorio si el router tiene Control PPPOE activo)', 'example' => 'juan.perez'],
                 ['field' => 'password_pppoe', 'required' => false, 'description' => 'Contraseña PPPoE (obligatoria si el router tiene Control PPPOE activo)', 'example' => 'secret123'],
+                ['field' => 'fecha_instalacion', 'required' => false, 'description' => 'Fecha de instalación del servicio (formato AAAA-MM-DD)', 'example' => '2026-05-28'],
             ],
         ]);
     }

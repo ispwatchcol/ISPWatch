@@ -20,6 +20,7 @@ class CustomerProfile extends Model
         'position',
         'address',
         'city',
+        'installation_date',
         'state',
         'postal_code',
         'country',
