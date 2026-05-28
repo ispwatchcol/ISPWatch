@@ -227,6 +227,20 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
                 $profilePatch['pppoe_password'] = (string) $data['password_pppoe'];
             }
 
+            if (isset($data['fecha_instalacion']) && $data['fecha_instalacion'] !== '') {
+                $installationDate = $this->parseExcelDate($data['fecha_instalacion']);
+                if ($installationDate === null) {
+                    $this->errors[] = [
+                        'sheet' => 'Clientes',
+                        'row' => $rowNumber,
+                        'field' => 'fecha_instalacion',
+                        'error' => 'Fecha de instalación inválida. Usa el formato AAAA-MM-DD (ej. 2026-05-28).',
+                    ];
+                    continue;
+                }
+                $profilePatch['installation_date'] = $installationDate;
+            }
+
             if (empty($userPatch) && empty($profilePatch)) {
                 continue;
             }
@@ -283,6 +297,27 @@ class CustomersUpdateImport implements ToCollection, WithHeadingRow
                     'error' => 'No se pudo actualizar: ' . $e->getMessage(),
                 ];
             }
+        }
+    }
+
+    /**
+     * Convierte una celda de Excel (número serial o texto) a 'Y-m-d'.
+     * Devuelve null si el valor no es una fecha válida.
+     */
+    protected function parseExcelDate($value): ?string
+    {
+        if (is_numeric($value)) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            } catch (\Throwable $e) {
+                return null;
+            }
+        }
+
+        try {
+            return \Carbon\Carbon::parse(trim((string) $value))->format('Y-m-d');
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 }

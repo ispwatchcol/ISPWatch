@@ -33,7 +33,12 @@
       "Bash(php -l app/Services/BillingService.php)",
       "Bash(php -l app/Models/BillingActionLog.php)",
       "Bash(php -l app/Console/Commands/RetryFailedInvoices.php)",
-      "Bash(php -l app/Http/Controllers/BillingActionLogController.php)"
+      "Bash(php -l app/Http/Controllers/BillingActionLogController.php)",
+      "Bash(php -l app/Imports/Sheets/CustomersSheetImport.php)",
+      "Bash(php -l app/Imports/CustomersUpdateImport.php)",
+      "Bash(php -l app/Http/Controllers/ImportController.php)",
+      "Bash(php -l app/Exports/Sheets/CustomersSheet.php)",
+      "Bash(php -l app/Exports/CustomersUpdateTemplateExport.php)"
     ]
   }
 }
