@@ -1,34 +1,37 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 sm:p-6">
     <NotificationToast ref="toast" />
-    <main class="flex-1 overflow-y-auto p-6">
-      <div class="mb-8 flex items-center justify-between">
+      <div class="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 class="flex items-center gap-2 text-3xl font-semibold text-gray-800 dark:text-gray-100">
-            <icon-lucide-shield class="h-7 w-7 text-blue-600" />
+          <h1 class="flex items-center gap-2 text-2xl sm:text-3xl font-semibold text-gray-800 dark:text-gray-100">
+            <icon-lucide-shield class="h-6 w-6 sm:h-7 sm:w-7 text-blue-600" />
             Administración de Roles
           </h1>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p class="mt-1 text-sm sm:text-base text-gray-500 dark:text-gray-400">
             Crea y gestiona roles personalizados con sus permisos asignados
           </p>
         </div>
 
         <button
           @click="openCreateModal"
-          class="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-white shadow-md transition-all hover:bg-blue-700"
+          class="flex items-center justify-center w-full sm:w-auto gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-white shadow-md transition-all hover:bg-blue-700"
         >
           <icon-lucide-plus class="h-4 w-4" />
           Crear Rol
         </button>
       </div>
 
-      <div class="rounded-2xl bg-white p-6 shadow dark:bg-gray-800">
+      <div class="rounded-2xl bg-white p-4 sm:p-6 shadow dark:bg-gray-800">
         <div v-if="loading" class="py-12 text-center">
           <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
           <p class="mt-4 text-gray-500 dark:text-gray-400">Cargando roles...</p>
         </div>
 
-        <div v-else class="overflow-x-auto">
+        <!-- Tabla / Cards -->
+        <div v-else class="border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
+          
+          <!-- Desktop Table -->
+          <div class="hidden md:block overflow-x-auto">
           <table class="min-w-full border-collapse">
             <thead>
               <tr class="bg-gray-100 text-sm uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-300">
@@ -57,7 +60,7 @@
               <tr
                 v-for="role in roles"
                 :key="role.id"
-                class="border-b border-gray-200 transition-all hover:bg-blue-50 dark:border-gray-700 dark:hover:bg-gray-700/40"
+                class="border-b border-gray-200 transition-all hover:bg-blue-50 dark:border-gray-700 dark:hover:bg-gray-700/40 bg-white dark:bg-gray-800"
               >
                 <td class="py-3 px-4">
                   <div class="font-medium text-gray-800 dark:text-gray-100">
@@ -99,14 +102,58 @@
                   </button>
                 </td>
               </tr>
-
-              <tr v-if="roles.length === 0" class="text-center">
-                <td colspan="4" class="py-8">
-                  <p class="text-gray-500 dark:text-gray-400">No hay roles disponibles</p>
-                </td>
-              </tr>
             </tbody>
           </table>
+          </div>
+
+          <!-- Mobile Cards -->
+          <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+            <div v-for="role in roles" :key="role.id" class="p-4 bg-white dark:bg-gray-800">
+              <div class="flex justify-between items-start mb-3">
+                <div class="font-semibold text-gray-800 dark:text-gray-100 text-sm">
+                  {{ role.name }}
+                </div>
+                <span v-if="isPredefinedRole(role.name)" class="inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                  <icon-lucide-check-circle class="w-3 h-3" /> Predefinido
+                </span>
+              </div>
+              
+              <div class="grid grid-cols-2 gap-2 text-xs mb-4">
+                <div class="col-span-2">
+                  <div class="inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-700 px-2.5 py-1 rounded-lg">
+                    <icon-lucide-key class="text-gray-500 dark:text-gray-400 h-3.5 w-3.5" />
+                    <span class="font-semibold text-gray-700 dark:text-gray-200">{{ role.permissions?.length || 0 }}</span>
+                    <span class="text-gray-500 dark:text-gray-400">permisos</span>
+                  </div>
+                </div>
+                <div class="col-span-2 mt-1"><span class="text-gray-500 dark:text-gray-400">Creación:</span> <span class="text-gray-800 dark:text-gray-200 ml-1">{{ formatDate(role.created_at) }}</span></div>
+              </div>
+
+              <div class="flex flex-wrap gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                <button
+                  @click="editRole(role)"
+                  class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
+                         border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all
+                         dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
+                >
+                  <icon-lucide-pencil class="h-3.5 w-3.5" /> Editar
+                </button>
+                <button
+                  v-if="!isPredefinedRole(role.name)"
+                  @click="deleteRole(role)"
+                  class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
+                         border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all
+                         dark:border-red-800 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-800/50"
+                >
+                  <icon-lucide-trash-2 class="h-3.5 w-3.5" /> Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="roles.length === 0" class="py-8 text-center text-gray-500 dark:text-gray-400">
+            No hay roles disponibles
+          </div>
         </div>
       </div>
 
@@ -213,7 +260,6 @@
           </div>
         </div>
       </Teleport>
-    </main>
   </div>
 </template>
 

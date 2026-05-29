@@ -1,13 +1,12 @@
 <template>
-    <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8 overflow-x-auto">
         <!-- Notification Toast -->
         <NotificationToast ref="toast" />
 
-        <main class="flex-1 p-4 md:p-8">
-            <!-- Header -->
-            <div
-                class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8"
-            >
+        <!-- Header -->
+        <div
+            class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8"
+        >
                 <div>
                     <h1
                         class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2"
@@ -221,7 +220,7 @@
                                     {{ errors.trade_name[0] }}
                                 </p>
                             </div>
-                            <div class="grid grid-cols-4 gap-2">
+                            <div class="grid grid-cols-4 sm:grid-cols-4 gap-2">
                                 <div class="col-span-3">
                                     <label class="label">NIT</label>
                                     <input
@@ -236,7 +235,7 @@
                                         @input="hasChanges = true"
                                     />
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <label class="label">DV</label>
                                     <input
                                         v-model="
@@ -535,11 +534,11 @@
                                 </div>
 
                                 <!-- No-admin: bloque solo visual, sin valor -->
-                                <div v-else class="flex items-center gap-3 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-4 py-3">
+                                <div v-else class="flex items-center gap-3 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-4 py-3 overflow-hidden">
                                     <svg class="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                                     </svg>
-                                    <span class="font-mono text-gray-400 dark:text-gray-500 tracking-widest text-sm select-none">••••••••••••••••••••••••••••••••</span>
+                                    <span class="font-mono text-gray-400 dark:text-gray-500 tracking-widest text-sm select-none truncate w-full">••••••••••••••••••••••••••••••••</span>
                                 </div>
 
                                 <!-- Badge "clave configurada" -->
@@ -1026,7 +1025,6 @@
                     <CustomersUpdateSection />
                 </div>
             </div>
-        </main>
     </div>
 </template>
 

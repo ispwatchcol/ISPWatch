@@ -13,7 +13,12 @@ class RoleController extends Controller
      */
     public function index()
     {
-        $roles = Role::all()->map(function ($role) {
+        $tenantId = auth()->user()->tenant_id;
+
+        $roles = Role::where('tenant_id', $tenantId)
+            ->orderBy('name')
+            ->get()
+            ->map(function ($role) {
             return [
                 'id' => $role->id,
                 'name' => $role->name,
@@ -73,7 +78,8 @@ class RoleController extends Controller
      */
     public function show($id)
     {
-        $role = Role::findOrFail($id);
+        $tenantId = auth()->user()->tenant_id;
+        $role = Role::where('tenant_id', $tenantId)->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -92,8 +98,8 @@ class RoleController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $role = Role::findOrFail($id);
         $tenantId = auth()->user()->tenant_id;
+        $role = Role::where('tenant_id', $tenantId)->findOrFail($id);
 
         $data = $request->validate([
             'name' => 'sometimes|string|max:255|unique:role,name,' . $role->id . ',id,tenant_id,' . $tenantId,
@@ -118,7 +124,8 @@ class RoleController extends Controller
      */
     public function destroy($id)
     {
-        $role = Role::findOrFail($id);
+        $tenantId = auth()->user()->tenant_id;
+        $role = Role::where('tenant_id', $tenantId)->findOrFail($id);
 
         // Prevent deletion of core roles (check both code and name)
         $coreCodes = ['admin', 'client', 'technician', 'accounting', 'staff'];

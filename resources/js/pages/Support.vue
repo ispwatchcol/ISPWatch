@@ -1,17 +1,18 @@
 <template>
-    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-3 sm:p-6">
         <!-- Notification Toast -->
         <NotificationToast ref="toast" />
+
         <!-- Header -->
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
             <div>
-                <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Soporte</h1>
-                <p class="text-gray-500 dark:text-gray-400 mt-1">Gestión de tickets de soporte</p>
+                <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">Soporte</h1>
+                <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Gestión de tickets de soporte</p>
             </div>
             <button
                 v-if="canCreate"
                 @click="router.push('/support/create')"
-                class="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition w-full sm:w-auto"
             >
                 <icon-lucide-plus class="w-4 h-4" />
                 Nuevo Ticket
@@ -19,30 +20,30 @@
         </div>
 
         <!-- Buscador y Filtros -->
-        <div class="mb-6 space-y-4">
+        <div class="mb-6 flex flex-col gap-3 sm:gap-4 items-stretch">
             <!-- Buscador -->
-            <div class="relative max-w-md">
+            <div class="relative flex-1">
                 <input
                     v-model="searchQuery"
                     type="text"
                     placeholder="Buscar por asunto o descripción..."
-                    class="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white px-4 py-3 pl-11 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+                    class="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white px-4 py-2.5 sm:py-3 pl-11 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 text-sm sm:text-base"
                 />
-                <v-icon name="io-search" class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
+                <v-icon name="io-search" class="absolute left-3 top-2.5 sm:top-3.5 w-5 h-5 text-gray-400" />
                 <button
                     v-if="searchQuery"
                     @click="searchQuery = ''"
-                    class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    class="absolute right-3 top-2 sm:top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                 >
                     <v-icon name="io-close-circle" class="w-6 h-6" />
                 </button>
             </div>
 
             <!-- Filtros -->
-            <div class="flex flex-wrap gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
                 <select
                     v-model="filters.status"
-                    class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                     <option value="all">Todos los estados</option>
                     <option value="open">Abierto</option>
@@ -53,7 +54,7 @@
 
                 <select
                     v-model="filters.priority"
-                    class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                     <option value="all">Todas las prioridades</option>
                     <option value="low">Baja</option>
@@ -64,7 +65,7 @@
 
                 <select
                     v-model="filters.category"
-                    class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                     <option value="all">Todas las categorías</option>
                     <option value="technical">Técnico</option>
@@ -75,7 +76,7 @@
 
                 <select
                     v-model="filters.staff"
-                    class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                     <option value="all">Todos los técnicos</option>
                     <option value="unassigned">Sin asignar</option>
@@ -101,9 +102,11 @@
             {{ error }}
         </div>
 
-        <!-- Tabla de tickets -->
+        <!-- Tabla / Cards -->
         <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-gray-700">
-            <div class="overflow-x-auto">
+
+            <!-- Desktop table -->
+            <div class="hidden md:block overflow-x-auto">
                 <table class="w-full">
                     <thead class="bg-gray-50 dark:bg-gray-700">
                         <tr>
@@ -126,19 +129,13 @@
                                 {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
                             </td>
                             <td class="px-6 py-4 text-sm">
-                                <span :class="getCategoryBadgeClass(ticket.category)">
-                                    {{ getCategoryLabel(ticket.category) }}
-                                </span>
+                                <span :class="getCategoryBadgeClass(ticket.category)">{{ getCategoryLabel(ticket.category) }}</span>
                             </td>
                             <td class="px-6 py-4 text-sm">
-                                <span :class="getStatusBadgeClass(ticket.status)">
-                                    {{ getStatusLabel(ticket.status) }}
-                                </span>
+                                <span :class="getStatusBadgeClass(ticket.status)">{{ getStatusLabel(ticket.status) }}</span>
                             </td>
                             <td class="px-6 py-4 text-sm">
-                                <span :class="getPriorityBadgeClass(ticket.priority)">
-                                    {{ getPriorityLabel(ticket.priority) }}
-                                </span>
+                                <span :class="getPriorityBadgeClass(ticket.priority)">{{ getPriorityLabel(ticket.priority) }}</span>
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                                 {{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname}` : 'Sin asignar' }}
@@ -147,7 +144,7 @@
                                 {{ formatDate(ticket.created_at) }}
                             </td>
                             <td class="px-6 py-4 text-center">
-                                <div class="flex justify-center gap-2">
+                                <div class="flex justify-center gap-2 flex-wrap">
                                     <button
                                         @click="router.push(`/support/${ticket.id}`)"
                                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
@@ -155,8 +152,7 @@
                                             hover:bg-blue-100 hover:scale-[1.03] transition-all
                                             dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
                                     >
-                                        <icon-lucide-eye class="w-4 h-4" />
-                                        Ver
+                                        <icon-lucide-eye class="w-4 h-4" /> Ver
                                     </button>
                                     <button
                                         v-if="canEdit"
@@ -166,8 +162,7 @@
                                             hover:bg-green-100 hover:scale-[1.03] transition-all
                                             dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50"
                                     >
-                                        <icon-lucide-pencil class="w-4 h-4" />
-                                        Editar
+                                        <icon-lucide-pencil class="w-4 h-4" /> Editar
                                     </button>
                                     <button
                                         v-if="canDelete"
@@ -177,20 +172,73 @@
                                             hover:bg-red-100 hover:scale-[1.03] transition-all
                                             dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-800/50"
                                     >
-                                        <icon-lucide-trash-2 class="w-4 h-4" />
-                                        Eliminar
+                                        <icon-lucide-trash-2 class="w-4 h-4" /> Eliminar
                                     </button>
                                 </div>
                             </td>
                         </tr>
-
-                        <tr v-if="filteredTickets.length === 0 && !loading">
-                            <td colspan="9" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                                {{ searchQuery ? 'No se encontraron resultados' : 'No hay tickets registrados' }}
-                            </td>
-                        </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Mobile cards -->
+            <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+                <div v-for="ticket in filteredTickets" :key="ticket.id" class="p-4">
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-start gap-2">
+                            <div class="min-w-0">
+                                <span class="text-xs text-gray-400 dark:text-gray-500">#{{ ticket.id }}</span>
+                                <h3 class="font-semibold text-gray-800 dark:text-white text-sm leading-snug">{{ ticket.subject }}</h3>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
+                                </p>
+                            </div>
+                            <span :class="getStatusBadgeClass(ticket.status)" class="shrink-0 text-xs">
+                                {{ getStatusLabel(ticket.status) }}
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-1.5 text-xs">
+                            <div><span class="text-gray-400">Categoría:</span> <span class="ml-1">{{ getCategoryLabel(ticket.category) }}</span></div>
+                            <div><span class="text-gray-400">Prioridad:</span> <span class="ml-1">{{ getPriorityLabel(ticket.priority) }}</span></div>
+                            <div class="col-span-2"><span class="text-gray-400">Técnico:</span> <span class="ml-1">{{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname}` : 'Sin asignar' }}</span></div>
+                            <div class="col-span-2"><span class="text-gray-400">Fecha:</span> <span class="ml-1">{{ formatDate(ticket.created_at) }}</span></div>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2 pt-1">
+                            <button
+                                @click="router.push(`/support/${ticket.id}`)"
+                                class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
+                                    bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all
+                                    dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800"
+                            >
+                                <icon-lucide-eye class="w-3.5 h-3.5" /> Ver
+                            </button>
+                            <button
+                                v-if="canEdit"
+                                @click="router.push(`/support/${ticket.id}/edit`)"
+                                class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
+                                    bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-all
+                                    dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
+                            >
+                                <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
+                            </button>
+                            <button
+                                v-if="canDelete"
+                                @click="deleteTicket(ticket.id)"
+                                class="px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
+                                    bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-all
+                                    dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                            >
+                                <icon-lucide-trash-2 class="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="filteredTickets.length === 0 && !loading" class="p-8 text-center text-gray-500 dark:text-gray-400">
+                    {{ searchQuery ? 'No se encontraron resultados' : 'No hay tickets registrados' }}
+                </div>
             </div>
         </div>
     </div>

@@ -1,6 +1,5 @@
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-    <main class="flex-1 p-4 md:p-8">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
       
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
@@ -59,7 +58,7 @@
 
       <!-- Filters and Search -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 mb-6 text-gray-700 dark:text-gray-200">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 md:grid-cols-4 gap-4">
           <!-- Search -->
           <div class="md:col-span-2">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
@@ -135,9 +134,9 @@
       </div>
 
       <!-- Desktop Table View -->
-      <div class="hidden lg:block bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
+      <div class="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-md">
         <div class="overflow-x-auto">
-          <table class="w-full">
+          <table class="w-full min-w-[640px]">
             <thead class="bg-gray-100 dark:bg-gray-700">
               <tr>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
@@ -283,7 +282,7 @@
       </div>
 
       <!-- Mobile Card View -->
-      <div class="lg:hidden space-y-4">
+      <div class="md:hidden space-y-4">
         <div
           v-for="bill in filteredBillings"
           :key="bill.id"
@@ -421,7 +420,6 @@
         </div>
       </div>
 
-    </main>
   </div>
 </template>
 
