@@ -169,9 +169,13 @@ const loadTicket = async () => {
         ])
 
         const ticket = ticketRes.data
-        // Filtrar solo usuarios con rol de Staff (role_id === 2)
+        // Filtrar solo técnicos por NOMBRE de rol: los roles son por tenant y el id
+        // varía, por eso no se usa role_id fijo. Tolera acentos/mayúsculas.
         const allUsers = staffRes.data.data || []
-        staffList.value = allUsers.filter(user => user.role_id === 2)
+        staffList.value = allUsers.filter(user => {
+            const n = (user.role_name || '').trim().toLowerCase()
+            return n === 'técnico' || n === 'tecnico'
+        })
         
         form.value = {
             subject: ticket.subject,

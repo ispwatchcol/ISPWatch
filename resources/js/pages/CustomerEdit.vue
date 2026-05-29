@@ -138,19 +138,16 @@
 
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Fecha de instalación</label>
-                <input v-model="form.installation_date" type="date"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <DatePicker v-model="form.installation_date" placeholder="dd/mm/aaaa" />
                 </div>
 
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
                     Estrato <span class="text-gray-400 font-normal text-sm">(facturación)</span>
                 </label>
-                <select v-model="form.estrato"
-                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option :value="null">— Sin definir —</option>
-                    <option v-for="n in 6" :key="n" :value="n">{{ n }}</option>
-                </select>
+                <input v-model.number="form.estrato" type="number" min="1"
+                    class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    placeholder="Ej: 3" />
                 </div>
             </div>
 
@@ -554,6 +551,7 @@ import SearchableSelect from '@/components/SearchableSelect.vue'
 import CustomerBilling from '@/components/customer/CustomerBilling.vue'
 import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 import CustomerTickets from '@/components/customer/CustomerTickets.vue'
+import DatePicker from '@/components/DatePicker.vue'
 
 const router = useRouter()
 const route  = useRoute()
