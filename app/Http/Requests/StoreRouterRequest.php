@@ -39,6 +39,7 @@ class StoreRouterRequest extends FormRequest
             'control_pcq' => 'nullable|boolean',
             'hotspot' => 'nullable|boolean',
             'pppoe' => 'nullable|boolean',
+            'pppoe_limit_mode' => 'nullable|in:dynamic,queue',
             'ip_bindings' => 'nullable|boolean',
             'amarre' => 'nullable|boolean',
             'dhcp_leases' => 'nullable|boolean',

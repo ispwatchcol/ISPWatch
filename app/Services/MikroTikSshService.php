@@ -8,6 +8,9 @@ use App\Services\MikroTik\PppSecretManager;
 use App\Services\MikroTik\PppProfileManager;
 use App\Services\MikroTik\SuspensionManager;
 use App\Services\MikroTik\QueueManager;
+use App\Services\MikroTik\HotspotManager;
+use App\Services\MikroTik\PcqManager;
+use App\Services\MikroTik\DhcpLeaseManager;
 use App\Services\MikroTik\InterfaceReader;
 use App\Services\MikroTik\FirewallRulesManager;
 use Illuminate\Support\Facades\Log;
@@ -36,6 +39,9 @@ class MikroTikSshService
     private PppProfileManager $pppProfileManager;
     private SuspensionManager $suspensionManager;
     private QueueManager $queueManager;
+    private HotspotManager $hotspotManager;
+    private PcqManager $pcqManager;
+    private DhcpLeaseManager $dhcpManager;
     private InterfaceReader $interfaceReader;
     private FirewallRulesManager $firewallManager;
 
@@ -47,6 +53,9 @@ class MikroTikSshService
         $this->pppProfileManager = new PppProfileManager($this->connectionManager, $this->apiProtocol);
         $this->suspensionManager = new SuspensionManager($this->connectionManager, $this->apiProtocol);
         $this->queueManager = new QueueManager($this->connectionManager, $this->apiProtocol);
+        $this->hotspotManager = new HotspotManager($this->connectionManager, $this->apiProtocol);
+        $this->pcqManager = new PcqManager($this->connectionManager, $this->apiProtocol);
+        $this->dhcpManager = new DhcpLeaseManager($this->connectionManager, $this->apiProtocol);
         $this->interfaceReader = new InterfaceReader($this->connectionManager, $this->apiProtocol);
         $this->firewallManager = new FirewallRulesManager($this->connectionManager, $this->apiProtocol);
     }
@@ -337,6 +346,107 @@ class MikroTikSshService
             $clientPort,
             $secretName,
             $comment
+        );
+    }
+
+    // ==================== HOTSPOT MANAGEMENT ====================
+
+    /**
+     * Create or update a HotSpot user on a client router (per-client).
+     */
+    public function ensureHotspotUserOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $username,
+        string $password,
+        string $profile = 'default',
+        int $clientPort = 8728,
+        ?string $address = null,
+        ?string $comment = null
+    ): array {
+        return $this->hotspotManager->ensureHotspotUserOnRouter(
+            $clientIp, $clientUser, $clientPass, $username, $password, $profile, $clientPort, $address, $comment
+        );
+    }
+
+    /**
+     * Create or update a HotSpot user profile on a client router (per-plan).
+     */
+    public function syncHotspotUserProfileOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $profileName,
+        string $speedUp,
+        string $speedDown,
+        ?int $sharedUsers = null,
+        ?string $sessionTimeout = null,
+        ?string $idleTimeout = null,
+        int $clientPort = 8728
+    ): array {
+        return $this->hotspotManager->syncHotspotUserProfile(
+            $clientIp, $clientUser, $clientPass, $profileName, $speedUp, $speedDown,
+            $sharedUsers, $sessionTimeout, $idleTimeout, $clientPort
+        );
+    }
+
+    // ==================== PCQ + ADDRESS-LIST MANAGEMENT ====================
+
+    /**
+     * Add a client IP to a plan's firewall address-list on a client router (per-client).
+     */
+    public function ensureClientInAddressList(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $listName,
+        string $targetIp,
+        int $clientPort = 8728,
+        ?string $comment = null
+    ): array {
+        return $this->pcqManager->ensureClientInAddressList(
+            $clientIp, $clientUser, $clientPass, $listName, $targetIp, $clientPort, $comment
+        );
+    }
+
+    /**
+     * Build/refresh the PCQ engine (queue types + mangle + queue trees) for a plan (per-plan).
+     */
+    public function syncPcqEngineOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $planName,
+        string $speedUp,
+        string $speedDown,
+        ?string $pcqRate = null,
+        ?string $addressMask = null,
+        int $clientPort = 8728
+    ): array {
+        return $this->pcqManager->syncPcqEngine(
+            $clientIp, $clientUser, $clientPass, $planName, $speedUp, $speedDown, $pcqRate, $addressMask, $clientPort
+        );
+    }
+
+    // ==================== DHCP LEASE MANAGEMENT ====================
+
+    /**
+     * Create or update a static DHCP lease (IP + MAC) on a client router (per-client).
+     */
+    public function ensureDhcpLeaseOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $targetIp,
+        string $mac,
+        string $speedUp,
+        string $speedDown,
+        int $clientPort = 8728,
+        ?string $comment = null
+    ): array {
+        return $this->dhcpManager->ensureLeaseOnRouter(
+            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $speedUp, $speedDown, $clientPort, $comment
         );
     }
 

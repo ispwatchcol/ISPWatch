@@ -370,6 +370,9 @@ class CustomerProfileController extends Controller
                 'pppoe_username' => $data['pppoe_username'] ?? null,
                 'pppoe_password' => $data['pppoe_password'] ?? null,
                 'pppoe_local_address' => $data['pppoe_local_address'] ?? null,
+                'hotspot_username' => $data['hotspot_username'] ?? null,
+                'hotspot_password' => $data['hotspot_password'] ?? null,
+                'mac_address'    => $data['mac_address'] ?? null,
                 'service_status' => (!empty($data['service_id']) && optional(Plan::find($data['service_id']))->is_courtesy)
                     ? 'gratis'
                     : 'activo',
@@ -382,93 +385,35 @@ class CustomerProfileController extends Controller
 
             DB::commit();
 
-            $mikrotik    = app(MikroTikSshService::class);
-            $router      = null;
-            $servicePlan = null;
+            // ── Auto-aprovisionamiento a la RB según el MÉTODO DE CONTROL ──
+            // Una sola compuerta: el router debe tener `agregar_cliente_mkt`.
+            // El dispatcher (CustomerProvisioningService) elige queue / pppoe /
+            // pcq / hotspot / dhcp según el modo excluyente del router.
+            $router      = !empty($data['router_id']) ? Router::find($data['router_id']) : null;
+            $servicePlan = !empty($data['service_id']) ? Plan::find($data['service_id']) : null;
+            $provision   = null;
 
-            // Auto-provision Simple Queue if router has simple_queue + agregar_cliente_mkt enabled
-            $queueResult = null;
-            if (!empty($data['router_id']) && !empty($data['service_id']) && !empty($data['ip_user'])) {
+            if ($router && !$router->agregar_cliente_mkt) {
+                \Log::info('[CustomerProfile] Skip auto-provision: agregar_cliente_mkt disabled on router', [
+                    'router_id' => $router->id,
+                ]);
+            } elseif ($router && $servicePlan && $customer->ip_user) {
                 try {
-                    $router      = Router::find($data['router_id']);
-                    $servicePlan = Plan::find($data['service_id']);
+                    $provision = app(CustomerProvisioningService::class)
+                        ->provisionByControlMode($router, $customer, $servicePlan);
 
-                    if ($router && !$router->agregar_cliente_mkt) {
-                        \Log::info('[CustomerProfile] Skip auto-provision: agregar_cliente_mkt disabled on router', [
-                            'router_id' => $router->id,
-                        ]);
-                    } elseif ($router && $servicePlan && $router->simple_queue) {
-                        \Log::info('[CustomerProfile] Auto-provisioning Simple Queue', [
+                    if (!($provision['success'] ?? false)) {
+                        \Log::warning('[CustomerProfile] Auto-provision incompleto (no bloqueante)', [
                             'customer_id' => $customer->user_id,
-                            'router_id'   => $router->id,
+                            'mode'        => $provision['mode'] ?? null,
+                            'message'     => $provision['message'] ?? null,
                         ]);
-
-                        $queueResult = $mikrotik->syncQueueViaCore(
-                            $router->ip,
-                            $router->user_rb,
-                            $router->password_rb,
-                            $data['ip_user'],
-                            $data['name'],
-                            $data['last_name'],
-                            $servicePlan->speed_up,
-                            $servicePlan->speed_down,
-                            $router->puerto_api ?? 8728,
-                            $data['pppoe_username'] ?? null,
-                            trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? ''))
-                        );
-
-                        if (!$queueResult['success']) {
-                            \Log::warning('[CustomerProfile] Queue sync failed (non-blocking)', [
-                                'error' => $queueResult['message'] ?? 'Unknown error',
-                            ]);
-                        }
                     }
                 } catch (\Throwable $e) {
-                    \Log::warning('[CustomerProfile] Queue sync exception (non-blocking)', [
+                    \Log::warning('[CustomerProfile] Auto-provision exception (no bloqueante)', [
                         'error' => $e->getMessage(),
                     ]);
-                    $queueResult = ['success' => false, 'message' => $e->getMessage()];
-                }
-            }
-
-            // Create PPPoE secret on the assigned router if requested and the router opts-in
-            $pppoeResult = null;
-            if (!empty($data['create_pppoe_secret']) && !empty($data['pppoe_username']) && !empty($data['pppoe_password']) && !empty($data['router_id'])) {
-                try {
-                    $router = $router ?? Router::find($data['router_id']);
-                    if ($router && !$router->agregar_cliente_mkt) {
-                        \Log::info('[CustomerProfile] Skip PPPoE secret: agregar_cliente_mkt disabled on router', [
-                            'router_id' => $router->id,
-                        ]);
-                    } elseif ($router && $router->pppoe) {
-                        $servicePlan = $servicePlan ?? Plan::find($data['service_id']);
-                        $profile     = $servicePlan ? $servicePlan->name : 'default';
-
-                        $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
-                            $router->ip,
-                            $router->user_rb,
-                            $router->password_rb,
-                            $data['pppoe_username'],
-                            $data['pppoe_password'],
-                            $profile,
-                            'pppoe',
-                            $router->puerto_api ?? 8728,
-                            $data['ip_user'] ?? null,
-                            $data['pppoe_local_address'] ?? null,
-                            trim(($data['name'] ?? '') . ' ' . ($data['last_name'] ?? ''))
-                        );
-
-                        if (!$pppoeResult['success']) {
-                            \Log::warning('[CustomerProfile] PPPoE secret creation failed (non-blocking)', [
-                                'error' => $pppoeResult['message'] ?? 'Unknown error',
-                            ]);
-                        }
-                    }
-                } catch (\Throwable $e) {
-                    \Log::warning('[CustomerProfile] PPPoE secret exception (non-blocking)', [
-                        'error' => $e->getMessage(),
-                    ]);
-                    $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+                    $provision = ['success' => false, 'message' => $e->getMessage()];
                 }
             }
 
@@ -477,8 +422,9 @@ class CustomerProfileController extends Controller
                 'customer'           => $customer,
                 'user'               => $user,
                 'email_tenant'       => $emailTenant,
-                'queue_provisioned'  => $queueResult,
-                'pppoe_provisioned'  => $pppoeResult,
+                'queue_provisioned'  => $provision['queue_result'] ?? null,
+                'pppoe_provisioned'  => $provision['pppoe_result'] ?? null,
+                'provision'          => $provision,
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -532,6 +478,9 @@ class CustomerProfileController extends Controller
             'pppoe_username' => $customer->pppoe_username,
             'pppoe_password' => $customer->pppoe_password,
             'pppoe_local_address' => $customer->pppoe_local_address,
+            'hotspot_username' => $customer->hotspot_username,
+            'hotspot_password' => $customer->hotspot_password,
+            'mac_address'    => $customer->mac_address,
             'email'          => $user->email,
             'tel'            => $user->tel,
             'email_tenant'   => $user->email_tenant,
@@ -579,52 +528,23 @@ class CustomerProfileController extends Controller
             ], 404);
         }
 
-        $mikrotik = app(MikroTikSshService::class);
+        // Acción explícita del operador: aprovisiona según el método de control
+        // del router (no depende de agregar_cliente_mkt).
+        $provision = app(CustomerProvisioningService::class)
+            ->provisionByControlMode($router, $customer, $servicePlan);
 
-        $queueResult = $mikrotik->syncQueueViaCore(
-            $router->ip,
-            $router->user_rb,
-            $router->password_rb,
-            $customer->ip_user,
-            $customer->name,
-            $customer->last_name,
-            $servicePlan->speed_up,
-            $servicePlan->speed_down,
-            $router->puerto_api ?? 8728,
-            $customer->pppoe_username,
-            trim($customer->name . ' ' . $customer->last_name)
-        );
-
-        $pppoeResult = null;
-        if ($router->pppoe && $customer->pppoe_username && $customer->pppoe_password) {
-            try {
-                $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
-                    $router->ip,
-                    $router->user_rb,
-                    $router->password_rb,
-                    $customer->pppoe_username,
-                    $customer->pppoe_password,
-                    $servicePlan->name,
-                    'pppoe',
-                    $router->puerto_api ?? 8728,
-                    $customer->ip_user,
-                    $customer->pppoe_local_address,
-                    trim($customer->name . ' ' . $customer->last_name)
-                );
-            } catch (\Throwable $e) {
-                \Log::warning('[CustomerProfile::provision] PPPoE secret exception', ['error' => $e->getMessage()]);
-                $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
-            }
-        }
-
-        $overallSuccess = $queueResult['success'] && ($pppoeResult === null || $pppoeResult['success']);
+        $success = (bool) ($provision['success'] ?? false);
 
         return response()->json([
-            'success'      => $overallSuccess,
-            'message'      => $overallSuccess ? 'Provisionado correctamente.' : 'Provisionado con advertencias.',
-            'queue_result' => $queueResult,
-            'pppoe_result' => $pppoeResult,
-        ], $overallSuccess ? 200 : 500);
+            'success'      => $success,
+            'message'      => $success
+                ? 'Provisionado correctamente.'
+                : ($provision['message'] ?? 'Provisionado con advertencias.'),
+            'mode'         => $provision['mode'] ?? null,
+            'queue_result' => $provision['queue_result'] ?? null,
+            'pppoe_result' => $provision['pppoe_result'] ?? null,
+            'provision'    => $provision,
+        ], $success ? 200 : 500);
     }
 
     /**
@@ -875,6 +795,11 @@ class CustomerProfileController extends Controller
             'pppoe_password'      => 'nullable|string|max:255',
             'pppoe_local_address' => 'nullable|string|max:45',
 
+            // HotSpot credentials / MAC
+            'hotspot_username'    => 'nullable|string|max:255',
+            'hotspot_password'    => 'nullable|string|max:255',
+            'mac_address'         => 'nullable|string|max:17|regex:/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/',
+
             // Service state
             'service_status' => 'nullable|in:activo,suspendido,cancelado,gratis',
         ]);
@@ -940,6 +865,9 @@ class CustomerProfileController extends Controller
                 'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
                 'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,
                 'pppoe_local_address' => array_key_exists('pppoe_local_address', $data) ? $data['pppoe_local_address'] : $customer->pppoe_local_address,
+                'hotspot_username' => array_key_exists('hotspot_username', $data) ? $data['hotspot_username'] : $customer->hotspot_username,
+                'hotspot_password' => array_key_exists('hotspot_password', $data) ? $data['hotspot_password'] : $customer->hotspot_password,
+                'mac_address'    => array_key_exists('mac_address', $data) ? $data['mac_address'] : $customer->mac_address,
                 'service_status' => $serviceStatus,
                 'status'         => $statusBool,
             ]);
@@ -950,38 +878,24 @@ class CustomerProfileController extends Controller
 
             DB::commit();
 
-            // Create/update PPPoE secret on router if requested
-            $pppoeResult = null;
-            if (!empty($data['create_pppoe_secret']) && !empty($data['pppoe_username']) && !empty($data['pppoe_password'])) {
-                $routerId = $data['router_id'] ?? $customer->router_id;
-                if ($routerId) {
+            // Re-sincronizar el cliente en la RB tras la edición, según el
+            // MÉTODO DE CONTROL del router (solo si el router auto-provisiona).
+            // Mantiene la config de la RB al día tras cambiar plan/IP/MAC/creds.
+            $provision     = null;
+            $provRouterId  = $data['router_id'] ?? $customer->router_id;
+            $provServiceId = $data['service_id'] ?? $customer->service_id;
+            if ($provRouterId && $provServiceId && $customer->ip_user) {
+                $provRouter = Router::find($provRouterId);
+                $provPlan   = Plan::find($provServiceId);
+                if ($provRouter && $provRouter->agregar_cliente_mkt && $provPlan) {
                     try {
-                        $router      = Router::find($routerId);
-                        $serviceId   = $data['service_id'] ?? $customer->service_id;
-                        $servicePlan = $serviceId ? Plan::find($serviceId) : null;
-                        $profile     = $servicePlan ? $servicePlan->name : 'default';
-
-                        if ($router && $router->pppoe) {
-                            $mikrotik    = app(MikroTikSshService::class);
-                            $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
-                                $router->ip,
-                                $router->user_rb,
-                                $router->password_rb,
-                                $data['pppoe_username'],
-                                $data['pppoe_password'],
-                                $profile,
-                                'pppoe',
-                                $router->puerto_api ?? 8728,
-                                $data['ip_user'] ?? $customer->ip_user,
-                                $data['pppoe_local_address'] ?? $customer->pppoe_local_address,
-                                trim(($data['name'] ?? $customer->name) . ' ' . ($data['last_name'] ?? $customer->last_name))
-                            );
-                        }
+                        $provision = app(CustomerProvisioningService::class)
+                            ->provisionByControlMode($provRouter, $customer, $provPlan);
                     } catch (\Throwable $e) {
-                        \Log::warning('[CustomerProfile] PPPoE secret update exception (non-blocking)', [
+                        \Log::warning('[CustomerProfile] Update auto-provision exception (no bloqueante)', [
                             'error' => $e->getMessage(),
                         ]);
-                        $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
+                        $provision = ['success' => false, 'message' => $e->getMessage()];
                     }
                 }
             }
@@ -1025,7 +939,8 @@ class CustomerProfileController extends Controller
             return response()->json([
                 'message'           => 'Cliente actualizado correctamente. ✅',
                 'customer'          => $customer,
-                'pppoe_provisioned' => $pppoeResult,
+                'pppoe_provisioned' => $provision['pppoe_result'] ?? null,
+                'provision'         => $provision,
                 'status_router'     => $statusRouterResult,
             ]);
         } catch (\Exception $e) {

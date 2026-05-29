@@ -130,8 +130,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:manage_routers');
     Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
 
-    // PPPoE plan sync
+    // Plan → RB engine sync (per control method)
     Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
+    Route::post('/plans/{plan}/sync-hotspot-profile', [PlanController::class, 'syncHotspotProfile']);
+    Route::post('/plans/{plan}/sync-pcq-engine', [PlanController::class, 'syncPcqEngine']);
 
     // ─── BILLING ───
     Route::middleware(['permission:view_billing'])->group(function () {

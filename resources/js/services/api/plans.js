@@ -19,6 +19,12 @@ export default {
     syncPppoeProfile(id, data, params = {}) {
         return apiClient.post(`/plans/${id}/sync-pppoe-profile`, data, { params })
     },
+    syncHotspotProfile(id, data, params = {}) {
+        return apiClient.post(`/plans/${id}/sync-hotspot-profile`, data, { params })
+    },
+    syncPcqEngine(id, data, params = {}) {
+        return apiClient.post(`/plans/${id}/sync-pcq-engine`, data, { params })
+    },
     delete(id) {
         return apiClient.delete(`/plans/${id}`)
     },

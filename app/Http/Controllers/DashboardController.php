@@ -50,6 +50,19 @@ class DashboardController extends Controller
             $totalSectorials = Sectorial::where('tenant_id', $tenantId)->count();
             $totalRouters = Router::where('tenant_id', $tenantId)->count();
 
+            // Routers manually flagged with "Falla General" → surfaced as a
+            // dashboard alert so operators see affected infrastructure at a glance.
+            $faultRouters = Router::where('tenant_id', $tenantId)
+                ->where('falla_general', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'ip'])
+                ->map(fn ($r) => [
+                    'id'   => $r->id,
+                    'name' => $r->name,
+                    'ip'   => $r->ip,
+                ])
+                ->values();
+
             // Support tickets scoped to tenant
             $openTickets = SupportTicket::where('tenant_id', $tenantId)
                 ->whereIn('status', ['open', 'in_progress'])->count();
@@ -111,6 +124,10 @@ class DashboardController extends Controller
                         ],
                     ],
                     'activities' => $activities,
+                    'fault_alerts' => [
+                        'count'   => $faultRouters->count(),
+                        'routers' => $faultRouters,
+                    ],
                     'system_status' => [
                         'network' => [
                             'status' => 'operational',

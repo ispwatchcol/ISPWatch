@@ -42,6 +42,7 @@ class Router extends Model
         'control_pcq',
         'hotspot',
         'pppoe',
+        'pppoe_limit_mode',
         'ip_bindings',
         'amarre',
         'dhcp_leases',

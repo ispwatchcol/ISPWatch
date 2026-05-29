@@ -378,12 +378,20 @@ const loadCustomers = async () => {
     }
 }
 
+// Identifica al rol "Técnico" por NOMBRE (no por id): los roles son por tenant y
+// el id del rol técnico varía entre tenants, por eso ya no sirve role_id === 5.
+// Tolera acentos/mayúsculas: "Técnico" / "Tecnico" / "TÉCNICO".
+const isTechnicianRole = (roleName) => {
+    const n = (roleName || '').trim().toLowerCase()
+    return n === 'técnico' || n === 'tecnico'
+}
+
 const loadStaff = async () => {
     try {
         loadingStaff.value = true
         const staffRes = await api.staff.getAll()
         const allUsers = staffRes.data.data || []
-        staff.value = allUsers.filter(user => user.role_id === 5)
+        staff.value = allUsers.filter(user => isTechnicianRole(user.role_name))
     } catch (err) {
         console.error('Error al cargar personal:', err)
         toast.value?.error('Error', 'Error al cargar la lista del personal.')
