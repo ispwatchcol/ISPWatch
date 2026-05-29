@@ -71,6 +71,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision'])
         ->middleware('permission:activate_deactivate_clients');
+    // Aprovisionamiento masivo asíncrono (job en cola + polling de progreso).
+    Route::post('/customers/bulk-provision-async', [CustomerProfileController::class, 'bulkProvisionAsync'])
+        ->middleware('permission:activate_deactivate_clients');
+    Route::get('/customers/bulk-provision-status/{jobId}', [CustomerProfileController::class, 'bulkProvisionStatus'])
+        ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend'])
         ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate'])

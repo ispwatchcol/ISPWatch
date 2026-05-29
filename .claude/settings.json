@@ -46,7 +46,12 @@
       "PowerShell(php -l app/Http/Controllers/ImportController.php)",
       "PowerShell(php -l app/Exports/CustomersUpdateTemplateExport.php)",
       "PowerShell(php -l app/Http/Requests/StoreCustomerRequest.php)",
-      "PowerShell(php -l app/Http/Controllers/CustomerProfileController.php)"
+      "PowerShell(php -l app/Http/Controllers/CustomerProfileController.php)",
+      "PowerShell(php -l app/Services/MikroTik/MikroTikConnectionManager.php)",
+      "PowerShell(php -l app/Models/BulkProvisionRun.php)",
+      "PowerShell(php -l app/Services/CustomerProvisioningService.php)",
+      "PowerShell(php -l app/Jobs/ProvisionCustomerJob.php)",
+      "PowerShell(php -l database/migrations/2026_05_28_000002_create_bulk_provision_runs_table.php)"
     ]
   }
 }
