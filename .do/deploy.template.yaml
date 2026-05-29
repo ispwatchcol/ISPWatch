@@ -79,6 +79,9 @@ services:
   - key: DB_PASSWORD
     scope: RUN_AND_BUILD_TIME
     value: ISPWatch.2025*
+  - key: DB_SCHEMA
+    scope: RUN_AND_BUILD_TIME
+    value: public
   - key: CACHE_STORE
     scope: RUN_AND_BUILD_TIME
     value: database
