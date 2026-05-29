@@ -9,7 +9,7 @@ class MigrateBothSchemas extends Command
 {
     protected $signature = 'migrate:both
                             {--fresh : Drop all tables and re-run migrations (USE WITH CAUTION)}
-                            {--seed : Seed after migrating}
+                            {--seed : Seed after migrating (SOLO ispwatch_dev; nunca public)}
                             {--path= : Path to a specific migration file}
                             {--force : Force run in production}';
 
@@ -43,14 +43,26 @@ class MigrateBothSchemas extends Command
                     continue;
                 }
                 $command = 'migrate:fresh';
-                if ($this->option('seed')) {
-                    $options['--seed'] = true;
-                }
             } else {
                 $command = 'migrate';
             }
 
+            // ESTRUCTURA → ambos schemas: las migraciones (crear tablas/columnas
+            // + backfill de las filas propias de cada schema) se aplican en los dos.
             $this->call($command, $options);
+
+            // DATOS → solo ispwatch_dev: los seeders CREAN filas nuevas (catálogos
+            // y data demo: usuarios/clientes/routers). Sembrarlas en `public`
+            // contaminaría producción con datos de desarrollo. Por eso el seed
+            // NUNCA corre sobre public (la separación dev/prod no tendría sentido).
+            if ($this->option('seed')) {
+                if ($schema === 'ispwatch_dev') {
+                    $this->info("  ▶ Seeding <fg=yellow>{$schema}</>…");
+                    $this->call('db:seed', ['--force' => true]);
+                } else {
+                    $this->warn("  ⏭  Seed OMITIDO en {$schema}: los datos solo se crean en ispwatch_dev.");
+                }
+            }
         }
 
         // Restore original search_path

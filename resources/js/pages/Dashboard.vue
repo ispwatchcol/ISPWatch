@@ -16,6 +16,14 @@
         <div class="flex flex-wrap items-center gap-4">
           <!-- Estado del sistema -->
           <div
+            v-if="faultAlerts.count > 0"
+            class="flex items-center space-x-2 px-3 py-1 bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 rounded-full text-sm"
+          >
+            <v-icon name="oi-alert" class="h-4 w-4" />
+            <span>Falla General ({{ faultAlerts.count }})</span>
+          </div>
+          <div
+            v-else
             class="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 rounded-full text-sm"
           >
             <v-icon name="bi-activity" class="h-4 w-4" />
@@ -38,6 +46,42 @@
             <v-icon name="oi-alert" class="h-4 w-4 mr-2" />
             <span class="text-sm">Cerrar Sesión</span>
           </button>
+        </div>
+      </div>
+
+      <!-- Alerta: routers marcados con Falla General -->
+      <div
+        v-if="faultAlerts.count > 0"
+        class="mb-6 rounded-xl border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30 p-5"
+      >
+        <div class="flex items-start gap-3">
+          <div class="p-2 rounded-full bg-red-100 dark:bg-red-800/60 shrink-0">
+            <v-icon name="oi-alert" class="w-5 h-5 text-red-600 dark:text-red-300" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-semibold text-red-800 dark:text-red-200">
+              Falla General activa en {{ faultAlerts.count }} router{{ faultAlerts.count > 1 ? 's' : '' }}
+            </h3>
+            <p class="text-sm text-red-700 dark:text-red-300 mt-1">
+              Los siguientes routers están marcados con falla general y requieren atención:
+            </p>
+            <ul class="mt-3 flex flex-wrap gap-2">
+              <li
+                v-for="r in faultAlerts.routers"
+                :key="r.id"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 dark:bg-red-800/60 text-red-800 dark:text-red-200 text-xs font-medium"
+              >
+                <v-icon name="bi-router" class="w-3.5 h-3.5" />
+                {{ r.name }}<span v-if="r.ip" class="opacity-70"> · {{ r.ip }}</span>
+              </li>
+            </ul>
+          </div>
+          <router-link
+            to="/routers"
+            class="shrink-0 text-sm font-medium text-red-700 dark:text-red-300 hover:underline whitespace-nowrap"
+          >
+            Ver routers →
+          </router-link>
         </div>
       </div>
 
@@ -272,6 +316,11 @@ const cards = computed(() => {
 
 // Activities from API
 const activities = computed(() => dashboardData.value?.activities || []);
+
+// Routers flagged with "Falla General" → dashboard alert
+const faultAlerts = computed(
+  () => dashboardData.value?.fault_alerts || { count: 0, routers: [] }
+);
 
 // Acciones rápidas with routes
 const actions = ref([
