@@ -1,54 +1,326 @@
-spec:
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED
+egress:
+  type: DEDICATED_IP
+features:
+- buildpack-stack=ubuntu-22
+ingress:
+  rules:
+  - component:
+      name: ispwatch
+    match:
+      authority:
+        exact: ""
+      path:
+        prefix: /
+name: ispwatch
+region: atl
+services:
+- environment_slug: php
+  envs:
+  - key: APP_NAME
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch
+  - key: APP_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: APP_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: base64:KMgwMTT+H2C3vYqFBuWoSiBVCKO29Ht/hMJkZihbdNA=
+  - key: APP_DEBUG
+    scope: RUN_AND_BUILD_TIME
+    value: "false"
+  - key: APP_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://ispwatch-btxcg.ondigitalocean.app
+  - key: ASSET_URL
+    scope: RUN_AND_BUILD_TIME
+    value: ${APP_URL}
+  - key: APP_LOCALE
+    scope: RUN_AND_BUILD_TIME
+    value: en
+  - key: APP_FALLBACK_LOCALE
+    scope: RUN_AND_BUILD_TIME
+    value: en
+  - key: APP_FAKER_LOCALE
+    scope: RUN_AND_BUILD_TIME
+    value: en_US
+  - key: LOG_CHANNEL
+    scope: RUN_AND_BUILD_TIME
+    value: stack
+  - key: LOG_STACK
+    scope: RUN_AND_BUILD_TIME
+    value: single
+  - key: LOG_LEVEL
+    scope: RUN_AND_BUILD_TIME
+    value: warning
+  - key: PHP_CLI_SERVER_WORKERS
+    scope: RUN_AND_BUILD_TIME
+    value: "4"
+  - key: BCRYPT_ROUNDS
+    scope: RUN_AND_BUILD_TIME
+    value: "12"
+  - key: DB_CONNECTION
+    scope: RUN_AND_BUILD_TIME
+    value: pgsql
+  - key: DB_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: aws-0-us-east-1.pooler.supabase.com
+  - key: DB_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "5432"
+  - key: DB_DATABASE
+    scope: RUN_AND_BUILD_TIME
+    value: postgres
+  - key: DB_USERNAME
+    scope: RUN_AND_BUILD_TIME
+    value: postgres.wusbteybfrmsjuuwzljl
+  - key: DB_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch.2025*
+  - key: CACHE_STORE
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  - key: QUEUE_CONNECTION
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  - key: SESSION_DRIVER
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  - key: SESSION_LIFETIME
+    scope: RUN_AND_BUILD_TIME
+    value: "120"
+  - key: SESSION_ENCRYPT
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
+  - key: SESSION_PATH
+    scope: RUN_AND_BUILD_TIME
+    value: /
+  - key: SESSION_DOMAIN
+    scope: RUN_AND_BUILD_TIME
+  - key: SESSION_SECURE_COOKIE
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
+  - key: SESSION_SAME_SITE
+    scope: RUN_AND_BUILD_TIME
+    value: lax
+  - key: SESSION_HTTP_ONLY
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
+  - key: REDIS_CLIENT
+    scope: RUN_AND_BUILD_TIME
+    value: phpredis
+  - key: REDIS_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: 127.0.0.1
+  - key: REDIS_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "6379"
+  - key: REDIS_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    value: "null"
+  - key: VITE_SUPABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://wusbteybfrmsjuuwzljl.supabase.co
+  - key: VITE_SUPABASE_ANON_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1c2J0ZXliZnJtc2p1dXd6bGpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3ODY3NTIsImV4cCI6MjA1ODM2Mjc1Mn0.lPleLQiYdGyS547NQCngDjGKzP7YyB1TfSDUYjv1iUk
+  - key: VITE_API_URL
+    scope: RUN_AND_BUILD_TIME
+    value: ${APP_URL}/api
+  - key: VITE_APP_NAME
+    scope: RUN_AND_BUILD_TIME
+    value: ${APP_NAME}
+  - key: PORTAL_IP
+    scope: RUN_AND_BUILD_TIME
+    value: 192.168.88.252
+  - key: MIKROTIK_CORE_VPN_IP
+    scope: RUN_AND_BUILD_TIME
+    value: 167.172.132.234
+  - key: MIKROTIK_CORE_API_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: 167.172.132.234
+  - key: MIKROTIK_CORE_API_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "8728"
+  - key: MIKROTIK_CORE_API_USER
+    scope: RUN_AND_BUILD_TIME
+    value: admin
+  - key: MIKROTIK_CORE_API_PASS
+    scope: RUN_AND_BUILD_TIME
+    value: Colombia2018
+  - key: MIKROTIK_VPN_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    value: claveSegura
+  - key: MIKROTIK_IPSEC_SECRET
+    scope: RUN_AND_BUILD_TIME
+    value: Q9fZ7MrL2xSA8DkEpHwCy
+  - key: MIKROTIK_CORE_SSH_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: 167.172.132.234
+  - key: MIKROTIK_CORE_SSH_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "2222"
+  - key: MIKROTIK_CORE_SSH_USER
+    scope: RUN_AND_BUILD_TIME
+    value: admin
+  - key: MIKROTIK_CORE_SSH_KEY_PASSPHRASE
+    scope: RUN_AND_BUILD_TIME
+    value: REMOTO
+  - key: MIKROTIK_CORE_SSH_PASS
+    scope: RUN_AND_BUILD_TIME
+    value: Colombia2018
+  - key: MAIL_MAILER
+    scope: RUN_AND_BUILD_TIME
+    value: smtp
+  - key: MAIL_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: smtp-relay.brevo.com
+  - key: MAIL_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "587"
+  - key: MAIL_USERNAME
+    scope: RUN_AND_BUILD_TIME
+    value: a19972001@smtp-brevo.com
+  - key: MAIL_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    value: xsmtpsib-bc388b840bd005de99297b3c79a00f141cd944eeed1de8a72c7c8bf55d23a351-CSFZAeFHUS9dbVQp
+  - key: MAIL_ENCRYPTION
+    scope: RUN_AND_BUILD_TIME
+    value: tls
+  - key: MAIL_FROM_ADDRESS
+    scope: RUN_AND_BUILD_TIME
+    value: ispwatchcol@gmail.com
+  - key: MAIL_FROM_NAME
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch
+  - key: SANCTUM_STATEFUL_DOMAINS
+    scope: RUN_AND_BUILD_TIME
+    value: ispwatch-btxcg.ondigitalocean.app
+  - key: MIKROTIK_CORE_SSH_KEY_B64
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:23FzkPu6wdA+fcNjv+EFpBLSFCityTA1:RTAn89F1kPZHjzBUjeeEjKNMiFCLklw6rHWkRMDmxwDnghGDAczrikEsgdydZBEjCWffpvCrXPpqlxqBKZrsxJHW6axLMCK+OCCwECRBToAjyz4bNtBIbnajdxdFUHvLjO2GMJyhBv8HQrBQjQRiJufKJKJ0v7jIbFvaDVJdBCI4tLL6MvIOMOsQ7Ah6/k0g6fA6Bb6ESXAF5zAjDv6Ocl2d2ofeKdw/a69+ZajZkYREzBKQofwWVEcHwgqcCAMT0RwF2Yi6ZS5VEJX8jXD6RzrU1HJVjwA4NE8wdQvQmziHgfb2bZ2cQcAlm3l+Kjem9/YXXCz0HNKgWusTdAMdDL+k8TWXZlZcj31jRkjtKmid/i9eOuoycyj/FTqPxyMcLsiWYxyzL4BVRMX5ngUnlv4txNsWamiwinGjG3kiStPbuOwu8s2XZtz2z3nuriUTEJ+gTxdH7WuMKGC/RAinI+YFmOLVJCr209qn/Fm9NQ3pOb0Ib2G0zCZhsBqEkMHz34TVayAzN9CnyJfFe/ooelnN/T3r9F4yV2CzE6dCELrjuwKHclPN4VPyelTNX44evAwNKy0DYZybMnVyRYj0+4fMWxyJG5OpyiKVo9llHzcnANx4W5sh72Ye11vLo9H1b5vXea9l91Z7syIO3iJwTllbuT98RIAsc07SKGJKZLh77KerG56p/328PXYuhx62ypgp6xJBgkEwd3Y/VD5PlAxbIveNUIBJN/AILljQ94iCk+CQ]
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: ispwatchcol/ISPWatch
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-0.5gb
   name: ispwatch
-  services:
-  - name: web
-    github:
-      branch: main
-      deploy_on_push: true
-    http_port: 8080
-    instance_count: 1
-    instance_size_slug: basic-xxs
-    routes:
-    - path: /
-    run_command: |
-      mkdir -p storage/keys
-      if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
-        printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
-        chmod 600 storage/keys/mikrotik_core_id_ed25519
-      fi
-      php artisan migrate --force
-      heroku-php-apache2 public/
-    build_command: |
-      composer install --no-dev --optimize-autoloader
-      npm ci
-      npm run build
-    envs:
-    - key: APP_ENV
-      value: production
-    - key: APP_DEBUG
-      value: "false"
-  workers:
-  # Procesa la cola (aprovisionamiento masivo asíncrono, etc.). SIN este worker
-  # los jobs quedan encolados en la tabla `jobs` y nunca se ejecutan.
-  - name: worker
-    github:
-      branch: main
-      deploy_on_push: true
-    instance_count: 1
-    instance_size_slug: basic-xxs
-    run_command: |
-      mkdir -p storage/keys
-      if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
-        printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
-        chmod 600 storage/keys/mikrotik_core_id_ed25519
-      fi
-      php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600
-    build_command: |
-      composer install --no-dev --optimize-autoloader
-    envs:
-    - key: APP_ENV
-      value: production
-    - key: APP_DEBUG
-      value: "false"
-    - key: QUEUE_CONNECTION
-      value: database
+  run_command: |
+    mkdir -p storage/keys
+    if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
+      printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
+      chmod 600 storage/keys/mikrotik_core_id_ed25519
+    fi
+    php artisan migrate --force
+    heroku-php-apache2 public/
+  source_dir: /
+workers:
+- environment_slug: php
+  envs:
+  - key: APP_NAME
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch
+  - key: APP_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: APP_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: base64:KMgwMTT+H2C3vYqFBuWoSiBVCKO29Ht/hMJkZihbdNA=
+  - key: APP_DEBUG
+    scope: RUN_AND_BUILD_TIME
+    value: "false"
+  - key: APP_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://ispwatch-btxcg.ondigitalocean.app
+  - key: LOG_CHANNEL
+    scope: RUN_AND_BUILD_TIME
+    value: stack
+  - key: LOG_STACK
+    scope: RUN_AND_BUILD_TIME
+    value: single
+  - key: LOG_LEVEL
+    scope: RUN_AND_BUILD_TIME
+    value: warning
+  - key: DB_CONNECTION
+    scope: RUN_AND_BUILD_TIME
+    value: pgsql
+  - key: DB_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: aws-0-us-east-1.pooler.supabase.com
+  - key: DB_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "5432"
+  - key: DB_DATABASE
+    scope: RUN_AND_BUILD_TIME
+    value: postgres
+  - key: DB_USERNAME
+    scope: RUN_AND_BUILD_TIME
+    value: postgres.wusbteybfrmsjuuwzljl
+  - key: DB_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch.2025*
+  - key: DB_SCHEMA
+    scope: RUN_AND_BUILD_TIME
+    value: public
+  - key: CACHE_STORE
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  - key: QUEUE_CONNECTION
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  - key: MIKROTIK_CORE_VPN_IP
+    scope: RUN_AND_BUILD_TIME
+    value: 167.172.132.234
+  - key: MIKROTIK_CORE_API_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: 167.172.132.234
+  - key: MIKROTIK_CORE_API_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "8728"
+  - key: MIKROTIK_CORE_API_USER
+    scope: RUN_AND_BUILD_TIME
+    value: admin
+  - key: MIKROTIK_CORE_API_PASS
+    scope: RUN_AND_BUILD_TIME
+    value: Colombia2018
+  - key: MIKROTIK_CORE_SSH_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: 167.172.132.234
+  - key: MIKROTIK_CORE_SSH_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "2222"
+  - key: MIKROTIK_CORE_SSH_USER
+    scope: RUN_AND_BUILD_TIME
+    value: admin
+  - key: MIKROTIK_CORE_SSH_KEY_PASSPHRASE
+    scope: RUN_AND_BUILD_TIME
+    value: REMOTO
+  - key: MIKROTIK_CORE_SSH_PASS
+    scope: RUN_AND_BUILD_TIME
+    value: Colombia2018
+  - key: MIKROTIK_CORE_SSH_KEY_B64
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: EV[1:23FzkPu6wdA+fcNjv+EFpBLSFCityTA1:RTAn89F1kPZHjzBUjeeEjKNMiFCLklw6rHWkRMDmxwDnghGDAczrikEsgdydZBEjCWffpvCrXPpqlxqBKZrsxJHW6axLMCK+OCCwECRBToAjyz4bNtBIbnajdxdFUHvLjO2GMJyhBv8HQrBQjQRiJufKJKJ0v7jIbFvaDVJdBCI4tLL6MvIOMOsQ7Ah6/k0g6fA6Bb6ESXAF5zAjDv6Ocl2d2ofeKdw/a69+ZajZkYREzBKQofwWVEcHwgqcCAMT0RwF2Yi6ZS5VEJX8jXD6RzrU1HJVjwA4NE8wdQvQmziHgfb2bZ2cQcAlm3l+Kjem9/YXXCz0HNKgWusTdAMdDL+k8TWXZlZcj31jRkjtKmid/i9eOuoycyj/FTqPxyMcLsiWYxyzL4BVRMX5ngUnlv4txNsWamiwinGjG3kiStPbuOwu8s2XZtz2z3nuriUTEJ+gTxdH7WuMKGC/RAinI+YFmOLVJCr209qn/Fm9NQ3pOb0Ib2G0zCZhsBqEkMHz34TVayAzN9CnyJfFe/ooelnN/T3r9F4yV2CzE6dCELrjuwKHclPN4VPyelTNX44evAwNKy0DYZybMnVyRYj0+4fMWxyJG5OpyiKVo9llHzcnANx4W5sh72Ye11vLo9H1b5vXea9l91Z7syIO3iJwTllbuT98RIAsc07SKGJKZLh77KerG56p/328PXYuhx62ypgp6xJBgkEwd3Y/VD5PlAxbIveNUIBJN/AILljQ94iCk+CQ]
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: ispwatchcol/ISPWatch
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-0.5gb
+  name: worker
+  run_command: |
+    mkdir -p storage/keys
+    if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
+      printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
+      chmod 600 storage/keys/mikrotik_core_id_ed25519
+    fi
+    php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600
+  build_command: |
+    composer install --no-dev --optimize-autoloader
+  source_dir: /
