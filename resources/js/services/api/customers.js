@@ -28,6 +28,14 @@ export default {
     bulkProvision(customerIds) {
         return apiClient.post('/customers/bulk-provision', { customer_ids: customerIds }, { timeout: 600000 })
     },
+    // Aprovisionamiento masivo asíncrono: dispara el job (responde al instante)
+    // y luego se consulta el progreso con bulkProvisionStatus.
+    bulkProvisionStart(customerIds) {
+        return apiClient.post('/customers/bulk-provision-async', { customer_ids: customerIds })
+    },
+    bulkProvisionStatus(jobId) {
+        return apiClient.get(`/customers/bulk-provision-status/${jobId}`)
+    },
     suspend(id) {
         return apiClient.post(`/customers/${id}/suspend`)
     },

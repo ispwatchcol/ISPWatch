@@ -165,7 +165,15 @@
         <!-- Loading -->
         <div v-if="loading" class="text-center py-12">
             <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-            <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando clientes...</p>
+            <template v-if="provisionProgress">
+                <p class="text-gray-700 dark:text-gray-200 mt-4 font-medium">
+                    Provisionando clientes… {{ provisionProgress.current }} de {{ provisionProgress.total }}
+                </p>
+                <p class="text-gray-500 dark:text-gray-400 mt-1 text-sm">
+                    Cada cliente se carga al router de a uno (puede tardar varios segundos). No cierres esta pestaña.
+                </p>
+            </template>
+            <p v-else class="text-gray-500 dark:text-gray-400 mt-4">Cargando clientes...</p>
         </div>
 
         <!-- Error -->
@@ -449,6 +457,8 @@ const router         = useRouter()
 const toast          = ref(null)
 const customers      = ref([])
 const loading        = ref(true)
+// Progreso del aprovisionamiento masivo (se procesa de a 1 cliente por request).
+const provisionProgress = ref(null) // { current, total } o null cuando no aplica
 const error          = ref('')
 const searchQuery    = ref('')
 const filterRouterId = ref(null)
@@ -634,45 +644,43 @@ const provisionCustomer = async () => {
     try {
         loading.value = true
         const customerIds = filteredCustomers.value.map(c => c.user_id)
+        provisionProgress.value = { current: 0, total: customerIds.length }
 
-        // Chunking: cada lote termina holgadamente bajo el timeout del proxy
-        // (Cloudflare ≈100s). Sin esto, una selección grande dispara 504 porque
-        // bulkProvision procesa los clientes secuencialmente vía SSH a CORE.
-        const CHUNK_SIZE = 5
-        const results    = []
-        let success_count = 0, fail_count = 0, pppoe_skipped_count = 0
+        // Aprovisionamiento ASÍNCRONO (solución definitiva al 504): cada cliente
+        // tarda ~17-34s (SSH al CORE → SSH anidado al router), así que correrlo
+        // dentro del request HTTP revienta el cap de ~60s del gateway. Disparamos
+        // un job en cola por cliente y hacemos polling del progreso; ningún
+        // request individual se acerca al límite del proxy.
+        const startResp = await api.customers.bulkProvisionStart(customerIds)
+        const jobId = startResp.data?.job_id
+        if (!jobId) throw new Error('No se pudo iniciar el aprovisionamiento.')
 
-        for (let i = 0; i < customerIds.length; i += CHUNK_SIZE) {
-            const chunk = customerIds.slice(i, i + CHUNK_SIZE)
+        // Polling hasta status=done. Toleramos errores transitorios de red: el
+        // job sigue corriendo en el worker aunque una consulta falle.
+        const POLL_MS = 2500
+        let status = null
+        let pollErrors = 0
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            await new Promise(r => setTimeout(r, POLL_MS))
             try {
-                const resp = await api.customers.bulkProvision(chunk)
-                const d    = resp.data || {}
-                if (Array.isArray(d.results)) results.push(...d.results)
-                success_count       += d.success_count       || 0
-                fail_count          += d.fail_count          || 0
-                pppoe_skipped_count += d.pppoe_skipped_count || 0
-            } catch (err) {
-                const isTimeout = err.response?.status === 504 || err.code === 'ECONNABORTED'
-                const chunkMsg  = isTimeout
-                    ? 'Timeout: el router/CORE no respondió a tiempo.'
-                    : (err.response?.data?.message || err.message || 'Error de red')
-                for (const id of chunk) {
-                    const c = filteredCustomers.value.find(x => x.user_id === id)
-                    results.push({
-                        customer_id  : id,
-                        customer_name: c ? `${c.name} ${c.last_name}` : `#${id}`,
-                        success      : false,
-                        queue_ok     : false,
-                        queue_message: chunkMsg,
-                        pppoe_applies: false,
-                        message      : chunkMsg,
-                    })
-                    fail_count++
+                const st = await api.customers.bulkProvisionStatus(jobId)
+                status = st.data
+                pollErrors = 0
+                provisionProgress.value = {
+                    current: status.processed || 0,
+                    total: status.total || customerIds.length,
                 }
+                if (status.status === 'done') break
+            } catch (e) {
+                if (++pollErrors >= 5) throw e
             }
         }
 
-        const data = { success: fail_count === 0, success_count, fail_count, pppoe_skipped_count, results }
+        const results             = status.results || []
+        const success_count       = status.success_count || 0
+        const fail_count          = status.fail_count || 0
+        const pppoe_skipped_count = status.pppoe_skipped_count || 0
 
         if (results.length === 1) {
             // Caso un solo cliente: reportamos queue y secret PPPoE por separado.
@@ -744,6 +752,7 @@ const provisionCustomer = async () => {
         toast.value?.error('Error al cargar al router', msg, { duration: 11000 })
     } finally {
         loading.value = false
+        provisionProgress.value = null
     }
 }
 

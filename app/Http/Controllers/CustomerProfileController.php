@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProvisionCustomerJob;
+use App\Models\BulkProvisionRun;
 use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Router;
 use App\Models\Sectorial;
+use App\Services\CustomerProvisioningService;
 use App\Services\MikroTikSshService;
 use App\Http\Requests\StoreCustomerRequest;
 use Illuminate\Http\Request;
@@ -13,6 +16,7 @@ use App\Models\User;
 use App\Models\UserService;
 use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class CustomerProfileController extends Controller
 {
@@ -627,7 +631,7 @@ class CustomerProfileController extends Controller
      * Bulk provision multiple customers to their assigned Mikrotik Routers.
      * Uses MikroTikSshService.syncQueueViaCore which works from production (DigitalOcean)
      */
-    public function bulkProvision(Request $request)
+    public function bulkProvision(Request $request, CustomerProvisioningService $provisioner)
     {
         set_time_limit(600);
 
@@ -643,169 +647,17 @@ class CustomerProfileController extends Controller
         $failCount         = 0;
         $pppoeSkippedCount = 0;
 
-        $mikrotik = app(MikroTikSshService::class);
-
         foreach ($data['customer_ids'] as $customerId) {
-            // SECURITY (OWASP A01): a customer from another tenant is reported
-            // exactly like a non-existent one — no cross-tenant enumeration.
-            $belongsToTenant = User::where('tenant_id', $tenantId)
-                ->whereKey($customerId)
-                ->exists();
-            $customer = $belongsToTenant
-                ? CustomerProfile::where('user_id', $customerId)->first()
-                : null;
+            $row = $provisioner->provisionOne((int) $customerId, $tenantId);
+            $results[] = $row;
 
-            if (!$customer) {
-                $results[] = [
-                    'customer_id' => $customerId,
-                    'success' => false,
-                    'message' => 'Cliente no encontrado',
-                ];
-                $failCount++;
-                continue;
-            }
-
-            if (!$customer->router_id || !$customer->service_id) {
-                $results[] = [
-                    'customer_id' => $customerId,
-                    'customer_name' => "{$customer->name} {$customer->last_name}",
-                    'success' => false,
-                    'message' => 'Cliente sin router o plan asignado',
-                ];
-                $failCount++;
-                continue;
-            }
-
-            if (!$customer->ip_user) {
-                $results[] = [
-                    'customer_id' => $customerId,
-                    'customer_name' => "{$customer->name} {$customer->last_name}",
-                    'success' => false,
-                    'message' => 'Cliente sin IP asignada',
-                ];
-                $failCount++;
-                continue;
-            }
-
-            $router = Router::find($customer->router_id);
-            $servicePlan = Plan::find($customer->service_id);
-
-            if (!$router) {
-                $results[] = [
-                    'customer_id' => $customerId,
-                    'customer_name' => "{$customer->name} {$customer->last_name}",
-                    'success' => false,
-                    'message' => 'Router no encontrado',
-                ];
-                $failCount++;
-                continue;
-            }
-
-            if (!$servicePlan) {
-                $results[] = [
-                    'customer_id' => $customerId,
-                    'customer_name' => "{$customer->name} {$customer->last_name}",
-                    'success' => false,
-                    'message' => 'Plan de servicio no encontrado',
-                ];
-                $failCount++;
-                continue;
-            }
-
-            // Fast pre-check: without management credentials every SSH attempt
-            // just times out (and stacks toward the gateway 504). Fail instantly.
-            if (!$router->ip || !$router->user_rb || !$router->password_rb) {
-                $results[] = [
-                    'customer_id'   => $customerId,
-                    'customer_name' => "{$customer->name} {$customer->last_name}",
-                    'success'       => false,
-                    'message'       => "El router {$router->name} no tiene credenciales de gestión completas (IP VPN / usuario / contraseña). Genera y conecta el script VPN del router.",
-                ];
-                $failCount++;
-                continue;
-            }
-
-            try {
-                $queueResult = $mikrotik->syncQueueViaCore(
-                    $router->ip,
-                    $router->user_rb,
-                    $router->password_rb,
-                    $customer->ip_user,
-                    $customer->name,
-                    $customer->last_name,
-                    $servicePlan->speed_up,
-                    $servicePlan->speed_down,
-                    $router->puerto_api ?? 8728,
-                    $customer->pppoe_username,
-                    trim($customer->name . ' ' . $customer->last_name)
-                );
-            } catch (\Throwable $e) {
-                \Log::warning('[CustomerProfile::bulkProvision] Queue exception', [
-                    'customer_id' => $customerId,
-                    'error'       => $e->getMessage(),
-                ]);
-                $queueResult = ['success' => false, 'message' => 'Error al cargar queue: ' . $e->getMessage()];
-            }
-
-            $pppoeResult  = null;
-            $pppoeSkipped = false;
-
-            if ($router->pppoe) {
-                if ($customer->pppoe_username && $customer->pppoe_password) {
-                    try {
-                        $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
-                            $router->ip,
-                            $router->user_rb,
-                            $router->password_rb,
-                            $customer->pppoe_username,
-                            $customer->pppoe_password,
-                            $servicePlan->name,
-                            'pppoe',
-                            $router->puerto_api ?? 8728,
-                            $customer->ip_user,
-                            $customer->pppoe_local_address,
-                            trim($customer->name . ' ' . $customer->last_name)
-                        );
-                    } catch (\Throwable $e) {
-                        \Log::warning('[CustomerProfile::bulkProvision] PPPoE secret exception', [
-                            'customer_id' => $customerId,
-                            'error'       => $e->getMessage(),
-                        ]);
-                        $pppoeResult = ['success' => false, 'message' => $e->getMessage()];
-                    }
-                } else {
-                    $pppoeSkipped = true;
-                    $pppoeSkippedCount++;
-                }
-            }
-
-            $rowSuccess = $queueResult['success'] && ($pppoeResult === null || $pppoeResult['success']);
-
-            $results[] = [
-                'customer_id'    => $customerId,
-                'customer_name'  => "{$customer->name} {$customer->last_name}",
-                'success'        => $rowSuccess,
-                'pppoe_skipped'  => $pppoeSkipped,
-                'pppoe_applies'  => (bool) $router->pppoe,
-                'pppoe_created'  => $pppoeResult !== null && ($pppoeResult['success'] ?? false),
-                'queue_ok'       => (bool) ($queueResult['success'] ?? false),
-                'queue_message'  => $queueResult['message'] ?? (($queueResult['success'] ?? false) ? 'Queue cargado' : 'Error en queue'),
-                'pppoe_message'  => $pppoeSkipped
-                    ? 'Credenciales PPPoE no configuradas en el cliente'
-                    : ($pppoeResult === null
-                        ? 'El router no usa PPPoE'
-                        : ($pppoeResult['message'] ?? (($pppoeResult['success'] ?? false) ? 'Secret PPPoE creado' : 'Error creando el secret PPPoE'))),
-                'message'        => $rowSuccess
-                    ? ($pppoeSkipped ? 'Queue OK — credenciales PPPoE no configuradas' : 'OK')
-                    : ($queueResult['message'] ?? ($pppoeResult['message'] ?? 'Error')),
-                'queue_result'   => $queueResult,
-                'pppoe_result'   => $pppoeResult,
-            ];
-
-            if ($rowSuccess) {
+            if (!empty($row['success'])) {
                 $successCount++;
             } else {
                 $failCount++;
+            }
+            if (!empty($row['pppoe_skipped'])) {
+                $pppoeSkippedCount++;
             }
         }
 
@@ -815,6 +667,72 @@ class CustomerProfileController extends Controller
             'fail_count'          => $failCount,
             'pppoe_skipped_count' => $pppoeSkippedCount,
             'results'             => $results,
+        ]);
+    }
+
+    /**
+     * Inicia el aprovisionamiento masivo en SEGUNDO PLANO.
+     *
+     * Cada cliente tarda ~17-34s (SSH al CORE → SSH anidado al router), así que
+     * hacerlo síncrono revienta el cap de ~60s del gateway. Aquí solo creamos el
+     * registro de progreso y despachamos un job por cliente; el worker los
+     * procesa secuencialmente y el frontend consulta el avance con bulkProvisionStatus.
+     */
+    public function bulkProvisionAsync(Request $request)
+    {
+        $data = $request->validate([
+            'customer_ids' => 'required|array|min:1',
+            'customer_ids.*' => 'integer|exists:customer_profile,user_id',
+        ]);
+
+        $tenantId = $this->authTenantId();
+        $ids = array_values(array_unique(array_map('intval', $data['customer_ids'])));
+
+        $run = BulkProvisionRun::create([
+            'id'        => (string) Str::uuid(),
+            'tenant_id' => $tenantId,
+            'status'    => 'processing',
+            'total'     => count($ids),
+            'processed' => 0,
+            'results'   => [],
+        ]);
+
+        foreach ($ids as $customerId) {
+            ProvisionCustomerJob::dispatch($run->id, $customerId, $tenantId);
+        }
+
+        return response()->json([
+            'job_id' => $run->id,
+            'status' => $run->status,
+            'total'  => $run->total,
+        ], 202);
+    }
+
+    /**
+     * Progreso/resultados de una corrida de aprovisionamiento masivo.
+     * Tenant-scoped: una corrida de otro tenant resuelve 404.
+     */
+    public function bulkProvisionStatus(string $jobId)
+    {
+        $tenantId = $this->authTenantId();
+
+        $run = BulkProvisionRun::where('id', $jobId)
+            ->where('tenant_id', $tenantId)
+            ->first();
+
+        if (!$run) {
+            return response()->json(['message' => 'Corrida de aprovisionamiento no encontrada.'], 404);
+        }
+
+        return response()->json([
+            'job_id'              => $run->id,
+            'status'              => $run->status,
+            'total'               => $run->total,
+            'processed'           => $run->processed,
+            'success_count'       => $run->success_count,
+            'fail_count'          => $run->fail_count,
+            'pppoe_skipped_count' => $run->pppoe_skipped_count,
+            'results'             => $run->results ?? [],
         ]);
     }
 

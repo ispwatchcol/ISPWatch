@@ -27,3 +27,28 @@ spec:
       value: production
     - key: APP_DEBUG
       value: "false"
+  workers:
+  # Procesa la cola (aprovisionamiento masivo asíncrono, etc.). SIN este worker
+  # los jobs quedan encolados en la tabla `jobs` y nunca se ejecutan.
+  - name: worker
+    github:
+      branch: main
+      deploy_on_push: true
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    run_command: |
+      mkdir -p storage/keys
+      if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
+        printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
+        chmod 600 storage/keys/mikrotik_core_id_ed25519
+      fi
+      php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600
+    build_command: |
+      composer install --no-dev --optimize-autoloader
+    envs:
+    - key: APP_ENV
+      value: production
+    - key: APP_DEBUG
+      value: "false"
+    - key: QUEUE_CONNECTION
+      value: database

@@ -379,8 +379,18 @@ class MikroTikConnectionManager
     {
         try {
             $effectiveTimeout = $timeout ?? $this->timeout;
-            $ssh = new SSH2($this->sshHost, $this->sshPort);
-            $ssh->setTimeout($effectiveTimeout);
+            // Connect timeout (handshake TCP/SSH) separado del timeout de
+            // operación. Si el CORE está inalcanzable queremos fallar rápido
+            // (≈ connectTimeout) en vez de colgar hasta el operation timeout:
+            // en aprovisionamiento masivo cada cuelgue se acumula y dispara el
+            // 504 del gateway (DigitalOcean ≈60s).
+            //
+            // OJO: phpseclib conecta de forma perezosa en el primer login() y
+            // usa $this->timeout como timeout de conexión. Por eso NO llamamos
+            // setTimeout() antes del login (sobreescribiría el connect timeout);
+            // lo subimos al timeout de operación recién tras conectar.
+            $connectTimeout = (int) env('MIKROTIK_CORE_SSH_CONNECT_TIMEOUT', 8);
+            $ssh = new SSH2($this->sshHost, $this->sshPort, $connectTimeout);
 
             // Try key-based authentication first
             if ($this->privateKeyPath && file_exists($this->privateKeyPath)) {
@@ -395,6 +405,7 @@ class MikroTikConnectionManager
 
                     try {
                         if ($ssh->login($this->sshUsername, $key)) {
+                            $ssh->setTimeout($effectiveTimeout);
                             Log::info('[MikroTikConnectionManager] Conectado con clave SSH');
                             return $ssh;
                         }
@@ -405,6 +416,7 @@ class MikroTikConnectionManager
 
                         try {
                             if ($ssh->login($this->sshUsername, (string) $key)) {
+                                $ssh->setTimeout($effectiveTimeout);
                                 Log::info('[MikroTikConnectionManager] Conectado con clave SSH (string)');
                                 return $ssh;
                             }
@@ -422,6 +434,7 @@ class MikroTikConnectionManager
             // Fallback to password authentication
             if ($this->sshPassword) {
                 if ($ssh->login($this->sshUsername, $this->sshPassword)) {
+                    $ssh->setTimeout($effectiveTimeout);
                     Log::info('[MikroTikConnectionManager] Conectado con password');
                     return $ssh;
                 }
