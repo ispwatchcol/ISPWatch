@@ -35,6 +35,9 @@ class CustomerProfile extends Model
         'pppoe_username',
         'pppoe_password',
         'pppoe_local_address',
+        'hotspot_username',
+        'hotspot_password',
+        'mac_address',
         'status',
         'service_status',
     ];

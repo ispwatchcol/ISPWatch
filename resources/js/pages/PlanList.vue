@@ -272,7 +272,7 @@
                 <td class="px-4 py-4">
                   <div class="flex items-center justify-end gap-2">
                     <button
-                      v-if="isPppoePlan(plan)"
+                      v-if="isSyncablePlan(plan)"
                       @click="openSyncModal(plan)"
                       class="p-2 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:text-gray-500 dark:hover:text-emerald-400 transition-all duration-200"
                       title="Cargar a RB"
@@ -1151,6 +1151,14 @@ const isPppoePlan = (plan) => {
   return (plan?.type_plan?.code || plan?.type) === 'pppoe'
 }
 
+// Plan types that can be loaded ("Cargar a RB") as a per-plan engine on the
+// router: PPPoE profile, PCQ engine, HotSpot user-profile.
+const SYNCABLE_PLAN_TYPES = ['pppoe', 'pcq', 'hotspot']
+
+const planTypeCode = (plan) => (plan?.type_plan?.code || plan?.type || '').toLowerCase()
+
+const isSyncablePlan = (plan) => SYNCABLE_PLAN_TYPES.includes(planTypeCode(plan))
+
 const createPlan = () =>
   router.push({
     path: '/planes/create',
@@ -1273,7 +1281,7 @@ const syncPppoePlanToRouter = async () => {
   if (!planToSync.value || !selectedSyncRouterId.value) {
     toast.value?.warning(
       'Seleccion faltante',
-      'Selecciona el router destino para cargar el perfil PPPoE.'
+      'Selecciona el router destino para cargar el plan.'
     )
     return
   }
@@ -1282,24 +1290,33 @@ const syncPppoePlanToRouter = async () => {
 
   try {
     const tenantId = getTenantId()
-    const { data } = await api.plan.syncPppoeProfile(
-      planToSync.value.id,
-      {
-        router_id: Number(selectedSyncRouterId.value),
-      },
-      tenantId ? { tenant: tenantId } : {}
-    )
+    const planId   = planToSync.value.id
+    const body     = { router_id: Number(selectedSyncRouterId.value) }
+    const params   = tenantId ? { tenant: tenantId } : {}
+
+    // Dispatch to the right per-plan engine endpoint based on the plan type.
+    const type = planTypeCode(planToSync.value)
+    let request
+    if (type === 'hotspot') {
+      request = api.plan.syncHotspotProfile(planId, body, params)
+    } else if (type === 'pcq') {
+      request = api.plan.syncPcqEngine(planId, body, params)
+    } else {
+      request = api.plan.syncPppoeProfile(planId, body, params)
+    }
+
+    const { data } = await request
 
     toast.value?.success(
-      'Perfil cargado',
-      data.message || 'El perfil PPPoE fue cargado correctamente en la RB.'
+      'Plan cargado',
+      data.message || 'El plan fue cargado correctamente en la RB.'
     )
 
     closeSyncModal()
   } catch (error) {
     toast.value?.error(
       'Error al cargar a RB',
-      error.response?.data?.message || 'No se pudo cargar el perfil PPPoE en la RB seleccionada.'
+      error.response?.data?.message || 'No se pudo cargar el plan en la RB seleccionada.'
     )
   } finally {
     syncingProfile.value = false

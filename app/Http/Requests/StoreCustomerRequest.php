@@ -46,6 +46,13 @@ class StoreCustomerRequest extends FormRequest
             'pppoe_username'      => 'nullable|string|max:255',
             'pppoe_password'      => 'nullable|string|max:255',
             'pppoe_local_address' => 'nullable|string|max:45',
+
+            // HotSpot credentials (only when router control mode is HotSpot)
+            'hotspot_username'    => 'nullable|string|max:255',
+            'hotspot_password'    => 'nullable|string|max:255',
+
+            // MAC address (only when router control mode is DHCP Leases / IP-MAC)
+            'mac_address'         => 'nullable|string|max:17|regex:/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/',
         ];
     }
 

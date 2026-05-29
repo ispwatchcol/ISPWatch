@@ -163,4 +163,131 @@ class PlanController extends Controller
             'result' => $result,
         ]);
     }
+
+    /**
+     * Load the HotSpot user profile of a plan onto a router (per-plan engine).
+     * Mirror of syncPppoeProfile for HotSpot plans.
+     */
+    public function syncHotspotProfile(Request $request, Plan $plan)
+    {
+        $data = $request->validate([
+            'router_id' => 'required|integer|exists:router,id',
+        ]);
+
+        $typeCode = $plan->typePlan?->code ?? $plan->type;
+        if (strtolower((string) $typeCode) !== 'hotspot') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo los planes HotSpot se pueden cargar como perfil HotSpot en la RB.',
+            ], 422);
+        }
+
+        $router = Router::findOrFail($data['router_id']);
+
+        if ($missing = $this->missingRouterCredentials($router)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El router no tiene credenciales completas: ' . implode(', ', $missing) . '. Genera el script VPN y conéctalo primero.',
+            ], 422);
+        }
+
+        $mikrotik = app(MikroTikSshService::class);
+        $result = $mikrotik->syncHotspotUserProfileOnRouter(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $plan->name,
+            $plan->speed_up,
+            $plan->speed_down,
+            $plan->shared_users !== null ? (int) $plan->shared_users : null,
+            $plan->session_timeout,
+            $plan->idle_timeout,
+            $router->puerto_api ?? 8728
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'] ?? 'No se pudo sincronizar el perfil HotSpot.',
+                'details' => $result,
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Perfil HotSpot cargado correctamente en la RB ' . $router->name . ' (' . $router->ip . ')',
+            'plan'    => ['id' => $plan->id, 'name' => $plan->name],
+            'router'  => ['id' => $router->id, 'name' => $router->name, 'ip' => $router->ip, 'hotspot_enabled' => (bool) $router->hotspot],
+            'result'  => $result,
+        ]);
+    }
+
+    /**
+     * Build the PCQ engine of a plan onto a router (per-plan): pcq queue types,
+     * mangle rules for the plan address-list, and the queue trees.
+     */
+    public function syncPcqEngine(Request $request, Plan $plan)
+    {
+        $data = $request->validate([
+            'router_id' => 'required|integer|exists:router,id',
+        ]);
+
+        $typeCode = $plan->typePlan?->code ?? $plan->type;
+        if (strtolower((string) $typeCode) !== 'pcq') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo los planes PCQ se pueden cargar como motor PCQ en la RB.',
+            ], 422);
+        }
+
+        $router = Router::findOrFail($data['router_id']);
+
+        if ($missing = $this->missingRouterCredentials($router)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El router no tiene credenciales completas: ' . implode(', ', $missing) . '. Genera el script VPN y conéctalo primero.',
+            ], 422);
+        }
+
+        $mikrotik = app(MikroTikSshService::class);
+        $result = $mikrotik->syncPcqEngineOnRouter(
+            $router->ip,
+            $router->user_rb,
+            $router->password_rb,
+            $plan->name,
+            $plan->speed_up,
+            $plan->speed_down,
+            $plan->pcq_rate,
+            $plan->address_mask,
+            $router->puerto_api ?? 8728
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'] ?? 'No se pudo sincronizar el motor PCQ.',
+                'details' => $result,
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Motor PCQ cargado correctamente en la RB ' . $router->name . ' (' . $router->ip . ')',
+            'plan'    => ['id' => $plan->id, 'name' => $plan->name],
+            'router'  => ['id' => $router->id, 'name' => $router->name, 'ip' => $router->ip, 'pcq_enabled' => (bool) $router->control_pcq],
+            'result'  => $result,
+        ]);
+    }
+
+    /**
+     * Return the list of missing management credentials for a router, or [] if complete.
+     */
+    private function missingRouterCredentials(Router $router): array
+    {
+        $missing = [];
+        if (!$router->ip) $missing[] = 'IP VPN (¿VPN conectada?)';
+        if (!$router->user_rb) $missing[] = 'usuario de gestión';
+        if (!$router->password_rb) $missing[] = 'contraseña de gestión';
+        return $missing;
+    }
 }

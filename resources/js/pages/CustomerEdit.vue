@@ -452,6 +452,62 @@
             </div>
             </div>
 
+            <!-- Sección: Credenciales HotSpot (obligatorio cuando el router usa Control HotSpot) -->
+            <div v-if="showHotspotSection" class="mb-8">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-1 border-b border-blue-200 dark:border-blue-700 pb-2 flex items-center gap-2">
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Credenciales HotSpot
+                <span class="text-sm font-normal text-blue-600 dark:text-blue-400 ml-1">(requerido — el router usa Control HotSpot)</span>
+            </h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                El usuario HotSpot se creará / actualizará automáticamente en <strong>{{ selectedRouter?.name }}</strong> al guardar.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Usuario HotSpot <span class="text-red-500">*</span>
+                </label>
+                <input v-model="form.hotspot_username" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="juan.perez" />
+                </div>
+
+                <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    Contraseña HotSpot <span class="text-red-500">*</span>
+                </label>
+                <input v-model="form.hotspot_password" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Contraseña del acceso HotSpot" />
+                </div>
+            </div>
+            </div>
+
+            <!-- Sección: MAC del cliente (obligatorio cuando el router usa DHCP Leases) -->
+            <div v-if="showDhcpSection" class="mb-8">
+            <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-1 border-b border-blue-200 dark:border-blue-700 pb-2 flex items-center gap-2">
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Dirección MAC
+                <span class="text-sm font-normal text-blue-600 dark:text-blue-400 ml-1">(requerido — el router usa DHCP Leases)</span>
+            </h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                Se creará / actualizará un lease DHCP estático que enlaza la IP <strong>{{ form.ip_user || '—' }}</strong> a esta MAC en <strong>{{ selectedRouter?.name }}</strong>.
+            </p>
+
+            <div>
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    MAC del equipo <span class="text-red-500">*</span>
+                </label>
+                <input v-model="form.mac_address" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    placeholder="AA:BB:CC:DD:EE:FF" />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Formato <strong>AA:BB:CC:DD:EE:FF</strong>.
+                </p>
+            </div>
+            </div>
+
             <!-- Error inline general -->
             <div v-if="errorMsg" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
             {{ errorMsg }}
@@ -540,6 +596,9 @@ const form = ref({
     pppoe_username: '',
     pppoe_password: '',
     pppoe_local_address: '',
+    hotspot_username: '',
+    hotspot_password: '',
+    mac_address: '',
 })
 
 const loading        = ref(false)
@@ -667,6 +726,18 @@ const isPppoePlan = computed(() => {
 // PPPoE section is shown (and mandatory) when the router has Control PPPOE active
 const showPppoeSection = computed(() => !!selectedRouter.value?.pppoe)
 
+// HotSpot / DHCP sections mirror the PPPoE one, driven by the router control mode
+const showHotspotSection = computed(() => !!selectedRouter.value?.hotspot)
+const showDhcpSection = computed(() => !!selectedRouter.value?.dhcp_leases)
+
+watch(showHotspotSection, (visible) => {
+    if (visible && !form.value.hotspot_username) {
+        const n = form.value.name.toLowerCase().replace(/\s+/g, '')
+        const l = form.value.last_name.toLowerCase().replace(/\s+/g, '')
+        if (n && l) form.value.hotspot_username = `${n}.${l}`
+    }
+})
+
 // Mismatch: PPPoE plan selected but router doesn't support PPPoE
 const pppoeMismatch = computed(() =>
     isPppoePlan.value && !!selectedRouter.value && !selectedRouter.value.pppoe
@@ -724,6 +795,9 @@ const loadCustomer = async () => {
             pppoe_username: d.pppoe_username || '',
             pppoe_password: d.pppoe_password || '',
             pppoe_local_address: d.pppoe_local_address || '',
+            hotspot_username: d.hotspot_username || '',
+            hotspot_password: d.hotspot_password || '',
+            mac_address: d.mac_address || '',
         }
         emailTenant.value = d.email_tenant || ''
     } catch (err) {
@@ -771,6 +845,23 @@ const handleSubmit = async () => {
             valid = false
         }
         if (!valid) return
+    }
+
+    // HotSpot credentials required when its section is visible
+    if (showHotspotSection.value) {
+        if (!form.value.hotspot_username.trim() || !form.value.hotspot_password.trim()) {
+            toast.value?.error('Credenciales HotSpot', 'El usuario y la contraseña HotSpot son obligatorios.')
+            return
+        }
+    }
+
+    // MAC required (and valid) when the DHCP section is visible
+    if (showDhcpSection.value) {
+        const mac = form.value.mac_address.trim()
+        if (!/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac)) {
+            toast.value?.error('MAC inválida', 'Ingresa una MAC válida (AA:BB:CC:DD:EE:FF) para el lease DHCP.')
+            return
+        }
     }
 
     loading.value = true

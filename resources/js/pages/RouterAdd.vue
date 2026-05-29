@@ -308,238 +308,277 @@
               </select>
             </div>
 
-            <div class="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <!-- ============ MÉTODO DE CONTROL (uno solo) ============ -->
+            <div class="col-span-2">
+              <div class="mb-3">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Método de control en Mikrotik</h3>
+                <p class="hint">Selecciona solo uno. Define cómo se gestiona y limita a cada cliente en el RB.</p>
+              </div>
 
-              <!-- Agregar Cliente en Mikrotik -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Agregar Cliente en Mikrotik</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Añadir clientes automáticamente al RB</div>
-                </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-                <input type="checkbox" v-model="form.agregar_cliente_mkt" class="sr-only" />
-
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.agregar_cliente_mkt
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
+                <!-- Simple Queue -->
+                <label
+                  class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
+                  :class="form.simple_queue ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
                 >
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Control Simple Queue</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Habilitar control por queues</div>
+                  </div>
+
+                  <input type="checkbox" :checked="form.simple_queue" @change="setControlMode('simple_queue')" class="sr-only" />
+
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.agregar_cliente_mkt ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.simple_queue ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.simple_queue ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- Historial de Tráfico -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Historial de Tráfico</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Guardar métricas de tráfico</div>
-                </div>
-
-                <input type="checkbox" v-model="form.historial_trafico" class="sr-only" />
-
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.historial_trafico
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
+                <!-- Control PCQ -->
+                <label
+                  class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
+                  :class="form.control_pcq ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
                 >
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Control PCQ + Address-list</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">PCQ y listas de direcciones</div>
+                  </div>
+
+                  <input type="checkbox" :checked="form.control_pcq" @change="setControlMode('control_pcq')" class="sr-only" />
+
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.historial_trafico ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.control_pcq ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.control_pcq ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- Simple Queue -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Control Simple Queue</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Habilitar control por queues</div>
-                </div>
-
-                <input type="checkbox" v-model="form.simple_queue" class="sr-only" />
-
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.simple_queue
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
+                <!-- HotSpot -->
+                <label
+                  class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
+                  :class="form.hotspot ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
                 >
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Control HotSpot</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Gestionar usuarios HotSpot</div>
+                  </div>
+
+                  <input type="checkbox" :checked="form.hotspot" @change="setControlMode('hotspot')" class="sr-only" />
+
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.simple_queue ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.hotspot ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.hotspot ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- Control PCQ -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Control PCQ + Address-list</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">PCQ y listas de direcciones</div>
-                </div>
-
-                <input type="checkbox" v-model="form.control_pcq" class="sr-only" />
-
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.control_pcq
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
+                <!-- PPPOE -->
+                <label
+                  class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
+                  :class="form.pppoe ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
                 >
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Control PPPOE</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Gestión de PPPOE</div>
+                  </div>
+
+                  <input type="checkbox" :checked="form.pppoe" @change="setControlMode('pppoe')" class="sr-only" />
+
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.control_pcq ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.pppoe ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.pppoe ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- HotSpot -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Control HotSpot</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Gestionar usuarios HotSpot</div>
-                </div>
-
-                <input type="checkbox" v-model="form.hotspot" class="sr-only" />
-
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.hotspot
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
+                <!-- DHCP Leases -->
+                <label
+                  class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
+                  :class="form.dhcp_leases ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
                 >
-                  <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.hotspot ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">DHCP Leases</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Control de leases DHCP</div>
+                  </div>
 
-              <!-- PPPOE -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Control PPPOE</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Gestión de PPPOE</div>
+                  <input type="checkbox" :checked="form.dhcp_leases" @change="setControlMode('dhcp_leases')" class="sr-only" />
+
+                  <span
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.dhcp_leases ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.dhcp_leases ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
+              </div>
+
+              <!-- Sub-opción: Tipo de limitación PPPoE -->
+              <div v-if="form.pppoe" class="mt-4 p-4 rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-900/10">
+                <div class="text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Tipo de limitación PPPoE</div>
+                <p class="hint mb-3">El secret PPPoE (usuario/contraseña) siempre se crea. Elige cómo se aplica el límite de velocidad.</p>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label
+                    class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors bg-white dark:bg-gray-800"
+                    :class="form.pppoe_limit_mode === 'dynamic' ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
+                  >
+                    <input type="radio" value="dynamic" v-model="form.pppoe_limit_mode" class="mt-1 accent-blue-600" />
+                    <div class="text-sm">
+                      <div class="font-medium text-gray-700 dark:text-gray-200">Dinámica</div>
+                      <div class="text-xs text-gray-500 dark:text-gray-400">Mikrotik limita con el rate-limit del perfil/plan. No crea Simple Queue.</div>
+                    </div>
+                  </label>
+
+                  <label
+                    class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors bg-white dark:bg-gray-800"
+                    :class="form.pppoe_limit_mode === 'queue' ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
+                  >
+                    <input type="radio" value="queue" v-model="form.pppoe_limit_mode" class="mt-1 accent-blue-600" />
+                    <div class="text-sm">
+                      <div class="font-medium text-gray-700 dark:text-gray-200">Por Simple Queue</div>
+                      <div class="text-xs text-gray-500 dark:text-gray-400">Además del secret, crea una regla Simple Queue con el límite del plan.</div>
+                    </div>
+                  </label>
                 </div>
+              </div>
+            </div>
 
-                <input type="checkbox" v-model="form.pppoe" class="sr-only" />
+            <!-- ============ OPCIONES ADICIONALES ============ -->
+            <div class="col-span-2">
+              <div class="mb-3">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Opciones adicionales</h3>
+                <p class="hint">Se pueden combinar con el método de control.</p>
+              </div>
 
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.pppoe
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
-                >
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                <!-- Agregar Cliente en Mikrotik -->
+                <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Agregar Cliente en Mikrotik</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Añadir clientes automáticamente al RB</div>
+                  </div>
+
+                  <input type="checkbox" v-model="form.agregar_cliente_mkt" class="sr-only" />
+
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.pppoe ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.agregar_cliente_mkt ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.agregar_cliente_mkt ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- IP Bindings -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">IP Bindings</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Forzar IP a MAC</div>
-                </div>
+                <!-- Historial de Tráfico -->
+                <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Historial de Tráfico</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Guardar métricas de tráfico</div>
+                  </div>
 
-                <input type="checkbox" v-model="form.ip_bindings" class="sr-only" />
+                  <input type="checkbox" v-model="form.historial_trafico" class="sr-only" />
 
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.ip_bindings
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
-                >
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.ip_bindings ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.historial_trafico ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.historial_trafico ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- Amarre -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Amarre IP/MAC</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Bloqueo por pares IP-MAC</div>
-                </div>
+                <!-- IP Bindings -->
+                <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">IP Bindings</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Forzar IP a MAC</div>
+                  </div>
 
-                <input type="checkbox" v-model="form.amarre" class="sr-only" />
+                  <input type="checkbox" v-model="form.ip_bindings" class="sr-only" />
 
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.amarre
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
-                >
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.amarre ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.ip_bindings ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.ip_bindings ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- DHCP Leases -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">DHCP Leases</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Control de leases DHCP</div>
-                </div>
+                <!-- Amarre -->
+                <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Amarre IP/MAC</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Bloqueo por pares IP-MAC</div>
+                  </div>
 
-                <input type="checkbox" v-model="form.dhcp_leases" class="sr-only" />
+                  <input type="checkbox" v-model="form.amarre" class="sr-only" />
 
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.dhcp_leases
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
-                >
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.dhcp_leases ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.amarre ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.amarre ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
-              <!-- Falla General -->
-              <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
-                            border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-                <div class="text-sm">
-                  <div class="font-medium text-gray-700 dark:text-gray-200">Falla General</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Activar estado de falla</div>
-                </div>
+                <!-- Falla General -->
+                <label class="flex items-center justify-between gap-4 p-3 rounded-xl border
+                              border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">Falla General</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Activar estado de falla</div>
+                  </div>
 
-                <input type="checkbox" v-model="form.falla_general" class="sr-only" />
+                  <input type="checkbox" v-model="form.falla_general" class="sr-only" />
 
-                <span
-                  class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
-                  :class="form.falla_general
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-gray-600'"
-                >
                   <span
-                    class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-                    :style="{ transform: form.falla_general ? 'translateX(20px)' : 'translateX(0)' }"
-                  ></span>
-                </span>
-              </label>
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.falla_general ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.falla_general ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
 
+              </div>
             </div>
 
 
@@ -646,6 +685,7 @@ const form = reactive({
   control_pcq: false,
   hotspot: false,
   pppoe: false,
+  pppoe_limit_mode: 'dynamic',
   ip_bindings: false,
   amarre: false,
   dhcp_leases: false,
@@ -670,6 +710,22 @@ const form = reactive({
     billing_mode: 'anticipado',
   }
 })
+
+/* ============================
+   MÉTODO DE CONTROL (exclusivo)
+   Solo uno de estos puede estar activo a la vez.
+============================ */
+const CONTROL_MODES = ['simple_queue', 'control_pcq', 'hotspot', 'pppoe', 'dhcp_leases']
+
+const setControlMode = (mode) => {
+  const enable = !form[mode]
+  CONTROL_MODES.forEach((m) => { form[m] = false })
+  form[mode] = enable
+  // Al activar PPPoE, asegurar un valor de limitación por defecto.
+  if (mode === 'pppoe' && enable && !form.pppoe_limit_mode) {
+    form.pppoe_limit_mode = 'dynamic'
+  }
+}
 
 /* ============================
    IP RANGE ANALYZER
@@ -910,6 +966,7 @@ const saveRouter = async () => {
     control_pcq: form.control_pcq || false,
     hotspot: form.hotspot || false,
     pppoe: form.pppoe || false,
+    pppoe_limit_mode: form.pppoe_limit_mode || 'dynamic',
     ip_bindings: form.ip_bindings || false,
     amarre: form.amarre || false,
     dhcp_leases: form.dhcp_leases || false,
