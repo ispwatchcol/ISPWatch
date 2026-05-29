@@ -658,22 +658,40 @@ const provisionCustomer = async () => {
         // Polling hasta status=done. Toleramos errores transitorios de red: el
         // job sigue corriendo en el worker aunque una consulta falle.
         const POLL_MS = 2500
+        // Si processed no avanza en ~75s (más que el peor caso de un cliente,
+        // ~34s) asumimos que NO hay worker procesando la cola y cortamos con un
+        // mensaje claro en vez de cargar para siempre.
+        const STALL_LIMIT = Math.ceil(75000 / POLL_MS)
         let status = null
         let pollErrors = 0
+        let lastProcessed = -1
+        let stallPolls = 0
         // eslint-disable-next-line no-constant-condition
         while (true) {
             await new Promise(r => setTimeout(r, POLL_MS))
+            let processed = lastProcessed
             try {
                 const st = await api.customers.bulkProvisionStatus(jobId)
                 status = st.data
                 pollErrors = 0
+                processed = status.processed || 0
                 provisionProgress.value = {
-                    current: status.processed || 0,
+                    current: processed,
                     total: status.total || customerIds.length,
                 }
                 if (status.status === 'done') break
             } catch (e) {
                 if (++pollErrors >= 5) throw e
+                continue // blip de red: reintentar sin contar como estancamiento
+            }
+
+            if (processed === lastProcessed) {
+                if (++stallPolls >= STALL_LIMIT) {
+                    throw new Error('El aprovisionamiento no avanzó. Probablemente el worker de la cola no está corriendo (php artisan queue:work / componente "worker" en el servidor).')
+                }
+            } else {
+                stallPolls = 0
+                lastProcessed = processed
             }
         }
 
