@@ -211,6 +211,56 @@
                       <icon-lucide-arrow-up v-else-if="sortOrder === 'asc'" class="w-4 h-4 text-blue-500" />
                       <icon-lucide-arrow-down v-else class="w-4 h-4 text-blue-500" />
                     </div>
+                  </th>
+                  <th class="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
+                </tr>
+              </thead>
+
+            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+              <tr
+                v-for="plan in filteredPlans"
+                :key="plan.id"
+                class="group hover:bg-blue-50/30 dark:hover:bg-gray-700/30 transition-colors duration-150"
+                :class="{'bg-blue-50/40 dark:bg-blue-900/10': selectedPlans.includes(plan.id)}"
+              >
+                <td class="px-4 py-4">
+                  <!-- Checkbox Row Custom -->
+                  <label class="flex items-center cursor-pointer relative">
+                    <input type="checkbox" :value="plan.id" v-model="selectedPlans" class="sr-only" />
+                    <div :class="selectedPlans.includes(plan.id)
+                        ? 'bg-blue-600 border-blue-600'
+                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 group-hover:border-gray-400 dark:group-hover:border-gray-500'"
+                      class="w-5 h-5 border-2 rounded-md transition-all duration-200 flex items-center justify-center shadow-sm">
+                      <svg :class="selectedPlans.includes(plan.id) ? 'opacity-100' : 'opacity-0'" class="w-3.5 h-3.5 text-white transition-opacity duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </label>
+                </td>
+
+                <td class="px-4 py-4">
+                  <div class="font-medium text-gray-900 dark:text-white leading-tight">
+                    {{ plan.name }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-tight line-clamp-1">
+                    {{ plan.commit }}
+                  </div>
+                </td>
+
+                <td class="px-4 py-4">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300 border border-green-200 dark:border-green-500/30">
+                    {{ formatCurrency(plan.cost_product) }}
+                  </span>
+                </td>
+
+                <td class="px-4 py-4">
+                  <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
+                      <icon-lucide-arrow-down class="w-3 h-3" /> {{ plan.speed_down }}
+                    </div>
+                    <div class="flex items-center gap-1.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-1 rounded">
+                      <icon-lucide-arrow-up class="w-3 h-3" /> {{ plan.speed_up }}
+                    </div>
                   </div>
                 </td>
 
@@ -251,6 +301,7 @@
               </tr>
             </tbody>
           </table>
+          </div>
 
           <!-- PAGINACIÓN -->
           <div v-if="perPage !== 'todos' && totalPages > 1" class="bg-gray-50 dark:bg-gray-700/50 px-4 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
