@@ -58,7 +58,11 @@ class CustomerProfileController extends Controller
                 'service_plan.name as service_name',
                 'sectorial.name as sectorial_name',
                 'router.name as router_name',
+                'router.simple_queue as router_simple_queue',
+                'router.control_pcq as router_control_pcq',
+                'router.hotspot as router_hotspot',
                 'router.pppoe as router_pppoe',
+                'router.dhcp_leases as router_dhcp',
                 'router.falla_general as router_falla_general'
             )
             ->get();

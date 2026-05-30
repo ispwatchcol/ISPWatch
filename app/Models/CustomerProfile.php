@@ -19,6 +19,7 @@ class CustomerProfile extends Model
         'department',
         'position',
         'address',
+        'precinto',
         'city',
         'installation_date',
         'estrato',
