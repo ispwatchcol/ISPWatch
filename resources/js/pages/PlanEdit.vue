@@ -529,7 +529,7 @@ onMounted(() => {
 
 // 2. ACTUALIZAR DATOS
 const updatePlan = async () => {
-  if (!form.value.name || !form.value.cost_product) {
+  if (!form.value.name || form.value.cost_product == null || form.value.cost_product === '') {
     toast.value?.warning(
       'Datos incompletos',
       'Por favor ingresa el nombre y precio del plan'

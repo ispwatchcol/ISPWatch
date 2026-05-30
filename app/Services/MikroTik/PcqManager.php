@@ -284,7 +284,8 @@ class PcqManager
     {
         $speed = trim($speed);
         if (is_numeric($speed)) {
-            return $speed . 'M';
+            // pcq-rate=0 means unlimited in RouterOS; keep 0 without unit suffix.
+            return (int) $speed === 0 ? '0' : $speed . 'M';
         }
         return strtoupper($speed);
     }
