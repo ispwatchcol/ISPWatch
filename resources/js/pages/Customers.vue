@@ -221,7 +221,7 @@
                     <tr>
                     <th v-for="col in sortableColumns" :key="col.key"
                         @click="toggleSort(col.key)"
-                        class="px-6 py-4 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase cursor-pointer select-none hover:text-gray-800 dark:hover:text-white transition-colors group"
+                        class="px-6 pt-4 pb-2 text-xs font-medium text-gray-600 dark:text-gray-300 uppercase cursor-pointer select-none hover:text-gray-800 dark:hover:text-white transition-colors group"
                         :class="col.align === 'center' ? 'text-center' : 'text-left'">
                         <div class="flex items-center gap-1.5" :class="col.align === 'center' ? 'justify-center' : ''">
                             <span class="leading-none">{{ col.label }}</span>
@@ -230,17 +230,39 @@
                             <icon-lucide-arrow-down v-else class="block shrink-0 w-3.5 h-3.5 text-blue-500" />
                         </div>
                     </th>
-                    <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
+                    <th class="px-6 pt-4 pb-2 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
+                    </tr>
+                    <!-- Minibuscador por columna -->
+                    <tr class="bg-gray-50 dark:bg-gray-700">
+                    <th v-for="col in sortableColumns" :key="col.key + '-filter'" class="px-3 pb-3 pt-0 align-top">
+                        <select v-if="col.key === 'status'" v-model="columnFilters.status"
+                            class="w-full text-xs font-normal normal-case bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer">
+                            <option value="">Todos</option>
+                            <option value="activo">Activo</option>
+                            <option value="suspendido">Suspendido</option>
+                            <option value="cancelado">Cancelado</option>
+                            <option value="gratis">Gratis</option>
+                        </select>
+                        <input v-else v-model="columnFilters[col.key]" type="text"
+                            :placeholder="col.label"
+                            class="w-full text-xs font-normal normal-case bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-400" />
+                    </th>
+                    <th class="px-3 pb-3 pt-0 align-top text-center">
+                        <button v-if="hasColumnFilters" @click="clearColumnFilters"
+                            class="text-xs font-normal normal-case text-blue-600 dark:text-blue-400 hover:underline">
+                            Limpiar
+                        </button>
+                    </th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="(customer, idx) in pagedCustomers" :key="customer.user_id"
+                    <tr v-for="customer in pagedCustomers" :key="customer.user_id"
                         class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                    <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{{ pageStart + idx + 1 }}</td>
                     <td class="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{{ customer.name }}</td>
                     <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">{{ customer.last_name }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.email }}</td>
                     <td class="px-6 py-4 text-sm font-mono text-gray-600 dark:text-gray-300">{{ customer.ip_user || '-' }}</td>
+                    <td class="px-6 py-4 text-sm font-mono text-gray-600 dark:text-gray-300">{{ customer.precinto || '-' }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.service_name || '-' }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ customer.sectorial_name || '-' }}</td>
                     <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
@@ -309,7 +331,7 @@
 
                     <tr v-if="filteredCustomers.length === 0">
                     <td colspan="10" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                        {{ searchQuery ? 'No se encontraron resultados' : 'No hay clientes registrados' }}
+                        {{ hasActiveFilters ? 'No se encontraron resultados' : 'No hay clientes registrados' }}
                     </td>
                     </tr>
                 </tbody>
@@ -388,6 +410,7 @@
 
                     <div class="grid grid-cols-2 gap-1.5 text-sm">
                     <div><span class="text-gray-400">IP:</span> <span class="font-mono ml-1">{{ customer.ip_user || '-' }}</span></div>
+                    <div><span class="text-gray-400">Precinto:</span> <span class="font-mono ml-1">{{ customer.precinto || '-' }}</span></div>
                     <div><span class="text-gray-400">Plan:</span> <span class="ml-1">{{ customer.service_name || '-' }}</span></div>
                     <div class="flex items-center gap-1 flex-wrap">
                         <span class="text-gray-400">Router:</span>
@@ -440,7 +463,7 @@
                 </div>
 
                 <div v-if="filteredCustomers.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
-                {{ searchQuery ? 'No se encontraron resultados' : 'No hay clientes registrados' }}
+                {{ hasActiveFilters ? 'No se encontraron resultados' : 'No hay clientes registrados' }}
                 </div>
 
                 <!-- Paginación mobile -->
@@ -481,7 +504,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import api from '../services/api'
@@ -500,6 +523,41 @@ const provisionProgress = ref(null) // { current, total } o null cuando no aplic
 const error          = ref('')
 const searchQuery    = ref('')
 const filterRouterId = ref(null)
+
+// Minibuscador por columna (un filtro de texto independiente bajo cada título).
+const columnFilters = ref({
+    name: '',
+    last_name: '',
+    email: '',
+    ip: '',
+    precinto: '',
+    plan: '',
+    sectorial: '',
+    router: '',
+    status: '',
+})
+
+// Accesor del texto buscable por columna (reutilizado por los filtros de columna).
+const columnText = {
+    name:      c => c.name || '',
+    last_name: c => c.last_name || '',
+    email:     c => c.email || '',
+    ip:        c => c.ip_user || '',
+    precinto:  c => c.precinto || '',
+    plan:      c => c.service_name || '',
+    sectorial: c => c.sectorial_name || '',
+    router:    c => c.router_name || '',
+}
+
+const hasColumnFilters = computed(() =>
+    Object.values(columnFilters.value).some(v => v && String(v).trim())
+)
+const clearColumnFilters = () => {
+    for (const k in columnFilters.value) columnFilters.value[k] = ''
+}
+const hasActiveFilters = computed(() =>
+    !!searchQuery.value || !!filterRouterId.value || hasColumnFilters.value
+)
 
 // ── Confirm dialog state ────────────────────────────────────────────────────
 const confirmDialog = ref({
@@ -603,15 +661,35 @@ const filteredCustomers = computed(() => {
     if (filterRouterId.value) {
         list = list.filter(c => c.router_id === filterRouterId.value)
     }
-    if (!searchQuery.value) return list
+
+    // Búsqueda global (incluye precinto, sectorial, etc.)
     const q = searchQuery.value.toLowerCase().trim()
-    return list.filter(c =>
-        `${c.name} ${c.last_name}`.toLowerCase().includes(q) ||
-        (c.email?.toLowerCase() || '').includes(q) ||
-        (c.ip_user?.toLowerCase() || '').includes(q) ||
-        (c.service_name?.toLowerCase() || '').includes(q) ||
-        (c.router_name?.toLowerCase() || '').includes(q)
-    )
+    if (q) {
+        list = list.filter(c =>
+            `${c.name} ${c.last_name}`.toLowerCase().includes(q) ||
+            (c.email?.toLowerCase() || '').includes(q) ||
+            (c.ip_user?.toLowerCase() || '').includes(q) ||
+            (c.precinto?.toLowerCase() || '').includes(q) ||
+            (c.service_name?.toLowerCase() || '').includes(q) ||
+            (c.sectorial_name?.toLowerCase() || '').includes(q) ||
+            (c.router_name?.toLowerCase() || '').includes(q)
+        )
+    }
+
+    // Filtros por columna (minibuscador bajo cada título).
+    const cf = columnFilters.value
+    for (const key in columnText) {
+        const term = cf[key]?.toLowerCase().trim()
+        if (!term) continue
+        const accessor = columnText[key]
+        list = list.filter(c => accessor(c).toLowerCase().includes(term))
+    }
+    // Estado se filtra por clave exacta (refleja gratis/cancelado, no solo el booleano).
+    if (cf.status) {
+        list = list.filter(c => (c.service_status || (c.status ? 'activo' : 'suspendido')) === cf.status)
+    }
+
+    return list
 })
 
 // ── Compuerta de carga a RB ───────────────────────────────────────────────────
@@ -629,11 +707,11 @@ const provisionFullyBlocked = computed(() =>
 
 // ── Orden + paginación (composable reutilizable, mismo patrón que Planes) ─────
 const sortableColumns = [
-    { key: 'num', label: '#', align: 'left' },
     { key: 'name', label: 'Nombre', align: 'left' },
     { key: 'last_name', label: 'Apellido', align: 'left' },
     { key: 'email', label: 'Email', align: 'left' },
     { key: 'ip', label: 'IP', align: 'left' },
+    { key: 'precinto', label: 'Precinto', align: 'left' },
     { key: 'plan', label: 'Plan', align: 'left' },
     { key: 'sectorial', label: 'Sectorial', align: 'left' },
     { key: 'router', label: 'Router', align: 'left' },
@@ -648,25 +726,31 @@ const {
     paginatedItems: pagedCustomers,
     totalPages,
     paginationInfo,
-    pageStart,
     toggleSort,
     nextPage,
     prevPage,
     goToPage,
+    resetPagination,
 } = useTableControls(filteredCustomers, {
+    // Por defecto el cliente más reciente (mayor user_id) aparece primero.
     defaultSort: 'num',
+    defaultOrder: 'desc',
     sortAccessors: {
         num: c => c.user_id ?? 0,
         name: c => c.name ?? '',
         last_name: c => c.last_name ?? '',
         email: c => c.email ?? '',
         ip: c => c.ip_user ?? '',
+        precinto: c => c.precinto ?? '',
         plan: c => c.service_name ?? '',
         sectorial: c => c.sectorial_name ?? '',
         router: c => c.router_name ?? '',
         status: c => c.service_status || (c.status ? 'activo' : 'suspendido'),
     },
 })
+
+// Cualquier filtro (global, router o por columna) vuelve a la primera página.
+watch([searchQuery, filterRouterId, columnFilters], () => resetPagination(), { deep: true })
 
 // Estado de servicio → etiqueta + colores (refleja gratis/cancelado, no solo el booleano)
 const STATUS_BADGES = {
@@ -952,6 +1036,7 @@ const exportRows = () =>
         'Apellido': c.last_name || '',
         'Email': c.email || '',
         'IP': c.ip_user || '',
+        'Precinto': c.precinto || '',
         'Plan': c.service_name || '',
         'Sectorial': c.sectorial_name || '',
         'Router': c.router_name || '',
@@ -999,6 +1084,7 @@ const exportToExcel = () => {
         { wch: 20 },  // Apellido
         { wch: 28 },  // Email
         { wch: 15 },  // IP
+        { wch: 14 },  // Precinto
         { wch: 18 },  // Plan
         { wch: 18 },  // Sectorial
         { wch: 18 },  // Router

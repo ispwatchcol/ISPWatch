@@ -50,6 +50,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.department',
                 'customer_profile.position',
                 'customer_profile.ip_user',
+                'customer_profile.precinto',
                 'customer_profile.service_id',
                 'customer_profile.sectorial_id',
                 'customer_profile.router_id',
