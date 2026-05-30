@@ -99,33 +99,66 @@
                             />
                         </div>
 
-                        <!-- Tipo (subtipo, ej. Access Point/Bridge - solo aplica a sectorial) -->
+                        <!-- Subtipo (solo aplica a sectorial) -->
                         <div v-if="form.element_type === 'sectorial'" class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <v-icon name="md-filterlist" class="w-4 h-4 text-purple-500" />
                                 Subtipo
                             </label>
-                            <div class="relative">
-                                <select
-                                    v-model="form.type"
-                                    class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
-                                           bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
-                                           focus:border-purple-500 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-500/10
-                                           transition-all duration-300 appearance-none cursor-pointer"
-                                >
-                                    <option :value="null" disabled>Seleccione un tipo...</option>
-                                    <option value="Access Point">📡 Access Point</option>
-                                    <option value="Station">📶 Station</option>
-                                    <option value="NAP">🏢 NAP (Nodo de Acceso Principal)</option>
-                                    <option value="Bridge">🌉 Bridge</option>
-                                    <option value="Repeater">🔄 Repeater</option>
-                                    <option value="PTP">↔️ PTP (Punto a Punto)</option>
-                                    <option value="PTMP">🔀 PTMP (Punto Multipunto)</option>
-                                </select>
-                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                                    <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400" />
-                                </div>
-                            </div>
+                            <SearchableSelect
+                                v-model="form.type"
+                                :items="subtypeOptions"
+                                item-key="value"
+                                item-label="label"
+                                item-icon="md-filterlist"
+                                placeholder="Seleccione un tipo..."
+                                search-placeholder="Buscar subtipo..."
+                                clearable
+                                clear-label="Sin subtipo"
+                            />
+                        </div>
+
+                        <!-- Tipo de antena (solo sectorial) -->
+                        <div v-if="form.element_type === 'sectorial'" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="bi-broadcast-pin" class="w-4 h-4 text-amber-500" />
+                                Antena
+                            </label>
+                            <SearchableSelect
+                                v-model="form.antenna_type"
+                                :items="antennaOptions"
+                                item-key="value"
+                                :item-label="antennaOptionLabel"
+                                item-icon="bi-broadcast-pin"
+                                placeholder="Sin especificar"
+                                search-placeholder="Buscar antena (Mimosa, QRT, NetMetal...)"
+                                clearable
+                                clear-label="Sin especificar"
+                            />
+                            <p class="text-[11px] text-gray-400 mt-1">
+                                Define el radio de cobertura según el modelo.
+                            </p>
+                        </div>
+
+                        <!-- Radio de cobertura (solo sectorial) -->
+                        <div v-if="form.element_type === 'sectorial'" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="md-locationon" class="w-4 h-4 text-amber-500" />
+                                Radio de cobertura (m)
+                            </label>
+                            <input
+                                v-model.number="form.coverage_radius_meters"
+                                type="number"
+                                min="0"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-amber-500 dark:focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                :placeholder="String(suggestedRadius)"
+                            />
+                            <p class="text-[11px] text-gray-400 mt-1">
+                                Sugerido: {{ suggestedRadius }} m. Se autocompleta al elegir antena; puedes ajustarlo.
+                            </p>
                         </div>
 
                         <!-- Router (Zona) -->
@@ -330,11 +363,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '@/supabase.js'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import {
+    ANTENNA_OPTIONS,
+    SECTORIAL_SUBTYPES,
+    antennaRadius,
+    suggestedRadius as suggestRadius,
+} from '@/constants/antennas'
 
 const router = useRouter()
 
@@ -343,6 +383,8 @@ const form = ref({
     element_type: 'sectorial',
     ip: '',
     type: null,
+    antenna_type: null,
+    coverage_radius_meters: null,
     user_rb: '',
     pass_rb: '',
     zona_id: null,
@@ -351,6 +393,21 @@ const form = ref({
     comments: '',
     ssid: '',
     tenant_id: null
+})
+
+const subtypeOptions = SECTORIAL_SUBTYPES
+const antennaOptions = ANTENNA_OPTIONS
+const antennaOptionLabel = (o) => `${o.label} · ~${o.radius} m`
+
+// Radio sugerido a partir de la antena/subtipo (para placeholder y ayuda).
+const suggestedRadius = computed(() =>
+    suggestRadius(form.value.antenna_type, form.value.type)
+)
+
+// Al elegir una antena conocida, autocompletar el radio (el usuario lo puede ajustar).
+watch(() => form.value.antenna_type, (val) => {
+    const r = antennaRadius(val)
+    if (r != null) form.value.coverage_radius_meters = r
 })
 
 const elementTypes = [
@@ -434,7 +491,12 @@ const handleSubmit = async () => {
 
     try {
         const dataToSend = { ...form.value }
-        
+
+        dataToSend.antenna_type = form.value.antenna_type || null
+        dataToSend.coverage_radius_meters = form.value.coverage_radius_meters
+            ? Number(form.value.coverage_radius_meters)
+            : null
+
         if (coordinates.value.lat && coordinates.value.lng) {
             dataToSend.coordinates = JSON.stringify({
                 lat: parseFloat(coordinates.value.lat),

@@ -236,7 +236,7 @@ class CustomerProfileController extends Controller
 
         // Sectorials. The model accessor returns ['lat'=>, 'lng'=>] (or null).
         $sectorials = Sectorial::query()
-            ->get(['id', 'name', 'coordinates', 'coverage_radius_meters', 'frequency', 'node_tower'])
+            ->get(['id', 'name', 'type', 'coordinates', 'coverage_radius_meters', 'antenna_type', 'frequency', 'node_tower'])
             ->map(function ($sectorial) {
                 $coords = $sectorial->coordinates;
                 if (!is_array($coords) || !isset($coords['lat'], $coords['lng'])) {
@@ -245,6 +245,8 @@ class CustomerProfileController extends Controller
                 return [
                     'id' => $sectorial->id,
                     'name' => $sectorial->name,
+                    'type' => $sectorial->type,
+                    'antenna_type' => $sectorial->antenna_type,
                     'latitude' => (float) $coords['lat'],
                     'longitude' => (float) $coords['lng'],
                     'coverage_radius_meters' => $sectorial->coverage_radius_meters

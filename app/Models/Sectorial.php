@@ -28,6 +28,7 @@ class Sectorial extends Model
         'ssid',
         'coordinates',
         'coverage_radius_meters',
+        'antenna_type',
     ];
 
     public const ELEMENT_SECTORIAL = 'sectorial';

@@ -221,19 +221,29 @@
                     </div>
                 </div>
 
-                <div class="flex flex-wrap gap-x-5 gap-y-2">
-                    <label
+                <div class="flex flex-wrap gap-2">
+                    <button
                         v-for="layer in layerToggles"
                         :key="layer.key"
-                        class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none"
+                        type="button"
+                        :title="layer.desc"
+                        :aria-pressed="layers[layer.key]"
+                        @click="layers[layer.key] = !layers[layer.key]"
+                        :class="[
+                            'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border-2 text-sm font-medium transition-all select-none',
+                            layers[layer.key]
+                                ? layer.activeClass + ' shadow-sm'
+                                : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500',
+                        ]"
                     >
-                        <input
-                            type="checkbox"
-                            v-model="layers[layer.key]"
-                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        {{ layer.label }}
-                    </label>
+                        <v-icon :name="layer.icon" class="w-4 h-4 flex-shrink-0" />
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>{{ layer.label }}</span>
+                            <span class="text-[10px] font-normal opacity-70">{{
+                                layer.desc
+                            }}</span>
+                        </span>
+                    </button>
                 </div>
             </div>
 
@@ -304,6 +314,7 @@ import { useRouter } from "vue-router";
 import api from "../services/api";
 import tenantApi from "../services/api/tenant";
 import { useAuthStore } from "../stores/auth";
+import { effectiveCoverageRadius, antennaLabel } from "../constants/antennas";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -323,20 +334,56 @@ const selectedStatus = ref("all"); // 'all' | service_status value
 // Layer toggles
 const layers = ref({
     customers: true,
-    heatmap: false,
     coverage: true,
+    heatmap: false,
     traces: false,
     nodes: true,
 });
+// Cada capa muestra algo distinto. El subtítulo deja claro qué hace cada una
+// para que «Zonas de cobertura» (círculos por antena) y «Mapa de calor»
+// (densidad de clientes) no se confundan entre sí.
 const layerToggles = [
-    { key: "customers", label: "Clientes" },
-    { key: "heatmap", label: "Mapa de calor" },
-    { key: "coverage", label: "Zonas de cobertura" },
-    { key: "traces", label: "Trazabilidad" },
-    { key: "nodes", label: "Nodos" },
+    {
+        key: "customers",
+        label: "Clientes",
+        desc: "Pines de clientes",
+        icon: "ri-map-pin-line",
+        activeClass:
+            "border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300",
+    },
+    {
+        key: "coverage",
+        label: "Zonas de cobertura",
+        desc: "Radio por antena",
+        icon: "bi-broadcast-pin",
+        activeClass:
+            "border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300",
+    },
+    {
+        key: "heatmap",
+        label: "Mapa de calor",
+        desc: "Densidad de clientes",
+        icon: "bi-activity",
+        activeClass:
+            "border-rose-500 bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300",
+    },
+    {
+        key: "traces",
+        label: "Trazabilidad",
+        desc: "Cliente → nodo",
+        icon: "bi-diagram-3",
+        activeClass:
+            "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
+    },
+    {
+        key: "nodes",
+        label: "Nodos",
+        desc: "Antenas / routers",
+        icon: "bi-router",
+        activeClass:
+            "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300",
+    },
 ];
-
-const DEFAULT_COVERAGE_RADIUS = 800; // meters, when a sectorial has none set
 
 // Plain (non-reactive) Google Maps objects
 let map = null;
@@ -473,15 +520,25 @@ const nodePopup = (node, kind) => `
         ${
             kind === "sectorial"
                 ? `<div style="font-size:13px;color:#4B5563;line-height:1.5;">
+                       ${
+                           node.type
+                               ? `<p style="margin:2px 0;"><strong>Tipo:</strong> ${escapeHtml(
+                                     node.type
+                                 )}</p>`
+                               : ""
+                       }
+                       <p style="margin:2px 0;"><strong>Antena:</strong> ${escapeHtml(
+                           antennaLabel(node.antenna_type) || "N/A"
+                       )}</p>
                        <p style="margin:2px 0;"><strong>Frecuencia:</strong> ${escapeHtml(
                            node.frequency || "N/A"
                        )}</p>
                        <p style="margin:2px 0;"><strong>Torre/Nodo:</strong> ${escapeHtml(
                            node.node_tower || "N/A"
                        )}</p>
-                       <p style="margin:2px 0;"><strong>Cobertura:</strong> ${
-                           node.coverage_radius_meters || DEFAULT_COVERAGE_RADIUS
-                       } m</p>
+                       <p style="margin:2px 0;"><strong>Cobertura:</strong> ${effectiveCoverageRadius(
+                           node
+                       )} m</p>
                    </div>`
                 : ""
         }
@@ -654,7 +711,7 @@ const applyLayers = () => {
             const circle = new g.maps.Circle({
                 map,
                 center,
-                radius: s.coverage_radius_meters || DEFAULT_COVERAGE_RADIUS,
+                radius: effectiveCoverageRadius(s),
                 strokeColor: "#F59E0B",
                 strokeOpacity: 0.8,
                 strokeWeight: 1,
