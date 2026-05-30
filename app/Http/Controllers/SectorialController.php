@@ -44,6 +44,8 @@ class SectorialController extends Controller
             'comments' => 'nullable|string',
             'ssid' => 'nullable|string',
             'coordinates' => 'nullable|json',
+            'coverage_radius_meters' => 'nullable|integer|min:0|max:100000',
+            'antenna_type' => 'nullable|string|max:100',
         ]);
 
         $data['element_type'] = $data['element_type'] ?? Sectorial::ELEMENT_SECTORIAL;
@@ -124,6 +126,8 @@ class SectorialController extends Controller
             'comments' => 'nullable|string',
             'ssid' => 'nullable|string',
             'coordinates' => 'nullable|json',
+            'coverage_radius_meters' => 'nullable|integer|min:0|max:100000',
+            'antenna_type' => 'nullable|string|max:100',
         ]);
 
         try {
