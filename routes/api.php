@@ -115,6 +115,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection'])
         ->middleware('permission:manage_routers');
     Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
+    Route::get('/routers/{router}/traffic', [RouterController::class, 'trafficHistory']);
     Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface'])
         ->middleware('permission:manage_routers');
     Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules'])

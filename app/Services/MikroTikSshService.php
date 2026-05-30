@@ -11,6 +11,7 @@ use App\Services\MikroTik\QueueManager;
 use App\Services\MikroTik\HotspotManager;
 use App\Services\MikroTik\PcqManager;
 use App\Services\MikroTik\DhcpLeaseManager;
+use App\Services\MikroTik\IpMacBindingManager;
 use App\Services\MikroTik\InterfaceReader;
 use App\Services\MikroTik\FirewallRulesManager;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +43,7 @@ class MikroTikSshService
     private HotspotManager $hotspotManager;
     private PcqManager $pcqManager;
     private DhcpLeaseManager $dhcpManager;
+    private IpMacBindingManager $ipMacManager;
     private InterfaceReader $interfaceReader;
     private FirewallRulesManager $firewallManager;
 
@@ -56,6 +58,7 @@ class MikroTikSshService
         $this->hotspotManager = new HotspotManager($this->connectionManager, $this->apiProtocol);
         $this->pcqManager = new PcqManager($this->connectionManager, $this->apiProtocol);
         $this->dhcpManager = new DhcpLeaseManager($this->connectionManager, $this->apiProtocol);
+        $this->ipMacManager = new IpMacBindingManager($this->connectionManager, $this->apiProtocol);
         $this->interfaceReader = new InterfaceReader($this->connectionManager, $this->apiProtocol);
         $this->firewallManager = new FirewallRulesManager($this->connectionManager, $this->apiProtocol);
     }
@@ -447,6 +450,45 @@ class MikroTikSshService
     ): array {
         return $this->dhcpManager->ensureLeaseOnRouter(
             $clientIp, $clientUser, $clientPass, $targetIp, $mac, $speedUp, $speedDown, $clientPort, $comment
+        );
+    }
+
+    // ==================== IP/MAC BINDING (additive options) ====================
+
+    /**
+     * IP Bindings ("Forzar IP a MAC"): static /ip arp entry pinning IP↔MAC on
+     * the LAN interface (per-client, additive — does not block anything).
+     */
+    public function ensureArpBindingOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $targetIp,
+        string $mac,
+        ?string $lanInterface,
+        int $clientPort = 8728,
+        ?string $comment = null
+    ): array {
+        return $this->ipMacManager->ensureArpBinding(
+            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $lanInterface, $clientPort, $comment
+        );
+    }
+
+    /**
+     * Amarre IP/MAC ("Bloqueo por pares IP-MAC"): top-of-chain forward drop rule
+     * for the client IP when the source MAC does not match (per-client).
+     */
+    public function ensureMacAmarreOnRouter(
+        string $clientIp,
+        string $clientUser,
+        string $clientPass,
+        string $targetIp,
+        string $mac,
+        int $clientPort = 8728,
+        ?string $label = null
+    ): array {
+        return $this->ipMacManager->ensureMacAmarre(
+            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $clientPort, $label
         );
     }
 

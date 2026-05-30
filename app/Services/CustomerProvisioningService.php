@@ -145,6 +145,8 @@ class CustomerProvisioningService
         $hotspotResult = null;
         $pcqResult     = null;
         $dhcpResult    = null;
+        $arpResult     = null;
+        $amarreResult  = null;
         $pppoeSkipped  = false;
         $skipped       = false;
         $message       = 'OK';
@@ -213,6 +215,27 @@ class CustomerProvisioningService
                     $message = 'El router no tiene un método de control activo';
                     break;
             }
+
+            // ── Opciones adicionales (aditivas, combinables con el control) ──
+            // Solo corren si el router las tiene activas. Requieren la MAC del
+            // cliente; si falta, se reporta como paso fallido (visible) en vez
+            // de aplicarse a medias.
+            if ($router->ip_bindings) {
+                $arpResult = $customer->mac_address
+                    ? $mikrotik->ensureArpBindingOnRouter(
+                        $router->ip, $router->user_rb, $router->password_rb,
+                        $customer->ip_user, $customer->mac_address, $router->lan_interface, $port, $name
+                    )
+                    : ['success' => false, 'message' => 'IP Bindings activo pero el cliente no tiene MAC configurada'];
+            }
+            if ($router->amarre) {
+                $amarreResult = $customer->mac_address
+                    ? $mikrotik->ensureMacAmarreOnRouter(
+                        $router->ip, $router->user_rb, $router->password_rb,
+                        $customer->ip_user, $customer->mac_address, $port, $name
+                    )
+                    : ['success' => false, 'message' => 'Amarre IP/MAC activo pero el cliente no tiene MAC configurada'];
+            }
         } catch (\Throwable $e) {
             \Log::warning('[CustomerProvisioningService] Provision exception', [
                 'customer_id' => $customer->user_id,
@@ -228,12 +251,14 @@ class CustomerProvisioningService
                 'hotspot_result' => $hotspotResult,
                 'pcq_result'     => $pcqResult,
                 'dhcp_result'    => $dhcpResult,
+                'arp_result'     => $arpResult,
+                'amarre_result'  => $amarreResult,
             ];
         }
 
         // Éxito = todos los pasos ejecutados terminaron OK. Un modo "saltado"
         // por datos faltantes NO es éxito (el cliente queda sin cargar).
-        $steps = array_filter([$queueResult, $pppoeResult, $hotspotResult, $pcqResult, $dhcpResult]);
+        $steps = array_filter([$queueResult, $pppoeResult, $hotspotResult, $pcqResult, $dhcpResult, $arpResult, $amarreResult]);
         $ranSomething = !empty($steps);
         $allOk = $ranSomething && collect($steps)->every(fn ($r) => (bool) ($r['success'] ?? false));
         $success = $mode === null
@@ -258,6 +283,8 @@ class CustomerProvisioningService
             'hotspot_result' => $hotspotResult,
             'pcq_result'     => $pcqResult,
             'dhcp_result'    => $dhcpResult,
+            'arp_result'     => $arpResult,
+            'amarre_result'  => $amarreResult,
             // Compatibilidad con el job/bulk legado:
             'pppoe_applies'  => $mode === self::MODE_PPPOE,
             'pppoe_skipped'  => $pppoeSkipped,

@@ -19,6 +19,9 @@ export default {
     getInterfaces(id) {
         return apiClient.get(`/routers/${id}/interfaces`)
     },
+    getTraffic(id, params = {}) {
+        return apiClient.get(`/routers/${id}/traffic`, { params })
+    },
     setWanInterface(id, wanInterface) {
         return apiClient.post(`/routers/${id}/set-wan-interface`, {
             wan_interface: wanInterface,

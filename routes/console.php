@@ -22,3 +22,10 @@ Schedule::command('billing:auto-cut')->hourly();
 // billing.payment_reminder day and is idempotent per billing cycle
 Schedule::command('billing:send-reminders')->daily();
 
+// Traffic history: sample WAN counters every 5 min for routers with
+// historial_trafico on. withoutOverlapping so a slow run never stacks.
+Schedule::command('traffic:collect')->everyFiveMinutes()->withoutOverlapping();
+
+// Prune fine traffic samples older than 30 days (daily aggregates are kept).
+Schedule::command('traffic:prune --days=30')->daily();
+
