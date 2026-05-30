@@ -202,7 +202,9 @@ class CustomerProvisioningService
                         $dhcpResult = $mikrotik->ensureDhcpLeaseOnRouter(
                             $router->ip, $router->user_rb, $router->password_rb,
                             $customer->ip_user, $customer->mac_address,
-                            $plan->speed_up, $plan->speed_down, $port, $name
+                            $plan->is_courtesy ? '0' : $plan->speed_up,
+                            $plan->is_courtesy ? '0' : $plan->speed_down,
+                            $port, $name
                         );
                     } else {
                         $skipped = true;
@@ -308,8 +310,8 @@ class CustomerProvisioningService
             $customer->ip_user,
             $customer->name,
             $customer->last_name,
-            $plan->speed_up,
-            $plan->speed_down,
+            $plan->is_courtesy ? '0' : $plan->speed_up,
+            $plan->is_courtesy ? '0' : $plan->speed_down,
             $port,
             $customer->pppoe_username,
             $name

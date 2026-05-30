@@ -57,12 +57,12 @@ class QueueManager
                 'speed' => "$speedUp/$speedDown",
             ]);
 
-            // Normalize speeds
+            // Normalize speeds. 0 = unlimited in RouterOS simple queues.
             if (is_numeric($speedUp)) {
-                $speedUp = $speedUp . 'M';
+                $speedUp = (int) $speedUp === 0 ? 'unlimited' : $speedUp . 'M';
             }
             if (is_numeric($speedDown)) {
-                $speedDown = $speedDown . 'M';
+                $speedDown = (int) $speedDown === 0 ? 'unlimited' : $speedDown . 'M';
             }
 
             $maxLimit = "{$speedUp}/{$speedDown}";
