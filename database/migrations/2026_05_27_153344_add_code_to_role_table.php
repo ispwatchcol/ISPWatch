@@ -15,7 +15,13 @@ return new class extends Migration
             });
         }
 
-        // Populate standard codes based on role name (all tenants, only where null)
+        // Populate standard codes based on role name (all tenants, only where null).
+        // sqlite (tests) lacks REGEXP_REPLACE — fall back to LOWER(name) there;
+        // Postgres/MySQL keep the original slugifying expression.
+        $elseExpr = DB::connection()->getDriverName() === 'sqlite'
+            ? 'LOWER(name)'
+            : "LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9]', '_', 'g'))";
+
         DB::statement("
             UPDATE role SET code = CASE
                 WHEN LOWER(name) LIKE '%administrador%' THEN 'admin'
@@ -24,7 +30,7 @@ return new class extends Migration
                 WHEN LOWER(name) LIKE '%contabilidad%'  THEN 'accounting'
                 WHEN LOWER(name) LIKE '%tecnico%'
                   OR LOWER(name) LIKE '%técnico%'       THEN 'technician'
-                ELSE LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9]', '_', 'g'))
+                ELSE {$elseExpr}
             END
             WHERE code IS NULL
         ");

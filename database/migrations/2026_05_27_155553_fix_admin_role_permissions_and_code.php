@@ -7,7 +7,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Ensure codes are set (in case the previous migration missed any)
+        // Ensure codes are set (in case the previous migration missed any).
+        // sqlite (tests) lacks REGEXP_REPLACE — fall back to LOWER(name) there.
+        $elseExpr = DB::connection()->getDriverName() === 'sqlite'
+            ? 'LOWER(name)'
+            : "LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9]', '_', 'g'))";
+
         DB::statement("
             UPDATE role SET code = CASE
                 WHEN LOWER(name) LIKE '%administrador%' THEN 'admin'
@@ -16,7 +21,7 @@ return new class extends Migration
                 WHEN LOWER(name) LIKE '%contabilidad%'  THEN 'accounting'
                 WHEN LOWER(name) LIKE '%tecnico%'
                   OR LOWER(name) LIKE '%técnico%'       THEN 'technician'
-                ELSE LOWER(REGEXP_REPLACE(name, '[^a-zA-Z0-9]', '_', 'g'))
+                ELSE {$elseExpr}
             END
             WHERE code IS NULL
         ");

@@ -18,6 +18,11 @@ Schedule::command('billing:retry-failed')->hourly();
 // Auto-cut: run every hour so it picks up routers whose cut_time has arrived
 Schedule::command('billing:auto-cut')->hourly();
 
+// Failover de cortes: reconcilia DB ⇄ RB. Re-corta en el router a los clientes
+// suspendidos en la DB cuyo corte no quedó confirmado (con backoff por cliente).
+// Corre tras el auto-cut para recoger lo que haya fallado.
+Schedule::command('billing:reconcile-suspensions')->hourly();
+
 // Payment reminders: run daily — the service fires on each router's
 // billing.payment_reminder day and is idempotent per billing cycle
 Schedule::command('billing:send-reminders')->daily();

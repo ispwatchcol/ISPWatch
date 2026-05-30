@@ -20,6 +20,7 @@ use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BillingActionLogController;
+use App\Http\Controllers\SuspensionActionLogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\VerificationController;
@@ -177,6 +178,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/billing/action-logs/stats',       [BillingActionLogController::class, 'stats']);
         Route::post('/billing/action-logs/{id}/retry', [BillingActionLogController::class, 'retry']);
         Route::post('/billing/action-logs/retry-all',  [BillingActionLogController::class, 'retryAll']);
+
+        // ─── SUSPENSION ACTION LOGS (failover de cortes / sincronización RB) ───
+        Route::get('/billing/suspension-logs',             [SuspensionActionLogController::class, 'index']);
+        Route::get('/billing/suspension-logs/stats',       [SuspensionActionLogController::class, 'stats']);
+        Route::post('/billing/suspension-logs/{id}/retry', [SuspensionActionLogController::class, 'retry']);
+        Route::post('/billing/suspension-logs/reconcile',  [SuspensionActionLogController::class, 'reconcile']);
     });
 
     // ─── SUPPORT (requires staff profile) ───
