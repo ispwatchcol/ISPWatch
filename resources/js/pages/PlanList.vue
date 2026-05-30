@@ -771,7 +771,7 @@
               Cargar a RB
             </h2>
             <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {{ planToSync?.name || 'Plan PPPoE' }}
+              {{ planToSync?.name || 'Plan' }}
             </p>
           </div>
           <button
@@ -787,7 +787,7 @@
             <div class="flex items-start gap-3">
               <icon-lucide-server class="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
               <div>
-                <h4 class="font-medium text-emerald-800 dark:text-emerald-300">Perfil PPPoE que se cargara</h4>
+                <h4 class="font-medium text-emerald-800 dark:text-emerald-300">{{ syncPlanHeading }}</h4>
                 <p class="text-sm text-emerald-700 dark:text-emerald-400 mt-1">
                   {{ planToSync?.name }} • {{ planToSync?.speed_down }} / {{ planToSync?.speed_up }}
                 </p>
@@ -818,8 +818,8 @@
           </div>
 
           <div v-if="selectedSyncRouter" class="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-            Se cargara el perfil en <strong>{{ selectedSyncRouter.name }}</strong> ({{ selectedSyncRouter.ip }}).
-            <span v-if="!selectedSyncRouter.pppoe">Este router no tiene marcado el flag PPPoE en el sistema, pero igualmente se intentara la carga.</span>
+            Se cargara el plan en <strong>{{ selectedSyncRouter.name }}</strong> ({{ selectedSyncRouter.ip }}).
+            <span v-if="isPppoePlan(planToSync) && !selectedSyncRouter.pppoe">Este router no tiene marcado el flag PPPoE en el sistema, pero igualmente se intentara la carga.</span>
           </div>
 
           <div v-if="!loadingSyncRouters && availableRouters.length === 0" class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 text-sm text-yellow-700 dark:text-yellow-300">
@@ -1159,6 +1159,18 @@ const SYNCABLE_PLAN_TYPES = ['pppoe', 'pcq', 'hotspot']
 const planTypeCode = (plan) => (plan?.type_plan?.code || plan?.type || '').toLowerCase()
 
 const isSyncablePlan = (plan) => SYNCABLE_PLAN_TYPES.includes(planTypeCode(plan))
+
+// Encabezado del modal "Cargar a RB" segun lo que realmente se carga al router
+// (se despacha por tipo de plan, no por el modo del router): perfil PPPoE,
+// queue types PCQ o perfil HotSpot.
+const syncPlanHeading = computed(() => {
+  switch (planTypeCode(planToSync.value)) {
+    case 'pcq':     return 'Queue Types PCQ que se cargaran'
+    case 'hotspot': return 'Perfil HotSpot que se cargara'
+    case 'pppoe':   return 'Perfil PPPoE que se cargara'
+    default:        return 'Perfil que se cargara'
+  }
+})
 
 const createPlan = () =>
   router.push({

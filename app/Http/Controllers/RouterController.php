@@ -174,6 +174,54 @@ class RouterController extends Controller
 
 
     /**
+     * Router/WAN traffic history: daily aggregates for the last N days plus
+     * today/current-month totals. Data is collected by the scheduled
+     * `traffic:collect` command into the traffic_daily table.
+     */
+    public function trafficHistory(Router $router, Request $request)
+    {
+        $days = (int) $request->query('days', 30);
+        $days = max(1, min($days, 90));
+        $since = now()->subDays($days - 1)->toDateString();
+
+        $daily = \App\Models\TrafficDaily::where('router_id', $router->id)
+            ->where('day', '>=', $since)
+            ->orderBy('day')
+            ->get(['day', 'rx_bytes', 'tx_bytes']);
+
+        $todayRow = \App\Models\TrafficDaily::where('router_id', $router->id)
+            ->where('day', now()->toDateString())
+            ->first();
+
+        $month = \App\Models\TrafficDaily::where('router_id', $router->id)
+            ->where('day', '>=', now()->startOfMonth()->toDateString())
+            ->selectRaw('COALESCE(SUM(rx_bytes),0) as rx, COALESCE(SUM(tx_bytes),0) as tx')
+            ->first();
+
+        return response()->json([
+            'router_id'         => $router->id,
+            'wan_interface'     => $router->wan_interface,
+            'historial_trafico' => (bool) $router->historial_trafico,
+            'days'              => $days,
+            'daily'             => $daily->map(fn ($d) => [
+                'day'      => $d->day->toDateString(),
+                'rx_bytes' => (int) $d->rx_bytes,
+                'tx_bytes' => (int) $d->tx_bytes,
+            ]),
+            'totals' => [
+                'today' => [
+                    'rx_bytes' => (int) ($todayRow->rx_bytes ?? 0),
+                    'tx_bytes' => (int) ($todayRow->tx_bytes ?? 0),
+                ],
+                'month' => [
+                    'rx_bytes' => (int) ($month->rx ?? 0),
+                    'tx_bytes' => (int) ($month->tx ?? 0),
+                ],
+            ],
+        ]);
+    }
+
+    /**
      * Set WAN interface for the router
      */
     public function setWanInterface(Request $request, Router $router)

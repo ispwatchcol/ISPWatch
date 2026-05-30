@@ -225,9 +225,10 @@ class HotspotManager
             $this->apiProtocol->sendCommand($socket, '/ip/hotspot/user/profile/print', ['?name=' . $profileName, '=.proplist=.id']);
             $existing = $this->apiProtocol->readAllRecords($socket);
 
+            // /ip hotspot user profile has no `comment` property — sending it
+            // makes the API call fail. Identified by name (= plan name) instead.
             $params = [
                 '=rate-limit=' . $rateLimit,
-                '=comment=ISPWatch - ' . $profileName,
             ];
             if ($sharedUsers !== null && $sharedUsers > 0) {
                 $params[] = '=shared-users=' . $sharedUsers;
@@ -287,7 +288,11 @@ class HotspotManager
         if ($idleTimeout !== null && trim($idleTimeout) !== '') {
             $args .= ' idle-timeout="' . $this->escapeRouterOsQuotedValue(trim($idleTimeout)) . '"';
         }
-        $args .= ' comment="ISPWatch - ' . $name . '"';
+        // NOTE: /ip hotspot user profile has NO `comment` property on RouterOS
+        // (unlike /ppp profile). Sending comment= makes the whole add/set fail
+        // with "expected end of command" — silently, because ssh-exec swallows
+        // it. The profile is identified by its name (= plan name), so the
+        // comment is unnecessary anyway.
 
         $addCmd = '/ip hotspot user profile add name="' . $name . '"' . $args;
         $setCmd = '/ip hotspot user profile set [find name="' . $name . '"]' . $args;
@@ -322,7 +327,15 @@ class HotspotManager
 
             $output = trim((string) ($result['output'] ?? ''));
 
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+            // `/system ssh-exec` returns "exit-code: N ... output: ...". A
+            // non-zero exit code means the CLIENT router rejected the command,
+            // even when the error text (e.g. "expected end of command") is not
+            // one of our keywords. Without the exit-code check we reported false
+            // success on parser errors (the hotspot `comment=` bug went unseen).
+            $failed = (bool) preg_match('/exit-code:\s*[1-9]/i', $output)
+                || (bool) preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value|expected end of command|expected command name|syntax error|unknown (?:parameter|argument)/i', $output);
+
+            if ($output && $failed) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

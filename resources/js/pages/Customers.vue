@@ -150,8 +150,11 @@
             <!-- Provision button -->
             <button
                 @click="provisionCustomer"
-                class="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition whitespace-nowrap text-sm sm:text-base"
-                :title="`Provisionar ${filteredCustomers.length} cliente(s) al Router Board`"
+                :disabled="provisionFullyBlocked"
+                class="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition whitespace-nowrap text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-600"
+                :title="provisionFullyBlocked
+                    ? 'El router no tiene activada la opción «Agregar Cliente en Mikrotik»'
+                    : `Provisionar ${provisionableCustomers.length} cliente(s) al Router Board`"
             >
                 <icon-lucide-server class="w-5 h-5" />
                 <span>{{ provisionBtnLabel }}</span>
@@ -160,6 +163,33 @@
                     PPPoE
                 </span>
             </button>
+        </div>
+
+        <!-- Aviso: carga a RB bloqueada porque el router no tiene "Agregar Cliente en Mikrotik" -->
+        <div v-if="provisionFullyBlocked"
+            class="mb-6 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 px-4 py-3 rounded-lg text-sm">
+            <v-icon name="md-warningamber-round" class="w-5 h-5 shrink-0 mt-0.5" />
+            <p>
+                <template v-if="selectedRouterInfo">
+                    El router <strong>{{ selectedRouterInfo.name }}</strong> no tiene activada la opción
+                    <strong>«Agregar Cliente en Mikrotik»</strong>, por lo que no se pueden cargar clientes a la RB.
+                    Actívala en la configuración del router para habilitar la carga.
+                </template>
+                <template v-else>
+                    No se pueden cargar clientes: sus routers no tienen activada la opción
+                    <strong>«Agregar Cliente en Mikrotik»</strong>. Actívala en cada router para habilitar la carga.
+                </template>
+            </p>
+        </div>
+
+        <!-- Aviso parcial: algunos clientes se omitirán por ese motivo -->
+        <div v-else-if="blockedByMktCount > 0"
+            class="mb-6 flex items-start gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 px-4 py-3 rounded-lg text-sm">
+            <v-icon name="md-info" class="w-5 h-5 shrink-0 mt-0.5" />
+            <p>
+                {{ blockedByMktCount }} cliente(s) no se cargarán porque su router no tiene activada la opción
+                <strong>«Agregar Cliente en Mikrotik»</strong>.
+            </p>
         </div>
 
         <!-- Loading -->
@@ -530,6 +560,7 @@ const availableRouters = computed(() => {
                 hotspot: !!c.router_hotspot,
                 pppoe: !!c.router_pppoe,
                 dhcp: !!c.router_dhcp,
+                agregar_cliente_mkt: !!c.router_agregar_cliente_mkt,
             })
         }
     }
@@ -582,6 +613,19 @@ const filteredCustomers = computed(() => {
         (c.router_name?.toLowerCase() || '').includes(q)
     )
 })
+
+// ── Compuerta de carga a RB ───────────────────────────────────────────────────
+// Solo se puede cargar a routers con "Agregar Cliente en Mikrotik" activado.
+const provisionableCustomers = computed(() =>
+    filteredCustomers.value.filter(c => c.router_agregar_cliente_mkt)
+)
+const blockedByMktCount = computed(() =>
+    filteredCustomers.value.length - provisionableCustomers.value.length
+)
+// Hay clientes a la vista pero ninguno es cargable → carga totalmente bloqueada.
+const provisionFullyBlocked = computed(() =>
+    filteredCustomers.value.length > 0 && provisionableCustomers.value.length === 0
+)
 
 // ── Orden + paginación (composable reutilizable, mismo patrón que Planes) ─────
 const sortableColumns = [
@@ -656,20 +700,36 @@ const provisionCustomer = async () => {
         return
     }
 
-    const count      = filteredCustomers.value.length
+    // Compuerta: solo se cargan clientes de routers con "Agregar Cliente en Mikrotik".
+    const targets = provisionableCustomers.value
+    if (targets.length === 0) {
+        toast.value?.warning(
+            'Carga deshabilitada',
+            selectedRouterInfo.value
+                ? `El router «${selectedRouterInfo.value.name}» no tiene activada la opción «Agregar Cliente en Mikrotik». Actívala en la configuración del router para poder cargar clientes.`
+                : 'Ningún cliente mostrado puede cargarse: sus routers no tienen activada la opción «Agregar Cliente en Mikrotik».',
+            { duration: 9000 }
+        )
+        return
+    }
+
+    const count      = targets.length
     const isSingle   = count === 1
-    const c0         = filteredCustomers.value[0]
+    const c0         = targets[0]
     const ri         = selectedRouterInfo.value
     const routerName = ri?.name ?? 'sus routers asignados'
     const detail     = ri ? routerControlDetail(ri) : 'según el control de cada router'
+    const skipNote   = blockedByMktCount.value > 0
+        ? ` Se omitirán ${blockedByMktCount.value} cliente(s) cuyo router no tiene «Agregar Cliente en Mikrotik».`
+        : ''
 
     const confirmed = await openConfirm({
         type: 'info',
         icon: 'bi-server',
         title: isSingle ? 'Cargar al Router' : `Cargar ${count} clientes al Router`,
-        message: isSingle
+        message: (isSingle
             ? `Se cargará a ${c0.name} ${c0.last_name} en ${routerName} (${detail}).`
-            : `Se provisionarán ${count} clientes en ${routerName} (${detail}). Esta operación puede tardar unos segundos.`,
+            : `Se provisionarán ${count} clientes en ${routerName} (${detail}). Esta operación puede tardar unos segundos.`) + skipNote,
         confirmLabel: 'Cargar',
     })
 
@@ -677,7 +737,7 @@ const provisionCustomer = async () => {
 
     try {
         loading.value = true
-        const customerIds = filteredCustomers.value.map(c => c.user_id)
+        const customerIds = targets.map(c => c.user_id)
         provisionProgress.value = { current: 0, total: customerIds.length }
 
         // Aprovisionamiento ASÍNCRONO (solución definitiva al 504): cada cliente

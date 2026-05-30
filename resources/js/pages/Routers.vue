@@ -765,6 +765,63 @@
                 {{ getScriptName(selectedDetailsRouter.firmware_version) }}
               </div>
             </div>
+
+            <!-- Historial de Tráfico (WAN) -->
+            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                  <icon-lucide-activity class="w-4 h-4" />
+                  Historial de Tráfico (WAN)
+                </div>
+                <span v-if="routerTraffic?.daily?.length" class="text-[11px] text-gray-400">
+                  últimos {{ routerTraffic.days }} días
+                </span>
+              </div>
+
+              <div v-if="trafficLoading" class="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">
+                Cargando consumo…
+              </div>
+
+              <div v-else-if="routerTraffic && !routerTraffic.historial_trafico"
+                class="text-sm text-gray-500 dark:text-gray-400">
+                El historial de tráfico está <strong>desactivado</strong> para este router. Actívalo en
+                «Editar Router» para empezar a registrar el consumo del enlace.
+              </div>
+
+              <template v-else-if="routerTraffic">
+                <!-- Totales -->
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                  <div class="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-100 dark:border-gray-700">
+                    <div class="text-xs text-gray-400 mb-1">Hoy</div>
+                    <div class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                      <span class="text-blue-500">↓ {{ fmtBytes(routerTraffic.totals.today.rx_bytes) }}</span>
+                      <span class="text-gray-300 dark:text-gray-600 mx-1">·</span>
+                      <span class="text-emerald-500">↑ {{ fmtBytes(routerTraffic.totals.today.tx_bytes) }}</span>
+                    </div>
+                  </div>
+                  <div class="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-100 dark:border-gray-700">
+                    <div class="text-xs text-gray-400 mb-1">Este mes</div>
+                    <div class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                      <span class="text-blue-500">↓ {{ fmtBytes(routerTraffic.totals.month.rx_bytes) }}</span>
+                      <span class="text-gray-300 dark:text-gray-600 mx-1">·</span>
+                      <span class="text-emerald-500">↑ {{ fmtBytes(routerTraffic.totals.month.tx_bytes) }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Mini gráfica de barras por día (consumo total = bajada + subida) -->
+                <div v-if="trafficDaily.length" class="flex items-end gap-px h-24 mt-1">
+                  <div v-for="d in trafficDaily" :key="d.day"
+                    class="flex-1 min-w-[2px] bg-blue-500/60 hover:bg-blue-500 rounded-t transition-colors cursor-default"
+                    :style="{ height: trafficBarHeight(d) }"
+                    :title="`${d.day} — ↓ ${fmtBytes(d.rx_bytes)} / ↑ ${fmtBytes(d.tx_bytes)}`">
+                  </div>
+                </div>
+                <div v-else class="text-sm text-gray-500 dark:text-gray-400 py-2">
+                  Aún no hay datos de consumo. Se registran automáticamente cada 5 minutos.
+                </div>
+              </template>
+            </div>
           </div>
 
           <!-- Footer -->
@@ -993,6 +1050,42 @@ const deletingRouter = ref(false)
 // Estados del modal Detalles
 const showDetailsModal = ref(false)
 const selectedDetailsRouter = ref(null)
+
+// Historial de tráfico WAN del router (cargado al abrir el modal de detalles)
+const routerTraffic = ref(null)
+const trafficLoading = ref(false)
+
+const loadRouterTraffic = async (id) => {
+  routerTraffic.value = null
+  trafficLoading.value = true
+  try {
+    const { data } = await api.routers.getTraffic(id, { days: 30 })
+    routerTraffic.value = data
+  } catch (e) {
+    routerTraffic.value = null
+  } finally {
+    trafficLoading.value = false
+  }
+}
+
+const fmtBytes = (n) => {
+  const b = Number(n) || 0
+  if (b >= 1e12) return (b / 1e12).toFixed(2) + ' TB'
+  if (b >= 1e9)  return (b / 1e9).toFixed(2) + ' GB'
+  if (b >= 1e6)  return (b / 1e6).toFixed(1) + ' MB'
+  if (b >= 1e3)  return (b / 1e3).toFixed(0) + ' KB'
+  return b + ' B'
+}
+
+const trafficDaily = computed(() => routerTraffic.value?.daily ?? [])
+const trafficMaxTotal = computed(() =>
+  Math.max(1, ...trafficDaily.value.map(d => (d.rx_bytes || 0) + (d.tx_bytes || 0)))
+)
+const trafficBarHeight = (d) => {
+  const total = (d.rx_bytes || 0) + (d.tx_bytes || 0)
+  const pct = (total / trafficMaxTotal.value) * 100
+  return Math.max(total > 0 ? 6 : 2, pct) + '%'
+}
 
 // Estados del modal Corte Automático
 const showAutoCutModal = ref(false)
@@ -1378,12 +1471,14 @@ const applyBlockRules = async () => {
 const openDetailsModal = (routerData) => {
   selectedDetailsRouter.value = routerData
   showDetailsModal.value = true
+  loadRouterTraffic(routerData.id)
 }
 
 // Cerrar modal de detalles
 const closeDetailsModal = () => {
   showDetailsModal.value = false
   selectedDetailsRouter.value = null
+  routerTraffic.value = null
 }
 
 // Editar router desde el modal

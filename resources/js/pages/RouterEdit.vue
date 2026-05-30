@@ -374,8 +374,9 @@
                   </span>
                 </label>
 
-                <!-- DHCP Leases -->
+                <!-- DHCP Leases — oculto del UI hasta documentar su uso (la carga DHCP existe en backend; quitar v-if para reactivar) -->
                 <label
+                  v-if="false"
                   class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
                   :class="form.dhcp_leases ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
                 >

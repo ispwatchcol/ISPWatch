@@ -63,6 +63,7 @@ class CustomerProfileController extends Controller
                 'router.hotspot as router_hotspot',
                 'router.pppoe as router_pppoe',
                 'router.dhcp_leases as router_dhcp',
+                'router.agregar_cliente_mkt as router_agregar_cliente_mkt',
                 'router.falla_general as router_falla_general'
             )
             ->get();
