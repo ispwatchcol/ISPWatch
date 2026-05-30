@@ -197,7 +197,7 @@
                 <SearchableSelect
                     :model-value="form.service_id"
                     @update:model-value="form.service_id = $event || null"
-                    :items="plans"
+                    :items="filteredPlans"
                     item-key="id"
                     item-label="name"
                     item-icon="md-speed"
@@ -695,6 +695,24 @@ watch(() => form.value.router_id, (id) => { if (id) loadFreeIps(id) })
 
 const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
+
+const filteredPlans = computed(() => {
+    const r = selectedRouter.value
+    if (!r) return []
+    let code = null
+    if (r.pppoe)             code = 'pppoe'
+    else if (r.hotspot)      code = 'hotspot'
+    else if (r.control_pcq)  code = 'pcq'
+    else if (r.simple_queue) code = 'queue'
+    if (!code) return []
+    return plans.value.filter(p => (p.type_plan?.code ?? '') === code)
+})
+
+watch(() => form.value.router_id, () => {
+    if (form.value.service_id && !filteredPlans.value.find(p => p.id === form.value.service_id)) {
+        form.value.service_id = null
+    }
+})
 
 // Courtesy plans force the 'gratis' state automatically.
 const isCourtesyPlan = computed(() => !!selectedPlan.value?.is_courtesy)

@@ -229,6 +229,11 @@
                             class="ml-1.5 inline-flex items-center text-xs font-medium text-blue-500 dark:text-blue-400">
                             PPPoE
                         </span>
+                        <span v-else-if="routerControlBadge(customer)"
+                            class="ml-1.5 inline-flex items-center text-xs font-medium"
+                            :class="routerControlBadge(customer).cls">
+                            {{ routerControlBadge(customer).label }}
+                        </span>
                     </td>
                     <td class="px-6 py-4 text-center">
                         <span :class="['px-2 py-1 text-xs font-medium rounded-full', statusBadge(customer).cls]">
@@ -365,6 +370,9 @@
                             title="Credenciales PPPoE no configuradas">⚠ PPPoE?</span>
                         <span v-else-if="customer.router_pppoe && customer.pppoe_username"
                             class="text-xs font-medium text-blue-500 dark:text-blue-400">PPPoE</span>
+                        <span v-else-if="routerControlBadge(customer)"
+                            class="text-xs font-medium" :class="routerControlBadge(customer).cls">
+                            {{ routerControlBadge(customer).label }}</span>
                     </div>
                     <div><span class="text-gray-400">Sectorial:</span> <span class="ml-1">{{ customer.sectorial_name || '-' }}</span></div>
                     </div>
@@ -514,7 +522,15 @@ const availableRouters = computed(() => {
     for (const c of customers.value) {
         if (c.router_id && !seen.has(c.router_id)) {
             seen.add(c.router_id)
-            list.push({ id: c.router_id, name: c.router_name, pppoe: !!c.router_pppoe })
+            list.push({
+                id: c.router_id,
+                name: c.router_name,
+                simple_queue: !!c.router_simple_queue,
+                control_pcq: !!c.router_control_pcq,
+                hotspot: !!c.router_hotspot,
+                pppoe: !!c.router_pppoe,
+                dhcp: !!c.router_dhcp,
+            })
         }
     }
     return list.sort((a, b) => a.name.localeCompare(b.name))
@@ -529,6 +545,26 @@ const selectedRouterInfo = computed(() =>
 const provisionBtnLabel = computed(() =>
     selectedRouterInfo.value ? `Cargar a ${selectedRouterInfo.value.name}` : 'Cargar a RB'
 )
+
+// Badge junto al nombre del router en la tabla, según el modo de control (excluyente).
+// PPPoE se maneja aparte porque tiene su variante de "credenciales pendientes".
+const routerControlBadge = (c) => {
+    if (c.router_hotspot)      return { label: 'HotSpot', cls: 'text-purple-500 dark:text-purple-400' }
+    if (c.router_control_pcq)  return { label: 'PCQ',     cls: 'text-teal-500 dark:text-teal-400' }
+    if (c.router_simple_queue) return { label: 'Queue',   cls: 'text-indigo-500 dark:text-indigo-400' }
+    if (c.router_dhcp)         return { label: 'DHCP',    cls: 'text-cyan-500 dark:text-cyan-400' }
+    return null
+}
+
+// Texto del modal "Cargar al Router" según el modo de control (excluyente) del router.
+const routerControlDetail = (r) => {
+    if (r.pppoe)        return 'secret PPPoE'
+    if (r.hotspot)      return 'usuario HotSpot'
+    if (r.control_pcq)  return 'cola PCQ de ancho de banda'
+    if (r.simple_queue) return 'queue simple de ancho de banda'
+    if (r.dhcp)         return 'lease DHCP estático'
+    return 'queue de ancho de banda'
+}
 
 // ── Data loading ────────────────────────────────────────────────────────────
 const filteredCustomers = computed(() => {
@@ -625,9 +661,7 @@ const provisionCustomer = async () => {
     const c0         = filteredCustomers.value[0]
     const ri         = selectedRouterInfo.value
     const routerName = ri?.name ?? 'sus routers asignados'
-    const detail     = ri
-        ? (ri.pppoe ? 'queue de ancho de banda + PPPoE secret' : 'queue de ancho de banda')
-        : 'queue de ancho de banda (PPPoE cuando aplique)'
+    const detail     = ri ? routerControlDetail(ri) : 'según el control de cada router'
 
     const confirmed = await openConfirm({
         type: 'info',
