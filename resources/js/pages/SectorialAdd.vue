@@ -7,7 +7,7 @@
         <div class="max-w-5xl mx-auto mb-8">
             <div class="flex items-center gap-4">
                 <button
-                    @click="router.push({ name: 'Sectoriales' })"
+                    @click="router.push('/sectorials')"
                     class="p-2.5 rounded-xl bg-white dark:bg-gray-800 shadow-md hover:shadow-lg 
                            text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 
                            transition-all duration-300 transform hover:-translate-x-1"

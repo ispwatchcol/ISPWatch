@@ -142,7 +142,7 @@
                         Ver
                     </button>
                     <button
-                        v-if="can('routers.edit')"
+                        v-if="can('view_sectorials')"
                         @click="router.push(`/sectorials/${sectorial.id}/edit`)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-blue-50 text-blue-700 border border-blue-200
@@ -153,7 +153,7 @@
                         Editar
                     </button>
                     <button
-                        v-if="can('routers.delete')"
+                        v-if="can('view_sectorials')"
                         @click="deleteSectorial(sectorial.id)"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-red-50 text-red-700 border border-red-200
@@ -212,7 +212,7 @@
                             <icon-lucide-eye class="w-3.5 h-3.5" /> Ver
                         </button>
                         <button
-                            v-if="can('routers.edit')"
+                            v-if="can('view_sectorials')"
                             @click="router.push(`/sectorials/${sectorial.id}/edit`)"
                             class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                                 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all
@@ -221,7 +221,7 @@
                             <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
                         </button>
                         <button
-                            v-if="can('routers.delete')"
+                            v-if="can('view_sectorials')"
                             @click="deleteSectorial(sectorial.id)"
                             class="px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                                 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-all
@@ -393,6 +393,23 @@
               </div>
             </div>
           </div>
+
+          <!-- Typed confirmation -->
+          <div class="bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Para confirmar, escribe <code class="bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-0.5 rounded font-mono text-xs">eliminar_sectorial</code> a continuación:
+            </label>
+            <input
+              v-model="deleteConfirmText"
+              type="text"
+              placeholder="Escribe eliminar_sectorial"
+              class="w-full px-4 py-2.5 rounded-lg border-2 border-gray-200 dark:border-gray-600
+                     bg-white dark:bg-gray-800 text-gray-800 dark:text-white
+                     focus:border-red-500 dark:focus:border-red-400 focus:ring-4 focus:ring-red-500/10
+                     transition-all duration-300 placeholder:text-gray-400 font-mono text-sm"
+              autocomplete="off"
+            />
+          </div>
         </div>
 
         <!-- Footer -->
@@ -405,7 +422,7 @@
           </button>
           <button
             @click="confirmDelete"
-            :disabled="deletingSectorial"
+            :disabled="deletingSectorial || !isDeleteConfirmed"
             class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
             <icon-lucide-loader-2 v-if="deletingSectorial" class="w-4 h-4 animate-spin" />
@@ -458,6 +475,8 @@ const elementBadge = (t) => ELEMENT_META[t]?.color || ELEMENT_META.sectorial.col
 const showDeleteModal = ref(false)
 const sectorialToDelete = ref(null)
 const deletingSectorial = ref(false)
+const deleteConfirmText = ref('')
+const isDeleteConfirmed = computed(() => deleteConfirmText.value.trim() === 'eliminar_sectorial')
 
 // Estados del modal detalles
 const showDetailsModal = ref(false)
@@ -550,6 +569,7 @@ const deleteSectorial = (id) => {
 const closeDeleteModal = () => {
     showDeleteModal.value = false
     sectorialToDelete.value = null
+    deleteConfirmText.value = ''
 }
 
 // Confirmar eliminación
