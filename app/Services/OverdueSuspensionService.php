@@ -6,6 +6,7 @@ use App\Models\Billing;
 use App\Models\Invoice;
 use App\Models\CustomerProfile;
 use App\Models\Router;
+use App\Models\SuspensionActionLog;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
@@ -148,6 +149,119 @@ class OverdueSuspensionService
         }
 
         Log::info('Auto-cut: Processing complete.', $stats);
+
+        return $stats;
+    }
+
+    /**
+     * Reconcile DB ⇄ router: re-apply the block on the RB for every customer that
+     * is suspended in the DB (status = false) but whose cut is NOT confirmed on
+     * the router, so both sides end up consistent and any failure is logged.
+     *
+     * "Confirmed cut" = the latest suspension_action_logs row for that
+     * (customer, router) is action=SUSPEND with status=success. Any other state
+     * (no log / last attempt failed / last action was UNSUSPEND) means the RB may
+     * not actually be blocking the customer → re-assert (idempotent add + conntrack
+     * flush). We never read the address-list (ssh-exec reads are fragile); we just
+     * re-assert the desired state, which is safe because addSuspendedIpViaCore
+     * treats "already have" as success.
+     *
+     * @param int|null $routerId  Limit to a specific router (null = all)
+     * @param bool $dryRun  Report only, never touch the RB
+     * @param bool $force   Ignore the per-customer retry backoff
+     * @param int|null $tenantId  Limit to one tenant (null = all; used by the scheduler)
+     * @return array  [scanned, already_confirmed, reblocked_ok, reblocked_failed, skipped_backoff]
+     */
+    public function reconcileSuspensions(?int $routerId = null, bool $dryRun = false, bool $force = false, ?int $tenantId = null): array
+    {
+        $stats = [
+            'scanned'           => 0,
+            'already_confirmed' => 0,
+            'reblocked_ok'      => 0,
+            'reblocked_failed'  => 0,
+            'skipped_backoff'   => 0,
+            'would_reblock'     => 0, // dry-run only
+        ];
+
+        // Source of truth = clients suspended in the DB with a router + IP.
+        // customer_profile.status is a BOOLEAN column (false = not active);
+        // see memory customer-profile-status-is-boolean.
+        $query = CustomerProfile::where('status', false)
+            ->whereNotNull('router_id')
+            ->whereNotNull('ip_user');
+
+        if ($routerId !== null) {
+            $query->where('router_id', $routerId);
+        }
+
+        if ($tenantId !== null) {
+            $query->whereHas('user', fn($q) => $q->where('tenant_id', $tenantId));
+        }
+
+        $profiles = $query->get();
+
+        Log::info("Reconcile: scanning {$profiles->count()} DB-suspended customer(s)"
+            . ($routerId ? " (router #{$routerId})" : '')
+            . ($dryRun ? ' [dry-run]' : ''));
+
+        foreach ($profiles as $profile) {
+            $stats['scanned']++;
+
+            $latest = SuspensionActionLog::where('customer_id', $profile->user_id)
+                ->where('router_id', $profile->router_id)
+                ->latest('id')
+                ->first();
+
+            // Already cut and confirmed on the RB → nothing to do.
+            if (!$force
+                && $latest
+                && $latest->action === SuspensionActionLog::ACTION_SUSPEND
+                && $latest->status === SuspensionActionLog::STATUS_SUCCESS
+            ) {
+                $stats['already_confirmed']++;
+                continue;
+            }
+
+            // A recent failed SUSPEND still inside its backoff window → wait,
+            // don't hammer a router that's down (unless forced).
+            if (!$force
+                && $latest
+                && $latest->action === SuspensionActionLog::ACTION_SUSPEND
+                && $latest->status === SuspensionActionLog::STATUS_FAILED
+                && $latest->next_retry_at
+                && $latest->next_retry_at->isFuture()
+            ) {
+                $stats['skipped_backoff']++;
+                continue;
+            }
+
+            if ($dryRun) {
+                // Count what WOULD be re-blocked without touching the RB.
+                $stats['would_reblock']++;
+                continue;
+            }
+
+            try {
+                $ok = $this->routerProvisioningService->suspendCustomer(
+                    (int) $profile->user_id,
+                    (int) $profile->router_id,
+                    ['reason' => SuspensionActionLog::REASON_RECONCILE]
+                );
+
+                if ($ok) {
+                    $stats['reblocked_ok']++;
+                    Log::info("Reconcile: customer {$profile->user_id} re-blocked on router {$profile->router_id}.");
+                } else {
+                    $stats['reblocked_failed']++;
+                    Log::warning("Reconcile: failed to re-block customer {$profile->user_id} on router {$profile->router_id}.");
+                }
+            } catch (\Throwable $e) {
+                $stats['reblocked_failed']++;
+                Log::error("Reconcile: exception re-blocking customer {$profile->user_id}: {$e->getMessage()}");
+            }
+        }
+
+        Log::info('Reconcile: complete.', $stats);
 
         return $stats;
     }

@@ -10,6 +10,8 @@ use App\Models\Router;
 use App\Models\Sectorial;
 use App\Services\CustomerProvisioningService;
 use App\Services\MikroTikSshService;
+use App\Services\RouterProvisioningService;
+use App\Models\SuspensionActionLog;
 use App\Http\Requests\StoreCustomerRequest;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -674,37 +676,42 @@ class CustomerProfileController extends Controller
             ], 400);
         }
 
-        // Update status
+        // Update status (DB = estado deseado; la RB se reconcilia aparte)
         $customer->update(['status' => false, 'service_status' => 'suspendido']);
 
-        // If router assigned, add IP to block list via CORE
+        // If router assigned, add IP to block list via the provisioning service
+        // so the attempt is recorded in suspension_action_logs (failover/sync).
         if ($customer->router_id && $customer->ip_user) {
-            $router = \App\Models\Router::find($customer->router_id);
-            if ($router) {
-                $mikrotik = new \App\Services\MikroTikSshService();
-                $result = $mikrotik->addSuspendedIpViaCore(
-                    $router->ip,
-                    $router->user_rb,
-                    $router->password_rb,
-                    $customer->ip_user,
-                    "{$customer->name} {$customer->last_name}",
-                    $router->puerto_api ?? 8728
-                );
+            $ok = app(RouterProvisioningService::class)->suspendCustomer(
+                (int) $customer->user_id,
+                (int) $customer->router_id,
+                ['reason' => SuspensionActionLog::REASON_MANUAL]
+            );
 
-                return response()->json([
-                    'success' => $result['success'],
-                    'message' => $result['success']
-                        ? 'Cliente suspendido correctamente.'
-                        : 'Cliente suspendido en BD pero error en router: ' . ($result['message'] ?? 'desconocido'),
-                    'router_result' => $result,
-                ]);
-            }
+            return response()->json([
+                'success' => $ok,
+                'message' => $ok
+                    ? 'Cliente suspendido correctamente.'
+                    : 'Cliente suspendido en BD pero error en router: ' . $this->lastRouterError($customer->user_id),
+            ]);
         }
 
         return response()->json([
             'success' => true,
             'message' => 'Cliente suspendido (sin router asignado).',
         ]);
+    }
+
+    /**
+     * Last router error logged for a customer (for the suspend/activate response).
+     */
+    private function lastRouterError(int $customerId): string
+    {
+        $log = SuspensionActionLog::where('customer_id', $customerId)
+            ->latest('id')
+            ->first();
+
+        return $log?->error_message ?: 'desconocido';
     }
 
     /**
@@ -727,27 +734,21 @@ class CustomerProfileController extends Controller
             'service_status' => ($activePlan && $activePlan->is_courtesy) ? 'gratis' : 'activo',
         ]);
 
-        // If router assigned, remove IP from block list via CORE
+        // If router assigned, remove IP from block list via the provisioning
+        // service so the attempt is recorded in suspension_action_logs.
         if ($customer->router_id && $customer->ip_user) {
-            $router = \App\Models\Router::find($customer->router_id);
-            if ($router) {
-                $mikrotik = new \App\Services\MikroTikSshService();
-                $result = $mikrotik->removeSuspendedIpViaCore(
-                    $router->ip,
-                    $router->user_rb,
-                    $router->password_rb,
-                    $customer->ip_user,
-                    $router->puerto_api ?? 8728
-                );
+            $ok = app(RouterProvisioningService::class)->unsuspendCustomer(
+                (int) $customer->user_id,
+                (int) $customer->router_id,
+                ['reason' => SuspensionActionLog::REASON_MANUAL]
+            );
 
-                return response()->json([
-                    'success' => $result['success'],
-                    'message' => $result['success']
-                        ? 'Cliente activado correctamente.'
-                        : 'Cliente activado en BD pero error en router: ' . ($result['message'] ?? 'desconocido'),
-                    'router_result' => $result,
-                ]);
-            }
+            return response()->json([
+                'success' => $ok,
+                'message' => $ok
+                    ? 'Cliente activado correctamente.'
+                    : 'Cliente activado en BD pero error en router: ' . $this->lastRouterError($customer->user_id),
+            ]);
         }
 
         return response()->json([
@@ -906,33 +907,22 @@ class CustomerProfileController extends Controller
             }
 
             // Sync router block-list when the active/blocked state changed.
+            // Delegated to RouterProvisioningService so the attempt is recorded
+            // in suspension_action_logs (failover/sync) — non-blocking.
             $statusRouterResult = null;
             if ($statusBool !== $prevStatusBool && $customer->router_id && $customer->ip_user) {
                 try {
-                    $blockRouter = Router::find($customer->router_id);
-                    if ($blockRouter) {
-                        $mikrotik = new \App\Services\MikroTikSshService();
-                        if ($statusBool) {
-                            // Now activo/gratis -> unblock
-                            $statusRouterResult = $mikrotik->removeSuspendedIpViaCore(
-                                $blockRouter->ip,
-                                $blockRouter->user_rb,
-                                $blockRouter->password_rb,
-                                $customer->ip_user,
-                                $blockRouter->puerto_api ?? 8728
-                            );
-                        } else {
-                            // Now suspendido/cancelado -> block
-                            $statusRouterResult = $mikrotik->addSuspendedIpViaCore(
-                                $blockRouter->ip,
-                                $blockRouter->user_rb,
-                                $blockRouter->password_rb,
-                                $customer->ip_user,
-                                "{$customer->name} {$customer->last_name}",
-                                $blockRouter->puerto_api ?? 8728
-                            );
-                        }
-                    }
+                    $prov = app(RouterProvisioningService::class);
+                    $ok = $statusBool
+                        // Now activo/gratis -> unblock
+                        ? $prov->unsuspendCustomer((int) $customer->user_id, (int) $customer->router_id, ['reason' => SuspensionActionLog::REASON_MANUAL])
+                        // Now suspendido/cancelado -> block
+                        : $prov->suspendCustomer((int) $customer->user_id, (int) $customer->router_id, ['reason' => SuspensionActionLog::REASON_MANUAL]);
+
+                    $statusRouterResult = [
+                        'success' => $ok,
+                        'message' => $ok ? 'OK' : $this->lastRouterError($customer->user_id),
+                    ];
                 } catch (\Throwable $e) {
                     \Log::warning('[CustomerProfile] Status router sync exception (non-blocking)', [
                         'error' => $e->getMessage(),

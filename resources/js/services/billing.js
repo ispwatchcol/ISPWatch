@@ -108,4 +108,21 @@ export default {
   retryAllActionLogs(period = null) {
     return apiClient.post('/billing/action-logs/retry-all', period ? { period } : {})
   },
+
+  // ── Failover de cortes: suspension action logs (sync RB) ──
+  getSuspensionLogs(params = {}) {
+    return apiClient.get('/billing/suspension-logs', { params })
+  },
+
+  getSuspensionLogStats(params = {}) {
+    return apiClient.get('/billing/suspension-logs/stats', { params })
+  },
+
+  retrySuspensionLog(id) {
+    return apiClient.post(`/billing/suspension-logs/${id}/retry`)
+  },
+
+  reconcileSuspensions(routerId = null) {
+    return apiClient.post('/billing/suspension-logs/reconcile', routerId ? { router_id: routerId } : {})
+  },
 }
