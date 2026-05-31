@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Log;
  */
 class QueueManager
 {
+    use NormalizesRouterComment;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -73,9 +76,10 @@ class QueueManager
             $queueName = ($secretName !== null && trim($secretName) !== '')
                 ? trim($secretName)
                 : $fullName;
-            $queueComment = ($comment !== null && trim($comment) !== '')
-                ? trim($comment)
-                : $fullName;
+            // COMMENT is the person's full name (operator request); RouterOS
+            // doesn't render accents/ñ, so transliterate it to ASCII. The queue
+            // NAME is left untouched so `find name=` lookups stay stable.
+            $queueComment = $this->normalizeRouterComment($comment, $fullName);
 
             // 1. Try direct API to the client first.
             if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {

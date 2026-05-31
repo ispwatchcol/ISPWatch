@@ -252,6 +252,17 @@
                 />
                 </div>
 
+                <!-- Puerto NAP: solo cuando el elemento seleccionado es una caja NAP -->
+                <div v-if="selectedSectorialIsNap">
+                <label class="label">
+                    <v-icon name="bi-ethernet" class="w-4 h-4 mr-1 inline" />
+                    Puerto NAP
+                </label>
+                <input v-model="form.nap_port" type="text" class="input"
+                    placeholder="Ej: 3" />
+                <p class="hint">Puerto de la caja NAP que ocupará el cliente.</p>
+                </div>
+
                 <div>
                 <label class="label">
                     <v-icon name="bi-router" class="w-4 h-4 mr-1 inline" />
@@ -603,6 +614,7 @@ const form = ref({
     ip_user: '',
     service_id: null,
     sectorial_id: null,
+    nap_port: '',
     router_id: null,
     create_pppoe_secret: false,
     pppoe_username: '',
@@ -627,6 +639,17 @@ const pppoePassError = ref('')
 const plans          = ref([])
 const sectorials     = ref([])
 const routers        = ref([])
+
+// ¿El elemento de red seleccionado es una caja NAP? (para pedir el puerto NAP)
+const selectedSectorialIsNap = computed(() => {
+    const s = sectorials.value.find(el => el.id === form.value.sectorial_id)
+    return s?.element_type === 'nap'
+})
+
+// Si el elemento deja de ser NAP, descartar el puerto para no guardar datos obsoletos.
+watch(selectedSectorialIsNap, (isNap) => {
+    if (!isNap) form.value.nap_port = ''
+})
 
 // ── IP Range Analyzer ────────────────────────────────────────────────────────
 const rangosIpStr    = ref('')

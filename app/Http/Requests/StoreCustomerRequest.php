@@ -38,6 +38,7 @@ class StoreCustomerRequest extends FormRequest
             'ip_user'        => 'nullable|string|max:45',
             'service_id'     => 'nullable|integer|exists:service_plan,id',
             'sectorial_id'   => 'nullable|integer|exists:sectorial,id',
+            'nap_port'       => 'nullable|string|max:20',
             'router_id'      => 'nullable|integer|exists:router,id',
             'tenant_id'      => 'nullable|integer|exists:tenant,id',
 

@@ -148,6 +148,12 @@ import {
   HiChevronLeft,
   BiPlusCircle,
   MdSettings,
+  BiDiagram2,
+  BiLink45Deg,
+  BiEthernet,
+  BiBroadcast,
+  BiTags,
+  BiArrowReturnRight,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -288,6 +294,12 @@ addIcons(
   HiChevronLeft,
   BiPlusCircle,
   MdSettings,
+  BiDiagram2,
+  BiLink45Deg,
+  BiEthernet,
+  BiBroadcast,
+  BiTags,
+  BiArrowReturnRight,
 );
 
 // -------------------------------

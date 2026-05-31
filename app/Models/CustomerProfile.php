@@ -32,6 +32,7 @@ class CustomerProfile extends Model
         'ip_user',
         'service_id',
         'sectorial_id',
+        'nap_port',
         'router_id',
         'pppoe_username',
         'pppoe_password',
