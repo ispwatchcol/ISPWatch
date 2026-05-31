@@ -185,10 +185,11 @@ class CustomerProfileController extends Controller
     /**
      * Get customer locations plus network nodes for the customer map.
      *
-     * Returns customers (with service_status for filtering), routers/nodes and
-     * sectorials (with coverage radius) so the frontend can render heatmaps,
-     * node→customer traceability lines and coverage zones. Routers and
-     * sectorials are tenant-scoped via the BelongsToTenant global scope.
+     * Returns customers (with service_status + sectorial_id for filtering and
+     * traceability), routers/nodes and sectorials (with type + coverage radius)
+     * so the frontend can render heatmaps, customer↔sectorial traceability
+     * lines and coverage zones. Routers and sectorials are tenant-scoped via
+     * the BelongsToTenant global scope.
      */
     public function mapData()
     {
@@ -208,6 +209,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.country',
                 'customer_profile.latitude',
                 'customer_profile.longitude',
+                'customer_profile.sectorial_id',
                 'customer_profile.router_id',
                 'customer_profile.service_status',
                 'users.email'
