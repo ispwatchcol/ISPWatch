@@ -224,6 +224,15 @@
                 />
                 </div>
 
+                <!-- Puerto NAP: solo cuando el elemento seleccionado es una caja NAP -->
+                <div v-if="selectedSectorialIsNap">
+                <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Puerto NAP</label>
+                <input v-model="form.nap_port" type="text"
+                    class="w-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 3" />
+                <p class="text-xs text-gray-400 mt-1">Puerto de la caja NAP que ocupa el cliente.</p>
+                </div>
+
                 <div>
                 <label class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Router</label>
                 <SearchableSelect
@@ -588,6 +597,7 @@ const form = ref({
     ip_user: '',
     service_id: null,
     sectorial_id: null,
+    nap_port: '',
     router_id: null,
     service_status: 'activo',
     create_pppoe_secret: false,
@@ -609,6 +619,17 @@ const emailTenant    = ref('')
 const plans      = ref([])
 const sectorials = ref([])
 const routers    = ref([])
+
+// ¿El elemento de red seleccionado es una caja NAP? (para pedir el puerto NAP)
+const selectedSectorialIsNap = computed(() => {
+    const s = sectorials.value.find(el => el.id === form.value.sectorial_id)
+    return s?.element_type === 'nap'
+})
+
+// Si el elemento deja de ser NAP, descartar el puerto para no guardar datos obsoletos.
+watch(selectedSectorialIsNap, (isNap) => {
+    if (!isNap) form.value.nap_port = ''
+})
 
 // ── IP Range Analyzer ────────────────────────────────────────────────────────
 const rangosIpStr    = ref('')
@@ -805,6 +826,7 @@ const loadCustomer = async () => {
             ip_user:      d.ip_user || '',
             service_id:   d.service_id || null,
             sectorial_id: d.sectorial_id || null,
+            nap_port:     d.nap_port || '',
             router_id:    d.router_id || null,
             service_status: d.service_status || 'activo',
             create_pppoe_secret: false,

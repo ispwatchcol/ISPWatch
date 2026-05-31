@@ -43,7 +43,7 @@
                             <v-icon name="md-filterlist" class="w-4 h-4 text-indigo-500" />
                             Tipo de elemento <span class="text-red-500">*</span>
                         </label>
-                        <div class="grid grid-cols-3 gap-3">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                             <button
                                 v-for="opt in elementTypes"
                                 :key="opt.value"
@@ -161,6 +161,114 @@
                             </p>
                         </div>
 
+                        <!-- ====== Campos de fibra (FTTH/GPON) ====== -->
+                        <!-- Elemento padre (árbol OLT -> splitter -> NAP) -->
+                        <div v-if="isFiber(form.element_type)" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="bi-diagram-3" class="w-4 h-4 text-indigo-500" />
+                                Conectado a (padre)
+                            </label>
+                            <div class="relative">
+                                <select
+                                    v-model="form.parent_id"
+                                    class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600
+                                           bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                           focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10
+                                           transition-all duration-300 appearance-none cursor-pointer"
+                                >
+                                    <option :value="null">— Sin padre (raíz) —</option>
+                                    <option v-for="el in parentOptions" :key="el.id" :value="el.id">
+                                        {{ el.name }} ({{ typeLabel(el.element_type) }})
+                                    </option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400" />
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mt-1">Elemento aguas arriba (OLT, splitter o mufa).</p>
+                        </div>
+
+                        <!-- Split ratio (solo splitter) -->
+                        <div v-if="form.element_type === 'splitter'" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="bi-diagram-2" class="w-4 h-4 text-amber-500" />
+                                Ratio de división
+                            </label>
+                            <div class="relative">
+                                <select
+                                    v-model="form.split_ratio"
+                                    class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600
+                                           bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                           focus:border-amber-500 dark:focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10
+                                           transition-all duration-300 appearance-none cursor-pointer"
+                                >
+                                    <option :value="null">— Sin definir —</option>
+                                    <option v-for="r in splitRatios" :key="r" :value="r">{{ r }}</option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <v-icon name="md-keyboardarrowdown" class="w-5 h-5 text-gray-400" />
+                                </div>
+                            </div>
+                            <p v-if="splitterPorts" class="text-[11px] text-gray-400 mt-1">Capacidad: {{ splitterPorts }} salidas.</p>
+                        </div>
+
+                        <!-- Puertos totales (solo caja NAP) -->
+                        <div v-if="form.element_type === 'nap'" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="bi-ethernet" class="w-4 h-4 text-cyan-500" />
+                                Puertos de la NAP
+                            </label>
+                            <input
+                                v-model.number="form.ports_total"
+                                type="number"
+                                min="0"
+                                max="1024"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="8"
+                            />
+                            <p class="text-[11px] text-gray-400 mt-1">Número de clientes que admite la caja.</p>
+                        </div>
+
+                        <!-- Puerto PON (fibra) -->
+                        <div v-if="isFiber(form.element_type)" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="bi-broadcast" class="w-4 h-4 text-rose-500" />
+                                Puerto PON
+                            </label>
+                            <input
+                                v-model="form.pon_port"
+                                type="text"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-rose-500 dark:focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10
+                                       transition-all duration-300 placeholder:text-gray-400 font-mono"
+                                placeholder="1/1/1"
+                            />
+                        </div>
+
+                        <!-- VLAN (fibra) -->
+                        <div v-if="isFiber(form.element_type)" class="group">
+                            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                <v-icon name="bi-tags" class="w-4 h-4 text-emerald-500" />
+                                VLAN
+                            </label>
+                            <input
+                                v-model.number="form.vlan"
+                                type="number"
+                                min="0"
+                                max="4096"
+                                class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600
+                                       bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
+                                       focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10
+                                       transition-all duration-300 placeholder:text-gray-400"
+                                placeholder="100"
+                            />
+                        </div>
+                        <!-- ====== Fin campos de fibra ====== -->
+
                         <!-- Router (Zona) -->
                         <div class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -188,7 +296,7 @@
                         </div>
 
                         <!-- SSID -->
-                        <div class="group">
+                        <div v-if="!isFiber(form.element_type)" class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <v-icon name="md-wifi" class="w-4 h-4 text-cyan-500" />
                                 SSID
@@ -205,7 +313,7 @@
                         </div>
 
                         <!-- Frecuencia -->
-                        <div class="group">
+                        <div v-if="!isFiber(form.element_type)" class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <v-icon name="hi-wifi" class="w-4 h-4 text-orange-500" />
                                 Frecuencia (MHz)
@@ -375,14 +483,26 @@ import {
     antennaRadius,
     suggestedRadius as suggestRadius,
 } from '@/constants/antennas'
+import {
+    ELEMENT_TYPES,
+    SPLIT_RATIOS,
+    isFiber,
+    splitRatioPorts,
+    elementLabel as typeLabel,
+} from '@/constants/networkElements'
 
 const router = useRouter()
 
 const form = ref({
     name: '',
     element_type: 'sectorial',
+    parent_id: null,
     ip: '',
     type: null,
+    split_ratio: null,
+    ports_total: null,
+    pon_port: '',
+    vlan: null,
     antenna_type: null,
     coverage_radius_meters: null,
     user_rb: '',
@@ -399,6 +519,9 @@ const subtypeOptions = SECTORIAL_SUBTYPES
 const antennaOptions = ANTENNA_OPTIONS
 const antennaOptionLabel = (o) => `${o.label} · ~${o.radius} m`
 
+// Capacidad sugerida del splitter a partir del ratio (solo informativo).
+const splitterPorts = computed(() => splitRatioPorts(form.value.split_ratio))
+
 // Radio sugerido a partir de la antena/subtipo (para placeholder y ayuda).
 const suggestedRadius = computed(() =>
     suggestRadius(form.value.antenna_type, form.value.type)
@@ -410,16 +533,17 @@ watch(() => form.value.antenna_type, (val) => {
     if (r != null) form.value.coverage_radius_meters = r
 })
 
-const elementTypes = [
-    { value: 'sectorial', label: 'Sectorial', icon: 'md-router',      hint: 'Punto de acceso wireless' },
-    { value: 'switch',    label: 'Switch',    icon: 'bi-hdd-network', hint: 'Switch / equipo de capa 2' },
-    { value: 'nodo',      label: 'Nodo',      icon: 'bi-diagram-3',   hint: 'Nodo / sitio / torre' },
-]
+const elementTypes = ELEMENT_TYPES
+const splitRatios = SPLIT_RATIOS
 
 const loading = ref(false)
 const error = ref('')
 const routers = ref([])
+const elements = ref([]) // elementos existentes (para elegir padre en el árbol)
 const toast = ref(null)
+
+// Posibles padres: cualquier elemento existente del tenant.
+const parentOptions = computed(() => elements.value)
 
 const coordinates = ref({
     lat: '',
@@ -457,18 +581,29 @@ const loadRouters = async () => {
   routers.value = data || []
 }
 
+// Lista de elementos existentes para el selector de "padre" del árbol de fibra.
+const loadElements = async () => {
+  try {
+    const response = await api.sectorials.getAll()
+    elements.value = response.data || []
+  } catch (err) {
+    console.error('Error al cargar elementos para padre:', err)
+  }
+}
+
 onMounted(() => {
-  const userData = 
+  const userData =
     JSON.parse(localStorage.getItem("userData")) ??
     JSON.parse(sessionStorage.getItem("userData"))
-  
+
   if (userData?.tenant_id) {
     form.value.tenant_id = userData.tenant_id
   } else {
     error.value = 'No se pudo obtener la información del tenant. Por favor inicia sesión nuevamente.'
   }
-  
+
   loadRouters()
+  loadElements()
 })
 
 const handleSubmit = async () => {
@@ -496,6 +631,14 @@ const handleSubmit = async () => {
         dataToSend.coverage_radius_meters = form.value.coverage_radius_meters
             ? Number(form.value.coverage_radius_meters)
             : null
+
+        // Campos de fibra: enviar null cuando no aplican / están vacíos.
+        const fiber = isFiber(form.value.element_type)
+        dataToSend.parent_id   = fiber && form.value.parent_id ? Number(form.value.parent_id) : null
+        dataToSend.split_ratio = (form.value.element_type === 'splitter' && form.value.split_ratio) ? form.value.split_ratio : null
+        dataToSend.ports_total = (fiber && form.value.ports_total !== null && form.value.ports_total !== '') ? Number(form.value.ports_total) : null
+        dataToSend.pon_port    = fiber && form.value.pon_port ? form.value.pon_port : null
+        dataToSend.vlan        = (fiber && form.value.vlan !== null && form.value.vlan !== '') ? Number(form.value.vlan) : null
 
         if (coordinates.value.lat && coordinates.value.lng) {
             dataToSend.coordinates = JSON.stringify({

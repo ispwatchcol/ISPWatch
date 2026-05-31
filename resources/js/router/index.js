@@ -192,6 +192,12 @@ const routes = [
         meta: { title: 'Nueva Sectorial', permission: 'view_sectorials' },
       },
       {
+        path: 'topology',
+        name: 'FiberTopology',
+        component: () => import('@/pages/FiberTopology.vue'),
+        meta: { title: 'Topología FTTH', permission: 'view_sectorials' },
+      },
+      {
         path: ':id/edit',
         name: 'SectorialEdit',
         component: () => import('@/pages/SectorialEdit.vue'),

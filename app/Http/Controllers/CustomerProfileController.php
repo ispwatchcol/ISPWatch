@@ -378,6 +378,7 @@ class CustomerProfileController extends Controller
                 'ip_user'        => $data['ip_user'] ?? null,
                 'service_id'     => $data['service_id'] ?? null,
                 'sectorial_id'   => $data['sectorial_id'] ?? null,
+                'nap_port'       => $data['nap_port'] ?? null,
                 'router_id'      => $data['router_id'] ?? null,
                 'pppoe_username' => $data['pppoe_username'] ?? null,
                 'pppoe_password' => $data['pppoe_password'] ?? null,
@@ -484,6 +485,7 @@ class CustomerProfileController extends Controller
             'ip_user'      => $customer->ip_user,
             'service_id'   => $customer->service_id,
             'sectorial_id' => $customer->sectorial_id,
+            'nap_port'     => $customer->nap_port,
             'router_id'    => $customer->router_id,
             'status'         => $customer->status,
             'service_status' => $customer->service_status ?: ($customer->status ? 'activo' : 'suspendido'),
@@ -798,6 +800,7 @@ class CustomerProfileController extends Controller
             'ip_user'      => 'nullable|string|max:45',
             'service_id'   => 'nullable|integer|exists:service_plan,id',
             'sectorial_id' => 'nullable|integer|exists:sectorial,id',
+            'nap_port'     => 'nullable|string|max:20',
             'router_id'    => 'nullable|integer|exists:router,id',
 
             // PPPoE secret (optional)
@@ -872,6 +875,7 @@ class CustomerProfileController extends Controller
                 'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
                 'service_id'  => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
                 'sectorial_id'=> array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
+                'nap_port'    => array_key_exists('nap_port', $data) ? $data['nap_port'] : $customer->nap_port,
                 'router_id'      => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
                 'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
                 'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,

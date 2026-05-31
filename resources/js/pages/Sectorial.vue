@@ -8,14 +8,24 @@
             <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">Elementos de Red</h1>
             <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Sectoriales, switches y nodos de la infraestructura</p>
         </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+        <button
+            @click="router.push('/sectorials/topology')"
+            class="bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-2 transition-all flex-1 sm:flex-none"
+            title="Ver árbol de planta de fibra"
+        >
+            <v-icon name="bi-diagram-3" class="w-4 h-4" />
+            Topología FTTH
+        </button>
         <button
             v-if="can('view_sectorials')"
             @click="router.push('/sectorials/create')"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all w-full sm:w-auto"
+            class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all flex-1 sm:flex-none"
         >
             <icon-lucide-plus class="w-4 h-4" />
             Agregar Elemento
         </button>
+        </div>
         </div>
 
         <!-- Filtros y Acciones -->
@@ -104,6 +114,7 @@
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Elemento</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nombre</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Subtipo</th>
+                <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Capacidad</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Router</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Frecuencia</th>
                 <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Nodo Torre</th>
@@ -118,8 +129,24 @@
                         {{ elementLabel(sectorial.element_type) }}
                     </span>
                 </td>
-                <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">{{ sectorial.name }}</td>
-                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{{ sectorial.type || '-' }}</td>
+                <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">
+                    {{ sectorial.name }}
+                    <div v-if="getParentName(sectorial.parent_id)" class="text-[11px] text-gray-400 font-normal mt-0.5 flex items-center gap-1">
+                        <v-icon name="bi-arrow-return-right" class="w-3 h-3" />
+                        {{ getParentName(sectorial.parent_id) }}
+                    </div>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
+                    <span v-if="sectorial.element_type === 'splitter' && sectorial.split_ratio">{{ sectorial.split_ratio }}</span>
+                    <span v-else>{{ sectorial.type || '-' }}</span>
+                </td>
+                <td class="px-6 py-4 text-sm">
+                    <span v-if="capacityText(sectorial)" :class="capacityBadgeClass(sectorial)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border">
+                        <v-icon name="bi-ethernet" class="w-3 h-3" />
+                        {{ capacityText(sectorial) }}
+                    </span>
+                    <span v-else class="text-gray-400">-</span>
+                </td>
                 <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                     <span v-if="getRouterName(sectorial.zona_id)" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-md text-xs font-medium">
                         <v-icon name="bi-router" class="w-3 h-3" />
@@ -168,7 +195,7 @@
                 </tr>
 
                 <tr v-if="filteredSectorials.length === 0 && !loading">
-                <td colspan="7" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                <td colspan="8" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                     {{ searchQuery || elementFilter !== 'all' ? 'No se encontraron resultados' : 'No hay elementos registrados' }}
                 </td>
                 </tr>
@@ -187,11 +214,22 @@
                                 {{ elementLabel(sectorial.element_type) }}
                             </span>
                             <h3 class="font-semibold text-gray-800 dark:text-white text-sm leading-snug">{{ sectorial.name }}</h3>
+                            <p v-if="getParentName(sectorial.parent_id)" class="text-[11px] text-gray-400 flex items-center gap-1">
+                                <v-icon name="bi-arrow-return-right" class="w-3 h-3" />
+                                {{ getParentName(sectorial.parent_id) }}
+                            </p>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-1.5 text-xs">
-                        <div><span class="text-gray-400">Subtipo:</span> <span class="ml-1 text-gray-800 dark:text-gray-200">{{ sectorial.type || '-' }}</span></div>
+                        <div>
+                            <span class="text-gray-400">Subtipo:</span>
+                            <span class="ml-1 text-gray-800 dark:text-gray-200">{{ (sectorial.element_type === 'splitter' && sectorial.split_ratio) ? sectorial.split_ratio : (sectorial.type || '-') }}</span>
+                        </div>
+                        <div v-if="capacityText(sectorial)">
+                            <span class="text-gray-400">Puertos:</span>
+                            <span :class="capacityBadgeClass(sectorial)" class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-semibold">{{ capacityText(sectorial) }}</span>
+                        </div>
                         <div><span class="text-gray-400">Frecuencia:</span> <span class="ml-1 text-gray-800 dark:text-gray-200">{{ sectorial.frequency || '-' }}</span></div>
                         <div class="col-span-2"><span class="text-gray-400">Nodo:</span> <span class="ml-1 text-gray-800 dark:text-gray-200">{{ sectorial.node_tower || '-' }}</span></div>
                         <div class="col-span-2 mt-1">
@@ -442,6 +480,13 @@ import api from '../services/api'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
+import {
+    ELEMENT_FILTERS,
+    elementLabel,
+    elementIcon,
+    elementBadge,
+    isFiber,
+} from '@/constants/networkElements'
 
 const { can } = usePermissions()
 
@@ -455,21 +500,27 @@ const searchQuery = ref('')
 const elementFilter = ref('all')
 const toast = ref(null)
 
-const elementFilters = [
-    { value: 'all',       label: 'Todos',     icon: '' },
-    { value: 'sectorial', label: 'Sectoriales', icon: 'md-router' },
-    { value: 'switch',    label: 'Switches',  icon: 'bi-hdd-network' },
-    { value: 'nodo',      label: 'Nodos',     icon: 'bi-diagram-3' },
-]
+const elementFilters = ELEMENT_FILTERS
 
-const ELEMENT_META = {
-    sectorial: { label: 'Sectorial', icon: 'md-router',       color: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800' },
-    switch:    { label: 'Switch',    icon: 'bi-hdd-network',  color: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800' },
-    nodo:      { label: 'Nodo',      icon: 'bi-diagram-3',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' },
+// Nombre del elemento padre (está en la misma lista cargada).
+const getParentName = (parentId) => {
+    if (!parentId) return null
+    const p = sectorials.value.find(s => s.id === parentId)
+    return p ? p.name : null
 }
-const elementLabel = (t) => ELEMENT_META[t]?.label || 'Sectorial'
-const elementIcon  = (t) => ELEMENT_META[t]?.icon  || 'md-router'
-const elementBadge = (t) => ELEMENT_META[t]?.color || ELEMENT_META.sectorial.color
+
+// Texto de capacidad de puertos para elementos de fibra.
+const capacityText = (s) => {
+    if (s.ports_capacity == null) return null
+    return `${s.ports_used ?? 0}/${s.ports_capacity}`
+}
+const capacityBadgeClass = (s) => {
+    const free = s.ports_free
+    if (free == null) return 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-700/40 dark:text-gray-300 dark:border-gray-600'
+    if (free <= 0) return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+    if (free <= 2) return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
+    return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800'
+}
 
 // Estados del modal eliminar
 const showDeleteModal = ref(false)
