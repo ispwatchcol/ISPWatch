@@ -247,6 +247,116 @@
                 </div>
             </div>
 
+            <!-- Panel de trazabilidad (fibra manual) -->
+            <div
+                v-if="layers.traces"
+                class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 p-4 mb-4"
+            >
+                <div class="flex items-start gap-2 mb-3">
+                    <v-icon
+                        name="bi-diagram-3"
+                        class="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0"
+                    />
+                    <p
+                        class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed"
+                    >
+                        <strong class="text-gray-700 dark:text-gray-200"
+                            >Radioenlace:</strong
+                        >
+                        se dibuja solo, línea recta de cada cliente a su
+                        sectorial.
+                        <strong class="text-gray-700 dark:text-gray-200"
+                            >Fibra (NAP):</strong
+                        >
+                        elige un cliente y marca la ruta punto por punto haciendo
+                        clic en el mapa. La ruta es solo visual (no se guarda).
+                    </p>
+                </div>
+
+                <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+                    <div class="flex-1">
+                        <label
+                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                            >Cliente de fibra (NAP)</label
+                        >
+                        <select
+                            v-model="fiberCustomerId"
+                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                        >
+                            <option value="">— Selecciona un cliente —</option>
+                            <option
+                                v-for="c in fiberCustomers"
+                                :key="c.user_id"
+                                :value="String(c.user_id)"
+                            >
+                                {{ c.name }} {{ c.last_name }}
+                            </option>
+                        </select>
+                        <p
+                            v-if="!fiberCustomers.length"
+                            class="text-[11px] text-amber-600 dark:text-amber-400 mt-1"
+                        >
+                            No hay clientes asignados a una sectorial de fibra
+                            (NAP).
+                        </p>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            :disabled="!fiberCustomer"
+                            @click="
+                                fiberDrawing
+                                    ? finishFiberDrawing()
+                                    : startFiberDrawing()
+                            "
+                            :class="[
+                                'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all',
+                                fiberDrawing
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed',
+                            ]"
+                        >
+                            <v-icon
+                                :name="
+                                    fiberDrawing
+                                        ? 'ri-check-line'
+                                        : 'ri-pencil-line'
+                                "
+                                class="w-4 h-4"
+                            />
+                            {{ fiberDrawing ? "Terminar" : "Dibujar" }}
+                        </button>
+                        <button
+                            type="button"
+                            :disabled="!fiberPoints.length"
+                            @click="undoFiberPoint"
+                            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
+                            Deshacer
+                        </button>
+                        <button
+                            type="button"
+                            :disabled="!fiberPoints.length"
+                            @click="resetFiberTrace"
+                            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <v-icon name="ri-restart-line" class="w-4 h-4" />
+                            Reiniciar
+                        </button>
+                    </div>
+                </div>
+
+                <p
+                    v-if="fiberDrawing"
+                    class="text-xs text-emerald-600 dark:text-emerald-400 mt-2"
+                >
+                    Modo dibujo activo — haz clic en el mapa para añadir puntos
+                    ({{ fiberPoints.length }} marcados).
+                </p>
+            </div>
+
             <!-- Map -->
             <div
                 class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-gray-700"
@@ -370,7 +480,7 @@ const layerToggles = [
     {
         key: "traces",
         label: "Trazabilidad",
-        desc: "Cliente → nodo",
+        desc: "Radio ↔ sectorial · Fibra manual",
         icon: "bi-diagram-3",
         activeClass:
             "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
@@ -391,9 +501,14 @@ let infoWindow = null;
 let clusterer = null;
 let customerMarkers = [];
 let heatmap = null;
+let heatmapCells = [];
+let HeatmapLayerCtor = null;
 let coverageCircles = [];
 let traceLines = [];
 let nodeMarkers = [];
+let fiberLine = null;
+let fiberMarkers = [];
+let mapClickListener = null;
 let mapReady = false;
 
 const isAdmin = computed(() => authStore.isAdmin);
@@ -625,13 +740,73 @@ const clearLayers = () => {
         heatmap.setMap(null);
         heatmap = null;
     }
+    heatmapCells.forEach((c) => c.setMap(null));
+    heatmapCells = [];
     coverageCircles.forEach((c) => c.setMap(null));
     coverageCircles = [];
     traceLines.forEach((l) => l.setMap(null));
     traceLines = [];
     nodeMarkers.forEach((m) => m.setMap(null));
     nodeMarkers = [];
+    clearFiberOverlay();
     if (infoWindow) infoWindow.close();
+};
+
+// Densidad de clientes. Usa HeatmapLayer si Google aún lo provee; si no
+// (lo está retirando), agrega los clientes por celdas (~111 m) y pinta
+// círculos de color como respaldo, sin depender de la librería de visualización.
+const renderHeatmap = (list, g) => {
+    const points = list
+        .map((c) => ({ lat: Number(c.latitude), lng: Number(c.longitude) }))
+        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (!points.length) return;
+
+    if (typeof HeatmapLayerCtor === "function") {
+        heatmap = new HeatmapLayerCtor({
+            data: points.map((p) => new g.maps.LatLng(p.lat, p.lng)),
+            radius: 35,
+            opacity: 0.7,
+        });
+        heatmap.setMap(map);
+        return;
+    }
+
+    // Fallback sin dependencias: densidad por celdas.
+    const heatColors = ["#22C55E", "#84CC16", "#EAB308", "#F97316", "#EF4444"];
+    const cells = new Map();
+    points.forEach((p) => {
+        const key = `${p.lat.toFixed(3)}|${p.lng.toFixed(3)}`;
+        const cell = cells.get(key) || { lat: 0, lng: 0, n: 0 };
+        cell.lat += p.lat;
+        cell.lng += p.lng;
+        cell.n += 1;
+        cells.set(key, cell);
+    });
+    let max = 1;
+    cells.forEach((c) => {
+        if (c.n > max) max = c.n;
+    });
+    cells.forEach((c) => {
+        const intensity = c.n / max; // 0..1
+        const color =
+            heatColors[
+                Math.min(
+                    heatColors.length - 1,
+                    Math.floor(intensity * heatColors.length)
+                )
+            ];
+        const circle = new g.maps.Circle({
+            map,
+            center: { lat: c.lat / c.n, lng: c.lng / c.n },
+            radius: 60 + intensity * 140,
+            strokeOpacity: 0,
+            fillColor: color,
+            fillOpacity: 0.25 + intensity * 0.45,
+            clickable: false,
+            zIndex: 1,
+        });
+        heatmapCells.push(circle);
+    });
 };
 
 const applyLayers = () => {
@@ -678,27 +853,24 @@ const applyLayers = () => {
         }
     }
 
-    // Heatmap
-    if (layers.value.heatmap && g.maps.visualization) {
-        heatmap = new g.maps.visualization.HeatmapLayer({
-            data: list.map(
-                (c) =>
-                    new g.maps.LatLng(
-                        Number(c.latitude),
-                        Number(c.longitude)
-                    )
-            ),
-            radius: 35,
-            opacity: 0.7,
-        });
-        heatmap.setMap(map);
-        list.forEach((c) => {
-            bounds.extend({
-                lat: Number(c.latitude),
-                lng: Number(c.longitude),
+    // Heatmap (densidad de clientes). Aislado en try/catch: Google está
+    // retirando HeatmapLayer y, sin esta protección, un fallo aquí abortaba
+    // applyLayers y hacía desaparecer cobertura, nodos y sectoriales. Si el
+    // constructor no está disponible, renderHeatmap cae a un fallback por celdas
+    // para que la capa siempre muestre algo.
+    if (layers.value.heatmap) {
+        try {
+            renderHeatmap(list, g);
+            list.forEach((c) => {
+                bounds.extend({
+                    lat: Number(c.latitude),
+                    lng: Number(c.longitude),
+                });
+                hasBounds = true;
             });
-            hasBounds = true;
-        });
+        } catch (e) {
+            console.error("No se pudo dibujar el mapa de calor:", e);
+        }
     }
 
     // Coverage zones (circles around sectorials)
@@ -780,37 +952,34 @@ const applyLayers = () => {
         });
     }
 
-    // Traceability lines (customer → its router/node)
+    // Trazabilidad. Cada cliente se enlaza con SU sectorial (sectorial_id), no
+    // con el nodo principal. Según el tipo de sectorial:
+    //  • Radioenlace → línea recta automática cliente ↔ sectorial.
+    //  • Fibra (NAP) → ruta manual punto por punto (drawFiberTrace); aquí solo
+    //    se trazan las de radioenlace.
     if (layers.value.traces) {
-        const routerById = new Map(
-            routers.value.map((r) => [String(r.id), r])
-        );
         list.forEach((c) => {
-            if (!c.router_id) return;
-            const node = routerById.get(String(c.router_id));
-            if (!node) return;
+            if (!c.sectorial_id) return;
+            const sec = sectorialById.value.get(String(c.sectorial_id));
+            if (!sec || isFiberSectorial(sec)) return;
             const line = new g.maps.Polyline({
                 map,
                 path: [
-                    {
-                        lat: Number(c.latitude),
-                        lng: Number(c.longitude),
-                    },
-                    {
-                        lat: Number(node.latitude),
-                        lng: Number(node.longitude),
-                    },
+                    { lat: Number(c.latitude), lng: Number(c.longitude) },
+                    { lat: Number(sec.latitude), lng: Number(sec.longitude) },
                 ],
                 geodesic: true,
                 strokeColor:
                     (c.service_status || "activo") === "activo"
                         ? "#10B981"
                         : "#EF4444",
-                strokeOpacity: 0.5,
+                strokeOpacity: 0.6,
                 strokeWeight: 1.5,
             });
             traceLines.push(line);
         });
+
+        drawFiberTrace(g);
     }
 
     if (hasBounds) {
@@ -819,6 +988,130 @@ const applyLayers = () => {
             if (map.getZoom() > 16) map.setZoom(16);
         });
     }
+};
+
+// ── Trazabilidad ───────────────────────────────────────────────────────────
+// Índice de sectoriales por id para enlazar cada cliente con SU sectorial.
+const sectorialById = computed(
+    () => new Map(sectorials.value.map((s) => [String(s.id), s]))
+);
+
+// Una sectorial de fibra es una NAP; el resto se tratan como radioenlace.
+const isFiberSectorial = (sec) =>
+    String(sec?.type || "")
+        .toUpperCase()
+        .includes("NAP");
+
+// Clientes cuya sectorial es de fibra (NAP): se trazan a mano, punto por punto.
+const fiberCustomers = computed(() =>
+    filteredCustomers.value.filter((c) => {
+        if (!c.sectorial_id) return false;
+        const sec = sectorialById.value.get(String(c.sectorial_id));
+        return sec && isFiberSectorial(sec);
+    })
+);
+
+// Estado del trazado de fibra activo (solo en sesión, no se guarda en BD).
+const fiberCustomerId = ref("");
+const fiberPoints = ref([]); // waypoints intermedios entre la NAP y el cliente
+const fiberDrawing = ref(false);
+
+const fiberCustomer = computed(
+    () =>
+        fiberCustomers.value.find(
+            (c) => String(c.user_id) === String(fiberCustomerId.value)
+        ) || null
+);
+
+const startFiberDrawing = () => {
+    if (!fiberCustomer.value) return;
+    layers.value.traces = true;
+    fiberDrawing.value = true;
+};
+const finishFiberDrawing = () => {
+    fiberDrawing.value = false;
+};
+const undoFiberPoint = () => {
+    fiberPoints.value = fiberPoints.value.slice(0, -1);
+};
+const resetFiberTrace = () => {
+    fiberPoints.value = [];
+};
+
+// En modo dibujo, cada clic en el mapa añade un punto a la ruta de fibra.
+const onMapClick = (e) => {
+    if (!fiberDrawing.value || !fiberCustomer.value) return;
+    fiberPoints.value = [
+        ...fiberPoints.value,
+        { lat: e.latLng.lat(), lng: e.latLng.lng() },
+    ];
+};
+
+const clearFiberOverlay = () => {
+    if (fiberLine) {
+        fiberLine.setMap(null);
+        fiberLine = null;
+    }
+    fiberMarkers.forEach((m) => m.setMap(null));
+    fiberMarkers = [];
+};
+
+// Dibuja la ruta de fibra en curso: NAP → waypoints → cliente (línea punteada
+// + marcadores numerados que se pueden deshacer/reiniciar).
+const drawFiberTrace = (g) => {
+    clearFiberOverlay();
+    const c = fiberCustomer.value;
+    if (!c) return;
+    const sec = sectorialById.value.get(String(c.sectorial_id));
+    if (!sec) return;
+
+    const nap = { lat: Number(sec.latitude), lng: Number(sec.longitude) };
+    const cust = { lat: Number(c.latitude), lng: Number(c.longitude) };
+    if (
+        !Number.isFinite(nap.lat) ||
+        !Number.isFinite(nap.lng) ||
+        !Number.isFinite(cust.lat) ||
+        !Number.isFinite(cust.lng)
+    )
+        return;
+
+    fiberLine = new g.maps.Polyline({
+        map,
+        path: [nap, ...fiberPoints.value, cust],
+        geodesic: true,
+        strokeOpacity: 0,
+        icons: [
+            {
+                icon: {
+                    path: "M 0,-1 0,1",
+                    strokeColor: "#0EA5E9",
+                    strokeOpacity: 1,
+                    strokeWeight: 3,
+                    scale: 2,
+                },
+                offset: "0",
+                repeat: "14px",
+            },
+        ],
+        zIndex: 1000,
+    });
+
+    fiberPoints.value.forEach((p, i) => {
+        const marker = new g.maps.Marker({
+            map,
+            position: p,
+            label: { text: String(i + 1), color: "#fff", fontSize: "10px" },
+            icon: {
+                path: g.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#0EA5E9",
+                fillOpacity: 1,
+                strokeColor: "#fff",
+                strokeWeight: 2,
+            },
+        });
+        fiberMarkers.push(marker);
+    });
 };
 
 const initMap = async () => {
@@ -834,6 +1127,20 @@ const initMap = async () => {
         fullscreenControl: true,
     });
     infoWindow = new g.maps.InfoWindow();
+
+    // Con loading=async, HeatmapLayer ya no se adjunta de forma fiable al
+    // namespace clásico; importLibrary es la vía recomendada. Si Google ya la
+    // retiró, HeatmapLayerCtor queda null y renderHeatmap usa el fallback.
+    try {
+        const viz = await g.maps.importLibrary("visualization");
+        HeatmapLayerCtor =
+            viz?.HeatmapLayer || g.maps.visualization?.HeatmapLayer || null;
+    } catch (e) {
+        console.warn("Librería de visualización no disponible:", e);
+        HeatmapLayerCtor = g.maps.visualization?.HeatmapLayer || null;
+    }
+
+    mapClickListener = map.addListener("click", onMapClick);
     mapReady = true;
     applyLayers();
 };
@@ -899,11 +1206,33 @@ watch(
     { deep: true }
 );
 
+// Redibuja solo la ruta de fibra cuando cambian sus puntos o el cliente
+// seleccionado, sin reconstruir el resto de capas.
+watch(
+    [fiberPoints, fiberCustomerId, fiberDrawing],
+    () => {
+        if (mapReady && window.google?.maps && layers.value.traces) {
+            drawFiberTrace(window.google);
+        }
+    },
+    { deep: true }
+);
+
+// Cambiar de cliente reinicia la ruta en curso.
+watch(fiberCustomerId, () => {
+    fiberPoints.value = [];
+    fiberDrawing.value = false;
+});
+
 onMounted(() => {
     loadMapData();
 });
 
 onBeforeUnmount(() => {
+    if (mapClickListener) {
+        mapClickListener.remove();
+        mapClickListener = null;
+    }
     clearLayers();
     map = null;
     mapReady = false;
