@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Log;
  */
 class HotspotManager
 {
+    use NormalizesRouterComment;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -44,7 +47,7 @@ class HotspotManager
         ?string $address = null,
         ?string $comment = null
     ): array {
-        $comment = ($comment !== null && trim($comment) !== '') ? trim($comment) : 'ISPWatch Auto';
+        $comment = $this->normalizeRouterComment($comment);
 
         if (trim($username) === '') {
             return ['success' => false, 'message' => 'El usuario HotSpot está vacío.'];

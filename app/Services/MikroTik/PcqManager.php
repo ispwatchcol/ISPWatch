@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\Log;
  */
 class PcqManager
 {
+    use NormalizesRouterComment;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -52,7 +55,7 @@ class PcqManager
             return ['success' => false, 'message' => 'IP del cliente inválida para address-list.'];
         }
         $targetIp = trim($targetIp);
-        $comment  = ($comment !== null && trim($comment) !== '') ? trim($comment) : 'ISPWatch Auto';
+        $comment  = $this->normalizeRouterComment($comment);
 
         try {
             Log::info('[PcqManager] Ensuring client in address-list', [
