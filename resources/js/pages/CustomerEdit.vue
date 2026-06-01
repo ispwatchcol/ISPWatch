@@ -705,7 +705,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
@@ -772,6 +772,10 @@ const errorMsg       = ref('')
 const pppoeUserError = ref('')
 const pppoePassError = ref('')
 const emailTenant    = ref('')
+// Mientras carga el cliente + catálogos, evita que los watchers de "limpieza"
+// (p. ej. el reset del plan al cambiar de router) borren los valores recién
+// cargados antes de que filteredPlans tenga datos. Ver onMounted.
+const initializing   = ref(true)
 
 const plans      = ref([])
 const sectorials = ref([])
@@ -936,6 +940,9 @@ const planHint = computed(() => {
 })
 
 watch(() => form.value.router_id, () => {
+    // No tocar el plan durante la carga inicial: en ese momento filteredPlans aún
+    // puede estar vacío (catálogos sin llegar) y borraría el plan ya guardado.
+    if (initializing.value) return
     if (form.value.service_id && !filteredPlans.value.find(p => p.id === form.value.service_id)) {
         form.value.service_id = null
     }
@@ -1167,9 +1174,14 @@ const onFormKeydown = (e) => {
     }
 }
 
-onMounted(() => {
-    loadCatalogs()
-    loadCustomer()
+onMounted(async () => {
+    // Esperar catálogos y cliente juntos: así, cuando se asigna el form, filteredPlans
+    // ya tiene los planes del router y el plan guardado se muestra. nextTick deja correr
+    // los watchers disparados por la asignación (protegidos por initializing) antes de
+    // habilitar la limpieza automática del plan.
+    await Promise.all([loadCatalogs(), loadCustomer()])
+    await nextTick()
+    initializing.value = false
 })
 </script>
 
