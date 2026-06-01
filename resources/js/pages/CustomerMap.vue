@@ -247,7 +247,7 @@
                 </div>
             </div>
 
-            <!-- Panel de trazabilidad (fibra manual) -->
+            <!-- Panel de trazabilidad (elige sectorial → cliente) -->
             <div
                 v-if="layers.traces"
                 class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 p-4 mb-4"
@@ -260,32 +260,50 @@
                     <p
                         class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed"
                     >
-                        <strong class="text-gray-700 dark:text-gray-200"
-                            >Radioenlace:</strong
-                        >
-                        se dibuja solo, línea recta de cada cliente a su
-                        sectorial.
-                        <strong class="text-gray-700 dark:text-gray-200"
-                            >Fibra (NAP):</strong
-                        >
-                        elige un cliente y marca la ruta punto por punto haciendo
-                        clic en el mapa. La ruta es solo visual (no se guarda).
+                        Elige una <strong class="text-gray-700 dark:text-gray-200">sectorial</strong>
+                        y un <strong class="text-gray-700 dark:text-gray-200">cliente</strong> conectado a ella.
+                        <strong class="text-gray-700 dark:text-gray-200">Fibra (NAP):</strong>
+                        marca la ruta punto por punto haciendo clic en el mapa (solo visual, no se guarda).
+                        <strong class="text-gray-700 dark:text-gray-200">Radioenlace:</strong>
+                        muestra el perfil de elevación del enlace con la línea de vista.
                     </p>
                 </div>
 
-                <div class="flex flex-col sm:flex-row sm:items-end gap-3">
-                    <div class="flex-1">
+                <!-- Selección: sectorial + cliente -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
                         <label
                             class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
-                            >Cliente de fibra (NAP)</label
+                            >Sectorial / AP</label
                         >
                         <select
-                            v-model="fiberCustomerId"
+                            v-model="traceSectorialId"
                             class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                        >
+                            <option value="">— Selecciona una sectorial —</option>
+                            <option
+                                v-for="s in traceableSectorials"
+                                :key="s.id"
+                                :value="String(s.id)"
+                            >
+                                {{ s.name }} ·
+                                {{ isFiberSectorial(s) ? "Fibra/NAP" : "Radio" }}
+                            </option>
+                        </select>
+                    </div>
+                    <div>
+                        <label
+                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                            >Cliente conectado</label
+                        >
+                        <select
+                            v-model="traceCustomerId"
+                            :disabled="!traceSectorial"
+                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50"
                         >
                             <option value="">— Selecciona un cliente —</option>
                             <option
-                                v-for="c in fiberCustomers"
+                                v-for="c in traceCustomers"
                                 :key="c.user_id"
                                 :value="String(c.user_id)"
                             >
@@ -293,68 +311,256 @@
                             </option>
                         </select>
                         <p
-                            v-if="!fiberCustomers.length"
+                            v-if="traceSectorial && !traceCustomers.length"
                             class="text-[11px] text-amber-600 dark:text-amber-400 mt-1"
                         >
-                            No hay clientes asignados a una sectorial de fibra
-                            (NAP).
+                            Esta sectorial no tiene clientes conectados
+                            (asigna su sectorial al cliente para trazarlo).
                         </p>
-                    </div>
-
-                    <div class="flex flex-wrap gap-2">
-                        <button
-                            type="button"
-                            :disabled="!fiberCustomer"
-                            @click="
-                                fiberDrawing
-                                    ? finishFiberDrawing()
-                                    : startFiberDrawing()
-                            "
-                            :class="[
-                                'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all',
-                                fiberDrawing
-                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed',
-                            ]"
-                        >
-                            <v-icon
-                                :name="
-                                    fiberDrawing
-                                        ? 'ri-check-line'
-                                        : 'ri-pencil-line'
-                                "
-                                class="w-4 h-4"
-                            />
-                            {{ fiberDrawing ? "Terminar" : "Dibujar" }}
-                        </button>
-                        <button
-                            type="button"
-                            :disabled="!fiberPoints.length"
-                            @click="undoFiberPoint"
-                            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
-                            Deshacer
-                        </button>
-                        <button
-                            type="button"
-                            :disabled="!fiberPoints.length"
-                            @click="resetFiberTrace"
-                            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            <v-icon name="ri-restart-line" class="w-4 h-4" />
-                            Reiniciar
-                        </button>
                     </div>
                 </div>
 
-                <p
-                    v-if="fiberDrawing"
-                    class="text-xs text-emerald-600 dark:text-emerald-400 mt-2"
+                <!-- Acciones de fibra: dibujo manual -->
+                <div
+                    v-if="traceIsFiber"
+                    class="flex flex-wrap gap-2 mt-3"
                 >
-                    Modo dibujo activo — haz clic en el mapa para añadir puntos
-                    ({{ fiberPoints.length }} marcados).
-                </p>
+                    <button
+                        type="button"
+                        :disabled="!traceCustomer"
+                        @click="
+                            fiberDrawing
+                                ? finishFiberDrawing()
+                                : startFiberDrawing()
+                        "
+                        :class="[
+                            'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all',
+                            fiberDrawing
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed',
+                        ]"
+                    >
+                        <v-icon
+                            :name="
+                                fiberDrawing
+                                    ? 'ri-check-line'
+                                    : 'ri-pencil-line'
+                            "
+                            class="w-4 h-4"
+                        />
+                        {{ fiberDrawing ? "Terminar" : "Dibujar ruta" }}
+                    </button>
+                    <button
+                        type="button"
+                        :disabled="!fiberPoints.length"
+                        @click="undoFiberPoint"
+                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
+                        Deshacer
+                    </button>
+                    <button
+                        type="button"
+                        :disabled="!fiberPoints.length"
+                        @click="resetFiberTrace"
+                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <v-icon name="ri-restart-line" class="w-4 h-4" />
+                        Reiniciar
+                    </button>
+                    <p
+                        v-if="fiberDrawing"
+                        class="w-full text-xs text-emerald-600 dark:text-emerald-400 mt-1"
+                    >
+                        Modo dibujo activo — haz clic en el mapa para añadir
+                        puntos ({{ fiberPoints.length }} marcados).
+                    </p>
+                </div>
+
+                <!-- Acciones de radio: perfil de elevación -->
+                <div
+                    v-else-if="traceSectorial"
+                    class="flex flex-wrap items-end gap-3 mt-3"
+                >
+                    <div>
+                        <label
+                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                            >Altura AP (m)</label
+                        >
+                        <input
+                            v-model.number="apHeight"
+                            type="number"
+                            min="0"
+                            step="1"
+                            class="w-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                            >Altura cliente (m)</label
+                        >
+                        <input
+                            v-model.number="cpeHeight"
+                            type="number"
+                            min="0"
+                            step="1"
+                            class="w-28 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        :disabled="!traceCustomer || elevation.loading"
+                        @click="computeElevation"
+                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <v-icon
+                            :name="
+                                elevation.loading
+                                    ? 'ri-loader-4-line'
+                                    : 'bi-graph-up'
+                            "
+                            :class="[
+                                'w-4 h-4',
+                                elevation.loading ? 'animate-spin' : '',
+                            ]"
+                        />
+                        {{
+                            elevation.loading
+                                ? "Calculando…"
+                                : "Perfil de elevación"
+                        }}
+                    </button>
+                </div>
+
+                <!-- Perfil de elevación (radioenlace) -->
+                <div
+                    v-if="!traceIsFiber && traceSectorial && (elevation.error || elevationChart)"
+                    class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4"
+                >
+                    <p
+                        v-if="elevation.error"
+                        class="text-sm text-rose-600 dark:text-rose-400"
+                    >
+                        {{ elevation.error }}
+                    </p>
+
+                    <div v-else-if="elevationChart">
+                        <!-- Resumen del enlace -->
+                        <div
+                            class="flex flex-wrap items-center gap-x-5 gap-y-1 mb-3 text-xs"
+                        >
+                            <span class="text-gray-500 dark:text-gray-400">
+                                <strong class="text-gray-800 dark:text-gray-100">{{
+                                    traceSectorial.name
+                                }}</strong>
+                                →
+                                <strong class="text-gray-800 dark:text-gray-100"
+                                    >{{ traceCustomer?.name }}
+                                    {{ traceCustomer?.last_name }}</strong
+                                >
+                            </span>
+                            <span class="text-gray-500 dark:text-gray-400">
+                                Distancia:
+                                <strong class="text-gray-800 dark:text-gray-100">{{
+                                    elevationDistanceLabel
+                                }}</strong>
+                            </span>
+                            <span
+                                :class="[
+                                    'inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full',
+                                    elevationChart.clear
+                                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                        : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+                                ]"
+                            >
+                                <v-icon
+                                    :name="
+                                        elevationChart.clear
+                                            ? 'ri-checkbox-circle-line'
+                                            : 'ri-error-warning-line'
+                                    "
+                                    class="w-3.5 h-3.5"
+                                />
+                                {{
+                                    elevationChart.clear
+                                        ? "Línea de vista despejada"
+                                        : "Posible obstrucción"
+                                }}
+                                ({{ elevationChart.worst }} m)
+                            </span>
+                        </div>
+
+                        <!-- Gráfico SVG: terreno + línea de vista -->
+                        <div
+                            class="relative rounded-lg overflow-hidden border border-gray-100 dark:border-gray-700 bg-gradient-to-b from-sky-50 to-white dark:from-sky-950/40 dark:to-gray-800"
+                        >
+                            <svg
+                                :viewBox="`0 0 ${elevationChart.W} ${elevationChart.H}`"
+                                preserveAspectRatio="none"
+                                class="w-full h-[200px] block"
+                            >
+                                <path
+                                    :d="elevationChart.terrain"
+                                    fill="#86efac"
+                                    fill-opacity="0.55"
+                                    stroke="#16a34a"
+                                    stroke-width="1.5"
+                                />
+                                <path
+                                    :d="elevationChart.los"
+                                    fill="none"
+                                    :stroke="
+                                        elevationChart.clear
+                                            ? '#6366F1'
+                                            : '#ef4444'
+                                    "
+                                    stroke-width="2"
+                                    stroke-dasharray="6 4"
+                                />
+                                <circle
+                                    :cx="elevationChart.ap.x"
+                                    :cy="elevationChart.ap.y"
+                                    r="5"
+                                    fill="#6366F1"
+                                    stroke="#fff"
+                                    stroke-width="2"
+                                />
+                                <circle
+                                    :cx="elevationChart.cpe.x"
+                                    :cy="elevationChart.cpe.y"
+                                    r="5"
+                                    fill="#6366F1"
+                                    stroke="#fff"
+                                    stroke-width="2"
+                                />
+                            </svg>
+                            <!-- Etiquetas de extremos -->
+                            <span
+                                class="absolute top-1 left-2 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300"
+                                >AP · {{ elevationChart.apGround }} m</span
+                            >
+                            <span
+                                class="absolute top-1 right-2 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300"
+                                >Cliente · {{ elevationChart.cpeGround }} m</span
+                            >
+                            <span
+                                class="absolute bottom-1 left-2 text-[10px] text-gray-500 dark:text-gray-400"
+                                >Elev. {{ elevationChart.minEl }}–{{
+                                    elevationChart.maxEl
+                                }}
+                                m</span
+                            >
+                        </div>
+                        <p
+                            class="text-[11px] text-gray-400 dark:text-gray-500 mt-1"
+                        >
+                            Perfil del terreno entre AP y cliente (Google
+                            Elevation API). La línea punteada es la línea de
+                            vista según las alturas de antena indicadas.
+                        </p>
+                    </div>
+                </div>
             </div>
 
             <!-- Map -->
@@ -697,6 +903,14 @@ const customerPopup = (c) => {
     const initial = escapeHtml(
         (c.name || c.last_name || "?").trim().charAt(0).toUpperCase()
     );
+    // Enlace directo a Google Maps con las coordenadas del cliente (abre el pin
+    // en una pestaña nueva; útil para que el técnico navegue hasta el domicilio).
+    const lat = Number(c.latitude);
+    const lng = Number(c.longitude);
+    const mapsUrl =
+        Number.isFinite(lat) && Number.isFinite(lng)
+            ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+            : "";
     return `
     <div style="font-family:inherit;min-width:240px;max-width:290px;">
         <div style="display:flex;align-items:flex-start;gap:10px;padding-bottom:10px;">
@@ -722,10 +936,21 @@ const customerPopup = (c) => {
             ${popupRow("Ciudad", c.city)}
             ${popupRow("Dirección", c.address)}
         </div>
-        <a href="/customers/${encodeURIComponent(c.user_id)}/edit"
-           style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:12px;background:#2563EB;color:#fff;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;">
-            Editar cliente
-        </a>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+            <a href="/customers/${encodeURIComponent(c.user_id)}/edit"
+               style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#2563EB;color:#fff;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;">
+                Editar
+            </a>
+            ${
+                mapsUrl
+                    ? `<a href="${mapsUrl}" target="_blank" rel="noopener noreferrer"
+                   style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;color:#047857;border:1px solid #A7F3D0;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z" stroke="#047857" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" stroke="#047857" stroke-width="2"/></svg>
+                    Google Maps
+                </a>`
+                    : ""
+            }
+        </div>
     </div>`;
 };
 
@@ -1145,8 +1370,8 @@ const applyLayers = () => {
     // Trazabilidad. Cada cliente se enlaza con SU sectorial (sectorial_id), no
     // con el nodo principal. Según el tipo de sectorial:
     //  • Radioenlace → línea recta automática cliente ↔ sectorial.
-    //  • Fibra (NAP) → ruta manual punto por punto (drawFiberTrace); aquí solo
-    //    se trazan las de radioenlace.
+    //  • Fibra (NAP) → ruta manual punto por punto (drawSelectedTrace); aquí
+    //    solo se trazan las de radioenlace.
     if (layers.value.traces) {
         list.forEach((c) => {
             if (!c.sectorial_id) return;
@@ -1169,7 +1394,7 @@ const applyLayers = () => {
             traceLines.push(line);
         });
 
-        drawFiberTrace(g);
+        drawSelectedTrace(g);
     }
 
     if (hasBounds) {
@@ -1186,35 +1411,55 @@ const sectorialById = computed(
     () => new Map(sectorials.value.map((s) => [String(s.id), s]))
 );
 
-// Una sectorial de fibra es una NAP; el resto se tratan como radioenlace.
+// ¿La sectorial es planta de fibra? Reconoce tanto el nuevo element_type
+// (nap/splitter/olt/mufa) como datos heredados cuyo subtipo (type) decía "NAP".
 const isFiberSectorial = (sec) =>
+    isFiber(sec?.element_type) ||
     String(sec?.type || "")
         .toUpperCase()
         .includes("NAP");
 
-// Clientes cuya sectorial es de fibra (NAP): se trazan a mano, punto por punto.
-const fiberCustomers = computed(() =>
-    filteredCustomers.value.filter((c) => {
-        if (!c.sectorial_id) return false;
-        const sec = sectorialById.value.get(String(c.sectorial_id));
-        return sec && isFiberSectorial(sec);
-    })
+// Sectoriales con coordenadas válidas, para el selector del panel.
+const traceableSectorials = computed(() =>
+    sectorials.value.filter(
+        (s) =>
+            Number.isFinite(Number(s.latitude)) &&
+            Number.isFinite(Number(s.longitude))
+    )
 );
 
-// Estado del trazado de fibra activo (solo en sesión, no se guarda en BD).
-const fiberCustomerId = ref("");
-const fiberPoints = ref([]); // waypoints intermedios entre la NAP y el cliente
+// El flujo arranca eligiendo la SECTORIAL; luego el cliente conectado a ella.
+const traceSectorialId = ref("");
+const traceCustomerId = ref("");
+const fiberPoints = ref([]); // waypoints intermedios (solo fibra)
 const fiberDrawing = ref(false);
 
-const fiberCustomer = computed(
+const traceSectorial = computed(
     () =>
-        fiberCustomers.value.find(
-            (c) => String(c.user_id) === String(fiberCustomerId.value)
+        traceableSectorials.value.find(
+            (s) => String(s.id) === String(traceSectorialId.value)
+        ) || null
+);
+const traceIsFiber = computed(
+    () => !!traceSectorial.value && isFiberSectorial(traceSectorial.value)
+);
+
+// Clientes conectados a la sectorial elegida (su sectorial_id apunta a ella).
+const traceCustomers = computed(() => {
+    if (!traceSectorial.value) return [];
+    return filteredCustomers.value.filter(
+        (c) => String(c.sectorial_id) === String(traceSectorial.value.id)
+    );
+});
+const traceCustomer = computed(
+    () =>
+        traceCustomers.value.find(
+            (c) => String(c.user_id) === String(traceCustomerId.value)
         ) || null
 );
 
 const startFiberDrawing = () => {
-    if (!fiberCustomer.value) return;
+    if (!traceIsFiber.value || !traceCustomer.value) return;
     layers.value.traces = true;
     fiberDrawing.value = true;
 };
@@ -1228,9 +1473,10 @@ const resetFiberTrace = () => {
     fiberPoints.value = [];
 };
 
-// En modo dibujo, cada clic en el mapa añade un punto a la ruta de fibra.
+// En modo dibujo (fibra), cada clic en el mapa añade un punto a la ruta.
 const onMapClick = (e) => {
-    if (!fiberDrawing.value || !fiberCustomer.value) return;
+    if (!fiberDrawing.value || !traceIsFiber.value || !traceCustomer.value)
+        return;
     fiberPoints.value = [
         ...fiberPoints.value,
         { lat: e.latLng.lat(), lng: e.latLng.lng() },
@@ -1246,63 +1492,241 @@ const clearFiberOverlay = () => {
     fiberMarkers = [];
 };
 
-// Dibuja la ruta de fibra en curso: NAP → waypoints → cliente (línea punteada
-// + marcadores numerados que se pueden deshacer/reiniciar).
-const drawFiberTrace = (g) => {
+// Resalta el enlace seleccionado: ruta punteada con waypoints si es fibra, o
+// una línea recta gruesa sectorial↔cliente si es radioenlace.
+const drawSelectedTrace = (g) => {
     clearFiberOverlay();
-    const c = fiberCustomer.value;
-    if (!c) return;
-    const sec = sectorialById.value.get(String(c.sectorial_id));
-    if (!sec) return;
+    const sec = traceSectorial.value;
+    const c = traceCustomer.value;
+    if (!sec || !c) return;
 
-    const nap = { lat: Number(sec.latitude), lng: Number(sec.longitude) };
-    const cust = { lat: Number(c.latitude), lng: Number(c.longitude) };
+    const a = { lat: Number(sec.latitude), lng: Number(sec.longitude) };
+    const b = { lat: Number(c.latitude), lng: Number(c.longitude) };
     if (
-        !Number.isFinite(nap.lat) ||
-        !Number.isFinite(nap.lng) ||
-        !Number.isFinite(cust.lat) ||
-        !Number.isFinite(cust.lng)
+        !Number.isFinite(a.lat) ||
+        !Number.isFinite(a.lng) ||
+        !Number.isFinite(b.lat) ||
+        !Number.isFinite(b.lng)
     )
         return;
 
-    fiberLine = new g.maps.Polyline({
-        map,
-        path: [nap, ...fiberPoints.value, cust],
-        geodesic: true,
-        strokeOpacity: 0,
-        icons: [
-            {
-                icon: {
-                    path: "M 0,-1 0,1",
-                    strokeColor: "#0EA5E9",
-                    strokeOpacity: 1,
-                    strokeWeight: 3,
-                    scale: 2,
-                },
-                offset: "0",
-                repeat: "14px",
-            },
-        ],
-        zIndex: 1000,
-    });
-
-    fiberPoints.value.forEach((p, i) => {
-        const marker = new g.maps.Marker({
+    if (traceIsFiber.value) {
+        // Fibra: ruta manual punteada NAP → waypoints → cliente.
+        fiberLine = new g.maps.Polyline({
             map,
-            position: p,
-            label: { text: String(i + 1), color: "#fff", fontSize: "10px" },
-            icon: {
-                path: g.maps.SymbolPath.CIRCLE,
-                scale: 8,
-                fillColor: "#0EA5E9",
-                fillOpacity: 1,
-                strokeColor: "#fff",
-                strokeWeight: 2,
-            },
+            path: [a, ...fiberPoints.value, b],
+            geodesic: true,
+            strokeOpacity: 0,
+            icons: [
+                {
+                    icon: {
+                        path: "M 0,-1 0,1",
+                        strokeColor: "#0EA5E9",
+                        strokeOpacity: 1,
+                        strokeWeight: 3,
+                        scale: 2,
+                    },
+                    offset: "0",
+                    repeat: "14px",
+                },
+            ],
+            zIndex: 1000,
         });
-        fiberMarkers.push(marker);
-    });
+
+        fiberPoints.value.forEach((p, i) => {
+            const marker = new g.maps.Marker({
+                map,
+                position: p,
+                label: {
+                    text: String(i + 1),
+                    color: "#fff",
+                    fontSize: "10px",
+                },
+                icon: {
+                    path: g.maps.SymbolPath.CIRCLE,
+                    scale: 8,
+                    fillColor: "#0EA5E9",
+                    fillOpacity: 1,
+                    strokeColor: "#fff",
+                    strokeWeight: 2,
+                },
+            });
+            fiberMarkers.push(marker);
+        });
+    } else {
+        // Radioenlace: línea recta resaltada del AP al cliente.
+        fiberLine = new g.maps.Polyline({
+            map,
+            path: [a, b],
+            geodesic: true,
+            strokeColor: "#6366F1",
+            strokeOpacity: 0.95,
+            strokeWeight: 3.5,
+            zIndex: 1000,
+        });
+        [a, b].forEach((pos) => {
+            const marker = new g.maps.Marker({
+                map,
+                position: pos,
+                icon: {
+                    path: g.maps.SymbolPath.CIRCLE,
+                    scale: 6,
+                    fillColor: "#6366F1",
+                    fillOpacity: 1,
+                    strokeColor: "#fff",
+                    strokeWeight: 2,
+                },
+                zIndex: 1001,
+            });
+            fiberMarkers.push(marker);
+        });
+    }
 };
+
+// ── Perfil de elevación (radioenlace) ───────────────────────────────────────
+// Distancia geodésica (m) entre dos puntos por la fórmula del haversine, para
+// no depender de la librería "geometry" de Google.
+const haversineMeters = (lat1, lng1, lat2, lng2) => {
+    const R = 6371000;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const s =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+};
+
+// Alturas de antena (m) editables; afectan la línea de vista del perfil.
+const apHeight = ref(15);
+const cpeHeight = ref(6);
+
+// Resultado de la consulta a la Elevation API.
+const elevation = ref({
+    loading: false,
+    error: "",
+    samples: [],
+    distanceM: 0,
+});
+
+let elevationService = null;
+
+const computeElevation = () => {
+    const sec = traceSectorial.value;
+    const c = traceCustomer.value;
+    const g = window.google;
+    if (!sec || !c || !g?.maps) return;
+
+    const aLat = Number(sec.latitude);
+    const aLng = Number(sec.longitude);
+    const bLat = Number(c.latitude);
+    const bLng = Number(c.longitude);
+    const distanceM = haversineMeters(aLat, aLng, bLat, bLng);
+
+    elevation.value = { loading: true, error: "", samples: [], distanceM };
+
+    if (!elevationService) {
+        elevationService = new g.maps.ElevationService();
+    }
+    elevationService.getElevationAlongPath(
+        {
+            path: [
+                new g.maps.LatLng(aLat, aLng),
+                new g.maps.LatLng(bLat, bLng),
+            ],
+            samples: 180,
+        },
+        (results, status) => {
+            if (status === "OK" && Array.isArray(results)) {
+                elevation.value = {
+                    loading: false,
+                    error: "",
+                    samples: results.map((r) => r.elevation),
+                    distanceM,
+                };
+            } else {
+                elevation.value = {
+                    loading: false,
+                    error:
+                        status === "REQUEST_DENIED"
+                            ? "La Elevation API está deshabilitada para esta clave. Habilítala en Google Cloud Console (Elevation API)."
+                            : `No se pudo obtener el perfil de elevación (${status}).`,
+                    samples: [],
+                    distanceM,
+                };
+            }
+        }
+    );
+};
+
+// Construye el perfil (terreno + línea de vista) en coordenadas de un SVG
+// 760×220 listo para pintar en la plantilla. Detecta obstrucción comparando el
+// terreno contra la recta AP→cliente (incluyendo alturas de antena).
+const elevationChart = computed(() => {
+    const s = elevation.value.samples;
+    if (!s || s.length < 2) return null;
+    const n = s.length;
+    const apGround = s[0];
+    const cpeGround = s[n - 1];
+    const apTop = apGround + (Number(apHeight.value) || 0);
+    const cpeTop = cpeGround + (Number(cpeHeight.value) || 0);
+
+    let minEl = Math.min(...s, apTop, cpeTop);
+    let maxEl = Math.max(...s, apTop, cpeTop);
+    const span = Math.max(1, maxEl - minEl);
+    minEl -= span * 0.12;
+    maxEl += span * 0.12;
+
+    const W = 760;
+    const H = 220;
+    const padT = 8;
+    const padB = 22;
+    const plotH = H - padT - padB;
+    const xAt = (i) => (i / (n - 1)) * W;
+    const yAt = (v) => padT + plotH - ((v - minEl) / (maxEl - minEl)) * plotH;
+
+    let terrain = `M0,${(H - padB).toFixed(1)}`;
+    for (let i = 0; i < n; i++) {
+        terrain += ` L${xAt(i).toFixed(1)},${yAt(s[i]).toFixed(1)}`;
+    }
+    terrain += ` L${W},${(H - padB).toFixed(1)} Z`;
+
+    const losY0 = yAt(apTop);
+    const losY1 = yAt(cpeTop);
+
+    // Margen mínimo de la línea de vista sobre el terreno (m). Negativo ⇒ choca.
+    let worst = Infinity;
+    for (let i = 1; i < n - 1; i++) {
+        const losEl = apTop + (cpeTop - apTop) * (i / (n - 1));
+        const margin = losEl - s[i];
+        if (margin < worst) worst = margin;
+    }
+    if (!Number.isFinite(worst)) worst = 0;
+
+    return {
+        W,
+        H,
+        padB,
+        terrain,
+        los: `M0,${losY0.toFixed(1)} L${W},${losY1.toFixed(1)}`,
+        ap: { x: 0, y: Number(losY0.toFixed(1)) },
+        cpe: { x: W, y: Number(losY1.toFixed(1)) },
+        clear: worst >= 0,
+        worst: Math.round(worst),
+        minEl: Math.round(minEl),
+        maxEl: Math.round(maxEl),
+        apGround: Math.round(apGround),
+        cpeGround: Math.round(cpeGround),
+    };
+});
+
+const elevationDistanceLabel = computed(() => {
+    const m = elevation.value.distanceM;
+    if (!m) return "";
+    return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+});
 
 const initMap = async () => {
     if (!mapEl.value) throw new Error("Contenedor del mapa no disponible");
@@ -1388,22 +1812,31 @@ watch(
     { deep: true }
 );
 
-// Redibuja solo la ruta de fibra cuando cambian sus puntos o el cliente
-// seleccionado, sin reconstruir el resto de capas.
+// Redibuja solo el enlace seleccionado cuando cambian sus puntos, la sectorial
+// o el cliente, sin reconstruir el resto de capas.
 watch(
-    [fiberPoints, fiberCustomerId, fiberDrawing],
+    [fiberPoints, traceSectorialId, traceCustomerId, fiberDrawing],
     () => {
         if (mapReady && window.google?.maps && layers.value.traces) {
-            drawFiberTrace(window.google);
+            drawSelectedTrace(window.google);
         }
     },
     { deep: true }
 );
 
-// Cambiar de cliente reinicia la ruta en curso.
-watch(fiberCustomerId, () => {
+// Cambiar de sectorial reinicia el cliente y la ruta/perfil en curso.
+watch(traceSectorialId, () => {
+    traceCustomerId.value = "";
     fiberPoints.value = [];
     fiberDrawing.value = false;
+    elevation.value = { loading: false, error: "", samples: [], distanceM: 0 };
+});
+
+// Cambiar de cliente reinicia la ruta y el perfil en curso.
+watch(traceCustomerId, () => {
+    fiberPoints.value = [];
+    fiberDrawing.value = false;
+    elevation.value = { loading: false, error: "", samples: [], distanceM: 0 };
 });
 
 onMounted(() => {

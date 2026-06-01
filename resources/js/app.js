@@ -154,6 +154,12 @@ import {
   BiBroadcast,
   BiTags,
   BiArrowReturnRight,
+  RiCheckLine,
+  RiPencilLine,
+  RiRestartLine,
+  RiCheckboxCircleLine,
+  RiErrorWarningLine,
+  BiGraphUp,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -300,6 +306,12 @@ addIcons(
   BiBroadcast,
   BiTags,
   BiArrowReturnRight,
+  RiCheckLine,
+  RiPencilLine,
+  RiRestartLine,
+  RiCheckboxCircleLine,
+  RiErrorWarningLine,
+  BiGraphUp,
 );
 
 // -------------------------------
