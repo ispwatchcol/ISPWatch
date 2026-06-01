@@ -7,7 +7,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
             <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-              <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
+              <div class="inline-flex items-center justify-center p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
                 <v-icon name="bi-person-plus" class="text-blue-600 dark:text-blue-400 w-6 h-6 md:w-7 md:h-7" />
               </div>
               Nuevo Cliente
@@ -109,22 +109,44 @@
                 </div>
                 Información del Cliente
             </h3>
+
+            <!-- ¿Es empresa? Si lo es, el apellido deja de ser obligatorio -->
+            <div class="flex items-start gap-3 mb-5 p-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600">
+                <button type="button" role="switch" :aria-checked="form.is_company"
+                    @click="form.is_company = !form.is_company"
+                    :class="form.is_company ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors mt-0.5">
+                    <span :class="form.is_company ? 'translate-x-6' : 'translate-x-1'"
+                        class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
+                </button>
+                <div>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                        <v-icon name="bi-building" class="w-4 h-4" /> ¿Es empresa?
+                    </span>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        Marca esta opción si el cliente es una empresa. El apellido dejará de ser obligatorio.
+                    </p>
+                </div>
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                 <label class="label">
                     <v-icon name="bi-person" class="w-4 h-4 mr-1 inline" />
-                    Nombre *
+                    {{ form.is_company ? 'Nombre / Razón social *' : 'Nombre *' }}
                 </label>
                 <input v-model="form.name" type="text" required class="input"
-                    placeholder="Ej: Juan" />
+                    :placeholder="form.is_company ? 'Ej: Comercializadora XYZ S.A.S.' : 'Ej: Juan'" />
                 </div>
 
                 <div>
                 <label class="label">
                     <v-icon name="bi-person" class="w-4 h-4 mr-1 inline" />
-                    Apellidos *
+                    Apellidos <span v-if="!form.is_company">*</span>
+                    <span v-else class="text-gray-400 font-normal text-xs">(opcional)</span>
                 </label>
-                <input v-model="form.last_name" type="text" required class="input"
+                <input v-model="form.last_name" type="text" :required="!form.is_company" class="input"
+                    :disabled="form.is_company"
                     placeholder="Ej: Pérez" />
                 </div>
 
@@ -190,6 +212,16 @@
                 <input v-model.number="form.estrato" type="number" min="1" class="input"
                     placeholder="Ej: 3" />
                 </div>
+
+                <div class="md:col-span-2">
+                <label class="label">
+                    <v-icon name="md-description" class="w-4 h-4 mr-1 inline" />
+                    Comentario / Observaciones
+                </label>
+                <textarea v-model="form.comments" rows="3" class="input resize-y"
+                    placeholder="Notas internas sobre el cliente (opcional)"></textarea>
+                <p class="hint">Información adicional visible solo para el equipo (no se muestra al cliente).</p>
+                </div>
             </div>
             </div>
 
@@ -201,7 +233,27 @@
                 </div>
                 Configuración del Servicio
             </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+            <!-- ¿Es fibra? Habilita el selector de OLT y convierte el sectorial en la caja (NAP) -->
+            <div class="flex items-start gap-3 mb-3 p-3 rounded-xl bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
+                <button type="button" role="switch" :aria-checked="form.is_fiber"
+                    @click="toggleFiber"
+                    :class="form.is_fiber ? 'bg-cyan-600' : 'bg-gray-300 dark:bg-gray-600'"
+                    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors mt-0.5">
+                    <span :class="form.is_fiber ? 'translate-x-6' : 'translate-x-1'"
+                        class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
+                </button>
+                <div>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                        <v-icon name="bi-ethernet" class="w-4 h-4" /> ¿Es fibra (FTTH)?
+                    </span>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        Si el servicio es por fibra, elige la <strong>OLT</strong> y la <strong>caja (NAP)</strong> a la que se conecta el cliente.
+                    </p>
+                </div>
+            </div>
+
+            <div :class="['grid gap-4', serviceGridClass]">
                 <!-- IP del Usuario -->
                 <div>
                 <label class="label">
@@ -210,7 +262,7 @@
                     <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400 animate-pulse">cargando...</span>
                     <span v-else-if="ipStats.free > 0" class="ml-1 text-xs text-green-500">{{ ipStats.free }} libres</span>
                 </label>
-                <input v-model="form.ip_user" type="text" class="input"
+                <input v-model="form.ip_user" type="text" class="svc-input"
                     placeholder="192.168.1.100" />
                 </div>
 
@@ -233,22 +285,43 @@
                 />
                 </div>
 
+                <!-- OLT: solo en fibra, lista únicamente elementos OLT -->
+                <div v-if="form.is_fiber">
+                <label class="label">
+                    <v-icon name="md-router" class="w-4 h-4 mr-1 inline" />
+                    OLT
+                </label>
+                <SearchableSelect
+                    :model-value="form.olt_id"
+                    @update:model-value="form.olt_id = $event || null"
+                    :items="oltSectorials"
+                    item-key="id"
+                    item-label="name"
+                    item-icon="md-router"
+                    placeholder="Seleccionar OLT..."
+                    search-placeholder="Buscar OLT..."
+                    :clearable="true"
+                    clear-label="Sin OLT"
+                />
+                <p class="hint">Solo se listan elementos de red de tipo OLT.</p>
+                </div>
+
                 <div>
                 <label class="label">
                     <v-icon name="bi-broadcast-pin" class="w-4 h-4 mr-1 inline" />
-                    Sectorial
+                    {{ form.is_fiber ? 'Caja (NAP)' : 'Sectorial' }}
                 </label>
                 <SearchableSelect
                     :model-value="form.sectorial_id"
                     @update:model-value="form.sectorial_id = $event || null"
-                    :items="sectorials"
+                    :items="sectorialItems"
                     item-key="id"
                     item-label="name"
                     item-icon="md-celltower"
-                    placeholder="Seleccionar sectorial..."
-                    search-placeholder="Buscar sectorial..."
+                    :placeholder="form.is_fiber ? 'Seleccionar caja...' : 'Seleccionar sectorial...'"
+                    :search-placeholder="form.is_fiber ? 'Buscar caja...' : 'Buscar sectorial...'"
                     :clearable="true"
-                    clear-label="Sin sectorial"
+                    :clear-label="form.is_fiber ? 'Sin caja' : 'Sin sectorial'"
                 />
                 </div>
 
@@ -258,7 +331,7 @@
                     <v-icon name="bi-ethernet" class="w-4 h-4 mr-1 inline" />
                     Puerto NAP
                 </label>
-                <input v-model="form.nap_port" type="text" class="input"
+                <input v-model="form.nap_port" type="text" class="svc-input"
                     placeholder="Ej: 3" />
                 <p class="hint">Puerto de la caja NAP que ocupará el cliente.</p>
                 </div>
@@ -604,6 +677,7 @@ const form = ref({
     tel: '',
     name: '',
     last_name: '',
+    is_company: false,
     cedula: '',
     city: '',
     state: '',
@@ -611,10 +685,13 @@ const form = ref({
     precinto: '',
     installation_date: '',
     estrato: null,
+    comments: '',
     ip_user: '',
     service_id: null,
     sectorial_id: null,
+    olt_id: null,
     nap_port: '',
+    is_fiber: false,
     router_id: null,
     create_pppoe_secret: false,
     pppoe_username: '',
@@ -650,6 +727,42 @@ const selectedSectorialIsNap = computed(() => {
 watch(selectedSectorialIsNap, (isNap) => {
     if (!isNap) form.value.nap_port = ''
 })
+
+// ── Fibra: el selector de OLT lista solo elementos OLT; el de "sectorial" pasa
+// a representar la caja (NAP). En modo inalámbrico se muestran los elementos no
+// pertenecientes a la planta de fibra.
+const FIBER_ELEMENT_TYPES = ['olt', 'splitter', 'nap', 'mufa']
+const oltSectorials      = computed(() => sectorials.value.filter(s => s.element_type === 'olt'))
+const cajaSectorials     = computed(() => sectorials.value.filter(s => s.element_type === 'nap'))
+const wirelessSectorials = computed(() => sectorials.value.filter(s => !FIBER_ELEMENT_TYPES.includes(s.element_type)))
+const sectorialItems     = computed(() => form.value.is_fiber ? cajaSectorials.value : wirelessSectorials.value)
+
+// Columnas del grid de "Configuración del Servicio" según los controles visibles:
+// base 4 (IP/Plan/Sectorial-Caja/Router) + OLT (fibra) + Puerto NAP (caja seleccionada).
+// Se ajusta para que nunca quede una sola tarjeta huérfana en la última fila.
+const serviceColCount = computed(() => {
+    let n = 4
+    if (form.value.is_fiber) n++
+    if (selectedSectorialIsNap.value) n++
+    return n
+})
+const serviceGridClass = computed(() => ({
+    4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+    5: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5',
+    6: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+}[serviceColCount.value] || 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'))
+
+// Alternar fibra: al desactivarla limpia OLT y la caja; al activarla descarta el
+// sectorial inalámbrico previo (solo se permiten cajas NAP).
+const toggleFiber = () => {
+    form.value.is_fiber = !form.value.is_fiber
+    if (!form.value.is_fiber) {
+        form.value.olt_id = null
+        if (selectedSectorialIsNap.value) form.value.sectorial_id = null
+    } else if (form.value.sectorial_id && !selectedSectorialIsNap.value) {
+        form.value.sectorial_id = null
+    }
+}
 
 // ── IP Range Analyzer ────────────────────────────────────────────────────────
 const rangosIpStr    = ref('')
@@ -977,6 +1090,15 @@ const onFormKeydown = (e) => {
          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
          focus:ring-2 focus:ring-blue-500 focus:border-transparent
          disabled:opacity-50 disabled:cursor-not-allowed transition-all
+         placeholder:text-gray-400 dark:placeholder:text-gray-500;
+}
+/* Igual tamaño que SearchableSelect (px-3 py-2 rounded-lg) para que los controles
+   de la sección "Configuración del Servicio" queden uniformes en altura/forma. */
+.svc-input {
+  @apply w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+         bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100
+         focus:outline-none focus:ring-2 focus:ring-blue-500 transition
+         disabled:opacity-50 disabled:cursor-not-allowed
          placeholder:text-gray-400 dark:placeholder:text-gray-500;
 }
 .hint {
