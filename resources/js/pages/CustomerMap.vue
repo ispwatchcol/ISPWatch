@@ -1337,18 +1337,11 @@ const applyLayers = () => {
         }
     }
 
-    // Coverage zones (círculos SOLO de equipos inalámbricos con cobertura real).
-    // La planta de fibra (NAP/OLT/splitter/mufa) no irradia, y un equipo sin
-    // antena ni radio definido tampoco: ambos generaban círculos fantasma (el
-    // radio por defecto de 800 m), incluido el «círculo grande» que no
-    // pertenece a ningún equipo. Cada zona es clicable para identificarla.
+    // Coverage zones (círculos de cobertura de cada sectorial). Cada zona es
+    // clicable: muestra a qué elemento pertenece y su radio, para identificar
+    // de un vistazo cualquier círculo desproporcionado y corregir ese elemento.
     if (layers.value.coverage) {
         sectorials.value.forEach((s) => {
-            if (isFiber(s.element_type)) return;
-            const hasRf =
-                !!s.antenna_type || Number(s.coverage_radius_meters) > 0;
-            if (!hasRf) return;
-
             const center = {
                 lat: Number(s.latitude),
                 lng: Number(s.longitude),
