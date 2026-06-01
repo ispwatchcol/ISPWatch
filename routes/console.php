@@ -29,6 +29,11 @@ Schedule::command('billing:auto-cut')->hourly();
 // Corre tras el auto-cut para recoger lo que haya fallado.
 Schedule::command('billing:reconcile-suspensions')->hourly();
 
+// Detección de no-show de cortes: alerta (log + email) si un router de Corte
+// Automático está mal configurado (sin cut_day) o dejó clientes morosos sin cortar
+// pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.
+Schedule::command('billing:verify-cuts')->dailyAt('07:00');
+
 // Payment reminders: run daily — the service fires on each router's
 // billing.payment_reminder day and is idempotent per billing cycle
 Schedule::command('billing:send-reminders')->daily();

@@ -14,9 +14,10 @@ class SuspensionActionLog extends Model
     public const STATUS_FAILED  = 'failed';
     public const STATUS_PENDING = 'pending';
 
-    public const REASON_MANUAL    = 'manual';
-    public const REASON_AUTO_CUT  = 'auto_cut_overdue';
-    public const REASON_RECONCILE = 'reconcile';
+    public const REASON_MANUAL         = 'manual';
+    public const REASON_AUTO_CUT       = 'auto_cut_overdue';
+    public const REASON_RECONCILE      = 'reconcile';
+    public const REASON_AUTO_RECONNECT = 'auto_reconnect_paid';
 
     public const MAX_ATTEMPTS = 4;
 
