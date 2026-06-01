@@ -269,7 +269,7 @@
                     </p>
                 </div>
 
-                <!-- Selección: sectorial (buscador) + cliente destino opcional -->
+                <!-- Selección: sectorial (buscador) + coordenadas de destino -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <SearchableSelect
                         v-model="traceSectorialId"
@@ -286,27 +286,52 @@
                     <div v-if="traceIsFiber">
                         <label
                             class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
-                            >Cliente destino (opcional)</label
+                            >Coordenadas destino (cliente nuevo) — opcional</label
                         >
-                        <select
-                            v-model="traceCustomerId"
-                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
-                        >
-                            <option value="">— Sin cliente (ruta libre) —</option>
-                            <option
-                                v-for="c in traceCustomers"
-                                :key="c.user_id"
-                                :value="String(c.user_id)"
+                        <div class="flex gap-2">
+                            <input
+                                v-model="destCoordsInput"
+                                @keyup.enter="applyDestCoords"
+                                @blur="applyDestCoords"
+                                type="text"
+                                placeholder="4.458429 -74.636633"
+                                class="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                            />
+                            <button
+                                type="button"
+                                @click="applyDestCoords"
+                                class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white flex-shrink-0"
                             >
-                                {{ c.name }} {{ c.last_name }}
-                            </option>
-                        </select>
+                                <v-icon name="ri-map-pin-line" class="w-4 h-4" />
+                                Marcar
+                            </button>
+                        </div>
                         <p
-                            v-if="!traceCustomers.length"
+                            v-if="destError"
+                            class="text-[11px] text-rose-500 mt-1"
+                        >
+                            {{ destError }}
+                        </p>
+                        <p
+                            v-else-if="destPoint"
+                            class="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1.5"
+                        >
+                            Destino marcado: {{ destPoint.lat.toFixed(6) }},
+                            {{ destPoint.lng.toFixed(6) }}
+                            <button
+                                type="button"
+                                @click="clearDest"
+                                class="underline hover:no-underline"
+                            >
+                                quitar
+                            </button>
+                        </p>
+                        <p
+                            v-else
                             class="text-[11px] text-gray-400 dark:text-gray-500 mt-1"
                         >
-                            Esta NAP no tiene clientes asignados; puedes dibujar
-                            la ruta igual.
+                            Pega «lat lng» para marcar dónde irá el cliente y
+                            terminar la ruta ahí.
                         </p>
                     </div>
                 </div>
@@ -430,7 +455,7 @@
                     </div>
                     <button
                         type="button"
-                        :disabled="!traceCustomer || elevation.loading"
+                        :disabled="!destPoint || elevation.loading"
                         @click="computeElevation"
                         class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                     >
@@ -476,8 +501,7 @@
                                 }}</strong>
                                 →
                                 <strong class="text-gray-800 dark:text-gray-100"
-                                    >{{ traceCustomer?.name }}
-                                    {{ traceCustomer?.last_name }}</strong
+                                    >Destino</strong
                                 >
                             </span>
                             <span class="text-gray-500 dark:text-gray-400">
@@ -1313,22 +1337,46 @@ const applyLayers = () => {
         }
     }
 
-    // Coverage zones (circles around sectorials)
+    // Coverage zones (círculos SOLO de equipos inalámbricos con cobertura real).
+    // La planta de fibra (NAP/OLT/splitter/mufa) no irradia, y un equipo sin
+    // antena ni radio definido tampoco: ambos generaban círculos fantasma (el
+    // radio por defecto de 800 m), incluido el «círculo grande» que no
+    // pertenece a ningún equipo. Cada zona es clicable para identificarla.
     if (layers.value.coverage) {
         sectorials.value.forEach((s) => {
+            if (isFiber(s.element_type)) return;
+            const hasRf =
+                !!s.antenna_type || Number(s.coverage_radius_meters) > 0;
+            if (!hasRf) return;
+
             const center = {
                 lat: Number(s.latitude),
                 lng: Number(s.longitude),
             };
+            const radius = effectiveCoverageRadius(s);
             const circle = new g.maps.Circle({
                 map,
                 center,
-                radius: effectiveCoverageRadius(s),
+                radius,
                 strokeColor: "#F59E0B",
                 strokeOpacity: 0.8,
                 strokeWeight: 1,
                 fillColor: "#F59E0B",
                 fillOpacity: 0.12,
+            });
+            circle.addListener("click", (ev) => {
+                infoWindow.setContent(
+                    `<div style="font-family:inherit;padding:2px 4px;">
+                        <strong style="color:#111827;">${escapeHtml(
+                            s.name
+                        )}</strong>
+                        <div style="font-size:12px;color:#6B7280;margin-top:2px;">
+                            Zona de cobertura · ${Math.round(radius)} m
+                        </div>
+                    </div>`
+                );
+                infoWindow.setPosition(ev.latLng);
+                infoWindow.open(map);
             });
             coverageCircles.push(circle);
             const cb = circle.getBounds();
@@ -1457,11 +1505,17 @@ const traceableSectorials = computed(() =>
 const sectorialOptionLabel = (s) =>
     `${s?.name ?? ""} · ${isFiberSectorial(s) ? "Fibra/NAP" : "Radio"}`;
 
-// El flujo arranca eligiendo la SECTORIAL; luego el cliente conectado a ella.
+// El flujo arranca eligiendo la SECTORIAL; el destino se fija por coordenadas.
 const traceSectorialId = ref("");
-const traceCustomerId = ref("");
 const fiberPoints = ref([]); // waypoints intermedios (solo fibra)
 const fiberDrawing = ref(false);
+
+// Destino opcional por coordenadas (pensado para clientes NUEVOS que aún no
+// existen en el sistema). Se escribe "lat lng" (o "lat, lng") y, al confirmar,
+// se marca un pin en el mapa y la ruta termina ahí.
+const destCoordsInput = ref("");
+const destPoint = ref(null); // { lat, lng } confirmado, o null
+const destError = ref("");
 
 const traceSectorial = computed(
     () =>
@@ -1473,22 +1527,43 @@ const traceIsFiber = computed(
     () => !!traceSectorial.value && isFiberSectorial(traceSectorial.value)
 );
 
-// Clientes conectados a la sectorial elegida (su sectorial_id apunta a ella).
-const traceCustomers = computed(() => {
-    if (!traceSectorial.value) return [];
-    return filteredCustomers.value.filter(
-        (c) => String(c.sectorial_id) === String(traceSectorial.value.id)
-    );
-});
-const traceCustomer = computed(
-    () =>
-        traceCustomers.value.find(
-            (c) => String(c.user_id) === String(traceCustomerId.value)
-        ) || null
-);
+// Parsea "4.458429 -74.636633" / "4.458429, -74.636633" → { lat, lng } válido.
+const parseLatLng = (raw) => {
+    const m = String(raw || "")
+        .trim()
+        .match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    const lat = Number(m[1]);
+    const lng = Number(m[2]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat, lng };
+};
 
-// Basta con tener una NAP de fibra seleccionada para empezar a dibujar; el
-// cliente destino es opcional.
+const applyDestCoords = () => {
+    const raw = destCoordsInput.value.trim();
+    if (!raw) {
+        destPoint.value = null;
+        destError.value = "";
+        return;
+    }
+    const p = parseLatLng(raw);
+    if (!p) {
+        destError.value = "Formato inválido. Usa: 4.458429 -74.636633";
+        return;
+    }
+    destError.value = "";
+    destPoint.value = p;
+    if (map && window.google?.maps) map.panTo(p);
+};
+
+const clearDest = () => {
+    destCoordsInput.value = "";
+    destPoint.value = null;
+    destError.value = "";
+};
+
+// Basta con tener una NAP de fibra seleccionada para empezar a dibujar.
 const startFiberDrawing = () => {
     if (!traceIsFiber.value) return;
     layers.value.traces = true;
@@ -1513,14 +1588,13 @@ const onMapClick = (e) => {
     ];
 };
 
-// Ruta de fibra completa: NAP → waypoints → (cliente destino, si se eligió).
+// Ruta de fibra completa: NAP → waypoints → (destino por coordenadas, si se fijó).
 const fiberRoutePath = computed(() => {
     const sec = traceSectorial.value;
     if (!sec || !traceIsFiber.value) return [];
     const path = [{ lat: Number(sec.latitude), lng: Number(sec.longitude) }];
     for (const p of fiberPoints.value) path.push(p);
-    const c = traceCustomer.value;
-    if (c) path.push({ lat: Number(c.latitude), lng: Number(c.longitude) });
+    if (destPoint.value) path.push(destPoint.value);
     return path.filter(
         (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)
     );
@@ -1556,9 +1630,32 @@ const clearFiberOverlay = () => {
     fiberMarkers = [];
 };
 
+// Pin del destino (cliente nuevo): teardrop rosado con una cruz blanca.
+const destPinUrl = () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 32 42"><path d="M16 0C7.163 0 0 7.163 0 16c0 12 16 26 16 26s16-14 16-26C32 7.163 24.837 0 16 0z" fill="#E11D48" stroke="#fff" stroke-width="2"/><path d="M16 9v12M10 15h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>`;
+    return svgUrl(svg);
+};
+
+// Marca el destino fijado por coordenadas con un pin distintivo.
+const addDestMarker = (g) => {
+    if (!destPoint.value) return;
+    const marker = new g.maps.Marker({
+        map,
+        position: destPoint.value,
+        title: "Destino (cliente nuevo)",
+        icon: {
+            url: destPinUrl(),
+            scaledSize: new g.maps.Size(30, 40),
+            anchor: new g.maps.Point(15, 40),
+        },
+        zIndex: 1002,
+    });
+    fiberMarkers.push(marker);
+};
+
 // Resalta el enlace seleccionado. Fibra: ruta punteada NAP → waypoints →
-// (cliente opcional) con marcadores numerados. Radio: línea recta NAP↔cliente
-// solo si hay cliente seleccionado.
+// (destino por coordenadas) con marcadores numerados. Radio: línea recta
+// NAP↔destino solo si hay coordenadas de destino.
 const drawSelectedTrace = (g) => {
     clearFiberOverlay();
     const sec = traceSectorial.value;
@@ -1567,8 +1664,7 @@ const drawSelectedTrace = (g) => {
     if (!Number.isFinite(a.lat) || !Number.isFinite(a.lng)) return;
 
     if (traceIsFiber.value) {
-        // Fibra: NAP → waypoints → cliente (si se eligió). Se dibuja la línea
-        // punteada en cuanto hay al menos dos puntos.
+        // Fibra: NAP → waypoints → destino. Línea punteada con ≥2 puntos.
         const path = fiberRoutePath.value;
         if (path.length >= 2) {
             fiberLine = new g.maps.Polyline({
@@ -1613,14 +1709,13 @@ const drawSelectedTrace = (g) => {
             });
             fiberMarkers.push(marker);
         });
+        addDestMarker(g);
         return;
     }
 
-    // Radioenlace: línea recta resaltada del AP al cliente (solo con cliente).
-    const c = traceCustomer.value;
-    if (!c) return;
-    const b = { lat: Number(c.latitude), lng: Number(c.longitude) };
-    if (!Number.isFinite(b.lat) || !Number.isFinite(b.lng)) return;
+    // Radioenlace: línea recta resaltada NAP → destino (solo con coordenadas).
+    const b = destPoint.value;
+    if (!b) return;
     fiberLine = new g.maps.Polyline({
         map,
         path: [a, b],
@@ -1630,10 +1725,10 @@ const drawSelectedTrace = (g) => {
         strokeWeight: 3.5,
         zIndex: 1000,
     });
-    [a, b].forEach((pos) => {
-        const marker = new g.maps.Marker({
+    fiberMarkers.push(
+        new g.maps.Marker({
             map,
-            position: pos,
+            position: a,
             icon: {
                 path: g.maps.SymbolPath.CIRCLE,
                 scale: 6,
@@ -1643,9 +1738,9 @@ const drawSelectedTrace = (g) => {
                 strokeWeight: 2,
             },
             zIndex: 1001,
-        });
-        fiberMarkers.push(marker);
-    });
+        })
+    );
+    addDestMarker(g);
 };
 
 // ── Perfil de elevación (radioenlace) ───────────────────────────────────────
@@ -1680,14 +1775,14 @@ let elevationService = null;
 
 const computeElevation = () => {
     const sec = traceSectorial.value;
-    const c = traceCustomer.value;
+    const dst = destPoint.value;
     const g = window.google;
-    if (!sec || !c || !g?.maps) return;
+    if (!sec || !dst || !g?.maps) return;
 
     const aLat = Number(sec.latitude);
     const aLng = Number(sec.longitude);
-    const bLat = Number(c.latitude);
-    const bLng = Number(c.longitude);
+    const bLat = dst.lat;
+    const bLng = dst.lng;
     const distanceM = haversineMeters(aLat, aLng, bLat, bLng);
 
     elevation.value = { loading: true, error: "", samples: [], distanceM };
@@ -1878,9 +1973,9 @@ watch(
 );
 
 // Redibuja solo el enlace seleccionado cuando cambian sus puntos, la sectorial
-// o el cliente, sin reconstruir el resto de capas.
+// o el destino, sin reconstruir el resto de capas.
 watch(
-    [fiberPoints, traceSectorialId, traceCustomerId, fiberDrawing],
+    [fiberPoints, traceSectorialId, destPoint, fiberDrawing],
     () => {
         if (mapReady && window.google?.maps && layers.value.traces) {
             drawSelectedTrace(window.google);
@@ -1889,16 +1984,9 @@ watch(
     { deep: true }
 );
 
-// Cambiar de sectorial reinicia el cliente y la ruta/perfil en curso.
+// Cambiar de sectorial reinicia el destino, la ruta y el perfil en curso.
 watch(traceSectorialId, () => {
-    traceCustomerId.value = "";
-    fiberPoints.value = [];
-    fiberDrawing.value = false;
-    elevation.value = { loading: false, error: "", samples: [], distanceM: 0 };
-});
-
-// Cambiar de cliente reinicia la ruta y el perfil en curso.
-watch(traceCustomerId, () => {
+    clearDest();
     fiberPoints.value = [];
     fiberDrawing.value = false;
     elevation.value = { loading: false, error: "", samples: [], distanceM: 0 };
