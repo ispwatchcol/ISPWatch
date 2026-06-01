@@ -242,6 +242,119 @@ class BillingService
     }
 
     /**
+     * Audit (read-only) whether the monthly run actually happened for every
+     * router that was due to invoice. This closes the blind spot the failover
+     * cannot see: the failover only retries per-customer creation exceptions
+     * that were recorded in billing_action_logs, so a router that was skipped
+     * entirely — or a monthly job that never ran at all — leaves NO trace and
+     * triggers NO retry. This method reconstructs the SAME gating as
+     * generateMonthlyInvoices() and compares "expected" vs "actually created".
+     *
+     * Per router it reports:
+     *   - due         : whether today's day has reached the (clamped) create day
+     *   - expected    : active customers with an active, non-courtesy service
+     *   - actual      : monthly invoices that exist for the resolved period
+     *   - failed_logs : FAILED/EXHAUSTED action-log rows for the period
+     *   - status      : pending | ok | partial | no_show
+     *
+     * Writes nothing. Never creates invoices.
+     *
+     * @param string|null $period   YYYY-MM. Null = derive per router (same as generation).
+     * @param int|null    $routerId Limit to a specific router (null = all).
+     * @return array<int,array<string,mixed>>
+     */
+    public function auditMonthlyBilling(?string $period = null, ?int $routerId = null): array
+    {
+        $periodExplicit = $period !== null;
+        $today          = now();
+        $rows           = [];
+
+        $routerQuery = Router::with('billingConfig')->whereNotNull('billing_router_id');
+        if ($routerId !== null) {
+            $routerQuery->where('id', $routerId);
+        }
+
+        foreach ($routerQuery->get() as $router) {
+            $billingConfig = $router->billingConfig;
+            if (!$billingConfig) {
+                continue;
+            }
+
+            $createDay = Billing::clampDayToMonth(Billing::dayOf($billingConfig->create_invoice), $today);
+            if ($createDay === null) {
+                // No create day configured: not a no-show, nothing to audit.
+                continue;
+            }
+
+            // Resolve the covered period EXACTLY like generateMonthlyInvoices().
+            if ($periodExplicit) {
+                $periodMonth = Carbon::parse($period . '-01');
+            } else {
+                $mode = $billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO;
+                $periodMonth = $mode === Billing::MODE_VENCIDO
+                    ? $today->copy()->subMonthNoOverflow()
+                    : $today->copy();
+            }
+            $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
+            $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
+
+            $due = $today->day >= $createDay;
+
+            // Expected: active customers on this router with an active, billable
+            // (non-courtesy) service — the same set generation would invoice.
+            $custIds = CustomerProfile::where('router_id', $router->id)
+                ->where('status', true)
+                ->pluck('user_id');
+
+            $expected = $custIds->isEmpty() ? 0 : UserService::whereIn('user_id', $custIds->all())
+                ->where('status', UserService::STATUS_ACTIVE)
+                ->whereHas('servicePlan', function ($q) {
+                    $q->where('is_courtesy', false)->orWhereNull('is_courtesy');
+                })
+                ->distinct('user_id')
+                ->count('user_id');
+
+            // Actual: monthly invoices for the resolved period, scoped to this
+            // router's customers (so multi-router tenants compare apples to apples).
+            $actual = $custIds->isEmpty() ? 0 : Invoice::where('tenant_id', $router->tenant_id)
+                ->where('period_start', $periodStart)
+                ->where('period_end', $periodEnd)
+                ->whereIn('customer_id', $custIds->all())
+                ->count();
+
+            $failedLogs = BillingActionLog::where('tenant_id', $router->tenant_id)
+                ->where('period_start', $periodStart->toDateString())
+                ->whereIn('status', [BillingActionLog::STATUS_FAILED, BillingActionLog::STATUS_EXHAUSTED])
+                ->count();
+
+            if (!$due) {
+                $status = 'pending';
+            } elseif ($expected > 0 && $actual === 0) {
+                $status = 'no_show';
+            } elseif ($actual < $expected) {
+                $status = 'partial';
+            } else {
+                $status = 'ok';
+            }
+
+            $rows[] = [
+                'router_id'   => $router->id,
+                'router_name' => $router->name,
+                'tenant_id'   => $router->tenant_id,
+                'period'      => $periodStart->format('Y-m'),
+                'create_day'  => $createDay,
+                'due'         => $due,
+                'expected'    => $expected,
+                'actual'      => $actual,
+                'failed_logs' => $failedLogs,
+                'status'      => $status,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Shared invoice-creation block used by the monthly run AND by failover retries.
      * Throws on failure so the caller can log it.
      */
