@@ -76,6 +76,22 @@ class User extends Authenticatable implements MustVerifyEmail
         });
     }
 
+    /**
+     * Build an ASCII-safe login/contact email from a name or a typed email.
+     * Transliterates accents and ñ (José→jose, Muñoz→munoz), lowercases,
+     * strips whitespace and any character that isn't valid in an email
+     * (keeps letters, digits and . _ + - @). The NAME columns (name,
+     * user_name, user_lastname) keep their accents/ñ; only the email is
+     * normalized — per the network rule that login/tenant emails must never
+     * carry ñ or tildes, whether created manually or via bulk import.
+     */
+    public static function sanitizeEmail(?string $value): string
+    {
+        $ascii = strtolower(Str::ascii((string) $value)); // ñ→n, á→a, ü→u …
+        $ascii = preg_replace('/\s+/', '', $ascii);        // drop whitespace
+        return preg_replace('/[^a-z0-9._+\-@]/', '', $ascii);
+    }
+
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);

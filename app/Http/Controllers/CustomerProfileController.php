@@ -19,6 +19,7 @@ use App\Models\UserService;
 use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class CustomerProfileController extends Controller
 {
@@ -342,15 +343,30 @@ class CustomerProfileController extends Controller
 
         // email_tenant = correo de ACCESO (login), distinto del correo personal.
         // El operador puede fijarlo al crear; si lo deja vacío se autogenera como
-        // nombre.apellido@dominio-del-tenant.
+        // nombre.apellido@dominio-del-tenant. En ambos casos se normaliza a ASCII:
+        // nunca lleva ñ ni tildes (los campos de NOMBRE sí los conservan).
         if (!empty($data['email_tenant'])) {
-            $emailTenant = strtolower(trim($data['email_tenant']));
+            $emailTenant = User::sanitizeEmail($data['email_tenant']);
         } else {
             $tenant = \App\Models\Tenant::find($tenantId);
-            $firstName = strtolower(preg_replace('/\s+/', '', $data['name'] ?? ''));
-            $lastName  = strtolower(preg_replace('/\s+/', '', $data['last_name'] ?? ''));
-            $domain    = $tenant ? strtolower($tenant->domain) : 'local';
+            $firstName = User::sanitizeEmail($data['name'] ?? '');
+            $lastName  = User::sanitizeEmail($data['last_name'] ?? '');
+            $domain    = $tenant ? User::sanitizeEmail($tenant->domain) : 'local';
             $emailTenant = "{$firstName}.{$lastName}@{$domain}";
+        }
+
+        // IP única por router/CORE: dos clientes del MISMO router no pueden
+        // compartir IP (norma de red). La misma IP sí puede repetirse en OTRO router.
+        if (!empty($data['ip_user']) && !empty($data['router_id'])) {
+            $ipTaken = CustomerProfile::where('router_id', $data['router_id'])
+                ->where('ip_user', $data['ip_user'])
+                ->whereHas('user', fn ($q) => $q->where('tenant_id', $tenantId))
+                ->exists();
+            if ($ipTaken) {
+                throw ValidationException::withMessages([
+                    'ip_user' => ["La IP {$data['ip_user']} ya está asignada a otro cliente en el mismo router/CORE. Puede repetirse solo en un router distinto."],
+                ]);
+            }
         }
 
         DB::beginTransaction();
@@ -839,6 +855,24 @@ class CustomerProfileController extends Controller
             // Service state
             'service_status' => 'nullable|in:activo,suspendido,cancelado,gratis',
         ]);
+
+        // IP única por router/CORE: si tras la edición la IP coincide con la de
+        // OTRO cliente del MISMO router se rechaza (norma de red). Se evalúa con
+        // los valores efectivos (los del request, o los actuales si no cambian).
+        $effectiveIp = array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user;
+        $effectiveRouterId = array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id;
+        if (!empty($effectiveIp) && !empty($effectiveRouterId)) {
+            $ipTaken = CustomerProfile::where('router_id', $effectiveRouterId)
+                ->where('ip_user', $effectiveIp)
+                ->where('user_id', '!=', $id)
+                ->whereHas('user', fn ($q) => $q->where('tenant_id', $authTenantId))
+                ->exists();
+            if ($ipTaken) {
+                throw ValidationException::withMessages([
+                    'ip_user' => ["La IP {$effectiveIp} ya está asignada a otro cliente en el mismo router/CORE. Puede repetirse solo en un router distinto."],
+                ]);
+            }
+        }
 
         DB::beginTransaction();
 

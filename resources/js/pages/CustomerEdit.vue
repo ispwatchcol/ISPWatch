@@ -320,11 +320,15 @@
                     item-key="id"
                     item-label="name"
                     item-icon="md-speed"
-                    placeholder="Seleccionar plan..."
+                    :placeholder="planPlaceholder"
                     search-placeholder="Buscar plan..."
                     :clearable="true"
                     clear-label="Sin plan"
+                    :disabled="!form.router_id"
                 />
+                <!-- El plan depende del router: la lista solo muestra planes del
+                     modo de control del router seleccionado. Sin router no hay opciones. -->
+                <p v-if="planHint" class="mt-1 text-xs text-amber-400">{{ planHint }}</p>
                 </div>
 
                 <!-- OLT: solo en fibra, lista únicamente elementos OLT -->
@@ -918,6 +922,19 @@ const filteredPlans = computed(() => {
     return plans.value.filter(p => (p.type_plan?.code ?? '') === code)
 })
 
+// Placeholder y nota del campo Plan: como la lista depende del router, hay que
+// guiar al operador para que no parezca que "no hay planes".
+const planPlaceholder = computed(() =>
+    !form.value.router_id ? 'Seleccioná un router primero' : 'Seleccionar plan...'
+)
+const planHint = computed(() => {
+    if (!form.value.router_id) return 'Elegí un router para ver sus planes disponibles.'
+    if (filteredPlans.value.length === 0) {
+        return 'Este router no tiene planes compatibles con su modo de control.'
+    }
+    return ''
+})
+
 watch(() => form.value.router_id, () => {
     if (form.value.service_id && !filteredPlans.value.find(p => p.id === form.value.service_id)) {
         form.value.service_id = null
@@ -1056,6 +1073,15 @@ const handleSubmit = async () => {
     errorMsg.value       = ''
     pppoeUserError.value = ''
     pppoePassError.value = ''
+
+    // Hard block: router asignado pero sin plan. El plan se filtra por el modo de
+    // control del router y un watcher lo limpia al cambiar de router, así que es
+    // fácil terminar guardando un cliente con router y sin plan sin darse cuenta.
+    if (form.value.router_id && !form.value.service_id) {
+        toast.value?.error('Falta el plan',
+            'Seleccioná un plan de servicio para este router antes de guardar.')
+        return
+    }
 
     // Hard block: PPPoE plan assigned to non-PPPoE router
     if (pppoeMismatch.value) {
