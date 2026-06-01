@@ -10,7 +10,9 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\Plan;
 use App\Models\Router;
+use App\Models\SuspensionActionLog;
 use App\Models\User;
 use App\Models\UserService;
 use App\Models\Tenant;
@@ -679,7 +681,7 @@ class BillingService
      */
     public function registerPayment(array $data): Payment
     {
-        return DB::transaction(function () use ($data) {
+        $payment = DB::transaction(function () use ($data) {
             $payment = Payment::create([
                 'tenant_id' => $data['tenant_id'],
                 'customer_id' => $data['customer_id'],
@@ -696,6 +698,84 @@ class BillingService
 
             return $payment->load('allocations');
         });
+
+        // After commit: if this payment cleared the customer's overdue balance,
+        // auto-reconnect them — the mirror of the automatic cut. Runs outside the
+        // transaction (the router call must not hold the DB open) and never throws.
+        $this->reactivateIfCleared((int) $data['customer_id']);
+
+        return $payment;
+    }
+
+    /**
+     * Auto-reconnect a customer after a payment IF, and only if:
+     *   - they have NO overdue invoices left, AND
+     *   - they are currently cut on the router because of billing
+     *     (last suspension log = SUSPEND/success with reason auto_cut/reconcile).
+     *
+     * Customers suspended manually (REASON_MANUAL, e.g. abuse) are left untouched
+     * so paying an invoice never silently lifts a deliberate operator block.
+     * Lifts the block via RouterProvisioningService and mirrors the manual
+     * `activate` DB state (status=true). Never throws — a router failure must not
+     * roll back or break the payment; the reconcile/manual tools remain the safety net.
+     */
+    public function reactivateIfCleared(int $customerId): void
+    {
+        try {
+            $profile = CustomerProfile::where('user_id', $customerId)->first();
+            if (!$profile || !$profile->router_id || !$profile->ip_user) {
+                return;
+            }
+
+            // Still owes? Keep the cut in place.
+            $overdue = Invoice::where('customer_id', $customerId)
+                ->where('due_date', '<', now())
+                ->where('balance_due', '>', 0)
+                ->whereNotIn('status', ['void', 'cancelled', 'paid'])
+                ->count();
+            if ($overdue > 0) {
+                return;
+            }
+
+            // Is the customer currently cut, and was it a billing-driven cut?
+            // Same "confirmed cut" signal the reconciler uses: the latest log row.
+            $latest = SuspensionActionLog::where('customer_id', $customerId)
+                ->where('router_id', $profile->router_id)
+                ->latest('id')
+                ->first();
+
+            $cutByBilling = $latest
+                && $latest->action === SuspensionActionLog::ACTION_SUSPEND
+                && $latest->status === SuspensionActionLog::STATUS_SUCCESS
+                && in_array($latest->reason, [
+                    SuspensionActionLog::REASON_AUTO_CUT,
+                    SuspensionActionLog::REASON_RECONCILE,
+                ], true);
+
+            if (!$cutByBilling) {
+                return; // not cut, already reconnected, or a manual (non-billing) block
+            }
+
+            $ok = app(RouterProvisioningService::class)->unsuspendCustomer(
+                $customerId,
+                (int) $profile->router_id,
+                ['reason' => SuspensionActionLog::REASON_AUTO_RECONNECT]
+            );
+
+            // Mirror the manual activate's DB state so the UI reflects reality.
+            if ($ok && $profile->status !== true) {
+                $plan = $profile->service_id ? Plan::find($profile->service_id) : null;
+                $profile->update([
+                    'status'         => true,
+                    'service_status' => ($plan && $plan->is_courtesy) ? 'gratis' : 'activo',
+                ]);
+            }
+
+            Log::info("Billing: auto-reconnect customer {$customerId} after payment cleared overdue balance "
+                . "(router {$profile->router_id}). router_ok=" . ($ok ? '1' : '0'));
+        } catch (\Throwable $e) {
+            Log::error("Billing: auto-reconnect after payment failed for customer {$customerId}: {$e->getMessage()}");
+        }
     }
 
     /**

@@ -128,10 +128,22 @@ class OverdueSuspensionService
                 try {
                     $customerId = $profile->user_id;
 
+                    // Record the cut INTENT in the DB up front (status=false), so
+                    // both the UI and the failover (reconcileSuspensions, which scans
+                    // status=false) see it even if the RB call fails on this run.
+                    // Mirrors the manual suspend path; without it auto-cut victims
+                    // stayed status=true and the failover never retried them.
+                    if ($profile->status !== false) {
+                        $profile->update([
+                            'status'         => false,
+                            'service_status' => 'suspendido',
+                        ]);
+                    }
+
                     $success = $this->routerProvisioningService->suspendCustomer(
                         $customerId,
                         $router->id,
-                        ['reason' => 'auto_cut_overdue', 'router_billing_config_id' => $billingConfig->id]
+                        ['reason' => SuspensionActionLog::REASON_AUTO_CUT, 'router_billing_config_id' => $billingConfig->id]
                     );
 
                     if ($success) {
@@ -151,6 +163,89 @@ class OverdueSuspensionService
         Log::info('Auto-cut: Processing complete.', $stats);
 
         return $stats;
+    }
+
+    /**
+     * Audit (read-only) whether automatic cuts are actually happening. Mirrors
+     * billing's no-show detector: auto-cut runs hourly, but if a router is
+     * misconfigured (no cut_day) or the scheduler never runs, customers who
+     * should be cut stay connected and nobody is alerted.
+     *
+     * Per 'Corte Automático' router it reports:
+     *   - no_cut_day     : no cut_day configured → auto-cut OFF (valid, not alerted)
+     *   - due            : cut day+time reached at least an hour ago (so an
+     *                      hourly auto-cut tick has already had its chance)
+     *   - still_eligible : ACTIVE customers meeting the overdue threshold that
+     *                      therefore should already be suspended
+     *   - status         : ok | pending | no_cut_day | cut_failing
+     *
+     * Writes nothing. Never cuts.
+     *
+     * @param int|null $routerId  Limit to a specific router (null = all).
+     * @return array<int,array<string,mixed>>
+     */
+    public function auditAutomaticCuts(?int $routerId = null): array
+    {
+        $now  = Carbon::now();
+        $rows = [];
+
+        $routerQuery = Router::with(['cutType', 'billingConfig'])
+            ->whereNotNull('billing_router_id')
+            ->whereNotNull('cut_type_id');
+
+        if ($routerId !== null) {
+            $routerQuery->where('id', $routerId);
+        }
+
+        foreach ($routerQuery->get() as $router) {
+            $billingConfig = $router->billingConfig;
+            if (!$billingConfig || $router->cutType?->name !== 'Corte Automático') {
+                continue;
+            }
+
+            $cutDay = Billing::clampDayToMonth(Billing::dayOf($billingConfig->cut_day), $now);
+
+            $base = [
+                'router_id'      => $router->id,
+                'router_name'    => $router->name,
+                'tenant_id'      => $router->tenant_id,
+                'cut_day'        => $cutDay,
+                'cut_time'       => $billingConfig->cut_time ?? '00:00:00',
+                'threshold'      => max(1, (int) ($billingConfig->overdue_invoices ?? 1)),
+                'due'            => false,
+                'still_eligible' => 0,
+            ];
+
+            if ($cutDay === null) {
+                // No cut day configured = automatic cut intentionally OFF for this
+                // router. This is a valid choice, NOT a problem → never alerts.
+                $rows[] = array_merge($base, ['status' => 'no_cut_day']);
+                continue;
+            }
+
+            // Only flag once the cut moment is at least an hour in the past, so
+            // a normal hourly auto-cut run has already had the chance to act
+            // (avoids false positives in the gap right after cut_time).
+            $cutTime = $billingConfig->cut_time ?? '00:00:00';
+            [$h, $m, $s] = array_pad(explode(':', $cutTime), 3, 0);
+            $cutMoment = $now->copy()->setTime((int) $h, (int) $m, (int) $s);
+            $due = $now->day >= $cutDay && $now->gte($cutMoment->copy()->addHour());
+
+            if (!$due) {
+                $rows[] = array_merge($base, ['status' => 'pending']);
+                continue;
+            }
+
+            $stillEligible = $this->getEligibleCustomers($router, $billingConfig)->count();
+
+            $rows[] = array_merge($base, [
+                'due'            => true,
+                'still_eligible' => $stillEligible,
+                'status'         => $stillEligible > 0 ? 'cut_failing' : 'ok',
+            ]);
+        }
+
+        return $rows;
     }
 
     /**
@@ -180,6 +275,7 @@ class OverdueSuspensionService
             'reblocked_ok'      => 0,
             'reblocked_failed'  => 0,
             'skipped_backoff'   => 0,
+            'skipped_exhausted' => 0,
             'would_reblock'     => 0, // dry-run only
         ];
 
@@ -219,6 +315,20 @@ class OverdueSuspensionService
                 && $latest->status === SuspensionActionLog::STATUS_SUCCESS
             ) {
                 $stats['already_confirmed']++;
+                continue;
+            }
+
+            // Exhausted: the SUSPEND failed and already consumed all its retries
+            // (attempts >= MAX_ATTEMPTS) → stop auto-retrying and leave it for a
+            // human. It stays a 'failed' row and surfaces in MassActions as
+            // needs_manual. Mirrors billing's "exhausted" state. --force overrides.
+            if (!$force
+                && $latest
+                && $latest->action === SuspensionActionLog::ACTION_SUSPEND
+                && $latest->status === SuspensionActionLog::STATUS_FAILED
+                && $latest->attempts >= SuspensionActionLog::MAX_ATTEMPTS
+            ) {
+                $stats['skipped_exhausted']++;
                 continue;
             }
 
