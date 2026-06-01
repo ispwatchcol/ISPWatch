@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreCustomerRequest extends FormRequest
 {
@@ -25,7 +26,10 @@ class StoreCustomerRequest extends FormRequest
 
             // Client profile
             'name'           => 'required|string|max:255',
-            'last_name'      => 'required|string|max:255',
+            // El apellido solo es obligatorio para personas; una empresa
+            // (is_company=true) puede dejarlo vacío.
+            'last_name'      => [Rule::requiredIf(fn () => !$this->boolean('is_company')), 'nullable', 'string', 'max:255'],
+            'is_company'     => 'nullable|boolean',
             'cedula'         => 'required|string|max:20',
             'city'           => 'nullable|string|max:255',
             'state'          => 'nullable|string|max:255',
@@ -33,11 +37,14 @@ class StoreCustomerRequest extends FormRequest
             'precinto'       => 'nullable|string|max:100',
             'installation_date' => 'nullable|date',
             'estrato'        => 'nullable|integer|between:1,6',
+            'comments'       => 'nullable|string|max:2000',
 
             // Service configuration
             'ip_user'        => 'nullable|string|max:45',
             'service_id'     => 'nullable|integer|exists:service_plan,id',
             'sectorial_id'   => 'nullable|integer|exists:sectorial,id',
+            'is_fiber'       => 'nullable|boolean',
+            'olt_id'         => 'nullable|integer|exists:sectorial,id',
             'nap_port'       => 'nullable|string|max:20',
             'router_id'      => 'nullable|integer|exists:router,id',
             'tenant_id'      => 'nullable|integer|exists:tenant,id',

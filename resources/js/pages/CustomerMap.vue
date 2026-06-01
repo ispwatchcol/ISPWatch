@@ -762,23 +762,39 @@ const renderHeatmap = (list, g) => {
     if (!points.length) return;
 
     if (typeof HeatmapLayerCtor === "function") {
-        heatmap = new HeatmapLayerCtor({
-            data: points.map((p) => new g.maps.LatLng(p.lat, p.lng)),
-            radius: 35,
-            opacity: 0.7,
-        });
-        heatmap.setMap(map);
-        return;
+        try {
+            heatmap = new HeatmapLayerCtor({
+                data: points.map((p) => new g.maps.LatLng(p.lat, p.lng)),
+                radius: 40,
+                opacity: 0.75,
+            });
+            heatmap.setMap(map);
+            return;
+        } catch (e) {
+            console.warn("HeatmapLayer falló, usando fallback por celdas:", e);
+            heatmap = null;
+        }
     }
 
-    // Fallback sin dependencias: densidad por celdas.
-    const heatColors = ["#22C55E", "#84CC16", "#EAB308", "#F97316", "#EF4444"];
+    // Fallback sin dependencias: densidad por celdas de la cuadrícula (~111 m).
+    // La clave representa el CENTRO de la celda (lat/lng redondeados a 3 decimales).
+    const PRECISION = 3; // ~111 m en latitud
+    const heatColors = [
+        "#2563EB", // 1 cliente  – azul
+        "#22C55E", // bajo       – verde
+        "#84CC16", // bajo-medio – lima
+        "#EAB308", // medio      – amarillo
+        "#F97316", // medio-alto – naranja
+        "#EF4444", // alto       – rojo
+        "#7C3AED", // muy alto   – violeta
+    ];
     const cells = new Map();
     points.forEach((p) => {
-        const key = `${p.lat.toFixed(3)}|${p.lng.toFixed(3)}`;
-        const cell = cells.get(key) || { lat: 0, lng: 0, n: 0 };
-        cell.lat += p.lat;
-        cell.lng += p.lng;
+        // Centro fijo de la celda (no acumulamos lat/lng: usamos la clave directamente)
+        const clat = parseFloat(p.lat.toFixed(PRECISION));
+        const clng = parseFloat(p.lng.toFixed(PRECISION));
+        const key = `${clat}|${clng}`;
+        const cell = cells.get(key) || { lat: clat, lng: clng, n: 0 };
         cell.n += 1;
         cells.set(key, cell);
     });
@@ -787,21 +803,22 @@ const renderHeatmap = (list, g) => {
         if (c.n > max) max = c.n;
     });
     cells.forEach((c) => {
-        const intensity = c.n / max; // 0..1
-        const color =
-            heatColors[
-                Math.min(
-                    heatColors.length - 1,
-                    Math.floor(intensity * heatColors.length)
-                )
-            ];
+        const intensity = max === 1 ? 0 : (c.n - 1) / (max - 1); // 0..1
+        const colorIdx = Math.min(
+            heatColors.length - 1,
+            Math.floor(intensity * heatColors.length)
+        );
+        const color = heatColors[colorIdx];
+        const baseRadius = 80;
         const circle = new g.maps.Circle({
             map,
-            center: { lat: c.lat / c.n, lng: c.lng / c.n },
-            radius: 60 + intensity * 140,
-            strokeOpacity: 0,
+            center: { lat: c.lat, lng: c.lng },
+            radius: baseRadius + intensity * 200,
+            strokeColor: color,
+            strokeOpacity: 0.4,
+            strokeWeight: 1,
             fillColor: color,
-            fillOpacity: 0.25 + intensity * 0.45,
+            fillOpacity: 0.15 + intensity * 0.55,
             clickable: false,
             zIndex: 1,
         });
@@ -1128,16 +1145,32 @@ const initMap = async () => {
     });
     infoWindow = new g.maps.InfoWindow();
 
-    // Con loading=async, HeatmapLayer ya no se adjunta de forma fiable al
-    // namespace clásico; importLibrary es la vía recomendada. Si Google ya la
-    // retiró, HeatmapLayerCtor queda null y renderHeatmap usa el fallback.
+    // Con loading=async la librería de visualización se carga bajo demanda.
+    // Intentamos importLibrary primero (nueva API), y si falla recurrimos
+    // al namespace clásico google.maps.visualization que ya se incluyó en
+    // la URL (?libraries=visualization). Si nada funciona, queda null y
+    // renderHeatmap usará el fallback de celdas.
     try {
         const viz = await g.maps.importLibrary("visualization");
+        // La nueva API devuelve el constructor directamente en el objeto
         HeatmapLayerCtor =
-            viz?.HeatmapLayer || g.maps.visualization?.HeatmapLayer || null;
+            viz?.HeatmapLayer ||
+            g.maps.visualization?.HeatmapLayer ||
+            g.maps.HeatmapLayer ||
+            null;
+        if (!HeatmapLayerCtor) {
+            console.warn(
+                "HeatmapLayer no encontrado en el resultado de importLibrary. " +
+                "Se usará fallback de celdas."
+            );
+        }
     } catch (e) {
-        console.warn("Librería de visualización no disponible:", e);
-        HeatmapLayerCtor = g.maps.visualization?.HeatmapLayer || null;
+        console.warn("Librería de visualización no disponible vía importLibrary:", e);
+        // Fallback al namespace clásico (funciona si la librería se cargó en la URL)
+        HeatmapLayerCtor =
+            g.maps.visualization?.HeatmapLayer ||
+            g.maps.HeatmapLayer ||
+            null;
     }
 
     mapClickListener = map.addListener("click", onMapClick);

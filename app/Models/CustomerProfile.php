@@ -15,6 +15,7 @@ class CustomerProfile extends Model
         'user_id',
         'name',
         'last_name',
+        'is_company',
         'cedula',
         'department',
         'position',
@@ -23,6 +24,7 @@ class CustomerProfile extends Model
         'city',
         'installation_date',
         'estrato',
+        'comments',
         'state',
         'postal_code',
         'country',
@@ -32,7 +34,9 @@ class CustomerProfile extends Model
         'ip_user',
         'service_id',
         'sectorial_id',
+        'olt_id',
         'nap_port',
+        'is_fiber',
         'router_id',
         'pppoe_username',
         'pppoe_password',
@@ -44,6 +48,11 @@ class CustomerProfile extends Model
         'service_status',
     ];
 
+    protected $casts = [
+        'is_company' => 'boolean',
+        'is_fiber'   => 'boolean',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);
@@ -52,5 +61,11 @@ class CustomerProfile extends Model
     public function router()
     {
         return $this->belongsTo(Router::class, 'router_id');
+    }
+
+    /** OLT de fibra (sectorial element_type=olt) asignada al cliente. */
+    public function olt()
+    {
+        return $this->belongsTo(Sectorial::class, 'olt_id');
     }
 }
