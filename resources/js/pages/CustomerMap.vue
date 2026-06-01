@@ -260,48 +260,39 @@
                     <p
                         class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed"
                     >
-                        Elige una <strong class="text-gray-700 dark:text-gray-200">sectorial</strong>
-                        y un <strong class="text-gray-700 dark:text-gray-200">cliente</strong> conectado a ella.
+                        Elige una <strong class="text-gray-700 dark:text-gray-200">sectorial</strong>.
                         <strong class="text-gray-700 dark:text-gray-200">Fibra (NAP):</strong>
-                        marca la ruta punto por punto haciendo clic en el mapa (solo visual, no se guarda).
+                        pulsa «Dibujar ruta» y marca el trazado punto por punto haciendo
+                        clic en el mapa; verás la distancia acumulada (solo visual, no se guarda).
                         <strong class="text-gray-700 dark:text-gray-200">Radioenlace:</strong>
-                        muestra el perfil de elevación del enlace con la línea de vista.
+                        el perfil de elevación está temporalmente deshabilitado.
                     </p>
                 </div>
 
-                <!-- Selección: sectorial + cliente -->
+                <!-- Selección: sectorial (buscador) + cliente destino opcional -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
+                    <SearchableSelect
+                        v-model="traceSectorialId"
+                        :items="traceableSectorials"
+                        item-key="id"
+                        :item-label="sectorialOptionLabel"
+                        item-icon="bi-broadcast-pin"
+                        label="Sectorial / AP"
+                        placeholder="— Selecciona una sectorial —"
+                        search-placeholder="Buscar sectorial..."
+                        clearable
+                        clear-label="Ninguna"
+                    />
+                    <div v-if="traceIsFiber">
                         <label
                             class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
-                            >Sectorial / AP</label
-                        >
-                        <select
-                            v-model="traceSectorialId"
-                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
-                        >
-                            <option value="">— Selecciona una sectorial —</option>
-                            <option
-                                v-for="s in traceableSectorials"
-                                :key="s.id"
-                                :value="String(s.id)"
-                            >
-                                {{ s.name }} ·
-                                {{ isFiberSectorial(s) ? "Fibra/NAP" : "Radio" }}
-                            </option>
-                        </select>
-                    </div>
-                    <div>
-                        <label
-                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
-                            >Cliente conectado</label
+                            >Cliente destino (opcional)</label
                         >
                         <select
                             v-model="traceCustomerId"
-                            :disabled="!traceSectorial"
-                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 disabled:opacity-50"
+                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
                         >
-                            <option value="">— Selecciona un cliente —</option>
+                            <option value="">— Sin cliente (ruta libre) —</option>
                             <option
                                 v-for="c in traceCustomers"
                                 :key="c.user_id"
@@ -311,73 +302,102 @@
                             </option>
                         </select>
                         <p
-                            v-if="traceSectorial && !traceCustomers.length"
-                            class="text-[11px] text-amber-600 dark:text-amber-400 mt-1"
+                            v-if="!traceCustomers.length"
+                            class="text-[11px] text-gray-400 dark:text-gray-500 mt-1"
                         >
-                            Esta sectorial no tiene clientes conectados
-                            (asigna su sectorial al cliente para trazarlo).
+                            Esta NAP no tiene clientes asignados; puedes dibujar
+                            la ruta igual.
                         </p>
                     </div>
                 </div>
 
-                <!-- Acciones de fibra: dibujo manual -->
-                <div
-                    v-if="traceIsFiber"
-                    class="flex flex-wrap gap-2 mt-3"
-                >
-                    <button
-                        type="button"
-                        :disabled="!traceCustomer"
-                        @click="
-                            fiberDrawing
-                                ? finishFiberDrawing()
-                                : startFiberDrawing()
-                        "
-                        :class="[
-                            'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all',
-                            fiberDrawing
-                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed',
-                        ]"
-                    >
-                        <v-icon
-                            :name="
+                <!-- Acciones de fibra: dibujo manual + distancia -->
+                <div v-if="traceIsFiber" class="mt-3">
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            @click="
                                 fiberDrawing
-                                    ? 'ri-check-line'
-                                    : 'ri-pencil-line'
+                                    ? finishFiberDrawing()
+                                    : startFiberDrawing()
                             "
-                            class="w-4 h-4"
-                        />
-                        {{ fiberDrawing ? "Terminar" : "Dibujar ruta" }}
-                    </button>
-                    <button
-                        type="button"
-                        :disabled="!fiberPoints.length"
-                        @click="undoFiberPoint"
-                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                            :class="[
+                                'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all',
+                                fiberDrawing
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white',
+                            ]"
+                        >
+                            <v-icon
+                                :name="
+                                    fiberDrawing
+                                        ? 'ri-check-line'
+                                        : 'ri-pencil-line'
+                                "
+                                class="w-4 h-4"
+                            />
+                            {{ fiberDrawing ? "Terminar" : "Dibujar ruta" }}
+                        </button>
+                        <button
+                            type="button"
+                            :disabled="!fiberPoints.length"
+                            @click="undoFiberPoint"
+                            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
+                            Deshacer
+                        </button>
+                        <button
+                            type="button"
+                            :disabled="!fiberPoints.length"
+                            @click="resetFiberTrace"
+                            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <v-icon name="ri-restart-line" class="w-4 h-4" />
+                            Reiniciar
+                        </button>
+                    </div>
+
+                    <div
+                        class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs"
                     >
-                        <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
-                        Deshacer
-                    </button>
-                    <button
-                        type="button"
-                        :disabled="!fiberPoints.length"
-                        @click="resetFiberTrace"
-                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                        <v-icon name="ri-restart-line" class="w-4 h-4" />
-                        Reiniciar
-                    </button>
-                    <p
-                        v-if="fiberDrawing"
-                        class="w-full text-xs text-emerald-600 dark:text-emerald-400 mt-1"
-                    >
-                        Modo dibujo activo — haz clic en el mapa para añadir
-                        puntos ({{ fiberPoints.length }} marcados).
-                    </p>
+                        <span class="text-gray-500 dark:text-gray-400">
+                            Distancia de la ruta:
+                            <strong
+                                class="text-emerald-700 dark:text-emerald-300 text-sm"
+                                >{{ fiberDistanceLabel }}</strong
+                            >
+                        </span>
+                        <span class="text-gray-500 dark:text-gray-400">
+                            Puntos:
+                            <strong class="text-gray-800 dark:text-gray-100">{{
+                                fiberPoints.length
+                            }}</strong>
+                        </span>
+                        <span
+                            v-if="fiberDrawing"
+                            class="text-emerald-600 dark:text-emerald-400"
+                        >
+                            Modo dibujo activo — haz clic en el mapa para añadir
+                            puntos.
+                        </span>
+                    </div>
                 </div>
 
-                <!-- Acciones de radio: perfil de elevación -->
+                <!-- Radio: perfil de elevación (deshabilitado por ahora) -->
+                <div
+                    v-else-if="traceSectorial && !ELEVATION_ENABLED"
+                    class="mt-3 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2.5"
+                >
+                    <v-icon
+                        name="bi-graph-up"
+                        class="w-4 h-4 flex-shrink-0 text-gray-400"
+                    />
+                    El perfil de elevación para radioenlaces está temporalmente
+                    deshabilitado.
+                </div>
+
+                <!-- Radio: controles de perfil de elevación (al reactivar) -->
                 <div
                     v-else-if="traceSectorial"
                     class="flex flex-wrap items-end gap-3 mt-3"
@@ -435,7 +455,7 @@
 
                 <!-- Perfil de elevación (radioenlace) -->
                 <div
-                    v-if="!traceIsFiber && traceSectorial && (elevation.error || elevationChart)"
+                    v-if="ELEVATION_ENABLED && !traceIsFiber && traceSectorial && (elevation.error || elevationChart)"
                     class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4"
                 >
                     <p
@@ -638,6 +658,11 @@ import tenantApi from "../services/api/tenant";
 import { useAuthStore } from "../stores/auth";
 import { effectiveCoverageRadius, antennaLabel } from "../constants/antennas";
 import { elementLabel, isFiber } from "../constants/networkElements";
+import SearchableSelect from "../components/SearchableSelect.vue";
+
+// El perfil de elevación de radioenlaces queda deshabilitado por ahora; cuando
+// se reactive basta con poner esto en true (el resto de la lógica ya existe).
+const ELEVATION_ENABLED = false;
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -1428,6 +1453,10 @@ const traceableSectorials = computed(() =>
     )
 );
 
+// Etiqueta de cada opción del buscador de sectoriales.
+const sectorialOptionLabel = (s) =>
+    `${s?.name ?? ""} · ${isFiberSectorial(s) ? "Fibra/NAP" : "Radio"}`;
+
 // El flujo arranca eligiendo la SECTORIAL; luego el cliente conectado a ella.
 const traceSectorialId = ref("");
 const traceCustomerId = ref("");
@@ -1458,8 +1487,10 @@ const traceCustomer = computed(
         ) || null
 );
 
+// Basta con tener una NAP de fibra seleccionada para empezar a dibujar; el
+// cliente destino es opcional.
 const startFiberDrawing = () => {
-    if (!traceIsFiber.value || !traceCustomer.value) return;
+    if (!traceIsFiber.value) return;
     layers.value.traces = true;
     fiberDrawing.value = true;
 };
@@ -1475,13 +1506,46 @@ const resetFiberTrace = () => {
 
 // En modo dibujo (fibra), cada clic en el mapa añade un punto a la ruta.
 const onMapClick = (e) => {
-    if (!fiberDrawing.value || !traceIsFiber.value || !traceCustomer.value)
-        return;
+    if (!fiberDrawing.value || !traceIsFiber.value) return;
     fiberPoints.value = [
         ...fiberPoints.value,
         { lat: e.latLng.lat(), lng: e.latLng.lng() },
     ];
 };
+
+// Ruta de fibra completa: NAP → waypoints → (cliente destino, si se eligió).
+const fiberRoutePath = computed(() => {
+    const sec = traceSectorial.value;
+    if (!sec || !traceIsFiber.value) return [];
+    const path = [{ lat: Number(sec.latitude), lng: Number(sec.longitude) }];
+    for (const p of fiberPoints.value) path.push(p);
+    const c = traceCustomer.value;
+    if (c) path.push({ lat: Number(c.latitude), lng: Number(c.longitude) });
+    return path.filter(
+        (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)
+    );
+});
+
+// Distancia acumulada de la ruta dibujada (metros), tramo a tramo.
+const fiberRouteDistanceM = computed(() => {
+    const path = fiberRoutePath.value;
+    let d = 0;
+    for (let i = 1; i < path.length; i++) {
+        d += haversineMeters(
+            path[i - 1].lat,
+            path[i - 1].lng,
+            path[i].lat,
+            path[i].lng
+        );
+    }
+    return d;
+});
+
+const fiberDistanceLabel = computed(() => {
+    const m = fiberRouteDistanceM.value;
+    if (m >= 1000) return `${(m / 1000).toFixed(2)} km`;
+    return `${Math.round(m)} m`;
+});
 
 const clearFiberOverlay = () => {
     if (fiberLine) {
@@ -1492,46 +1556,42 @@ const clearFiberOverlay = () => {
     fiberMarkers = [];
 };
 
-// Resalta el enlace seleccionado: ruta punteada con waypoints si es fibra, o
-// una línea recta gruesa sectorial↔cliente si es radioenlace.
+// Resalta el enlace seleccionado. Fibra: ruta punteada NAP → waypoints →
+// (cliente opcional) con marcadores numerados. Radio: línea recta NAP↔cliente
+// solo si hay cliente seleccionado.
 const drawSelectedTrace = (g) => {
     clearFiberOverlay();
     const sec = traceSectorial.value;
-    const c = traceCustomer.value;
-    if (!sec || !c) return;
-
+    if (!sec) return;
     const a = { lat: Number(sec.latitude), lng: Number(sec.longitude) };
-    const b = { lat: Number(c.latitude), lng: Number(c.longitude) };
-    if (
-        !Number.isFinite(a.lat) ||
-        !Number.isFinite(a.lng) ||
-        !Number.isFinite(b.lat) ||
-        !Number.isFinite(b.lng)
-    )
-        return;
+    if (!Number.isFinite(a.lat) || !Number.isFinite(a.lng)) return;
 
     if (traceIsFiber.value) {
-        // Fibra: ruta manual punteada NAP → waypoints → cliente.
-        fiberLine = new g.maps.Polyline({
-            map,
-            path: [a, ...fiberPoints.value, b],
-            geodesic: true,
-            strokeOpacity: 0,
-            icons: [
-                {
-                    icon: {
-                        path: "M 0,-1 0,1",
-                        strokeColor: "#0EA5E9",
-                        strokeOpacity: 1,
-                        strokeWeight: 3,
-                        scale: 2,
+        // Fibra: NAP → waypoints → cliente (si se eligió). Se dibuja la línea
+        // punteada en cuanto hay al menos dos puntos.
+        const path = fiberRoutePath.value;
+        if (path.length >= 2) {
+            fiberLine = new g.maps.Polyline({
+                map,
+                path,
+                geodesic: true,
+                strokeOpacity: 0,
+                icons: [
+                    {
+                        icon: {
+                            path: "M 0,-1 0,1",
+                            strokeColor: "#0EA5E9",
+                            strokeOpacity: 1,
+                            strokeWeight: 3,
+                            scale: 2,
+                        },
+                        offset: "0",
+                        repeat: "14px",
                     },
-                    offset: "0",
-                    repeat: "14px",
-                },
-            ],
-            zIndex: 1000,
-        });
+                ],
+                zIndex: 1000,
+            });
+        }
 
         fiberPoints.value.forEach((p, i) => {
             const marker = new g.maps.Marker({
@@ -1553,34 +1613,39 @@ const drawSelectedTrace = (g) => {
             });
             fiberMarkers.push(marker);
         });
-    } else {
-        // Radioenlace: línea recta resaltada del AP al cliente.
-        fiberLine = new g.maps.Polyline({
-            map,
-            path: [a, b],
-            geodesic: true,
-            strokeColor: "#6366F1",
-            strokeOpacity: 0.95,
-            strokeWeight: 3.5,
-            zIndex: 1000,
-        });
-        [a, b].forEach((pos) => {
-            const marker = new g.maps.Marker({
-                map,
-                position: pos,
-                icon: {
-                    path: g.maps.SymbolPath.CIRCLE,
-                    scale: 6,
-                    fillColor: "#6366F1",
-                    fillOpacity: 1,
-                    strokeColor: "#fff",
-                    strokeWeight: 2,
-                },
-                zIndex: 1001,
-            });
-            fiberMarkers.push(marker);
-        });
+        return;
     }
+
+    // Radioenlace: línea recta resaltada del AP al cliente (solo con cliente).
+    const c = traceCustomer.value;
+    if (!c) return;
+    const b = { lat: Number(c.latitude), lng: Number(c.longitude) };
+    if (!Number.isFinite(b.lat) || !Number.isFinite(b.lng)) return;
+    fiberLine = new g.maps.Polyline({
+        map,
+        path: [a, b],
+        geodesic: true,
+        strokeColor: "#6366F1",
+        strokeOpacity: 0.95,
+        strokeWeight: 3.5,
+        zIndex: 1000,
+    });
+    [a, b].forEach((pos) => {
+        const marker = new g.maps.Marker({
+            map,
+            position: pos,
+            icon: {
+                path: g.maps.SymbolPath.CIRCLE,
+                scale: 6,
+                fillColor: "#6366F1",
+                fillOpacity: 1,
+                strokeColor: "#fff",
+                strokeWeight: 2,
+            },
+            zIndex: 1001,
+        });
+        fiberMarkers.push(marker);
+    });
 };
 
 // ── Perfil de elevación (radioenlace) ───────────────────────────────────────
