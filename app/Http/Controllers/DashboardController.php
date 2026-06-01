@@ -139,7 +139,7 @@ class DashboardController extends Controller
                         ],
                         'coverage' => [
                             'sectoriales' => $totalSectorials,
-                            'label' => $totalSectorials . ' antenas activas',
+                            'label' => $totalSectorials . ' sectoriales activas',
                         ],
                     ],
                 ],
