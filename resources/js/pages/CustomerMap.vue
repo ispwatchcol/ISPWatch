@@ -397,13 +397,19 @@
                             >Nodo / Router</span
                         >
                     </div>
-                    <div class="flex items-center gap-2">
-                        <div
-                            class="w-0 h-0 border-l-[7px] border-r-[7px] border-b-[12px] border-l-transparent border-r-transparent border-b-amber-500"
-                        ></div>
-                        <span class="text-xs text-gray-600 dark:text-gray-400"
-                            >Sectorial (cobertura)</span
-                        >
+                    <div
+                        v-for="t in presentElementTypes"
+                        :key="t"
+                        class="flex items-center gap-2"
+                    >
+                        <img
+                            :src="sectorialIconUrl(t)"
+                            class="w-5 h-5 flex-shrink-0"
+                            alt=""
+                        />
+                        <span class="text-xs text-gray-600 dark:text-gray-400">{{
+                            elementLabel(t)
+                        }}</span>
                     </div>
                 </div>
             </div>
@@ -425,6 +431,7 @@ import api from "../services/api";
 import tenantApi from "../services/api/tenant";
 import { useAuthStore } from "../stores/auth";
 import { effectiveCoverageRadius, antennaLabel } from "../constants/antennas";
+import { elementLabel, isFiber } from "../constants/networkElements";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -500,9 +507,7 @@ let map = null;
 let infoWindow = null;
 let clusterer = null;
 let customerMarkers = [];
-let heatmap = null;
-let heatmapCells = [];
-let HeatmapLayerCtor = null;
+let heatmapOverlay = null;
 let coverageCircles = [];
 let traceLines = [];
 let nodeMarkers = [];
@@ -561,20 +566,88 @@ const getMarkerColor = (department) =>
     departmentColors.value[department] ||
     departmentColors.value["Sin departamento"];
 
+// Tipos de elemento de red presentes en el mapa, en orden de catálogo, para
+// mostrar en la leyenda solo los iconos que realmente aparecen.
+const ELEMENT_ORDER = [
+    "sectorial",
+    "switch",
+    "nodo",
+    "olt",
+    "splitter",
+    "nap",
+    "mufa",
+];
+const presentElementTypes = computed(() => {
+    const set = new Set(
+        sectorials.value.map((s) => s.element_type || "sectorial")
+    );
+    return ELEMENT_ORDER.filter((t) => set.has(t));
+});
+
 const createPinUrl = (color) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42"><path d="M16 0C7.163 0 0 7.163 0 16c0 12 16 26 16 26s16-14 16-26C32 7.163 24.837 0 16 0z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="6" fill="#fff"/></svg>`;
     return "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
 };
 
+const svgUrl = (svg) =>
+    "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+
 const routerIconUrl = () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><rect x="4" y="4" width="20" height="20" rx="3" transform="rotate(45 14 14)" fill="#2563EB" stroke="#fff" stroke-width="2"/></svg>`;
-    return "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+    return svgUrl(svg);
 };
 
-const sectorialIconUrl = () => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M14 3 L25 24 H3 Z" fill="#F59E0B" stroke="#fff" stroke-width="2"/></svg>`;
-    return "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+// Cada tipo de elemento de red tiene su propio color y glifo (dibujo blanco
+// sobre la pastilla de color) para que en el mapa se distingan de un vistazo:
+// una caja NAP, una mufa y un switch ya no comparten el mismo triángulo.
+// Las coordenadas de los glifos están en un lienzo de 32×32.
+const ELEMENT_STYLES = {
+    sectorial: {
+        color: "#2563EB",
+        glyph: `<circle cx="16" cy="21" r="2.4" fill="#fff"/><path d="M11.2 16.2a7 7 0 0 1 9.6 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M8.6 13a11 11 0 0 1 14.8 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`,
+    },
+    switch: {
+        color: "#7C3AED",
+        glyph: `<rect x="8.5" y="12" width="15" height="8" rx="2" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 20v2.4M16 20v2.4M20 20v2.4M12 9.6V12M16 9.6V12M20 9.6V12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`,
+    },
+    nodo: {
+        color: "#059669",
+        glyph: `<circle cx="16" cy="8.5" r="1.8" fill="#fff"/><path d="M12.4 23 16 10l3.6 13" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M13.7 18.3h4.6M14.4 14.4h3.2" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`,
+    },
+    olt: {
+        color: "#E11D48",
+        glyph: `<rect x="9" y="10" width="14" height="5.4" rx="1.6" fill="none" stroke="#fff" stroke-width="1.8"/><rect x="9" y="17" width="14" height="5.4" rx="1.6" fill="none" stroke="#fff" stroke-width="1.8"/><circle cx="12" cy="12.7" r="1.1" fill="#fff"/><circle cx="12" cy="19.7" r="1.1" fill="#fff"/>`,
+    },
+    splitter: {
+        color: "#D97706",
+        glyph: `<path d="M9 16h4.5M13.5 16 21 11M13.5 16h7.5M13.5 16 21 21" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="21" cy="11" r="1.5" fill="#fff"/><circle cx="21" cy="16" r="1.5" fill="#fff"/><circle cx="21" cy="21" r="1.5" fill="#fff"/>`,
+    },
+    nap: {
+        color: "#0891B2",
+        glyph: `<rect x="9.5" y="11" width="13" height="11" rx="1.6" fill="none" stroke="#fff" stroke-width="2"/><path d="M9.5 14.8h13" stroke="#fff" stroke-width="2"/><path d="M14.4 11v3.8M17.6 11v3.8" stroke="#fff" stroke-width="1.6"/>`,
+    },
+    mufa: {
+        color: "#475569",
+        glyph: `<rect x="9.5" y="12" width="13" height="9" rx="4.5" fill="none" stroke="#fff" stroke-width="2"/><path d="M16 12v9" stroke="#fff" stroke-width="1.6"/><path d="M13 9.6v2.4M19 9.6v2.4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`,
+    },
 };
+
+const elementStyle = (type) =>
+    ELEMENT_STYLES[type] || ELEMENT_STYLES.sectorial;
+
+// Pastilla de color con el glifo blanco del tipo, usada como marcador del mapa.
+const sectorialIconUrl = (type) => {
+    const { color, glyph } = elementStyle(type);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 32 32"><rect x="3" y="3" width="26" height="26" rx="8" fill="${color}" stroke="#fff" stroke-width="2.5"/>${glyph}</svg>`;
+    return svgUrl(svg);
+};
+
+// Mismo glifo, en pequeño y sobre fondo transparente, para incrustarlo dentro
+// de la cabecera del popup (sobre una caja del color del tipo).
+const elementGlyphSvg = (type, size = 22) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">${
+        elementStyle(type).glyph
+    }</svg>`;
 
 const escapeHtml = (value) =>
     String(value ?? "").replace(
@@ -589,75 +662,123 @@ const escapeHtml = (value) =>
             }[ch])
     );
 
-const customerPopup = (c) => `
-    <div style="padding:12px;min-width:220px;font-family:inherit;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-            <div style="width:40px;height:40px;border-radius:9999px;background:#DBEAFE;display:flex;align-items:center;justify-content:center;font-size:18px;">👤</div>
-            <div>
-                <h3 style="font-weight:700;color:#1F2937;margin:0;">${escapeHtml(
+// ── Popups (tarjetas de InfoWindow) ─────────────────────────────────────────
+// Fila etiqueta/valor: se omite por completo si el valor está vacío, para no
+// llenar la tarjeta de "N/A".
+const popupRow = (label, value) => {
+    const v = value == null ? "" : String(value).trim();
+    if (!v || v.toUpperCase() === "N/A") return "";
+    return `<div style="display:flex;justify-content:space-between;gap:14px;padding:6px 0;border-top:1px solid #F3F4F6;font-size:12.5px;line-height:1.35;">
+        <span style="color:#9CA3AF;font-weight:500;white-space:nowrap;">${escapeHtml(
+            label
+        )}</span>
+        <span style="color:#1F2937;font-weight:600;text-align:right;">${escapeHtml(
+            v
+        )}</span>
+    </div>`;
+};
+
+// Colores de la pastilla de estado del servicio del cliente.
+const STATUS_STYLES = {
+    activo: { bg: "#ECFDF5", fg: "#047857", label: "Activo" },
+    suspendido: { bg: "#FFF7ED", fg: "#C2410C", label: "Suspendido" },
+    cancelado: { bg: "#FEF2F2", fg: "#B91C1C", label: "Cancelado" },
+    gratis: { bg: "#EEF2FF", fg: "#4338CA", label: "Gratis / Cortesía" },
+};
+const statusStyle = (status) =>
+    STATUS_STYLES[status] || {
+        bg: "#F3F4F6",
+        fg: "#374151",
+        label: status || "—",
+    };
+
+const customerPopup = (c) => {
+    const st = statusStyle(c.service_status || "activo");
+    const initial = escapeHtml(
+        (c.name || c.last_name || "?").trim().charAt(0).toUpperCase()
+    );
+    return `
+    <div style="font-family:inherit;min-width:240px;max-width:290px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding-bottom:10px;">
+            <div style="width:42px;height:42px;border-radius:9999px;background:#DBEAFE;color:#1D4ED8;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0;">${initial}</div>
+            <div style="min-width:0;flex:1;">
+                <h3 style="font-weight:700;color:#111827;margin:0;font-size:15px;line-height:1.25;">${escapeHtml(
                     c.name
                 )} ${escapeHtml(c.last_name)}</h3>
-                <p style="font-size:12px;color:#6B7280;margin:0;">${escapeHtml(
+                ${
                     c.email
-                )}</p>
+                        ? `<p style="font-size:12px;color:#6B7280;margin:2px 0 0;word-break:break-all;">${escapeHtml(
+                              c.email
+                          )}</p>`
+                        : ""
+                }
+                <span style="display:inline-block;margin-top:6px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:9999px;background:${
+                    st.bg
+                };color:${st.fg};">${escapeHtml(st.label)}</span>
             </div>
         </div>
-        <div style="font-size:13px;color:#4B5563;line-height:1.5;">
-            <p style="margin:2px 0;"><strong>Estado:</strong> ${escapeHtml(
-                c.service_status || "activo"
-            )}</p>
-            <p style="margin:2px 0;"><strong>Departamento:</strong> ${escapeHtml(
-                c.department || "N/A"
-            )}</p>
-            <p style="margin:2px 0;"><strong>Ciudad:</strong> ${escapeHtml(
-                c.city || "N/A"
-            )}</p>
-            <p style="margin:2px 0;"><strong>Dirección:</strong> ${escapeHtml(
-                c.address || "N/A"
-            )}</p>
+        <div>
+            ${popupRow("Departamento", c.department)}
+            ${popupRow("Ciudad", c.city)}
+            ${popupRow("Dirección", c.address)}
         </div>
-        <div style="margin-top:12px;">
-            <a href="/customers/${encodeURIComponent(c.user_id)}/edit"
-               style="display:block;text-align:center;background:#2563EB;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;text-decoration:none;">
-                Editar
-            </a>
-        </div>
+        <a href="/customers/${encodeURIComponent(c.user_id)}/edit"
+           style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:12px;background:#2563EB;color:#fff;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;">
+            Editar cliente
+        </a>
     </div>`;
+};
 
-const nodePopup = (node, kind) => `
-    <div style="padding:12px;min-width:200px;font-family:inherit;">
-        <h3 style="font-weight:700;color:#1F2937;margin:0 0 6px;">${escapeHtml(
-            node.name
-        )}</h3>
-        <p style="font-size:12px;color:#6B7280;margin:0 0 6px;">${
-            kind === "router" ? "Nodo / Router" : "Sectorial"
-        }</p>
-        ${
-            kind === "sectorial"
-                ? `<div style="font-size:13px;color:#4B5563;line-height:1.5;">
-                       ${
-                           node.type
-                               ? `<p style="margin:2px 0;"><strong>Tipo:</strong> ${escapeHtml(
-                                     node.type
-                                 )}</p>`
-                               : ""
-                       }
-                       <p style="margin:2px 0;"><strong>Antena:</strong> ${escapeHtml(
-                           antennaLabel(node.antenna_type) || "N/A"
-                       )}</p>
-                       <p style="margin:2px 0;"><strong>Frecuencia:</strong> ${escapeHtml(
-                           node.frequency || "N/A"
-                       )}</p>
-                       <p style="margin:2px 0;"><strong>Torre/Nodo:</strong> ${escapeHtml(
-                           node.node_tower || "N/A"
-                       )}</p>
-                       <p style="margin:2px 0;"><strong>Cobertura:</strong> ${effectiveCoverageRadius(
-                           node
-                       )} m</p>
-                   </div>`
-                : ""
-        }
+const nodePopup = (node, kind) => {
+    // Router: tarjeta sencilla (no es un elemento de red con tipo/cobertura).
+    if (kind === "router") {
+        return `
+        <div style="font-family:inherit;min-width:210px;max-width:280px;">
+            <div style="display:flex;align-items:center;gap:10px;padding-bottom:8px;">
+                <div style="width:40px;height:40px;border-radius:10px;background:#2563EB;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.18);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="13" width="18" height="7" rx="2" fill="none" stroke="#fff" stroke-width="2"/><circle cx="7" cy="16.5" r="1.1" fill="#fff"/><path d="M12 13V8M12 8a4 4 0 0 1 4 4M12 8a4 4 0 0 0-4 4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+                </div>
+                <div style="min-width:0;">
+                    <h3 style="font-weight:700;color:#111827;margin:0;font-size:15px;line-height:1.2;">${escapeHtml(
+                        node.name
+                    )}</h3>
+                    <span style="display:inline-block;margin-top:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:9999px;background:#EFF6FF;color:#1D4ED8;">Nodo / Router</span>
+                </div>
+            </div>
+            ${popupRow("IP", node.ip)}
+        </div>`;
+    }
+
+    // Sectorial / elemento de red: cabecera con su color y glifo, filas según tipo.
+    const type = node.element_type || "sectorial";
+    const { color } = elementStyle(type);
+    const fiber = isFiber(type);
+    return `
+    <div style="font-family:inherit;min-width:220px;max-width:285px;">
+        <div style="display:flex;align-items:center;gap:10px;padding-bottom:8px;">
+            <div style="width:40px;height:40px;border-radius:10px;background:${color};display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.18);">
+                ${elementGlyphSvg(type, 22)}
+            </div>
+            <div style="min-width:0;">
+                <h3 style="font-weight:700;color:#111827;margin:0;font-size:15px;line-height:1.2;">${escapeHtml(
+                    node.name
+                )}</h3>
+                <span style="display:inline-block;margin-top:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:9999px;background:${color}1A;color:${color};">${escapeHtml(
+        elementLabel(type)
+    )}</span>
+            </div>
+        </div>
+        <div>
+            ${popupRow("Subtipo", node.type)}
+            ${popupRow("IP", node.ip)}
+            ${fiber ? "" : popupRow("Antena", antennaLabel(node.antenna_type))}
+            ${fiber ? "" : popupRow("Frecuencia", node.frequency)}
+            ${popupRow("Torre / Nodo", node.node_tower)}
+            ${popupRow("SSID", node.ssid)}
+            ${popupRow("Cobertura", effectiveCoverageRadius(node) + " m")}
+        </div>
     </div>`;
+};
 
 // ── Google Maps + MarkerClusterer loaders ──────────────────────────────────
 let googleMapsPromise = null;
@@ -690,7 +811,7 @@ const loadGoogleMaps = (apiKey) => {
             `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
                 apiKey
             )}` +
-            `&callback=${cb}&loading=async&v=weekly&libraries=visualization,geometry`;
+            `&callback=${cb}&loading=async&v=weekly`;
         script.async = true;
         script.defer = true;
         script.onerror = () => {
@@ -736,12 +857,10 @@ const clearLayers = () => {
     }
     customerMarkers.forEach((m) => m.setMap(null));
     customerMarkers = [];
-    if (heatmap) {
-        heatmap.setMap(null);
-        heatmap = null;
+    if (heatmapOverlay) {
+        heatmapOverlay.setMap(null);
+        heatmapOverlay = null;
     }
-    heatmapCells.forEach((c) => c.setMap(null));
-    heatmapCells = [];
     coverageCircles.forEach((c) => c.setMap(null));
     coverageCircles = [];
     traceLines.forEach((l) => l.setMap(null));
@@ -752,78 +871,134 @@ const clearLayers = () => {
     if (infoWindow) infoWindow.close();
 };
 
-// Densidad de clientes. Usa HeatmapLayer si Google aún lo provee; si no
-// (lo está retirando), agrega los clientes por celdas (~111 m) y pinta
-// círculos de color como respaldo, sin depender de la librería de visualización.
+// Mapa de calor de densidad de clientes.
+//
+// Google retiró HeatmapLayer (visualization), así que lo dibujamos nosotros con
+// un OverlayView sobre <canvas>: por cada cliente se pinta un degradado radial
+// en escala de grises (se acumulan al solaparse → más densidad = más opaco) y al
+// final se recolorea ese acumulado con una paleta azul→verde→amarillo→rojo. El
+// resultado es una mancha de calor continua, no círculos sueltos.
+let HeatmapOverlayClass = null;
+
+const buildHeatPalette = () => {
+    const c = document.createElement("canvas");
+    c.width = 1;
+    c.height = 256;
+    const ctx = c.getContext("2d");
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.45, "#2563EB"); // azul   – poca densidad
+    grad.addColorStop(0.6, "#22C55E"); // verde
+    grad.addColorStop(0.75, "#EAB308"); // amarillo
+    grad.addColorStop(0.88, "#F97316"); // naranja
+    grad.addColorStop(1.0, "#EF4444"); // rojo   – máxima densidad
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1, 256);
+    return ctx.getImageData(0, 0, 1, 256).data; // 256 colores * RGBA
+};
+
+const createHeatmapOverlay = (g, points, opts = {}) => {
+    if (!HeatmapOverlayClass) {
+        HeatmapOverlayClass = class extends g.maps.OverlayView {
+            constructor(points, opts) {
+                super();
+                this.points = points;
+                this.radius = opts.radius || 34; // px del degradado por cliente
+                this.maxOpacity = opts.opacity != null ? opts.opacity : 0.6;
+                this.pointAlpha = opts.pointAlpha || 0.2; // aporte por cliente
+                this.canvas = null;
+                this.palette = null;
+            }
+            onAdd() {
+                const canvas = document.createElement("canvas");
+                canvas.style.position = "absolute";
+                canvas.style.pointerEvents = "none";
+                this.canvas = canvas;
+                this.palette = buildHeatPalette();
+                this.getPanes().overlayLayer.appendChild(canvas);
+            }
+            onRemove() {
+                if (this.canvas && this.canvas.parentNode) {
+                    this.canvas.parentNode.removeChild(this.canvas);
+                }
+                this.canvas = null;
+            }
+            draw() {
+                const proj = this.getProjection();
+                const map = this.getMap();
+                if (!proj || !map || !this.canvas) return;
+                const bounds = map.getBounds();
+                if (!bounds) return;
+
+                const div = map.getDiv();
+                const w = div.offsetWidth;
+                const h = div.offsetHeight;
+                if (!w || !h) return;
+
+                // Esquina superior-izquierda del viewport en píxeles del pane.
+                const topLeft = proj.fromLatLngToDivPixel(
+                    new g.maps.LatLng(
+                        bounds.getNorthEast().lat(),
+                        bounds.getSouthWest().lng()
+                    )
+                );
+                const canvas = this.canvas;
+                canvas.style.left = `${topLeft.x}px`;
+                canvas.style.top = `${topLeft.y}px`;
+                if (canvas.width !== w) canvas.width = w;
+                if (canvas.height !== h) canvas.height = h;
+
+                const ctx = canvas.getContext("2d");
+                ctx.clearRect(0, 0, w, h);
+
+                // 1) Acumular densidad en escala de grises (alfa) por solapamiento.
+                const r = this.radius;
+                for (const p of this.points) {
+                    const px = proj.fromLatLngToDivPixel(
+                        new g.maps.LatLng(p.lat, p.lng)
+                    );
+                    const x = px.x - topLeft.x;
+                    const y = px.y - topLeft.y;
+                    if (x < -r || y < -r || x > w + r || y > h + r) continue;
+                    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+                    grad.addColorStop(0, `rgba(0,0,0,${this.pointAlpha})`);
+                    grad.addColorStop(1, "rgba(0,0,0,0)");
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+                }
+
+                // 2) Recolorear el alfa acumulado con la paleta de calor.
+                const img = ctx.getImageData(0, 0, w, h);
+                const data = img.data;
+                const pal = this.palette;
+                const maxOp = this.maxOpacity;
+                for (let i = 0; i < data.length; i += 4) {
+                    const a = data[i + 3];
+                    if (a === 0) continue;
+                    const off = a * 4;
+                    data[i] = pal[off];
+                    data[i + 1] = pal[off + 1];
+                    data[i + 2] = pal[off + 2];
+                    data[i + 3] = Math.round(a * maxOp);
+                }
+                ctx.putImageData(img, 0, 0);
+            }
+        };
+    }
+    return new HeatmapOverlayClass(points, opts);
+};
+
 const renderHeatmap = (list, g) => {
     const points = list
         .map((c) => ({ lat: Number(c.latitude), lng: Number(c.longitude) }))
         .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
     if (!points.length) return;
 
-    if (typeof HeatmapLayerCtor === "function") {
-        try {
-            heatmap = new HeatmapLayerCtor({
-                data: points.map((p) => new g.maps.LatLng(p.lat, p.lng)),
-                radius: 40,
-                opacity: 0.75,
-            });
-            heatmap.setMap(map);
-            return;
-        } catch (e) {
-            console.warn("HeatmapLayer falló, usando fallback por celdas:", e);
-            heatmap = null;
-        }
-    }
-
-    // Fallback sin dependencias: densidad por celdas de la cuadrícula (~111 m).
-    // La clave representa el CENTRO de la celda (lat/lng redondeados a 3 decimales).
-    const PRECISION = 3; // ~111 m en latitud
-    const heatColors = [
-        "#2563EB", // 1 cliente  – azul
-        "#22C55E", // bajo       – verde
-        "#84CC16", // bajo-medio – lima
-        "#EAB308", // medio      – amarillo
-        "#F97316", // medio-alto – naranja
-        "#EF4444", // alto       – rojo
-        "#7C3AED", // muy alto   – violeta
-    ];
-    const cells = new Map();
-    points.forEach((p) => {
-        // Centro fijo de la celda (no acumulamos lat/lng: usamos la clave directamente)
-        const clat = parseFloat(p.lat.toFixed(PRECISION));
-        const clng = parseFloat(p.lng.toFixed(PRECISION));
-        const key = `${clat}|${clng}`;
-        const cell = cells.get(key) || { lat: clat, lng: clng, n: 0 };
-        cell.n += 1;
-        cells.set(key, cell);
+    heatmapOverlay = createHeatmapOverlay(g, points, {
+        radius: 34,
+        opacity: 0.6,
+        pointAlpha: 0.22,
     });
-    let max = 1;
-    cells.forEach((c) => {
-        if (c.n > max) max = c.n;
-    });
-    cells.forEach((c) => {
-        const intensity = max === 1 ? 0 : (c.n - 1) / (max - 1); // 0..1
-        const colorIdx = Math.min(
-            heatColors.length - 1,
-            Math.floor(intensity * heatColors.length)
-        );
-        const color = heatColors[colorIdx];
-        const baseRadius = 80;
-        const circle = new g.maps.Circle({
-            map,
-            center: { lat: c.lat, lng: c.lng },
-            radius: baseRadius + intensity * 200,
-            strokeColor: color,
-            strokeOpacity: 0.4,
-            strokeWeight: 1,
-            fillColor: color,
-            fillOpacity: 0.15 + intensity * 0.55,
-            clickable: false,
-            zIndex: 1,
-        });
-        heatmapCells.push(circle);
-    });
+    heatmapOverlay.setMap(map);
 };
 
 const applyLayers = () => {
@@ -870,11 +1045,9 @@ const applyLayers = () => {
         }
     }
 
-    // Heatmap (densidad de clientes). Aislado en try/catch: Google está
-    // retirando HeatmapLayer y, sin esta protección, un fallo aquí abortaba
-    // applyLayers y hacía desaparecer cobertura, nodos y sectoriales. Si el
-    // constructor no está disponible, renderHeatmap cae a un fallback por celdas
-    // para que la capa siempre muestre algo.
+    // Heatmap (densidad de clientes). Aislado en try/catch para que un fallo
+    // del canvas nunca aborte applyLayers y haga desaparecer cobertura, nodos y
+    // sectoriales.
     if (layers.value.heatmap) {
         try {
             renderHeatmap(list, g);
@@ -953,9 +1126,9 @@ const applyLayers = () => {
                 title: s.name,
                 zIndex: 999,
                 icon: {
-                    url: sectorialIconUrl(),
-                    scaledSize: new g.maps.Size(28, 28),
-                    anchor: new g.maps.Point(14, 24),
+                    url: sectorialIconUrl(s.element_type),
+                    scaledSize: new g.maps.Size(34, 34),
+                    anchor: new g.maps.Point(17, 17),
                 },
             });
             marker.addListener("click", () => {
@@ -1145,33 +1318,9 @@ const initMap = async () => {
     });
     infoWindow = new g.maps.InfoWindow();
 
-    // Con loading=async la librería de visualización se carga bajo demanda.
-    // Intentamos importLibrary primero (nueva API), y si falla recurrimos
-    // al namespace clásico google.maps.visualization que ya se incluyó en
-    // la URL (?libraries=visualization). Si nada funciona, queda null y
-    // renderHeatmap usará el fallback de celdas.
-    try {
-        const viz = await g.maps.importLibrary("visualization");
-        // La nueva API devuelve el constructor directamente en el objeto
-        HeatmapLayerCtor =
-            viz?.HeatmapLayer ||
-            g.maps.visualization?.HeatmapLayer ||
-            g.maps.HeatmapLayer ||
-            null;
-        if (!HeatmapLayerCtor) {
-            console.warn(
-                "HeatmapLayer no encontrado en el resultado de importLibrary. " +
-                "Se usará fallback de celdas."
-            );
-        }
-    } catch (e) {
-        console.warn("Librería de visualización no disponible vía importLibrary:", e);
-        // Fallback al namespace clásico (funciona si la librería se cargó en la URL)
-        HeatmapLayerCtor =
-            g.maps.visualization?.HeatmapLayer ||
-            g.maps.HeatmapLayer ||
-            null;
-    }
+    // El mapa de calor lo dibujamos con un OverlayView sobre <canvas>
+    // (createHeatmapOverlay), así que ya no dependemos de la librería
+    // "visualization" / HeatmapLayer, que Google retiró.
 
     mapClickListener = map.addListener("click", onMapClick);
     mapReady = true;

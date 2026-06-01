@@ -239,7 +239,7 @@ class CustomerProfileController extends Controller
 
         // Sectorials. The model accessor returns ['lat'=>, 'lng'=>] (or null).
         $sectorials = Sectorial::query()
-            ->get(['id', 'name', 'type', 'coordinates', 'coverage_radius_meters', 'antenna_type', 'frequency', 'node_tower'])
+            ->get(['id', 'name', 'element_type', 'type', 'ip', 'ssid', 'coordinates', 'coverage_radius_meters', 'antenna_type', 'frequency', 'node_tower'])
             ->map(function ($sectorial) {
                 $coords = $sectorial->coordinates;
                 if (!is_array($coords) || !isset($coords['lat'], $coords['lng'])) {
@@ -248,7 +248,14 @@ class CustomerProfileController extends Controller
                 return [
                     'id' => $sectorial->id,
                     'name' => $sectorial->name,
+                    // element_type distingue el icono en el mapa (sectorial / switch
+                    // / nodo / olt / splitter / nap / mufa); type es el subtipo
+                    // wireless (Access Point, Bridge, PTP…). Los datos heredados sin
+                    // element_type se tratan como "sectorial" en el frontend.
+                    'element_type' => $sectorial->element_type,
                     'type' => $sectorial->type,
+                    'ip' => $sectorial->ip,
+                    'ssid' => $sectorial->ssid,
                     'antenna_type' => $sectorial->antenna_type,
                     'latitude' => (float) $coords['lat'],
                     'longitude' => (float) $coords['lng'],
