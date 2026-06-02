@@ -8,6 +8,13 @@
 
 export const DEFAULT_COVERAGE_RADIUS = 800; // sectorial sin antena definida
 export const NAP_COVERAGE_RADIUS = 200; // caja NAP / nodo de acceso
+export const FIBER_NODE_COVERAGE_RADIUS = 50; // OLT / splitter / mufa: nodos de
+// infraestructura, no zonas de RF. Solo se usa como sugerencia del formulario
+// si el usuario decide fijarles un radio a mano.
+
+// Tipos de elemento de fibra que son pura infraestructura: no representan una
+// zona de cobertura, así que en el mapa no se les dibuja círculo por defecto.
+export const NON_COVERAGE_FIBER_TYPES = ["olt", "splitter", "mufa"];
 
 // Subtipos de elemento de red (para el selector "Subtipo" de las sectoriales).
 // Nota: "NAP" ya no es un subtipo aquí; una caja NAP es su propio tipo de
@@ -112,11 +119,13 @@ export function antennaRadius(value) {
 
 // Radio sugerido a partir de la antena; si no hay antena se usa el tipo de
 // elemento (caja NAP = corto, ya sea por element_type 'nap' o por el subtipo
-// heredado "NAP") y como último recurso el default de una sectorial.
+// heredado "NAP"; OLT/splitter/mufa = footprint mínimo) y como último recurso
+// el default de una sectorial.
 export function suggestedRadius(antennaType, subtype, elementType) {
     const fromAntenna = antennaRadius(antennaType);
     if (fromAntenna != null) return fromAntenna;
     if (elementType === "nap" || subtype === "NAP") return NAP_COVERAGE_RADIUS;
+    if (NON_COVERAGE_FIBER_TYPES.includes(elementType)) return FIBER_NODE_COVERAGE_RADIUS;
     return DEFAULT_COVERAGE_RADIUS;
 }
 
@@ -126,4 +135,13 @@ export function effectiveCoverageRadius(node = {}) {
     const manual = Number(node.coverage_radius_meters);
     if (Number.isFinite(manual) && manual > 0) return manual;
     return suggestedRadius(node.antenna_type, node.type, node.element_type);
+}
+
+// ¿Debe dibujarse una zona de cobertura para este elemento en el mapa?
+// Sectorial y caja NAP siempre; los nodos de infraestructura de fibra
+// (OLT/splitter/mufa) solo si el usuario les fijó un radio a mano.
+export function shouldDrawCoverage(node = {}) {
+    const manual = Number(node.coverage_radius_meters);
+    if (Number.isFinite(manual) && manual > 0) return true;
+    return !NON_COVERAGE_FIBER_TYPES.includes(node.element_type);
 }
