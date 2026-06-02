@@ -61,6 +61,12 @@ class StoreCustomerRequest extends FormRequest
 
             // MAC address (only when router control mode is DHCP Leases / IP-MAC)
             'mac_address'         => 'nullable|string|max:17|regex:/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/',
+
+            // Cuando es false el cliente se guarda solo en la BD y NO se aprovisiona
+            // en la RB (botón "Guardar"). Si viene ausente se asume true para no
+            // alterar el comportamiento de imports/conversión de prospectos/otros
+            // llamadores que esperan el aprovisionamiento automático.
+            'push_to_router'      => 'nullable|boolean',
         ];
     }
 

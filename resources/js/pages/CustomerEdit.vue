@@ -67,7 +67,7 @@
             </div>
           </div>
 
-          <form @submit.prevent="handleSubmit" @keydown="onFormKeydown" class="p-6 md:p-8">
+          <form @submit.prevent="handleSubmit(true)" @keydown="onFormKeydown" class="p-6 md:p-8">
 
             <!-- Sección 1: Datos de Acceso -->
             <div class="mb-8">
@@ -661,14 +661,26 @@
             </div>
 
             <!-- Botones -->
+            <!-- Dos acciones: "Guardar" persiste solo en la base de datos; "Guardar y
+                 cargar a RB" re-sincroniza además la configuración en el router. -->
             <div class="flex flex-col sm:flex-row gap-3 pt-6 border-t border-gray-200 dark:border-gray-700">
             <button type="button" @click="goBack"
-                class="flex-1 py-3 px-6 border-2 border-gray-300 dark:border-gray-600 rounded-xl
+                class="py-3 px-6 border-2 border-gray-300 dark:border-gray-600 rounded-xl
                        text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
-                       transition-all font-medium flex items-center justify-center gap-2"
+                       transition-all font-medium flex items-center justify-center gap-2 sm:w-auto"
                 :disabled="loading">
                 <v-icon name="md-close" class="w-5 h-5" />
                 Cancelar
+            </button>
+            <button type="button" @click="handleSubmit(false)" :disabled="loading || pppoeMismatch"
+                class="flex-1 py-3 px-6 border-2 border-blue-600 dark:border-blue-500
+                       text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20
+                       rounded-xl transition-all font-medium
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       flex items-center justify-center gap-2">
+                <v-icon v-if="loading && loadingMode === 'db'" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
+                <v-icon v-else name="md-save" class="w-5 h-5" />
+                {{ loading && loadingMode === 'db' ? 'Guardando...' : 'Guardar' }}
             </button>
             <button type="submit" :disabled="loading || pppoeMismatch"
                 class="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-blue-700
@@ -677,9 +689,9 @@
                        transform hover:-translate-y-0.5
                        disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
                        flex items-center justify-center gap-2">
-                <v-icon v-if="loading" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
-                <v-icon v-else name="md-check" class="w-5 h-5" />
-                {{ loading ? 'Guardando...' : 'Actualizar Cliente' }}
+                <v-icon v-if="loading && loadingMode === 'rb'" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
+                <v-icon v-else name="bi-hdd-network" class="w-5 h-5" />
+                {{ loading && loadingMode === 'rb' ? 'Guardando...' : 'Guardar y cargar a RB' }}
             </button>
             </div>
         </form>
@@ -767,6 +779,8 @@ const form = ref({
 })
 
 const loading        = ref(false)
+// Qué acción está en curso: 'rb' = guardar + cargar a RB, 'db' = solo guardar.
+const loadingMode    = ref(null)
 const loadingData    = ref(true)
 const errorMsg       = ref('')
 const pppoeUserError = ref('')
@@ -1076,7 +1090,9 @@ watch([() => form.value.router_id, routers], () => {
     }
 }, { immediate: false })
 
-const handleSubmit = async () => {
+// pushToRouter=true -> "Guardar y cargar a RB" (flujo completo: BD + re-sincroniza).
+// pushToRouter=false -> "Guardar": persiste solo en la base de datos.
+const handleSubmit = async (pushToRouter = true) => {
     errorMsg.value       = ''
     pppoeUserError.value = ''
     pppoePassError.value = ''
@@ -1129,15 +1145,19 @@ const handleSubmit = async () => {
     }
 
     loading.value = true
+    loadingMode.value = pushToRouter ? 'rb' : 'db'
 
     try {
-        const dataToSend = { ...form.value }
+        const dataToSend = { ...form.value, push_to_router: pushToRouter }
         if (!dataToSend.password) delete dataToSend.password
 
         const res   = await api.customers.update(route.params.id, dataToSend)
         const pppoe = res.data?.pppoe_provisioned
 
-        if (showPppoeSection.value && pppoe && !pppoe.success) {
+        if (!pushToRouter) {
+            toast.value?.success('Cliente guardado', 'Los datos se guardaron en la base de datos (no se cargó a la RB).')
+            setTimeout(() => router.push('/customers'), 1500)
+        } else if (showPppoeSection.value && pppoe && !pppoe.success) {
             toast.value?.warning(
                 'Cliente actualizado con advertencia',
                 `Datos guardados, pero el secret PPPoE no se pudo actualizar en ${selectedRouter.value?.name}: ${pppoe.message}`
@@ -1150,7 +1170,7 @@ const handleSubmit = async () => {
             )
             setTimeout(() => router.push('/customers'), 1500)
         } else {
-            toast.value?.success('Cliente actualizado', 'Los datos fueron actualizados correctamente.')
+            toast.value?.success('Cliente actualizado', 'Los datos fueron actualizados y cargados a la RB correctamente.')
             setTimeout(() => router.push('/customers'), 1500)
         }
     } catch (err) {
@@ -1160,6 +1180,7 @@ const handleSubmit = async () => {
         toast.value?.error('Error al actualizar', msg)
     } finally {
         loading.value = false
+        loadingMode.value = null
     }
 }
 
