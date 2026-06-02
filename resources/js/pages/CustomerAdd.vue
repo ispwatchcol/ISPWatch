@@ -586,6 +586,7 @@ const router = useRouter()
 const route  = useRoute()
 const toast  = ref(null)
 const prospectId = ref(null)
+const returnTo   = ref(null)
 
 const form = ref({
     email: '',
@@ -819,6 +820,7 @@ const loadTenantDomain = () => {
 }
 
 onMounted(async () => {
+    returnTo.value = route.query.return_to || null
     loadTenantDomain()
     await loadCatalogs()
     await loadProspect()
@@ -892,18 +894,20 @@ const handleSubmit = async () => {
             }
         }
 
+        const redirectTarget = returnTo.value || '/customers'
+
         if (showPppoeSection.value && pppoe && !pppoe.success) {
             toast.value?.warning(
                 'Cliente creado con advertencia',
                 `Datos guardados, pero el secret PPPoE no se pudo crear en ${selectedRouter.value?.name}: ${pppoe.message}`
             )
-            setTimeout(() => router.push('/customers'), 2500)
+            setTimeout(() => router.push(redirectTarget), 2500)
         } else {
             const extra = showPppoeSection.value ? ` Secret PPPoE creado en ${selectedRouter.value?.name}.` : ''
             const loginEmail = res.data?.email_tenant
             const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
             toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${loginInfo}${extra}`)
-            setTimeout(() => router.push('/customers'), loginEmail ? 3000 : 1500)
+            setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
         }
     } catch (err) {
         console.error('Error al crear cliente:', err)
