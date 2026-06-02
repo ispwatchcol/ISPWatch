@@ -680,7 +680,7 @@ import { useRouter } from "vue-router";
 import api from "../services/api";
 import tenantApi from "../services/api/tenant";
 import { useAuthStore } from "../stores/auth";
-import { effectiveCoverageRadius, antennaLabel } from "../constants/antennas";
+import { effectiveCoverageRadius, shouldDrawCoverage, antennaLabel } from "../constants/antennas";
 import { elementLabel, isFiber } from "../constants/networkElements";
 import SearchableSelect from "../components/SearchableSelect.vue";
 
@@ -1049,7 +1049,7 @@ const nodePopup = (node, kind) => {
             ${fiber ? "" : popupRow("Frecuencia", node.frequency)}
             ${popupRow("Torre / Nodo", node.node_tower)}
             ${popupRow("SSID", node.ssid)}
-            ${popupRow("Cobertura", effectiveCoverageRadius(node) + " m")}
+            ${shouldDrawCoverage(node) ? popupRow("Cobertura", effectiveCoverageRadius(node) + " m") : ""}
         </div>
     </div>`;
 };
@@ -1342,6 +1342,9 @@ const applyLayers = () => {
     // de un vistazo cualquier círculo desproporcionado y corregir ese elemento.
     if (layers.value.coverage) {
         sectorials.value.forEach((s) => {
+            // OLT/splitter/mufa son nodos de infraestructura, no zonas de RF:
+            // no se les dibuja círculo salvo que tengan un radio fijado a mano.
+            if (!shouldDrawCoverage(s)) return;
             const center = {
                 lat: Number(s.latitude),
                 lng: Number(s.longitude),
