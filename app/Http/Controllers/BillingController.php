@@ -363,7 +363,7 @@ class BillingController extends Controller
             'cut_time' => 'nullable|date_format:H:i,H:i:s',
             'overdue_invoices' => 'nullable|integer|min:1',
             'billing_mode' => 'nullable|in:anticipado,vencido',
-            'notification_type' => 'nullable|in:email,whatsapp,both',
+            'notification_type' => 'nullable|in:email,whatsapp,both,none',
             'notificar_wpp' => 'nullable|boolean',
             'comments' => 'nullable|string',
         ]);
