@@ -10,10 +10,11 @@ export const DEFAULT_COVERAGE_RADIUS = 800; // sectorial sin antena definida
 export const NAP_COVERAGE_RADIUS = 200; // caja NAP / nodo de acceso
 
 // Subtipos de elemento de red (para el selector "Subtipo" de las sectoriales).
+// Nota: "NAP" ya no es un subtipo aquí; una caja NAP es su propio tipo de
+// elemento de fibra (element_type === 'nap'), no un subtipo de sectorial.
 export const SECTORIAL_SUBTYPES = [
     { value: "Access Point", label: "📡 Access Point" },
     { value: "Station", label: "📶 Station" },
-    { value: "NAP", label: "🏢 NAP" },
     { value: "Bridge", label: "🌉 Bridge" },
     { value: "Repeater", label: "🔄 Repeater" },
     { value: "PTP", label: "↔️ PTP (Punto a Punto)" },
@@ -109,19 +110,20 @@ export function antennaRadius(value) {
     return found ? found.radius : null;
 }
 
-// Radio sugerido a partir de la antena; si no hay antena se usa el subtipo
-// (NAP = corto) y como último recurso el default de una sectorial.
-export function suggestedRadius(antennaType, subtype) {
+// Radio sugerido a partir de la antena; si no hay antena se usa el tipo de
+// elemento (caja NAP = corto, ya sea por element_type 'nap' o por el subtipo
+// heredado "NAP") y como último recurso el default de una sectorial.
+export function suggestedRadius(antennaType, subtype, elementType) {
     const fromAntenna = antennaRadius(antennaType);
     if (fromAntenna != null) return fromAntenna;
-    if (subtype === "NAP") return NAP_COVERAGE_RADIUS;
+    if (elementType === "nap" || subtype === "NAP") return NAP_COVERAGE_RADIUS;
     return DEFAULT_COVERAGE_RADIUS;
 }
 
 // Radio efectivo para dibujar en el mapa: respeta el valor manual si existe,
-// si no, lo deriva de la antena / subtipo.
+// si no, lo deriva de la antena / tipo de elemento / subtipo.
 export function effectiveCoverageRadius(node = {}) {
     const manual = Number(node.coverage_radius_meters);
     if (Number.isFinite(manual) && manual > 0) return manual;
-    return suggestedRadius(node.antenna_type, node.type);
+    return suggestedRadius(node.antenna_type, node.type, node.element_type);
 }

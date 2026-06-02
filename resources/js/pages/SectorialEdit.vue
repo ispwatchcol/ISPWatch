@@ -148,8 +148,8 @@
                             </p>
                         </div>
 
-                        <!-- Radio de cobertura (solo sectorial) -->
-                        <div v-if="form.element_type === 'sectorial'" class="group">
+                        <!-- Radio de cobertura (todos los tipos de elemento) -->
+                        <div class="group">
                             <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <v-icon name="md-locationon" class="w-4 h-4 text-amber-500" />
                                 Radio de cobertura (m)
@@ -165,7 +165,7 @@
                                 :placeholder="String(suggestedRadius)"
                             />
                             <p class="text-[11px] text-gray-400 mt-1">
-                                Sugerido: {{ suggestedRadius }} m. Se autocompleta al elegir antena; puedes ajustarlo.
+                                Sugerido: {{ suggestedRadius }} m.<span v-if="form.element_type === 'sectorial'"> Se autocompleta al elegir antena;</span> puedes ajustarlo a mano.
                             </p>
                         </div>
 
@@ -535,7 +535,7 @@ const splitterPorts = computed(() => splitRatioPorts(form.value.split_ratio))
 const hydrating = ref(false)
 
 const suggestedRadius = computed(() =>
-    suggestRadius(form.value.antenna_type, form.value.type)
+    suggestRadius(form.value.antenna_type, form.value.type, form.value.element_type)
 )
 
 watch(() => form.value.antenna_type, (val) => {
