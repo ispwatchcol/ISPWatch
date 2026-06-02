@@ -42,7 +42,7 @@
             </div>
           </div>
 
-          <form @submit.prevent="handleSubmit" @keydown="onFormKeydown" class="p-6 md:p-8">
+          <form @submit.prevent="handleSubmit(true)" @keydown="onFormKeydown" class="p-6 md:p-8">
 
             <!-- Sección 1: Datos de Acceso -->
             <div class="mb-8">
@@ -586,14 +586,26 @@
             </div>
 
             <!-- Botones -->
+            <!-- Dos acciones: "Guardar" persiste solo en la base de datos; "Guardar y
+                 cargar a RB" hace además el aprovisionamiento al router (flujo completo). -->
             <div class="flex flex-col sm:flex-row gap-3 pt-6 border-t border-gray-200 dark:border-gray-700">
             <button type="button" @click="goBack"
-                class="flex-1 py-3 px-6 border-2 border-gray-300 dark:border-gray-600 rounded-xl
+                class="py-3 px-6 border-2 border-gray-300 dark:border-gray-600 rounded-xl
                        text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
-                       transition-all font-medium flex items-center justify-center gap-2"
+                       transition-all font-medium flex items-center justify-center gap-2 sm:w-auto"
                 :disabled="loading">
                 <v-icon name="md-close" class="w-5 h-5" />
                 Cancelar
+            </button>
+            <button type="button" @click="handleSubmit(false)" :disabled="loading || pppoeMismatch"
+                class="flex-1 py-3 px-6 border-2 border-blue-600 dark:border-blue-500
+                       text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20
+                       rounded-xl transition-all font-medium
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       flex items-center justify-center gap-2">
+                <v-icon v-if="loading && loadingMode === 'db'" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
+                <v-icon v-else name="md-save" class="w-5 h-5" />
+                {{ loading && loadingMode === 'db' ? 'Guardando...' : 'Guardar' }}
             </button>
             <button type="submit" :disabled="loading || pppoeMismatch"
                 class="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-blue-700
@@ -602,9 +614,9 @@
                        transform hover:-translate-y-0.5
                        disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
                        flex items-center justify-center gap-2">
-                <v-icon v-if="loading" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
-                <v-icon v-else name="md-check" class="w-5 h-5" />
-                {{ loading ? 'Guardando...' : 'Guardar Cliente' }}
+                <v-icon v-if="loading && loadingMode === 'rb'" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
+                <v-icon v-else name="bi-hdd-network" class="w-5 h-5" />
+                {{ loading && loadingMode === 'rb' ? 'Guardando...' : 'Guardar y cargar a RB' }}
             </button>
             </div>
         </form>
@@ -712,6 +724,8 @@ const usernameTenant = ref('')   // parte antes del @
 const tenant         = ref('')   // sufijo "@dominio" del tenant
 
 const loading        = ref(false)
+// Qué acción está en curso: 'rb' = guardar + cargar a RB, 'db' = solo guardar.
+const loadingMode    = ref(null)
 const errorMsg       = ref('')
 const showLimitModal = ref(false)
 const limitInfo      = ref({ limit: 0, current: 0, message: '' })
@@ -977,7 +991,9 @@ onMounted(async () => {
     await loadProspect()
 })
 
-const handleSubmit = async () => {
+// pushToRouter=true -> "Guardar y cargar a RB" (flujo completo: BD + aprovisiona).
+// pushToRouter=false -> "Guardar": persiste solo en la base de datos.
+const handleSubmit = async (pushToRouter = true) => {
     errorMsg.value     = ''
     pppoeUserError.value = ''
     pppoePassError.value = ''
@@ -1030,6 +1046,7 @@ const handleSubmit = async () => {
     }
 
     loading.value = true
+    loadingMode.value = pushToRouter ? 'rb' : 'db'
 
     try {
         // email_tenant = usuario + dominio del tenant. Si el operador deja el usuario
@@ -1038,6 +1055,7 @@ const handleSubmit = async () => {
         const payload = {
             ...form.value,
             email_tenant: username ? `${username}${tenant.value}` : '',
+            push_to_router: pushToRouter,
         }
         const res   = await api.customers.create(payload)
         const pppoe = res.data?.pppoe_provisioned
@@ -1054,17 +1072,21 @@ const handleSubmit = async () => {
             }
         }
 
-        if (showPppoeSection.value && pppoe && !pppoe.success) {
+        const loginEmail = res.data?.email_tenant
+        const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
+
+        if (pushToRouter && showPppoeSection.value && pppoe && !pppoe.success) {
             toast.value?.warning(
                 'Cliente creado con advertencia',
                 `Datos guardados, pero el secret PPPoE no se pudo crear en ${selectedRouter.value?.name}: ${pppoe.message}`
             )
             setTimeout(() => router.push('/customers'), 2500)
+        } else if (!pushToRouter) {
+            toast.value?.success('Cliente guardado', `El cliente se guardó en la base de datos (no se cargó a la RB).${loginInfo}`)
+            setTimeout(() => router.push('/customers'), loginEmail ? 3000 : 1500)
         } else {
             const extra = showPppoeSection.value ? ` Secret PPPoE creado en ${selectedRouter.value?.name}.` : ''
-            const loginEmail = res.data?.email_tenant
-            const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
-            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${loginInfo}${extra}`)
+            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo}${extra}`)
             setTimeout(() => router.push('/customers'), loginEmail ? 3000 : 1500)
         }
     } catch (err) {
@@ -1086,6 +1108,7 @@ const handleSubmit = async () => {
         toast.value?.error('Error al crear', msg)
     } finally {
         loading.value = false
+        loadingMode.value = null
     }
 }
 

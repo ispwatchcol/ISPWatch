@@ -430,11 +430,19 @@ class CustomerProfileController extends Controller
             // Una sola compuerta: el router debe tener `agregar_cliente_mkt`.
             // El dispatcher (CustomerProvisioningService) elige queue / pppoe /
             // pcq / hotspot / dhcp según el modo excluyente del router.
+            // El operador puede elegir "Guardar" (solo BD) en vez de "Guardar y
+            // cargar a RB": en ese caso se omite el aprovisionamiento automático.
+            // Ausente => true, para no alterar imports/conversión de prospectos.
+            $pushToRouter = $request->boolean('push_to_router', true);
             $router      = !empty($data['router_id']) ? Router::find($data['router_id']) : null;
             $servicePlan = !empty($data['service_id']) ? Plan::find($data['service_id']) : null;
             $provision   = null;
 
-            if ($router && !$router->agregar_cliente_mkt) {
+            if (!$pushToRouter) {
+                \Log::info('[CustomerProfile] Skip auto-provision: solo guardar en BD (push_to_router=false)', [
+                    'customer_id' => $customer->user_id,
+                ]);
+            } elseif ($router && !$router->agregar_cliente_mkt) {
                 \Log::info('[CustomerProfile] Skip auto-provision: agregar_cliente_mkt disabled on router', [
                     'router_id' => $router->id,
                 ]);
@@ -854,6 +862,9 @@ class CustomerProfileController extends Controller
 
             // Service state
             'service_status' => 'nullable|in:activo,suspendido,cancelado,gratis',
+
+            // "Guardar" (solo BD) vs "Guardar y cargar a RB". Ausente => true.
+            'push_to_router' => 'nullable|boolean',
         ]);
 
         // IP única por router/CORE: si tras la edición la IP coincide con la de
@@ -954,13 +965,18 @@ class CustomerProfileController extends Controller
 
             DB::commit();
 
+            // "Guardar" (solo BD) vs "Guardar y cargar a RB": con push_to_router=false
+            // se omite toda operación contra la RB (re-aprovisionamiento y sync de
+            // bloqueo por estado). Ausente => true, para no alterar otros llamadores.
+            $pushToRouter = $request->boolean('push_to_router', true);
+
             // Re-sincronizar el cliente en la RB tras la edición, según el
             // MÉTODO DE CONTROL del router (solo si el router auto-provisiona).
             // Mantiene la config de la RB al día tras cambiar plan/IP/MAC/creds.
             $provision     = null;
             $provRouterId  = $data['router_id'] ?? $customer->router_id;
             $provServiceId = $data['service_id'] ?? $customer->service_id;
-            if ($provRouterId && $provServiceId && $customer->ip_user) {
+            if ($pushToRouter && $provRouterId && $provServiceId && $customer->ip_user) {
                 $provRouter = Router::find($provRouterId);
                 $provPlan   = Plan::find($provServiceId);
                 if ($provRouter && $provRouter->agregar_cliente_mkt && $provPlan) {
@@ -980,7 +996,7 @@ class CustomerProfileController extends Controller
             // Delegated to RouterProvisioningService so the attempt is recorded
             // in suspension_action_logs (failover/sync) — non-blocking.
             $statusRouterResult = null;
-            if ($statusBool !== $prevStatusBool && $customer->router_id && $customer->ip_user) {
+            if ($pushToRouter && $statusBool !== $prevStatusBool && $customer->router_id && $customer->ip_user) {
                 try {
                     $prov = app(RouterProvisioningService::class);
                     $ok = $statusBool
