@@ -63,7 +63,7 @@
                         ]"
                     >
                         <v-icon :name="itemIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 pointer-events-none" />
-                        <span class="pointer-events-none truncate">{{ getItemLabel(item) }}</span>
+                        <span class="pointer-events-none whitespace-nowrap">{{ getItemLabel(item) }}</span>
                     </li>
                     <li v-if="filteredItems.length === 0" class="px-3 py-3 text-sm text-gray-400 dark:text-gray-500 text-center italic">
                         Sin resultados
@@ -169,10 +169,18 @@ const computeDropdownPosition = () => {
     const top = openUp
         ? Math.max(margin, rect.top - dropdownH - margin)
         : rect.bottom + margin
+
+    // El dropdown puede crecer más ancho que el trigger para mostrar nombres
+    // completos (p. ej. planes "Internet Fibra 100 Megas") en vez de cortarlos.
+    // Se ancla a la izquierda del trigger y se acota para no salirse de pantalla.
+    const dropdownW = dropdownRef.value?.offsetWidth || rect.width
+    const maxLeft = Math.max(margin, window.innerWidth - dropdownW - margin)
+    const left = Math.min(rect.left, maxLeft)
     dropdownStyle.value = {
         top: `${top}px`,
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
+        left: `${left}px`,
+        minWidth: `${rect.width}px`,
+        maxWidth: `${window.innerWidth - margin * 2}px`,
     }
 }
 
