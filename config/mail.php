@@ -115,4 +115,17 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Billing Operations Alert Address
+    |--------------------------------------------------------------------------
+    |
+    | Recipient for operational billing alerts (e.g. the no-show detector that
+    | warns when a router that should have invoiced produced nothing). Falls
+    | back to the global "from" address when BILLING_ALERT_EMAIL is unset.
+    |
+    */
+
+    'billing_alert_address' => env('BILLING_ALERT_EMAIL', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+
 ];

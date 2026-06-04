@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Log;
  */
 class DhcpLeaseManager
 {
+    use NormalizesRouterComment;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -49,7 +52,7 @@ class DhcpLeaseManager
         }
         $mac      = str_replace('-', ':', $mac);
         $targetIp = trim($targetIp);
-        $comment  = ($comment !== null && trim($comment) !== '') ? trim($comment) : 'ISPWatch Auto';
+        $comment  = $this->normalizeRouterComment($comment);
         $rateLimit = $this->buildRateLimit($speedUp, $speedDown);
 
         try {

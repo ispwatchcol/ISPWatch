@@ -72,14 +72,18 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
             ->flip()
             ->toArray();
 
+        // IP única POR ROUTER/CORE (no por tenant): la misma IP puede repetirse en
+        // routers distintos, pero nunca dentro del mismo router. Se indexa por
+        // "router_id|ip" para detectar choques solo dentro del mismo CORE.
         $this->existingIps = CustomerProfile::whereHas('user', fn($q) => $q->where('tenant_id', $this->tenantId))
-            ->pluck('ip_user')
-            ->filter()
-            ->flip()
+            ->whereNotNull('ip_user')
+            ->where('ip_user', '!=', '')
+            ->get(['router_id', 'ip_user'])
+            ->mapWithKeys(fn($c) => [$c->router_id . '|' . $c->ip_user => true])
             ->toArray();
 
         $tenant = Tenant::find($this->tenantId);
-        $this->tenantDomain = strtolower($tenant->domain ?? 'local');
+        $this->tenantDomain = User::sanitizeEmail($tenant->domain ?? 'local') ?: 'local';
 
         // 0 o null = ilimitado (solo cuando el plan está marcado como tal)
         $this->maxCustomers = (int) ($tenant->max_customers ?? 0);
@@ -200,18 +204,23 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
             }
             $sectorialId = $this->sectorials[$data['nombre_sectorial']];
 
-            if (isset($this->existingIps[$data['ip_usuario']])) {
+            // IP única por router/CORE: choca solo si ya existe esa IP en el MISMO
+            // router. La misma IP en otro router es válida.
+            $ipKey = $routerId . '|' . $data['ip_usuario'];
+            if (isset($this->existingIps[$ipKey])) {
                 $this->errors[] = [
                     'sheet' => 'Clientes',
                     'row' => $rowNumber,
                     'field' => 'ip_usuario',
-                    'error' => "La IP {$data['ip_usuario']} ya está asignada a otro cliente",
+                    'error' => "La IP {$data['ip_usuario']} ya está asignada a otro cliente en el mismo router/CORE ({$data['ip_router']}). Puede repetirse solo en un router distinto.",
                 ];
                 continue;
             }
 
-            $firstName = strtolower(preg_replace('/\s+/', '', $data['nombre']));
-            $lastName = strtolower(preg_replace('/\s+/', '', $data['apellido']));
+            // email_tenant (login) normalizado a ASCII: nunca lleva ñ ni tildes,
+            // aunque el nombre/apellido sí los conserven.
+            $firstName = User::sanitizeEmail($data['nombre']);
+            $lastName = User::sanitizeEmail($data['apellido']);
             $emailTenant = "{$firstName}.{$lastName}@{$this->tenantDomain}";
             $customerEmail = !empty($data['email']) ? $data['email'] : $emailTenant;
 
@@ -255,8 +264,9 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
 
             // Reservar email/IP para que un duplicado posterior en el MISMO archivo
             // se detecte aunque todavía no se haya insertado nada en la BD.
+            // La IP se reserva por router/CORE (misma clave que la validación).
             $this->existingEmails[$customerEmail] = true;
-            $this->existingIps[$data['ip_usuario']] = true;
+            $this->existingIps[$ipKey] = true;
 
             $pending[] = [
                 'name' => trim($data['nombre'] . ' ' . $data['apellido']),

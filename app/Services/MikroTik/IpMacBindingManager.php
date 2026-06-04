@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -26,6 +27,8 @@ use Illuminate\Support\Facades\Log;
  */
 class IpMacBindingManager
 {
+    use NormalizesRouterComment;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -68,7 +71,7 @@ class IpMacBindingManager
         if ($lan === '') {
             return ['success' => false, 'message' => 'El router no tiene interfaz LAN configurada (necesaria para el ARP estático).'];
         }
-        $comment = ($comment !== null && trim($comment) !== '') ? trim($comment) : 'ISPWatch Auto';
+        $comment = $this->normalizeRouterComment($comment);
 
         Log::info('[IpMacBindingManager] Ensuring static ARP', [
             'client_ip' => $clientIp, 'target' => $targetIp, 'mac' => $mac, 'lan' => $lan,
@@ -140,7 +143,7 @@ class IpMacBindingManager
         // appended to the new rule's comment only for readability; the find uses
         // the IP-keyed prefix so a renamed client still replaces its old rule.
         $key     = 'ISPWatch-amarre-' . $targetIp;
-        $human   = ($label !== null && trim($label) !== '') ? ' ' . trim($label) : '';
+        $human   = ($label !== null && trim($label) !== '') ? ' ' . $this->asciiRouterComment(trim($label)) : '';
         $comment = $this->escapeRouterOsQuotedValue($key . $human);
         $keyEsc  = $this->escapeRouterOsQuotedValue($key);
         $findKey = '[find comment~"' . $keyEsc . '"]';

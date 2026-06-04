@@ -83,7 +83,7 @@
             Tipo de Aviso al Crear Facturas
           </label>
           
-          <div class="grid grid-cols-3 gap-4">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <!-- Email Option -->
             <button
               type="button"
@@ -140,10 +140,29 @@
                 <span>Ambos</span>
               </div>
             </button>
+
+            <!-- Disabled Option -->
+            <button
+              type="button"
+              @click="billing.notification_type = 'none'"
+              :class="[
+                'px-4 py-3 rounded-lg border-2 transition-all text-sm font-medium',
+                billing.notification_type === 'none'
+                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                  : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-blue-400 dark:hover:border-blue-500'
+              ]"
+            >
+              <div class="flex flex-col items-center gap-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <span>No enviar</span>
+              </div>
+            </button>
           </div>
           
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-            Selecciona cómo deseas notificar al cliente cuando se cree una factura.
+            Selecciona cómo deseas notificar al cliente cuando se cree una factura. Usa "No enviar" para desactivar el envío por ahora.
           </p>
         </div>
 

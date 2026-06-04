@@ -168,6 +168,52 @@ class ReconcileSuspensionsTest extends TestCase
     }
 
     #[Test]
+    public function stops_retrying_an_exhausted_cut_and_leaves_it_for_manual(): void
+    {
+        // A SUSPEND that already failed MAX_ATTEMPTS times must NOT be retried
+        // automatically — it stays for manual handling (MassActions needs_manual).
+        $tenant = Tenant::factory()->create();
+        $router = $this->makeRouter($tenant);
+        $customer = $this->makeSuspendedCustomer($tenant, $router);
+
+        SuspensionActionLog::create([
+            'router_id' => $router->id, 'customer_id' => $customer->id, 'ip' => '10.0.0.5',
+            'action' => SuspensionActionLog::ACTION_SUSPEND, 'status' => SuspensionActionLog::STATUS_FAILED,
+            'attempts' => SuspensionActionLog::MAX_ATTEMPTS, 'next_retry_at' => null,
+        ]);
+
+        $mock = $this->mockProvisioning();
+        $mock->shouldNotReceive('suspendCustomer');
+
+        $stats = app(OverdueSuspensionService::class)->reconcileSuspensions();
+
+        $this->assertEquals(1, $stats['skipped_exhausted']);
+        $this->assertEquals(0, $stats['reblocked_ok']);
+    }
+
+    #[Test]
+    public function force_retries_even_an_exhausted_cut(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $router = $this->makeRouter($tenant);
+        $customer = $this->makeSuspendedCustomer($tenant, $router);
+
+        SuspensionActionLog::create([
+            'router_id' => $router->id, 'customer_id' => $customer->id, 'ip' => '10.0.0.5',
+            'action' => SuspensionActionLog::ACTION_SUSPEND, 'status' => SuspensionActionLog::STATUS_FAILED,
+            'attempts' => SuspensionActionLog::MAX_ATTEMPTS, 'next_retry_at' => null,
+        ]);
+
+        $mock = $this->mockProvisioning();
+        $mock->shouldReceive('suspendCustomer')->once()->andReturn(true);
+
+        $stats = app(OverdueSuspensionService::class)->reconcileSuspensions(null, false, true);
+
+        $this->assertEquals(0, $stats['skipped_exhausted']);
+        $this->assertEquals(1, $stats['reblocked_ok']);
+    }
+
+    #[Test]
     public function dry_run_never_touches_the_router(): void
     {
         $tenant = Tenant::factory()->create();

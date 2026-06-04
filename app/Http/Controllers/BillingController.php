@@ -29,14 +29,18 @@ class BillingController extends Controller
 
         if ($request->filled('search')) {
             $search = str_replace(['%', '_'], ['\\%', '\\_'], $request->search);
-            $query->where(function ($q) use ($search) {
-                $q->where('number', 'like', "%$search%")
-                    ->orWhereHas('customer', function ($cq) use ($search) {
-                        $cq->where('user_name', 'like', "%$search%")
-                            ->orWhere('email', 'like', "%$search%")
-                            ->orWhereHas('customerProfile', function ($cpq) use ($search) {
-                                $cpq->where('name', 'like', "%$search%")
-                                    ->orWhere('last_name', 'like', "%$search%");
+            // PostgreSQL's LIKE is case-sensitive, so "eliud" no coincide con
+            // "Eliud". Usamos ILIKE en pgsql; SQLite (tests) no tiene ILIKE pero
+            // su LIKE ya es insensible a mayúsculas para ASCII.
+            $likeOp = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $query->where(function ($q) use ($search, $likeOp) {
+                $q->where('number', $likeOp, "%$search%")
+                    ->orWhereHas('customer', function ($cq) use ($search, $likeOp) {
+                        $cq->where('user_name', $likeOp, "%$search%")
+                            ->orWhere('email', $likeOp, "%$search%")
+                            ->orWhereHas('customerProfile', function ($cpq) use ($search, $likeOp) {
+                                $cpq->where('name', $likeOp, "%$search%")
+                                    ->orWhere('last_name', $likeOp, "%$search%");
                             });
                     });
             });
@@ -270,14 +274,17 @@ class BillingController extends Controller
 
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('reference', 'like', "%$search%")
-                    ->orWhereHas('customer', function ($cq) use ($search) {
-                        $cq->where('user_name', 'like', "%$search%")
-                            ->orWhere('email', 'like', "%$search%")
-                            ->orWhereHas('customerProfile', function ($cpq) use ($search) {
-                                $cpq->where('name', 'like', "%$search%")
-                                    ->orWhere('last_name', 'like', "%$search%");
+            // ILIKE en pgsql para que la búsqueda sea insensible a mayúsculas
+            // (LIKE en pgsql es sensible). SQLite usa LIKE, ya insensible.
+            $likeOp = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $query->where(function ($q) use ($search, $likeOp) {
+                $q->where('reference', $likeOp, "%$search%")
+                    ->orWhereHas('customer', function ($cq) use ($search, $likeOp) {
+                        $cq->where('user_name', $likeOp, "%$search%")
+                            ->orWhere('email', $likeOp, "%$search%")
+                            ->orWhereHas('customerProfile', function ($cpq) use ($search, $likeOp) {
+                                $cpq->where('name', $likeOp, "%$search%")
+                                    ->orWhere('last_name', $likeOp, "%$search%");
                             });
                     });
             });
@@ -363,7 +370,7 @@ class BillingController extends Controller
             'cut_time' => 'nullable|date_format:H:i,H:i:s',
             'overdue_invoices' => 'nullable|integer|min:1',
             'billing_mode' => 'nullable|in:anticipado,vencido',
-            'notification_type' => 'nullable|in:email,whatsapp,both',
+            'notification_type' => 'nullable|in:email,whatsapp,both,none',
             'notificar_wpp' => 'nullable|boolean',
             'comments' => 'nullable|string',
         ]);

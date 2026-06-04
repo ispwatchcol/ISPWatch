@@ -33,7 +33,7 @@ services:
     value: "false"
   - key: APP_URL
     scope: RUN_AND_BUILD_TIME
-    value: https://ispwatch-btxcg.ondigitalocean.app
+    value: https://ispwatch-crm.app
   - key: ASSET_URL
     scope: RUN_AND_BUILD_TIME
     value: ${APP_URL}
@@ -200,7 +200,7 @@ services:
     value: ISPWatch
   - key: SANCTUM_STATEFUL_DOMAINS
     scope: RUN_AND_BUILD_TIME
-    value: ispwatch-btxcg.ondigitalocean.app
+    value: ispwatch-crm.app
   - key: MIKROTIK_CORE_SSH_KEY_B64
     scope: RUN_AND_BUILD_TIME
     type: SECRET
@@ -239,7 +239,7 @@ workers:
     value: "false"
   - key: APP_URL
     scope: RUN_AND_BUILD_TIME
-    value: https://ispwatch-btxcg.ondigitalocean.app
+    value: https://ispwatch-crm.app
   - key: LOG_CHANNEL
     scope: RUN_AND_BUILD_TIME
     value: stack

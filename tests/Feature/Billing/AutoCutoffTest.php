@@ -104,6 +104,25 @@ class AutoCutoffTest extends TestCase
     }
 
     #[Test]
+    public function suspending_sets_the_profile_status_to_false(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $billing = $this->makeBilling(['overdue_invoices' => 1]);
+        $router = $this->makeRouter('Corte Automático', $billing, $tenant);
+        $customer = User::factory()->create(['tenant_id' => $tenant->id]);
+        $this->makeCustomerWithOverdueInvoices($customer, $router, 1);
+
+        $mock = $this->mockProvisioning();
+        $mock->shouldReceive('suspendCustomer')->once()->andReturn(true);
+
+        app(OverdueSuspensionService::class)->processOverdueInvoices();
+
+        $profile = CustomerProfile::where('user_id', $customer->id)->first();
+        $this->assertFalse((bool) $profile->status);
+        $this->assertSame('suspendido', $profile->service_status);
+    }
+
+    #[Test]
     public function does_not_suspend_if_overdue_count_below_threshold(): void
     {
         $tenant = Tenant::factory()->create();
