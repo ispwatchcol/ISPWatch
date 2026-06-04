@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Constants\Permissions;
+use App\Services\InstallationBillingService;
 use App\Models\CustomerDocument;
 use App\Models\CustomerInstallation;
 use App\Models\CustomerProfile;
@@ -14,6 +16,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class CustomerInstallationController extends Controller
 {
@@ -56,6 +59,53 @@ class CustomerInstallationController extends Controller
     }
 
     /**
+     * Returns true when the authenticated user is allowed to see/edit billing fields.
+     * Mirrors CustomerInstallationPolicy::hasFinancialAccess() for collection contexts
+     * where a model instance isn't available (all(), index() list endpoints).
+     */
+    private function userCanViewBilling(Request $request): bool
+    {
+        $user = $request->user();
+        if ((int) $user->role_id === 1) {
+            return true;
+        }
+        $user->loadMissing('role');
+        return $user->role?->hasPermission(Permissions::EDIT_DISCOUNT) ?? false;
+    }
+
+    /**
+     * Format one installation and apply billing-field access control for the
+     * authenticated user. Use this in every endpoint that returns an installation
+     * object — it is the single point where role-based field filtering happens.
+     */
+    private function formatRowForUser(Request $request, CustomerInstallation $inst): array
+    {
+        $row = $this->formatRow($inst);
+        $canBilling = $this->userCanViewBilling($request);
+        $row['can_edit_billing'] = $canBilling;
+        if (!$canBilling) {
+            $row = $this->stripBillingFields($row);
+        }
+        return $row;
+    }
+
+    /**
+     * Remove the 11 billing/cartera fields from a formatted row array.
+     * Used to sanitize list and detail responses for non-financial roles.
+     */
+    private function stripBillingFields(array $row): array
+    {
+        foreach ([
+            'payment_agreement', 'installation_cost', 'additional_charges',
+            'discount', 'discount_reason', 'payment_method', 'payment_received',
+            'payment_notes', 'customer_retention', 'special_attention', 'promotion_notes',
+        ] as $field) {
+            unset($row[$field]);
+        }
+        return $row;
+    }
+
+    /**
      * Format one installation with related names. Falls back to prospect data
      * when the installation isn't yet linked to a real customer.
      */
@@ -69,7 +119,12 @@ class CustomerInstallationController extends Controller
             ?: $inst->customer?->email
             ?: ($prospect ? trim(($prospect->name ?? '') . ' ' . ($prospect->last_name ?? '')) : null);
 
-        return array_merge($inst->toArray(), [
+        $row = $inst->toArray();
+        // Remove the nested invoice object to prevent full financial data leaking
+        // into every response. Safe metadata fields are extracted explicitly below.
+        unset($row['invoice']);
+
+        return array_merge($row, [
             'customer_name'  => $name,
             'customer_email' => $inst->customer?->email ?? $prospect?->email,
             'customer_tel'   => $inst->customer?->tel   ?? $prospect?->tel,
@@ -78,34 +133,53 @@ class CustomerInstallationController extends Controller
             'technician_name' => $tech
                 ? trim(($tech->user_name ?? '') . ' ' . ($tech->user_lastname ?? '')) ?: $tech->name
                 : ($inst->technician ?: null),
+            'invoice_id'     => $inst->relationLoaded('invoice') ? $inst->invoice?->id     : null,
+            'invoice_number' => $inst->relationLoaded('invoice') ? $inst->invoice?->number : null,
+            'invoice_status' => $inst->relationLoaded('invoice') ? $inst->invoice?->status : null,
         ]);
     }
 
     public function all(Request $request)
     {
-        $tenantId = $this->authTenant($request);
+        $tenantId   = $this->authTenant($request);
+        $canBilling = $this->userCanViewBilling($request);
 
-        $installations = CustomerInstallation::with(['customer.customerProfile', 'prospect', 'technicianUser'])
+        $installations = CustomerInstallation::with(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])
             ->where('tenant_id', $tenantId)
             ->when($request->status, fn($q, $s) => $q->where('status', $s))
             ->when($request->from,   fn($q, $d) => $q->whereDate('scheduled_date', '>=', $d))
             ->when($request->to,     fn($q, $d) => $q->whereDate('scheduled_date', '<=', $d))
             ->orderBy('scheduled_date', 'desc')
             ->get()
-            ->map(fn($i) => $this->formatRow($i));
+            ->map(function ($i) use ($canBilling) {
+                $row = $this->formatRow($i);
+                $row['can_edit_billing'] = $canBilling;
+                if (!$canBilling) {
+                    $row = $this->stripBillingFields($row);
+                }
+                return $row;
+            });
 
         return response()->json($installations);
     }
 
     public function index(Request $request, $customerId)
     {
-        $customer = $this->resolveCustomer($request, $customerId);
+        $customer   = $this->resolveCustomer($request, $customerId);
+        $canBilling = $this->userCanViewBilling($request);
 
-        $installations = CustomerInstallation::with(['technicianUser'])
+        $installations = CustomerInstallation::with(['technicianUser', 'invoice'])
             ->where('customer_id', $customer->id)
             ->orderBy('scheduled_date', 'desc')
             ->get()
-            ->map(fn($i) => $this->formatRow($i));
+            ->map(function ($i) use ($canBilling) {
+                $row = $this->formatRow($i);
+                $row['can_edit_billing'] = $canBilling;
+                if (!$canBilling) {
+                    $row = $this->stripBillingFields($row);
+                }
+                return $row;
+            });
 
         return response()->json($installations);
     }
@@ -113,9 +187,9 @@ class CustomerInstallationController extends Controller
     public function show(Request $request, $installationId)
     {
         $inst = $this->resolveInstallation($request, $installationId);
-        $inst->load(['customer.customerProfile', 'prospect', 'technicianUser', 'documents']);
+        $inst->load(['customer.customerProfile', 'prospect', 'technicianUser', 'documents', 'invoice']);
 
-        return response()->json($this->formatRow($inst));
+        return response()->json($this->formatRowForUser($request, $inst));
     }
 
     public function store(Request $request, $customerId)
@@ -153,7 +227,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Orden de instalación creada correctamente.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
         ], 201);
     }
 
@@ -222,7 +296,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Prospecto e instalación creados correctamente.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
         ], 201);
     }
 
@@ -254,7 +328,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Prospecto actualizado.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
         ]);
     }
 
@@ -302,7 +376,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Instalación agendada al prospecto.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
         ], 201);
     }
 
@@ -337,7 +411,55 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Orden de instalación actualizada correctamente.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+        ]);
+    }
+
+    /**
+     * Update billing/cartera fields only.
+     * Primary gate: permission:edit_discount middleware in api.php.
+     * Secondary gate: CustomerInstallationPolicy::updateFinancialData (belt-and-suspenders).
+     * Side-effect: creates or updates the linked invoice via InstallationBillingService.
+     */
+    public function updateBilling(Request $request, $installationId, InstallationBillingService $billingService)
+    {
+        $installation = $this->resolveInstallation($request, $installationId);
+        $this->authorize('updateFinancialData', $installation);
+
+        $data = $request->validate([
+            'payment_agreement'  => 'nullable|boolean',
+            'installation_cost'  => 'nullable|numeric|min:0',
+            'additional_charges' => 'nullable|numeric|min:0',
+            'discount'           => 'nullable|numeric|min:0',
+            'discount_reason'    => [
+                'nullable', 'string', 'max:255',
+                Rule::requiredIf(fn () => (float) ($request->input('discount') ?? 0) > 0),
+            ],
+            'payment_method'     => 'nullable|string|max:50',
+            'payment_received'   => 'nullable|numeric|min:0',
+            'payment_notes'      => 'nullable|string',
+            'customer_retention' => 'nullable|boolean',
+            'special_attention'  => 'nullable|boolean',
+            'promotion_notes'    => 'nullable|string',
+        ]);
+
+        $installation->update($data);
+        $installation->refresh();
+
+        $invoice        = null;
+        $invoiceWarning = null;
+
+        if ($installation->customer_id) {
+            $invoice = $billingService->upsertInstallationInvoice($installation, $installation->tenant_id);
+        } else {
+            $invoiceWarning = 'No se generó factura: la instalación no tiene un cliente asignado aún.';
+        }
+
+        return response()->json([
+            'message'         => 'Información de cartera actualizada correctamente.',
+            'installation'    => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'invoice'         => $invoice?->load('items'),
+            'invoice_warning' => $invoiceWarning,
         ]);
     }
 
@@ -389,7 +511,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Hoja de instalación guardada.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
         ]);
     }
 
@@ -479,7 +601,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Instalación firmada y completada.',
-            'installation' => $this->formatRow($installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
             'document'     => $document,
         ]);
     }

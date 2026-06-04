@@ -28,7 +28,18 @@
       "PowerShell(findstr -v 127.0.0.1:1)",
       "PowerShell(Get-Process -Id 23860, 26292 -ErrorAction SilentlyContinue)",
       "Bash(curl -s http://localhost:5173/@vite/client)",
-      "Bash(curl -s \"http://localhost:5173/resources/js/pages/Billing/AdditionalCharges.vue\")"
+      "Bash(curl -s \"http://localhost:5173/resources/js/pages/Billing/AdditionalCharges.vue\")",
+      "PowerShell(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Http\\\\Controllers\\\\CustomerInstallationController.php\")",
+      "PowerShell(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\routes\\\\api.php\")",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Policies\\\\CustomerInstallationPolicy.php\")",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Providers\\\\AppServiceProvider.php\")",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Http\\\\Controllers\\\\CustomerInstallationController.php\")",
+      "Bash(Select-String -Path \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Http\\\\Controllers\\\\CustomerInstallationController.php\" -Pattern \"formatRowForUser|formatRow\")",
+      "Bash(Select-Object LineNumber, Line)",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Services\\\\InstallationBillingService.php\")",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Models\\\\Invoice.php\")",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\app\\\\Models\\\\CustomerInstallation.php\")",
+      "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\database\\\\migrations\\\\2026_06_01_030000_add_installation_id_to_invoices_table.php\")"
     ]
   }
 }

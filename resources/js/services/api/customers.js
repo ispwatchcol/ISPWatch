@@ -100,6 +100,9 @@ export default {
     signInstallation(installationId, payload) {
         return apiClient.post(`/installations/${installationId}/sign`, payload)
     },
+    updateInstallationBilling(installationId, data) {
+        return apiClient.put(`/installations/${installationId}/billing`, data)
+    },
 
     // ─── Contract ───
     getContractData(id) {

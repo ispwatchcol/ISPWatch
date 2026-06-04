@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\CustomerInstallation;
+use App\Policies\CustomerInstallationPolicy;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
@@ -24,5 +27,7 @@ class AppServiceProvider extends ServiceProvider
         if (app()->environment('production')) {
             URL::forceScheme('https');
         }
+
+        Gate::policy(CustomerInstallation::class, CustomerInstallationPolicy::class);
     }
 }

@@ -282,6 +282,159 @@
         </div>
       </div>
 
+      <!-- Información de Cartera (solo admin / staff / accounting) -->
+      <div v-if="showBillingSection"
+        class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+        <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+          Información de Cartera
+          <span class="text-[10px] uppercase bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded">
+            Facturación
+          </span>
+        </h2>
+
+        <!-- Factura vinculada (aparece tras el primer guardado) -->
+        <div v-if="installation.invoice_id"
+          class="mb-4 flex items-start sm:items-center justify-between gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-lg">
+          <div>
+            <p class="text-sm font-medium text-indigo-800 dark:text-indigo-200">
+              Factura <span class="font-mono">#{{ installation.invoice_number }}</span>
+            </p>
+            <p class="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
+              Estado: <span :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
+            </p>
+          </div>
+          <RouterLink :to="`/billing/invoices/${installation.invoice_id}`"
+            class="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-200 underline whitespace-nowrap">
+            Ver factura
+          </RouterLink>
+        </div>
+
+        <!-- Advertencia de recálculo cuando ya existe factura -->
+        <div v-if="installation.invoice_id"
+          class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+          <svg class="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          </svg>
+          <p class="text-xs text-amber-800 dark:text-amber-300">
+            Esta instalación ya tiene factura generada. Editar recalculará la factura automáticamente.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+          <!-- Acuerdo de pago -->
+          <div class="sm:col-span-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input v-model="billing.payment_agreement" type="checkbox"
+                class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+              <span class="text-sm text-gray-700 dark:text-gray-300">Acuerdo de pago</span>
+            </label>
+          </div>
+
+          <!-- Valor de instalación -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Valor de instalación</label>
+            <input v-model="billing.installation_cost" type="number" min="0" step="0.01" placeholder="0"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.installation_cost }" />
+            <p v-if="billingErrors.installation_cost" class="mt-1 text-xs text-red-500">{{ billingErrors.installation_cost[0] }}</p>
+          </div>
+
+          <!-- Cargos adicionales -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cargos adicionales</label>
+            <input v-model="billing.additional_charges" type="number" min="0" step="0.01" placeholder="0"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.additional_charges }" />
+            <p v-if="billingErrors.additional_charges" class="mt-1 text-xs text-red-500">{{ billingErrors.additional_charges[0] }}</p>
+          </div>
+
+          <!-- Descuento -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Descuento</label>
+            <input v-model="billing.discount" type="number" min="0" step="0.01" placeholder="0"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.discount }" />
+            <p v-if="billingErrors.discount" class="mt-1 text-xs text-red-500">{{ billingErrors.discount[0] }}</p>
+          </div>
+
+          <!-- Valor recibido -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Valor recibido</label>
+            <input v-model="billing.payment_received" type="number" min="0" step="0.01" placeholder="0"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.payment_received }" />
+            <p v-if="billingErrors.payment_received" class="mt-1 text-xs text-red-500">{{ billingErrors.payment_received[0] }}</p>
+          </div>
+
+          <!-- Forma de pago -->
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Forma de pago</label>
+            <input v-model="billing.payment_method" type="text" placeholder="Efectivo, transferencia, Nequi…"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.payment_method }" />
+            <p v-if="billingErrors.payment_method" class="mt-1 text-xs text-red-500">{{ billingErrors.payment_method[0] }}</p>
+          </div>
+
+          <!-- Motivo del descuento (solo visible si discount > 0) -->
+          <div v-if="discountIsPositive" class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+              Motivo del descuento <span class="text-red-500">*</span>
+            </label>
+            <textarea v-model="billing.discount_reason" rows="2"
+              placeholder="Describe el motivo del descuento…"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.discount_reason }"></textarea>
+            <p v-if="billingErrors.discount_reason" class="mt-1 text-xs text-red-500">{{ billingErrors.discount_reason[0] }}</p>
+          </div>
+
+          <!-- Observaciones de pago -->
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones de pago</label>
+            <textarea v-model="billing.payment_notes" rows="2"
+              placeholder="Observaciones sobre el pago…"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.payment_notes }"></textarea>
+            <p v-if="billingErrors.payment_notes" class="mt-1 text-xs text-red-500">{{ billingErrors.payment_notes[0] }}</p>
+          </div>
+
+          <!-- Retención de cliente -->
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input v-model="billing.customer_retention" type="checkbox"
+                class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+              <span class="text-sm text-gray-700 dark:text-gray-300">Retención de cliente</span>
+            </label>
+          </div>
+
+          <!-- Atención especial -->
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input v-model="billing.special_attention" type="checkbox"
+                class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+              <span class="text-sm text-gray-700 dark:text-gray-300">Atención especial</span>
+            </label>
+          </div>
+
+          <!-- Notas de promoción (solo visible si special_attention activo) -->
+          <div v-if="billing.special_attention" class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Notas de promoción</label>
+            <textarea v-model="billing.promotion_notes" rows="2"
+              placeholder="Detalles de la promoción aplicada…"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.promotion_notes }"></textarea>
+            <p v-if="billingErrors.promotion_notes" class="mt-1 text-xs text-red-500">{{ billingErrors.promotion_notes[0] }}</p>
+          </div>
+
+        </div>
+
+        <button @click="saveBilling" :disabled="savingBilling"
+          class="mt-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
+          {{ savingBilling ? 'Guardando...' : 'Guardar cartera' }}
+        </button>
+      </div>
+
       <!-- Firmas y completar -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-2">Firmas y cierre de orden</h2>
@@ -385,6 +538,22 @@ const sheet = ref({
 })
 const savingSheet = ref(false)
 
+const billing = ref({
+  payment_agreement:  false,
+  installation_cost:  null,
+  additional_charges: null,
+  discount:           null,
+  discount_reason:    '',
+  payment_method:     '',
+  payment_received:   null,
+  payment_notes:      '',
+  customer_retention: false,
+  special_attention:  false,
+  promotion_notes:    '',
+})
+const savingBilling = ref(false)
+const billingErrors = ref({})
+
 const sectorials = ref([])
 const routers    = ref([])
 const plans      = ref([])
@@ -398,7 +567,9 @@ const sectorialsByType = computed(() => ({
 const selectedRouter = computed(() => routers.value.find(r => r.id === sheet.value.router_id))
 const selectedPlan   = computed(() => plans.value.find(p => p.id === sheet.value.plan_id))
 const isPppoeRouter  = computed(() => !!selectedRouter.value?.pppoe)
-const planLocalAddress = computed(() => selectedPlan.value?.local_address || selectedPlan.value?.pppoe_pool || '')
+const planLocalAddress    = computed(() => selectedPlan.value?.local_address || selectedPlan.value?.pppoe_pool || '')
+const showBillingSection  = computed(() => installation.value?.can_edit_billing === true)
+const discountIsPositive  = computed(() => Number(billing.value.discount) > 0)
 
 const photos = ref([])
 const fileInput = ref(null)
@@ -419,6 +590,21 @@ const loadInstallation = async () => {
   try {
     const { data } = await api.customers.getInstallation(installationId.value)
     installation.value = data
+    if (data.can_edit_billing) {
+      billing.value = {
+        payment_agreement:  data.payment_agreement  ?? false,
+        installation_cost:  data.installation_cost  ?? null,
+        additional_charges: data.additional_charges ?? null,
+        discount:           data.discount           ?? null,
+        discount_reason:    data.discount_reason    ?? '',
+        payment_method:     data.payment_method     ?? '',
+        payment_received:   data.payment_received   ?? null,
+        payment_notes:      data.payment_notes      ?? '',
+        customer_retention: data.customer_retention ?? false,
+        special_attention:  data.special_attention  ?? false,
+        promotion_notes:    data.promotion_notes    ?? '',
+      }
+    }
     if (data.sheet) sheet.value = { ...sheet.value, ...data.sheet }
 
     const profile = data.customer?.customer_profile
@@ -513,6 +699,60 @@ const saveSheet = async () => {
     savingSheet.value = false
   }
 }
+
+const saveBilling = async () => {
+  savingBilling.value = true
+  billingErrors.value = {}
+  try {
+    const toNum = (v) => (v !== null && v !== '' ? Number(v) : null)
+    const payload = {
+      payment_agreement:  billing.value.payment_agreement,
+      installation_cost:  toNum(billing.value.installation_cost),
+      additional_charges: toNum(billing.value.additional_charges),
+      discount:           toNum(billing.value.discount),
+      discount_reason:    billing.value.discount_reason || null,
+      payment_method:     billing.value.payment_method  || null,
+      payment_received:   toNum(billing.value.payment_received),
+      payment_notes:      billing.value.payment_notes   || null,
+      customer_retention: billing.value.customer_retention,
+      special_attention:  billing.value.special_attention,
+      promotion_notes:    billing.value.promotion_notes || null,
+    }
+    const { data } = await api.customers.updateInstallationBilling(installationId.value, payload)
+    // Refresh installation with new invoice_id / invoice_number / invoice_status
+    if (data.installation) installation.value = data.installation
+    if (data.invoice_warning) {
+      toast.value?.error('Sin factura', data.invoice_warning)
+    } else if (data.invoice) {
+      toast.value?.success('Cartera guardada', `Factura #${data.invoice.number} generada correctamente.`)
+    } else {
+      toast.value?.success('Cartera guardada', 'Información de cartera actualizada.')
+    }
+  } catch (e) {
+    if (e.response?.status === 422) {
+      billingErrors.value = e.response.data.errors ?? {}
+      toast.value?.error('Validación', 'Revisa los campos marcados.')
+    } else {
+      toast.value?.error('Error', e.response?.data?.message || 'No se pudo guardar la información de cartera.')
+    }
+  } finally {
+    savingBilling.value = false
+  }
+}
+
+const invoiceStatusLabel = (status) => ({
+  paid:    'Pagada',
+  partial: 'Pago parcial',
+  issued:  'Pendiente de pago',
+  overdue: 'Vencida',
+}[status] ?? status ?? '—')
+
+const invoiceStatusClass = (status) => ({
+  paid:    'text-emerald-600 dark:text-emerald-400 font-semibold',
+  partial: 'text-amber-600 dark:text-amber-400 font-semibold',
+  issued:  'text-gray-600 dark:text-gray-400 font-semibold',
+  overdue: 'text-red-600 dark:text-red-400 font-semibold',
+}[status] ?? '')
 
 const onFilesPicked = (e) => {
   pendingFiles.value = Array.from(e.target.files || [])
@@ -625,7 +865,13 @@ const goToContract = () => {
 }
 
 const convertProspect = () => {
-  router.push({ path: '/customers/add', query: { prospect_id: installation.value.prospect_id } })
+  router.push({
+    path: '/customers/create',
+    query: {
+      prospect_id: installation.value.prospect_id,
+      return_to: `/installations/${installationId.value}`,
+    },
+  })
 }
 
 const statusBadge = (s) => ({

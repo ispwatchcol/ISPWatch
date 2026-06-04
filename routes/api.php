@@ -93,6 +93,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/customers/{customer}/installations', [CustomerInstallationController::class, 'store']);
     Route::put('/customers/installations/{installation}', [CustomerInstallationController::class, 'update']);
     Route::delete('/customers/installations/{installation}', [CustomerInstallationController::class, 'destroy']);
+    Route::put('/installations/{installation}/billing', [CustomerInstallationController::class, 'updateBilling'])
+        ->middleware('permission:edit_discount');
     Route::put('/installations/{installation}/sheet', [CustomerInstallationController::class, 'saveSheet']);
     Route::post('/installations/{installation}/photos', [CustomerInstallationController::class, 'uploadPhotos']);
     Route::post('/installations/{installation}/sign', [CustomerInstallationController::class, 'sign']);

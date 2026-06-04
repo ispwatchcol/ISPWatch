@@ -10,9 +10,10 @@ class Invoice extends Model
 {
     use HasFactory, BelongsToTenant;
 
-    const TYPE_MONTHLY = 'monthly';
+    const TYPE_MONTHLY       = 'monthly';
     const TYPE_SERVICE_CHARGE = 'service_charge';
-    const TYPE_ADDITIONAL = 'additional';
+    const TYPE_ADDITIONAL    = 'additional';
+    const TYPE_INSTALLATION  = 'installation';
 
     protected $fillable = [
         'tenant_id',
@@ -20,6 +21,7 @@ class Invoice extends Model
         'service_id',
         'invoice_type',
         'ticket_id',
+        'installation_id',
         'number',
         'issue_date',
         'due_date',
@@ -72,5 +74,10 @@ class Invoice extends Model
     public function ticket()
     {
         return $this->belongsTo(SupportTicket::class, 'ticket_id');
+    }
+
+    public function installation()
+    {
+        return $this->belongsTo(CustomerInstallation::class, 'installation_id');
     }
 }
