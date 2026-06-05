@@ -145,7 +145,13 @@
                   class="input"
                   :disabled="loading"
                 />
-                <p class="hint">Cuando se emite la factura</p>
+                <input
+                  v-model="form.create_invoice_time"
+                  type="time"
+                  class="input mt-2"
+                  :disabled="loading"
+                />
+                <p class="hint">Día y hora en que se genera la factura</p>
               </div>
 
               <!-- Payment Day -->
@@ -176,7 +182,13 @@
                   class="input"
                   :disabled="loading"
                 />
-                <p class="hint">Cuando se suspenderá el servicio (opcional)</p>
+                <input
+                  v-model="form.cut_time"
+                  type="time"
+                  class="input mt-2"
+                  :disabled="loading"
+                />
+                <p class="hint">Día y hora en que se suspenderá el servicio (opcional)</p>
               </div>
 
               <!-- Payment Reminder -->
@@ -191,7 +203,13 @@
                   class="input"
                   :disabled="loading"
                 />
-                <p class="hint">Fecha para enviar recordatorio (opcional)</p>
+                <input
+                  v-model="form.payment_reminder_time"
+                  type="time"
+                  class="input mt-2"
+                  :disabled="loading"
+                />
+                <p class="hint">Día y hora para enviar recordatorio (opcional)</p>
               </div>
             </div>
           </div>
@@ -339,15 +357,27 @@ const form = ref({
   id_type: null,
   amount: null,
   create_invoice: new Date().toISOString().split('T')[0],
+  create_invoice_time: '00:00',
   payment_day: null,
   cut_day: null,
+  cut_time: '00:00',
   payment_reminder: null,
+  payment_reminder_time: '00:00',
   overdue_invoices: 0,
   status: 'pending'
 })
 
 // Methods
 const routerLabel = (r) => `${r.name} - ${r.ip || 'Sin IP'}`
+
+// Hora "HH:MM:SS" (BD) → "HH:MM" (input) y viceversa. Vacío → medianoche, que
+// conserva el comportamiento por fecha del sistema.
+const sqlToTime = (val) => (val && typeof val === 'string') ? val.slice(0, 5) : '00:00'
+const toSqlTime = (val) => {
+  if (!val || typeof val !== 'string') return '00:00:00'
+  const [h = '0', m = '0', s = '0'] = val.split(':')
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 const loadRouters = async () => {
   try {
@@ -398,9 +428,12 @@ const loadBilling = async () => {
       id_type: data.id_type || null,
       amount: data.amount || null,
       create_invoice: data.create_invoice || new Date().toISOString().split('T')[0],
+      create_invoice_time: sqlToTime(data.create_invoice_time),
       payment_day: data.payment_day || null,
       cut_day: data.cut_day || null,
+      cut_time: sqlToTime(data.cut_time),
       payment_reminder: data.payment_reminder || null,
+      payment_reminder_time: sqlToTime(data.payment_reminder_time),
       overdue_invoices: data.overdue_invoices || 0,
       status: data.status || 'pending'
     }
@@ -421,9 +454,12 @@ const handleSubmit = async () => {
       id_type: form.value.id_type,
       amount: form.value.amount,
       create_invoice: form.value.create_invoice,
+      create_invoice_time: toSqlTime(form.value.create_invoice_time),
       payment_day: form.value.payment_day,
       cut_day: form.value.cut_day || null,
+      cut_time: toSqlTime(form.value.cut_time),
       payment_reminder: form.value.payment_reminder || null,
+      payment_reminder_time: toSqlTime(form.value.payment_reminder_time),
       overdue_invoices: form.value.overdue_invoices || 0,
       status: form.value.status
     }

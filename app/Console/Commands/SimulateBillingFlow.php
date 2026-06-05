@@ -84,8 +84,13 @@ class SimulateBillingFlow extends Command
             if ($createDay === null) {
                 $this->warn('• No hay create_invoice configurado — se omite la fase de creación.');
             } else {
-                $this->phase("📄 PHASE 1: Crear factura — Día {$createDay}");
-                Carbon::setTestNow(Carbon::create($year, $month, $createDay, 9, 0, 0));
+                $createTime = $b->create_invoice_time ?: '00:00:00';
+                [$ch, $cm, $cs] = array_pad(explode(':', $createTime), 3, 0);
+
+                $this->phase("📄 PHASE 1: Crear factura — Día {$createDay} a las {$createTime}");
+                // Travel to just after the configured create hour so the new
+                // hour gate in generateMonthlyInvoices() lets the run through.
+                Carbon::setTestNow(Carbon::create($year, $month, $createDay, (int) $ch, (int) $cm, (int) $cs)->addMinute());
                 $this->line("   Reloj: " . Carbon::now()->toDateTimeString());
 
                 $created = $this->billingService->generateMonthlyInvoices(null, $routerId);
@@ -100,8 +105,13 @@ class SimulateBillingFlow extends Command
             } elseif (!$b->payment_reminder_enabled) {
                 $this->warn("• payment_reminder_enabled = false — se omite (el toggle del UI está OFF).");
             } else {
-                $this->phase("📣 PHASE 2: Recordatorio — Día {$remDay}");
-                Carbon::setTestNow(Carbon::create($year, $month, $remDay, 9, 0, 0));
+                $remTime = $b->payment_reminder_time ?: '00:00:00';
+                [$rh, $rm, $rs] = array_pad(explode(':', $remTime), 3, 0);
+
+                $this->phase("📣 PHASE 2: Recordatorio — Día {$remDay} a las {$remTime}");
+                // Travel to just after the configured reminder hour so the new
+                // hour gate in sendDueReminders() lets the run through.
+                Carbon::setTestNow(Carbon::create($year, $month, $remDay, (int) $rh, (int) $rm, (int) $rs)->addMinute());
                 $this->line("   Reloj: " . Carbon::now()->toDateTimeString());
 
                 $stats = $this->reminderService->sendDueReminders($routerId);
@@ -163,9 +173,9 @@ class SimulateBillingFlow extends Command
                 ['Router',                   "#{$router->id} — {$router->name}"],
                 ['Período simulado',         $monthName],
                 ['Modo de facturación',      $modeLabel],
-                ['Crear factura',            'Día ' . (Billing::dayOf($b->create_invoice) ?? '—')],
+                ['Crear factura',            'Día ' . (Billing::dayOf($b->create_invoice) ?? '—') . ' @ ' . ($b->create_invoice_time ?: '00:00:00')],
                 ['Día límite de pago',       'Día ' . (Billing::dayOf($b->payment_day)    ?? '—')],
-                ['Recordatorio',             'Día ' . (Billing::dayOf($b->payment_reminder) ?? '—') . ($b->payment_reminder_enabled ? ' (activo)' : ' (DESACTIVADO)')],
+                ['Recordatorio',             'Día ' . (Billing::dayOf($b->payment_reminder) ?? '—') . ' @ ' . ($b->payment_reminder_time ?: '00:00:00') . ($b->payment_reminder_enabled ? ' (activo)' : ' (DESACTIVADO)')],
                 ['Día de corte',             'Día ' . (Billing::dayOf($b->cut_day) ?? '—') . ' @ ' . ($b->cut_time ?: '00:00:00')],
                 ['Suspender tras N vencidas', $b->overdue_invoices ?? 1],
                 ['Tipo de notificación',     $b->notification_type ?: 'email'],

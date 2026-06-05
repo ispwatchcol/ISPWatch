@@ -697,14 +697,17 @@ const form = reactive({
   facturacion_activa: false,
   billing: {
     create_invoice: null,
+    create_invoice_time: '00:00',
     payment_day: null,
     cut_day: null,
+    cut_time: '00:00',
     overdue_invoices: "",
     amount: null,
     comentarios: "",
     metodo: "",
     notificar_wpp: false,
     remember_day: null,
+    remember_time: '00:00',
     payment_reminder_enabled: true,
     pay_day: null,
     notification_type: 'email',
@@ -846,6 +849,16 @@ const cleanDay = (val) => {
   return String(val).padStart(2, "0")
 }
 
+// Normaliza una hora del input <input type="time"> ("HH:MM") al formato TIME de
+// Postgres ("HH:MM:SS"). Un valor vacío cae a medianoche, que conserva el
+// comportamiento anterior (la factura/recordatorio/corte se dispara al primer
+// barrido del día configurado).
+const timeToSql = (val) => {
+  if (!val || typeof val !== "string") return "00:00:00"
+  const [h = "0", m = "0", s = "0"] = val.split(":")
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
 const saveBilling = async () => {
   // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
   // Clamp: si el mes no tiene ese día, usa el último día válido
@@ -873,9 +886,12 @@ const saveBilling = async () => {
   
   const payload = {
     create_invoice: dayToDate(form.billing.create_invoice),
+    create_invoice_time: timeToSql(form.billing.create_invoice_time),
     cut_day: dayToDate(form.billing.cut_day),
+    cut_time: timeToSql(form.billing.cut_time),
     payment_day: dayToDate(form.billing.pay_day),
     payment_reminder: dayToDate(form.billing.remember_day),
+    payment_reminder_time: timeToSql(form.billing.remember_time),
     payment_reminder_enabled: form.billing.payment_reminder_enabled !== false,
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),

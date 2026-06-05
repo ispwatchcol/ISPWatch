@@ -363,8 +363,10 @@ class BillingController extends Controller
 
         $validated = $request->validate([
             'create_invoice' => 'nullable|date',
+            'create_invoice_time' => 'nullable|date_format:H:i,H:i:s',
             'payment_day' => 'nullable|date',
             'payment_reminder' => 'nullable|date',
+            'payment_reminder_time' => 'nullable|date_format:H:i,H:i:s',
             'payment_reminder_enabled' => 'nullable|boolean',
             'cut_day' => 'nullable|date',
             'cut_time' => 'nullable|date_format:H:i,H:i:s',

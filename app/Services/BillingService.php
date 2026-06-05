@@ -131,6 +131,23 @@ class BillingService
                 continue;
             }
 
+            // ── Check create_invoice_time (hour of day) ─────────────────────
+            // The scheduler runs this command hourly; gate on the configured
+            // time exactly like the auto-cut does, so the operator can pick the
+            // hour invoices go out. Default '00:00:00' = fire at the first run
+            // of the day (unchanged date-only behaviour). An explicit $period
+            // (manual backfill) bypasses the hour gate — the operator asked for
+            // it right now.
+            if (!$periodExplicit) {
+                $createDateTime = Billing::applyTimeOfDay($today, $billingConfig->create_invoice_time);
+                if ($today->lt($createDateTime)) {
+                    Log::info("Billing: Router {$router->id} ({$router->name}) — create time is "
+                        . ($billingConfig->create_invoice_time ?: '00:00:00')
+                        . ", current time is {$today->format('H:i:s')}. Not yet.");
+                    continue;
+                }
+            }
+
             // ── Resolve the period this invoice covers ──────────────────────
             if ($periodExplicit) {
                 $periodMonth = Carbon::parse($period . '-01');
@@ -301,6 +318,16 @@ class BillingService
             $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
 
             $due = $today->day >= $createDay;
+
+            // Don't flag a no-show until the configured create hour has had its
+            // chance to run. Generation is gated on create_invoice_time and the
+            // scheduler ticks hourly, so we mirror the cut audit's 1h grace: the
+            // gap between the configured hour and the next hourly run must not be
+            // mistaken for a missing invoice. Skipped for an explicit (past) period.
+            if ($due && !$periodExplicit) {
+                $createMoment = Billing::applyTimeOfDay($today, $billingConfig->create_invoice_time);
+                $due = $today->gte($createMoment->copy()->addHour());
+            }
 
             // Expected: active customers on this router with an active, billable
             // (non-courtesy) service — the same set generation would invoice.

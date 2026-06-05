@@ -617,6 +617,21 @@ const cleanDay = (val) => {
   return String(val).padStart(2, "0")
 }
 
+// Normaliza "HH:MM" (del <input type="time">) al formato TIME de Postgres
+// "HH:MM:SS". Vacío → medianoche (conserva el comportamiento por fecha).
+const timeToSql = (val) => {
+  if (!val || typeof val !== "string") return "00:00:00"
+  const [h = "0", m = "0", s = "0"] = val.split(":")
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
+// Inverso: "HH:MM:SS" (de la BD) → "HH:MM" para el <input type="time">.
+const sqlToTime = (val) => {
+  if (!val || typeof val !== "string") return "00:00"
+  const [h = "00", m = "00"] = val.split(":")
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
+
 /* ============================
    DATOS DESDE DB (Selects)
 ============================ */
@@ -670,16 +685,19 @@ const form = reactive({
 
   facturacion_activa: false,
   billing: {
-    id: null, 
+    id: null,
     create_invoice: null,
+    create_invoice_time: '00:00',
     pay_day: null,
     cut_day: null,
+    cut_time: '00:00',
     overdue_invoices: "",
     amount: null,
     comentarios: "",
     metodo: "",
     notificar_wpp: false,
     remember_day: null,
+    remember_time: '00:00',
     payment_reminder_enabled: true,
     notification_type: 'email',
     billing_mode: 'anticipado',
@@ -797,6 +815,12 @@ const loadRouterData = async () => {
         form.billing.cut_day = dayCut !== null ? String(dayCut) : null
         form.billing.pay_day = dayPay !== null ? String(dayPay) : null
         form.billing.remember_day = dayRemind !== null ? String(dayRemind) : null
+
+        // Horas (TIME en BD → "HH:MM" para el input). Filas viejas sin columna
+        // llegan undefined → medianoche.
+        form.billing.create_invoice_time = sqlToTime(data.billing.create_invoice_time)
+        form.billing.cut_time = sqlToTime(data.billing.cut_time)
+        form.billing.remember_time = sqlToTime(data.billing.payment_reminder_time)
         
         form.billing.overdue_invoices = data.billing.overdue_invoices
         form.billing.amount = data.billing.amount
@@ -849,9 +873,12 @@ const saveBilling = async () => {
   // Usar los mismos nombres de columna que en la BD
   const payload = {
     create_invoice: dayToDate(form.billing.create_invoice),
+    create_invoice_time: timeToSql(form.billing.create_invoice_time),
     cut_day: dayToDate(form.billing.cut_day),
+    cut_time: timeToSql(form.billing.cut_time),
     payment_day: dayToDate(form.billing.pay_day),
     payment_reminder: dayToDate(form.billing.remember_day),
+    payment_reminder_time: timeToSql(form.billing.remember_time),
     payment_reminder_enabled: form.billing.payment_reminder_enabled !== false,
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
     amount: cleanInt(form.billing.amount),
