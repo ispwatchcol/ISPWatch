@@ -24,8 +24,22 @@
             />
           </div>
 
+          <div class="flex items-center justify-between mt-2">
+            <label class="text-gray-800 dark:text-gray-300 font-medium">
+              Hora de creación
+            </label>
+            <input
+              type="time"
+              v-model="billing.create_invoice_time"
+              class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                     border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                     focus:ring focus:ring-blue-500 transition-colors"
+            />
+          </div>
+
           <p class="text-xs text-gray-500 mt-1">
-            Selecciona el día del mes en el que se generará la factura automáticamente.
+            Selecciona el día y la hora en que se generará la factura automáticamente.
+            La generación ocurre a partir de esa hora (se evalúa cada hora).
           </p>
         </div>
 
@@ -35,6 +49,17 @@
             Día de corte
           </label>
           <DayPicker v-model="billing.cut_day" />
+
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
+            Hora de corte
+          </label>
+          <input
+            type="time"
+            v-model="billing.cut_time"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                   border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                   focus:ring focus:ring-blue-500 transition-colors"
+          />
         </div>
 
         <!-- Día límite -->
@@ -70,9 +95,22 @@
             v-model="billing.remember_day"
             :disabled="!billing.payment_reminder_enabled"
           />
+
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
+            Hora del recordatorio
+          </label>
+          <input
+            type="time"
+            v-model="billing.remember_time"
+            :disabled="!billing.payment_reminder_enabled"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                   border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                   focus:ring focus:ring-blue-500 transition-colors disabled:opacity-50"
+          />
+
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ billing.payment_reminder_enabled
-              ? 'Se enviará un recordatorio al cliente el día seleccionado.'
+              ? 'Se enviará un recordatorio al cliente el día y hora seleccionados.'
               : 'No se enviarán recordatorios de pago.' }}
           </p>
         </div>

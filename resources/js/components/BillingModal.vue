@@ -125,6 +125,14 @@
                        focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 :disabled="loading"
               />
+              <input
+                v-model="form.create_invoice_time"
+                type="time"
+                class="w-full mt-2 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg
+                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                       focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                :disabled="loading"
+              />
             </div>
 
             <!-- Payment Day -->
@@ -156,6 +164,14 @@
                        focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 :disabled="loading"
               />
+              <input
+                v-model="form.cut_time"
+                type="time"
+                class="w-full mt-2 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg
+                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                       focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                :disabled="loading"
+              />
             </div>
 
             <!-- Payment Reminder -->
@@ -167,6 +183,14 @@
                 v-model="form.payment_reminder"
                 type="date"
                 class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg
+                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                       focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                :disabled="loading"
+              />
+              <input
+                v-model="form.payment_reminder_time"
+                type="time"
+                class="w-full mt-2 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 :disabled="loading"
@@ -262,15 +286,27 @@ const loading = ref(false)
 const routers = ref([])
 const billingTypes = ref([])
 
+// Hora "HH:MM:SS" (BD) → "HH:MM" (input) y viceversa. Vacío → medianoche, que
+// conserva el comportamiento por fecha del sistema.
+const sqlToTime = (val) => (val && typeof val === 'string') ? val.slice(0, 5) : '00:00'
+const toSqlTime = (val) => {
+  if (!val || typeof val !== 'string') return '00:00:00'
+  const [h = '0', m = '0', s = '0'] = val.split(':')
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 // Form
 const form = ref({
   router_id: null,
   id_type: null,
   amount: null,
   create_invoice: new Date().toISOString().split('T')[0],
+  create_invoice_time: '00:00',
   payment_day: null,
   cut_day: null,
+  cut_time: '00:00',
   payment_reminder: null,
+  payment_reminder_time: '00:00',
   overdue_invoices: 0,
   status: 'pending'
 })
@@ -283,9 +319,12 @@ watch(() => props.billing, (newBilling) => {
       id_type: newBilling.id_type || null,
       amount: newBilling.amount || null,
       create_invoice: newBilling.create_invoice || new Date().toISOString().split('T')[0],
+      create_invoice_time: sqlToTime(newBilling.create_invoice_time),
       payment_day: newBilling.payment_day || null,
       cut_day: newBilling.cut_day || null,
+      cut_time: sqlToTime(newBilling.cut_time),
       payment_reminder: newBilling.payment_reminder || null,
+      payment_reminder_time: sqlToTime(newBilling.payment_reminder_time),
       overdue_invoices: newBilling.overdue_invoices || 0,
       status: newBilling.status || 'pending'
     }
@@ -330,9 +369,12 @@ const handleSubmit = async () => {
       id_type: form.value.id_type,
       amount: form.value.amount,
       create_invoice: form.value.create_invoice,
+      create_invoice_time: toSqlTime(form.value.create_invoice_time),
       payment_day: form.value.payment_day,
       cut_day: form.value.cut_day || null,
+      cut_time: toSqlTime(form.value.cut_time),
       payment_reminder: form.value.payment_reminder || null,
+      payment_reminder_time: toSqlTime(form.value.payment_reminder_time),
       overdue_invoices: form.value.overdue_invoices || 0,
       status: form.value.status
     }
@@ -380,9 +422,12 @@ const closeModal = () => {
       id_type: null,
       amount: null,
       create_invoice: new Date().toISOString().split('T')[0],
+      create_invoice_time: '00:00',
       payment_day: null,
       cut_day: null,
+      cut_time: '00:00',
       payment_reminder: null,
+      payment_reminder_time: '00:00',
       overdue_invoices: 0,
       status: 'pending'
     }

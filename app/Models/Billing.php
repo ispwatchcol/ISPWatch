@@ -18,8 +18,10 @@ class Billing extends Model
     protected $fillable = [
         'id_type',
         'create_invoice',
+        'create_invoice_time',
         'payment_day',
         'payment_reminder',
+        'payment_reminder_time',
         'payment_reminder_enabled',
         'cut_day',
         'cut_time',
@@ -35,6 +37,11 @@ class Billing extends Model
     protected $attributes = [
         'billing_mode' => self::MODE_ANTICIPADO,
         'payment_reminder_enabled' => true,
+        // Hour-of-day for each event. Default midnight = same behaviour as the
+        // date-only system (fire at the first scheduler run of the configured day).
+        'create_invoice_time' => '00:00:00',
+        'payment_reminder_time' => '00:00:00',
+        'cut_time' => '00:00:00',
     ];
 
     protected $casts = [
@@ -93,5 +100,18 @@ class Billing extends Model
             return null;
         }
         return min($day, $reference->daysInMonth);
+    }
+
+    /**
+     * Return $reference with its time-of-day set to the configured HH:MM[:SS]
+     * string (e.g. '14:30:00'). A null/empty/garbage value falls back to
+     * midnight, which preserves the date-only behaviour. Used by the three
+     * billing events (invoice creation, reminder, cut) to gate on the hour.
+     */
+    public static function applyTimeOfDay(Carbon $reference, ?string $time): Carbon
+    {
+        [$h, $m, $s] = array_pad(explode(':', (string) ($time ?: '00:00:00')), 3, 0);
+
+        return $reference->copy()->setTime((int) $h, (int) $m, (int) $s);
     }
 }

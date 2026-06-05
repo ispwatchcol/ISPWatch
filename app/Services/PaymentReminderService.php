@@ -77,6 +77,15 @@ class PaymentReminderService
                 continue; // not yet — will fire on/after the configured day
             }
 
+            // Gate on the configured hour-of-day. The scheduler runs this
+            // command hourly; default '00:00:00' keeps the date-only behaviour
+            // (fire at the first run of the day). Mirrors the invoice/cut gates.
+            $reminderMoment = Billing::applyTimeOfDay($now, $config->payment_reminder_time);
+            if ($now->lt($reminderMoment)) {
+                $stats['skipped_not_due']++;
+                continue; // day reached but the configured hour hasn't arrived yet
+            }
+
             $stats['routers_processed']++;
 
             $profiles = CustomerProfile::where('router_id', $router->id)

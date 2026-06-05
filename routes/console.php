@@ -8,8 +8,13 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Run daily — BillingService checks each router's billing.create_invoice day internally
-Schedule::command('billing:generate-monthly')->daily();
+// Run hourly — BillingService gates each router on its billing.create_invoice
+// DAY and create_invoice_time HOUR internally, so the operator can pick the hour
+// invoices go out. Generation is idempotent (skips invoices that already exist),
+// so the extra hourly runs are cheap no-ops once a router has billed.
+// withoutOverlapping guards against a long run (many invoices + notifications)
+// stacking with the next tick.
+Schedule::command('billing:generate-monthly')->hourly()->withoutOverlapping();
 
 // Failover: reintenta facturas que fallaron en la generación mensual.
 // Backoff escalonado (2h/6h/24h) — corre cada hora pero solo procesa rows con next_retry_at vencido.
@@ -34,9 +39,11 @@ Schedule::command('billing:reconcile-suspensions')->hourly();
 // pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.
 Schedule::command('billing:verify-cuts')->dailyAt('07:00');
 
-// Payment reminders: run daily — the service fires on each router's
-// billing.payment_reminder day and is idempotent per billing cycle
-Schedule::command('billing:send-reminders')->daily();
+// Payment reminders: run hourly — the service fires on each router's
+// billing.payment_reminder DAY at its payment_reminder_time HOUR and is
+// idempotent per billing cycle (invoices.last_reminder_sent), so the extra
+// hourly runs never double-send.
+Schedule::command('billing:send-reminders')->hourly()->withoutOverlapping();
 
 // Traffic history: sample WAN counters every 5 min for routers with
 // historial_trafico on. withoutOverlapping so a slow run never stacks.
