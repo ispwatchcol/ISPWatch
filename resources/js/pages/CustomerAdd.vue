@@ -1076,10 +1076,6 @@ const handleSubmit = async (pushToRouter = true) => {
 
         const redirectTarget = returnTo.value || '/customers'
 
-        if (showPppoeSection.value && pppoe && !pppoe.success) {
-        const loginEmail = res.data?.email_tenant
-        const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
-
         if (pushToRouter && showPppoeSection.value && pppoe && !pppoe.success) {
             toast.value?.warning(
                 'Cliente creado con advertencia',
