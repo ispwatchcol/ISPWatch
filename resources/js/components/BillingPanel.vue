@@ -1,6 +1,6 @@
 <template>
   <div v-if="active" class="mt-0 col-span-2">
-    <div class="border border-gray-300 dark:border-gray-700 rounded-xl p-6 
+    <div class="border border-gray-300 dark:border-gray-700 rounded-xl p-4 sm:p-6
                 bg-white dark:bg-gray-900 shadow-md w-full transition-colors">
 
       <!-- Título -->
@@ -8,38 +8,30 @@
         Facturación del Router
       </h3>
 
-      <!-- SUBGRID -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- SUBGRID: cada evento (factura/corte/recordatorio) apila su Día + Hora
+           en una celda; en móvil colapsa a 1 columna. -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5">
 
         <!-- Crear factura automáticamente -->
-        <div class="col-span-2">
-          <div class="flex items-center justify-between">
-            <label class="text-gray-800 dark:text-gray-300 font-medium">
-              Crear Factura Automáticamente
-            </label>
+        <div>
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
+            Crear factura — Día
+          </label>
+          <DayPicker v-model="billing.create_invoice" class="w-full" />
 
-            <DayPicker
-              v-model="billing.create_invoice"
-              class="w-full"
-            />
-          </div>
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
+            Hora de creación
+          </label>
+          <input
+            type="time"
+            v-model="billing.create_invoice_time"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                   border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                   focus:ring focus:ring-blue-500 transition-colors"
+          />
 
-          <div class="flex items-center justify-between mt-2">
-            <label class="text-gray-800 dark:text-gray-300 font-medium">
-              Hora de creación
-            </label>
-            <input
-              type="time"
-              v-model="billing.create_invoice_time"
-              class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
-                     border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
-                     focus:ring focus:ring-blue-500 transition-colors"
-            />
-          </div>
-
-          <p class="text-xs text-gray-500 mt-1">
-            Selecciona el día y la hora en que se generará la factura automáticamente.
-            La generación ocurre a partir de esa hora (se evalúa cada hora).
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Día y hora en que se genera la factura (se evalúa cada hora).
           </p>
         </div>
 
@@ -48,7 +40,7 @@
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
             Día de corte
           </label>
-          <DayPicker v-model="billing.cut_day" />
+          <DayPicker v-model="billing.cut_day" class="w-full" />
 
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
             Hora de corte
@@ -62,16 +54,16 @@
           />
         </div>
 
-        <!-- Día límite -->
+        <!-- Día límite de pago -->
         <div>
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
             Día límite de pago
           </label>
-          <DayPicker v-model="billing.pay_day" />
+          <DayPicker v-model="billing.pay_day" class="w-full" />
         </div>
 
         <!-- Recordatorio -->
-        <div class="w-full">
+        <div>
           <div class="flex items-center justify-between mb-1">
             <label class="text-gray-800 dark:text-gray-300 font-medium">
               Recordatorio de pago
@@ -81,7 +73,7 @@
               type="button"
               @click="billing.payment_reminder_enabled = !billing.payment_reminder_enabled"
               :class="billing.payment_reminder_enabled ? 'bg-blue-600' : 'bg-gray-400 dark:bg-gray-600'"
-              class="relative inline-flex h-6 w-11 rounded-full transition-colors duration-300"
+              class="relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-300"
               :title="billing.payment_reminder_enabled ? 'Recordatorio activo' : 'Recordatorio desactivado'"
             >
               <span
@@ -94,6 +86,7 @@
           <DayPicker
             v-model="billing.remember_day"
             :disabled="!billing.payment_reminder_enabled"
+            class="w-full"
           />
 
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
@@ -116,7 +109,7 @@
         </div>
 
         <!-- Tipo de Aviso al Crear Facturas -->
-        <div class="col-span-2">
+        <div class="col-span-1 sm:col-span-2">
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-2">
             Tipo de Aviso al Crear Facturas
           </label>
@@ -242,7 +235,7 @@
         </div>
 
         <!-- Modo de facturación -->
-        <div class="col-span-1 md:col-span-2">
+        <div class="col-span-1 sm:col-span-2">
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
             Modo de facturación
           </label>
@@ -262,7 +255,7 @@
         </div>
 
         <!-- Comentarios -->
-        <div class="col-span-1 md:col-span-2 mt-0">
+        <div class="col-span-1 sm:col-span-2 mt-0">
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
             Comentarios
           </label>
