@@ -1075,8 +1075,6 @@ const handleSubmit = async (pushToRouter = true) => {
         }
 
         const redirectTarget = returnTo.value || '/customers'
-
-        if (showPppoeSection.value && pppoe && !pppoe.success) {
         const loginEmail = res.data?.email_tenant
         const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
 
@@ -1086,11 +1084,12 @@ const handleSubmit = async (pushToRouter = true) => {
                 `Datos guardados, pero el secret PPPoE no se pudo crear en ${selectedRouter.value?.name}: ${pppoe.message}`
             )
             setTimeout(() => router.push(redirectTarget), 2500)
+        } else if (!pushToRouter) {
+            toast.value?.success('Cliente guardado', `El cliente se guardó en la base de datos (no se cargó a la RB).${loginInfo}`)
+            setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
         } else {
             const extra = showPppoeSection.value ? ` Secret PPPoE creado en ${selectedRouter.value?.name}.` : ''
-            const loginEmail = res.data?.email_tenant
-            const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
-            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${loginInfo}${extra}`)
+            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo}${extra}`)
             setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
         }
     } catch (err) {
