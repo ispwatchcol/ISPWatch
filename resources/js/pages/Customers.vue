@@ -34,6 +34,20 @@
                             {{ confirmDialog.message }}
                         </p>
 
+                        <!-- Text confirmation input -->
+                        <div v-if="confirmDialog.requireText" class="mb-5">
+                            <p class="text-xs text-center text-gray-400 dark:text-gray-500 mb-2">
+                                Escribe <span class="font-mono font-bold text-red-600 dark:text-red-400">{{ confirmDialog.requireText }}</span> para confirmar
+                            </p>
+                            <input
+                                v-model="confirmInputText"
+                                type="text"
+                                autocomplete="off"
+                                placeholder=""
+                                class="w-full px-3 py-2 text-sm text-center rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                            />
+                        </div>
+
                         <!-- Buttons -->
                         <div class="flex gap-3">
                             <button
@@ -44,8 +58,9 @@
                             </button>
                             <button
                                 @click="acceptConfirm"
+                                :disabled="!!confirmDialog.requireText && confirmInputText !== confirmDialog.requireText"
                                 :class="confirmBtnClass"
-                                class="flex-1 px-4 py-2.5 rounded-xl text-white font-medium transition-all text-sm"
+                                class="flex-1 px-4 py-2.5 rounded-xl text-white font-medium transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                                 {{ confirmDialog.confirmLabel }}
                             </button>
@@ -567,8 +582,10 @@ const confirmDialog = ref({
     title: '',
     message: '',
     confirmLabel: 'Confirmar',
+    requireText: null,
     resolve: null,
 })
+const confirmInputText = ref('')
 
 const confirmIconBg = computed(() => ({
     'bg-green-100  dark:bg-green-900/30':  confirmDialog.value.type === 'info',
@@ -596,11 +613,13 @@ const openConfirm = (options) =>
 const acceptConfirm = () => {
     confirmDialog.value.resolve(true)
     confirmDialog.value.show = false
+    confirmInputText.value = ''
 }
 
 const cancelConfirm = () => {
     confirmDialog.value.resolve(false)
     confirmDialog.value.show = false
+    confirmInputText.value = ''
 }
 
 // ── Router filter helpers ────────────────────────────────────────────────────
@@ -1013,8 +1032,9 @@ const deleteCustomer = async (customer) => {
         type: 'danger',
         icon: 'md-deleteforever',
         title: 'Eliminar cliente',
-        message: `¿Estás seguro de eliminar a ${customer.name} ${customer.last_name}? Esta acción no se puede deshacer.`,
+        message: `Estás a punto de eliminar a ${customer.name} ${customer.last_name} junto con todas sus facturas y pagos. Esta acción no se puede deshacer.`,
         confirmLabel: 'Eliminar',
+        requireText: 'ELIMINAR',
     })
     if (!confirmed) return
 
