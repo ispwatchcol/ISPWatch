@@ -4,10 +4,8 @@
         <div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 flex items-center justify-between px-4">
             <!-- Logo area -->
             <div class="flex items-center gap-2">
-                <div class="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
-                    <v-icon name="md-router-round" class="w-5 h-5 text-white" />
-                </div>
-                <span class="font-bold text-lg text-gray-800 dark:text-white">ISPWATCH</span>
+                <img :src="'/brand/icon.svg'" alt="ISP Watch" class="w-9 h-9" />
+                <span class="font-extrabold text-lg text-gray-900 dark:text-white">ISP<span class="text-blue-600">Watch</span></span>
             </div>
             
             <!-- Hamburger Button -->

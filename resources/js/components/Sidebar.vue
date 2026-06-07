@@ -6,14 +6,11 @@
         <div class="px-6 py-8 border-b dark:border-gray-800">
             <div class="flex items-center gap-3">
                 <div class="relative group">
-                    <div class="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-25 group-hover:opacity-50 transition duration-200"></div>
-                    <div class="relative w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-                        <v-icon name="md-router-round" class="h-6 w-6 text-white" />
-                    </div>
+                    <img :src="'/brand/icon.svg'" alt="ISP Watch" class="w-11 h-11 group-hover:scale-105 transition-transform duration-200" />
                 </div>
                 <div>
-                    <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300">
-                        ISPWATCH
+                    <h1 class="text-xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+                        ISP<span class="text-blue-600">Watch</span>
                     </h1>
                     <p class="text-[10px] font-semibold tracking-wider text-gray-500 dark:text-gray-400 uppercase">
                         Sistema de Gestión

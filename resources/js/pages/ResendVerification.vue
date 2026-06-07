@@ -11,8 +11,8 @@
       <div class="flex flex-col items-center mb-6 md:mb-8 animate-fade-in-down">
         <div class="bg-white dark:bg-slate-900 p-3 md:p-4 rounded-3xl shadow-xl mb-4 border border-slate-100 dark:border-slate-800 group transition-all hover:scale-110">
           <img
-            src="../assets/favicon.svg"
-            alt="Logo"
+            :src="'/brand/icon.svg'"
+            alt="ISP Watch"
             class="h-14 w-14 md:h-16 md:w-16 group-hover:rotate-12 transition-transform duration-500"
           />
         </div>
