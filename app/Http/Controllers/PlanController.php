@@ -7,6 +7,7 @@ use App\Services\MikroTikSshService;
 use App\Models\Plan;
 use App\Traits\FixesSequences;
 use App\Http\Requests\StorePlanRequest;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 
 class PlanController extends Controller
@@ -88,7 +89,20 @@ class PlanController extends Controller
     {
         // BelongsToTenant global scope auto-filters by tenant
         $plan = Plan::findOrFail($id);
-        $plan->delete();
+
+        try {
+            $plan->delete();
+        } catch (QueryException $e) {
+            // 23503 = foreign_key_violation (PostgreSQL): alguna tabla aún referencia
+            // el plan con RESTRICT. Devolvemos un mensaje legible en vez de un 500.
+            if (($e->getCode() === '23503') || str_contains($e->getMessage(), 'foreign key')) {
+                return response()->json([
+                    'message' => 'No se puede eliminar el plan porque tiene datos asociados que lo referencian.',
+                ], 409);
+            }
+
+            throw $e;
+        }
 
         return response()->json([
             'message' => 'Plan eliminado'
