@@ -107,6 +107,19 @@
                 </div>
               </div>
 
+              <!-- Plan de cortesía -->
+              <label class="flex items-start gap-3 cursor-pointer select-none rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-4 py-3">
+                <input
+                  type="checkbox"
+                  v-model="form.is_courtesy"
+                  class="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500/30 cursor-pointer"
+                />
+                <span>
+                  <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">Plan de cortesía (Gratis)</span>
+                  <span class="block text-xs text-gray-500 dark:text-gray-400">El cliente queda en estado <strong>Gratis</strong> y nunca se factura automáticamente.</span>
+                </span>
+              </label>
+
               <!-- Descripción -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Descripción <span class="text-gray-400 font-normal">(Opcional)</span></label>
@@ -459,6 +472,7 @@ const form = ref({
   idle_timeout: '',
   pcq_rate: '',
   address_mask: '32',
+  is_courtesy: false,
 })
 
 const toast = ref(null)
@@ -512,6 +526,7 @@ const payload = {
   idle_timeout: form.value.idle_timeout || null,
   pcq_rate: form.value.pcq_rate || null,
   address_mask: form.value.address_mask || null,
+  is_courtesy: !!form.value.is_courtesy,
 }
 
     await api.plan.create(payload)
