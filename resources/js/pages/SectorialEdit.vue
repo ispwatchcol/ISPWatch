@@ -481,7 +481,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { supabase } from '@/supabase.js'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -574,18 +573,13 @@ const loadRouters = async () => {
         return
     }
 
-    const { data, error: fetchError } = await supabase
-        .from("router")
-        .select("id, name, ip")
-        .eq("tenant_id", userData.tenant_id)
-        .eq("status", "active")
-
-    if (fetchError) {
-        console.error("❌ Error al cargar routers:", fetchError.message)
+    try {
+        const { data } = await api.routers.getAll()
+        routers.value = (data || []).filter(r => r.status === 'active')
+    } catch (fetchError) {
+        console.error("❌ Error al cargar routers:", fetchError?.message)
         return
     }
-
-    routers.value = data || []
 }
 
 // Lista de elementos existentes para el selector de "padre" del árbol de fibra.

@@ -362,7 +362,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
+import inventoryBranchApi from '@/services/api/inventory-branch'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
@@ -409,15 +409,7 @@ const filteredItems = computed(() => {
 const loadItems = async () => {
   loading.value = true
   try {
-    if (!tenantId.value) return
-
-    const { data, error } = await supabase
-      .from('inventory_branch')
-      .select('*')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await inventoryBranchApi.getAll()
     items.value = data || []
   } catch (error) {
     console.error('Error loading branches:', error)
@@ -468,21 +460,13 @@ const handleSave = async () => {
       name: form.value.name,
       dir: form.value.dir || null,
       numero: form.value.numero || null,
-      tenant_id: tenantId.value
     }
 
     if (isEditing.value) {
-      const { error } = await supabase
-        .from('inventory_branch')
-        .update(payload)
-        .eq('id', editingId.value)
-      if (error) throw error
+      await inventoryBranchApi.update(editingId.value, payload)
       toast.value?.success('Actualizado', 'Sucursal actualizada correctamente')
     } else {
-      const { error } = await supabase
-        .from('inventory_branch')
-        .insert(payload)
-      if (error) throw error
+      await inventoryBranchApi.create(payload)
       toast.value?.success('Creado', 'Nueva sucursal agregada correctamente')
     }
 
@@ -500,11 +484,7 @@ const deleteItem = async () => {
   if (!itemToDelete.value) return
   saving.value = true
   try {
-    const { error } = await supabase
-      .from('inventory_branch')
-      .delete()
-      .eq('id', itemToDelete.value.id)
-    if (error) throw error
+    await inventoryBranchApi.delete(itemToDelete.value.id)
     toast.value?.success('Eliminado', 'Sucursal eliminada correctamente')
     closeDeleteModal()
     await loadItems()

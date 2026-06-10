@@ -28,7 +28,6 @@
     },
     "dependencies": {
         "@fontsource/inter": "^5.2.8",
-        "@supabase/supabase-js": "^2.105.4",
         "@vueup/vue-quill": "^1.2.0",
         "leaflet": "^1.9.4",
         "oh-vue-icons": "^1.0.0-rc3",

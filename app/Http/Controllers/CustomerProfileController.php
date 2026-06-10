@@ -24,6 +24,26 @@ use Illuminate\Validation\ValidationException;
 class CustomerProfileController extends Controller
 {
     use FixesSequences;
+
+    /**
+     * Distinct, non-null customer IPs for the current tenant. Used by the router
+     * add form to compute free/used IPs against the configured IP ranges.
+     * Tenant scoping mirrors index(): via the related users.tenant_id.
+     */
+    public function usedIps(Request $request)
+    {
+        $tenantId = $request->user()?->tenant_id;
+
+        $ips = CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->where('users.tenant_id', $tenantId)
+            ->whereNotNull('customer_profile.ip_user')
+            ->pluck('customer_profile.ip_user')
+            ->filter()
+            ->values();
+
+        return response()->json($ips);
+    }
+
     /**
      * Display a list of customers profiles (scoped to current tenant).
      */

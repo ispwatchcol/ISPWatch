@@ -12,25 +12,14 @@ class InventoryDeviceController extends Controller
      */
     public function index()
     {
-        $devices = InventoryDevice::with(['stock', 'provider', 'branch'])->select(
-            'id',
-            'serial',
-            'mac',
-            'stock_id',
-            'provider_id',
-            'branch_id'
-        )->get()->map(function ($device) {
-            return [
-                'id' => $device->id,
-                'serial' => $device->serial,
-                'mac' => $device->mac,
-                'brand' => $device->stock->brand ?? '-',
-                'model' => $device->stock->model ?? '-',
-                'provider' => $device->provider->name,
-                'branch' => $device->branch->name,
-                'created_at' => $device->created_at,
-            ];
-        });
+        // Return devices with their nested stock/provider/branch relations so the
+        // Inventory list can render brand/model/provider/branch names and ids.
+        // Tenant scoping is automatic via BelongsToTenant.
+        $devices = InventoryDevice::with([
+            'stock:id,brand,model,price',
+            'provider:id,name',
+            'branch:id,name',
+        ])->orderBy('created_at', 'desc')->get();
 
         return response()->json($devices);
     }
@@ -41,12 +30,12 @@ class InventoryDeviceController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'stock_id' => 'required|integer|exists:inventory_stock,id',
-            'provider_id' => 'required|integer|exists:inventory_provider,id',
-            'user_id' => 'nullable|integer',
-            'branch_id' => 'required|integer|exists:inventory_branche,id',
-            'serial' => 'required|string|max:255|unique:inventory_device,serial',
-            'mac' => 'required|string|max:255|unique:inventory_device,mac',
+            'stock_id' => 'nullable|integer|exists:inventory_stock,id',
+            'provider_id' => 'nullable|integer|exists:inventory_provider,id',
+            'user_id' => 'nullable|integer|exists:users,id',
+            'branch_id' => 'nullable|integer|exists:inventory_branch,id',
+            'serial' => 'nullable|string|max:255|unique:inventory_device,serial',
+            'mac' => 'nullable|string|max:255|unique:inventory_device,mac',
         ]);
 
         $device = InventoryDevice::create($data);
@@ -71,12 +60,12 @@ class InventoryDeviceController extends Controller
     public function update(Request $request, InventoryDevice $inventoryDevice)
     {
         $data = $request->validate([
-            'stock_id' => 'sometimes|integer|exists:inventory_stock,id',
-            'provider_id' => 'sometimes|integer|exists:inventory_provider,id',
-            'user_id' => 'nullable|integer',
-            'branch_id' => 'sometimes|integer|exists:inventory_branche,id',
-            'serial' => 'sometimes|string|max:255|unique:inventory_device,serial,' . $inventoryDevice->id,
-            'mac' => 'sometimes|string|max:255|unique:inventory_device,mac,' . $inventoryDevice->id,
+            'stock_id' => 'nullable|integer|exists:inventory_stock,id',
+            'provider_id' => 'nullable|integer|exists:inventory_provider,id',
+            'user_id' => 'nullable|integer|exists:users,id',
+            'branch_id' => 'nullable|integer|exists:inventory_branch,id',
+            'serial' => 'nullable|string|max:255|unique:inventory_device,serial,' . $inventoryDevice->id,
+            'mac' => 'nullable|string|max:255|unique:inventory_device,mac,' . $inventoryDevice->id,
         ]);
 
         $inventoryDevice->update($data);

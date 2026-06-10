@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class InventoryDevice extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'inventory_device';
     protected $fillable = [
-        'id',
         'stock_id',
         'provider_id',
         'user_id',

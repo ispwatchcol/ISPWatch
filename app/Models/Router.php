@@ -84,6 +84,15 @@ class Router extends Model
         return $this->belongsTo(Billing::class, 'billing_router_id');
     }
 
+    /**
+     * Alias of billingConfig() that serializes under the `billing` key, which
+     * is the shape the router add/edit form expects (data.billing.*).
+     */
+    public function billing()
+    {
+        return $this->belongsTo(Billing::class, 'billing_router_id');
+    }
+
     public function suspensionLogs()
     {
         return $this->hasMany(SuspensionActionLog::class);

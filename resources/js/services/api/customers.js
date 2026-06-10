@@ -22,6 +22,10 @@ export default {
     getMapData() {
         return apiClient.get('/customers/map')
     },
+    // Distinct customer IPs in use (for router IP-range free/used calculation).
+    getUsedIps() {
+        return apiClient.get('/customers/used-ips')
+    },
     provision(id) {
         return apiClient.post(`/customers/${id}/provision`)
     },

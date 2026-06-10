@@ -475,7 +475,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { supabase } from '@/supabase.js'
 import api from '../services/api'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
@@ -578,16 +577,7 @@ const loadRouters = async () => {
             return
         }
 
-        const { data, error: fetchError } = await supabase
-            .from("router")
-            .select("id, name, ip")
-            .eq("tenant_id", userData.tenant_id)
-
-        if (fetchError) {
-            console.error("Error al cargar routers:", fetchError.message)
-            return
-        }
-
+        const { data } = await api.routers.getAll()
         routers.value = data || []
     } catch (err) {
         console.error('Error al cargar routers:', err)
