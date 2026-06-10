@@ -42,6 +42,14 @@ class SecurityHeaders
             // Permissions policy (formerly Feature-Policy)
             $response->header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 
+            // Isolate the browsing context from cross-origin popups/openers
+            // (mitigates cross-window leaks). 'allow-popups' keeps OAuth/maps
+            // popups able to talk back to the opener if ever needed.
+            $response->header('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+
+            // Block legacy Adobe cross-domain policy files
+            $response->header('X-Permitted-Cross-Domain-Policies', 'none');
+
             // Strict Transport Security (HTTPS only) - enable in production
             if (!app()->environment('local')) {
                 $response->header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
@@ -63,7 +71,7 @@ class SecurityHeaders
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com http://localhost:5173; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: blob: http://localhost:5173; " .
-                    "connect-src 'self' http://localhost:* ws://localhost:* https://*.supabase.co wss://*.supabase.co; " .
+                    "connect-src 'self' http://localhost:* ws://localhost:*; " .
                     "frame-ancestors 'self';"
                 );
             } else {
@@ -78,7 +86,7 @@ class SecurityHeaders
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com {$currentOrigin}; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: http: blob:; " .
-                    "connect-src 'self' https: wss: http: ws:; " .
+                    "connect-src 'self' https: wss:; " .
                     "frame-ancestors 'self';"
                 );
             }
