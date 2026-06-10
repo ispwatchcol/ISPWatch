@@ -584,8 +584,9 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from "vue"
 import { useRouter, useRoute } from "vue-router"
-import { supabase } from "@/supabase.js"
 import { apiClient } from "@/services/api"
+import catalogsApi from "@/services/api/catalogs"
+import routersApi from "@/services/api/routers"
 import BillingPanel from "@/components/BillingPanel.vue"
 import NotificationToast from "@/components/NotificationToast.vue"
 
@@ -640,13 +641,13 @@ const scriptVersions = ref([])
 const types = ref([])
 
 const loadInitialData = async () => {
-  const { data: cortes } = await supabase.from("cut_type").select("*")
+  const { data: cortes } = await catalogsApi.getCutTypes()
   tiposCorte.value = cortes ?? []
 
-  const { data: versions } = await supabase.from("script_version").select("*")
+  const { data: versions } = await catalogsApi.getScriptVersions()
   scriptVersions.value = versions ?? []
 
-  const { data: tipos } = await supabase.from("type_billing").select("id, type")
+  const { data: tipos } = await catalogsApi.getTypeBillings()
   types.value = tipos ?? []
 }
 
@@ -726,13 +727,7 @@ const setControlMode = (mode) => {
 const loadRouterData = async () => {
   loading.value = true
   try {
-    const { data, error } = await supabase
-      .from('router')
-      .select(`*, billing:billing_router_id (*)`)
-      .eq('id', routerId)
-      .single()
-
-    if (error) throw error
+    const { data } = await routersApi.getOne(routerId)
 
     form.nombre = data.name || ""
     form.ip = data.ip || ""
@@ -847,9 +842,10 @@ const loadRouterData = async () => {
 }
 
 /* ============================
-   GUARDAR BILLING
+   CONSTRUIR PAYLOAD DE BILLING
+   (el backend lo crea/actualiza transaccionalmente junto al router)
 ============================ */
-const saveBilling = async () => {
+const buildBillingPayload = () => {
   // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
   // Clamp: si el mes no tiene ese día, usa el último día válido
   // Ej: día 31 en febrero → 28 (o 29 en bisiesto)
@@ -866,12 +862,7 @@ const saveBilling = async () => {
     return `${year}-${m}-${d}`
   }
 
-  // Obtener tenant_id del usuario logueado
-  const userData = JSON.parse(localStorage.getItem("userData")) ?? JSON.parse(sessionStorage.getItem("userData"))
-  const tenantId = userData?.tenant_id
-
-  // Usar los mismos nombres de columna que en la BD
-  const payload = {
+  return {
     create_invoice: dayToDate(form.billing.create_invoice),
     create_invoice_time: timeToSql(form.billing.create_invoice_time),
     cut_day: dayToDate(form.billing.cut_day),
@@ -888,46 +879,13 @@ const saveBilling = async () => {
     notification_type: form.billing.notification_type || 'email',
     billing_mode: form.billing.billing_mode || 'anticipado',
     comments: form.billing.comentarios || null,
-    tenant_id: tenantId,
-    updated_at: new Date().toISOString(),
   }
-
-  let result = null
-
-  if (form.billing.id) {
-      const { data, error } = await supabase
-        .from("billing")
-        .update(payload)
-        .eq('id', form.billing.id)
-        .select()
-        .single()
-      if (error) {
-        console.error("❌ Error actualizando billing:", error)
-      }
-      if (!error) result = data
-  } else {
-      // Si es nuevo billing, agregar created_at
-      payload.created_at = new Date().toISOString()
-      
-      const { data, error } = await supabase
-        .from("billing")
-        .insert(payload)
-        .select()
-        .single()
-      if (error) {
-        console.error("❌ Error insertando billing:", error)
-      }
-      if (!error) result = data
-  }
-  return result
 }
 
 /* ============================
    GUARDAR ROUTER (UPDATE)
 ============================ */
 const saveRouter = async () => {
-  const userData = JSON.parse(localStorage.getItem("userData")) ?? JSON.parse(sessionStorage.getItem("userData"))
-  
   let coordinates = null
   if (form.coordenadas) {
     const [lat, lng] = form.coordenadas.split(",").map(v => parseFloat(v.trim()))
@@ -936,13 +894,7 @@ const saveRouter = async () => {
     }
   }
 
-  let billingId = form.billing.id || null 
-  if (form.facturacion_activa) {
-    const billingRow = await saveBilling()
-    if (billingRow?.id) billingId = billingRow.id
-  }
-
-const payload = {
+  const payload = {
     name: form.nombre,
     ip: form.ip,
     ipv6: form.ipv6 || null,
@@ -955,7 +907,6 @@ const payload = {
     lan_interface: form.interfaz_lan,
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,
-    billing_router_id: billingId,
     comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 'active' : 'inactive',
@@ -971,20 +922,20 @@ const payload = {
     dhcp_leases: form.dhcp_leases || false,
     falla_general: form.falla_general || false,
     rangos_ip: form.rangos_ip || null,
-    updated_at: new Date().toISOString(),
   }
 
+  // El backend crea/actualiza la config de facturación y enlaza billing_router_id.
+  if (form.facturacion_activa) {
+    payload.billing = buildBillingPayload()
+  }
 
-  const { error } = await supabase
-    .from("router")
-    .update(payload)
-    .eq('id', routerId)
-
-  if (error) {
+  try {
+    await routersApi.update(routerId, payload)
+  } catch (error) {
     console.error("❌ Error actualizando router:", error)
     toast.value?.error(
       'Error al actualizar router',
-      error.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
+      error?.response?.data?.message || error?.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
     )
     return
   }

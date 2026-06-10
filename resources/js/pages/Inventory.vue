@@ -498,7 +498,9 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
+import inventoryApi from '@/services/api/inventory'
+import inventoryProviderApi from '@/services/api/inventory-provider'
+import inventoryBranchApi from '@/services/api/inventory-branch'
 import StatCard from '@/components/StatCard.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
@@ -588,33 +590,9 @@ const paginationEnd = computed(() => Math.min(currentPage.value * itemsPerPage.v
 const loadDevices = async () => {
   loading.value = true
   try {
-    if (!tenantId.value) return
+    const { data } = await inventoryApi.getAll()
 
-    const { data, error } = await supabase
-      .from('inventory_device')
-      .select(`
-        *,
-        stock:stock_id (
-          id,
-          brand,
-          model,
-          price
-        ),
-        provider:provider_id (
-          id,
-          name
-        ),
-        branch:branch_id (
-          id,
-          name
-        )
-      `)
-      .eq('tenant_id', tenantId.value)
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    
-    devices.value = data.map(device => ({
+    devices.value = (data || []).map(device => ({
       ...device,
       stock_brand: device.stock?.brand || null,
       stock_model: device.stock?.model || null,
@@ -634,13 +612,7 @@ const loadDevices = async () => {
 
 const loadProviders = async () => {
   try {
-    const { data, error } = await supabase
-      .from('inventory_provider')
-      .select('id, name')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await inventoryProviderApi.getAll()
     providers.value = data || []
   } catch (error) {
     console.error('Error loading providers:', error)
@@ -649,13 +621,7 @@ const loadProviders = async () => {
 
 const loadBranches = async () => {
   try {
-    const { data, error } = await supabase
-      .from('inventory_branch')
-      .select('id, name')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await inventoryBranchApi.getAll()
     branches.value = data || []
   } catch (error) {
     console.error('Error loading branches:', error)
@@ -702,13 +668,7 @@ const confirmDeleteDevice = async () => {
   deleting.value = true
 
   try {
-    const { error } = await supabase
-      .from('inventory_device')
-      .delete()
-      .eq('id', deviceToDelete.value.id)
-      .eq('tenant_id', tenantId.value) // Ensure tenant_id is used for deletion
-
-    if (error) throw error
+    await inventoryApi.delete(deviceToDelete.value.id)
 
     toast.value?.success('Eliminado', 'Dispositivo eliminado correctamente')
     closeDeleteModal()

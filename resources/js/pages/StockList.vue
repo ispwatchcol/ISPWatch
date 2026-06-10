@@ -365,7 +365,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
+import inventoryStockApi from '@/services/api/inventory-stock'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
@@ -415,15 +415,7 @@ const filteredItems = computed(() => {
 const loadItems = async () => {
   loading.value = true
   try {
-    if (!tenantId.value) return
-
-    const { data, error } = await supabase
-      .from('inventory_stock')
-      .select('*')
-      .eq('tenant_id', tenantId.value)
-      .order('brand')
-
-    if (error) throw error
+    const { data } = await inventoryStockApi.getAll()
     items.value = data || []
   } catch (error) {
     console.error('Error loading stocks:', error)
@@ -476,21 +468,13 @@ const handleSave = async () => {
       brand: form.value.brand,
       model: form.value.model,
       price: form.value.price || 0,
-      tenant_id: tenantId.value
     }
 
     if (isEditing.value) {
-      const { error } = await supabase
-        .from('inventory_stock')
-        .update(payload)
-        .eq('id', editingId.value)
-      if (error) throw error
+      await inventoryStockApi.update(editingId.value, payload)
       toast.value?.success('Actualizado', 'Stock actualizado correctamente')
     } else {
-      const { error } = await supabase
-        .from('inventory_stock')
-        .insert(payload)
-      if (error) throw error
+      await inventoryStockApi.create(payload)
       toast.value?.success('Creado', 'Nuevo stock agregado correctamente')
     }
 
@@ -508,11 +492,7 @@ const deleteItem = async () => {
   if (!itemToDelete.value) return
   saving.value = true
   try {
-    const { error } = await supabase
-      .from('inventory_stock')
-      .delete()
-      .eq('id', itemToDelete.value.id)
-    if (error) throw error
+    await inventoryStockApi.delete(itemToDelete.value.id)
     toast.value?.success('Eliminado', 'Stock eliminado correctamente')
     closeDeleteModal()
     await loadItems()

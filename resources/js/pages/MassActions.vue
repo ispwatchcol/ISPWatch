@@ -643,7 +643,6 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
 import { apiClient } from '@/services/api'
 import billingService from '@/services/billing'
 import NotificationToast from '@/components/NotificationToast.vue'
@@ -714,21 +713,13 @@ const loadRouters = async () => {
     )
     if (!userData?.tenant_id) return
 
-    const { data, error } = await supabase
-      .from('router')
-      .select(`
-        id, name, ip, status,
-        cut_type:cut_type_id(name)
-      `)
-      .eq('tenant_id', userData.tenant_id)
-      .eq('status', 'active')
-
-    if (!error) {
-      routers.value = (data || []).map(r => ({
+    const { data } = await apiClient.get('/routers')
+    routers.value = (data || [])
+      .filter(r => r.status === 'active')
+      .map(r => ({
         ...r,
         cut_type_name: r.cut_type?.name ?? null,
       }))
-    }
   } catch (e) {
     console.error('Error cargando routers:', e)
   } finally {

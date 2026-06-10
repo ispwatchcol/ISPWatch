@@ -38,7 +38,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vendor-vue': ['vue', 'vue-router', 'pinia'],
-          'vendor-supabase': ['@supabase/supabase-js'],
           'vendor-xlsx': ['xlsx'],
           'vendor-icons': ['oh-vue-icons'],
         },

@@ -474,7 +474,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
+import inventoryProviderApi from '@/services/api/inventory-provider'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
@@ -532,15 +532,7 @@ const filteredItems = computed(() => {
 const loadItems = async () => {
   loading.value = true
   try {
-    if (!tenantId.value) return
-
-    const { data, error } = await supabase
-      .from('inventory_provider')
-      .select('*')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await inventoryProviderApi.getAll()
     items.value = data || []
   } catch (error) {
     console.error('Error loading providers:', error)
@@ -605,21 +597,13 @@ const handleSave = async () => {
       advisor_phone: form.value.advisor_phone || null,
       advisor_email: form.value.advisor_email || null,
       advisor_position: form.value.advisor_position || null,
-      tenant_id: tenantId.value
     }
 
     if (isEditing.value) {
-      const { error } = await supabase
-        .from('inventory_provider')
-        .update(payload)
-        .eq('id', editingId.value)
-      if (error) throw error
+      await inventoryProviderApi.update(editingId.value, payload)
       toast.value?.success('Actualizado', 'Proveedor actualizado correctamente')
     } else {
-      const { error } = await supabase
-        .from('inventory_provider')
-        .insert(payload)
-      if (error) throw error
+      await inventoryProviderApi.create(payload)
       toast.value?.success('Creado', 'Nuevo proveedor agregado correctamente')
     }
 
@@ -637,11 +621,7 @@ const deleteItem = async () => {
   if (!itemToDelete.value) return
   saving.value = true
   try {
-    const { error } = await supabase
-      .from('inventory_provider')
-      .delete()
-      .eq('id', itemToDelete.value.id)
-    if (error) throw error
+    await inventoryProviderApi.delete(itemToDelete.value.id)
     toast.value?.success('Eliminado', 'Proveedor eliminado correctamente')
     closeDeleteModal()
     await loadItems()

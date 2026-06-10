@@ -621,7 +621,9 @@
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from "vue"
 import { useRouter } from "vue-router"
-import { supabase } from "@/supabase.js"
+import catalogsApi from "@/services/api/catalogs"
+import routersApi from "@/services/api/routers"
+import customersApi from "@/services/api/customers"
 import DayPicker from "@/components/DayPicker.vue"
 import BillingPanel from "@/components/BillingPanel.vue"
 import NotificationToast from "@/components/NotificationToast.vue"
@@ -655,13 +657,13 @@ const scriptVersions = ref([])
 const types = ref([])
 
 onMounted(async () => {
-  const { data: cortes } = await supabase.from("cut_type").select("*")
+  const { data: cortes } = await catalogsApi.getCutTypes()
   tiposCorte.value = cortes ?? []
 
-  const { data: versions } = await supabase.from("script_version").select("*")
+  const { data: versions } = await catalogsApi.getScriptVersions()
   scriptVersions.value = versions ?? []
 
-  const { data: tipos } = await supabase.from("type_billing").select("id, type")
+  const { data: tipos } = await catalogsApi.getTypeBillings()
   types.value = tipos ?? []
 })
 
@@ -794,19 +796,8 @@ const ipStats = computed(() => {
 const loadUsedIps = async () => {
   loadingIps.value = true
   try {
-    const userData = JSON.parse(localStorage.getItem('userData')) ?? JSON.parse(sessionStorage.getItem('userData'))
-    const tenantId = userData?.tenant_id
-    if (!tenantId) return
-    
-    const { data, error } = await supabase
-      .from('customer_profile')
-      .select('ip_user')
-      .eq('tenant_id', tenantId)
-      .not('ip_user', 'is', null)
-    
-    if (!error && data) {
-      usedIps.value = data.map(d => d.ip_user).filter(Boolean)
-    }
+    const { data } = await customersApi.getUsedIps()
+    usedIps.value = (data || []).filter(Boolean)
   } catch (e) {
     console.error('Error loading used IPs:', e)
   } finally {
@@ -859,7 +850,10 @@ const timeToSql = (val) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
 }
 
-const saveBilling = async () => {
+// Construye el payload de configuración de facturación que se envía anidado
+// junto al router. El backend (RouterController::store) lo crea de forma
+// transaccional y asigna billing_router_id + tenant_id.
+const buildBillingPayload = () => {
   // Helper: convierte un día (1-31) a fecha YYYY-MM-DD del mes actual
   // Clamp: si el mes no tiene ese día, usa el último día válido
   // Ej: día 31 en febrero → 28 (o 29 en bisiesto)
@@ -876,15 +870,7 @@ const saveBilling = async () => {
     return `${year}-${m}-${d}`
   }
 
-  // Obtener tenant_id del usuario logueado
-  const userData =
-    JSON.parse(localStorage.getItem("userData")) ??
-    JSON.parse(sessionStorage.getItem("userData"))
-  const tenantId = userData?.tenant_id
-
-  const now = new Date().toISOString()
-  
-  const payload = {
+  return {
     create_invoice: dayToDate(form.billing.create_invoice),
     create_invoice_time: timeToSql(form.billing.create_invoice_time),
     cut_day: dayToDate(form.billing.cut_day),
@@ -901,23 +887,7 @@ const saveBilling = async () => {
     notification_type: form.billing.notification_type || 'email',
     billing_mode: form.billing.billing_mode || 'anticipado',
     comments: form.billing.comentarios || null,
-    tenant_id: tenantId,
-    created_at: now,
-    updated_at: now,
   }
-
-  const { data, error } = await supabase
-    .from("billing")
-    .insert(payload)
-    .select()
-    .single()
-
-  if (error) {
-    console.error("❌ Error insertando billing:", error)
-    return null
-  }
-
-  return data
 }
 
 
@@ -946,19 +916,8 @@ const saveRouter = async () => {
     }
   }
 
-  // === SIEMPRE crear billing primero ===
-  const billingRow = await saveBilling()
-  if (!billingRow?.id) {
-    toast.value?.error(
-      'Error al guardar facturación',
-      'No se pudo crear el registro de facturación. Verifica los datos e intenta nuevamente.'
-    )
-    return
-  }
-  const billingId = billingRow.id
-
-  const now = new Date().toISOString()
-
+  // El router y su configuración de facturación se crean de forma
+  // transaccional en el backend (billing anidado → RouterController::store).
   const payload = {
     name: form.nombre,
     ip: form.ip,
@@ -972,11 +931,9 @@ const saveRouter = async () => {
     lan_interface: form.interfaz_lan,
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,
-    billing_router_id: billingId,
     comments: form.comentarios_router,
     coordinates,
     status: form.activo ? 'active' : 'inactive',
-    tenant_id: tenantId,
     agregar_cliente_mkt: form.agregar_cliente_mkt || false,
     historial_trafico: form.historial_trafico || false,
     simple_queue: form.simple_queue || false,
@@ -989,17 +946,16 @@ const saveRouter = async () => {
     dhcp_leases: form.dhcp_leases || false,
     falla_general: form.falla_general || false,
     rangos_ip: form.rangos_ip || null,
-    created_at: now,
-    updated_at: now,
+    billing: buildBillingPayload(),
   }
 
-  const { error } = await supabase.from("router").insert([payload])
-
-  if (error) {
+  try {
+    await routersApi.create(payload)
+  } catch (error) {
     console.error("❌ Error guardando router:", error)
     toast.value?.error(
       'Error al guardar router',
-      error.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
+      error?.response?.data?.message || error?.message || 'Ocurrió un error inesperado. Intenta nuevamente.'
     )
     return
   }

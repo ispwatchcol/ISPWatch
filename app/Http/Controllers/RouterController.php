@@ -8,10 +8,12 @@ use Illuminate\Http\Request;
 use App\Http\Requests\StoreRouterRequest;
 use App\Http\Requests\UpdateRouterRequest;
 use App\Models\Router;
+use App\Models\Billing;
 use App\Services\VpnService;
 use App\Services\MikroTikSshService;
 use App\Services\MikroTik\SshTunnelManager;
 use App\Traits\FixesSequences;
+use Illuminate\Support\Facades\DB;
 
 class RouterController extends Controller
 {
@@ -21,10 +23,17 @@ class RouterController extends Controller
      */
     public function index()
     {
-        $routers = Router::select(
+        // Tenant scoping is automatic via the BelongsToTenant global scope.
+        // Fields/relation chosen to cover every former direct-Supabase reader
+        // (Routers list, MassActions, Sectorial dropdowns, billing dropdowns).
+        $routers = Router::with('cutType:id,name')->select(
             'id',
             'name',
             'ip',
+            'user_rb',
+            'lan_interface',
+            'wan_interface',
+            'cut_type_id',
             'simple_queue',
             'control_pcq',
             'hotspot',
@@ -44,7 +53,23 @@ class RouterController extends Controller
      */
     public function store(StoreRouterRequest $request)
     {
-        $router = $this->createWithSequenceFix(Router::class, $request->validated());
+        $data = $request->validated();
+        $billingInput = $request->input('billing');
+        $tenantId = $request->user()?->tenant_id;
+
+        // Create the billing config + router atomically. Mirrors the former
+        // two-step Supabase flow (insert billing, then router) but transactional,
+        // so a failure never leaves an orphaned billing row or an unlinked router.
+        $router = DB::transaction(function () use ($data, $billingInput, $tenantId) {
+            if (is_array($billingInput)) {
+                $billing = new Billing($this->billingConfigPayload($billingInput));
+                $billing->tenant_id = $tenantId;
+                $billing->save();
+                $data['billing_router_id'] = $billing->id;
+            }
+
+            return $this->createWithSequenceFix(Router::class, $data);
+        });
 
         return response()->json([
             'message' => 'Router creado correctamente. ✅',
@@ -58,7 +83,8 @@ class RouterController extends Controller
      */
     public function show(Router $router)
     {
-        return response()->json($router);
+        // Include the linked billing config (frontend edit form reads `billing`).
+        return response()->json($router->load('billing'));
     }
 
     /**
@@ -66,12 +92,48 @@ class RouterController extends Controller
      */
     public function update(UpdateRouterRequest $request, Router $router)
     {
-        $router->update($request->validated());
+        $data = $request->validated();
+        $billingInput = $request->input('billing');
+        $tenantId = $request->user()?->tenant_id;
+
+        DB::transaction(function () use (&$data, $billingInput, $tenantId, $router) {
+            if (is_array($billingInput)) {
+                $payload = $this->billingConfigPayload($billingInput);
+                if ($router->billing_router_id) {
+                    // Safe: $router is already tenant-scoped via route-model binding,
+                    // so its billing_router_id belongs to this tenant.
+                    Billing::whereKey($router->billing_router_id)->update($payload);
+                    $data['billing_router_id'] = $router->billing_router_id;
+                } else {
+                    $billing = new Billing($payload);
+                    $billing->tenant_id = $tenantId;
+                    $billing->save();
+                    $data['billing_router_id'] = $billing->id;
+                }
+            }
+
+            $router->update($data);
+        });
 
         return response()->json([
             'message' => 'Router actualizado correctamente. ✅',
-            'router' => $router,
+            'router' => $router->fresh()->load('billing'),
         ]);
+    }
+
+    /**
+     * Whitelist of billing-config columns accepted when creating/updating a
+     * router. Keeps mass-assignment tight and mirrors the columns the router
+     * form sends (formatted dates/times are produced client-side).
+     */
+    private function billingConfigPayload(array $input): array
+    {
+        return collect($input)->only([
+            'create_invoice', 'create_invoice_time', 'cut_day', 'cut_time',
+            'payment_day', 'payment_reminder', 'payment_reminder_time',
+            'payment_reminder_enabled', 'overdue_invoices', 'amount', 'id_type',
+            'status', 'notificar_wpp', 'notification_type', 'billing_mode', 'comments',
+        ])->toArray();
     }
 
     /**

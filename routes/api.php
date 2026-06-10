@@ -28,6 +28,10 @@ use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\HelpCenterController;
+use App\Http\Controllers\CatalogController;
+use App\Http\Controllers\InventoryStockController;
+use App\Http\Controllers\InventoryProviderController;
+use App\Http\Controllers\InventoryBranchController;
 
 /*
 |--------------------------------------------------------------------------
@@ -68,6 +72,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ─── CUSTOMERS (custom routes before apiResource) ───
     Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
     Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
+    Route::get('/customers/used-ips', [CustomerProfileController::class, 'usedIps']);
     Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision'])
         ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision'])
@@ -223,12 +228,28 @@ Route::middleware(['auth:sanctum'])->group(function () {
         'support'    => SupportTicketController::class,
     ]);
 
+    // Inventory sub-resources (stock / providers / branches). Tenant-scoped via
+    // the models' BelongsToTenant trait. Replace the former direct Supabase CRUD.
+    Route::apiResource('inventory-stock', InventoryStockController::class)
+        ->only(['index', 'store', 'update', 'destroy']);
+    Route::apiResource('inventory-providers', InventoryProviderController::class)
+        ->only(['index', 'store', 'update', 'destroy']);
+    Route::apiResource('inventory-branches', InventoryBranchController::class)
+        ->only(['index', 'store', 'update', 'destroy']);
+
     // ─── STAFF ───
     Route::middleware(['permission:view_staff'])->group(function () {
         Route::apiResource('staff', UserController::class);
     });
 
     // ─── CATALOGS ───
+    // Global reference data (no tenant_id), read-only. Replaces the frontend's
+    // former direct Supabase reads of cut_type / script_version / type_billing.
+    Route::get('/catalogs/cut-types',       [CatalogController::class, 'cutTypes']);
+    Route::get('/catalogs/script-versions', [CatalogController::class, 'scriptVersions']);
+    Route::get('/catalogs/type-billings',   [CatalogController::class, 'typeBillings']);
+    Route::get('/catalogs/users',           [CatalogController::class, 'users']);
+
     Route::get('/roles/permissions', [RoleController::class, 'permissions'])
         ->middleware('permission:manage_roles');
     Route::middleware('permission:manage_roles')->group(function () {

@@ -1010,7 +1010,6 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { supabase } from '@/supabase.js'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
@@ -1129,7 +1128,7 @@ const goToAddRouter = () => {
 }
 
 
-// 🔹 Cargar routers desde Supabase filtrados por tenant
+// 🔹 Cargar routers desde el API (filtrado por tenant en el backend)
 const loadRouters = async () => {
   loading.value = true
   // Obtener los datos del usuario almacenados
@@ -1144,18 +1143,14 @@ const loadRouters = async () => {
 
   const tenant_id = userData.tenant_id
 
-  // Consultar routers por tenant
-  const { data, error } = await supabase
-    .from("router")
-    .select("id, name, ip, user_rb, lan_interface, wan_interface, firmware_version, status")
-    .eq("tenant_id", tenant_id)
-
-  if (error) {
-    console.error("❌ Error al cargar routers:", error.message)
+  // Consultar routers por tenant (el API filtra por tenant automáticamente)
+  try {
+    const { data } = await api.routers.getAll()
+    routers.value = data || []
+  } catch (error) {
+    console.error("❌ Error al cargar routers:", error?.message)
     return
   }
-
-  routers.value = data || []
   
   // Cargar versiones de scripts
   await loadScriptVersions()
@@ -1167,16 +1162,12 @@ const scriptVersions = ref([])
 
 // 🔹 Cargar versiones de scripts
 const loadScriptVersions = async () => {
-    const { data, error } = await supabase
-        .from('script_version')
-        .select('id, version')
-    
-    if (error) {
-        console.error('❌ Error al cargar versiones de script:', error.message)
-        return
+    try {
+        const { data } = await api.catalogs.getScriptVersions()
+        scriptVersions.value = data || []
+    } catch (error) {
+        console.error('❌ Error al cargar versiones de script:', error?.message)
     }
-    
-    scriptVersions.value = data || []
 }
 
 // 🔹 Obtener nombre de la versión
@@ -1215,14 +1206,8 @@ const confirmDelete = async () => {
   deletingRouter.value = true
   
   try {
-    const { error } = await supabase.from('router').delete().eq('id', routerToDelete.value.id)
-    
-    if (error) {
-      console.error('❌ Error al eliminar router:', error.message)
-      toast.value?.error('Error al eliminar', 'No se pudo eliminar el router. Intenta de nuevo.')
-      return
-    }
-    
+    await api.routers.delete(routerToDelete.value.id)
+
     routers.value = routers.value.filter(r => r.id !== routerToDelete.value.id)
     closeDeleteModal()
     toast.value?.success('Router eliminado', 'El router ha sido eliminado correctamente')

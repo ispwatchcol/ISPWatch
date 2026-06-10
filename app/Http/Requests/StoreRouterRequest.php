@@ -28,6 +28,7 @@ class StoreRouterRequest extends FormRequest
             'vpn_username' => 'nullable|string|max:255',
             'vpn_password' => 'nullable|string|max:255',
             'comments' => 'nullable|string',
+            'rangos_ip' => 'nullable|string',
             'cut_type_id' => 'nullable|integer',
             'billing_router_id' => 'nullable|integer',
             'firmware_version' => 'required|string|max:100',

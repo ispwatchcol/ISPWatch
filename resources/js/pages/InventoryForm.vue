@@ -297,7 +297,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { supabase } from '@/supabase.js'
+import inventoryApi from '@/services/api/inventory'
+import inventoryStockApi from '@/services/api/inventory-stock'
+import inventoryProviderApi from '@/services/api/inventory-provider'
+import inventoryBranchApi from '@/services/api/inventory-branch'
+import catalogsApi from '@/services/api/catalogs'
 import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
@@ -351,13 +355,7 @@ const progress = computed(() => {
 // Methods
 const loadStocks = async () => {
   try {
-    const { data, error } = await supabase
-      .from('inventory_stock')
-      .select('id, brand, model, price')
-      .eq('tenant_id', tenantId.value)
-      .order('brand')
-
-    if (error) throw error
+    const { data } = await inventoryStockApi.getAll()
     stocks.value = data || []
   } catch (error) {
     console.error('Error loading stocks:', error)
@@ -367,13 +365,7 @@ const loadStocks = async () => {
 
 const loadProviders = async () => {
   try {
-    const { data, error } = await supabase
-      .from('inventory_provider')
-      .select('id, name')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await inventoryProviderApi.getAll()
     providers.value = data || []
   } catch (error) {
     console.error('Error loading providers:', error)
@@ -382,13 +374,7 @@ const loadProviders = async () => {
 
 const loadBranches = async () => {
   try {
-    const { data, error } = await supabase
-      .from('inventory_branch')
-      .select('id, name')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await inventoryBranchApi.getAll()
     branches.value = data || []
   } catch (error) {
     console.error('Error loading branches:', error)
@@ -397,13 +383,7 @@ const loadBranches = async () => {
 
 const loadUsers = async () => {
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, name')
-      .eq('tenant_id', tenantId.value)
-      .order('name')
-
-    if (error) throw error
+    const { data } = await catalogsApi.getUsers()
     users.value = data || []
   } catch (error) {
     console.error('Error loading users:', error)
@@ -415,13 +395,7 @@ const loadDevice = async () => {
 
   loading.value = true
   try {
-    const { data, error } = await supabase
-      .from('inventory_device')
-      .select('*')
-      .eq('id', deviceId)
-      .single()
-
-    if (error) throw error
+    const { data } = await inventoryApi.getOne(deviceId)
 
     form.value = {
       stock_id: data.stock_id || null,
@@ -461,25 +435,13 @@ const handleSubmit = async () => {
       branch_id: form.value.branch_id || null,
       serial: form.value.serial || null,
       mac: form.value.mac || null,
-      tenant_id: tenantId.value
     }
 
     if (isEdit) {
-      // Update
-      const { error } = await supabase
-        .from('inventory_device')
-        .update(payload)
-        .eq('id', deviceId)
-
-      if (error) throw error
+      await inventoryApi.update(deviceId, payload)
       toast.value?.success('Actualizado', 'Dispositivo actualizado correctamente')
     } else {
-      // Create
-      const { error } = await supabase
-        .from('inventory_device')
-        .insert(payload)
-
-      if (error) throw error
+      await inventoryApi.create(payload)
       toast.value?.success('Creado', 'Dispositivo creado correctamente')
     }
 
