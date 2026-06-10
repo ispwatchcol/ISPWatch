@@ -718,6 +718,7 @@ class BillingService
                 'reference' => $data['reference'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'status' => 'completed',
+                'created_by' => $data['created_by'] ?? null,
             ]);
 
             // Allocate payment to open invoices (oldest first)

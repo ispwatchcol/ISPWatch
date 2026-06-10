@@ -165,9 +165,14 @@ class BillingController extends Controller
             'method' => 'required',
         ]);
 
-        $payment = $this->billingService->registerPayment($request->all());
+        // Stamp the staff user who registered the payment (from the auth token,
+        // never trusting a client-supplied value).
+        $data = $request->all();
+        $data['created_by'] = $request->user()?->id;
 
-        return response()->json($payment->load('allocations'), 201);
+        $payment = $this->billingService->registerPayment($data);
+
+        return response()->json($payment->load(['allocations', 'creator:id,name,user_name,user_lastname']), 201);
     }
 
     // Update Payment
@@ -270,7 +275,11 @@ class BillingController extends Controller
     // List Payments
     public function getPayments(Request $request)
     {
-        $query = Payment::query()->with(['customer.customerProfile', 'allocations.invoice']);
+        $query = Payment::query()->with([
+            'customer.customerProfile',
+            'allocations.invoice',
+            'creator:id,name,user_name,user_lastname',
+        ]);
 
         if ($request->filled('search')) {
             $search = $request->search;
