@@ -17,7 +17,8 @@ class Payment extends Model
         'method',
         'reference',
         'notes',
-        'status'
+        'status',
+        'created_by'
     ];
 
     protected $casts = [
@@ -28,6 +29,15 @@ class Payment extends Model
     public function customer()
     {
         return $this->belongsTo(User::class, 'customer_id');
+    }
+
+    /**
+     * Staff user who registered this payment. Nullable: payments created
+     * automatically (installation billing, etc.) have no human registrant.
+     */
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function allocations()

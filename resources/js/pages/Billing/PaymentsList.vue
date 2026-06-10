@@ -58,6 +58,15 @@ const customerName = (p) => p.customer?.customer_profile
     ? `${p.customer.customer_profile.name} ${p.customer.customer_profile.last_name}`
     : (p.customer?.user_name || 'Desconocido')
 
+// Staff user who registered the payment. Null for auto-generated payments
+// (installation billing, etc.) → mostramos un guion.
+const registeredBy = (p) => {
+    const c = p.creator
+    if (!c) return '—'
+    const full = `${c.user_name || ''} ${c.user_lastname || ''}`.trim()
+    return full || c.name || '—'
+}
+
 const fmt = (n) => Number(n || 0).toLocaleString('es-CO')
 
 // ── Edit ──────────────────────────────────────────────────────────────────────
@@ -157,6 +166,7 @@ const confirmDelete = async () => {
                             <th class="px-6 py-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Monto</th>
                             <th class="px-6 py-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Método</th>
                             <th class="px-6 py-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Referencia</th>
+                            <th class="px-6 py-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Registrado por</th>
                             <th class="px-6 py-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Facturas Afectadas</th>
                             <th class="px-6 py-4 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Acciones</th>
                         </tr>
@@ -164,7 +174,7 @@ const confirmDelete = async () => {
                     <tbody class="divide-y divide-slate-100 dark:divide-gray-700">
 
                         <tr v-if="loading">
-                            <td colspan="7" class="px-6 py-20 text-center">
+                            <td colspan="8" class="px-6 py-20 text-center">
                                 <div class="flex flex-col items-center justify-center">
                                     <v-icon name="bi-arrow-repeat" class="w-10 h-10 text-indigo-500 animate-spin mb-4" />
                                     <p class="text-slate-500 dark:text-slate-400 font-medium animate-pulse">Cargando recaudos...</p>
@@ -173,7 +183,7 @@ const confirmDelete = async () => {
                         </tr>
 
                         <tr v-else-if="payments.data.length === 0">
-                            <td colspan="7" class="px-6 py-12 text-center">
+                            <td colspan="8" class="px-6 py-12 text-center">
                                 <v-icon name="md-payments-outlined" class="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
                                 <p class="text-slate-500 dark:text-slate-400 font-medium">No hay registros de recaudos.</p>
                             </td>
@@ -197,6 +207,9 @@ const confirmDelete = async () => {
                             </td>
                             <td class="px-6 py-4 font-mono text-sm text-slate-500 dark:text-slate-400">
                                 {{ payment.reference || 'N/A' }}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                {{ registeredBy(payment) }}
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex flex-wrap gap-1">
@@ -253,6 +266,7 @@ const confirmDelete = async () => {
                         <div><span class="text-slate-500 dark:text-slate-400">Fecha:</span> <span class="text-slate-700 dark:text-slate-300 ml-1 font-mono">{{ String(payment.payment_date).split('T')[0] }}</span></div>
                         <div class="text-right"><span class="text-slate-500 dark:text-slate-400">Monto:</span> <span class="text-emerald-600 dark:text-emerald-400 ml-1 font-semibold">${{ fmt(payment.amount) }}</span></div>
                         <div class="col-span-2"><span class="text-slate-500 dark:text-slate-400">Referencia:</span> <span class="text-slate-700 dark:text-slate-300 ml-1 font-mono">{{ payment.reference || 'N/A' }}</span></div>
+                        <div class="col-span-2"><span class="text-slate-500 dark:text-slate-400">Registrado por:</span> <span class="text-slate-700 dark:text-slate-300 ml-1">{{ registeredBy(payment) }}</span></div>
                         <div class="col-span-2 mt-1 flex flex-wrap gap-1 items-center">
                             <span class="text-slate-500 dark:text-slate-400 mr-1">Facturas:</span>
                             <span v-for="alloc in payment.allocations" :key="alloc.id"
