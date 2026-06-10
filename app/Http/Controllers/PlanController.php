@@ -75,6 +75,8 @@ class PlanController extends Controller
             'idle_timeout' => 'nullable|string',
             'pcq_rate' => 'nullable|string',
             'address_mask' => 'nullable|string',
+            // Plan de cortesía: el cliente queda en 'gratis' y nunca se factura.
+            'is_courtesy' => 'sometimes|boolean',
         ]);
 
         $plan->update($validated);

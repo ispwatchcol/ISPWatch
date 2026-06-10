@@ -419,14 +419,15 @@
                         v-for="opt in statusOptions"
                         :key="opt.value"
                         type="button"
-                        :disabled="isCourtesyPlan && opt.value !== 'gratis'"
-                        @click="!isCourtesyPlan && (form.service_status = opt.value)"
+                        :disabled="isStatusDisabled(opt.value)"
+                        :title="opt.value === 'gratis' && !isCourtesyPlan ? 'El estado Gratis solo aplica a planes de cortesía' : ''"
+                        @click="selectStatus(opt.value)"
                         :class="[
                             'flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all',
                             form.service_status === opt.value
                                 ? opt.activeClass + ' shadow-sm'
                                 : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500',
-                            (isCourtesyPlan && opt.value !== 'gratis') ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                            isStatusDisabled(opt.value) ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                         ]"
                     >
                         <span class="w-2 h-2 rounded-full" :class="form.service_status === opt.value ? 'bg-white' : opt.dotClass"></span>
@@ -978,6 +979,18 @@ const statusOptions = [
     { value: 'cancelado',  label: 'Cancelado',  activeClass: 'bg-red-500 text-white border-red-500',         dotClass: 'bg-red-500' },
     { value: 'gratis',     label: 'Gratis',     activeClass: 'bg-indigo-500 text-white border-indigo-500', dotClass: 'bg-indigo-500' },
 ]
+
+// 'Gratis' está reservado para planes de cortesía (se aplica solo). En un plan
+// de cortesía solo se puede elegir 'gratis'; en un plan normal 'gratis' se
+// bloquea (antes era clickeable pero el backend lo revertía a 'activo', así que
+// "no se guardaba"). El resto de estados se bloquean en planes de cortesía.
+const isStatusDisabled = (value) =>
+    isCourtesyPlan.value ? value !== 'gratis' : value === 'gratis'
+
+const selectStatus = (value) => {
+    if (isStatusDisabled(value)) return
+    form.value.service_status = value
+}
 
 // Detect PPPoE plan by type_plan name, plan name, or pppoe_pool field
 const isPppoePlan = computed(() => {
