@@ -1214,6 +1214,21 @@ onMounted(async () => {
     // los watchers disparados por la asignación (protegidos por initializing) antes de
     // habilitar la limpieza automática del plan.
     await Promise.all([loadCatalogs(), loadCustomer()])
+
+    // Auto-detección de fibra: clientes con una OLT o una caja NAP ya asignada pero con
+    // is_fiber=false (datos antiguos, imports, o guardados previos a la columna) deben
+    // editarse en modo fibra. Sin esto el toggle sale apagado y la caja queda fuera de la
+    // lista inalámbrica (que excluye NAPs), así que el operador la ve vacía. Al corregir
+    // el modo aquí, los selects de OLT/Caja muestran sus valores y al guardar persiste
+    // is_fiber=true (auto-repara el registro). Los catálogos ya están cargados (Promise.all).
+    if (!form.value.is_fiber) {
+        const assignedSectorial = sectorials.value.find(s => s.id === form.value.sectorial_id)
+        const sectorialIsNap = assignedSectorial?.element_type === 'nap'
+        if (form.value.olt_id || sectorialIsNap) {
+            form.value.is_fiber = true
+        }
+    }
+
     await nextTick()
     initializing.value = false
 })
