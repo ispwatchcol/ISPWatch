@@ -158,6 +158,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/billing/payments/{id}', [BillingController::class, 'updatePayment']);
         Route::delete('/billing/payments/{id}', [BillingController::class, 'deletePayment']);
         Route::get('/billing/customers/{customerId}/balance', [BillingController::class, 'getCustomerBalance']);
+        Route::patch('/billing/customers/{customerId}/credit', [BillingController::class, 'updateCreditBalance']);
         Route::post('/billing/run-monthly', [BillingController::class, 'runMonthlyGeneration']);
         Route::post('/billing/run-overdue', [BillingController::class, 'processOverdue']);
         Route::get('/billing/configs', [BillingController::class, 'getBillingConfigs']);

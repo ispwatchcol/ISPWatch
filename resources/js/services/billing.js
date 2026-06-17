@@ -53,6 +53,11 @@ export default {
     return apiClient.get(`/billing/customers/${customerId}/balance`)
   },
 
+  // Adjust credit balance (manual correction)
+  updateCredit(customerId, creditBalance, reason = '') {
+    return apiClient.patch(`/billing/customers/${customerId}/credit`, { credit_balance: creditBalance, reason })
+  },
+
   getStats(tenantId) {
     return apiClient.get('/billing/stats', { params: { tenant: tenantId } })
   },

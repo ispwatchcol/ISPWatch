@@ -170,7 +170,18 @@ class BillingController extends Controller
         $data = $request->all();
         $data['created_by'] = $request->user()?->id;
 
-        $payment = $this->billingService->registerPayment($data);
+        try {
+            $payment = $this->billingService->registerPayment($data);
+        } catch (\Throwable $e) {
+            \Log::error('Error al registrar pago: ' . $e->getMessage(), [
+                'customer_id' => $data['customer_id'] ?? null,
+                'amount'      => $data['amount'] ?? null,
+                'exception'   => get_class($e),
+            ]);
+            return response()->json([
+                'message' => 'No se pudo registrar el pago: ' . $e->getMessage(),
+            ], 500);
+        }
 
         return response()->json($payment->load(['allocations', 'creator:id,name,user_name,user_lastname']), 201);
     }
@@ -255,6 +266,31 @@ class BillingController extends Controller
         $period = $request->input('period'); // YYYY-MM
         $count = $this->billingService->generateMonthlyInvoices($period);
         return response()->json(['message' => "Generated $count invoices."]);
+    }
+
+    // Adjust customer credit balance (manual correction)
+    public function updateCreditBalance(Request $request, $customerId)
+    {
+        $data = $request->validate([
+            'credit_balance' => 'required|numeric|min:0',
+            'reason'         => 'nullable|string|max:255',
+        ]);
+
+        $customer = \App\Models\CustomerProfile::where('user_id', $customerId)->firstOrFail();
+        $previous = (float) $customer->credit_balance;
+
+        $customer->credit_balance = $data['credit_balance'];
+        $customer->save();
+
+        \Log::info("Billing: Credit balance adjusted for customer {$customerId}. " .
+            "Previous: {$previous}, New: {$data['credit_balance']}. " .
+            "Reason: " . ($data['reason'] ?? 'no reason given') . ". " .
+            "By user: " . $request->user()?->id);
+
+        return response()->json([
+            'credit_balance' => (float) $customer->credit_balance,
+            'previous'       => $previous,
+        ]);
     }
 
     // Customer Balance
