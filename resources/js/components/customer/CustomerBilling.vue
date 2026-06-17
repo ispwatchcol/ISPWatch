@@ -20,11 +20,23 @@
       <div :class="creditBalance > 0
           ? 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg'
           : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'"
-        class="rounded-2xl p-5">
-        <p class="text-xs font-semibold uppercase tracking-widest"
-          :class="creditBalance > 0 ? 'opacity-80' : 'text-gray-500 dark:text-gray-400'">
-          Saldo a Favor
-        </p>
+        class="rounded-2xl p-5 relative">
+        <div class="flex items-start justify-between">
+          <p class="text-xs font-semibold uppercase tracking-widest"
+            :class="creditBalance > 0 ? 'opacity-80' : 'text-gray-500 dark:text-gray-400'">
+            Saldo a Favor
+          </p>
+          <button @click="openCreditModal"
+            title="Ajustar saldo a favor"
+            :class="creditBalance > 0
+              ? 'text-white/70 hover:text-white'
+              : 'text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400'"
+            class="p-1 rounded-lg transition">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+            </svg>
+          </button>
+        </div>
         <p class="text-3xl font-bold mt-2"
           :class="creditBalance > 0 ? '' : 'text-gray-800 dark:text-white'">
           ${{ fmt(creditBalance) }}
@@ -161,6 +173,49 @@
       </table>
     </div>
 
+    <!-- ── Modal ajuste saldo a favor ───────────────────────────────────── -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showCreditModal"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          @click.self="showCreditModal = false">
+          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6">
+
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-1">Ajustar Saldo a Favor</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Saldo actual: <strong>${{ fmt(creditBalance) }}</strong>
+            </p>
+
+            <form @submit.prevent="submitCreditUpdate" class="space-y-4">
+              <div>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Nuevo Saldo a Favor</label>
+                <input v-model.number="creditForm.amount" type="number" step="0.01" min="0" required
+                  class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Razón del ajuste</label>
+                <input v-model="creditForm.reason" type="text" placeholder="Ej: corrección de pago duplicado"
+                  class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+
+              <p v-if="creditError" class="text-sm text-rose-600 dark:text-rose-400">{{ creditError }}</p>
+
+              <div class="flex gap-3 pt-1">
+                <button type="submit" :disabled="creditSubmitting"
+                  class="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white py-2.5 rounded-xl font-medium transition">
+                  {{ creditSubmitting ? 'Guardando...' : 'Guardar' }}
+                </button>
+                <button type="button" @click="showCreditModal = false"
+                  class="px-5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-2.5 rounded-xl transition">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- ── Modal de pago ──────────────────────────────────────────────── -->
     <Teleport to="body">
       <Transition name="modal">
@@ -281,8 +336,12 @@ const showModal      = ref(false)
 const submitting     = ref(false)
 const modalError     = ref('')
 const targetInvoice  = ref(null)
-const tenantId       = ref(null)
-const paymentMethods = ref([])
+const tenantId         = ref(null)
+const paymentMethods   = ref([])
+const showCreditModal  = ref(false)
+const creditSubmitting = ref(false)
+const creditError      = ref('')
+const creditForm       = ref({ amount: 0, reason: '' })
 
 const payForm = ref({
   amount: 0,
@@ -411,6 +470,27 @@ const downloadPdf = async (inv) => {
     link.remove()
   } catch (e) {
     emit('notify', { type: 'error', title: 'Error', message: 'No se pudo descargar el PDF.' })
+  }
+}
+
+const openCreditModal = () => {
+  creditForm.value = { amount: creditBalance.value, reason: '' }
+  creditError.value = ''
+  showCreditModal.value = true
+}
+
+const submitCreditUpdate = async () => {
+  creditError.value = ''
+  creditSubmitting.value = true
+  try {
+    await billingService.updateCredit(props.customerId, creditForm.value.amount, creditForm.value.reason)
+    showCreditModal.value = false
+    emit('notify', { type: 'success', title: 'Saldo actualizado', message: 'El saldo a favor fue ajustado correctamente.' })
+    await fetchData()
+  } catch (e) {
+    creditError.value = e.response?.data?.message || 'Error al actualizar el saldo.'
+  } finally {
+    creditSubmitting.value = false
   }
 }
 

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
+use App\Jobs\ReactivateCustomerAfterPaymentJob;
 use App\Models\BillingActionLog;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
@@ -728,9 +729,9 @@ class BillingService
         });
 
         // After commit: if this payment cleared the customer's overdue balance,
-        // auto-reconnect them — the mirror of the automatic cut. Runs outside the
-        // transaction (the router call must not hold the DB open) and never throws.
-        $this->reactivateIfCleared((int) $data['customer_id']);
+        // auto-reconnect them via a background job so the HTTP response is not
+        // blocked by the SSH call to the router (which can hang 30–60s).
+        ReactivateCustomerAfterPaymentJob::dispatch((int) $data['customer_id']);
 
         return $payment;
     }

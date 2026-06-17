@@ -22,10 +22,14 @@ const form = ref({
     tenant_id: null
 })
 
-const customerBalance  = ref(0)   // sum of open invoice balance_due
-const creditBalance    = ref(0)   // unallocated credit from overpayments
-const netBalance       = ref(0)   // what the customer effectively owes
+const customerBalance  = ref(0)
+const creditBalance    = ref(0)
+const netBalance       = ref(0)
 const showPaymentModal = ref(false)
+const showCreditModal  = ref(false)
+const creditSubmitting = ref(false)
+const creditError      = ref('')
+const creditForm       = ref({ amount: 0, reason: '' })
 
 // 'exact' | 'partial' | 'excess'  — compared against the net balance owed
 const paymentType = computed(() => {
@@ -100,6 +104,27 @@ const submitPayment = () => {
         showPaymentModal.value = true
     } else {
         doRegister()
+    }
+}
+
+const openCreditModal = () => {
+    creditForm.value = { amount: creditBalance.value, reason: '' }
+    creditError.value = ''
+    showCreditModal.value = true
+}
+
+const submitCreditUpdate = async () => {
+    creditError.value = ''
+    creditSubmitting.value = true
+    try {
+        await billingService.updateCredit(form.value.customer_id, creditForm.value.amount, creditForm.value.reason)
+        showCreditModal.value = false
+        successInfo.value = { allocations: [] }
+        getBalance()
+    } catch (e) {
+        creditError.value = e.response?.data?.message || 'Error al actualizar el saldo.'
+    } finally {
+        creditSubmitting.value = false
     }
 }
 
@@ -247,9 +272,25 @@ onMounted(() => {
                     <div class="bg-indigo-600 p-8 rounded-3xl text-white shadow-2xl shadow-indigo-300 dark:shadow-none">
                         <h4 class="text-xs font-medium uppercase tracking-widest opacity-80 mb-1">Saldo Pendiente</h4>
                         <div class="text-4xl font-medium mb-1">${{ Number(netBalance).toLocaleString('es-CO') }}</div>
-                        <p v-if="creditBalance > 0" class="text-xs font-medium bg-white/20 rounded-lg px-2 py-1 mb-2 inline-block">
-                            + ${{ Number(creditBalance).toLocaleString('es-CO') }} de saldo a favor
-                        </p>
+                        <div v-if="creditBalance > 0" class="flex items-center gap-2 mb-2">
+                            <span class="text-xs font-medium bg-white/20 rounded-lg px-2 py-1 inline-block">
+                                + ${{ Number(creditBalance).toLocaleString('es-CO') }} de saldo a favor
+                            </span>
+                            <button v-if="form.customer_id" @click="openCreditModal"
+                                title="Ajustar saldo a favor"
+                                class="text-white/70 hover:text-white transition p-1 rounded">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <button v-if="form.customer_id && creditBalance === 0" @click="openCreditModal"
+                            class="text-xs text-white/70 hover:text-white transition mb-2 flex items-center gap-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+                            </svg>
+                            Ajustar crédito
+                        </button>
                         <p class="text-sm opacity-70">Saldo neto descontando crédito disponible.</p>
                     </div>
 
@@ -264,6 +305,45 @@ onMounted(() => {
             </div>
         </div>
     </div>
+
+    <!-- Credit adjustment modal -->
+    <Teleport to="body">
+        <Transition name="fade">
+            <div v-if="showCreditModal"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+                @click.self="showCreditModal = false">
+                <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6">
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-1">Ajustar Saldo a Favor</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mb-5">
+                        Saldo actual: <strong>${{ Number(creditBalance).toLocaleString('es-CO') }}</strong>
+                    </p>
+                    <form @submit.prevent="submitCreditUpdate" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Nuevo Saldo a Favor</label>
+                            <input v-model.number="creditForm.amount" type="number" step="0.01" min="0" required
+                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Razón del ajuste</label>
+                            <input v-model="creditForm.reason" type="text" placeholder="Ej: corrección de pago duplicado"
+                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all" />
+                        </div>
+                        <div v-if="creditError" class="text-sm text-red-600 dark:text-red-400">{{ creditError }}</div>
+                        <div class="flex gap-3 pt-1">
+                            <button type="submit" :disabled="creditSubmitting"
+                                class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition disabled:opacity-50">
+                                {{ creditSubmitting ? 'Guardando...' : 'Guardar' }}
+                            </button>
+                            <button type="button" @click="showCreditModal = false"
+                                class="px-5 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 text-slate-800 dark:text-white rounded-2xl transition">
+                                Cancelar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </Transition>
+    </Teleport>
 
     <!-- Overpayment confirmation modal -->
     <ConfirmModal
