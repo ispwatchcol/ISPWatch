@@ -43,6 +43,16 @@ onMounted(async () => {
         }
     }
 
+    // Hydrate the auth store from storage BEFORE checking authentication.
+    // On a cold load the store starts empty and is otherwise only hydrated
+    // lazily by the router guard — which runs after this hook. Without this
+    // line `isAuthenticated` was false here, so the refresh below was silently
+    // skipped and users kept whatever permissions were cached at their last
+    // login. That meant role/permission changes (e.g. enabling "Ver
+    // Sectoriales" for the Técnico role) never reached an already-remembered
+    // session until a full credential re-login.
+    authStore.loadFromStorage();
+
     // Refresh permissions from server so role_code and permissions stay in sync
     // without requiring re-login after role/permission changes
     if (authStore.isAuthenticated) {
