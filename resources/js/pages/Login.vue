@@ -284,8 +284,10 @@
 import { ref, onMounted, reactive } from "vue";
 import { useRouter } from "vue-router";
 import api from "../services/api.js";
+import { useAuthStore } from "@/stores/auth.js";
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 const loginData = ref({
     email_tenant: "",
@@ -494,13 +496,15 @@ const handleLogin = async () => {
             // ⚠️ EXTRAER CORRECTAMENTE EL USUARIO
             const user = response.data.data.user ?? response.data.data;
 
-            if (loginData.value.remember) {
-                localStorage.setItem("userData", JSON.stringify(user));
-                localStorage.setItem("isLoggedIn", "true");
-            } else {
-                sessionStorage.setItem("userData", JSON.stringify(user));
-                sessionStorage.setItem("isLoggedIn", "true");
-            }
+            // Clear any previous session first (including a stale "remember me"
+            // entry in localStorage). loadFromStorage() reads localStorage
+            // before sessionStorage, so an old remembered userData would
+            // otherwise shadow this fresh login and keep outdated permissions.
+            authStore.logout();
+
+            // Persist through the store so authStore.user is populated
+            // immediately (the router guard no longer has to lazily hydrate it).
+            authStore.setUser(user, loginData.value.remember);
 
             router.push("/dashboard");
         } else {
