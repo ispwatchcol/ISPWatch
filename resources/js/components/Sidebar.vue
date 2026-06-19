@@ -261,7 +261,13 @@ const supportItems = computed(() => {
 const canSee = computed(() => ({
     dashboard:       authStore.hasPermission('view_dashboard_stats'),
     usuarios:        authStore.hasPermission('view_clients'),
-    gestion:         authStore.hasPermission('manage_routers'),
+    // Show the "Gestión" group if the user can see ANY of its children
+    // (routers / planes / sectoriales). Gating only on manage_routers hid the
+    // whole group — and with it Sectoriales — from roles like Técnico that have
+    // view_sectorials but not manage_routers.
+    gestion:         authStore.hasPermission('manage_routers')
+                  || authStore.hasPermission('view_plans')
+                  || authStore.hasPermission('view_sectorials'),
     inventarios:     authStore.hasPermission('view_inventory'),
     finanzas:        authStore.hasPermission('view_billing'),
     staff:           authStore.hasPermission('view_staff'),
