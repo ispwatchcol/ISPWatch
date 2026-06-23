@@ -143,15 +143,19 @@ class AutoReconnectOnPaymentTest extends TestCase
     }
 
     #[Test]
-    public function a_manually_suspended_customer_is_not_auto_reconnected(): void
+    public function a_manually_suspended_customer_is_reconnected_after_paying(): void
     {
         $tenant = Tenant::factory()->create();
         $router = $this->router($tenant);
-        // Cut manually (e.g. abuse) — paying an invoice must not lift it.
+        // Per operator policy, paying off the balance reconnects ANY current
+        // cut — including manual suspensions, not only billing-driven ones.
         $user   = $this->makeCutCustomer($tenant, $router, SuspensionActionLog::REASON_MANUAL, overdueQty: 1, each: 25000);
 
         $mock = $this->mockProvisioning();
-        $mock->shouldNotReceive('unsuspendCustomer');
+        $mock->shouldReceive('unsuspendCustomer')
+            ->once()
+            ->with($user->id, $router->id, Mockery::on(fn ($ctx) => ($ctx['reason'] ?? null) === SuspensionActionLog::REASON_AUTO_RECONNECT))
+            ->andReturn(true);
 
         app(BillingService::class)->registerPayment([
             'tenant_id'    => $tenant->id,
@@ -161,6 +165,6 @@ class AutoReconnectOnPaymentTest extends TestCase
             'method'       => 'cash',
         ]);
 
-        $this->assertFalse((bool) CustomerProfile::where('user_id', $user->id)->first()->status);
+        $this->assertTrue((bool) CustomerProfile::where('user_id', $user->id)->first()->status);
     }
 }
