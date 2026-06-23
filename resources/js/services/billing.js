@@ -26,6 +26,11 @@ export default {
     return apiClient.post(`/billing/invoices/${id}/mark-unpaid`)
   },
 
+  // Delete Invoice (reverses payments to credit, removes items)
+  deleteInvoice(id) {
+    return apiClient.delete(`/billing/invoices/${id}`)
+  },
+
   // Add Items
   addItems(id, data) {
     return apiClient.post(`/billing/invoices/${id}/items`, data)

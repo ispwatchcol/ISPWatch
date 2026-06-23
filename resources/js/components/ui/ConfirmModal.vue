@@ -37,6 +37,20 @@
                 <p class="text-sm" :class="textClass">{{ message }}</p>
               </div>
             </slot>
+
+            <!-- Type-to-confirm (optional) -->
+            <div v-if="requireText" class="mt-4">
+              <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Escribe <span class="font-semibold">{{ requireText }}</span> para confirmar
+              </label>
+              <input
+                v-model="typed"
+                type="text"
+                :placeholder="requireText"
+                @keyup.enter="canConfirm && confirm()"
+                class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 dark:text-white"
+              />
+            </div>
           </div>
 
           <!-- Footer -->
@@ -49,7 +63,7 @@
             </button>
             <button
               @click="confirm"
-              :disabled="loading"
+              :disabled="loading || !canConfirm"
               class="px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               :class="confirmBtnClass"
             >
@@ -64,7 +78,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -75,9 +89,17 @@ const props = defineProps({
   loadingText: { type: String, default: 'Procesando...' },
   loading: { type: Boolean, default: false },
   variant: { type: String, default: 'danger', validator: v => ['danger', 'warning', 'info'].includes(v) },
+  // When set, the user must type this exact text before confirming (e.g. "ELIMINAR").
+  requireText: { type: String, default: '' },
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
+
+const typed = ref('')
+const canConfirm = computed(() => !props.requireText || typed.value.trim() === props.requireText)
+
+// Reset the typed text whenever the modal is shown/hidden.
+watch(() => props.visible, () => { typed.value = '' })
 
 const iconName = computed(() => ({
   danger: 'md-delete',
@@ -110,6 +132,7 @@ const confirmBtnClass = computed(() => ({
 }[props.variant]))
 
 function confirm() {
+  if (props.loading || !canConfirm.value) return
   emit('confirm')
 }
 
