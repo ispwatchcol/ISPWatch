@@ -117,6 +117,21 @@ const getInvoiceTypeColor = (type) => {
     }
 }
 
+const markingId = ref(null)
+const markUnpaid = async (invoice) => {
+    if (!confirm(`¿Marcar la factura #${invoice.number} como NO pagada? Se revertirá el pago asignado y el saldo volverá al total.`)) return
+    markingId.value = invoice.id
+    try {
+        await billingService.markUnpaid(invoice.id)
+        await fetchInvoices()
+    } catch (e) {
+        console.error('Error marking invoice unpaid', e)
+        alert('No se pudo marcar la factura como no pagada.')
+    } finally {
+        markingId.value = null
+    }
+}
+
 const downloadPdf = async (id, number) => {
     try {
         const response = await billingService.downloadPdf(id)
@@ -389,6 +404,11 @@ const sendBulkReminders = async () => {
                                     <button @click="downloadPdf(invoice.id, invoice.number)"
                                         class="p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-600 rounded-lg transition-colors" title="Descargar PDF">
                                         <v-icon name="md-download" class="w-5 h-5" />
+                                    </button>
+                                    <button v-if="['paid', 'partial'].includes(invoice.status)"
+                                        @click="markUnpaid(invoice)" :disabled="markingId === invoice.id"
+                                        class="p-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors disabled:opacity-50" title="Marcar como no pagada">
+                                        <v-icon :name="markingId === invoice.id ? 'bi-arrow-repeat' : 'ri-arrow-go-back-line'" :class="['w-5 h-5', markingId === invoice.id && 'animate-spin']" />
                                     </button>
                                 </div>
                             </td>
