@@ -21,6 +21,11 @@ export default {
     return apiClient.put(`/billing/invoices/${id}`, data)
   },
 
+  // Mark Invoice as unpaid (reverses its payments, restores balance)
+  markUnpaid(id) {
+    return apiClient.post(`/billing/invoices/${id}/mark-unpaid`)
+  },
+
   // Add Items
   addItems(id, data) {
     return apiClient.post(`/billing/invoices/${id}/items`, data)

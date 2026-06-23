@@ -128,6 +128,15 @@ class BillingController extends Controller
         return response()->json($invoice->fresh(['customer', 'items', 'payments']));
     }
 
+    // Mark an invoice as unpaid: reverse its payments and restore the balance.
+    public function markUnpaid($id)
+    {
+        $invoice = Invoice::findOrFail($id);
+        $invoice = $this->billingService->markInvoiceUnpaid($invoice);
+
+        return response()->json($invoice);
+    }
+
     // Add Items
     public function addItems(Request $request, $id)
     {

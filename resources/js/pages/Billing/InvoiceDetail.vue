@@ -30,6 +30,22 @@ const addItem = async () => {
     }
 }
 
+const marking = ref(false)
+const markUnpaid = async () => {
+    if (!invoice.value) return
+    if (!confirm('¿Marcar esta factura como NO pagada? Se revertirá el pago asignado y el saldo volverá al total.')) return
+    marking.value = true
+    try {
+        await billingService.markUnpaid(invoice.value.id)
+        await fetchInvoice()
+    } catch (e) {
+        console.error('Error marking invoice unpaid', e)
+        alert('No se pudo marcar la factura como no pagada.')
+    } finally {
+        marking.value = false
+    }
+}
+
 const downloadPdf = async () => {
     if (!invoice.value) return
     try {
@@ -86,7 +102,13 @@ onMounted(fetchInvoice)
                     Volver a Listado
                 </button>
                 <div class="flex gap-3">
-                    <button @click="downloadPdf" 
+                    <button v-if="invoice && (invoice.status === 'paid' || Number(invoice.balance_due) <= 0)"
+                        @click="markUnpaid" :disabled="marking"
+                        class="p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all flex items-center gap-2 disabled:opacity-50">
+                        <v-icon :name="marking ? 'bi-arrow-repeat' : 'ri-arrow-go-back-line'" :class="['w-5 h-5', marking && 'animate-spin']" />
+                        Marcar como no pagada
+                    </button>
+                    <button @click="downloadPdf"
                         class="p-3 bg-white dark:bg-gray-800 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all flex items-center gap-2">
                         <v-icon name="md-filedownload" class="w-5 h-5" />
                         PDF

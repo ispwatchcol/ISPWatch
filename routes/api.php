@@ -151,6 +151,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
         Route::post('/billing/invoices', [BillingController::class, 'store']);
         Route::put('/billing/invoices/{id}', [BillingController::class, 'update']);
+        Route::post('/billing/invoices/{id}/mark-unpaid', [BillingController::class, 'markUnpaid']);
         Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
         Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
         Route::get('/billing/payments', [BillingController::class, 'getPayments']);

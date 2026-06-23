@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
-use App\Jobs\ReactivateCustomerAfterPaymentJob;
 use App\Models\BillingActionLog;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
@@ -728,10 +727,12 @@ class BillingService
             return $payment->load('allocations');
         });
 
-        // After commit: if this payment cleared the customer's overdue balance,
-        // auto-reconnect them via a background job so the HTTP response is not
-        // blocked by the SSH call to the router (which can hang 30–60s).
-        ReactivateCustomerAfterPaymentJob::dispatch((int) $data['customer_id']);
+        // After commit: if this payment cleared the customer's outstanding
+        // balance, reconnect them right away (synchronously) so the operator
+        // sees the result without depending on a queue worker being up. The
+        // call is fully guarded (never throws) and runs after the transaction,
+        // so a slow/failing router can't roll back or break the saved payment.
+        $this->reactivateIfCleared((int) $data['customer_id']);
 
         return $payment;
     }
@@ -739,14 +740,15 @@ class BillingService
     /**
      * Auto-reconnect a customer after a payment IF, and only if:
      *   - they have NO overdue invoices left, AND
-     *   - they are currently cut on the router because of billing
-     *     (last suspension log = SUSPEND/success with reason auto_cut/reconcile).
+     *   - they are currently cut on the router (last suspension log =
+     *     SUSPEND/success not yet followed by an UNSUSPEND).
      *
-     * Customers suspended manually (REASON_MANUAL, e.g. abuse) are left untouched
-     * so paying an invoice never silently lifts a deliberate operator block.
-     * Lifts the block via RouterProvisioningService and mirrors the manual
-     * `activate` DB state (status=true). Never throws — a router failure must not
-     * roll back or break the payment; the reconcile/manual tools remain the safety net.
+     * Per operator policy, ANY current cut is lifted once the balance is
+     * cleared — including manual suspensions — so paying always reconnects the
+     * customer. Lifts the block via RouterProvisioningService and mirrors the
+     * manual `activate` DB state (status=true). Never throws — a router failure
+     * must not roll back or break the payment; the reconcile/manual tools
+     * remain the safety net.
      */
     public function reactivateIfCleared(int $customerId): void
     {
@@ -766,23 +768,20 @@ class BillingService
                 return;
             }
 
-            // Is the customer currently cut, and was it a billing-driven cut?
-            // Same "confirmed cut" signal the reconciler uses: the latest log row.
+            // Is the customer currently cut on the router? The latest log row is
+            // the same "confirmed cut" signal the reconciler uses: a successful
+            // SUSPEND that hasn't been followed by an UNSUSPEND.
             $latest = SuspensionActionLog::where('customer_id', $customerId)
                 ->where('router_id', $profile->router_id)
                 ->latest('id')
                 ->first();
 
-            $cutByBilling = $latest
+            $currentlyCut = $latest
                 && $latest->action === SuspensionActionLog::ACTION_SUSPEND
-                && $latest->status === SuspensionActionLog::STATUS_SUCCESS
-                && in_array($latest->reason, [
-                    SuspensionActionLog::REASON_AUTO_CUT,
-                    SuspensionActionLog::REASON_RECONCILE,
-                ], true);
+                && $latest->status === SuspensionActionLog::STATUS_SUCCESS;
 
-            if (!$cutByBilling) {
-                return; // not cut, already reconnected, or a manual (non-billing) block
+            if (!$currentlyCut) {
+                return; // not cut, or already reconnected
             }
 
             $ok = app(RouterProvisioningService::class)->unsuspendCustomer(
@@ -987,6 +986,60 @@ class BillingService
         DB::transaction(function () use ($payment) {
             $this->reversePaymentAllocations($payment);
             $payment->delete();
+        });
+    }
+
+    /**
+     * Revert an invoice back to "owing": undo every payment allocation tied to
+     * it, restore its balance to the full total, and recompute its status.
+     *
+     * A payment that funded ONLY this invoice is deleted (its money is undone).
+     * A payment that also funded other invoices keeps those allocations; the
+     * portion freed from this invoice becomes customer credit so the books stay
+     * balanced (sum of allocations + credit still equals the payment amount).
+     *
+     * Used by the "Marcar como no pagada" action — operator correction and
+     * testing the overdue → cut → pay → reconnect cycle.
+     */
+    public function markInvoiceUnpaid(Invoice $invoice): Invoice
+    {
+        return DB::transaction(function () use ($invoice) {
+            // Work from the persisted balance, not a possibly-stale in-memory one.
+            $invoice->refresh();
+
+            $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
+
+            foreach ($allocations as $allocation) {
+                $invoice->balance_due = (float) $invoice->balance_due + (float) $allocation->amount;
+
+                $payment = Payment::find($allocation->payment_id);
+                $allocation->delete();
+
+                if (!$payment) {
+                    continue;
+                }
+
+                $remaining = PaymentAllocation::where('payment_id', $payment->id)->count();
+                if ($remaining === 0) {
+                    // Payment existed only for this invoice → undo it entirely.
+                    $payment->delete();
+                } else {
+                    // Payment also funded other invoices → keep it and park the
+                    // freed amount as customer credit so nothing is lost.
+                    $customer = CustomerProfile::where('user_id', $payment->customer_id)->first();
+                    if ($customer) {
+                        $customer->credit_balance = (float) $customer->credit_balance + (float) $allocation->amount;
+                        $customer->save();
+                    }
+                }
+            }
+
+            $this->updateInvoiceStatus($invoice);
+            $invoice->save();
+
+            Log::info("Billing: Invoice {$invoice->id} marked unpaid; balance restored to {$invoice->balance_due}.");
+
+            return $invoice->fresh(['customer', 'items', 'payments']);
         });
     }
 
