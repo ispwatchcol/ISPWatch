@@ -990,6 +990,39 @@ class BillingService
     }
 
     /**
+     * Permanently delete an invoice, its items and its payment allocations.
+     *
+     * Any money that had been applied to it is returned to the customer as
+     * credit so a received payment is never silently lost when the invoice is
+     * removed (the payment record itself is kept for history). Hard delete —
+     * for legal invoicing prefer voiding (status=cancelled) over deleting.
+     */
+    public function deleteInvoice(Invoice $invoice): void
+    {
+        DB::transaction(function () use ($invoice) {
+            $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
+
+            if ($allocations->isNotEmpty()) {
+                $customer = CustomerProfile::where('user_id', $invoice->customer_id)->first();
+                foreach ($allocations as $allocation) {
+                    if ($customer) {
+                        $customer->credit_balance = (float) $customer->credit_balance + (float) $allocation->amount;
+                    }
+                    $allocation->delete();
+                }
+                if ($customer) {
+                    $customer->save();
+                }
+            }
+
+            $invoice->items()->delete();
+            $invoice->delete();
+
+            Log::info("Billing: Invoice {$invoice->id} (#{$invoice->number}) deleted.");
+        });
+    }
+
+    /**
      * Revert an invoice back to "owing": undo every payment allocation tied to
      * it, restore its balance to the full total, and recompute its status.
      *

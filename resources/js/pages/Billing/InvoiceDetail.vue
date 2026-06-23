@@ -1,9 +1,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
+import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import { usePermissions } from '@/composables/usePermissions'
 
 const route = useRoute()
+const router = useRouter()
+const { can } = usePermissions()
 const invoice = ref(null)
 const loading = ref(true)
 
@@ -30,13 +34,29 @@ const addItem = async () => {
     }
 }
 
-const marking = ref(false)
-const markUnpaid = async () => {
+const showDeleteModal = ref(false)
+const deleting = ref(false)
+const confirmDelete = async () => {
     if (!invoice.value) return
-    if (!confirm('¿Marcar esta factura como NO pagada? Se revertirá el pago asignado y el saldo volverá al total.')) return
+    deleting.value = true
+    try {
+        await billingService.deleteInvoice(invoice.value.id)
+        router.push('/billing/invoices')
+    } catch (e) {
+        console.error('Error deleting invoice', e)
+        alert(e.response?.data?.message || 'No se pudo eliminar la factura.')
+        deleting.value = false
+    }
+}
+
+const marking = ref(false)
+const showUnpaidModal = ref(false)
+const confirmMarkUnpaid = async () => {
+    if (!invoice.value) return
     marking.value = true
     try {
         await billingService.markUnpaid(invoice.value.id)
+        showUnpaidModal.value = false
         await fetchInvoice()
     } catch (e) {
         console.error('Error marking invoice unpaid', e)
@@ -103,10 +123,15 @@ onMounted(fetchInvoice)
                 </button>
                 <div class="flex gap-3">
                     <button v-if="invoice && (invoice.status === 'paid' || Number(invoice.balance_due) <= 0)"
-                        @click="markUnpaid" :disabled="marking"
-                        class="p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all flex items-center gap-2 disabled:opacity-50">
-                        <v-icon :name="marking ? 'bi-arrow-repeat' : 'ri-arrow-go-back-line'" :class="['w-5 h-5', marking && 'animate-spin']" />
+                        @click="showUnpaidModal = true"
+                        class="p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all flex items-center gap-2">
+                        <v-icon name="ri-arrow-go-back-line" class="w-5 h-5" />
                         Marcar como no pagada
+                    </button>
+                    <button v-if="can('delete_invoice')" @click="showDeleteModal = true"
+                        class="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all flex items-center gap-2">
+                        <v-icon name="md-delete" class="w-5 h-5" />
+                        Eliminar
                     </button>
                     <button @click="downloadPdf"
                         class="p-3 bg-white dark:bg-gray-800 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all flex items-center gap-2">
@@ -253,5 +278,32 @@ onMounted(fetchInvoice)
                  <div class="h-96 bg-white dark:bg-gray-800 rounded-3xl"></div>
             </div>
         </div>
+
+        <!-- Confirmación: Marcar como no pagada -->
+        <ConfirmModal
+            :visible="showUnpaidModal"
+            variant="warning"
+            title="Marcar como no pagada"
+            message="Se revertirá el pago asignado y el saldo volverá al total. La factura quedará como vencida/pendiente. ¿Deseas continuar?"
+            confirm-text="Sí, marcar como no pagada"
+            cancel-text="Cancelar"
+            :loading="marking"
+            @confirm="confirmMarkUnpaid"
+            @cancel="showUnpaidModal = false"
+        />
+
+        <!-- Confirmación: Eliminar factura -->
+        <ConfirmModal
+            :visible="showDeleteModal"
+            variant="danger"
+            title="Eliminar factura"
+            :message="invoice ? `Vas a eliminar la factura #${invoice.number} de forma permanente. Si tiene pagos, el monto se devolverá como saldo a favor del cliente. Esta acción no se puede deshacer.` : ''"
+            require-text="ELIMINAR"
+            confirm-text="Eliminar"
+            loading-text="Eliminando..."
+            :loading="deleting"
+            @confirm="confirmDelete"
+            @cancel="showDeleteModal = false"
+        />
     </div>
 </template>

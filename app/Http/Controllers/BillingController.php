@@ -137,6 +137,15 @@ class BillingController extends Controller
         return response()->json($invoice);
     }
 
+    // Delete an invoice (reverses its payments to credit, removes items).
+    public function destroy($id)
+    {
+        $invoice = Invoice::findOrFail($id);
+        $this->billingService->deleteInvoice($invoice);
+
+        return response()->json(['message' => 'Factura eliminada correctamente.']);
+    }
+
     // Add Items
     public function addItems(Request $request, $id)
     {

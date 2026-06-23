@@ -4,8 +4,11 @@ import billingService from '@/services/billing'
 import api from '@/services/api'
 import { useRouter } from 'vue-router'
 import SearchableSelect from '@/components/SearchableSelect.vue'
+import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import { usePermissions } from '@/composables/usePermissions'
 
 const router = useRouter()
+const { can } = usePermissions()
 
 const invoices = ref({ data: [] })
 const loading = ref(true)
@@ -117,18 +120,47 @@ const getInvoiceTypeColor = (type) => {
     }
 }
 
-const markingId = ref(null)
-const markUnpaid = async (invoice) => {
-    if (!confirm(`¿Marcar la factura #${invoice.number} como NO pagada? Se revertirá el pago asignado y el saldo volverá al total.`)) return
-    markingId.value = invoice.id
+const showUnpaidModal = ref(false)
+const unpaidTarget = ref(null)
+const marking = ref(false)
+const openMarkUnpaid = (invoice) => {
+    unpaidTarget.value = invoice
+    showUnpaidModal.value = true
+}
+const confirmMarkUnpaid = async () => {
+    if (!unpaidTarget.value) return
+    marking.value = true
     try {
-        await billingService.markUnpaid(invoice.id)
+        await billingService.markUnpaid(unpaidTarget.value.id)
+        showUnpaidModal.value = false
         await fetchInvoices()
     } catch (e) {
         console.error('Error marking invoice unpaid', e)
         alert('No se pudo marcar la factura como no pagada.')
     } finally {
-        markingId.value = null
+        marking.value = false
+    }
+}
+
+const showDeleteModal = ref(false)
+const deleteTarget = ref(null)
+const deleting = ref(false)
+const openDelete = (invoice) => {
+    deleteTarget.value = invoice
+    showDeleteModal.value = true
+}
+const confirmDelete = async () => {
+    if (!deleteTarget.value) return
+    deleting.value = true
+    try {
+        await billingService.deleteInvoice(deleteTarget.value.id)
+        showDeleteModal.value = false
+        await fetchInvoices()
+    } catch (e) {
+        console.error('Error deleting invoice', e)
+        alert(e.response?.data?.message || 'No se pudo eliminar la factura.')
+    } finally {
+        deleting.value = false
     }
 }
 
@@ -406,9 +438,13 @@ const sendBulkReminders = async () => {
                                         <v-icon name="md-download" class="w-5 h-5" />
                                     </button>
                                     <button v-if="['paid', 'partial'].includes(invoice.status)"
-                                        @click="markUnpaid(invoice)" :disabled="markingId === invoice.id"
-                                        class="p-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors disabled:opacity-50" title="Marcar como no pagada">
-                                        <v-icon :name="markingId === invoice.id ? 'bi-arrow-repeat' : 'ri-arrow-go-back-line'" :class="['w-5 h-5', markingId === invoice.id && 'animate-spin']" />
+                                        @click="openMarkUnpaid(invoice)"
+                                        class="p-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors" title="Marcar como no pagada">
+                                        <v-icon name="ri-arrow-go-back-line" class="w-5 h-5" />
+                                    </button>
+                                    <button v-if="can('delete_invoice')" @click="openDelete(invoice)"
+                                        class="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Eliminar Factura">
+                                        <v-icon name="md-delete" class="w-5 h-5" />
                                     </button>
                                 </div>
                             </td>
@@ -504,5 +540,32 @@ const sendBulkReminders = async () => {
                 </div>
             </div>
         </div>
+
+        <!-- Confirmación: Marcar como no pagada -->
+        <ConfirmModal
+            :visible="showUnpaidModal"
+            variant="warning"
+            title="Marcar como no pagada"
+            :message="unpaidTarget ? `La factura #${unpaidTarget.number} volverá a quedar debiendo: se revertirá el pago asignado y el saldo volverá al total.` : ''"
+            confirm-text="Sí, marcar como no pagada"
+            cancel-text="Cancelar"
+            :loading="marking"
+            @confirm="confirmMarkUnpaid"
+            @cancel="showUnpaidModal = false"
+        />
+
+        <!-- Confirmación: Eliminar factura -->
+        <ConfirmModal
+            :visible="showDeleteModal"
+            variant="danger"
+            title="Eliminar factura"
+            :message="deleteTarget ? `Vas a eliminar la factura #${deleteTarget.number} de forma permanente. Si tiene pagos, el monto se devolverá como saldo a favor del cliente. Esta acción no se puede deshacer.` : ''"
+            require-text="ELIMINAR"
+            confirm-text="Eliminar"
+            loading-text="Eliminando..."
+            :loading="deleting"
+            @confirm="confirmDelete"
+            @cancel="showDeleteModal = false"
+        />
     </div>
 </template>
