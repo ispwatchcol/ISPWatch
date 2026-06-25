@@ -96,6 +96,7 @@ const getStatusLabel = (status) => ({
 
 const getInvoiceTypeLabel = (type) => ({
     monthly:        'Plan Mensual',
+    installation:   'Instalación',
     additional:     'Adicional',
     service_charge: 'Cargo Ticket',
 }[type] ?? (type || 'Plan Mensual'))
@@ -103,6 +104,7 @@ const getInvoiceTypeLabel = (type) => ({
 const getInvoiceTypeColor = (type) => {
     switch (type) {
         case 'monthly':        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+        case 'installation':   return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
         case 'additional':     return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
         case 'service_charge': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
         default:               return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
@@ -241,15 +243,18 @@ const sendBulkReminders = async () => {
                         <v-icon name="bi-filter" class="w-5 h-5 text-slate-400" />
                         <select v-model="filters.status" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
                             <option value="">Todos los Estados</option>
-                            <option value="paid">Pagadas</option>
+                            <option value="issued">Emitidas</option>
+                            <option value="partial">Pago Parcial</option>
                             <option value="pending">Pendientes</option>
                             <option value="overdue">Vencidas</option>
+                            <option value="paid">Pagadas</option>
                         </select>
                     </div>
 
                     <select v-model="filters.invoice_type" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
                         <option value="">Todos los Tipos</option>
                         <option value="monthly">Plan Mensual</option>
+                        <option value="installation">Instalación</option>
                         <option value="additional">Servicio Adicional</option>
                         <option value="service_charge">Cargo de Ticket</option>
                     </select>
