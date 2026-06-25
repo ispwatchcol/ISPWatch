@@ -57,6 +57,14 @@ const fetchInvoices = async () => {
             period: periodValue,
             tenant: user.value?.tenant_id
         }
+
+        // Al buscar por cliente o número, ignoramos el filtro de mes para que la
+        // búsqueda recorra TODOS los períodos. Si no, el mes seleccionado (por
+        // defecto el actual) oculta facturas del cliente de otros meses.
+        if (filters.value.search && filters.value.search.trim() !== '') {
+            delete params.period
+        }
+
         const response = await billingService.getInvoices(params)
         // Normalize: ensure it follows the Laravel pagination structure { data: [] }
         if (Array.isArray(response.data)) {
@@ -260,7 +268,9 @@ const sendBulkReminders = async () => {
                     </select>
 
                     <input v-model="filters.period" type="month"
-                        class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
+                        :disabled="!!(filters.search && filters.search.trim())"
+                        :title="filters.search && filters.search.trim() ? 'Mientras buscas, se muestran facturas de todos los meses' : ''"
+                        class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                     
                     <button @click="fetchInvoices" class="p-2 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 rounded-xl transition-colors">
                         <v-icon name="bi-filter" class="w-5 h-5 text-slate-600 dark:text-slate-300" />

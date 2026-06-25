@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Log;
  */
 class PppProfileManager
 {
+    use NormalizesRouterComment;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -379,7 +382,10 @@ class PppProfileManager
         ?string $localAddress = null,
         ?string $comment = null
     ): array {
-        $comment = ($comment !== null && trim($comment) !== '') ? trim($comment) : 'ISPWatch Auto';
+        // RouterOS comments don't render accents/ñ; transliterate the customer
+        // name once here so both the direct-API and CORE-SSH paths below push
+        // the same clean ASCII label.
+        $comment = $this->normalizeRouterComment($comment);
         try {
             Log::info('[PppProfileManager] Ensuring PPPoE secret on router', [
                 'client_ip'      => $clientIp,

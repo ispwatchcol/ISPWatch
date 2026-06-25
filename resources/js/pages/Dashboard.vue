@@ -31,12 +31,75 @@
           </div>
 
           <!-- Notificaciones -->
-          <button
-            class="flex items-center px-3 py-1 rounded-full border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-          >
-            <v-icon name="fa-regular-bell" class="h-4 w-4 mr-2 text-gray-700 dark:text-gray-300" />
-            <span class="text-gray-700 dark:text-gray-300 text-sm">Notificaciones</span>
-          </button>
+          <div class="relative" ref="notifWrapper">
+            <button
+              @click="toggleNotifications"
+              class="relative flex items-center px-3 py-1 rounded-full border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            >
+              <v-icon name="fa-regular-bell" class="h-4 w-4 mr-2 text-gray-700 dark:text-gray-300" />
+              <span class="text-gray-700 dark:text-gray-300 text-sm">Notificaciones</span>
+              <span
+                v-if="notificationsList.length > 0"
+                class="absolute -top-1.5 -right-1.5 flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-red-500 text-white text-[0.65rem] font-bold leading-none"
+              >
+                {{ notificationsList.length }}
+              </span>
+            </button>
+
+            <!-- Panel de notificaciones -->
+            <Transition name="notif-fade">
+              <div
+                v-if="showNotifications"
+                class="absolute right-0 mt-2 w-80 max-w-[90vw] rounded-xl bg-white dark:bg-gray-800 shadow-2xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden"
+              >
+                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                  <h4 class="font-semibold text-gray-800 dark:text-gray-100 text-sm">Notificaciones</h4>
+                  <span class="text-xs text-gray-400 dark:text-gray-500">
+                    {{ notificationsList.length }} nueva{{ notificationsList.length === 1 ? '' : 's' }}
+                  </span>
+                </div>
+                <div class="max-h-80 overflow-y-auto">
+                  <div
+                    v-if="notificationsList.length === 0"
+                    class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400"
+                  >
+                    <v-icon name="fa-regular-bell" class="w-6 h-6 mx-auto mb-2 opacity-50" />
+                    <p>No hay notificaciones nuevas</p>
+                  </div>
+                  <router-link
+                    v-for="n in notificationsList"
+                    :key="n.id"
+                    :to="n.to"
+                    @click="showNotifications = false"
+                    class="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition border-b border-gray-50 dark:border-gray-700/50 last:border-b-0"
+                  >
+                    <div
+                      class="p-2 rounded-full shrink-0"
+                      :class="{
+                        'bg-red-100 dark:bg-red-900/40': n.type === 'error',
+                        'bg-yellow-100 dark:bg-yellow-900/40': n.type === 'warning',
+                        'bg-blue-100 dark:bg-blue-900/40': n.type === 'info',
+                      }"
+                    >
+                      <v-icon
+                        :name="n.icon"
+                        class="w-4 h-4"
+                        :class="{
+                          'text-red-600 dark:text-red-400': n.type === 'error',
+                          'text-yellow-600 dark:text-yellow-400': n.type === 'warning',
+                          'text-blue-600 dark:text-blue-400': n.type === 'info',
+                        }"
+                      />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ n.title }}</p>
+                      <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ n.message }}</p>
+                    </div>
+                  </router-link>
+                </div>
+              </div>
+            </Transition>
+          </div>
 
           <!-- Logout rápido -->
           <button
@@ -242,7 +305,7 @@
             </div>
             <h3 class="font-semibold text-gray-800 dark:text-gray-100">Cobertura</h3>
             <p class="text-sm text-purple-600 dark:text-purple-400 mt-1">Óptima</p>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ systemStatus.coverage?.label || '0 antenas activas' }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ systemStatus.coverage?.label || '0 sectoriales activas' }}</p>
           </div>
         </div>
       </div>
@@ -251,7 +314,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import { apiClient } from "../services/api";
 
 // Información dinámica del usuario
@@ -304,7 +367,7 @@ const cards = computed(() => {
       iconColor: data.tickets?.urgent > 0 ? "text-red-600 dark:text-red-400" : "text-yellow-600 dark:text-yellow-400",
     },
     {
-      title: "Antenas activas",
+      title: "Sectoriales activas",
       value: data.infrastructure?.sectoriales || 0,
       description: `${data.infrastructure?.routers || 0} routers configurados`,
       icon: "ri-map-pin-line",
@@ -321,6 +384,62 @@ const activities = computed(() => dashboardData.value?.activities || []);
 const faultAlerts = computed(
   () => dashboardData.value?.fault_alerts || { count: 0, routers: [] }
 );
+
+// Notificaciones (panel desplegable)
+const showNotifications = ref(false);
+const notifWrapper = ref(null);
+
+// Lista de notificaciones derivada de los datos del dashboard
+const notificationsList = computed(() => {
+  const list = [];
+  const tickets = dashboardData.value?.cards?.tickets;
+
+  // Routers con falla general
+  for (const r of faultAlerts.value.routers || []) {
+    list.push({
+      id: `fault-${r.id}`,
+      type: "error",
+      icon: "bi-router",
+      title: "Falla general",
+      message: `${r.name}${r.ip ? " · " + r.ip : ""} requiere atención`,
+      to: "/routers",
+    });
+  }
+
+  // Tickets de soporte
+  if (tickets?.urgent > 0) {
+    list.push({
+      id: "tickets-urgent",
+      type: "warning",
+      icon: "hi-ticket",
+      title: "Tickets urgentes",
+      message: `${tickets.urgent} ticket${tickets.urgent > 1 ? "s" : ""} urgente${tickets.urgent > 1 ? "s" : ""} sin atender`,
+      to: "/support",
+    });
+  } else if (tickets?.open > 0) {
+    list.push({
+      id: "tickets-open",
+      type: "info",
+      icon: "hi-ticket",
+      title: "Tickets abiertos",
+      message: `${tickets.open} ticket${tickets.open > 1 ? "s" : ""} abierto${tickets.open > 1 ? "s" : ""}`,
+      to: "/support",
+    });
+  }
+
+  return list;
+});
+
+const toggleNotifications = () => {
+  showNotifications.value = !showNotifications.value;
+};
+
+// Cerrar el panel al hacer clic fuera
+const handleClickOutside = (event) => {
+  if (notifWrapper.value && !notifWrapper.value.contains(event.target)) {
+    showNotifications.value = false;
+  }
+};
 
 // Acciones rápidas with routes
 const actions = ref([
@@ -395,6 +514,11 @@ const loadUserFromStorage = () => {
 onMounted(() => {
   loadUserFromStorage();
   fetchDashboardStats();
+  document.addEventListener("click", handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("click", handleClickOutside);
 });
 
 // Logout
@@ -421,5 +545,17 @@ body {
   50% {
     opacity: 0.5;
   }
+}
+
+/* Transición del panel de notificaciones */
+.notif-fade-enter-active,
+.notif-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.notif-fade-enter-from,
+.notif-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-0.5rem);
 }
 </style>

@@ -48,6 +48,7 @@ class ReconcileSuspensions extends Command
                     ['Re-cortados OK',              $stats['reblocked_ok']],
                     ['Re-cortados con error',       $stats['reblocked_failed']],
                     ['Omitidos por backoff',        $stats['skipped_backoff']],
+                    ['Agotados (acción manual)',    $stats['skipped_exhausted']],
                     ['Pendientes (dry-run)',        $stats['would_reblock']],
                 ]
             );

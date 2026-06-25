@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CustomerProfile;
 use App\Models\Sectorial;
 use App\Models\SectorialHistory;
 use App\Traits\FixesSequences;
@@ -11,6 +12,35 @@ use Illuminate\Support\Facades\DB;
 class SectorialController extends Controller
 {
     use FixesSequences;
+
+    /**
+     * Reglas de validación compartidas por store/update.
+     * El parámetro $required marca si `name` es obligatorio (alta).
+     */
+    private function rules(bool $required = true): array
+    {
+        return [
+            'name'                   => ($required ? 'required' : 'sometimes|required') . '|string|max:255',
+            'element_type'           => 'nullable|in:' . implode(',', Sectorial::ELEMENT_TYPES),
+            'parent_id'              => 'nullable|integer|exists:sectorial,id',
+            'ip'                     => 'nullable|string|max:255',
+            'type'                   => 'nullable|string|max:255',
+            'split_ratio'            => 'nullable|string|max:10',
+            'ports_total'            => 'nullable|integer|min:0|max:1024',
+            'pon_port'               => 'nullable|string|max:50',
+            'vlan'                   => 'nullable|integer|min:0|max:4096',
+            'user_rb'                => 'nullable|string|max:255',
+            'pass_rb'                => 'nullable|string|max:255',
+            'zona_id'                => 'nullable|integer',
+            'frequency'              => 'nullable|integer',
+            'node_tower'             => 'nullable|string|max:255',
+            'comments'               => 'nullable|string',
+            'ssid'                   => 'nullable|string',
+            'coordinates'            => 'nullable|json',
+            'coverage_radius_meters' => 'nullable|integer|min:0|max:100000',
+            'antenna_type'           => 'nullable|string|max:100',
+        ];
+    }
 
     public function index(Request $request)
     {
@@ -26,25 +56,47 @@ class SectorialController extends Controller
         }
 
         $sectorials = $query->orderBy('created_at', 'desc')->get();
+
+        $this->attachPortUsage($sectorials, $tenantId);
+
         return response()->json($sectorials);
+    }
+
+    /**
+     * Inyecta children_count y clients_count en cada elemento con solo 2
+     * consultas agrupadas (evita N+1 al serializar ports_used/ports_free).
+     */
+    private function attachPortUsage($sectorials, $tenantId): void
+    {
+        $ids = $sectorials->pluck('id');
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $childCounts = Sectorial::query()
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->whereIn('parent_id', $ids)
+            ->groupBy('parent_id')
+            ->selectRaw('parent_id, count(*) as c')
+            ->pluck('c', 'parent_id');
+
+        // customer_profile NO tiene tenant_id (se acota vía users). Como $ids ya
+        // son sectoriales del tenant, filtrar por sectorial_id es suficiente.
+        $clientCounts = CustomerProfile::query()
+            ->whereIn('sectorial_id', $ids)
+            ->groupBy('sectorial_id')
+            ->selectRaw('sectorial_id, count(*) as c')
+            ->pluck('c', 'sectorial_id');
+
+        foreach ($sectorials as $s) {
+            $s->children_count = (int) ($childCounts[$s->id] ?? 0);
+            $s->clients_count  = (int) ($clientCounts[$s->id] ?? 0);
+        }
     }
 
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'name' => 'required|string|max:255',
-            'element_type' => 'nullable|in:sectorial,switch,nodo',
-            'ip' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:255',
-            'user_rb' => 'nullable|string|max:255',
-            'pass_rb' => 'nullable|string|max:255',
-            'zona_id' => 'nullable|integer',
-            'frequency' => 'nullable|integer',
-            'node_tower' => 'nullable|string|max:255',
-            'comments' => 'nullable|string',
-            'ssid' => 'nullable|string',
-            'coordinates' => 'nullable|json',
-        ]);
+        $data = $request->validate($this->rules(true));
 
         $data['element_type'] = $data['element_type'] ?? Sectorial::ELEMENT_SECTORIAL;
 
@@ -91,6 +143,7 @@ class SectorialController extends Controller
             $sectorial = Sectorial::with([
                 'photos.user:id,user_name,user_lastname',
                 'notes.user:id,user_name,user_lastname',
+                'parent:id,name,element_type',
             ])->findOrFail($id);
 
             return response()->json($sectorial);
@@ -111,20 +164,14 @@ class SectorialController extends Controller
     {
         $sectorial = Sectorial::findOrFail($id);
 
-        $data = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'element_type' => 'nullable|in:sectorial,switch,nodo',
-            'ip' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:255',
-            'user_rb' => 'nullable|string|max:255',
-            'pass_rb' => 'nullable|string|max:255',
-            'zona_id' => 'nullable|integer',
-            'frequency' => 'nullable|integer',
-            'node_tower' => 'nullable|string|max:255',
-            'comments' => 'nullable|string',
-            'ssid' => 'nullable|string',
-            'coordinates' => 'nullable|json',
-        ]);
+        $data = $request->validate($this->rules(false));
+
+        // Un elemento no puede colgar de sí mismo.
+        if (array_key_exists('parent_id', $data) && (int) $data['parent_id'] === (int) $id) {
+            return response()->json([
+                'message' => 'Un elemento no puede ser su propio padre.',
+            ], 422);
+        }
 
         try {
             $original = $sectorial->getAttributes();

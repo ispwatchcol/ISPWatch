@@ -19,6 +19,7 @@ use App\Models\UserService;
 use App\Traits\FixesSequences;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class CustomerProfileController extends Controller
 {
@@ -50,6 +51,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.department',
                 'customer_profile.position',
                 'customer_profile.ip_user',
+                'customer_profile.precinto',
                 'customer_profile.service_id',
                 'customer_profile.sectorial_id',
                 'customer_profile.router_id',
@@ -184,10 +186,11 @@ class CustomerProfileController extends Controller
     /**
      * Get customer locations plus network nodes for the customer map.
      *
-     * Returns customers (with service_status for filtering), routers/nodes and
-     * sectorials (with coverage radius) so the frontend can render heatmaps,
-     * node→customer traceability lines and coverage zones. Routers and
-     * sectorials are tenant-scoped via the BelongsToTenant global scope.
+     * Returns customers (with service_status + sectorial_id for filtering and
+     * traceability), routers/nodes and sectorials (with type + coverage radius)
+     * so the frontend can render heatmaps, customer↔sectorial traceability
+     * lines and coverage zones. Routers and sectorials are tenant-scoped via
+     * the BelongsToTenant global scope.
      */
     public function mapData()
     {
@@ -207,6 +210,7 @@ class CustomerProfileController extends Controller
                 'customer_profile.country',
                 'customer_profile.latitude',
                 'customer_profile.longitude',
+                'customer_profile.sectorial_id',
                 'customer_profile.router_id',
                 'customer_profile.service_status',
                 'users.email'
@@ -236,7 +240,7 @@ class CustomerProfileController extends Controller
 
         // Sectorials. The model accessor returns ['lat'=>, 'lng'=>] (or null).
         $sectorials = Sectorial::query()
-            ->get(['id', 'name', 'coordinates', 'coverage_radius_meters', 'frequency', 'node_tower'])
+            ->get(['id', 'name', 'element_type', 'type', 'ip', 'ssid', 'coordinates', 'coverage_radius_meters', 'antenna_type', 'frequency', 'node_tower'])
             ->map(function ($sectorial) {
                 $coords = $sectorial->coordinates;
                 if (!is_array($coords) || !isset($coords['lat'], $coords['lng'])) {
@@ -245,6 +249,15 @@ class CustomerProfileController extends Controller
                 return [
                     'id' => $sectorial->id,
                     'name' => $sectorial->name,
+                    // element_type distingue el icono en el mapa (sectorial / switch
+                    // / nodo / olt / splitter / nap / mufa); type es el subtipo
+                    // wireless (Access Point, Bridge, PTP…). Los datos heredados sin
+                    // element_type se tratan como "sectorial" en el frontend.
+                    'element_type' => $sectorial->element_type,
+                    'type' => $sectorial->type,
+                    'ip' => $sectorial->ip,
+                    'ssid' => $sectorial->ssid,
+                    'antenna_type' => $sectorial->antenna_type,
                     'latitude' => (float) $coords['lat'],
                     'longitude' => (float) $coords['lng'],
                     'coverage_radius_meters' => $sectorial->coverage_radius_meters
@@ -330,15 +343,30 @@ class CustomerProfileController extends Controller
 
         // email_tenant = correo de ACCESO (login), distinto del correo personal.
         // El operador puede fijarlo al crear; si lo deja vacío se autogenera como
-        // nombre.apellido@dominio-del-tenant.
+        // nombre.apellido@dominio-del-tenant. En ambos casos se normaliza a ASCII:
+        // nunca lleva ñ ni tildes (los campos de NOMBRE sí los conservan).
         if (!empty($data['email_tenant'])) {
-            $emailTenant = strtolower(trim($data['email_tenant']));
+            $emailTenant = User::sanitizeEmail($data['email_tenant']);
         } else {
             $tenant = \App\Models\Tenant::find($tenantId);
-            $firstName = strtolower(preg_replace('/\s+/', '', $data['name'] ?? ''));
-            $lastName  = strtolower(preg_replace('/\s+/', '', $data['last_name'] ?? ''));
-            $domain    = $tenant ? strtolower($tenant->domain) : 'local';
+            $firstName = User::sanitizeEmail($data['name'] ?? '');
+            $lastName  = User::sanitizeEmail($data['last_name'] ?? '');
+            $domain    = $tenant ? User::sanitizeEmail($tenant->domain) : 'local';
             $emailTenant = "{$firstName}.{$lastName}@{$domain}";
+        }
+
+        // IP única por router/CORE: dos clientes del MISMO router no pueden
+        // compartir IP (norma de red). La misma IP sí puede repetirse en OTRO router.
+        if (!empty($data['ip_user']) && !empty($data['router_id'])) {
+            $ipTaken = CustomerProfile::where('router_id', $data['router_id'])
+                ->where('ip_user', $data['ip_user'])
+                ->whereHas('user', fn ($q) => $q->where('tenant_id', $tenantId))
+                ->exists();
+            if ($ipTaken) {
+                throw ValidationException::withMessages([
+                    'ip_user' => ["La IP {$data['ip_user']} ya está asignada a otro cliente en el mismo router/CORE. Puede repetirse solo en un router distinto."],
+                ]);
+            }
         }
 
         DB::beginTransaction();
@@ -362,7 +390,9 @@ class CustomerProfileController extends Controller
             $customer = $this->createWithSequenceFix(CustomerProfile::class, [
                 'user_id'     => $user->id,
                 'name'        => $data['name'],
-                'last_name'   => $data['last_name'],
+                // last_name es NOT NULL en la tabla; para empresas se guarda vacío.
+                'last_name'   => $data['last_name'] ?? '',
+                'is_company'  => $data['is_company'] ?? false,
                 'cedula'      => $data['cedula'] ?? null,
                 'city'        => $data['city'] ?? null,
                 'state'       => $data['state'] ?? null,
@@ -370,9 +400,13 @@ class CustomerProfileController extends Controller
                 'precinto'    => $data['precinto'] ?? null,
                 'installation_date' => $data['installation_date'] ?? null,
                 'estrato'     => $data['estrato'] ?? null,
+                'comments'    => $data['comments'] ?? null,
                 'ip_user'        => $data['ip_user'] ?? null,
                 'service_id'     => $data['service_id'] ?? null,
                 'sectorial_id'   => $data['sectorial_id'] ?? null,
+                'olt_id'         => $data['olt_id'] ?? null,
+                'nap_port'       => $data['nap_port'] ?? null,
+                'is_fiber'       => $data['is_fiber'] ?? false,
                 'router_id'      => $data['router_id'] ?? null,
                 'pppoe_username' => $data['pppoe_username'] ?? null,
                 'pppoe_password' => $data['pppoe_password'] ?? null,
@@ -396,11 +430,19 @@ class CustomerProfileController extends Controller
             // Una sola compuerta: el router debe tener `agregar_cliente_mkt`.
             // El dispatcher (CustomerProvisioningService) elige queue / pppoe /
             // pcq / hotspot / dhcp según el modo excluyente del router.
+            // El operador puede elegir "Guardar" (solo BD) en vez de "Guardar y
+            // cargar a RB": en ese caso se omite el aprovisionamiento automático.
+            // Ausente => true, para no alterar imports/conversión de prospectos.
+            $pushToRouter = $request->boolean('push_to_router', true);
             $router      = !empty($data['router_id']) ? Router::find($data['router_id']) : null;
             $servicePlan = !empty($data['service_id']) ? Plan::find($data['service_id']) : null;
             $provision   = null;
 
-            if ($router && !$router->agregar_cliente_mkt) {
+            if (!$pushToRouter) {
+                \Log::info('[CustomerProfile] Skip auto-provision: solo guardar en BD (push_to_router=false)', [
+                    'customer_id' => $customer->user_id,
+                ]);
+            } elseif ($router && !$router->agregar_cliente_mkt) {
                 \Log::info('[CustomerProfile] Skip auto-provision: agregar_cliente_mkt disabled on router', [
                     'router_id' => $router->id,
                 ]);
@@ -467,6 +509,7 @@ class CustomerProfileController extends Controller
             'user_id'      => $customer->user_id,
             'name'         => $customer->name,
             'last_name'    => $customer->last_name,
+            'is_company'   => (bool) $customer->is_company,
             'cedula'       => $customer->cedula,
             'city'         => $customer->city,
             'state'        => $customer->state,
@@ -474,11 +517,15 @@ class CustomerProfileController extends Controller
             'precinto'     => $customer->precinto,
             'installation_date' => $customer->installation_date,
             'estrato'      => $customer->estrato,
+            'comments'     => $customer->comments,
             'latitude'     => $customer->latitude,
             'longitude'    => $customer->longitude,
             'ip_user'      => $customer->ip_user,
             'service_id'   => $customer->service_id,
             'sectorial_id' => $customer->sectorial_id,
+            'olt_id'       => $customer->olt_id,
+            'nap_port'     => $customer->nap_port,
+            'is_fiber'     => (bool) $customer->is_fiber,
             'router_id'    => $customer->router_id,
             'status'         => $customer->status,
             'service_status' => $customer->service_status ?: ($customer->status ? 'activo' : 'suspendido'),
@@ -778,7 +825,10 @@ class CustomerProfileController extends Controller
 
             // customer profile data
             'name'      => 'sometimes|required|string|max:255',
-            'last_name' => 'sometimes|required|string|max:255',
+            // El apellido solo es obligatorio para personas; una empresa puede
+            // dejarlo vacío. Cuando is_company=true permite cadena vacía.
+            'last_name' => [\Illuminate\Validation\Rule::requiredIf(fn () => $request->has('last_name') && !$request->boolean('is_company')), 'nullable', 'string', 'max:255'],
+            'is_company' => 'nullable|boolean',
             'cedula'    => 'nullable|string|max:20',
             'city'      => 'nullable|string|max:255',
             'state'     => 'nullable|string|max:255',
@@ -786,6 +836,7 @@ class CustomerProfileController extends Controller
             'precinto'  => 'nullable|string|max:100',
             'installation_date' => 'nullable|date',
             'estrato'   => 'nullable|integer|between:1,6',
+            'comments'  => 'nullable|string|max:2000',
             'latitude'  => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
 
@@ -793,6 +844,9 @@ class CustomerProfileController extends Controller
             'ip_user'      => 'nullable|string|max:45',
             'service_id'   => 'nullable|integer|exists:service_plan,id',
             'sectorial_id' => 'nullable|integer|exists:sectorial,id',
+            'is_fiber'     => 'nullable|boolean',
+            'olt_id'       => 'nullable|integer|exists:sectorial,id',
+            'nap_port'     => 'nullable|string|max:20',
             'router_id'    => 'nullable|integer|exists:router,id',
 
             // PPPoE secret (optional)
@@ -808,7 +862,28 @@ class CustomerProfileController extends Controller
 
             // Service state
             'service_status' => 'nullable|in:activo,suspendido,cancelado,gratis',
+
+            // "Guardar" (solo BD) vs "Guardar y cargar a RB". Ausente => true.
+            'push_to_router' => 'nullable|boolean',
         ]);
+
+        // IP única por router/CORE: si tras la edición la IP coincide con la de
+        // OTRO cliente del MISMO router se rechaza (norma de red). Se evalúa con
+        // los valores efectivos (los del request, o los actuales si no cambian).
+        $effectiveIp = array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user;
+        $effectiveRouterId = array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id;
+        if (!empty($effectiveIp) && !empty($effectiveRouterId)) {
+            $ipTaken = CustomerProfile::where('router_id', $effectiveRouterId)
+                ->where('ip_user', $effectiveIp)
+                ->where('user_id', '!=', $id)
+                ->whereHas('user', fn ($q) => $q->where('tenant_id', $authTenantId))
+                ->exists();
+            if ($ipTaken) {
+                throw ValidationException::withMessages([
+                    'ip_user' => ["La IP {$effectiveIp} ya está asignada a otro cliente en el mismo router/CORE. Puede repetirse solo en un router distinto."],
+                ]);
+            }
+        }
 
         DB::beginTransaction();
 
@@ -854,7 +929,9 @@ class CustomerProfileController extends Controller
             // update customer profile data
             $customer->update([
                 'name'        => $data['name'] ?? $customer->name,
-                'last_name'   => $data['last_name'] ?? $customer->last_name,
+                // Para empresas el apellido puede llegar vacío; '' es válido (NOT NULL).
+                'last_name'   => array_key_exists('last_name', $data) ? ($data['last_name'] ?? '') : $customer->last_name,
+                'is_company'  => array_key_exists('is_company', $data) ? (bool) $data['is_company'] : $customer->is_company,
                 'cedula'      => array_key_exists('cedula', $data) ? $data['cedula'] : $customer->cedula,
                 'city'        => array_key_exists('city', $data) ? $data['city'] : $customer->city,
                 'state'       => array_key_exists('state', $data) ? $data['state'] : $customer->state,
@@ -862,11 +939,15 @@ class CustomerProfileController extends Controller
                 'precinto'    => array_key_exists('precinto', $data) ? $data['precinto'] : $customer->precinto,
                 'installation_date' => array_key_exists('installation_date', $data) ? $data['installation_date'] : $customer->installation_date,
                 'estrato'     => array_key_exists('estrato', $data) ? ($data['estrato'] !== '' ? $data['estrato'] : null) : $customer->estrato,
+                'comments'    => array_key_exists('comments', $data) ? $data['comments'] : $customer->comments,
                 'latitude'    => array_key_exists('latitude', $data) ? ($data['latitude'] !== '' ? $data['latitude'] : null) : $customer->latitude,
                 'longitude'   => array_key_exists('longitude', $data) ? ($data['longitude'] !== '' ? $data['longitude'] : null) : $customer->longitude,
                 'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
                 'service_id'  => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
                 'sectorial_id'=> array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
+                'olt_id'      => array_key_exists('olt_id', $data) ? $data['olt_id'] : $customer->olt_id,
+                'nap_port'    => array_key_exists('nap_port', $data) ? $data['nap_port'] : $customer->nap_port,
+                'is_fiber'    => array_key_exists('is_fiber', $data) ? (bool) $data['is_fiber'] : $customer->is_fiber,
                 'router_id'      => array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id,
                 'pppoe_username' => array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username,
                 'pppoe_password' => array_key_exists('pppoe_password', $data) ? $data['pppoe_password'] : $customer->pppoe_password,
@@ -884,13 +965,18 @@ class CustomerProfileController extends Controller
 
             DB::commit();
 
+            // "Guardar" (solo BD) vs "Guardar y cargar a RB": con push_to_router=false
+            // se omite toda operación contra la RB (re-aprovisionamiento y sync de
+            // bloqueo por estado). Ausente => true, para no alterar otros llamadores.
+            $pushToRouter = $request->boolean('push_to_router', true);
+
             // Re-sincronizar el cliente en la RB tras la edición, según el
             // MÉTODO DE CONTROL del router (solo si el router auto-provisiona).
             // Mantiene la config de la RB al día tras cambiar plan/IP/MAC/creds.
             $provision     = null;
             $provRouterId  = $data['router_id'] ?? $customer->router_id;
             $provServiceId = $data['service_id'] ?? $customer->service_id;
-            if ($provRouterId && $provServiceId && $customer->ip_user) {
+            if ($pushToRouter && $provRouterId && $provServiceId && $customer->ip_user) {
                 $provRouter = Router::find($provRouterId);
                 $provPlan   = Plan::find($provServiceId);
                 if ($provRouter && $provRouter->agregar_cliente_mkt && $provPlan) {
@@ -910,7 +996,7 @@ class CustomerProfileController extends Controller
             // Delegated to RouterProvisioningService so the attempt is recorded
             // in suspension_action_logs (failover/sync) — non-blocking.
             $statusRouterResult = null;
-            if ($statusBool !== $prevStatusBool && $customer->router_id && $customer->ip_user) {
+            if ($pushToRouter && $statusBool !== $prevStatusBool && $customer->router_id && $customer->ip_user) {
                 try {
                     $prov = app(RouterProvisioningService::class);
                     $ok = $statusBool

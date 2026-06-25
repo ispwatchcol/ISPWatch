@@ -296,6 +296,8 @@ const gestionItems = computed(() => {
         items.push({ name: 'Plan de Internet', to: '/planes', icon: 'bi-speedometer2' });
     if (authStore.hasPermission('view_sectorials'))
         items.push({ name: 'Sectoriales', to: '/sectorials', icon: 'bi-broadcast-pin' });
+    if (authStore.hasPermission('view_sectorials'))
+        items.push({ name: 'Topología FTTH', to: '/sectorials/topology', icon: 'bi-diagram-3' });
     return items;
 });
 

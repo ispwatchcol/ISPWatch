@@ -10,7 +10,9 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\Plan;
 use App\Models\Router;
+use App\Models\SuspensionActionLog;
 use App\Models\User;
 use App\Models\UserService;
 use App\Models\Tenant;
@@ -239,6 +241,119 @@ class BillingService
         Log::info("Billing: Generation complete. {$created} invoice(s) created for period {$period}.");
 
         return $created;
+    }
+
+    /**
+     * Audit (read-only) whether the monthly run actually happened for every
+     * router that was due to invoice. This closes the blind spot the failover
+     * cannot see: the failover only retries per-customer creation exceptions
+     * that were recorded in billing_action_logs, so a router that was skipped
+     * entirely — or a monthly job that never ran at all — leaves NO trace and
+     * triggers NO retry. This method reconstructs the SAME gating as
+     * generateMonthlyInvoices() and compares "expected" vs "actually created".
+     *
+     * Per router it reports:
+     *   - due         : whether today's day has reached the (clamped) create day
+     *   - expected    : active customers with an active, non-courtesy service
+     *   - actual      : monthly invoices that exist for the resolved period
+     *   - failed_logs : FAILED/EXHAUSTED action-log rows for the period
+     *   - status      : pending | ok | partial | no_show
+     *
+     * Writes nothing. Never creates invoices.
+     *
+     * @param string|null $period   YYYY-MM. Null = derive per router (same as generation).
+     * @param int|null    $routerId Limit to a specific router (null = all).
+     * @return array<int,array<string,mixed>>
+     */
+    public function auditMonthlyBilling(?string $period = null, ?int $routerId = null): array
+    {
+        $periodExplicit = $period !== null;
+        $today          = now();
+        $rows           = [];
+
+        $routerQuery = Router::with('billingConfig')->whereNotNull('billing_router_id');
+        if ($routerId !== null) {
+            $routerQuery->where('id', $routerId);
+        }
+
+        foreach ($routerQuery->get() as $router) {
+            $billingConfig = $router->billingConfig;
+            if (!$billingConfig) {
+                continue;
+            }
+
+            $createDay = Billing::clampDayToMonth(Billing::dayOf($billingConfig->create_invoice), $today);
+            if ($createDay === null) {
+                // No create day configured: not a no-show, nothing to audit.
+                continue;
+            }
+
+            // Resolve the covered period EXACTLY like generateMonthlyInvoices().
+            if ($periodExplicit) {
+                $periodMonth = Carbon::parse($period . '-01');
+            } else {
+                $mode = $billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO;
+                $periodMonth = $mode === Billing::MODE_VENCIDO
+                    ? $today->copy()->subMonthNoOverflow()
+                    : $today->copy();
+            }
+            $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
+            $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
+
+            $due = $today->day >= $createDay;
+
+            // Expected: active customers on this router with an active, billable
+            // (non-courtesy) service — the same set generation would invoice.
+            $custIds = CustomerProfile::where('router_id', $router->id)
+                ->where('status', true)
+                ->pluck('user_id');
+
+            $expected = $custIds->isEmpty() ? 0 : UserService::whereIn('user_id', $custIds->all())
+                ->where('status', UserService::STATUS_ACTIVE)
+                ->whereHas('servicePlan', function ($q) {
+                    $q->where('is_courtesy', false)->orWhereNull('is_courtesy');
+                })
+                ->distinct('user_id')
+                ->count('user_id');
+
+            // Actual: monthly invoices for the resolved period, scoped to this
+            // router's customers (so multi-router tenants compare apples to apples).
+            $actual = $custIds->isEmpty() ? 0 : Invoice::where('tenant_id', $router->tenant_id)
+                ->where('period_start', $periodStart)
+                ->where('period_end', $periodEnd)
+                ->whereIn('customer_id', $custIds->all())
+                ->count();
+
+            $failedLogs = BillingActionLog::where('tenant_id', $router->tenant_id)
+                ->where('period_start', $periodStart->toDateString())
+                ->whereIn('status', [BillingActionLog::STATUS_FAILED, BillingActionLog::STATUS_EXHAUSTED])
+                ->count();
+
+            if (!$due) {
+                $status = 'pending';
+            } elseif ($expected > 0 && $actual === 0) {
+                $status = 'no_show';
+            } elseif ($actual < $expected) {
+                $status = 'partial';
+            } else {
+                $status = 'ok';
+            }
+
+            $rows[] = [
+                'router_id'   => $router->id,
+                'router_name' => $router->name,
+                'tenant_id'   => $router->tenant_id,
+                'period'      => $periodStart->format('Y-m'),
+                'create_day'  => $createDay,
+                'due'         => $due,
+                'expected'    => $expected,
+                'actual'      => $actual,
+                'failed_logs' => $failedLogs,
+                'status'      => $status,
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -566,7 +681,7 @@ class BillingService
      */
     public function registerPayment(array $data): Payment
     {
-        return DB::transaction(function () use ($data) {
+        $payment = DB::transaction(function () use ($data) {
             $payment = Payment::create([
                 'tenant_id' => $data['tenant_id'],
                 'customer_id' => $data['customer_id'],
@@ -583,6 +698,84 @@ class BillingService
 
             return $payment->load('allocations');
         });
+
+        // After commit: if this payment cleared the customer's overdue balance,
+        // auto-reconnect them — the mirror of the automatic cut. Runs outside the
+        // transaction (the router call must not hold the DB open) and never throws.
+        $this->reactivateIfCleared((int) $data['customer_id']);
+
+        return $payment;
+    }
+
+    /**
+     * Auto-reconnect a customer after a payment IF, and only if:
+     *   - they have NO overdue invoices left, AND
+     *   - they are currently cut on the router because of billing
+     *     (last suspension log = SUSPEND/success with reason auto_cut/reconcile).
+     *
+     * Customers suspended manually (REASON_MANUAL, e.g. abuse) are left untouched
+     * so paying an invoice never silently lifts a deliberate operator block.
+     * Lifts the block via RouterProvisioningService and mirrors the manual
+     * `activate` DB state (status=true). Never throws — a router failure must not
+     * roll back or break the payment; the reconcile/manual tools remain the safety net.
+     */
+    public function reactivateIfCleared(int $customerId): void
+    {
+        try {
+            $profile = CustomerProfile::where('user_id', $customerId)->first();
+            if (!$profile || !$profile->router_id || !$profile->ip_user) {
+                return;
+            }
+
+            // Still owes? Keep the cut in place.
+            $overdue = Invoice::where('customer_id', $customerId)
+                ->where('due_date', '<', now())
+                ->where('balance_due', '>', 0)
+                ->whereNotIn('status', ['void', 'cancelled', 'paid'])
+                ->count();
+            if ($overdue > 0) {
+                return;
+            }
+
+            // Is the customer currently cut, and was it a billing-driven cut?
+            // Same "confirmed cut" signal the reconciler uses: the latest log row.
+            $latest = SuspensionActionLog::where('customer_id', $customerId)
+                ->where('router_id', $profile->router_id)
+                ->latest('id')
+                ->first();
+
+            $cutByBilling = $latest
+                && $latest->action === SuspensionActionLog::ACTION_SUSPEND
+                && $latest->status === SuspensionActionLog::STATUS_SUCCESS
+                && in_array($latest->reason, [
+                    SuspensionActionLog::REASON_AUTO_CUT,
+                    SuspensionActionLog::REASON_RECONCILE,
+                ], true);
+
+            if (!$cutByBilling) {
+                return; // not cut, already reconnected, or a manual (non-billing) block
+            }
+
+            $ok = app(RouterProvisioningService::class)->unsuspendCustomer(
+                $customerId,
+                (int) $profile->router_id,
+                ['reason' => SuspensionActionLog::REASON_AUTO_RECONNECT]
+            );
+
+            // Mirror the manual activate's DB state so the UI reflects reality.
+            if ($ok && $profile->status !== true) {
+                $plan = $profile->service_id ? Plan::find($profile->service_id) : null;
+                $profile->update([
+                    'status'         => true,
+                    'service_status' => ($plan && $plan->is_courtesy) ? 'gratis' : 'activo',
+                ]);
+            }
+
+            Log::info("Billing: auto-reconnect customer {$customerId} after payment cleared overdue balance "
+                . "(router {$profile->router_id}). router_ok=" . ($ok ? '1' : '0'));
+        } catch (\Throwable $e) {
+            Log::error("Billing: auto-reconnect after payment failed for customer {$customerId}: {$e->getMessage()}");
+        }
     }
 
     /**

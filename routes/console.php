@@ -15,6 +15,12 @@ Schedule::command('billing:generate-monthly')->daily();
 // Backoff escalonado (2h/6h/24h) — corre cada hora pero solo procesa rows con next_retry_at vencido.
 Schedule::command('billing:retry-failed')->hourly();
 
+// Detección de no-show: audita que la facturación mensual realmente ocurrió y
+// alerta (log + email) si un router que debía facturar generó 0 o quedó incompleto.
+// Cubre el punto ciego que el failover NO ve: un router saltado o un job que nunca corrió
+// no dejan rastro en billing_action_logs. Corre tras el generate (00:00) y varios retries.
+Schedule::command('billing:verify-monthly')->dailyAt('06:00');
+
 // Auto-cut: run every hour so it picks up routers whose cut_time has arrived
 Schedule::command('billing:auto-cut')->hourly();
 
@@ -22,6 +28,11 @@ Schedule::command('billing:auto-cut')->hourly();
 // suspendidos en la DB cuyo corte no quedó confirmado (con backoff por cliente).
 // Corre tras el auto-cut para recoger lo que haya fallado.
 Schedule::command('billing:reconcile-suspensions')->hourly();
+
+// Detección de no-show de cortes: alerta (log + email) si un router de Corte
+// Automático está mal configurado (sin cut_day) o dejó clientes morosos sin cortar
+// pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.
+Schedule::command('billing:verify-cuts')->dailyAt('07:00');
 
 // Payment reminders: run daily — the service fires on each router's
 // billing.payment_reminder day and is idempotent per billing cycle
