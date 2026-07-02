@@ -302,9 +302,12 @@
                     <v-icon name="bi-hdd-network" class="w-4 h-4 mr-1 inline" />
                     IP del Usuario
                     <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400 animate-pulse">cargando...</span>
-                    <span v-else-if="ipStats.free > 0" class="ml-1 text-xs text-green-500">{{ ipStats.free }} libres</span>
+                    <span v-else-if="ipStats.free > 0 && form.service_status !== 'retirado'" class="ml-1 text-xs text-green-500">{{ ipStats.free }} libres</span>
+                    <span v-if="form.service_status === 'retirado'" class="ml-1 text-xs text-slate-400">(liberada al retirar)</span>
                 </label>
                 <input v-model="form.ip_user" type="text" class="svc-input"
+                    :disabled="form.service_status === 'retirado'"
+                    :class="form.service_status === 'retirado' ? 'opacity-40 cursor-not-allowed' : ''"
                     placeholder="192.168.1.100" />
                 </div>
 
@@ -414,7 +417,7 @@
                         Plan de cortesía — fijado en Gratis automáticamente
                     </span>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-2xl">
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 max-w-2xl">
                     <button
                         v-for="opt in statusOptions"
                         :key="opt.value"
@@ -433,6 +436,34 @@
                         {{ opt.label }}
                     </button>
                 </div>
+            </div>
+
+            <!-- BLOQUE INFORMATIVO: cliente retirado -->
+            <div v-if="form.service_status === 'retirado'" class="mt-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 space-y-3">
+                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Historial de retiro</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                        <span class="block text-xs text-slate-400 dark:text-slate-500 mb-0.5">IP anterior</span>
+                        <span class="font-mono font-medium text-slate-700 dark:text-slate-300">{{ form.last_ip || '—' }}</span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-slate-400 dark:text-slate-500 mb-0.5">Fecha de retiro</span>
+                        <span class="font-medium text-slate-700 dark:text-slate-300">
+                            {{ form.retired_at ? new Date(form.retired_at).toLocaleString('es-CO') : '—' }}
+                        </span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-slate-400 dark:text-slate-500 mb-0.5">Motivo</span>
+                        <span class="text-slate-700 dark:text-slate-300">{{ form.retired_reason || '—' }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Campo motivo de retiro (editable solo al momento de retirar) -->
+            <div v-if="form.service_status === 'retirado' && !form.retired_at" class="mt-3">
+                <label class="label">Motivo del retiro <span class="text-slate-400 text-xs font-normal">(opcional)</span></label>
+                <input v-model="form.retired_reason" type="text" class="svc-input"
+                    maxlength="500" placeholder="Ej: cliente solicitó cancelar contrato" />
             </div>
 
             <!-- IP RANGE ANALYZER -->
@@ -769,6 +800,10 @@ const form = ref({
     is_fiber: false,
     router_id: null,
     service_status: 'activo',
+    // Retirement history (readonly, set by backend)
+    last_ip: '',
+    retired_at: null,
+    retired_reason: '',
     create_pppoe_secret: false,
     pppoe_username: '',
     pppoe_password: '',
@@ -973,10 +1008,11 @@ watch(isCourtesyPlan, (courtesy) => {
 })
 
 const statusOptions = [
-    { value: 'activo',     label: 'Activo',     activeClass: 'bg-green-500 text-white border-green-500',     dotClass: 'bg-green-500' },
-    { value: 'suspendido', label: 'Suspendido', activeClass: 'bg-amber-500 text-white border-amber-500',     dotClass: 'bg-amber-500' },
-    { value: 'cancelado',  label: 'Cancelado',  activeClass: 'bg-red-500 text-white border-red-500',         dotClass: 'bg-red-500' },
+    { value: 'activo',     label: 'Activo',     activeClass: 'bg-green-500 text-white border-green-500',   dotClass: 'bg-green-500' },
+    { value: 'suspendido', label: 'Suspendido', activeClass: 'bg-amber-500 text-white border-amber-500',   dotClass: 'bg-amber-500' },
+    { value: 'cancelado',  label: 'Cancelado',  activeClass: 'bg-red-500 text-white border-red-500',       dotClass: 'bg-red-500' },
     { value: 'gratis',     label: 'Gratis',     activeClass: 'bg-indigo-500 text-white border-indigo-500', dotClass: 'bg-indigo-500' },
+    { value: 'retirado',   label: 'Retirado',   activeClass: 'bg-slate-500 text-white border-slate-500',   dotClass: 'bg-slate-500' },
 ]
 
 // Detect PPPoE plan by type_plan name, plan name, or pppoe_pool field
@@ -1059,7 +1095,10 @@ const loadCustomer = async () => {
             nap_port:     d.nap_port || '',
             is_fiber:     !!d.is_fiber,
             router_id:    d.router_id || null,
-            service_status: d.service_status || 'activo',
+            service_status:  d.service_status || 'activo',
+            last_ip:         d.last_ip        || '',
+            retired_at:      d.retired_at     || null,
+            retired_reason:  d.retired_reason || '',
             create_pppoe_secret: false,
             pppoe_username: d.pppoe_username || '',
             pppoe_password: d.pppoe_password || '',
@@ -1153,6 +1192,17 @@ const handleSubmit = async (pushToRouter = true) => {
 
         const res   = await api.customers.update(route.params.id, dataToSend)
         const pppoe = res.data?.pppoe_provisioned
+
+        // Sync retirement and IP fields from the backend response so the
+        // "Historial de retiro" block reflects the saved state immediately,
+        // without requiring a manual page reload.
+        const updatedProfile = res.data?.customer
+        if (updatedProfile) {
+            form.value.ip_user        = updatedProfile.ip_user        ?? ''
+            form.value.last_ip        = updatedProfile.last_ip        ?? ''
+            form.value.retired_at     = updatedProfile.retired_at     ?? null
+            form.value.retired_reason = updatedProfile.retired_reason ?? ''
+        }
 
         if (!pushToRouter) {
             toast.value?.success('Cliente guardado', 'Los datos se guardaron en la base de datos (no se cargó a la RB).')

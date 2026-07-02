@@ -217,6 +217,7 @@
                             <option value="suspendido">Suspendido</option>
                             <option value="cancelado">Cancelado</option>
                             <option value="gratis">Gratis / Cortesía</option>
+                            <option value="retirado">Retirado</option>
                         </select>
                     </div>
                 </div>
@@ -935,10 +936,11 @@ const popupRow = (label, value) => {
 
 // Colores de la pastilla de estado del servicio del cliente.
 const STATUS_STYLES = {
-    activo: { bg: "#ECFDF5", fg: "#047857", label: "Activo" },
+    activo:     { bg: "#ECFDF5", fg: "#047857", label: "Activo" },
     suspendido: { bg: "#FFF7ED", fg: "#C2410C", label: "Suspendido" },
-    cancelado: { bg: "#FEF2F2", fg: "#B91C1C", label: "Cancelado" },
-    gratis: { bg: "#EEF2FF", fg: "#4338CA", label: "Gratis / Cortesía" },
+    cancelado:  { bg: "#FEF2F2", fg: "#B91C1C", label: "Cancelado" },
+    gratis:     { bg: "#EEF2FF", fg: "#4338CA", label: "Gratis / Cortesía" },
+    retirado:   { bg: "#F8FAFC", fg: "#64748B", label: "Retirado" },
 };
 const statusStyle = (status) =>
     STATUS_STYLES[status] || {

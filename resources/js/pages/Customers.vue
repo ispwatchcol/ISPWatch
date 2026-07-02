@@ -242,6 +242,7 @@
                             <option value="suspendido">Suspendido</option>
                             <option value="cancelado">Cancelado</option>
                             <option value="gratis">Gratis</option>
+                            <option value="retirado">Retirado</option>
                         </select>
                         <input v-else v-model="columnFilters[col.key]" type="text"
                             :placeholder="col.label"
@@ -758,6 +759,7 @@ const STATUS_BADGES = {
     suspendido: { label: 'Suspendido', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
     cancelado:  { label: 'Cancelado',  cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
     gratis:     { label: 'Gratis',     cls: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+    retirado:   { label: 'Retirado',   cls: 'bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-400' },
 }
 const statusBadge = (c) => {
     const key = c.service_status || (c.status ? 'activo' : 'suspendido')
