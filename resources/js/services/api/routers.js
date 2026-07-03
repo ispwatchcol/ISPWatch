@@ -39,4 +39,16 @@ export default {
     getFreeIps(id) {
         return apiClient.get(`/routers/${id}/free-ips`)
     },
+    // Falla masiva: estado + nº de clientes activos que recibirían el aviso.
+    getOutageInfo(id) {
+        return apiClient.get(`/routers/${id}/outage`)
+    },
+    // Marca el core en falla y registra el evento para difundir vía Converza.
+    notifyOutage(id) {
+        return apiClient.post(`/routers/${id}/outage/notify`)
+    },
+    // Marca el core restablecido y registra el evento para difundir vía Converza.
+    resolveOutage(id) {
+        return apiClient.post(`/routers/${id}/outage/resolve`)
+    },
 }
