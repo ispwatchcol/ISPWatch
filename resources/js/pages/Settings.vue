@@ -1023,6 +1023,7 @@
                 <div v-if="activeTab === 'import'" class="space-y-6">
                     <ImportSection />
                     <CustomersUpdateSection />
+                    <InventoryImportSection />
                 </div>
             </div>
     </div>
@@ -1034,6 +1035,7 @@ import SettingsSection from "@/components/SettingsSection.vue";
 import NotificationToast from "@/components/NotificationToast.vue";
 import ImportSection from "@/components/import/ImportSection.vue";
 import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.vue";
+import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
 import { apiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 

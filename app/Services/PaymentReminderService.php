@@ -88,8 +88,10 @@ class PaymentReminderService
 
             $stats['routers_processed']++;
 
+            // exclude_from_billing: clientes "no facturar" no reciben recordatorios.
             $profiles = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
+                ->where('exclude_from_billing', false)
                 ->get();
 
             foreach ($profiles as $profile) {

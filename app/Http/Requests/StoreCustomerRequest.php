@@ -37,6 +37,9 @@ class StoreCustomerRequest extends FormRequest
             'precinto'       => 'nullable|string|max:100',
             'installation_date' => 'nullable|date',
             'estrato'        => 'nullable|integer|between:1,6',
+            // Cliente "no facturar": queda fuera del ciclo automático (sin factura
+            // mensual, sin recordatorios/notificaciones ni corte por mora).
+            'exclude_from_billing' => 'nullable|boolean',
             'comments'       => 'nullable|string|max:2000',
 
             // Service configuration

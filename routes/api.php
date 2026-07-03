@@ -297,5 +297,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('customers-update-template', [ImportController::class, 'downloadCustomersUpdateTemplate']);
         Route::post('customers-update', [ImportController::class, 'importCustomersUpdate']);
         Route::get('customers-update-docs', [ImportController::class, 'customersUpdateFieldDocs']);
+
+        // Bulk inventory load (devices with serial/MAC; stock/provider/branch by name)
+        Route::get('inventory-template', [ImportController::class, 'downloadInventoryTemplate']);
+        Route::post('inventory', [ImportController::class, 'importInventory']);
+        Route::get('inventory-docs', [ImportController::class, 'inventoryFieldDocs']);
     });
 });

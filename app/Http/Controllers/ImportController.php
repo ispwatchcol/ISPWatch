@@ -3,8 +3,10 @@ namespace App\Http\Controllers;
 
 use App\Exports\CustomersUpdateTemplateExport;
 use App\Exports\ImportErrorsExport;
+use App\Exports\InventoryTemplateExport;
 use App\Exports\UnifiedTemplateExport;
 use App\Imports\CustomersUpdateImport;
+use App\Imports\InventoryImport;
 use App\Imports\UnifiedImport;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -94,6 +96,79 @@ class ImportController extends Controller
             'errors' => $errors,
             'message' => $this->buildUpdateSummaryMessage($updated, $errors),
         ], $hasErrors && $updated === 0 ? 422 : 200);
+    }
+
+    public function downloadInventoryTemplate()
+    {
+        return Excel::download(new InventoryTemplateExport(), 'plantilla_inventario.xlsx');
+    }
+
+    public function importInventory(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls|max:10240',
+        ]);
+
+        // Cargas grandes pueden superar el max_execution_time por defecto.
+        @set_time_limit(120);
+
+        $tenantId = auth()->user()->tenant_id;
+        $import = new InventoryImport($tenantId);
+
+        try {
+            Excel::import($import, $request->file('file'));
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar el archivo: ' . $e->getMessage(),
+                'summary' => ['equipos' => $import->imported],
+                'errors'  => $import->errors,
+            ], 500);
+        }
+
+        $errors = $import->errors;
+        $imported = $import->imported;
+        $hasErrors = !empty($errors);
+
+        return response()->json([
+            'success' => !$hasErrors,
+            'partial' => $hasErrors && $imported > 0,
+            'summary' => ['equipos' => $imported],
+            'errors'  => $errors,
+            'message' => $this->buildInventorySummaryMessage($imported, $errors),
+        ], $hasErrors && $imported === 0 ? 422 : 200);
+    }
+
+    public function inventoryFieldDocs()
+    {
+        return response()->json([
+            'Inventario' => [
+                ['field' => 'marca', 'required' => false, 'description' => 'Marca del equipo. Junto con el modelo define el ítem de stock; si no existe se crea automáticamente.', 'example' => 'TP-Link'],
+                ['field' => 'modelo', 'required' => false, 'description' => 'Modelo del equipo. Junto con la marca define el ítem de stock. Indica al menos marca, modelo, serial o MAC.', 'example' => 'Archer C6'],
+                ['field' => 'precio', 'required' => false, 'description' => 'Precio del equipo (solo números). Se guarda en el ítem de stock la primera vez que aparece la marca-modelo.', 'example' => '120000'],
+                ['field' => 'serial', 'required' => false, 'description' => 'Número de serie único del equipo. Si ya existe en el inventario, la fila se rechaza.', 'example' => 'SN-0001'],
+                ['field' => 'mac', 'required' => false, 'description' => 'Dirección MAC única del equipo. Si ya existe en el inventario, la fila se rechaza.', 'example' => 'AA:BB:CC:DD:EE:01'],
+                ['field' => 'proveedor', 'required' => false, 'description' => 'Nombre del proveedor. Si no existe se crea automáticamente.', 'example' => 'Proveedor Principal'],
+                ['field' => 'sucursal', 'required' => false, 'description' => 'Nombre de la sucursal/bodega. Si no existe se crea automáticamente.', 'example' => 'Bodega Central'],
+            ],
+        ]);
+    }
+
+    private function buildInventorySummaryMessage(int $imported, array $errors): string
+    {
+        if ($imported === 0 && empty($errors)) {
+            return 'No se encontraron filas para importar.';
+        }
+
+        $msg = $imported > 0
+            ? "Importado(s): {$imported} equipo(s)"
+            : 'Ningún equipo importado';
+
+        if (!empty($errors)) {
+            $msg .= '. Se encontraron ' . count($errors) . ' errores.';
+        }
+
+        return $msg;
     }
 
     public function customersUpdateFieldDocs()
