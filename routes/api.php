@@ -7,6 +7,7 @@ use App\Http\Controllers\CustomerDocumentController;
 use App\Http\Controllers\CustomerInstallationController;
 use App\Http\Controllers\ProspectController;
 use App\Http\Controllers\RouterController;
+use App\Http\Controllers\RouterOutageController;
 use App\Http\Controllers\InventoryDeviceController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
@@ -138,6 +139,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync'])
         ->middleware('permission:manage_routers');
     Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
+
+    // ─── FALLA MASIVA (mass outage broadcast) ───
+    // Records the outage/recovery signal; Converza polls it read-only and sends.
+    Route::get('/routers/{router}/outage', [RouterOutageController::class, 'show']);
+    Route::post('/routers/{router}/outage/notify', [RouterOutageController::class, 'notify'])
+        ->middleware('permission:manage_routers');
+    Route::post('/routers/{router}/outage/resolve', [RouterOutageController::class, 'resolve'])
+        ->middleware('permission:manage_routers');
 
     // Plan → RB engine sync (per control method)
     Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);

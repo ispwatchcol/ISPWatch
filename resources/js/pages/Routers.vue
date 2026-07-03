@@ -173,6 +173,21 @@
                     Corte
                   </button>
 
+                  <!-- Botón Falla masiva / Restablecido -->
+                  <button
+                    v-if="can('manage_routers')"
+                    @click="openOutageModal(router)"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 hover:scale-[1.03] transition-all"
+                    :class="router.falla_general
+                      ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50'
+                      : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-800/50'"
+                    :title="router.falla_general ? 'Notificar a los clientes del core que el servicio fue restablecido' : 'Notificar falla masiva a los clientes conectados a este core'"
+                  >
+                    <icon-lucide-circle-check v-if="router.falla_general" class="w-4 h-4" />
+                    <icon-lucide-siren v-else class="w-4 h-4" />
+                    {{ router.falla_general ? 'Restablecido' : 'Falla' }}
+                  </button>
+
                   <!-- Botón Detalles -->
                   <button
                     @click="openDetailsModal(router)"
@@ -257,6 +272,18 @@
                   class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1 bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
                 >
                   <icon-lucide-scissors class="w-3.5 h-3.5" /> Corte
+                </button>
+                <button
+                  v-if="can('manage_routers')"
+                  @click="openOutageModal(router)"
+                  class="flex-1 min-w-[80px] px-2 py-2 text-xs font-medium rounded-lg flex justify-center items-center gap-1"
+                  :class="router.falla_general
+                    ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800'
+                    : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'"
+                >
+                  <icon-lucide-circle-check v-if="router.falla_general" class="w-3.5 h-3.5" />
+                  <icon-lucide-siren v-else class="w-3.5 h-3.5" />
+                  {{ router.falla_general ? 'Restablecido' : 'Falla' }}
                 </button>
                 <button
                   @click="openDetailsModal(router)"
@@ -1005,6 +1032,43 @@
           </div>
         </div>
       </div>
+
+      <!-- Modal Falla masiva: confirma y notifica a los clientes del core -->
+      <ConfirmModal
+        :visible="showOutageModal"
+        :title="outageRouter?.falla_general ? 'Notificar restablecimiento' : 'Notificar falla masiva'"
+        :variant="outageRouter?.falla_general ? 'info' : 'warning'"
+        :confirmText="outageRouter?.falla_general ? 'Notificar restablecido' : 'Notificar falla'"
+        :loading="outageLoading"
+        loadingText="Registrando..."
+        @confirm="confirmOutage"
+        @cancel="closeOutageModal"
+      >
+        <div
+          class="rounded-lg p-4 border"
+          :class="outageRouter?.falla_general
+            ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+            : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'"
+        >
+          <p class="text-sm text-gray-700 dark:text-gray-200">
+            <template v-if="outageRouter?.falla_general">
+              Se marcará el core <strong>{{ outageRouter?.name }}</strong> como <strong>restablecido</strong>
+              y se enviará el aviso de servicio restablecido a sus clientes conectados.
+            </template>
+            <template v-else>
+              Se marcará el core <strong>{{ outageRouter?.name }}</strong> en <strong>falla masiva</strong>
+              y se enviará el aviso de falla a sus clientes conectados.
+            </template>
+          </p>
+          <p class="text-sm mt-2 text-gray-600 dark:text-gray-300">
+            Clientes a notificar:
+            <strong>{{ outageAffected === null ? '…' : outageAffected }}</strong>
+          </p>
+          <p class="text-xs mt-2 text-gray-500 dark:text-gray-400">
+            El envío por WhatsApp lo realiza Converza al detectar el evento.
+          </p>
+        </div>
+      </ConfirmModal>
   </div>
 </template>
 
@@ -1013,6 +1077,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
+import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import api from '@/services/api.js'
 import { usePermissions } from '@/composables/usePermissions'
 
@@ -1119,6 +1184,59 @@ const runAutoCut = async () => {
     toast.value?.error('Error', 'No se pudo ejecutar el corte automático.')
   } finally {
     runningAutoCut.value = false
+  }
+}
+
+// Estados del modal Falla masiva (aviso a los clientes del core vía Converza)
+const showOutageModal = ref(false)
+const outageRouter = ref(null)
+const outageAffected = ref(null)   // nº de clientes a notificar (se carga async)
+const outageLoading = ref(false)   // confirmación en curso
+
+const openOutageModal = async (routerItem) => {
+  outageRouter.value = routerItem
+  outageAffected.value = null
+  showOutageModal.value = true
+  try {
+    const { data } = await api.routers.getOutageInfo(routerItem.id)
+    outageAffected.value = data.affected_count
+  } catch (e) {
+    // El conteo es informativo; si falla, el modal se muestra sin él.
+  }
+}
+
+const closeOutageModal = () => {
+  if (outageLoading.value) return
+  showOutageModal.value = false
+  outageRouter.value = null
+  outageAffected.value = null
+}
+
+const confirmOutage = async () => {
+  if (!outageRouter.value) return
+  const r = outageRouter.value
+  const goingToFail = !r.falla_general
+  outageLoading.value = true
+  try {
+    const { data } = goingToFail
+      ? await api.routers.notifyOutage(r.id)
+      : await api.routers.resolveOutage(r.id)
+
+    // Reflejar el nuevo estado en la lista (badge + botón).
+    const found = routers.value.find(x => x.id === r.id)
+    if (found) found.falla_general = data.falla_general
+
+    toast.value?.success(
+      goingToFail ? 'Falla notificada' : 'Restablecimiento notificado',
+      data.message,
+    )
+    showOutageModal.value = false
+    outageRouter.value = null
+    outageAffected.value = null
+  } catch (e) {
+    toast.value?.error('Error', e.response?.data?.message || 'No se pudo registrar el evento de falla.')
+  } finally {
+    outageLoading.value = false
   }
 }
 
