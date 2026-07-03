@@ -41,10 +41,7 @@
         </aside>
 
         <!-- Main Content -->
-        <!-- pb-28 reserves 112 px at the bottom so the fixed WhatsApp FAB
-             (bottom-8/bottom-10, h-16 = 96-104 px tall) never overlaps
-             pagination controls or any other interactive element. -->
-        <main class="flex-1 md:ml-64 pt-16 md:pt-0 pb-28 transition-all duration-300">
+        <main class="flex-1 md:ml-64 pt-16 md:pt-0 transition-all duration-300">
             <router-view />
         </main>
 

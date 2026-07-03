@@ -3,7 +3,7 @@
         <!-- Floating WhatsApp Button - Improved position -->
         <button
             @click="openModal"
-            class="fixed bottom-8 right-8 md:bottom-10 md:right-10 z-50 w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg hover:shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-110 group"
+            class="fixed bottom-32 right-8 md:bottom-28 md:right-10 z-50 w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg hover:shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-110 group"
             aria-label="Contactar por WhatsApp"
         >
             <v-icon name="fa-whatsapp" class="w-8 h-8 text-white" />
