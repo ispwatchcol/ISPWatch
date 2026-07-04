@@ -233,6 +233,27 @@
                     placeholder="Ej: 3" />
                 </div>
 
+                <!-- No facturar: deja al cliente fuera del ciclo automático -->
+                <div class="md:col-span-2 flex items-start gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <button type="button" role="switch" :aria-checked="form.exclude_from_billing"
+                    @click="form.exclude_from_billing = !form.exclude_from_billing"
+                    :class="form.exclude_from_billing ? 'bg-amber-600' : 'bg-gray-300 dark:bg-gray-600'"
+                    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors mt-0.5">
+                    <span :class="form.exclude_from_billing ? 'translate-x-6' : 'translate-x-1'"
+                        class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
+                </button>
+                <div>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                        <v-icon name="md-moneyoff" class="w-4 h-4" /> No facturar a este cliente
+                    </span>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        No se le generarán facturas mensuales, no recibirá recordatorios ni notificaciones
+                        (correo/WhatsApp) y el corte automático por mora lo ignorará. Úsalo para clientes
+                        de facturación manual o especiales.
+                    </p>
+                </div>
+                </div>
+
                 <div class="md:col-span-2">
                 <label class="label">
                     <v-icon name="md-description" class="w-4 h-4 mr-1 inline" />
@@ -790,6 +811,7 @@ const form = ref({
     precinto: '',
     installation_date: '',
     estrato: null,
+    exclude_from_billing: false,
     comments: '',
     latitude: '',
     longitude: '',
@@ -1098,6 +1120,7 @@ const loadCustomer = async () => {
             precinto:     d.precinto || '',
             installation_date: (d.installation_date || '').slice(0, 10),
             estrato:      d.estrato ?? null,
+            exclude_from_billing: !!d.exclude_from_billing,
             comments:     d.comments || '',
             latitude:     d.latitude ?? '',
             longitude:    d.longitude ?? '',

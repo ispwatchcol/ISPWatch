@@ -245,6 +245,52 @@ class RouterMonthlyBillingTest extends TestCase
     }
 
     #[Test]
+    public function it_skips_customers_excluded_from_billing(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 15);
+        $router = $this->makeRouter($tenant, $config);
+
+        // Two identical, billable customers on the same router — one flagged
+        // "no facturar". Only the normal one must be invoiced.
+        $normal   = $this->makeCustomer($tenant, $router, $plan);
+        $excluded = $this->makeCustomer($tenant, $router, $plan);
+        CustomerProfile::where('user_id', $excluded->id)->update(['exclude_from_billing' => true]);
+
+        $count = $this->billing->generateMonthlyInvoices();
+
+        $this->assertSame(1, $count);
+        $this->assertSame(1, Invoice::where('customer_id', $normal->id)->count());
+        $this->assertSame(0, Invoice::where('customer_id', $excluded->id)->count());
+    }
+
+    #[Test]
+    public function the_no_show_audit_ignores_customers_excluded_from_billing(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 12, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 15);
+        $router = $this->makeRouter($tenant, $config);
+
+        // The ONLY customer on the router is excluded → nothing should be
+        // invoiced AND the audit must report "ok" (not a false no-show).
+        $excluded = $this->makeCustomer($tenant, $router, $plan);
+        CustomerProfile::where('user_id', $excluded->id)->update(['exclude_from_billing' => true]);
+
+        $this->billing->generateMonthlyInvoices();
+
+        $rows = $this->billing->auditMonthlyBilling();
+        $this->assertCount(1, $rows);
+        $this->assertSame(0, $rows[0]['expected']);
+        $this->assertSame('ok', $rows[0]['status']);
+    }
+
+    #[Test]
     public function it_skips_inactive_customer_profiles(): void
     {
         Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));

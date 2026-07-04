@@ -184,8 +184,11 @@ class BillingService
             // NOTE: customer_profile.status is a BOOLEAN column (true = active).
             // Comparing it to the string 'active' throws on PostgreSQL
             // (SQLSTATE 22P02) and silently matches nothing on SQLite.
+            // exclude_from_billing = clientes marcados como "no facturar": quedan
+            // fuera del ciclo automático (sin factura, recordatorio ni corte).
             $customerProfiles = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
+                ->where('exclude_from_billing', false)
                 ->get();
 
             Log::info("Billing: Router {$router->id} ({$router->name}) — {$customerProfiles->count()} active customer(s) to check.");
@@ -331,8 +334,11 @@ class BillingService
 
             // Expected: active customers on this router with an active, billable
             // (non-courtesy) service — the same set generation would invoice.
+            // Excluded ("no facturar") customers are not expected to be invoiced,
+            // so they must not count toward the no-show/partial audit either.
             $custIds = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
+                ->where('exclude_from_billing', false)
                 ->pluck('user_id');
 
             $expected = $custIds->isEmpty() ? 0 : UserService::whereIn('user_id', $custIds->all())
@@ -470,10 +476,12 @@ class BillingService
         }
 
         $profile = CustomerProfile::where('user_id', $log->customer_id)->first();
-        if (!$profile || !$profile->status) {
+        if (!$profile || !$profile->status || $profile->exclude_from_billing) {
             $log->update([
                 'status'     => BillingActionLog::STATUS_EXHAUSTED,
-                'last_error' => 'Customer profile inactive or missing',
+                'last_error' => $profile && $profile->exclude_from_billing
+                    ? 'Customer excluded from billing'
+                    : 'Customer profile inactive or missing',
                 'attempts'   => $log->attempts + 1,
             ]);
             return false;
@@ -1087,6 +1095,12 @@ class BillingService
     {
         $customer = $invoice->customer;
         if (!$customer) {
+            return;
+        }
+
+        // "No facturar": never notify an excluded customer, even if some other
+        // code path created an invoice for them manually.
+        if ($profile->exclude_from_billing) {
             return;
         }
 

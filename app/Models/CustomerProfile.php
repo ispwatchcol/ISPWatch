@@ -24,6 +24,7 @@ class CustomerProfile extends Model
         'city',
         'installation_date',
         'estrato',
+        'exclude_from_billing',
         'comments',
         'state',
         'postal_code',
@@ -52,9 +53,10 @@ class CustomerProfile extends Model
     ];
 
     protected $casts = [
-        'is_company'  => 'boolean',
-        'is_fiber'    => 'boolean',
-        'retired_at'  => 'datetime',
+        'is_company'           => 'boolean',
+        'is_fiber'             => 'boolean',
+        'exclude_from_billing' => 'boolean',
+        'retired_at'           => 'datetime',
     ];
 
     public function user()

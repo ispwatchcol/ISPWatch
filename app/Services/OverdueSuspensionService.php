@@ -392,8 +392,11 @@ class OverdueSuspensionService
         // All active customers assigned to this router.
         // customer_profile.status is a BOOLEAN column (true = active);
         // comparing to the string 'active' throws on PostgreSQL.
+        // exclude_from_billing: clientes "no facturar" quedan fuera del corte
+        // automático por mora (facturación manual / clientes especiales).
         $profiles = CustomerProfile::where('router_id', $router->id)
             ->where('status', true)
+            ->where('exclude_from_billing', false)
             ->get();
 
         return $profiles->filter(function (CustomerProfile $profile) use ($maxOverdue) {
