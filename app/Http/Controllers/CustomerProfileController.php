@@ -560,6 +560,9 @@ class CustomerProfileController extends Controller
             'email'          => $user->email,
             'tel'            => $user->tel,
             'email_tenant'   => $user->email_tenant,
+            'last_ip'        => $customer->last_ip,
+            'retired_at'     => $customer->retired_at,
+            'retired_reason' => $customer->retired_reason,
         ]);
     }
 
@@ -884,7 +887,8 @@ class CustomerProfileController extends Controller
             'mac_address'         => 'nullable|string|max:17|regex:/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/',
 
             // Service state
-            'service_status' => 'nullable|in:activo,suspendido,cancelado,gratis',
+            'service_status'  => 'nullable|in:activo,suspendido,cancelado,gratis,retirado',
+            'retired_reason'  => 'nullable|string|max:500',
 
             // "Guardar" (solo BD) vs "Guardar y cargar a RB". Ausente => true.
             'push_to_router' => 'nullable|boolean',
@@ -893,7 +897,9 @@ class CustomerProfileController extends Controller
         // IP única por router/CORE: si tras la edición la IP coincide con la de
         // OTRO cliente del MISMO router se rechaza (norma de red). Se evalúa con
         // los valores efectivos (los del request, o los actuales si no cambian).
-        $effectiveIp = array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user;
+        // Si el estado cambia a 'retirado' la IP se liberará, no se valida unicidad.
+        $willRetire  = (($data['service_status'] ?? null) === 'retirado');
+        $effectiveIp = $willRetire ? null : (array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user);
         $effectiveRouterId = array_key_exists('router_id', $data) ? $data['router_id'] : $customer->router_id;
         if (!empty($effectiveIp) && !empty($effectiveRouterId)) {
             $ipTaken = CustomerProfile::where('router_id', $effectiveRouterId)
@@ -947,6 +953,12 @@ class CustomerProfileController extends Controller
                 $serviceStatus = $requestedStatus;
             }
 
+            // Retirement transition: save IP → null it → stamp timestamp.
+            // Only triggers on first transition to 'retirado'; re-saves are no-ops.
+            $isRetiring = ($serviceStatus === 'retirado' && $customer->service_status !== 'retirado');
+            $wasRetired = ($customer->service_status === 'retirado');
+            $retireIp   = ($isRetiring && $customer->ip_user) ? $customer->ip_user : null;
+
             $statusBool = in_array($serviceStatus, ['activo', 'gratis'], true);
 
             // update customer profile data
@@ -966,7 +978,14 @@ class CustomerProfileController extends Controller
                 'comments'    => array_key_exists('comments', $data) ? $data['comments'] : $customer->comments,
                 'latitude'    => array_key_exists('latitude', $data) ? ($data['latitude'] !== '' ? $data['latitude'] : null) : $customer->latitude,
                 'longitude'   => array_key_exists('longitude', $data) ? ($data['longitude'] !== '' ? $data['longitude'] : null) : $customer->longitude,
-                'ip_user'     => array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user,
+                'ip_user'         => $isRetiring
+                    ? null
+                    : (array_key_exists('ip_user', $data) ? $data['ip_user'] : $customer->ip_user),
+                'last_ip'         => ($isRetiring && $retireIp) ? $retireIp        : $customer->last_ip,
+                'retired_at'      => ($isRetiring && !$wasRetired) ? now()          : $customer->retired_at,
+                'retired_reason'  => ($isRetiring && !$wasRetired)
+                    ? ($data['retired_reason'] ?? null)
+                    : $customer->retired_reason,
                 'service_id'  => array_key_exists('service_id', $data) ? $data['service_id'] : $customer->service_id,
                 'sectorial_id'=> array_key_exists('sectorial_id', $data) ? $data['sectorial_id'] : $customer->sectorial_id,
                 'olt_id'      => array_key_exists('olt_id', $data) ? $data['olt_id'] : $customer->olt_id,

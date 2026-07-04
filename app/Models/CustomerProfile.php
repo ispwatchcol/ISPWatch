@@ -47,12 +47,16 @@ class CustomerProfile extends Model
         'mac_address',
         'status',
         'service_status',
+        'last_ip',
+        'retired_at',
+        'retired_reason',
     ];
 
     protected $casts = [
         'is_company'           => 'boolean',
         'is_fiber'             => 'boolean',
         'exclude_from_billing' => 'boolean',
+        'retired_at'           => 'datetime',
     ];
 
     public function user()
