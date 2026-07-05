@@ -2,18 +2,20 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Queue Manager
- * 
+ *
  * Handles Simple Queue operations on MikroTik routers.
  * Supports direct API and CORE ssh-exec methods.
  */
 class QueueManager
 {
     use NormalizesRouterComment;
+    use DetectsSshExecFailures;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -81,22 +83,23 @@ class QueueManager
             // NAME is left untouched so `find name=` lookups stay stable.
             $queueComment = $this->normalizeRouterComment($comment, $fullName);
 
-            // 1. Try direct API to the client first.
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 5);
-                if ($socket) {
-                    Log::info('[QueueManager] Conexión API directa al cliente exitosa');
-                    $direct = $this->syncQueueDirectApi($socket, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment);
-                    if ($direct['success']) {
-                        return $direct;
-                    }
-                    // A direct-API failure must NOT be terminal — clients are
-                    // usually behind the L2TP tunnel. Fall through to the CORE
-                    // SSH path (mirrors the working profile/secret flow).
-                    Log::warning('[QueueManager] API directa falló, usando CORE SSH', [
-                        'reason' => $direct['message'] ?? 'unknown',
-                    ]);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            //    connectClientApi() opens the local-forward tunnel AND logs in;
+            //    the old tryDirectClientConnection() + connect($clientIp,...)
+            //    direct never completed in production (overlay IP not routable).
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                Log::info('[QueueManager] Conexión API directa al cliente exitosa (via túnel CORE)');
+                $direct = $this->syncQueueDirectApi($socket, $targetIp, $queueName, $maxLimit, $queueComment);
+                if ($direct['success']) {
+                    return $direct;
                 }
+                // A direct-API failure must NOT be terminal — clients are
+                // usually behind the L2TP tunnel. Fall through to the CORE
+                // SSH path (mirrors the working profile/secret flow).
+                Log::warning('[QueueManager] API directa falló, usando CORE SSH', [
+                    'reason' => $direct['message'] ?? 'unknown',
+                ]);
             }
 
             // 2. CORE SSH direct: SSH into CORE and ssh-exec into the client —
@@ -118,19 +121,13 @@ class QueueManager
      */
     private function syncQueueDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $targetIp,
         string $queueName,
         string $maxLimit,
         string $comment = 'ISPWatch Auto-Provisioned'
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             // Search for existing queue by target IP
             $this->apiProtocol->sendCommand($socket, '/queue/simple/print', [
                 '?target=' . $targetIp . '/32',
@@ -173,7 +170,7 @@ class QueueManager
             }
 
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return ['success' => false, 'message' => 'Error al crear/actualizar queue: ' . $error];
@@ -190,7 +187,7 @@ class QueueManager
             ];
 
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
@@ -228,6 +225,15 @@ class QueueManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // CORE→client SSH connection failure — nothing ran on the client.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
 
             if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
                 return [

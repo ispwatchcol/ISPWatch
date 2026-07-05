@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\Log;
 class HotspotManager
 {
     use NormalizesRouterComment;
+    use DetectsSshExecFailures;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -63,18 +65,16 @@ class HotspotManager
                 'profile'   => $profile,
             ]);
 
-            // 1. Try direct API to the client first.
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
-                if ($socket) {
-                    $direct = $this->ensureUserDirectApi($socket, $clientUser, $clientPass, $username, $password, $profile, $address, $comment);
-                    if ($direct['success']) {
-                        return $direct;
-                    }
-                    Log::warning('[HotspotManager] Direct API user failed, using CORE SSH', [
-                        'reason' => $direct['message'] ?? 'unknown',
-                    ]);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                $direct = $this->ensureUserDirectApi($socket, $username, $password, $profile, $address, $comment);
+                if ($direct['success']) {
+                    return $direct;
                 }
+                Log::warning('[HotspotManager] Direct API user failed, using CORE SSH', [
+                    'reason' => $direct['message'] ?? 'unknown',
+                ]);
             }
 
             // 2. CORE SSH direct (proven path for clients behind the L2TP tunnel).
@@ -88,8 +88,6 @@ class HotspotManager
 
     private function ensureUserDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $username,
         string $password,
         string $profile,
@@ -97,11 +95,7 @@ class HotspotManager
         string $comment
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             $this->apiProtocol->sendCommand($socket, '/ip/hotspot/user/print', ['?name=' . $username, '=.proplist=.id']);
             $existing = $this->apiProtocol->readAllRecords($socket);
 
@@ -124,7 +118,7 @@ class HotspotManager
             }
 
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error al crear/actualizar usuario HotSpot: ' . $error];
@@ -138,7 +132,7 @@ class HotspotManager
                 'username' => $username,
             ];
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
@@ -186,18 +180,16 @@ class HotspotManager
                 'rate'      => $rateLimit,
             ]);
 
-            // 1. Try direct API to the client first.
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
-                if ($socket) {
-                    $direct = $this->ensureProfileDirectApi($socket, $clientUser, $clientPass, $profileName, $rateLimit, $sharedUsers, $sessionTimeout, $idleTimeout);
-                    if ($direct['success']) {
-                        return $direct;
-                    }
-                    Log::warning('[HotspotManager] Direct API profile failed, using CORE SSH', [
-                        'reason' => $direct['message'] ?? 'unknown',
-                    ]);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                $direct = $this->ensureProfileDirectApi($socket, $profileName, $rateLimit, $sharedUsers, $sessionTimeout, $idleTimeout);
+                if ($direct['success']) {
+                    return $direct;
                 }
+                Log::warning('[HotspotManager] Direct API profile failed, using CORE SSH', [
+                    'reason' => $direct['message'] ?? 'unknown',
+                ]);
             }
 
             // 2. CORE SSH direct.
@@ -211,8 +203,6 @@ class HotspotManager
 
     private function ensureProfileDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $profileName,
         string $rateLimit,
         ?int $sharedUsers,
@@ -220,11 +210,7 @@ class HotspotManager
         ?string $idleTimeout
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             $this->apiProtocol->sendCommand($socket, '/ip/hotspot/user/profile/print', ['?name=' . $profileName, '=.proplist=.id']);
             $existing = $this->apiProtocol->readAllRecords($socket);
 
@@ -253,7 +239,7 @@ class HotspotManager
             }
 
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error al crear/actualizar perfil HotSpot: ' . $error];
@@ -268,7 +254,7 @@ class HotspotManager
                 'rate_limit'   => $rateLimit,
             ];
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
@@ -329,6 +315,15 @@ class HotspotManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // CORE→client SSH connection failure — nothing ran on the client.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
 
             // `/system ssh-exec` returns "exit-code: N ... output: ...". A
             // non-zero exit code means the CLIENT router rejected the command,

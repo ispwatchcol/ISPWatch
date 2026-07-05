@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
@@ -23,6 +24,8 @@ use Illuminate\Support\Facades\Log;
 class PcqManager
 {
     use NormalizesRouterComment;
+
+    use DetectsSshExecFailures;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -64,18 +67,16 @@ class PcqManager
                 'target'    => $targetIp,
             ]);
 
-            // 1. Try direct API to the client first.
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
-                if ($socket) {
-                    $direct = $this->ensureEntryDirectApi($socket, $clientUser, $clientPass, $listName, $targetIp, $comment);
-                    if ($direct['success']) {
-                        return $direct;
-                    }
-                    Log::warning('[PcqManager] Direct API address-list failed, using CORE SSH', [
-                        'reason' => $direct['message'] ?? 'unknown',
-                    ]);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                $direct = $this->ensureEntryDirectApi($socket, $listName, $targetIp, $comment);
+                if ($direct['success']) {
+                    return $direct;
                 }
+                Log::warning('[PcqManager] Direct API address-list failed, using CORE SSH', [
+                    'reason' => $direct['message'] ?? 'unknown',
+                ]);
             }
 
             // 2. CORE SSH direct.
@@ -89,18 +90,12 @@ class PcqManager
 
     private function ensureEntryDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $listName,
         string $targetIp,
         string $comment
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             // Find any existing entry for this list+address to update its comment.
             $this->apiProtocol->sendCommand($socket, '/ip/firewall/address-list/print', [
                 '?list=' . $listName,
@@ -124,7 +119,7 @@ class PcqManager
             }
 
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error en address-list: ' . $error];
@@ -139,7 +134,7 @@ class PcqManager
                 'target'  => $targetIp,
             ];
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
@@ -259,6 +254,15 @@ class PcqManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // CORE→client SSH connection failure — nothing ran on the client.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
 
             if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
                 return [
