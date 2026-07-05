@@ -1,9 +1,11 @@
 <template>
     <div>
-        <!-- Floating WhatsApp Button - Improved position -->
+        <!-- Floating WhatsApp Button - bottom-left so it never overlaps the
+             right-aligned pagination / action buttons. On desktop we clear the
+             264px sidebar (md:left-72). z-40 keeps it below modals (z-50). -->
         <button
             @click="openModal"
-            class="fixed bottom-32 right-8 md:bottom-28 md:right-10 z-50 w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg hover:shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-110 group"
+            class="fixed bottom-6 left-6 md:bottom-8 md:left-72 z-40 w-14 h-14 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg hover:shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-110 group"
             aria-label="Contactar por WhatsApp"
         >
             <v-icon name="fa-whatsapp" class="w-8 h-8 text-white" />

@@ -12,6 +12,7 @@ const { can } = usePermissions()
 
 const invoices = ref({ data: [] })
 const loading = ref(true)
+const currentPage = ref(1)
 const user = ref({})
 const filters = ref({
     status: '',
@@ -58,6 +59,7 @@ const fetchInvoices = async () => {
         const params = {
             ...filters.value,
             period: periodValue,
+            page: currentPage.value,
             tenant: user.value?.tenant_id
         }
 
@@ -200,7 +202,22 @@ onMounted(() => {
     fetchCustomers()
 })
 
-watch(filters, () => fetchInvoices(), { deep: true })
+// Al cambiar cualquier filtro, volvemos a la primera página para no quedar
+// en una página que ya no existe con el nuevo conjunto de resultados.
+watch(filters, () => { currentPage.value = 1; fetchInvoices() }, { deep: true })
+
+// ── Paginación ──────────────────────────────────────────
+const canPrev = computed(() => (invoices.value.current_page || 1) > 1)
+const canNext = computed(() => (invoices.value.current_page || 1) < (invoices.value.last_page || 1))
+
+const goToPage = (page) => {
+    const last = invoices.value.last_page || 1
+    if (page < 1 || page > last || page === invoices.value.current_page) return
+    currentPage.value = page
+    fetchInvoices()
+    // Subimos al inicio de la tabla para que se vea la página nueva.
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+}
 
 // Payment Reminder State
 const selectedInvoices = ref([])
@@ -464,8 +481,10 @@ const sendBulkReminders = async () => {
                     Mostrando <span class="font-bold text-slate-900 dark:text-white">{{ invoices.from }}</span> a <span class="font-bold text-slate-900 dark:text-white">{{ invoices.to }}</span> de {{ invoices.total }}
                 </div>
                 <div class="flex gap-2">
-                    <button class="px-4 py-2 bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50">Anterior</button>
-                    <button class="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors">Siguiente</button>
+                    <button @click="goToPage((invoices.current_page || 1) - 1)" :disabled="!canPrev"
+                        class="px-4 py-2 bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
+                    <button @click="goToPage((invoices.current_page || 1) + 1)" :disabled="!canNext"
+                        class="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">Siguiente</button>
                 </div>
             </div>
         </div>
