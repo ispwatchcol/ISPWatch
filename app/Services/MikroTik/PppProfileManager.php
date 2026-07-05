@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 class PppProfileManager
 {
     use NormalizesRouterComment;
+    use DetectsSshExecFailures;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -51,17 +53,21 @@ class PppProfileManager
                 'remote_address'=> $remoteAddress,
             ]);
 
-            // 1. Try direct API connection to client router
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
-                if ($socket) {
-                    Log::info('[PppProfileManager] Direct API connection available');
-                    $result = $this->syncDirectApi($socket, $clientUser, $clientPass, $profileName, $rateLimit, $localAddress, $remoteAddress);
-                    if ($result['success']) {
-                        return $result;
-                    }
-                    Log::warning('[PppProfileManager] Direct API failed', ['reason' => $result['message'] ?? 'unknown']);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            //    connectClientApi() opens the local-forward tunnel AND logs in,
+            //    returning an authenticated socket. The old code probed with
+            //    tryDirectClientConnection() and then connect($clientIp,...)
+            //    DIRECTLY — which never completes in production because the
+            //    overlay IP isn't routable from the app server, so this API tier
+            //    was dead weight and every push fell back to CORE ssh-exec.
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                Log::info('[PppProfileManager] Direct API connection available (via CORE tunnel)');
+                $result = $this->syncDirectApi($socket, $profileName, $rateLimit, $localAddress, $remoteAddress);
+                if ($result['success']) {
+                    return $result;
                 }
+                Log::warning('[PppProfileManager] Direct API failed', ['reason' => $result['message'] ?? 'unknown']);
             }
 
             // 2. Try SSH directly on CORE (simpler and more reliable than API-script approach)
@@ -86,23 +92,13 @@ class PppProfileManager
 
     private function syncDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $profileName,
         string $rateLimit,
         ?string $localAddress,
         ?string $remoteAddress
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-
-                return [
-                    'success' => false,
-                    'message' => 'Error de autenticacion en router cliente',
-                ];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             $this->apiProtocol->sendCommand($socket, '/ppp/profile/print', [
                 '?name=' . $profileName,
                 '=.proplist=.id,name',
@@ -129,7 +125,7 @@ class PppProfileManager
             }
 
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return [
@@ -148,7 +144,7 @@ class PppProfileManager
                 'rate_limit' => $rateLimit,
             ];
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             return [
                 'success' => false,
@@ -191,6 +187,18 @@ class PppProfileManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // The CORE could not open SSH to the client at all (TCP/handshake) —
+            // not a command failure. Say so precisely instead of "error en router
+            // cliente", which points at the wrong thing.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                Log::warning('[PppProfileManager] CORE SSH direct: connection to client failed', ['output' => $output]);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
 
             if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|\bunknown\b/i', $output)) {
                 Log::warning('[PppProfileManager] CORE SSH direct: error in output', ['output' => $output]);
@@ -395,16 +403,18 @@ class PppProfileManager
                 'local_address'  => $localAddress,
             ]);
 
-            // 1. Try direct API connection to client router
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
-                if ($socket) {
-                    $result = $this->ensureSecretDirectApi($socket, $clientUser, $clientPass, $username, $password, $service, $profile, $remoteAddress, $localAddress, $comment);
-                    if ($result['success']) {
-                        return $result;
-                    }
-                    Log::warning('[PppProfileManager] Direct API secret failed', ['reason' => $result['message'] ?? 'unknown']);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            //    connectClientApi() opens the local-forward tunnel AND logs in.
+            //    (Was tryDirectClientConnection() + connect($clientIp,...) direct,
+            //    which never completes in production — overlay IP not routable
+            //    from the app server — so the API tier never actually ran.)
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                $result = $this->ensureSecretDirectApi($socket, $username, $password, $service, $profile, $remoteAddress, $localAddress, $comment);
+                if ($result['success']) {
+                    return $result;
                 }
+                Log::warning('[PppProfileManager] Direct API secret failed', ['reason' => $result['message'] ?? 'unknown']);
             }
 
             // 2. CORE SSH direct: SSH into CORE and run ssh-exec from there.
@@ -458,6 +468,19 @@ class PppProfileManager
 
             $output = trim((string) ($result['output'] ?? ''));
 
+            // FIRST: distinguish a CORE→client SSH *connection* failure (e.g.
+            // `<connection failed> ...:22`) from a command rejection. On a
+            // connection failure NOTHING ran on the client, so blaming the
+            // plan/profile below is wrong — it sends the operator to reload the
+            // plan when the real fix is the client's SSH service / firewall.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
+
             // The trailing `/ppp secret set [find ...]` errors (and prints to
             // stdout) when the secret could not be created — most often because
             // the plan's PPP profile isn't loaded on THIS router, or the mgmt
@@ -488,8 +511,6 @@ class PppProfileManager
 
     private function ensureSecretDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $username,
         string $password,
         string $service,
@@ -500,11 +521,7 @@ class PppProfileManager
     ): array {
         $comment = ($comment !== null && trim($comment) !== '') ? trim($comment) : 'ISPWatch Auto';
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Authentication failed on client router'];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             $this->apiProtocol->sendCommand($socket, '/ppp/secret/print', ['?name=' . $username]);
             $existing = $this->apiProtocol->readAllRecords($socket);
 
@@ -527,7 +544,7 @@ class PppProfileManager
                     array_unshift($setParams, '=.id=' . $secretId);
                     $this->apiProtocol->sendCommand($socket, '/ppp/secret/set', $setParams);
                     $error = $this->apiProtocol->readUntilDoneWithError($socket);
-                    $this->apiProtocol->close($socket);
+                    $this->connectionManager->closeClientApi($socket);
                     if ($error) {
                         return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error updating secret: ' . $error];
                     }
@@ -540,7 +557,7 @@ class PppProfileManager
             ], $setParams);
             $this->apiProtocol->sendCommand($socket, '/ppp/secret/add', $addParams);
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error creating secret: ' . $error];
@@ -549,7 +566,7 @@ class PppProfileManager
             return ['success' => true, 'method' => 'DIRECT_API', 'action' => 'created', 'message' => 'Secret creado en router', 'username' => $username];
 
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }

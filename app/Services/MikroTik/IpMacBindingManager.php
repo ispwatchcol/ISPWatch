@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
@@ -28,6 +29,7 @@ use Illuminate\Support\Facades\Log;
 class IpMacBindingManager
 {
     use NormalizesRouterComment;
+    use DetectsSshExecFailures;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -178,6 +180,15 @@ class IpMacBindingManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // CORE→client SSH connection failure — nothing ran on the client.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
 
             // Hardened: `/system ssh-exec` returns "exit-code: N ... output: ...".
             // A non-zero exit code or a parser error means the client router

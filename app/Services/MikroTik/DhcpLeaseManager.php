@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
 
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 class DhcpLeaseManager
 {
     use NormalizesRouterComment;
+    use DetectsSshExecFailures;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -62,18 +64,16 @@ class DhcpLeaseManager
                 'mac'       => $mac,
             ]);
 
-            // 1. Try direct API to the client first.
-            if ($this->connectionManager->tryDirectClientConnection($clientIp, $clientPort)) {
-                $socket = $this->apiProtocol->connect($clientIp, $clientPort, 3);
-                if ($socket) {
-                    $direct = $this->ensureLeaseDirectApi($socket, $clientUser, $clientPass, $targetIp, $mac, $rateLimit, $comment);
-                    if ($direct['success']) {
-                        return $direct;
-                    }
-                    Log::warning('[DhcpLeaseManager] Direct API lease failed, using CORE SSH', [
-                        'reason' => $direct['message'] ?? 'unknown',
-                    ]);
+            // 1. Try direct API to the client THROUGH the CORE SSH tunnel.
+            $socket = $this->connectionManager->connectClientApi($clientIp, $clientPort, $clientUser, $clientPass);
+            if ($socket) {
+                $direct = $this->ensureLeaseDirectApi($socket, $targetIp, $mac, $rateLimit, $comment);
+                if ($direct['success']) {
+                    return $direct;
                 }
+                Log::warning('[DhcpLeaseManager] Direct API lease failed, using CORE SSH', [
+                    'reason' => $direct['message'] ?? 'unknown',
+                ]);
             }
 
             // 2. CORE SSH direct.
@@ -87,19 +87,13 @@ class DhcpLeaseManager
 
     private function ensureLeaseDirectApi(
         $socket,
-        string $clientUser,
-        string $clientPass,
         string $targetIp,
         string $mac,
         string $rateLimit,
         string $comment
     ): array {
         try {
-            if (!$this->apiProtocol->login($socket, $clientUser, $clientPass)) {
-                $this->apiProtocol->close($socket);
-                return ['success' => false, 'message' => 'Error de autenticación en router cliente'];
-            }
-
+            // Socket is already authenticated by connectClientApi — go straight to operations.
             $this->apiProtocol->sendCommand($socket, '/ip/dhcp-server/lease/print', ['?address=' . $targetIp, '=.proplist=.id']);
             $existing = $this->apiProtocol->readAllRecords($socket);
             $existingId = $existing[0]['.id'] ?? null;
@@ -119,7 +113,7 @@ class DhcpLeaseManager
             }
 
             $error = $this->apiProtocol->readUntilDoneWithError($socket);
-            $this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
 
             if ($error) {
                 return ['success' => false, 'method' => 'DIRECT_API', 'message' => 'Error en lease DHCP: ' . $error];
@@ -134,7 +128,7 @@ class DhcpLeaseManager
                 'mac'     => $mac,
             ];
         } catch (\Throwable $e) {
-            @$this->apiProtocol->close($socket);
+            $this->connectionManager->closeClientApi($socket);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
         }
     }
@@ -171,6 +165,15 @@ class DhcpLeaseManager
             }
 
             $output = trim((string) ($result['output'] ?? ''));
+
+            // CORE→client SSH connection failure — nothing ran on the client.
+            if ($output && $this->isSshExecConnectionFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                ];
+            }
 
             if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
                 return [
