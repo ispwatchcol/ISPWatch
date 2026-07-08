@@ -359,54 +359,7 @@
                     <div class="text-sm text-gray-600 dark:text-gray-400 font-medium">
                         {{ paginationInfo }}
                     </div>
-                    <div class="flex items-center gap-2">
-                        <button
-                            @click="prevPage"
-                            :disabled="currentPage === 1"
-                            class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1"
-                        >
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                            </svg>
-                            Anterior
-                        </button>
-                        <div class="flex items-center gap-1">
-                            <button
-                                v-for="page in Math.min(5, totalPages)"
-                                :key="page"
-                                @click="goToPage(page)"
-                                :class="{
-                                    'bg-blue-600 text-white border-blue-600': currentPage === page,
-                                    'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700': currentPage !== page
-                                }"
-                                class="w-8 h-8 rounded-lg font-medium text-sm border transition-all"
-                            >
-                                {{ page }}
-                            </button>
-                            <span v-if="totalPages > 5" class="text-gray-500 dark:text-gray-400 px-2">...</span>
-                            <button
-                                v-if="totalPages > 5"
-                                @click="goToPage(totalPages)"
-                                :class="{
-                                    'bg-blue-600 text-white border-blue-600': currentPage === totalPages,
-                                    'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700': currentPage !== totalPages
-                                }"
-                                class="w-8 h-8 rounded-lg font-medium text-sm border transition-all"
-                            >
-                                {{ totalPages }}
-                            </button>
-                        </div>
-                        <button
-                            @click="nextPage"
-                            :disabled="currentPage === totalPages"
-                            class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1"
-                        >
-                            Siguiente
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    </div>
+                    <Pagination :current-page="currentPage" :total-pages="totalPages" @change="goToPage" />
                 </div>
             </div>
 
@@ -488,31 +441,7 @@
                     <div class="text-sm text-gray-600 dark:text-gray-400 font-medium text-center">
                         {{ paginationInfo }}
                     </div>
-                    <div class="flex items-center justify-between gap-2">
-                        <button
-                            @click="prevPage"
-                            :disabled="currentPage === 1"
-                            class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 flex-1 justify-center"
-                        >
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                            </svg>
-                            Anterior
-                        </button>
-                        <div class="text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 whitespace-nowrap">
-                            {{ currentPage }} / {{ totalPages }}
-                        </div>
-                        <button
-                            @click="nextPage"
-                            :disabled="currentPage === totalPages"
-                            class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 flex-1 justify-center"
-                        >
-                            Siguiente
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    </div>
+                    <Pagination :current-page="currentPage" :total-pages="totalPages" @change="goToPage" class="justify-center" />
                 </div>
             </div>
         </div>
@@ -525,6 +454,7 @@ import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import Pagination from '@/components/ui/Pagination.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()
@@ -747,8 +677,6 @@ const {
     totalPages,
     paginationInfo,
     toggleSort,
-    nextPage,
-    prevPage,
     goToPage,
     resetPagination,
 } = useTableControls(filteredCustomers, {

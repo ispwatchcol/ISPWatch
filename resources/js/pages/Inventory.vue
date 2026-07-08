@@ -271,30 +271,7 @@
             <span class="font-semibold">{{ paginationEnd }}</span> de 
             <span class="font-semibold">{{ totalDevices }}</span> dispositivos
           </div>
-          <div class="flex gap-2">
-            <button
-              @click="prevPage"
-              :disabled="currentPage === 1"
-              class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                     text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700
-                     disabled:opacity-50 disabled:cursor-not-allowed transition-all
-                     flex items-center gap-2"
-            >
-              <v-icon name="md-chevronleft-round" class="w-4 h-4" />
-              <span class="hidden sm:inline">Anterior</span>
-            </button>
-            <button
-              @click="nextPage"
-              :disabled="currentPage >= totalPages"
-              class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                     text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700
-                     disabled:opacity-50 disabled:cursor-not-allowed transition-all
-                     flex items-center gap-2"
-            >
-              <span class="hidden sm:inline">Siguiente</span>
-              <v-icon name="md-chevronright" class="w-4 h-4" />
-            </button>
-          </div>
+          <Pagination :current-page="currentPage" :total-pages="totalPages" @change="goToPage" />
         </div>
       </div>
 
@@ -402,30 +379,7 @@
             <span class="font-semibold">{{ paginationEnd }}</span> de 
             <span class="font-semibold">{{ totalDevices }}</span>
           </div>
-          <div class="grid grid-cols-2 gap-2">
-            <button
-              @click="prevPage"
-              :disabled="currentPage === 1"
-              class="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg
-                     text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700
-                     disabled:opacity-50 disabled:cursor-not-allowed transition-all
-                     flex items-center justify-center gap-2 font-medium"
-            >
-              <v-icon name="md-chevronleft-round" class="w-4 h-4" />
-              Anterior
-            </button>
-            <button
-              @click="nextPage"
-              :disabled="currentPage >= totalPages"
-              class="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg
-                     text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700
-                     disabled:opacity-50 disabled:cursor-not-allowed transition-all
-                     flex items-center justify-center gap-2 font-medium"
-            >
-              Siguiente
-              <v-icon name="md-chevronright" class="w-4 h-4" />
-            </button>
-          </div>
+          <Pagination :current-page="currentPage" :total-pages="totalPages" @change="goToPage" class="justify-center" />
         </div>
       </div>
 
@@ -503,6 +457,7 @@ import inventoryProviderApi from '@/services/api/inventory-provider'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import StatCard from '@/components/StatCard.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
+import Pagination from '@/components/ui/Pagination.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()
@@ -681,12 +636,8 @@ const confirmDeleteDevice = async () => {
   }
 }
 
-const prevPage = () => {
-  if (currentPage.value > 1) currentPage.value--
-}
-
-const nextPage = () => {
-  if (currentPage.value < totalPages.value) currentPage.value++
+const goToPage = (page) => {
+  if (page >= 1 && page <= totalPages.value) currentPage.value = page
 }
 
 // Lifecycle

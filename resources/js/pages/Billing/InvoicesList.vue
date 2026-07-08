@@ -5,6 +5,7 @@ import api from '@/services/api'
 import { useRouter } from 'vue-router'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import Pagination from '@/components/ui/Pagination.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const router = useRouter()
@@ -207,9 +208,6 @@ onMounted(() => {
 watch(filters, () => { currentPage.value = 1; fetchInvoices() }, { deep: true })
 
 // ── Paginación ──────────────────────────────────────────
-const canPrev = computed(() => (invoices.value.current_page || 1) > 1)
-const canNext = computed(() => (invoices.value.current_page || 1) < (invoices.value.last_page || 1))
-
 const goToPage = (page) => {
     const last = invoices.value.last_page || 1
     if (page < 1 || page > last || page === invoices.value.current_page) return
@@ -480,12 +478,12 @@ const sendBulkReminders = async () => {
                 <div class="text-slate-500 dark:text-slate-400">
                     Mostrando <span class="font-bold text-slate-900 dark:text-white">{{ invoices.from }}</span> a <span class="font-bold text-slate-900 dark:text-white">{{ invoices.to }}</span> de {{ invoices.total }}
                 </div>
-                <div class="flex gap-2">
-                    <button @click="goToPage((invoices.current_page || 1) - 1)" :disabled="!canPrev"
-                        class="px-4 py-2 bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
-                    <button @click="goToPage((invoices.current_page || 1) + 1)" :disabled="!canNext"
-                        class="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">Siguiente</button>
-                </div>
+                <Pagination
+                    :current-page="invoices.current_page || 1"
+                    :total-pages="invoices.last_page || 1"
+                    accent="indigo"
+                    @change="goToPage"
+                />
             </div>
         </div>
 

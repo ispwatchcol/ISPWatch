@@ -414,21 +414,10 @@
             </table>
           </div>
 
-          <!-- Paginación simple -->
-          <div v-if="logsPagination.last_page > 1" class="px-4 py-3 flex items-center justify-between border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500">
+          <!-- Paginación -->
+          <div v-if="logsPagination.last_page > 1" class="px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500">
             <span>Página {{ logsPagination.current_page }} de {{ logsPagination.last_page }} — {{ logsPagination.total }} registro(s)</span>
-            <div class="flex gap-2">
-              <button
-                @click="changePage(logsPagination.current_page - 1)"
-                :disabled="logsPagination.current_page <= 1"
-                class="px-2 py-1 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >Anterior</button>
-              <button
-                @click="changePage(logsPagination.current_page + 1)"
-                :disabled="logsPagination.current_page >= logsPagination.last_page"
-                class="px-2 py-1 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >Siguiente</button>
-            </div>
+            <Pagination :current-page="logsPagination.current_page" :total-pages="logsPagination.last_page" @change="changePage" />
           </div>
         </div>
       </section>
@@ -590,21 +579,10 @@
             </table>
           </div>
 
-          <!-- Paginación simple -->
-          <div v-if="suspPagination.last_page > 1" class="px-4 py-3 flex items-center justify-between border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500">
+          <!-- Paginación -->
+          <div v-if="suspPagination.last_page > 1" class="px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500">
             <span>Página {{ suspPagination.current_page }} de {{ suspPagination.last_page }} — {{ suspPagination.total }} registro(s)</span>
-            <div class="flex gap-2">
-              <button
-                @click="changeSuspPage(suspPagination.current_page - 1)"
-                :disabled="suspPagination.current_page <= 1"
-                class="px-2 py-1 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >Anterior</button>
-              <button
-                @click="changeSuspPage(suspPagination.current_page + 1)"
-                :disabled="suspPagination.current_page >= suspPagination.last_page"
-                class="px-2 py-1 rounded border border-gray-200 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >Siguiente</button>
-            </div>
+            <Pagination :current-page="suspPagination.current_page" :total-pages="suspPagination.last_page" @change="changeSuspPage" />
           </div>
         </div>
       </section>
@@ -646,6 +624,7 @@ import { ref, onMounted } from 'vue'
 import { apiClient } from '@/services/api'
 import billingService from '@/services/billing'
 import NotificationToast from '@/components/NotificationToast.vue'
+import Pagination from '@/components/ui/Pagination.vue'
 
 // ─── Componente local de resultado ───────────────────────
 const ResultCard = {
