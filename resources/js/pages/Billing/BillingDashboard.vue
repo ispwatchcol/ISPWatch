@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import billingService from '@/services/billing'
 import { usePermissions } from '@/composables/usePermissions'
+import { customerDisplayName } from '@/utils/customerName'
 
 const { can } = usePermissions()
 
@@ -261,7 +262,7 @@ onMounted(() => {
                                 <div>
                                     <div class="font-medium text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">#{{ invoice.number }}</div>
                                     <div class="text-xs text-slate-500 dark:text-slate-400">
-                                        {{ invoice.customer?.customer_profile ? (invoice.customer.customer_profile.name + ' ' + invoice.customer.customer_profile.last_name) : (invoice.customer?.user_name || 'Desconocido') }}
+                                        {{ customerDisplayName(invoice.customer) }}
                                     </div>
                                 </div>
                             </div>
@@ -295,7 +296,7 @@ onMounted(() => {
                                 </div>
                                 <div>
                                     <div class="font-medium text-slate-900 dark:text-white">
-                                        {{ payment.customer?.customer_profile ? (payment.customer.customer_profile.name + ' ' + payment.customer.customer_profile.last_name) : (payment.customer?.user_name || 'Desconocido') }}
+                                        {{ customerDisplayName(payment.customer) }}
                                     </div>
                                     <div class="text-xs text-slate-500 dark:text-slate-400">{{ payment.method }} • {{ payment.payment_date }}</div>
                                 </div>

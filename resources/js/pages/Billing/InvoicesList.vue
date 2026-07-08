@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import Pagination from '@/components/ui/Pagination.vue'
+import { customerDisplayName } from '@/utils/customerName'
 import { usePermissions } from '@/composables/usePermissions'
 
 const router = useRouter()
@@ -418,7 +419,7 @@ const sendBulkReminders = async () => {
                             <td class="px-6 py-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">#{{ invoice.number }}</td>
                             <td class="px-6 py-4">
                                 <div class="font-semibold text-slate-900 dark:text-white">
-                                    {{ invoice.customer?.customer_profile ? (invoice.customer.customer_profile.name + ' ' + invoice.customer.customer_profile.last_name) : (invoice.customer?.user_name || 'Desconocido') }}
+                                    {{ customerDisplayName(invoice.customer) }}
                                 </div>
                                 <div class="text-xs text-slate-500 dark:text-slate-400">{{ invoice.customer?.email }}</div>
                             </td>
