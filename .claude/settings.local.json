@@ -42,7 +42,9 @@
       "Bash(php -l \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\database\\\\migrations\\\\2026_06_01_030000_add_installation_id_to_invoices_table.php\")",
       "Bash(php -l \"c:/Users/rdyja/proyectos/ispwatch/database/migrations/2026_06_02_000001_add_retired_fields_to_customer_profile.php\")",
       "Bash(php -l \"c:/Users/rdyja/proyectos/ispwatch/app/Models/CustomerProfile.php\")",
-      "Bash(php -l \"c:/Users/rdyja/proyectos/ispwatch/app/Http/Controllers/CustomerProfileController.php\")"
+      "Bash(php -l \"c:/Users/rdyja/proyectos/ispwatch/app/Http/Controllers/CustomerProfileController.php\")",
+      "Bash(grep -n 'customerProfile\\\\|class User\\\\|protected $with\\\\|customer_profile' app/Models/User.php)",
+      "Bash(php artisan *)"
     ]
   }
 }

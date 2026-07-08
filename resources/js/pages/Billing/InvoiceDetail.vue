@@ -1,15 +1,18 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import { usePermissions } from '@/composables/usePermissions'
+import { customerDisplayName as resolveCustomerDisplayName } from '@/utils/customerName'
 
 const route = useRoute()
 const router = useRouter()
 const { can } = usePermissions()
 const invoice = ref(null)
 const loading = ref(true)
+
+const customerDisplayName = computed(() => resolveCustomerDisplayName(invoice.value?.customer))
 
 const fetchInvoice = async () => {
     loading.value = true
@@ -189,7 +192,7 @@ onMounted(fetchInvoice)
                             </h3>
                             <div class="p-6 bg-slate-50 dark:bg-gray-900 rounded-[2rem]">
                                 <p class="text-xl font-medium text-slate-900 dark:text-white">
-                                    {{ invoice.customer?.customer_profile ? (invoice.customer.customer_profile.name + ' ' + invoice.customer.customer_profile.last_name) : (invoice.customer?.user_name || 'Desconocido') }}
+                                    {{ customerDisplayName }}
                                 </p>
                                 <p class="text-slate-500 dark:text-slate-400 mt-1">{{ invoice.customer?.email }}</p>
                                 <p class="text-slate-500 dark:text-slate-400 text-sm mt-2">ID: {{ invoice.customer?.identification || 'N/A' }}</p>

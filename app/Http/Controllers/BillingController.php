@@ -77,7 +77,7 @@ class BillingController extends Controller
     // Show Invoice
     public function show($id)
     {
-        return response()->json(Invoice::with(['customer', 'items', 'payments', 'ticket'])->findOrFail($id));
+        return response()->json(Invoice::with(['customer.customerProfile', 'items', 'payments', 'ticket'])->findOrFail($id));
     }
 
     // Manual Create (Draft)
