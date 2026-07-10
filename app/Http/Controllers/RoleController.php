@@ -15,18 +15,34 @@ class RoleController extends Controller
     {
         $tenantId = auth()->user()->tenant_id;
 
-        $roles = Role::where('tenant_id', $tenantId)
+        // Tenant-specific roles PLUS global roles (tenant_id NULL), so tenants
+        // that predate per-tenant role seeding still see their assigned roles.
+        // A global role shadowed by a tenant role with the same name is omitted
+        // (mirrors the preference in Role::idByName). Global roles are flagged
+        // is_global: they are shared across tenants, so the UI must not offer
+        // edit/delete for them (update/destroy reject them anyway).
+        $all = Role::withoutGlobalScope('tenant')
+            ->where(function ($q) use ($tenantId) {
+                $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+            })
             ->orderBy('name')
-            ->get()
+            ->get();
+
+        $tenantNames = $all->whereNotNull('tenant_id')->pluck('name')->all();
+
+        $roles = $all
+            ->reject(fn($role) => $role->tenant_id === null && in_array($role->name, $tenantNames))
             ->map(function ($role) {
-            return [
-                'id' => $role->id,
-                'name' => $role->name,
-                'permissions' => $role->permissions ?? [],
-                'created_at' => $role->created_at,
-                'updated_at' => $role->updated_at,
-            ];
-        });
+                return [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'permissions' => $role->permissions ?? [],
+                    'is_global' => $role->tenant_id === null,
+                    'created_at' => $role->created_at,
+                    'updated_at' => $role->updated_at,
+                ];
+            })
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -79,7 +95,14 @@ class RoleController extends Controller
     public function show($id)
     {
         $tenantId = auth()->user()->tenant_id;
-        $role = Role::where('tenant_id', $tenantId)->findOrFail($id);
+
+        // Readable: own tenant roles AND global roles. Global stays read-only —
+        // update/destroy below keep the tenant-only filter.
+        $role = Role::withoutGlobalScope('tenant')
+            ->where(function ($q) use ($tenantId) {
+                $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+            })
+            ->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -87,6 +110,7 @@ class RoleController extends Controller
                 'id' => $role->id,
                 'name' => $role->name,
                 'permissions' => $role->permissions ?? [],
+                'is_global' => $role->tenant_id === null,
                 'created_at' => $role->created_at,
                 'updated_at' => $role->updated_at,
             ],

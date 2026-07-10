@@ -70,8 +70,13 @@ class UserController extends Controller
             'role_id' => [
                 'required',
                 'integer',
+                // Own tenant roles OR global roles (tenant_id NULL) — matches
+                // what RoleController@index lists for assignment.
                 \Illuminate\Validation\Rule::exists('role', 'id')->where(function ($query) use ($request) {
-                    $query->where('tenant_id', $request->user()?->tenant_id);
+                    $query->where(function ($q) use ($request) {
+                        $q->where('tenant_id', $request->user()?->tenant_id)
+                          ->orWhereNull('tenant_id');
+                    });
                 }),
             ],
             'name' => 'required|string|max:255',
@@ -178,8 +183,13 @@ class UserController extends Controller
             'role_id' => [
                 'sometimes',
                 'integer',
+                // Own tenant roles OR global roles (tenant_id NULL) — matches
+                // what RoleController@index lists for assignment.
                 \Illuminate\Validation\Rule::exists('role', 'id')->where(function ($query) use ($request) {
-                    $query->where('tenant_id', $request->user()?->tenant_id);
+                    $query->where(function ($q) use ($request) {
+                        $q->where('tenant_id', $request->user()?->tenant_id)
+                          ->orWhereNull('tenant_id');
+                    });
                 }),
             ],
             'user_name' => 'sometimes|string|max:255',
