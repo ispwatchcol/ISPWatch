@@ -63,10 +63,9 @@ class TenantController extends Controller
                 ], 401);
             }
 
-            // Eager-load role if not already loaded
-            if (!$user->relationLoaded('role')) {
-                $user->load('role');
-            }
+            // Load the user's OWN role bypassing the Role tenant global scope, so a
+            // tenant_id mismatch can't silently null the role (mirrors @login).
+            $user->load(['role' => fn($q) => $q->withoutGlobalScope('tenant')]);
 
             if (!$user->role || strtolower($user->role->name) !== 'administrador') {
                 return response()->json([

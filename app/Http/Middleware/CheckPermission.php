@@ -25,10 +25,12 @@ class CheckPermission
             ], 401);
         }
 
-        // Eager-load role if not already loaded
-        if (!$user->relationLoaded('role')) {
-            $user->load('role');
-        }
+        // Eager-load the user's OWN role, bypassing the tenant global scope on the
+        // Role model. That scope is for LISTING roles by tenant visibility; a user's
+        // own assigned role must always resolve regardless of tenant matching, or a
+        // tenant_id mismatch silently nulls the role and yields a false 403.
+        // Mirrors the login flow in AuthController@login.
+        $user->load(['role' => fn($q) => $q->withoutGlobalScope('tenant')]);
 
         if (!$user->role) {
             return response()->json([
