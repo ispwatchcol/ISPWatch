@@ -65,7 +65,7 @@
                 />
 
                 <SubmenuItem
-                    v-if="isStaff && supportItems.length > 0"
+                    v-if="supportItems.length > 0"
                     icon="md-supportagent-round"
                     title="Soporte"
                     :items="supportItems"
@@ -218,8 +218,6 @@ const tenantTimezone = ref("America/Bogota");
 
 // ─── Acciones Masivas ─── (moved to /mass-actions page)
 
-const isStaff = computed(() => authStore.isStaffOrAdmin);
-
 const supportItems = computed(() => {
     const items = [];
 
@@ -331,7 +329,7 @@ const finanzasItems = computed(() => {
         items.push({ name: 'Pagos / Recaudos', to: '/billing/payments', icon: 'md-payments-outlined' });
     if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
-    if (authStore.hasPermission('billing.view'))
+    if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Servicios Adicionales', to: '/billing/additional-charges', icon: 'bi-plus-circle' });
     return items;
 });
