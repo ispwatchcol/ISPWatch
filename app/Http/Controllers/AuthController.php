@@ -223,7 +223,10 @@ class AuthController extends Controller
      */
     public function me(Request $request)
     {
-        $user = $request->user()->load('role');
+        // Bypass the Role tenant global scope: a user's own role must always resolve
+        // regardless of tenant matching (mirrors @login). Otherwise a page refresh
+        // that calls /me would drop the role and strip the user's permissions.
+        $user = $request->user()->load(['role' => fn($q) => $q->withoutGlobalScope('tenant')]);
 
         return response()->json([
             'success' => true,
