@@ -217,7 +217,7 @@
             @foreach($invoice->items as $i => $item)
                 <tr class="it-row {{ $i % 2 === 1 ? 'it-alt' : '' }}">
                     <td>{{ $item->description }}</td>
-                    <td class="c">{{ number_format($item->quantity, 2) }}</td>
+                    <td class="c">{{ number_format($item->quantity, 2) }}@if($item->unit) {{ $item->unit }}@endif</td>
                     <td class="r">$ {{ number_format($item->unit_price, 2) }}</td>
                     <td class="r">$ 0.00</td>
                     <td class="r">$ {{ number_format($item->amount, 2) }}</td>

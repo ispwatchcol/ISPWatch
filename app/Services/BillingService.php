@@ -692,6 +692,7 @@ class BillingService
                     'type'        => $item['type'] ?? 'service',
                     'description' => $item['description'],
                     'quantity'    => $item['quantity'],
+                    'unit'        => $item['unit'] ?? null,
                     'unit_price'  => $item['unit_price'],
                     'amount'      => $amount,
                 ]);

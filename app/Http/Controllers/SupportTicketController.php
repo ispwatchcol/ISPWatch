@@ -543,6 +543,7 @@ class SupportTicketController extends Controller
             'items'               => 'required|array|min:1',
             'items.*.description' => 'required|string|max:255',
             'items.*.quantity'    => 'required|numeric|min:0.01',
+            'items.*.unit'        => 'nullable|string|max:30',
             'items.*.unit_price'  => 'required|numeric|min:0',
             'items.*.type'        => 'nullable|string|max:50',
             'due_date'            => 'nullable|date',
