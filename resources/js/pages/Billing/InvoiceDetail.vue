@@ -229,7 +229,7 @@ onMounted(fetchInvoice)
                                         <p class="font-medium text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">{{ item.description }}</p>
                                         <span class="text-[10px] font-medium uppercase text-slate-400 bg-slate-100 dark:bg-gray-900 px-2 py-0.5 rounded">{{ item.type }}</span>
                                     </td>
-                                    <td class="py-6 text-right text-slate-600 dark:text-slate-400">{{ Number(item.quantity) }}</td>
+                                    <td class="py-6 text-right text-slate-600 dark:text-slate-400">{{ Number(item.quantity) }}<span v-if="item.unit" class="text-slate-400 ml-1">{{ item.unit }}</span></td>
                                     <td class="py-6 text-right text-slate-600 dark:text-slate-400">${{ Number(item.unit_price).toLocaleString() }}</td>
                                     <td class="py-6 text-right font-medium text-slate-900 dark:text-white">${{ Number(item.amount).toLocaleString() }}</td>
                                 </tr>

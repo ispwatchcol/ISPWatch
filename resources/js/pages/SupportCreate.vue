@@ -117,28 +117,57 @@
                         <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Activa esta opción si la visita requiere un cobro (visita técnica, materiales, etc.)</p>
 
                         <div v-if="addCharge" class="space-y-3 animate-fadeIn">
-                            <div v-for="(item, idx) in chargeItems" :key="idx" class="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200 dark:border-green-900/30">
-                                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
-                                    <div class="sm:col-span-6">
-                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Descripción</label>
-                                        <input
-                                            v-model="item.description"
-                                            type="text"
-                                            placeholder="Ej: Cambio de antena"
-                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                    <div class="sm:col-span-2">
-                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Cant.</label>
+                            <!-- Unidades sugeridas (el usuario también puede escribir una propia) -->
+                            <datalist id="charge-unit-options">
+                                <option v-for="u in unitOptions" :key="u" :value="u" />
+                            </datalist>
+
+                            <div v-for="(item, idx) in chargeItems" :key="idx" class="relative p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200 dark:border-green-900/30">
+                                <button
+                                    v-if="chargeItems.length > 1"
+                                    type="button"
+                                    @click="chargeItems.splice(idx, 1)"
+                                    title="Eliminar ítem"
+                                    class="absolute top-2 right-2 p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition"
+                                >
+                                    <v-icon name="md-delete" class="w-4 h-4" />
+                                </button>
+
+                                <!-- Descripción (fila completa) -->
+                                <div class="mb-3 pr-8">
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Descripción</label>
+                                    <input
+                                        v-model="item.description"
+                                        type="text"
+                                        placeholder="Ej: Cambio de antena, Cable UTP, Visita técnica…"
+                                        class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                    />
+                                </div>
+
+                                <!-- Cantidad · Unidad · Precio (fila separada, con aire) -->
+                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Cantidad</label>
                                         <input
                                             v-model.number="item.quantity"
                                             type="number"
                                             min="0.01"
                                             step="0.01"
+                                            onwheel="this.blur()"
+                                            class="charge-num w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Unidad</label>
+                                        <input
+                                            v-model.trim="item.unit"
+                                            list="charge-unit-options"
+                                            type="text"
+                                            placeholder="Unidad"
                                             class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
                                         />
                                     </div>
-                                    <div class="sm:col-span-3">
+                                    <div class="col-span-2 sm:col-span-1">
                                         <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Precio unitario</label>
                                         <input
                                             v-model.number="item.unit_price"
@@ -146,27 +175,21 @@
                                             min="0"
                                             step="1"
                                             onwheel="this.blur()"
-                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                            class="charge-num w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
                                         />
-                                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">= {{ formatCurrency(item.unit_price) }}</p>
                                     </div>
-                                    <button
-                                        v-if="chargeItems.length > 1"
-                                        type="button"
-                                        @click="chargeItems.splice(idx, 1)"
-                                        class="sm:col-span-1 p-2 text-red-500 hover:text-red-700 transition flex justify-center"
-                                    >
-                                        <v-icon name="md-delete" class="w-4 h-4" />
-                                    </button>
                                 </div>
-                                <div class="text-xs text-right mt-2 text-gray-600 dark:text-gray-300">
-                                    Subtotal: <strong>{{ formatCurrency(item.quantity * item.unit_price) }}</strong>
+
+                                <!-- Resumen de la línea -->
+                                <div class="flex flex-wrap items-center justify-between gap-x-2 mt-3 pt-2 border-t border-green-200/60 dark:border-green-900/30 text-xs text-gray-600 dark:text-gray-300">
+                                    <span>{{ formatQuantity(item) }} × {{ formatCurrency(item.unit_price) }}</span>
+                                    <span>Subtotal: <strong class="text-gray-800 dark:text-white">{{ formatCurrency((item.quantity || 0) * (item.unit_price || 0)) }}</strong></span>
                                 </div>
                             </div>
 
                             <button
                                 type="button"
-                                @click="chargeItems.push({ description: '', quantity: 1, unit_price: 0 })"
+                                @click="chargeItems.push({ description: '', quantity: 1, unit: 'Unidad', unit_price: 0 })"
                                 class="text-sm text-green-700 dark:text-green-400 hover:text-green-900 flex items-center gap-1"
                             >
                                 <v-icon name="md-add" class="w-4 h-4" />
@@ -215,7 +238,10 @@
                                 Cargo asociado
                             </p>
                             <div v-for="(item, i) in chargeItems" :key="i" class="flex justify-between text-xs mb-1">
-                                <span class="text-gray-600 dark:text-gray-400 truncate max-w-[60%]">{{ item.description || `Ítem ${i + 1}` }}</span>
+                                <span class="text-gray-600 dark:text-gray-400 truncate max-w-[60%]">
+                                    {{ item.description || `Ítem ${i + 1}` }}
+                                    <span class="text-gray-400 dark:text-gray-500">({{ formatQuantity(item) }})</span>
+                                </span>
                                 <span class="text-gray-800 dark:text-white font-medium">{{ formatCurrency(item.quantity * item.unit_price) }}</span>
                             </div>
                             <div class="border-t border-green-200 dark:border-green-900/30 mt-2 pt-2 flex justify-between text-sm">
@@ -279,8 +305,17 @@ const toast = ref(null)
 
 // Cargo opcional
 const addCharge = ref(false)
-const chargeItems = ref([{ description: '', quantity: 1, unit_price: 0 }])
+// Unidades sugeridas para la cantidad (el usuario puede escribir otra).
+const unitOptions = ['Unidad', 'Metros', 'Horas', 'Kit', 'Servicio', 'Kg']
+const chargeItems = ref([{ description: '', quantity: 1, unit: 'Unidad', unit_price: 0 }])
 const chargeDueDate = ref(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+
+// "12 Metros", "1 Servicio", "3" (sin unidad) — para el resumen de cada línea.
+const formatQuantity = (item) => {
+    const qty = item.quantity || 0
+    const unit = (item.unit || '').trim()
+    return unit ? `${qty} ${unit}` : `${qty}`
+}
 
 const chargeTotal = computed(() =>
     chargeItems.value.reduce((sum, i) => sum + (i.quantity || 0) * (i.unit_price || 0), 0)
@@ -338,6 +373,7 @@ const handleSubmit = async () => {
                     items: chargeItems.value.map(i => ({
                         description: i.description,
                         quantity: i.quantity,
+                        unit: (i.unit || '').trim() || undefined,
                         unit_price: i.unit_price,
                     })),
                     due_date: chargeDueDate.value || undefined,
@@ -413,5 +449,15 @@ onMounted(() => {
 }
 .animate-fadeIn {
     animation: fadeIn 0.2s ease-out;
+}
+/* Quita las flechas del input numérico: se encimaban con el valor ("remontado"). */
+.charge-num::-webkit-outer-spin-button,
+.charge-num::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.charge-num {
+    -moz-appearance: textfield;
+    appearance: textfield;
 }
 </style>
