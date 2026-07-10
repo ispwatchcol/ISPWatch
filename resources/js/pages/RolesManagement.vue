@@ -65,10 +65,14 @@
                 <td class="py-3 px-4">
                   <div class="font-medium text-gray-800 dark:text-gray-100">
                     {{ role.name }}
-                    <div v-if="isPredefinedRole(role.name)" class="mt-1">
-                      <span class="inline-flex items-center gap-1 text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2.5 py-1 rounded-full font-medium">
+                    <div v-if="role.is_global || isPredefinedRole(role.name)" class="mt-1 flex flex-wrap gap-1">
+                      <span v-if="isPredefinedRole(role.name)" class="inline-flex items-center gap-1 text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2.5 py-1 rounded-full font-medium">
                         <icon-lucide-check-circle class="w-3 h-3" />
                         Predefinido
+                      </span>
+                      <span v-if="role.is_global" class="inline-flex items-center gap-1 text-xs bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2.5 py-1 rounded-full font-medium">
+                        <icon-lucide-globe class="w-3 h-3" />
+                        Global
                       </span>
                     </div>
                   </div>
@@ -85,15 +89,17 @@
                 </td>
                 <td class="flex gap-2 py-3 px-4">
                   <button
+                    v-if="!role.is_global"
                     @click="editRole(role)"
                     class="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition-all hover:scale-[1.03] hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
                   >
                     <icon-lucide-pencil class="h-4 w-4" />
                     Editar
                   </button>
+                  <span v-else class="text-xs text-gray-400 dark:text-gray-500 py-1.5">Solo lectura</span>
 
                   <button
-                    v-if="!isPredefinedRole(role.name)"
+                    v-if="!role.is_global && !isPredefinedRole(role.name)"
                     @click="deleteRole(role)"
                     class="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition-all hover:scale-[1.03] hover:bg-red-100 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-800/50"
                   >
@@ -113,9 +119,14 @@
                 <div class="font-semibold text-gray-800 dark:text-gray-100 text-sm">
                   {{ role.name }}
                 </div>
-                <span v-if="isPredefinedRole(role.name)" class="inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
-                  <icon-lucide-check-circle class="w-3 h-3" /> Predefinido
-                </span>
+                <div class="flex flex-wrap gap-1 justify-end">
+                  <span v-if="isPredefinedRole(role.name)" class="inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                    <icon-lucide-check-circle class="w-3 h-3" /> Predefinido
+                  </span>
+                  <span v-if="role.is_global" class="inline-flex items-center gap-1 text-[10px] bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full font-medium">
+                    <icon-lucide-globe class="w-3 h-3" /> Global
+                  </span>
+                </div>
               </div>
               
               <div class="grid grid-cols-2 gap-2 text-xs mb-4">
@@ -131,6 +142,7 @@
 
               <div class="flex flex-wrap gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
                 <button
+                  v-if="!role.is_global"
                   @click="editRole(role)"
                   class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                          border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all
@@ -138,8 +150,9 @@
                 >
                   <icon-lucide-pencil class="h-3.5 w-3.5" /> Editar
                 </button>
+                <span v-else class="flex-1 text-center text-xs text-gray-400 dark:text-gray-500 py-2">Solo lectura</span>
                 <button
-                  v-if="!isPredefinedRole(role.name)"
+                  v-if="!role.is_global && !isPredefinedRole(role.name)"
                   @click="deleteRole(role)"
                   class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
                          border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all
