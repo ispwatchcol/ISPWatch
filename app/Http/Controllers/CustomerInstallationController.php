@@ -96,7 +96,7 @@ class CustomerInstallationController extends Controller
     private function stripBillingFields(array $row): array
     {
         foreach ([
-            'payment_agreement', 'installation_cost', 'additional_charges',
+            'payment_agreement', 'installation_cost', 'additional_charges', 'additional_items',
             'discount', 'discount_reason', 'payment_method', 'payment_received',
             'payment_notes', 'customer_retention', 'special_attention', 'promotion_notes',
         ] as $field) {
@@ -430,6 +430,9 @@ class CustomerInstallationController extends Controller
             'payment_agreement'  => 'nullable|boolean',
             'installation_cost'  => 'nullable|numeric|min:0',
             'additional_charges' => 'nullable|numeric|min:0',
+            'additional_items'                => 'nullable|array',
+            'additional_items.*.description'  => 'required|string|max:255',
+            'additional_items.*.amount'       => 'required|numeric|min:0',
             'discount'           => 'nullable|numeric|min:0',
             'discount_reason'    => [
                 'nullable', 'string', 'max:255',
@@ -442,6 +445,20 @@ class CustomerInstallationController extends Controller
             'special_attention'  => 'nullable|boolean',
             'promotion_notes'    => 'nullable|string',
         ]);
+
+        // additional_charges siempre refleja la suma de los adicionales itemizados
+        // cuando el cliente los envía; así los reportes agregados siguen cuadrando.
+        if (array_key_exists('additional_items', $data)) {
+            $items = collect($data['additional_items'] ?? [])
+                ->map(fn ($it) => [
+                    'description' => (string) $it['description'],
+                    'amount'      => round((float) $it['amount'], 2),
+                ])
+                ->values()
+                ->all();
+            $data['additional_items']   = $items ?: null;
+            $data['additional_charges'] = array_sum(array_column($items, 'amount'));
+        }
 
         $installation->update($data);
         $installation->refresh();
@@ -495,6 +512,7 @@ class CustomerInstallationController extends Controller
             'sheet.antenna_model'    => 'nullable|string|max:120',
             'sheet.materials'        => 'nullable|string|max:1000',
             'sheet.observations'     => 'nullable|string|max:2000',
+            'sheet.inventory_device_id'  => 'nullable|integer',
             // Conexión / red
             'sheet.sectorial_id'         => 'nullable|integer',
             'sheet.router_id'            => 'nullable|integer',

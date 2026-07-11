@@ -207,15 +207,33 @@ class InstallationBillingService
             ];
         }
 
-        $charges = (float) ($installation->additional_charges ?? 0);
-        if ($charges > 0) {
-            $items[] = [
-                'type'        => 'charge',
-                'description' => 'Cargos adicionales',
-                'quantity'    => 1,
-                'unit_price'  => $charges,
-                'amount'      => $charges,
-            ];
+        // Adicionales itemizados (router adicional, cable extra, etc.); si no hay
+        // desglose se factura el monto agregado legacy como una sola línea.
+        $additionalItems = collect($installation->additional_items ?? [])
+            ->filter(fn ($it) => (float) ($it['amount'] ?? 0) > 0);
+
+        if ($additionalItems->isNotEmpty()) {
+            foreach ($additionalItems as $it) {
+                $amount  = (float) $it['amount'];
+                $items[] = [
+                    'type'        => 'charge',
+                    'description' => $it['description'] ?: 'Cargo adicional',
+                    'quantity'    => 1,
+                    'unit_price'  => $amount,
+                    'amount'      => $amount,
+                ];
+            }
+        } else {
+            $charges = (float) ($installation->additional_charges ?? 0);
+            if ($charges > 0) {
+                $items[] = [
+                    'type'        => 'charge',
+                    'description' => 'Cargos adicionales',
+                    'quantity'    => 1,
+                    'unit_price'  => $charges,
+                    'amount'      => $charges,
+                ];
+            }
         }
 
         $discount = (float) ($installation->discount ?? 0);

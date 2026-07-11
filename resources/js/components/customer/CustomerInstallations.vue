@@ -154,12 +154,27 @@
         </div>
       </div>
     </section>
+
+    <!-- Confirmación: eliminar orden de instalación -->
+    <ConfirmModal
+      :visible="!!deleteTarget"
+      title="Eliminar instalación"
+      :message="deleteTarget ? `Vas a eliminar la orden programada para ${formatDate(deleteTarget.scheduled_date)}. Esta acción no se puede deshacer.` : ''"
+      require-text="BORRAR_INSTALACION"
+      confirm-text="Eliminar"
+      loading-text="Eliminando..."
+      :loading="deleting"
+      variant="danger"
+      @confirm="confirmDelete"
+      @cancel="deleteTarget = null"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '@/services/api'
+import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 
 const props = defineProps({
   customerId: { type: [String, Number], required: true },
@@ -248,14 +263,25 @@ const saveForm = async () => {
   }
 }
 
-const removeInstallation = async (inst) => {
-  if (!confirm(`¿Eliminar la orden programada para ${formatDate(inst.scheduled_date)}?`)) return
+const deleteTarget = ref(null)
+const deleting = ref(false)
+
+const removeInstallation = (inst) => {
+  deleteTarget.value = inst
+}
+
+const confirmDelete = async () => {
+  if (!deleteTarget.value) return
+  deleting.value = true
   try {
-    await api.customers.deleteInstallation(inst.id)
+    await api.customers.deleteInstallation(deleteTarget.value.id)
     emit('notify', { type: 'success', title: 'Eliminada', message: 'Orden de instalación eliminada.' })
+    deleteTarget.value = null
     await loadInstallations()
   } catch {
     emit('notify', { type: 'error', title: 'Error', message: 'No se pudo eliminar la orden.' })
+  } finally {
+    deleting.value = false
   }
 }
 

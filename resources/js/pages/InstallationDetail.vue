@@ -195,6 +195,30 @@
       <!-- Hoja de instalación -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Hoja técnica de instalación</h2>
+
+        <!-- Tomar equipo del inventario: autollenado de marca/modelo/MAC/serial -->
+        <div v-if="inventoryLoaded"
+          class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+          <label class="block text-xs font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">
+            Tomar equipo del inventario
+          </label>
+          <template v-if="availableDevices.length">
+            <select v-model.number="selectedInventoryDeviceId" @change="applyInventoryDevice"
+              class="w-full bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Seleccionar equipo (llena marca, modelo, MAC y serial) —</option>
+              <option v-for="d in availableDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+            </select>
+            <p class="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
+              Al elegir un equipo se llenan los campos de abajo automáticamente; puedes ajustarlos si hace falta.
+            </p>
+          </template>
+          <p v-else class="text-xs text-blue-600 dark:text-blue-400">
+            No hay equipos disponibles en el inventario. Regístralos en
+            <RouterLink to="/inventory" class="underline font-medium">Inventario</RouterLink>
+            para seleccionarlos aquí sin digitar seriales.
+          </p>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cable utilizado (metros)</label>
@@ -341,13 +365,41 @@
             <p v-if="billingErrors.installation_cost" class="mt-1 text-xs text-red-500">{{ billingErrors.installation_cost[0] }}</p>
           </div>
 
-          <!-- Cargos adicionales -->
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cargos adicionales</label>
-            <input v-model="billing.additional_charges" type="number" min="0" step="0.01" placeholder="0"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
-              :class="{ 'border-red-400 dark:border-red-500': billingErrors.additional_charges }" />
-            <p v-if="billingErrors.additional_charges" class="mt-1 text-xs text-red-500">{{ billingErrors.additional_charges[0] }}</p>
+          <!-- Adicionales itemizados (router adicional, cable extra, etc.) -->
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Adicionales (concepto y precio)</label>
+
+            <div v-if="!billing.additional_items.length"
+              class="text-xs text-gray-400 dark:text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-3 py-3 mb-2">
+              Sin adicionales. Agrega por ejemplo un router adicional con su precio.
+            </div>
+
+            <div v-for="(item, idx) in billing.additional_items" :key="idx" class="flex gap-2 mb-2">
+              <input v-model="item.description" type="text" placeholder="Ej: Router adicional TP-Link"
+                class="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+                :class="{ 'border-red-400 dark:border-red-500': billingErrors[`additional_items.${idx}.description`] }" />
+              <input v-model="item.amount" type="number" min="0" step="0.01" placeholder="Precio"
+                class="w-32 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+                :class="{ 'border-red-400 dark:border-red-500': billingErrors[`additional_items.${idx}.amount`] }" />
+              <button @click="removeChargeRow(idx)" type="button" title="Quitar"
+                class="shrink-0 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 rounded-lg transition text-sm">
+                ✕
+              </button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="addChargeRow" type="button"
+                class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 px-3 py-1.5 rounded-lg transition">
+                + Agregar adicional
+              </button>
+              <select v-if="availableDevices.length" v-model.number="chargePick" @change="addChargeFromInventory"
+                class="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
+                <option :value="null">+ Desde inventario (con su precio)</option>
+                <option v-for="d in availableDevices" :key="d.id" :value="d.id">
+                  {{ deviceLabel(d) }}{{ d.stock?.price != null ? ` — ${fmtMoney(d.stock.price)}` : '' }}
+                </option>
+              </select>
+            </div>
           </div>
 
           <!-- Descuento -->
@@ -368,10 +420,16 @@
             <p v-if="billingErrors.payment_received" class="mt-1 text-xs text-red-500">{{ billingErrors.payment_received[0] }}</p>
           </div>
 
-          <!-- Forma de pago -->
+          <!-- Forma de pago (catálogo del tenant; texto libre si no cargó) -->
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Forma de pago</label>
-            <input v-model="billing.payment_method" type="text" placeholder="Efectivo, transferencia, Nequi…"
+            <select v-if="paymentMethodOptions.length" v-model="billing.payment_method"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+              :class="{ 'border-red-400 dark:border-red-500': billingErrors.payment_method }">
+              <option value="">— Seleccionar forma de pago —</option>
+              <option v-for="m in paymentMethodOptions" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <input v-else v-model="billing.payment_method" type="text" placeholder="Efectivo, transferencia, Nequi…"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
               :class="{ 'border-red-400 dark:border-red-500': billingErrors.payment_method }" />
             <p v-if="billingErrors.payment_method" class="mt-1 text-xs text-red-500">{{ billingErrors.payment_method[0] }}</p>
@@ -429,6 +487,35 @@
 
         </div>
 
+        <!-- Resumen: por cuánto salió todo -->
+        <div class="mt-4 p-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg">
+          <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300">
+            <span>Valor de instalación</span>
+            <span>{{ fmtMoney(billing.installation_cost) }}</span>
+          </div>
+          <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300 mt-1">
+            <span>Adicionales ({{ billing.additional_items.length }})</span>
+            <span>{{ fmtMoney(additionalTotal) }}</span>
+          </div>
+          <div v-if="Number(billing.discount) > 0" class="flex justify-between text-sm text-rose-600 dark:text-rose-400 mt-1">
+            <span>Descuento</span>
+            <span>- {{ fmtMoney(billing.discount) }}</span>
+          </div>
+          <div class="flex justify-between text-base font-bold text-gray-800 dark:text-white mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <span>Total de la instalación</span>
+            <span>{{ fmtMoney(billingTotal) }}</span>
+          </div>
+          <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300 mt-1">
+            <span>Valor recibido</span>
+            <span>{{ fmtMoney(billing.payment_received) }}</span>
+          </div>
+          <div class="flex justify-between text-sm font-semibold mt-1"
+            :class="billingBalance > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
+            <span>{{ billingBalance > 0 ? 'Saldo pendiente' : 'Pagado en su totalidad' }}</span>
+            <span>{{ fmtMoney(billingBalance) }}</span>
+          </div>
+        </div>
+
         <button @click="saveBilling" :disabled="savingBilling"
           class="mt-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
           {{ savingBilling ? 'Guardando...' : 'Guardar cartera' }}
@@ -448,10 +535,11 @@
             <div class="bg-white rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 overflow-hidden" style="touch-action: none;">
               <canvas ref="canvasCustomer" width="500" height="180"
                 class="w-full h-[180px] cursor-crosshair"
+                style="touch-action: none;"
                 @pointerdown="(e) => startDraw(e, 'cust')"
                 @pointermove="(e) => draw(e, 'cust')"
                 @pointerup="endDraw"
-                @pointerleave="endDraw"></canvas>
+                @pointercancel="endDraw"></canvas>
             </div>
             <button @click="clearSig('cust')" type="button"
               class="mt-2 text-xs px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white rounded-lg">
@@ -463,10 +551,11 @@
             <div class="bg-white rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 overflow-hidden" style="touch-action: none;">
               <canvas ref="canvasTech" width="500" height="180"
                 class="w-full h-[180px] cursor-crosshair"
+                style="touch-action: none;"
                 @pointerdown="(e) => startDraw(e, 'tech')"
                 @pointermove="(e) => draw(e, 'tech')"
                 @pointerup="endDraw"
-                @pointerleave="endDraw"></canvas>
+                @pointercancel="endDraw"></canvas>
             </div>
             <button @click="clearSig('tech')" type="button"
               class="mt-2 text-xs px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white rounded-lg">
@@ -501,7 +590,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import api from '@/services/api'
+import api, { apiClient } from '@/services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 
@@ -526,6 +615,7 @@ const sheet = ref({
   pppoe_local_address: '',
   local_address_manual: false,
   // Hoja técnica
+  inventory_device_id: null,
   cable_meters: '',
   signal_level: '',
   modem_brand: '',
@@ -541,7 +631,7 @@ const savingSheet = ref(false)
 const billing = ref({
   payment_agreement:  false,
   installation_cost:  null,
-  additional_charges: null,
+  additional_items:   [],
   discount:           null,
   discount_reason:    '',
   payment_method:     '',
@@ -553,6 +643,97 @@ const billing = ref({
 })
 const savingBilling = ref(false)
 const billingErrors = ref({})
+
+// ─── Equipos del inventario (autollenado de la hoja técnica) ───
+const inventoryDevices = ref([])
+const inventoryLoaded = ref(false)
+const selectedInventoryDeviceId = ref(null)
+const chargePick = ref(null)
+
+const availableDevices = computed(() =>
+  inventoryDevices.value.filter(d => !d.user_id || d.user_id === installation.value?.customer_id)
+)
+
+const deviceLabel = (d) => {
+  const name = `${d.stock?.brand ?? ''} ${d.stock?.model ?? ''}`.trim() || 'Equipo'
+  const parts = [name]
+  if (d.serial) parts.push(`S/N ${d.serial}`)
+  if (d.mac)    parts.push(`MAC ${d.mac}`)
+  return parts.join(' · ')
+}
+
+const loadInventoryDevices = async () => {
+  try {
+    const { data } = await api.inventory.getAll()
+    inventoryDevices.value = Array.isArray(data) ? data : []
+    inventoryLoaded.value = true
+  } catch { /* non-blocking: sin permiso de inventario se digita manual */ }
+}
+
+// ─── Formas de pago del tenant (catálogo de Facturación) ───
+const paymentMethods = ref([])
+
+const loadPaymentMethods = async () => {
+  try {
+    const { data } = await apiClient.get('/billing/payment-methods')
+    paymentMethods.value = (Array.isArray(data) ? data : []).filter(m => m.is_active)
+  } catch { /* non-blocking: sin view_billing queda el campo de texto libre */ }
+}
+
+const paymentMethodOptions = computed(() => {
+  const names = paymentMethods.value.map(m => m.name)
+  // Un valor guardado que ya no está en el catálogo se conserva como opción.
+  const current = billing.value.payment_method
+  if (current && !names.includes(current)) names.push(current)
+  return names
+})
+
+const applyInventoryDevice = () => {
+  const d = inventoryDevices.value.find(x => x.id === selectedInventoryDeviceId.value)
+  if (!d) return
+  sheet.value.inventory_device_id = d.id
+  if (d.stock?.brand) sheet.value.modem_brand = d.stock.brand
+  if (d.stock?.model) sheet.value.modem_model = d.stock.model
+  if (d.mac)          sheet.value.modem_mac   = d.mac
+  if (d.serial)       sheet.value.onu_serial  = d.serial
+  toast.value?.success('Equipo cargado', 'Marca, modelo, MAC y serial tomados del inventario.')
+}
+
+// ─── Adicionales itemizados (cartera) ───
+const addChargeRow = () => {
+  billing.value.additional_items.push({ description: '', amount: null })
+}
+
+const removeChargeRow = (idx) => {
+  billing.value.additional_items.splice(idx, 1)
+}
+
+const addChargeFromInventory = () => {
+  const d = inventoryDevices.value.find(x => x.id === chargePick.value)
+  chargePick.value = null
+  if (!d) return
+  billing.value.additional_items.push({
+    description: deviceLabel(d),
+    amount: d.stock?.price != null ? Number(d.stock.price) : null,
+  })
+}
+
+const additionalTotal = computed(() =>
+  billing.value.additional_items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
+)
+
+const billingTotal = computed(() => {
+  const cost = Number(billing.value.installation_cost) || 0
+  const disc = Number(billing.value.discount) || 0
+  return Math.max(0, cost + additionalTotal.value - disc)
+})
+
+const billingBalance = computed(() =>
+  Math.max(0, billingTotal.value - (Number(billing.value.payment_received) || 0))
+)
+
+const fmtMoney = (v) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v) || 0)
 
 const sectorials = ref([])
 const routers    = ref([])
@@ -591,10 +772,17 @@ const loadInstallation = async () => {
     const { data } = await api.customers.getInstallation(installationId.value)
     installation.value = data
     if (data.can_edit_billing) {
+      // Compatibilidad: instalaciones viejas solo tienen el monto agregado
+      // additional_charges — se muestra como una fila editable.
+      const items = Array.isArray(data.additional_items) && data.additional_items.length
+        ? data.additional_items.map(it => ({ description: it.description ?? '', amount: it.amount ?? null }))
+        : (Number(data.additional_charges) > 0
+            ? [{ description: 'Cargos adicionales', amount: Number(data.additional_charges) }]
+            : [])
       billing.value = {
         payment_agreement:  data.payment_agreement  ?? false,
         installation_cost:  data.installation_cost  ?? null,
-        additional_charges: data.additional_charges ?? null,
+        additional_items:   items,
         discount:           data.discount           ?? null,
         discount_reason:    data.discount_reason    ?? '',
         payment_method:     data.payment_method     ?? '',
@@ -676,7 +864,7 @@ const saveSheet = async () => {
     if (payload.cable_meters === '') delete payload.cable_meters
     else payload.cable_meters = Number(payload.cable_meters)
 
-    for (const k of ['sectorial_id', 'router_id', 'plan_id']) {
+    for (const k of ['sectorial_id', 'router_id', 'plan_id', 'inventory_device_id']) {
       if (payload[k] == null || payload[k] === '') delete payload[k]
       else payload[k] = Number(payload[k])
     }
@@ -705,10 +893,14 @@ const saveBilling = async () => {
   billingErrors.value = {}
   try {
     const toNum = (v) => (v !== null && v !== '' ? Number(v) : null)
+    const items = billing.value.additional_items
+      .filter(it => (it.description ?? '').trim() !== '' || toNum(it.amount) !== null)
+      .map(it => ({ description: (it.description ?? '').trim(), amount: Number(it.amount) || 0 }))
     const payload = {
       payment_agreement:  billing.value.payment_agreement,
       installation_cost:  toNum(billing.value.installation_cost),
-      additional_charges: toNum(billing.value.additional_charges),
+      additional_items:   items,
+      additional_charges: items.reduce((s, it) => s + it.amount, 0),
       discount:           toNum(billing.value.discount),
       discount_reason:    billing.value.discount_reason || null,
       payment_method:     billing.value.payment_method  || null,
@@ -787,12 +979,24 @@ const deletePhoto = async (p) => {
   }
 }
 
-const setupCanvas = (refEl, ref2) => {
-  if (!refEl) return null
-  const ctx = refEl.getContext('2d')
-  ctx.lineWidth = 2.5
-  ctx.lineCap = 'round'
-  ctx.strokeStyle = '#111827'
+// El contexto se obtiene de forma perezosa: si se pide antes de que el canvas
+// exista en el DOM (carga asíncrona, re-render), se reintenta en el siguiente
+// trazo en lugar de quedar null para siempre (causa del "no se ve el trazo").
+const getCanvas = (who) => (who === 'cust' ? canvasCustomer.value : canvasTech.value)
+
+const getCtx = (who) => {
+  const canvas = getCanvas(who)
+  if (!canvas) return null
+  let ctx = who === 'cust' ? ctxCust : ctxTech
+  if (!ctx) {
+    ctx = canvas.getContext('2d')
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#111827'
+    if (who === 'cust') ctxCust = ctx
+    else ctxTech = ctx
+  }
   return ctx
 }
 
@@ -805,32 +1009,39 @@ const pointerPos = (canvas, e) => {
 }
 
 const startDraw = (e, who) => {
-  drawing = who
-  const canvas = who === 'cust' ? canvasCustomer.value : canvasTech.value
-  const ctx    = who === 'cust' ? ctxCust : ctxTech
+  const canvas = getCanvas(who)
+  const ctx    = getCtx(who)
   if (!canvas || !ctx) return
+  e.preventDefault()
+  drawing = who
+  // Captura el puntero: el trazo continúa aunque el dedo/cursor salga del canvas.
+  try { canvas.setPointerCapture(e.pointerId) } catch { /* no soportado */ }
   const { x, y } = pointerPos(canvas, e)
   ctx.beginPath()
   ctx.moveTo(x, y)
-}
-
-const draw = (e, who) => {
-  if (drawing !== who) return
-  const canvas = who === 'cust' ? canvasCustomer.value : canvasTech.value
-  const ctx    = who === 'cust' ? ctxCust : ctxTech
-  if (!canvas || !ctx) return
-  const { x, y } = pointerPos(canvas, e)
-  ctx.lineTo(x, y)
+  // Punto inicial visible también en taps sin arrastre.
+  ctx.lineTo(x + 0.1, y + 0.1)
   ctx.stroke()
   if (who === 'cust') hasCustSig.value = true
   else hasTechSig.value = true
 }
 
+const draw = (e, who) => {
+  if (drawing !== who) return
+  const canvas = getCanvas(who)
+  const ctx    = getCtx(who)
+  if (!canvas || !ctx) return
+  e.preventDefault()
+  const { x, y } = pointerPos(canvas, e)
+  ctx.lineTo(x, y)
+  ctx.stroke()
+}
+
 const endDraw = () => { drawing = null }
 
 const clearSig = (who) => {
-  const canvas = who === 'cust' ? canvasCustomer.value : canvasTech.value
-  const ctx    = who === 'cust' ? ctxCust : ctxTech
+  const canvas = getCanvas(who)
+  const ctx    = getCtx(who)
   if (!canvas || !ctx) return
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   if (who === 'cust') hasCustSig.value = false
@@ -887,9 +1098,11 @@ const formatDate = (d) => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadInstallation(), loadNetworkResources()])
+  await Promise.all([loadInstallation(), loadNetworkResources(), loadInventoryDevices(), loadPaymentMethods()])
   await nextTick()
-  ctxCust = setupCanvas(canvasCustomer.value)
-  ctxTech = setupCanvas(canvasTech.value)
+  // Pre-inicializa los contextos si los canvas ya existen; si no, getCtx()
+  // los inicializa en el primer trazo.
+  getCtx('cust')
+  getCtx('tech')
 })
 </script>
