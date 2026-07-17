@@ -14,7 +14,7 @@ class StoreCustomerRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
+        $rules = [
             // Access data
             // email: correo PERSONAL/de contacto del cliente (no se usa para login).
             'email'          => 'required|email|unique:users,email',
@@ -71,6 +71,23 @@ class StoreCustomerRequest extends FormRequest
             // llamadores que esperan el aprovisionamiento automático.
             'push_to_router'      => 'nullable|boolean',
         ];
+
+        // Unicidad de pppoe_username POR ROUTER: dos clientes del mismo
+        // router_id no pueden compartir username. Sin esto, RouterOS sobre-
+        // escribe silenciosamente el secret de OTRO cliente cuando hay
+        // colisión de nombre (el comando `set [find name=X]` encuentra el
+        // secret existente y le aplica los datos del cliente nuevo, sin
+        // reportar error). Solo se evalúa cuando ambos campos vienen
+        // presentes: sin router asignado no hay SSH que pueda colisionar.
+        if (!empty($this->input('router_id')) && !empty($this->input('pppoe_username'))) {
+            $rules['pppoe_username'] = [
+                'nullable', 'string', 'max:255',
+                Rule::unique('customer_profile', 'pppoe_username')
+                    ->where(fn ($q) => $q->where('router_id', $this->input('router_id'))),
+            ];
+        }
+
+        return $rules;
     }
 
     public function messages(): array
@@ -85,6 +102,7 @@ class StoreCustomerRequest extends FormRequest
             'name.required'      => 'El nombre es obligatorio.',
             'last_name.required' => 'El apellido es obligatorio.',
             'cedula.required'    => 'La cédula es obligatoria.',
+            'pppoe_username.unique' => 'Este usuario PPPoE ya está en uso por otro cliente en el mismo router. Usa un nombre distinto.',
         ];
     }
 }

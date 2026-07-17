@@ -606,6 +606,14 @@
             {{ errorMsg }}
             </div>
 
+            <!-- Aprovisionamiento en curso: el cliente ya se guardó en BD; esto
+                 solo confirma si la carga a RouterOS (secret/queue) terminó. -->
+            <div v-if="provisionPolling.state.value === 'polling'"
+                class="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+                <v-icon name="bi-arrow-repeat" animation="spin" class="w-4 h-4 shrink-0" />
+                Cliente guardado. Cargando al router (esto puede tardar hasta 1 minuto)...
+            </div>
+
             <!-- Botones -->
             <!-- Dos acciones: "Guardar" persiste solo en la base de datos; "Guardar y
                  cargar a RB" hace además el aprovisionamiento al router (flujo completo). -->
@@ -637,7 +645,9 @@
                        flex items-center justify-center gap-2">
                 <v-icon v-if="loading && loadingMode === 'rb'" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
                 <v-icon v-else name="bi-hdd-network" class="w-5 h-5" />
-                {{ loading && loadingMode === 'rb' ? 'Guardando...' : 'Guardar y cargar a RB' }}
+                {{ loading && loadingMode === 'rb'
+                    ? (provisionPolling.state.value === 'polling' ? 'Cargando al router...' : 'Guardando...')
+                    : 'Guardar y cargar a RB' }}
             </button>
             </div>
         </form>
@@ -702,10 +712,12 @@ import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import DatePicker from '@/components/DatePicker.vue'
+import { useProvisionPolling } from '@/composables/useProvisionPolling'
 
 const router = useRouter()
 const route  = useRoute()
 const toast  = ref(null)
+const provisionPolling = useProvisionPolling()
 const prospectId = ref(null)
 const returnTo   = ref(null)
 
@@ -1021,6 +1033,7 @@ const handleSubmit = async (pushToRouter = true) => {
     errorMsg.value     = ''
     pppoeUserError.value = ''
     pppoePassError.value = ''
+    provisionPolling.reset()
 
     // Hard block: router asignado pero sin plan. El plan se filtra por el modo de
     // control del router y un watcher lo limpia al cambiar de router, así que es
@@ -1082,8 +1095,8 @@ const handleSubmit = async (pushToRouter = true) => {
             push_to_router: pushToRouter,
         }
         const res   = await api.customers.create(payload)
-        const pppoe = res.data?.pppoe_provisioned
         const newUserId = res.data?.user?.id
+        const jobId = res.data?.job_id // presente solo si provision_status === 'queued'
 
         // If this client was created from a prospect, link them so the
         // prospect's installations/documents get re-homed to the new user
@@ -1100,20 +1113,51 @@ const handleSubmit = async (pushToRouter = true) => {
         const loginEmail = res.data?.email_tenant
         const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
 
-        if (pushToRouter && showPppoeSection.value && pppoe && !pppoe.success) {
-            toast.value?.warning(
-                'Cliente creado con advertencia',
-                `Datos guardados, pero el secret PPPoE no se pudo crear en ${selectedRouter.value?.name}: ${pppoe.message}`
-            )
-            setTimeout(() => router.push(redirectTarget), 2500)
-        } else if (!pushToRouter) {
+        if (!pushToRouter) {
             toast.value?.success('Cliente guardado', `El cliente se guardó en la base de datos (no se cargó a la RB).${loginInfo}`)
             setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
-        } else {
-            const extra = showPppoeSection.value ? ` Secret PPPoE creado en ${selectedRouter.value?.name}.` : ''
-            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo}${extra}`)
-            setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
+            return
         }
+
+        if (!jobId) {
+            // El gate no aplicó (router sin "Agregar Cliente en Mikrotik", sin
+            // plan o sin IP asignada): el cliente se creó pero no se encoló nada.
+            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${loginInfo}`)
+            setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
+            return
+        }
+
+        // Aprovisionamiento ASÍNCRONO en curso: se hace polling del resultado
+        // REAL antes de mostrar el toast final — nunca asumimos éxito solo
+        // porque el POST respondió 201 (ese fue exactamente el falso positivo
+        // original: la creación en BD ya había terminado, pero el aprovisiona-
+        // miento síncrono podía morir a medio camino por timeout de PHP sin
+        // que el frontend supiera distinguirlo de un error real).
+        const r = await provisionPolling.pollJob(jobId)
+
+        if (provisionPolling.state.value === 'timeout') {
+            toast.value?.warning(
+                'Cliente creado — aprovisionamiento sin confirmar',
+                `El cliente se guardó correctamente${loginInfo}, pero no se pudo confirmar la carga al router: ${provisionPolling.errorMessage.value}`,
+                { duration: 12000 }
+            )
+        } else if (r?.success && r.pppoeCreated) {
+            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo} Secret PPPoE creado en ${selectedRouter.value?.name}.`)
+        } else if (r?.success && r.pppoeSkipped) {
+            toast.value?.warning('Cliente creado — PPPoE pendiente',
+                `Datos guardados.${loginInfo} ${r.pppoeMessage || 'Faltan credenciales PPPoE.'} Edita el cliente para configurarlas.`,
+                { duration: 9000 })
+        } else if (r?.success) {
+            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo}`)
+        } else {
+            toast.value?.warning(
+                'Cliente creado con advertencia',
+                `Datos guardados${loginInfo}, pero no se pudo cargar al router: ${r?.message || 'error desconocido'}`,
+                { duration: 12000 }
+            )
+        }
+
+        setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
     } catch (err) {
         console.error('Error al crear cliente:', err)
         const data = err.response?.data

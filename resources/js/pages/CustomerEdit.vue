@@ -713,6 +713,14 @@
             {{ errorMsg }}
             </div>
 
+            <!-- Aprovisionamiento en curso: los datos ya se guardaron en BD; esto
+                 solo confirma si la re-sincronización con RouterOS terminó. -->
+            <div v-if="provisionPolling.state.value === 'polling'"
+                class="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+                <v-icon name="bi-arrow-repeat" animation="spin" class="w-4 h-4 shrink-0" />
+                Datos guardados. Cargando al router (esto puede tardar hasta 1 minuto)...
+            </div>
+
             <!-- Botones -->
             <!-- Dos acciones: "Guardar" persiste solo en la base de datos; "Guardar y
                  cargar a RB" re-sincroniza además la configuración en el router. -->
@@ -744,7 +752,9 @@
                        flex items-center justify-center gap-2">
                 <v-icon v-if="loading && loadingMode === 'rb'" name="bi-arrow-repeat" animation="spin" class="w-5 h-5" />
                 <v-icon v-else name="bi-hdd-network" class="w-5 h-5" />
-                {{ loading && loadingMode === 'rb' ? 'Guardando...' : 'Guardar y cargar a RB' }}
+                {{ loading && loadingMode === 'rb'
+                    ? (provisionPolling.state.value === 'polling' ? 'Cargando al router...' : 'Guardando...')
+                    : 'Guardar y cargar a RB' }}
             </button>
             </div>
         </form>
@@ -779,10 +789,12 @@ import CustomerBilling from '@/components/customer/CustomerBilling.vue'
 import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 import CustomerTickets from '@/components/customer/CustomerTickets.vue'
 import DatePicker from '@/components/DatePicker.vue'
+import { useProvisionPolling } from '@/composables/useProvisionPolling'
 
 const router = useRouter()
 const route  = useRoute()
 const toast  = ref(null)
+const provisionPolling = useProvisionPolling()
 
 const tabs = [
   { key: 'datos',       label: 'Datos del Cliente' },
@@ -1171,6 +1183,7 @@ const handleSubmit = async (pushToRouter = true) => {
     errorMsg.value       = ''
     pppoeUserError.value = ''
     pppoePassError.value = ''
+    provisionPolling.reset()
 
     // Hard block: router asignado pero sin plan. El plan se filtra por el modo de
     // control del router y un watcher lo limpia al cambiar de router, así que es
@@ -1227,7 +1240,7 @@ const handleSubmit = async (pushToRouter = true) => {
         if (!dataToSend.password) delete dataToSend.password
 
         const res   = await api.customers.update(route.params.id, dataToSend)
-        const pppoe = res.data?.pppoe_provisioned
+        const jobId = res.data?.job_id // presente solo si provision_status === 'queued'
 
         // Sync retirement and IP fields from the backend response so the
         // "Historial de retiro" block reflects the saved state immediately,
@@ -1243,22 +1256,43 @@ const handleSubmit = async (pushToRouter = true) => {
         if (!pushToRouter) {
             toast.value?.success('Cliente guardado', 'Los datos se guardaron en la base de datos (no se cargó a la RB).')
             setTimeout(() => router.push('/customers'), 1500)
-        } else if (showPppoeSection.value && pppoe && !pppoe.success) {
+            return
+        }
+
+        if (!jobId) {
+            // El gate no aplicó (router sin "Agregar Cliente en Mikrotik", sin
+            // plan o sin IP asignada): los datos se guardaron pero no se encoló nada.
+            toast.value?.success('Cliente actualizado', 'Los datos fueron actualizados correctamente.')
+            setTimeout(() => router.push('/customers'), 1500)
+            return
+        }
+
+        // Aprovisionamiento ASÍNCRONO en curso: se hace polling del resultado
+        // REAL antes de mostrar el toast final (ver misma nota en CustomerAdd.vue).
+        const r = await provisionPolling.pollJob(jobId)
+
+        if (provisionPolling.state.value === 'timeout') {
+            toast.value?.warning(
+                'Cliente actualizado — aprovisionamiento sin confirmar',
+                `Los datos se guardaron correctamente, pero no se pudo confirmar la carga al router: ${provisionPolling.errorMessage.value}`,
+                { duration: 12000 }
+            )
+        } else if (r?.success && r.pppoeCreated) {
+            toast.value?.success('Cliente actualizado', `Datos guardados y secret PPPoE actualizado en ${selectedRouter.value?.name} correctamente.`)
+        } else if (r?.success && r.pppoeSkipped) {
+            toast.value?.warning('Cliente actualizado — PPPoE pendiente',
+                `Datos guardados. ${r.pppoeMessage || 'Faltan credenciales PPPoE.'}`, { duration: 9000 })
+        } else if (r?.success) {
+            toast.value?.success('Cliente actualizado', 'Los datos fueron actualizados y cargados a la RB correctamente.')
+        } else {
             toast.value?.warning(
                 'Cliente actualizado con advertencia',
-                `Datos guardados, pero el secret PPPoE no se pudo actualizar en ${selectedRouter.value?.name}: ${pppoe.message}`
+                `Datos guardados, pero no se pudo cargar al router: ${r?.message || 'error desconocido'}`,
+                { duration: 12000 }
             )
-            setTimeout(() => router.push('/customers'), 2500)
-        } else if (showPppoeSection.value && pppoe?.success) {
-            toast.value?.success(
-                'Cliente actualizado',
-                `Datos guardados y secret PPPoE actualizado en ${selectedRouter.value?.name} correctamente.`
-            )
-            setTimeout(() => router.push('/customers'), 1500)
-        } else {
-            toast.value?.success('Cliente actualizado', 'Los datos fueron actualizados y cargados a la RB correctamente.')
-            setTimeout(() => router.push('/customers'), 1500)
         }
+
+        setTimeout(() => router.push('/customers'), 1500)
     } catch (err) {
         console.error('Error al actualizar cliente:', err)
         const msg = err.response?.data?.message || 'Error al actualizar el cliente.'

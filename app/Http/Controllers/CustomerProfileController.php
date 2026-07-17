@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\UserService;
 use App\Traits\FixesSequences;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -448,16 +449,28 @@ class CustomerProfileController extends Controller
             DB::commit();
 
             // ── Auto-aprovisionamiento a la RB según el MÉTODO DE CONTROL ──
+            // ASÍNCRONO: se encola un ProvisionCustomerJob (mismo mecanismo que
+            // ya usa el bulk de la lista) en vez de llamar a RouterOS dentro de
+            // este request. Motivo: para routers PPPoE en modo `queue` el
+            // aprovisionamiento hace DOS llamadas SSH anidadas secuenciales
+            // (~17-34s combinado) que pueden acercarse o superar el
+            // max_execution_time de PHP: si eso pasa, PHP mata el proceso con
+            // un fatal error NO capturable por try/catch — el cliente ya quedó
+            // creado en BD (commit arriba) y el secret PPPoE puede ya haberse
+            // creado en el router, pero el frontend recibía un error genérico
+            // sin poder distinguir nada de esto. Al encolar, la persistencia
+            // del cliente sigue siendo síncrona e inmediata; solo el tramo que
+            // toca RouterOS pasa a un job con su propio timeout.
+            //
             // Una sola compuerta: el router debe tener `agregar_cliente_mkt`.
-            // El dispatcher (CustomerProvisioningService) elige queue / pppoe /
-            // pcq / hotspot / dhcp según el modo excluyente del router.
             // El operador puede elegir "Guardar" (solo BD) en vez de "Guardar y
             // cargar a RB": en ese caso se omite el aprovisionamiento automático.
             // Ausente => true, para no alterar imports/conversión de prospectos.
-            $pushToRouter = $request->boolean('push_to_router', true);
-            $router      = !empty($data['router_id']) ? Router::find($data['router_id']) : null;
-            $servicePlan = !empty($data['service_id']) ? Plan::find($data['service_id']) : null;
-            $provision   = null;
+            $pushToRouter    = $request->boolean('push_to_router', true);
+            $router          = !empty($data['router_id']) ? Router::find($data['router_id']) : null;
+            $servicePlan     = !empty($data['service_id']) ? Plan::find($data['service_id']) : null;
+            $provisionStatus = 'skipped';
+            $jobId           = null;
 
             if (!$pushToRouter) {
                 \Log::info('[CustomerProfile] Skip auto-provision: solo guardar en BD (push_to_router=false)', [
@@ -468,33 +481,35 @@ class CustomerProfileController extends Controller
                     'router_id' => $router->id,
                 ]);
             } elseif ($router && $servicePlan && $customer->ip_user) {
+                // IMPORTANTE: try/catch propio, NO relanzar. El cliente ya está
+                // commiteado arriba — si encolar el job falla (lock ocupado,
+                // problema puntual de BD/cola), NO debe reportarse como
+                // "Error al crear el cliente" (sería el mismo falso positivo
+                // que este cambio busca eliminar, solo que disparado por el
+                // encolado en vez de por el SSH síncrono).
                 try {
-                    $provision = app(CustomerProvisioningService::class)
-                        ->provisionByControlMode($router, $customer, $servicePlan);
-
-                    if (!($provision['success'] ?? false)) {
-                        \Log::warning('[CustomerProfile] Auto-provision incompleto (no bloqueante)', [
-                            'customer_id' => $customer->user_id,
-                            'mode'        => $provision['mode'] ?? null,
-                            'message'     => $provision['message'] ?? null,
-                        ]);
-                    }
+                    $run             = $this->startAsyncProvision($tenantId, $customer->user_id);
+                    $provisionStatus = 'queued';
+                    $jobId           = $run->id;
                 } catch (\Throwable $e) {
-                    \Log::warning('[CustomerProfile] Auto-provision exception (no bloqueante)', [
-                        'error' => $e->getMessage(),
+                    \Log::warning('[CustomerProfile] No se pudo encolar el aprovisionamiento (no bloqueante)', [
+                        'customer_id' => $customer->user_id,
+                        'error'       => $e->getMessage(),
                     ]);
-                    $provision = ['success' => false, 'message' => $e->getMessage()];
+                    $provisionStatus = 'failed_to_queue';
                 }
             }
 
             return response()->json([
-                'message'            => 'Cliente creado correctamente. ✅',
-                'customer'           => $customer,
-                'user'               => $user,
-                'email_tenant'       => $emailTenant,
-                'queue_provisioned'  => $provision['queue_result'] ?? null,
-                'pppoe_provisioned'  => $provision['pppoe_result'] ?? null,
-                'provision'          => $provision,
+                'message'          => 'Cliente creado correctamente. ✅',
+                'customer'         => $customer,
+                'user'             => $user,
+                'email_tenant'     => $emailTenant,
+                // 'queued'          -> aprovisionamiento en curso, hacer polling con job_id.
+                // 'skipped'         -> push_to_router=false o router sin agregar_cliente_mkt/plan/IP.
+                // 'failed_to_queue' -> el cliente SÍ se creó, pero no se pudo encolar el aprovisionamiento (reintentar desde la lista).
+                'provision_status' => $provisionStatus,
+                'job_id'           => $jobId,
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -568,10 +583,17 @@ class CustomerProfileController extends Controller
 
     /**
      * Provision customer to Mikrotik Router.
-     * Uses MikroTikSshService.syncQueueViaCore which works from production (DigitalOcean)
+     *
+     * ASÍNCRONO (mismo mecanismo que bulkProvisionAsync): encola un
+     * ProvisionCustomerJob y devuelve el job_id para hacer polling con
+     * bulkProvisionStatus, en vez de aprovisionar dentro de este request.
+     * Ningún componente del frontend llama hoy a este endpoint individual
+     * (verificado: solo el bulk de la lista aprovisiona), así que el cambio
+     * de contrato (200/500 síncrono -> 202 + job_id) no rompe nada existente.
      */
     public function provision($id)
     {
+        $tenantId = $this->authTenantId();
         $customer = $this->findTenantCustomerOrFail($id);
 
         if (!$customer->router_id) {
@@ -609,21 +631,23 @@ class CustomerProfileController extends Controller
 
         // Acción explícita del operador: aprovisiona según el método de control
         // del router (no depende de agregar_cliente_mkt).
-        $provision = app(CustomerProvisioningService::class)
-            ->provisionByControlMode($router, $customer, $servicePlan);
-
-        $success = (bool) ($provision['success'] ?? false);
+        try {
+            $run = $this->startAsyncProvision($tenantId, (int) $customer->user_id);
+        } catch (\Throwable $e) {
+            \Log::warning('[CustomerProfile] No se pudo encolar el aprovisionamiento manual', [
+                'customer_id' => $customer->user_id,
+                'error'       => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message' => 'No se pudo iniciar el aprovisionamiento: ' . $e->getMessage(),
+            ], 500);
+        }
 
         return response()->json([
-            'success'      => $success,
-            'message'      => $success
-                ? 'Provisionado correctamente.'
-                : ($provision['message'] ?? 'Provisionado con advertencias.'),
-            'mode'         => $provision['mode'] ?? null,
-            'queue_result' => $provision['queue_result'] ?? null,
-            'pppoe_result' => $provision['pppoe_result'] ?? null,
-            'provision'    => $provision,
-        ], $success ? 200 : 500);
+            'job_id' => $run->id,
+            'status' => $run->status,
+            'total'  => $run->total,
+        ], 202);
     }
 
     /**
@@ -914,6 +938,25 @@ class CustomerProfileController extends Controller
             }
         }
 
+        // pppoe_username único POR ROUTER: evita que RouterOS sobreescriba
+        // silenciosamente el secret de OTRO cliente por colisión de nombre
+        // (mismo motivo/patrón que la unicidad de IP arriba). Se evalúa con
+        // el router_id EFECTIVO, porque el mismo request puede cambiar tanto
+        // router_id como pppoe_username a la vez.
+        $effectivePppoeUsername = array_key_exists('pppoe_username', $data) ? $data['pppoe_username'] : $customer->pppoe_username;
+        if (!empty($effectivePppoeUsername) && !empty($effectiveRouterId)) {
+            $pppoeUsernameTaken = CustomerProfile::where('router_id', $effectiveRouterId)
+                ->where('pppoe_username', $effectivePppoeUsername)
+                ->where('user_id', '!=', $id)
+                ->whereHas('user', fn ($q) => $q->where('tenant_id', $authTenantId))
+                ->exists();
+            if ($pppoeUsernameTaken) {
+                throw ValidationException::withMessages([
+                    'pppoe_username' => ["Este usuario PPPoE ya está en uso por otro cliente en el mismo router. Usa un nombre distinto."],
+                ]);
+            }
+        }
+
         DB::beginTransaction();
 
         try {
@@ -1015,22 +1058,28 @@ class CustomerProfileController extends Controller
 
             // Re-sincronizar el cliente en la RB tras la edición, según el
             // MÉTODO DE CONTROL del router (solo si el router auto-provisiona).
-            // Mantiene la config de la RB al día tras cambiar plan/IP/MAC/creds.
-            $provision     = null;
-            $provRouterId  = $data['router_id'] ?? $customer->router_id;
-            $provServiceId = $data['service_id'] ?? $customer->service_id;
+            // ASÍNCRONO (ver nota extensa en store()): se encola en vez de
+            // llamar a RouterOS dentro de este request.
+            $provisionStatus = 'skipped';
+            $jobId           = null;
+            $provRouterId    = $data['router_id'] ?? $customer->router_id;
+            $provServiceId   = $data['service_id'] ?? $customer->service_id;
             if ($pushToRouter && $provRouterId && $provServiceId && $customer->ip_user) {
                 $provRouter = Router::find($provRouterId);
                 $provPlan   = Plan::find($provServiceId);
                 if ($provRouter && $provRouter->agregar_cliente_mkt && $provPlan) {
+                    // IMPORTANTE: try/catch propio, NO relanzar — el cliente ya
+                    // está commiteado arriba (misma razón que en store()).
                     try {
-                        $provision = app(CustomerProvisioningService::class)
-                            ->provisionByControlMode($provRouter, $customer, $provPlan);
+                        $run             = $this->startAsyncProvision($authTenantId, (int) $customer->user_id);
+                        $provisionStatus = 'queued';
+                        $jobId           = $run->id;
                     } catch (\Throwable $e) {
-                        \Log::warning('[CustomerProfile] Update auto-provision exception (no bloqueante)', [
-                            'error' => $e->getMessage(),
+                        \Log::warning('[CustomerProfile] No se pudo encolar el aprovisionamiento (no bloqueante)', [
+                            'customer_id' => $customer->user_id,
+                            'error'       => $e->getMessage(),
                         ]);
-                        $provision = ['success' => false, 'message' => $e->getMessage()];
+                        $provisionStatus = 'failed_to_queue';
                     }
                 }
             }
@@ -1063,8 +1112,11 @@ class CustomerProfileController extends Controller
             return response()->json([
                 'message'           => 'Cliente actualizado correctamente. ✅',
                 'customer'          => $customer,
-                'pppoe_provisioned' => $provision['pppoe_result'] ?? null,
-                'provision'         => $provision,
+                // 'queued'          -> aprovisionamiento en curso, hacer polling con job_id.
+                // 'skipped'         -> push_to_router=false o router sin agregar_cliente_mkt/plan/IP.
+                // 'failed_to_queue' -> los datos SÍ se guardaron, pero no se pudo encolar el aprovisionamiento (reintentar desde la lista).
+                'provision_status'  => $provisionStatus,
+                'job_id'            => $jobId,
                 'status_router'     => $statusRouterResult,
             ]);
         } catch (\Exception $e) {
@@ -1104,6 +1156,51 @@ class CustomerProfileController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Encola el aprovisionamiento de UN cliente reutilizando el mismo
+     * mecanismo async del bulk (BulkProvisionRun + ProvisionCustomerJob),
+     * pero con un run dedicado (total=1) por cliente — a diferencia de
+     * bulkProvisionAsync(), que comparte un único run entre N clientes.
+     *
+     * Protegido contra doble-dispatch (doble click / doble submit): si ya
+     * hay un run "processing" para este cliente, lo reutiliza en vez de
+     * encolar un job duplicado (el SSH no es idempotente de forma barata:
+     * dos jobs en paralelo tocando el mismo secret/queue es justo el tipo de
+     * carrera que puede volver a producir un falso positivo).
+     */
+    private function startAsyncProvision(int $tenantId, int $customerId): BulkProvisionRun
+    {
+        return Cache::lock("provision-customer-{$customerId}", 15)->block(5, function () use ($tenantId, $customerId) {
+            $existing = BulkProvisionRun::where('customer_id', $customerId)
+                ->where('tenant_id', $tenantId)
+                ->where('status', 'processing')
+                ->latest('created_at')
+                ->first();
+
+            if ($existing) {
+                \Log::info('[CustomerProfile] Reutilizando aprovisionamiento en curso (anti doble-dispatch)', [
+                    'customer_id' => $customerId,
+                    'run_id'      => $existing->id,
+                ]);
+                return $existing;
+            }
+
+            $run = BulkProvisionRun::create([
+                'id'          => (string) Str::uuid(),
+                'tenant_id'   => $tenantId,
+                'customer_id' => $customerId,
+                'status'      => 'processing',
+                'total'       => 1,
+                'processed'   => 0,
+                'results'     => [],
+            ]);
+
+            ProvisionCustomerJob::dispatch($run->id, $customerId, $tenantId);
+
+            return $run;
+        });
     }
 
     /**

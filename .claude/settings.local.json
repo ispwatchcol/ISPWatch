@@ -44,7 +44,8 @@
       "Bash(php -l \"c:/Users/rdyja/proyectos/ispwatch/app/Models/CustomerProfile.php\")",
       "Bash(php -l \"c:/Users/rdyja/proyectos/ispwatch/app/Http/Controllers/CustomerProfileController.php\")",
       "Bash(grep -n 'customerProfile\\\\|class User\\\\|protected $with\\\\|customer_profile' app/Models/User.php)",
-      "Bash(php artisan *)"
+      "Bash(php artisan *)",
+      "Bash(php artisan tinker '--execute= *)"
     ]
   }
 }
