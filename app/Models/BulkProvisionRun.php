@@ -21,6 +21,7 @@ class BulkProvisionRun extends Model
     protected $fillable = [
         'id',
         'tenant_id',
+        'customer_id',
         'status',
         'total',
         'processed',
