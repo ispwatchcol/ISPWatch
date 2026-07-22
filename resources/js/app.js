@@ -161,6 +161,8 @@ import {
   RiCheckboxCircleLine,
   RiErrorWarningLine,
   BiGraphUp,
+  BiCashCoin,
+  MdCancelOutlined,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -314,6 +316,8 @@ addIcons(
   RiCheckboxCircleLine,
   RiErrorWarningLine,
   BiGraphUp,
+  BiCashCoin,
+  MdCancelOutlined,
 );
 
 // -------------------------------

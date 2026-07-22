@@ -33,6 +33,8 @@ use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
 use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
+use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\ExpenseCategoryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -253,6 +255,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ─── STAFF ───
     Route::middleware(['permission:view_staff'])->group(function () {
         Route::apiResource('staff', UserController::class);
+    });
+
+    // ─── EXPENSES ─── (Gastos) Tenant-scoped via BelongsToTenant. No hard
+    // delete on expenses: they are voided (status=anulado) via update.
+    Route::middleware(['permission:view_expenses'])->group(function () {
+        Route::get('/expenses', [ExpenseController::class, 'index']);
+        Route::get('/expense-categories', [ExpenseCategoryController::class, 'index']);
+    });
+    Route::middleware(['permission:add_expense'])->group(function () {
+        Route::post('/expenses', [ExpenseController::class, 'store']);
+        Route::post('/expense-categories', [ExpenseCategoryController::class, 'store']);
+    });
+    Route::middleware(['permission:edit_expense'])->group(function () {
+        Route::put('/expenses/{expense}', [ExpenseController::class, 'update']);
+        Route::put('/expense-categories/{expenseCategory}', [ExpenseCategoryController::class, 'update']);
+        Route::delete('/expense-categories/{expenseCategory}', [ExpenseCategoryController::class, 'destroy']);
     });
 
     // ─── CATALOGS ───
