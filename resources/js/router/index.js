@@ -392,6 +392,26 @@ const routes = [
     ],
   },
 
+  {
+    path: '/expenses',
+    component: () => import('@/layouts/DefaultLayout.vue'),
+    meta: { requiresAuth: true, permission: 'view_expenses' },
+    children: [
+      {
+        path: '',
+        name: 'Expenses',
+        component: () => import('@/pages/Expenses.vue'),
+        meta: { title: 'Gastos', permission: 'view_expenses' },
+      },
+      {
+        path: 'categories',
+        name: 'ExpenseCategories',
+        component: () => import('@/pages/ExpenseCategories.vue'),
+        meta: { title: 'Categorías de Gasto', permission: 'view_expenses' },
+      },
+    ],
+  },
+
   // ─── SETTINGS ───
   {
     path: '/settings',

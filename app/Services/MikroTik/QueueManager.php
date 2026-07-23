@@ -5,6 +5,7 @@ namespace App\Services\MikroTik;
 use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
+use App\Services\MikroTik\Concerns\VerifiesRouterOsObjectState;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -18,6 +19,7 @@ class QueueManager
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
     use BuildsCoreSshExec;
+    use VerifiesRouterOsObjectState;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -212,19 +214,22 @@ class QueueManager
         string $comment = 'ISPWatch Auto-Provisioned',
         ?int $clientSshPort = null
     ): array {
+        $stepStart = microtime(true);
         try {
             $clientCommand = $this->buildQueueCommand($targetIp, $queueName, $maxLimit, $comment);
             $coreCommand   = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
-            Log::info('[QueueManager] CORE SSH direct: ssh-exec queue', [
+            $this->logProvisionStep('QueueManager', 'queue_add_set_start', [
                 'client_ip'   => $clientIp,
                 'client_port' => $clientSshPort ?? 22,
                 'target'      => $targetIp,
+                'name'        => $queueName,
             ]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
 
             if (!$result['success']) {
+                $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'core_ssh_failed'], $stepStart);
                 return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $result['message'] ?? 'No se pudo conectar al CORE via SSH'];
             }
 
@@ -232,6 +237,7 @@ class QueueManager
 
             // CORE→client SSH connection failure — nothing ran on the client.
             if ($output && $this->isSshExecConnectionFailure($output)) {
+                $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'connection_failure'], $stepStart);
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
@@ -243,6 +249,7 @@ class QueueManager
             // that as success tells the operator the queue is loaded while the
             // router never received it.
             if ($output === '') {
+                $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'empty_output'], $stepStart);
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
@@ -251,6 +258,7 @@ class QueueManager
             }
 
             if ($this->isSshExecCommandFailure($output)) {
+                $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'router_error'], $stepStart);
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',
@@ -259,20 +267,90 @@ class QueueManager
                 ];
             }
 
-            Log::info('[QueueManager] Queue creada/actualizada via CORE SSH', ['target' => $targetIp]);
+            $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'no_error_output'], $stepStart);
 
-            return [
-                'success'    => true,
-                'method'     => 'CORE_SSH_DIRECT',
-                'action'     => 'upserted',
-                'message'    => 'Queue sincronizada via CORE',
-                'queue_name' => $queueName,
-                'max_limit'  => $maxLimit,
-            ];
+            // Sin salida de error no significa éxito: el `add` puede haber
+            // fallado por colisión de NOMBRE (on-error={} lo traga) y el `set
+            // [find target=...]` no encuentra nada que tocar porque este
+            // target es nuevo — un no-op silencioso que antes se reportaba
+            // como éxito. Confirmamos con un `print count-only` aparte.
+            $verifyStart = microtime(true);
+            $this->logProvisionStep('QueueManager', 'queue_verify_start', ['target' => $targetIp, 'name' => $queueName]);
+
+            $verification = $this->verifyQueueExists($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $clientSshPort);
+
+            $this->logProvisionStep('QueueManager', 'queue_verify_end', [
+                'target' => $targetIp,
+                'outcome' => $verification['success'] ? 'confirmed' : 'not_confirmed',
+            ], $verifyStart);
+
+            return $verification + ['queue_name' => $queueName, 'max_limit' => $maxLimit];
         } catch (\Throwable $e) {
             Log::error('[QueueManager] CORE SSH queue exception', ['error' => $e->getMessage()]);
             return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Confirma que la queue realmente existe con el NOMBRE y el TARGET
+     * esperados tras el add+set. Si no, distingue "colisión de nombre con
+     * otro target" (mensaje accionable) de "no se creó ni se encontró nada"
+     * (falla silenciosa genérica) y de "no se pudo verificar" (el router dejó
+     * de responder justo entre el set y el print).
+     */
+    private function verifyQueueExists(string $clientIp, string $clientUser, string $clientPass, string $targetIp, string $queueName, ?int $clientSshPort = null): array
+    {
+        $escapedName = $this->escapeRouterOsQuotedValue($queueName);
+
+        $byTargetAndName = $this->verifyRouterOsObject(
+            $clientIp, $clientUser, $clientPass,
+            '/queue simple print count-only where target="' . $targetIp . '/32" and name="' . $escapedName . '"',
+            $clientSshPort
+        );
+
+        if (!$byTargetAndName['connection_ok']) {
+            return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $byTargetAndName['message']];
+        }
+
+        if ($this->parseCountOnly($byTargetAndName['output']) >= 1) {
+            return ['success' => true, 'method' => 'CORE_SSH_DIRECT', 'action' => 'upserted', 'message' => 'Queue sincronizada via CORE'];
+        }
+
+        // No existe con ese target+nombre. ¿Existe el nombre en OTRO target?
+        // (colisión) o no existe en absoluto (falla silenciosa genérica).
+        $byNameOnly = $this->verifyRouterOsObject(
+            $clientIp, $clientUser, $clientPass,
+            '/queue simple print count-only where name="' . $escapedName . '"',
+            $clientSshPort
+        );
+
+        if (!$byNameOnly['connection_ok']) {
+            return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $byNameOnly['message']];
+        }
+
+        if ($this->parseCountOnly($byNameOnly['output']) >= 1) {
+            return [
+                'success'    => false,
+                'method'     => 'CORE_SSH_DIRECT',
+                'definitive' => true,
+                'message'    => "Ya existe una queue con el nombre \"{$queueName}\" asociada a OTRO destino IP en este router — colisión de nombre. Revisa manualmente en el router (probable pppoe_username duplicado).",
+            ];
+        }
+
+        return [
+            'success'    => false,
+            'method'     => 'CORE_SSH_DIRECT',
+            'definitive' => true,
+            'message'    => "No se pudo crear ni encontrar la queue \"{$queueName}\" tras el intento — falla silenciosa del comando. Revisa permisos del usuario de gestión sobre /queue simple o la versión de RouterOS.",
+        ];
+    }
+
+    private function parseCountOnly(?string $output): int
+    {
+        if ($output === null || $output === '') {
+            return 0;
+        }
+        return (int) trim(preg_replace('/\D/', '', $output) ?? '0');
     }
 
     /**

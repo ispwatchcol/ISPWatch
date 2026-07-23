@@ -5,6 +5,7 @@ namespace App\Services\MikroTik;
 use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
+use App\Services\MikroTik\Concerns\VerifiesRouterOsObjectState;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -18,6 +19,7 @@ class PppProfileManager
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
     use BuildsCoreSshExec;
+    use VerifiesRouterOsObjectState;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -472,11 +474,12 @@ class PppProfileManager
         ?string $comment = null,
         ?int $clientSshPort = null
     ): array {
+        $stepStart = microtime(true);
         try {
             $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress, $localAddress, $comment);
             $coreCommand   = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
-            Log::info('[PppProfileManager] CORE SSH direct: executing ssh-exec for secret', [
+            $this->logProvisionStep('PppProfileManager', 'secret_add_set_start', [
                 'client_ip'   => $clientIp,
                 'client_port' => $clientSshPort ?? 22,
                 'username'    => $username,
@@ -485,6 +488,7 @@ class PppProfileManager
             $result = $this->connectionManager->executeSsh($coreCommand);
 
             if (!$result['success']) {
+                $this->logProvisionStep('PppProfileManager', 'secret_add_set_end', ['username' => $username, 'outcome' => 'core_ssh_failed'], $stepStart);
                 return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $result['message'] ?? 'No se pudo conectar al CORE via SSH'];
             }
 
@@ -496,6 +500,7 @@ class PppProfileManager
             // plan/profile below is wrong — it sends the operator to reload the
             // plan when the real fix is the client's SSH service / firewall.
             if ($output && $this->isSshExecConnectionFailure($output)) {
+                $this->logProvisionStep('PppProfileManager', 'secret_add_set_end', ['username' => $username, 'outcome' => 'connection_failure'], $stepStart);
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
@@ -504,6 +509,7 @@ class PppProfileManager
             }
 
             if ($output === '') {
+                $this->logProvisionStep('PppProfileManager', 'secret_add_set_end', ['username' => $username, 'outcome' => 'empty_output'], $stepStart);
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
@@ -516,6 +522,7 @@ class PppProfileManager
             // the plan's PPP profile isn't loaded on THIS router, or the mgmt
             // user lacks write perms on /ppp secret.
             if ($this->isSshExecCommandFailure($output)) {
+                $this->logProvisionStep('PppProfileManager', 'secret_add_set_end', ['username' => $username, 'outcome' => 'router_error'], $stepStart);
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',
@@ -524,19 +531,79 @@ class PppProfileManager
                 ];
             }
 
-            Log::info('[PppProfileManager] PPPoE secret created/updated via CORE SSH', ['username' => $username]);
+            $this->logProvisionStep('PppProfileManager', 'secret_add_set_end', ['username' => $username, 'outcome' => 'no_error_output'], $stepStart);
 
-            return [
-                'success'  => true,
-                'method'   => 'CORE_SSH_DIRECT',
-                'action'   => 'upserted',
-                'message'  => 'PPPoE secret sincronizado en router',
+            // Sin salida de error no significa éxito: si el `add` falló por
+            // colisión de NOMBRE con OTRO cliente, el `set [find name=X]`
+            // SÍ encuentra ese secret existente (busca por nombre) y lo
+            // sobreescribe con nuestros datos — sin imprimir error. Verificamos
+            // que el secret resultante tenga el profile que intentamos fijar.
+            $verifyStart = microtime(true);
+            $this->logProvisionStep('PppProfileManager', 'secret_verify_start', ['username' => $username]);
+
+            $verification = $this->verifySecretMatches($clientIp, $clientUser, $clientPass, $username, $profile, $clientSshPort);
+
+            $this->logProvisionStep('PppProfileManager', 'secret_verify_end', [
                 'username' => $username,
-            ];
+                'outcome'  => $verification['success'] ? 'confirmed' : 'not_confirmed',
+            ], $verifyStart);
+
+            return $verification;
         } catch (\Throwable $e) {
             Log::error('[PppProfileManager] CORE SSH secret exception', ['error' => $e->getMessage()]);
             return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => 'Error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Confirma que el secret resultante tiene el NOMBRE y el PROFILE
+     * esperados tras el add+set. Si el profile no coincide, lo más probable
+     * es que el `set [find name=X]` haya encontrado y sobreescrito el secret
+     * de OTRO cliente por colisión de nombre (la validación de unicidad de
+     * pppoe_username por router previene esto para datos nuevos; esto es
+     * defensa en profundidad para datos preexistentes u otros escritores).
+     */
+    private function verifySecretMatches(string $clientIp, string $clientUser, string $clientPass, string $username, string $profile, ?int $clientSshPort = null): array
+    {
+        $escapedUser = $this->escapeRouterOsQuotedValue($username);
+
+        $check = $this->verifyRouterOsObject(
+            $clientIp, $clientUser, $clientPass,
+            '/ppp secret print detail without-paging where name="' . $escapedUser . '"',
+            $clientSshPort
+        );
+
+        if (!$check['connection_ok']) {
+            return ['success' => false, 'method' => 'CORE_SSH_DIRECT', 'message' => $check['message']];
+        }
+
+        $output = trim((string) $check['output']);
+
+        if ($output === '') {
+            return [
+                'success'    => false,
+                'method'     => 'CORE_SSH_DIRECT',
+                'definitive' => true,
+                'message'    => "No se pudo crear ni encontrar el secret PPPoE \"{$username}\" tras el intento — falla silenciosa del comando. Revisa permisos del usuario de gestión sobre /ppp secret o si el perfil \"{$profile}\" está cargado en este router.",
+            ];
+        }
+
+        if (!preg_match('/profile\s*=\s*"?' . preg_quote($profile, '/') . '"?/i', $output)) {
+            return [
+                'success'    => false,
+                'method'     => 'CORE_SSH_DIRECT',
+                'definitive' => true,
+                'message'    => "El secret \"{$username}\" existe en el router pero su profile no coincide con el esperado (\"{$profile}\") tras el set — posible colisión de nombre con OTRO cliente. Verifica manualmente en el router. Detalle: {$output}",
+            ];
+        }
+
+        return [
+            'success'  => true,
+            'method'   => 'CORE_SSH_DIRECT',
+            'action'   => 'upserted',
+            'message'  => 'PPPoE secret sincronizado en router',
+            'username' => $username,
+        ];
     }
 
     private function ensureSecretDirectApi(

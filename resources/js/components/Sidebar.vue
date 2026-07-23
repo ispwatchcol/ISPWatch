@@ -267,7 +267,10 @@ const canSee = computed(() => ({
                   || authStore.hasPermission('view_plans')
                   || authStore.hasPermission('view_sectorials'),
     inventarios:     authStore.hasPermission('view_inventory'),
-    finanzas:        authStore.hasPermission('view_billing'),
+    // Show "Finanzas" if the user can see ANY of its children (billing or
+    // expenses) — the Contabilidad role has view_expenses but not view_billing.
+    finanzas:        authStore.hasPermission('view_billing')
+                  || authStore.hasPermission('view_expenses'),
     staff:           authStore.hasPermission('view_staff'),
     configuracion:   authStore.hasPermission('view_settings'),
     manual:          true,
@@ -331,6 +334,10 @@ const finanzasItems = computed(() => {
         items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
     if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Servicios Adicionales', to: '/billing/additional-charges', icon: 'bi-plus-circle' });
+    if (authStore.hasPermission('view_expenses'))
+        items.push({ name: 'Gastos', to: '/expenses', icon: 'bi-cash-coin' });
+    if (authStore.hasPermission('view_expenses'))
+        items.push({ name: 'Categorías de Gasto', to: '/expenses/categories', icon: 'bi-tags' });
     return items;
 });
 
