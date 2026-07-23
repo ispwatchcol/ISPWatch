@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +17,7 @@ class QueueManager
 {
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -42,7 +44,8 @@ class QueueManager
         string $speedDown,
         int $clientPort = 8728,
         ?string $secretName = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         // SECURITY (OWASP A03): targetIp is interpolated unquoted into the
         // RouterOS command (target=<ip>); reject anything that is not an IP so
@@ -106,7 +109,7 @@ class QueueManager
             //    the SAME proven path profile/secret use (~17s). NOT the CORE
             //    API-script tier, which times out (~60s).
             Log::info('[QueueManager] API directa no disponible, usando CORE SSH');
-            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment);
+            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment, $clientSshPort);
 
         } catch (\Throwable $e) {
             Log::error('[QueueManager] Error sincronizando queue', [
@@ -206,16 +209,17 @@ class QueueManager
         string $targetIp,
         string $queueName,
         string $maxLimit,
-        string $comment = 'ISPWatch Auto-Provisioned'
+        string $comment = 'ISPWatch Auto-Provisioned',
+        ?int $clientSshPort = null
     ): array {
         try {
             $clientCommand = $this->buildQueueCommand($targetIp, $queueName, $maxLimit, $comment);
-            $safePass      = str_replace('"', '\\"', $clientPass);
-            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand   = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
             Log::info('[QueueManager] CORE SSH direct: ssh-exec queue', [
-                'client_ip' => $clientIp,
-                'target'    => $targetIp,
+                'client_ip'   => $clientIp,
+                'client_port' => $clientSshPort ?? 22,
+                'target'      => $targetIp,
             ]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
@@ -231,11 +235,22 @@ class QueueManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+            // Empty stdout means the nested SSH never reported back. Reporting
+            // that as success tells the operator the queue is loaded while the
+            // router never received it.
+            if ($output === '') {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
+                ];
+            }
+
+            if ($this->isSshExecCommandFailure($output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

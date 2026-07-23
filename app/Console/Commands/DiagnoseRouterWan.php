@@ -45,6 +45,16 @@ class DiagnoseRouterWan extends Command
 
         $cm = new MikroTikConnectionManager();
 
+        // Resolve the endpoint the CORE must really dial: router.ip drifts on
+        // every L2TP reconnect, and SSH may be on a non-default port. Diagnosing
+        // against the stored values would reproduce the wrong picture.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+        $clientIp = $endpoint['ip'];
+        $sshPort  = $endpoint['ssh_port'];
+        $this->line("Endpoint resuelto: ip={$clientIp} (guardado {$endpoint['stored_ip']}, fuente {$endpoint['source']}"
+            . ($endpoint['drifted'] ? ', DERIVA corregida' : '') . "), ssh_port={$sshPort}, api_port={$endpoint['api_port']}");
+        $this->newLine();
+
         // ── 1. SSH a CORE ────────────────────────────────────────────────────
         $this->info('[1/5] Probando SSH al CORE...');
         $sshTest = $cm->testSshConnection(10);
@@ -61,14 +71,14 @@ class DiagnoseRouterWan extends Command
         }
 
         // ── 2. Apertura de túnel SSH al cliente ──────────────────────────────
-        $port = (int) ($router->puerto_api ?? 8728);
-        $this->info("[2/5] Abriendo túnel SSH CORE → {$router->ip}:{$port}...");
+        $port = $endpoint['api_port'];
+        $this->info("[2/5] Abriendo túnel SSH CORE → {$clientIp}:{$port}...");
 
         $tunnelManager = new SshTunnelManager();
         $tunnelOpenError = null;
         $tunnelOpened    = false;
         try {
-            $tunnel = $tunnelManager->open($router->ip, $port);
+            $tunnel = $tunnelManager->open($clientIp, $port);
             $tunnelOpened = true;
             $this->line("  túnel abierto en 127.0.0.1:{$tunnel->localPort()} → {$router->ip}:{$port}");
         } catch (\Throwable $e) {
@@ -79,7 +89,7 @@ class DiagnoseRouterWan extends Command
 
         // ── 3. TCP probe a través del túnel ──────────────────────────────────
         if ($tunnelOpened) {
-            $this->info("[3/5] Probando TCP a {$router->ip}:{$port} a través del túnel...");
+            $this->info("[3/5] Probando TCP a {$clientIp}:{$port} a través del túnel...");
             $errno = 0; $errstr = '';
             $probe = @fsockopen($tunnel->localHost(), $tunnel->localPort(), $errno, $errstr, 3);
             if ($probe) {
@@ -101,11 +111,12 @@ class DiagnoseRouterWan extends Command
         $this->info('[4/5] Ejecutando flujo completo getRouterInterfaces() (API directa → SSH-vía-CORE)...');
         $sshService = new MikroTikSshService();
         $result = $sshService->getRouterInterfaces(
-            $router->ip,
+            $clientIp,
             $router->user_rb,
             $router->password_rb,
             $port,
-            $router->firmware_version
+            $router->firmware_version,
+            $sshPort
         );
 
         $this->line('  success: ' . ($result['success'] ? 'YES' : 'NO'));
@@ -137,7 +148,7 @@ class DiagnoseRouterWan extends Command
         // ── 5. Si todo el flujo falló, ejecuta los comandos crudos manualmente
         if (!$result['success']) {
             $this->info('[5/5] Ejecutando los 3 comandos ssh-exec en crudo para ver la respuesta literal de RouterOS...');
-            $variants = $this->buildVariantsForDebug($router->ip, $router->user_rb, $router->password_rb);
+            $variants = $this->buildVariantsForDebug($clientIp, $router->user_rb, $router->password_rb, $sshPort);
             foreach ($variants as $name => $cmd) {
                 $this->line('');
                 $this->line("  ── variant: {$name} ──");
@@ -170,9 +181,11 @@ class DiagnoseRouterWan extends Command
      * encapsulation, and this debug command is one of the few callers that needs to
      * peek at the raw command shapes.
      */
-    private function buildVariantsForDebug(string $clientIp, string $clientUser, string $clientPass): array
+    private function buildVariantsForDebug(string $clientIp, string $clientUser, string $clientPass, ?int $clientSshPort = null): array
     {
         $clientCommand = '/interface ethernet print terse';
+
+        $portArg = ($clientSshPort && $clientSshPort > 0 && $clientSshPort !== 22) ? ' port=' . $clientSshPort : '';
 
         $ip   = addcslashes($clientIp, "\\\"");
         $user = addcslashes($clientUser, "\\\"");
@@ -183,7 +196,7 @@ class DiagnoseRouterWan extends Command
             ':put "ISP_BEGIN"; ' .
             ':local r ""; :local ec -1; ' .
             ':do { ' .
-                ':local res [/system ssh-exec address="' . $ip . '" user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
+                ':local res [/system ssh-exec address="' . $ip . '"' . $portArg . ' user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
                 ':set r [:tostr $res]; :set ec 0 ' .
             '} on-error={ :set r "ISP_FAIL"; :set ec 1 }; ' .
             ':put $r; :put ("ISP_END:" . [:tostr $ec])';
@@ -192,14 +205,14 @@ class DiagnoseRouterWan extends Command
             ':put "ISP_BEGIN"; ' .
             ':local r ""; :local ec -1; ' .
             ':do { ' .
-                ':local res [/system ssh-exec address="' . $ip . '" user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
+                ':local res [/system ssh-exec address="' . $ip . '"' . $portArg . ' user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
                 ':set r ($res->"output"); :set ec ($res->"exit-code") ' .
             '} on-error={ :set r "ISP_FAIL"; :set ec 1 }; ' .
             ':put $r; :put ("ISP_END:" . [:tostr $ec])';
 
         $variantLegacy = sprintf(
-            '/system ssh-exec address="%s" user="%s" password="%s" command="%s"',
-            $ip, $user, $pass, $cmd
+            '/system ssh-exec address="%s"%s user="%s" password="%s" command="%s"',
+            $ip, $portArg, $user, $pass, $cmd
         );
 
         return [

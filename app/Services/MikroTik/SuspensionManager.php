@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Log;
  */
 class SuspensionManager
 {
+    use BuildsCoreSshExec;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -95,7 +98,8 @@ class SuspensionManager
         string $clientPass,
         string $suspendedIp,
         string $customerName,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         if (!$this->isValidIp($suspendedIp)) {
             return ['success' => false, 'message' => 'IP del cliente inválida.'];
@@ -121,7 +125,7 @@ class SuspensionManager
             }
 
             Log::info('[SuspensionManager] API directa no disponible, usando CORE ssh-exec');
-            return $this->addSuspendedIpViaCoreNetwork($clientIp, $clientUser, $clientPass, $suspendedIp, $customerName);
+            return $this->addSuspendedIpViaCoreNetwork($clientIp, $clientUser, $clientPass, $suspendedIp, $customerName, $clientSshPort);
 
         } catch (\Throwable $e) {
             Log::error('[SuspensionManager] Error agregando IP suspendida via CORE', [
@@ -139,7 +143,8 @@ class SuspensionManager
         string $clientUser,
         string $clientPass,
         string $suspendedIp,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         if (!$this->isValidIp($suspendedIp)) {
             return ['success' => false, 'message' => 'IP del cliente inválida.'];
@@ -159,7 +164,7 @@ class SuspensionManager
             }
 
             Log::info('[SuspensionManager] API directa no disponible, usando CORE ssh-exec');
-            return $this->removeSuspendedIpViaCoreNetwork($clientIp, $clientUser, $clientPass, $suspendedIp);
+            return $this->removeSuspendedIpViaCoreNetwork($clientIp, $clientUser, $clientPass, $suspendedIp, $clientSshPort);
 
         } catch (\Throwable $e) {
             Log::error('[SuspensionManager] Error removiendo IP suspendida via CORE', [
@@ -351,7 +356,8 @@ class SuspensionManager
         string $clientUser,
         string $clientPass,
         string $suspendedIp,
-        string $customerName
+        string $customerName,
+        ?int $clientSshPort = null
     ): array {
         // Two RouterOS statements in one script:
         //   1. add the IP to the suspended list (idempotent — ignore "already have")
@@ -377,7 +383,8 @@ class SuspensionManager
             $compoundCmd,
             'ispwatch_s_',
             'suspend',
-            $suspendedIp
+            $suspendedIp,
+            $clientSshPort
         );
     }
 
@@ -385,7 +392,8 @@ class SuspensionManager
         string $clientIp,
         string $clientUser,
         string $clientPass,
-        string $suspendedIp
+        string $suspendedIp,
+        ?int $clientSshPort = null
     ): array {
         // Address-list entries may come back as `X.X.X.X` or `X.X.X.X/32` depending
         // on the RouterOS build. `[find address=X]` with a single literal misses
@@ -403,7 +411,8 @@ class SuspensionManager
             $cmd,
             'ispwatch_a_',
             'activate',
-            $suspendedIp
+            $suspendedIp,
+            $clientSshPort
         );
     }
 
@@ -417,7 +426,8 @@ class SuspensionManager
         string $command,
         string $scriptPrefix,
         string $action,
-        string $targetIp
+        string $targetIp,
+        ?int $clientSshPort = null
     ): array {
         try {
             $socket = $this->apiProtocol->connect(
@@ -442,9 +452,8 @@ class SuspensionManager
             }
 
             // Build ssh-exec script
-            $safePass = str_replace('"', '\\"', $clientPass);
             $scriptName = $scriptPrefix . substr(uniqid(), -6);
-            $scriptSource = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($command) . "\"";
+            $scriptSource = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $command, $clientSshPort);
 
             Log::info("[SuspensionManager] ssh-exec {$action} command", [
                 'script_name' => $scriptName,

@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
@@ -30,6 +31,7 @@ class IpMacBindingManager
 {
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -56,7 +58,8 @@ class IpMacBindingManager
         string $mac,
         ?string $lanInterface,
         int $clientPort = 8728,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         // SECURITY (OWASP A03): address/mac/interface are interpolated; reject
         // anything that is not a valid IP / MAC, and require a LAN interface.
@@ -82,7 +85,8 @@ class IpMacBindingManager
         return $this->runViaCore(
             $clientIp, $clientUser, $clientPass,
             $this->buildArpCommand($targetIp, $mac, $lan, $comment),
-            'ARP estático (IP Bindings)'
+            'ARP estático (IP Bindings)',
+            $clientSshPort
         );
     }
 
@@ -115,7 +119,8 @@ class IpMacBindingManager
         string $targetIp,
         string $mac,
         int $clientPort = 8728,
-        ?string $label = null
+        ?string $label = null,
+        ?int $clientSshPort = null
     ): array {
         if (filter_var(trim($targetIp), FILTER_VALIDATE_IP) === false) {
             return ['success' => false, 'message' => 'IP del cliente inválida para el amarre IP/MAC.'];
@@ -134,7 +139,8 @@ class IpMacBindingManager
         return $this->runViaCore(
             $clientIp, $clientUser, $clientPass,
             $this->buildAmarreCommand($targetIp, $mac, $label),
-            'amarre IP/MAC'
+            'amarre IP/MAC',
+            $clientSshPort
         );
     }
 
@@ -165,13 +171,13 @@ class IpMacBindingManager
         string $clientUser,
         string $clientPass,
         string $clientCommand,
-        string $what
+        string $what,
+        ?int $clientSshPort = null
     ): array {
         try {
-            $safePass    = str_replace('"', '\\"', $clientPass);
-            $coreCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
-            Log::info('[IpMacBindingManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'what' => $what]);
+            Log::info('[IpMacBindingManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'client_port' => $clientSshPort ?? 22, 'what' => $what]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
 
@@ -186,17 +192,22 @@ class IpMacBindingManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            // Hardened: `/system ssh-exec` returns "exit-code: N ... output: ...".
-            // A non-zero exit code or a parser error means the client router
-            // rejected the command even if the text is not one of our keywords.
-            $failed = (bool) preg_match('/exit-code:\s*[1-9]/i', $output)
-                || (bool) preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value|expected end of command|expected command name|syntax error|unknown (?:parameter|argument)/i', $output);
+            // Empty stdout is not success: ssh-exec that times out or aborts
+            // writes nothing, and calling that "sincronizado" leaves the router
+            // untouched while the UI reports it worked.
+            if ($output === '') {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
+                ];
+            }
 
-            if ($output && $failed) {
+            if ($this->isSshExecCommandFailure($output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

@@ -23,6 +23,7 @@ class UpdateRouterRequest extends FormRequest
             'password_rb' => 'sometimes|required|string|max:255',
             'puerto_api' => 'nullable|integer|min:1|max:65535',
             'puerto_www' => 'nullable|integer|min:1|max:65535',
+            'puerto_ssh' => 'nullable|integer|min:1|max:65535',
             'lan_interface' => 'nullable|string|max:255',
             'wan_interface' => 'nullable|string|max:255',
             'vpn_username' => 'nullable|string|max:255',

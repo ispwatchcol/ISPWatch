@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +17,7 @@ class PppProfileManager
 {
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -40,7 +42,8 @@ class PppProfileManager
         string $speedDown,
         ?string $localAddress = null,
         ?string $remoteAddress = null,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         try {
             $rateLimit = $this->buildRateLimit($speedUp, $speedDown);
@@ -72,7 +75,7 @@ class PppProfileManager
 
             // 2. Try SSH directly on CORE (simpler and more reliable than API-script approach)
             Log::info('[PppProfileManager] Direct API unavailable, trying CORE SSH');
-            $sshResult = $this->syncViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $profileName, $rateLimit, $localAddress, $remoteAddress);
+            $sshResult = $this->syncViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $profileName, $rateLimit, $localAddress, $remoteAddress, $clientSshPort);
             if ($sshResult['success']) {
                 return $sshResult;
             }
@@ -164,16 +167,17 @@ class PppProfileManager
         string $profileName,
         string $rateLimit,
         ?string $localAddress,
-        ?string $remoteAddress
+        ?string $remoteAddress,
+        ?int $clientSshPort = null
     ): array {
         try {
             $clientCommand = $this->buildRouterCommand($profileName, $rateLimit, $localAddress, $remoteAddress);
-            $safePass      = str_replace('"', '\\"', $clientPass);
-            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand   = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
             Log::info('[PppProfileManager] CORE SSH direct: executing ssh-exec', [
-                'client_ip' => $clientIp,
-                'profile'   => $profileName,
+                'client_ip'   => $clientIp,
+                'client_port' => $clientSshPort ?? 22,
+                'profile'     => $profileName,
             ]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
@@ -196,16 +200,31 @@ class PppProfileManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|\bunknown\b/i', $output)) {
+            if ($output && $this->isSshExecCommandFailure($output)) {
                 Log::warning('[PppProfileManager] CORE SSH direct: error in output', ['output' => $output]);
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
                     'message' => 'Error en router cliente: ' . $output,
+                ];
+            }
+
+            // Empty stdout is NOT success: ssh-exec that times out or aborts
+            // silently returns nothing, and reporting that as "perfil cargado"
+            // leaves the router untouched while the UI says it worked.
+            if ($output === '') {
+                Log::warning('[PppProfileManager] CORE SSH direct: empty output, cannot confirm', [
+                    'client_ip' => $clientIp,
+                    'profile'   => $profileName,
+                ]);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
                 ];
             }
 
@@ -388,7 +407,8 @@ class PppProfileManager
         int $clientPort = 8728,
         ?string $remoteAddress = null,
         ?string $localAddress = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         // RouterOS comments don't render accents/ñ; transliterate the customer
         // name once here so both the direct-API and CORE-SSH paths below push
@@ -425,7 +445,8 @@ class PppProfileManager
             //    timeout (HTTP 504).
             return $this->secretViaCoreDirectSsh(
                 $clientIp, $clientUser, $clientPass,
-                $username, $password, $service, $profile, $remoteAddress, $localAddress, $comment
+                $username, $password, $service, $profile, $remoteAddress, $localAddress, $comment,
+                $clientSshPort
             );
 
         } catch (\Throwable $e) {
@@ -448,16 +469,17 @@ class PppProfileManager
         string $profile,
         ?string $remoteAddress = null,
         ?string $localAddress = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         try {
             $clientCommand = $this->buildSecretCommand($username, $password, $service, $profile, $remoteAddress, $localAddress, $comment);
-            $safePass      = str_replace('"', '\\"', $clientPass);
-            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand   = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
             Log::info('[PppProfileManager] CORE SSH direct: executing ssh-exec for secret', [
-                'client_ip' => $clientIp,
-                'username'  => $username,
+                'client_ip'   => $clientIp,
+                'client_port' => $clientSshPort ?? 22,
+                'username'    => $username,
             ]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
@@ -477,7 +499,15 @@ class PppProfileManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
+                ];
+            }
+
+            if ($output === '') {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
                 ];
             }
 
@@ -485,7 +515,7 @@ class PppProfileManager
             // stdout) when the secret could not be created — most often because
             // the plan's PPP profile isn't loaded on THIS router, or the mgmt
             // user lacks write perms on /ppp secret.
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+            if ($this->isSshExecCommandFailure($output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

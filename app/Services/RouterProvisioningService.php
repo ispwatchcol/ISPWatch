@@ -174,15 +174,19 @@ class RouterProvisioningService
     private function addIpToSuspendedList(Router $router, string $ip, CustomerProfile $customer): bool
     {
         $customerName = trim("{$customer->name} {$customer->last_name}");
-        $port = (int) ($router->puerto_api ?: 8728);
+        // router.ip drifts on every L2TP reconnect and SSH may not be on 22 —
+        // a cut that silently targets the wrong endpoint leaves the customer
+        // connected while billing believes they were suspended.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
 
         $result = $this->suspensionManager->addSuspendedIpViaCore(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
             $ip,
             $customerName,
-            $port
+            $endpoint['api_port'],
+            $endpoint['ssh_port']
         );
 
         if (!$result['success']) {
@@ -194,14 +198,15 @@ class RouterProvisioningService
 
     private function removeIpFromSuspendedList(Router $router, string $ip): bool
     {
-        $port = (int) ($router->puerto_api ?: 8728);
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
 
         $result = $this->suspensionManager->removeSuspendedIpViaCore(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
             $ip,
-            $port
+            $endpoint['api_port'],
+            $endpoint['ssh_port']
         );
 
         if (!$result['success']) {

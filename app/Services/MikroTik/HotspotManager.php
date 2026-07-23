@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,7 @@ class HotspotManager
 {
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -47,7 +49,8 @@ class HotspotManager
         string $profile = 'default',
         int $clientPort = 8728,
         ?string $address = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         $comment = $this->normalizeRouterComment($comment);
 
@@ -79,7 +82,7 @@ class HotspotManager
 
             // 2. CORE SSH direct (proven path for clients behind the L2TP tunnel).
             $clientCommand = $this->buildUserCommand($username, $password, $profile, $address, $comment);
-            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'HotSpot user');
+            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'HotSpot user', $clientSshPort);
         } catch (\Throwable $e) {
             Log::error('[HotspotManager] Error ensuring HotSpot user', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
@@ -169,7 +172,8 @@ class HotspotManager
         ?int $sharedUsers = null,
         ?string $sessionTimeout = null,
         ?string $idleTimeout = null,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         $rateLimit = $this->buildRateLimit($speedUp, $speedDown);
 
@@ -194,7 +198,7 @@ class HotspotManager
 
             // 2. CORE SSH direct.
             $clientCommand = $this->buildProfileCommand($profileName, $rateLimit, $sharedUsers, $sessionTimeout, $idleTimeout);
-            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'HotSpot profile');
+            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'HotSpot profile', $clientSshPort);
         } catch (\Throwable $e) {
             Log::error('[HotspotManager] Error syncing HotSpot profile', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
@@ -300,13 +304,13 @@ class HotspotManager
         string $clientUser,
         string $clientPass,
         string $clientCommand,
-        string $what
+        string $what,
+        ?int $clientSshPort = null
     ): array {
         try {
-            $safePass    = str_replace('"', '\\"', $clientPass);
-            $coreCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
-            Log::info('[HotspotManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'what' => $what]);
+            Log::info('[HotspotManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'client_port' => $clientSshPort ?? 22, 'what' => $what]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
 
@@ -321,19 +325,22 @@ class HotspotManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            // `/system ssh-exec` returns "exit-code: N ... output: ...". A
-            // non-zero exit code means the CLIENT router rejected the command,
-            // even when the error text (e.g. "expected end of command") is not
-            // one of our keywords. Without the exit-code check we reported false
-            // success on parser errors (the hotspot `comment=` bug went unseen).
-            $failed = (bool) preg_match('/exit-code:\s*[1-9]/i', $output)
-                || (bool) preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value|expected end of command|expected command name|syntax error|unknown (?:parameter|argument)/i', $output);
+            // Empty stdout is not success: ssh-exec that times out or aborts
+            // writes nothing, and calling that "sincronizado" leaves the router
+            // untouched while the UI reports it worked.
+            if ($output === '') {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
+                ];
+            }
 
-            if ($output && $failed) {
+            if ($this->isSshExecCommandFailure($output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

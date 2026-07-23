@@ -23,6 +23,7 @@ class Router extends Model
         'password_rb_encrypted',
         'puerto_api',
         'puerto_www',
+        'puerto_ssh',
         'lan_interface',
         'wan_interface',
         'vpn_username',
@@ -73,6 +74,18 @@ class Router extends Model
         // Re-introduce real at-rest encryption later via a correct re-save migration.
     ];
 
+
+    /**
+     * Port the CORE must dial when it opens `/system ssh-exec` to this router.
+     * RouterOS defaults to 22; deployments that move SSH elsewhere set
+     * puerto_ssh (CORE_TOCAIMA runs it on 2200).
+     */
+    public function sshPort(): int
+    {
+        $port = (int) ($this->puerto_ssh ?? 0);
+
+        return $port > 0 ? $port : 22;
+    }
 
     public function cutType()
     {
