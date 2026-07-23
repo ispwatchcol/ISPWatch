@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use App\Services\MikroTik\Concerns\VerifiesRouterOsObjectState;
@@ -17,6 +18,7 @@ class QueueManager
 {
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
     use VerifiesRouterOsObjectState;
 
     private MikroTikConnectionManager $connectionManager;
@@ -44,7 +46,8 @@ class QueueManager
         string $speedDown,
         int $clientPort = 8728,
         ?string $secretName = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         // SECURITY (OWASP A03): targetIp is interpolated unquoted into the
         // RouterOS command (target=<ip>); reject anything that is not an IP so
@@ -108,7 +111,7 @@ class QueueManager
             //    the SAME proven path profile/secret use (~17s). NOT the CORE
             //    API-script tier, which times out (~60s).
             Log::info('[QueueManager] API directa no disponible, usando CORE SSH');
-            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment);
+            return $this->syncQueueViaCoreDirectSsh($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $maxLimit, $queueComment, $clientSshPort);
 
         } catch (\Throwable $e) {
             Log::error('[QueueManager] Error sincronizando queue', [
@@ -208,18 +211,19 @@ class QueueManager
         string $targetIp,
         string $queueName,
         string $maxLimit,
-        string $comment = 'ISPWatch Auto-Provisioned'
+        string $comment = 'ISPWatch Auto-Provisioned',
+        ?int $clientSshPort = null
     ): array {
         $stepStart = microtime(true);
         try {
             $clientCommand = $this->buildQueueCommand($targetIp, $queueName, $maxLimit, $comment);
-            $safePass      = str_replace('"', '\\"', $clientPass);
-            $coreCommand   = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand   = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
             $this->logProvisionStep('QueueManager', 'queue_add_set_start', [
-                'client_ip' => $clientIp,
-                'target'    => $targetIp,
-                'name'      => $queueName,
+                'client_ip'   => $clientIp,
+                'client_port' => $clientSshPort ?? 22,
+                'target'      => $targetIp,
+                'name'        => $queueName,
             ]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
@@ -237,11 +241,23 @@ class QueueManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+            // Empty stdout means the nested SSH never reported back. Reporting
+            // that as success tells the operator the queue is loaded while the
+            // router never received it.
+            if ($output === '') {
+                $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'empty_output'], $stepStart);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
+                ];
+            }
+
+            if ($this->isSshExecCommandFailure($output)) {
                 $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'router_error'], $stepStart);
                 return [
                     'success'    => false,
@@ -261,7 +277,7 @@ class QueueManager
             $verifyStart = microtime(true);
             $this->logProvisionStep('QueueManager', 'queue_verify_start', ['target' => $targetIp, 'name' => $queueName]);
 
-            $verification = $this->verifyQueueExists($clientIp, $clientUser, $clientPass, $targetIp, $queueName);
+            $verification = $this->verifyQueueExists($clientIp, $clientUser, $clientPass, $targetIp, $queueName, $clientSshPort);
 
             $this->logProvisionStep('QueueManager', 'queue_verify_end', [
                 'target' => $targetIp,
@@ -282,13 +298,14 @@ class QueueManager
      * (falla silenciosa genérica) y de "no se pudo verificar" (el router dejó
      * de responder justo entre el set y el print).
      */
-    private function verifyQueueExists(string $clientIp, string $clientUser, string $clientPass, string $targetIp, string $queueName): array
+    private function verifyQueueExists(string $clientIp, string $clientUser, string $clientPass, string $targetIp, string $queueName, ?int $clientSshPort = null): array
     {
         $escapedName = $this->escapeRouterOsQuotedValue($queueName);
 
         $byTargetAndName = $this->verifyRouterOsObject(
             $clientIp, $clientUser, $clientPass,
-            '/queue simple print count-only where target="' . $targetIp . '/32" and name="' . $escapedName . '"'
+            '/queue simple print count-only where target="' . $targetIp . '/32" and name="' . $escapedName . '"',
+            $clientSshPort
         );
 
         if (!$byTargetAndName['connection_ok']) {
@@ -303,7 +320,8 @@ class QueueManager
         // (colisión) o no existe en absoluto (falla silenciosa genérica).
         $byNameOnly = $this->verifyRouterOsObject(
             $clientIp, $clientUser, $clientPass,
-            '/queue simple print count-only where name="' . $escapedName . '"'
+            '/queue simple print count-only where name="' . $escapedName . '"',
+            $clientSshPort
         );
 
         if (!$byNameOnly['connection_ok']) {

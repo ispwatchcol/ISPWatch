@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
@@ -26,6 +27,7 @@ class PcqManager
     use NormalizesRouterComment;
 
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -50,7 +52,8 @@ class PcqManager
         string $listName,
         string $targetIp,
         int $clientPort = 8728,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         // SECURITY (OWASP A03): targetIp is interpolated unquoted (address=<ip>);
         // reject anything that is not an IP so it can never carry a payload.
@@ -81,7 +84,7 @@ class PcqManager
 
             // 2. CORE SSH direct.
             $clientCommand = $this->buildAddressListCommand($listName, $targetIp, $comment);
-            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'entrada address-list');
+            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'entrada address-list', $clientSshPort);
         } catch (\Throwable $e) {
             Log::error('[PcqManager] Error ensuring address-list entry', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
@@ -169,7 +172,8 @@ class PcqManager
         string $speedDown,
         ?string $pcqRate = null,
         ?string $addressMask = null,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         try {
             $clientCommand = $this->buildPcqEngineCommand($planName, $speedUp, $speedDown, $pcqRate, $addressMask);
@@ -179,7 +183,7 @@ class PcqManager
                 'plan'      => $planName,
             ]);
 
-            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'motor PCQ');
+            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'motor PCQ', $clientSshPort);
         } catch (\Throwable $e) {
             Log::error('[PcqManager] Error syncing PCQ engine', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
@@ -239,13 +243,13 @@ class PcqManager
         string $clientUser,
         string $clientPass,
         string $clientCommand,
-        string $what
+        string $what,
+        ?int $clientSshPort = null
     ): array {
         try {
-            $safePass    = str_replace('"', '\\"', $clientPass);
-            $coreCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
-            Log::info('[PcqManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'what' => $what]);
+            Log::info('[PcqManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'client_port' => $clientSshPort ?? 22, 'what' => $what]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
 
@@ -260,11 +264,22 @@ class PcqManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+            // Empty stdout is not success: ssh-exec that times out or aborts
+            // writes nothing, and calling that "sincronizado" leaves the router
+            // untouched while the UI reports it worked.
+            if ($output === '') {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
+                ];
+            }
+
+            if ($this->isSshExecCommandFailure($output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

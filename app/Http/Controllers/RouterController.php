@@ -206,13 +206,19 @@ class RouterController extends Controller
             ]);
         }
 
+        // `router.ip` goes stale on every L2TP reconnect (the CORE re-assigns
+        // from the tenant pool), so ask the CORE which address this router is
+        // actually on before trying to read its interfaces.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+
         $sshService = new MikroTikSshService();
         $result = $sshService->getRouterInterfaces(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
-            $router->puerto_api ?? 8728,
-            $router->firmware_version  // lets InterfaceReader pick v6/v7-aware command syntax
+            $endpoint['api_port'],
+            $router->firmware_version,  // lets InterfaceReader pick v6/v7-aware command syntax
+            $endpoint['ssh_port']
         );
 
         // If successful, attach current WAN
@@ -333,19 +339,22 @@ class RouterController extends Controller
             ]);
         }
 
-        // Puerto API del router (default 8728)
-        $apiPort = $router->puerto_api ?? 8728;
+        // Resolve the live endpoint: router.ip drifts on L2TP reconnect and SSH
+        // may be on a non-default port — a cut that lands on the wrong endpoint
+        // silently leaves the customer online.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
 
         // Intentar: 1) API directa al cliente, 2) SSH via CORE
         $sshService = new MikroTikSshService();
         $result = $sshService->applyBlockRulesViaCore(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
             $router->wan_interface,
             $portalIp,
-            $apiPort,
-            $router->firmware_version
+            $endpoint['api_port'],
+            $router->firmware_version,
+            $endpoint['ssh_port']
         );
 
         return response()->json($result);
@@ -364,11 +373,14 @@ class RouterController extends Controller
             ]);
         }
 
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+
         $sshService = new MikroTikSshService();
         $result = $sshService->getFirewallRulesViaCore(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
-            $router->password_rb
+            $router->password_rb,
+            $endpoint['ssh_port']
         );
 
         return response()->json($result);

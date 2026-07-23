@@ -173,11 +173,13 @@ class MikroTikSshService
         int $clientPort = 8728,
         ?string $remoteAddress = null,
         ?string $localAddress = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->pppProfileManager->ensurePppoeSecretOnRouter(
             $clientIp, $clientUser, $clientPass,
-            $username, $password, $profile, $service, $clientPort, $remoteAddress, $localAddress, $comment
+            $username, $password, $profile, $service, $clientPort, $remoteAddress, $localAddress, $comment,
+            $clientSshPort
         );
     }
 
@@ -193,7 +195,8 @@ class MikroTikSshService
         string $speedDown,
         ?string $localAddress = null,
         ?string $remoteAddress = null,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         return $this->pppProfileManager->syncPppoeProfile(
             $clientIp,
@@ -204,7 +207,8 @@ class MikroTikSshService
             $speedDown,
             $localAddress,
             $remoteAddress,
-            $clientPort
+            $clientPort,
+            $clientSshPort
         );
     }
 
@@ -235,7 +239,8 @@ class MikroTikSshService
         string $clientPass,
         string $suspendedIp,
         string $customerName,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         return $this->suspensionManager->addSuspendedIpViaCore(
             $clientIp,
@@ -243,7 +248,8 @@ class MikroTikSshService
             $clientPass,
             $suspendedIp,
             $customerName,
-            $clientPort
+            $clientPort,
+            $clientSshPort
         );
     }
 
@@ -255,14 +261,16 @@ class MikroTikSshService
         string $clientUser,
         string $clientPass,
         string $suspendedIp,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         return $this->suspensionManager->removeSuspendedIpViaCore(
             $clientIp,
             $clientUser,
             $clientPass,
             $suspendedIp,
-            $clientPort
+            $clientPort,
+            $clientSshPort
         );
     }
 
@@ -276,14 +284,16 @@ class MikroTikSshService
         string $clientUser,
         string $clientPass,
         int $clientPort = 8728,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->interfaceReader->getRouterInterfaces(
             $clientIp,
             $clientUser,
             $clientPass,
             $clientPort,
-            $clientFirmwareVersion
+            $clientFirmwareVersion,
+            $clientSshPort
         );
     }
 
@@ -297,7 +307,8 @@ class MikroTikSshService
         string $wanInterface,
         string $portalIp,
         int $apiPort = 8728,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array
     {
         return $this->firewallManager->applyBlockRulesViaCore(
@@ -307,16 +318,17 @@ class MikroTikSshService
             $wanInterface,
             $portalIp,
             $apiPort,
-            $clientFirmwareVersion
+            $clientFirmwareVersion,
+            $clientSshPort
         );
     }
 
     /**
      * Get firewall rules from a client router
      */
-    public function getFirewallRulesViaCore(string $clientIp, string $clientUser, string $clientPass): array
+    public function getFirewallRulesViaCore(string $clientIp, string $clientUser, string $clientPass, ?int $clientSshPort = null): array
     {
-        return $this->firewallManager->getFirewallRulesViaCore($clientIp, $clientUser, $clientPass);
+        return $this->firewallManager->getFirewallRulesViaCore($clientIp, $clientUser, $clientPass, $clientSshPort);
     }
 
     // ==================== QUEUE MANAGEMENT ====================
@@ -335,7 +347,8 @@ class MikroTikSshService
         string $speedDown,
         int $clientPort = 8728,
         ?string $secretName = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->queueManager->syncQueueViaCore(
             $clientIp,
@@ -348,7 +361,8 @@ class MikroTikSshService
             $speedDown,
             $clientPort,
             $secretName,
-            $comment
+            $comment,
+            $clientSshPort
         );
     }
 
@@ -366,10 +380,12 @@ class MikroTikSshService
         string $profile = 'default',
         int $clientPort = 8728,
         ?string $address = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->hotspotManager->ensureHotspotUserOnRouter(
-            $clientIp, $clientUser, $clientPass, $username, $password, $profile, $clientPort, $address, $comment
+            $clientIp, $clientUser, $clientPass, $username, $password, $profile, $clientPort, $address, $comment,
+            $clientSshPort
         );
     }
 
@@ -386,11 +402,12 @@ class MikroTikSshService
         ?int $sharedUsers = null,
         ?string $sessionTimeout = null,
         ?string $idleTimeout = null,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         return $this->hotspotManager->syncHotspotUserProfile(
             $clientIp, $clientUser, $clientPass, $profileName, $speedUp, $speedDown,
-            $sharedUsers, $sessionTimeout, $idleTimeout, $clientPort
+            $sharedUsers, $sessionTimeout, $idleTimeout, $clientPort, $clientSshPort
         );
     }
 
@@ -406,10 +423,11 @@ class MikroTikSshService
         string $listName,
         string $targetIp,
         int $clientPort = 8728,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->pcqManager->ensureClientInAddressList(
-            $clientIp, $clientUser, $clientPass, $listName, $targetIp, $clientPort, $comment
+            $clientIp, $clientUser, $clientPass, $listName, $targetIp, $clientPort, $comment, $clientSshPort
         );
     }
 
@@ -425,10 +443,12 @@ class MikroTikSshService
         string $speedDown,
         ?string $pcqRate = null,
         ?string $addressMask = null,
-        int $clientPort = 8728
+        int $clientPort = 8728,
+        ?int $clientSshPort = null
     ): array {
         return $this->pcqManager->syncPcqEngine(
-            $clientIp, $clientUser, $clientPass, $planName, $speedUp, $speedDown, $pcqRate, $addressMask, $clientPort
+            $clientIp, $clientUser, $clientPass, $planName, $speedUp, $speedDown, $pcqRate, $addressMask, $clientPort,
+            $clientSshPort
         );
     }
 
@@ -446,10 +466,12 @@ class MikroTikSshService
         string $speedUp,
         string $speedDown,
         int $clientPort = 8728,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->dhcpManager->ensureLeaseOnRouter(
-            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $speedUp, $speedDown, $clientPort, $comment
+            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $speedUp, $speedDown, $clientPort, $comment,
+            $clientSshPort
         );
     }
 
@@ -467,10 +489,12 @@ class MikroTikSshService
         string $mac,
         ?string $lanInterface,
         int $clientPort = 8728,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->ipMacManager->ensureArpBinding(
-            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $lanInterface, $clientPort, $comment
+            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $lanInterface, $clientPort, $comment,
+            $clientSshPort
         );
     }
 
@@ -485,10 +509,11 @@ class MikroTikSshService
         string $targetIp,
         string $mac,
         int $clientPort = 8728,
-        ?string $label = null
+        ?string $label = null,
+        ?int $clientSshPort = null
     ): array {
         return $this->ipMacManager->ensureMacAmarre(
-            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $clientPort, $label
+            $clientIp, $clientUser, $clientPass, $targetIp, $mac, $clientPort, $label, $clientSshPort
         );
     }
 

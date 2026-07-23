@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\Concerns\DetectsSshExecFailures;
 use App\Services\MikroTik\Concerns\NormalizesRouterComment;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ class DhcpLeaseManager
 {
     use NormalizesRouterComment;
     use DetectsSshExecFailures;
+    use BuildsCoreSshExec;
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -41,7 +43,8 @@ class DhcpLeaseManager
         string $speedUp,
         string $speedDown,
         int $clientPort = 8728,
-        ?string $comment = null
+        ?string $comment = null,
+        ?int $clientSshPort = null
     ): array {
         // SECURITY (OWASP A03): address and mac-address are interpolated
         // unquoted; reject anything that is not a valid IP / MAC.
@@ -78,7 +81,7 @@ class DhcpLeaseManager
 
             // 2. CORE SSH direct.
             $clientCommand = $this->buildLeaseCommand($targetIp, $mac, $rateLimit, $comment);
-            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'lease DHCP');
+            return $this->runViaCore($clientIp, $clientUser, $clientPass, $clientCommand, 'lease DHCP', $clientSshPort);
         } catch (\Throwable $e) {
             Log::error('[DhcpLeaseManager] Error ensuring DHCP lease', ['error' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
@@ -150,13 +153,13 @@ class DhcpLeaseManager
         string $clientUser,
         string $clientPass,
         string $clientCommand,
-        string $what
+        string $what,
+        ?int $clientSshPort = null
     ): array {
         try {
-            $safePass    = str_replace('"', '\\"', $clientPass);
-            $coreCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\"" . addslashes($clientCommand) . "\"";
+            $coreCommand = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $clientCommand, $clientSshPort);
 
-            Log::info('[DhcpLeaseManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'what' => $what]);
+            Log::info('[DhcpLeaseManager] CORE SSH direct: ssh-exec', ['client_ip' => $clientIp, 'client_port' => $clientSshPort ?? 22, 'what' => $what]);
 
             $result = $this->connectionManager->executeSsh($coreCommand);
 
@@ -171,11 +174,22 @@ class DhcpLeaseManager
                 return [
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
-                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
-            if ($output && preg_match('/\berror\b|\bfailure\b|\bcannot\b|\brefused\b|no such item|match any value/i', $output)) {
+            // Empty stdout is not success: ssh-exec that times out or aborts
+            // writes nothing, and calling that "sincronizado" leaves the router
+            // untouched while the UI reports it worked.
+            if ($output === '') {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecEmptyOutputMessage($clientIp, $clientSshPort),
+                ];
+            }
+
+            if ($this->isSshExecCommandFailure($output)) {
                 return [
                     'success'    => false,
                     'method'     => 'CORE_SSH_DIRECT',

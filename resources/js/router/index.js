@@ -328,7 +328,7 @@ const routes = [
         path: 'additional-charges',
         name: 'AdditionalCharges',
         component: () => import('@/pages/Billing/AdditionalCharges.vue'),
-        meta: { title: 'Servicios Adicionales', permission: 'billing.view' },
+        meta: { title: 'Servicios Adicionales', permission: 'view_billing' },
       },
     ],
   },

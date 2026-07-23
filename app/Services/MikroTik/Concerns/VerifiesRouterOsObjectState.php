@@ -19,8 +19,8 @@ use Illuminate\Support\Facades\Log;
  * lógica condicional dentro del mismo ssh-exec).
  *
  * Requiere que la clase que use este trait tenga `$this->connectionManager`
- * (MikroTikConnectionManager) y el trait DetectsSshExecFailures — ambos
- * managers que lo consumen ya cumplen esto.
+ * (MikroTikConnectionManager) y los traits DetectsSshExecFailures y
+ * BuildsCoreSshExec — los managers que lo consumen ya cumplen esto.
  */
 trait VerifiesRouterOsObjectState
 {
@@ -28,16 +28,19 @@ trait VerifiesRouterOsObjectState
      * Ejecuta un comando `print` simple en el router cliente (vía CORE
      * ssh-exec) y devuelve su salida cruda, distinguiendo un fallo de
      * conexión (nada se pudo verificar) de una respuesta real del router.
+     *
+     * $clientSshPort debe ser el mismo puerto con el que se hizo el add/set:
+     * si el router sirve SSH fuera del 22, un readback al 22 fallaría siempre
+     * y reportaría "no se pudo verificar" sobre una carga que sí funcionó.
      */
     protected function verifyRouterOsObject(
         string $clientIp,
         string $clientUser,
         string $clientPass,
-        string $printCommand
+        string $printCommand,
+        ?int $clientSshPort = null
     ): array {
-        $safePass    = str_replace('"', '\\"', $clientPass);
-        $coreCommand = "/system ssh-exec address={$clientIp} user={$clientUser} password=\"{$safePass}\" command=\""
-            . addslashes($printCommand) . '"';
+        $coreCommand = $this->coreSshExecCommand($clientIp, $clientUser, $clientPass, $printCommand, $clientSshPort);
 
         $result = $this->connectionManager->executeSsh($coreCommand);
 
@@ -59,7 +62,7 @@ trait VerifiesRouterOsObjectState
                 'connection_ok' => false,
                 'output' => $output,
                 'message' => 'No se pudo verificar el resultado tras el intento — el router dejó de responder: '
-                    . $this->sshExecConnectionFailureMessage($clientIp, $output),
+                    . $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
             ];
         }
 

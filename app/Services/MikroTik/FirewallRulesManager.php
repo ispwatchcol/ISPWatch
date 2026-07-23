@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\Log;
  */
 class FirewallRulesManager
 {
+    use BuildsCoreSshExec;
+
     private const ADDRESS_LIST_NAME = 'ISPWATCH_SUSPENDIDOS';
     private const ADDRESS_LIST_PLACEHOLDER = '0.0.0.0';
     private const ADDRESS_LIST_COMMENT = 'ISPWatch placeholder';
@@ -57,7 +60,8 @@ class FirewallRulesManager
         string $wanInterface,
         string $portalIp,
         int $apiPort = 8728,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array {
         $resolvedFirmware = $this->resolveFirmwareVersionLabel($clientFirmwareVersion);
         $firmwareFamily = $this->detectRouterOsFamily($clientFirmwareVersion);
@@ -102,7 +106,8 @@ class FirewallRulesManager
             $clientUser,
             $clientPass,
             $portalIp,
-            $clientFirmwareVersion
+            $clientFirmwareVersion,
+            $clientSshPort
         );
         if ($sshResult['success']) {
             return $sshResult;
@@ -118,7 +123,8 @@ class FirewallRulesManager
             $clientUser,
             $clientPass,
             $portalIp,
-            $clientFirmwareVersion
+            $clientFirmwareVersion,
+            $clientSshPort
         );
     }
 
@@ -134,7 +140,8 @@ class FirewallRulesManager
         string $clientUser,
         string $clientPass,
         string $portalIp,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array {
         try {
             $clientCommand = $this->buildFirewallSyncCommand($portalIp);
@@ -145,7 +152,8 @@ class FirewallRulesManager
                 $clientUser,
                 $clientPass,
                 $clientCommand,
-                $firmwareFamily
+                $firmwareFamily,
+                $clientSshPort
             );
 
             $attempts = [];
@@ -238,7 +246,8 @@ class FirewallRulesManager
         string $clientUser,
         string $clientPass,
         string $portalIp,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array {
         try {
             $socket = $this->apiProtocol->connect(
@@ -269,6 +278,7 @@ class FirewallRulesManager
             $safeClientCommand = $this->escapeRouterOsQuotedValue($clientCommand);
 
             $scriptSource = '/system ssh-exec address="' . $safeClientIp . '"'
+                . $this->sshExecPortArg($clientSshPort)
                 . ' user="' . $safeClientUser . '"'
                 . ' password="' . $safePass . '"'
                 . ' command="' . $safeClientCommand . '"';
@@ -415,8 +425,11 @@ class FirewallRulesManager
     public function getFirewallRulesViaCore(
         string $clientIp,
         string $clientUser,
-        string $clientPass
+        string $clientPass,
+        ?int $clientSshPort = null
     ): array {
+        // $clientSshPort is accepted for signature parity with the write path;
+        // this read only uses the API tunnel (no ssh-exec), so it is unused here.
         try {
             $socket = $this->connectionManager->connectClientApi($clientIp, 8728, $clientUser, $clientPass);
             if ($socket) {
@@ -549,8 +562,13 @@ class FirewallRulesManager
         string $clientUser,
         string $clientPass,
         string $clientCommand,
-        string $firmwareFamily
+        string $firmwareFamily,
+        ?int $clientSshPort = null
     ): array {
+        // RouterOS defaults ssh-exec to 22; routers serving SSH elsewhere refuse
+        // the connect and every variant fails with `<connection failed>`.
+        $portArg = $this->sshExecPortArg($clientSshPort);
+
         $ip = $this->escapeRouterOsQuotedValue($clientIp);
         $user = $this->escapeRouterOsQuotedValue($clientUser);
         $pass = $this->escapeRouterOsQuotedValue($clientPass);
@@ -560,7 +578,7 @@ class FirewallRulesManager
             ':put "ISP_BEGIN"; ' .
             ':local out ""; :local ec -1; ' .
             ':do { ' .
-                ':local res [/system ssh-exec address="' . $ip . '" user="' . $user . '" password="' . $pass . '" command="' . $cmd . '" as-value]; ' .
+                ':local res [/system ssh-exec address="' . $ip . '"' . $portArg . ' user="' . $user . '" password="' . $pass . '" command="' . $cmd . '" as-value]; ' .
                 ':set out ($res->"output"); :set ec ($res->"exit-code") ' .
             '} on-error={ :set out "ISP_FAIL"; :set ec 255 }; ' .
             ':put $out; :put ("ISP_END:" . [:tostr $ec])';
@@ -569,14 +587,15 @@ class FirewallRulesManager
             ':put "ISP_BEGIN"; ' .
             ':local out ""; :local ec -1; ' .
             ':do { ' .
-                ':local res [/system ssh-exec address="' . $ip . '" user="' . $user . '" password="' . $pass . '" command="' . $cmd . '" as-value]; ' .
+                ':local res [/system ssh-exec address="' . $ip . '"' . $portArg . ' user="' . $user . '" password="' . $pass . '" command="' . $cmd . '" as-value]; ' .
                 ':set out [:tostr $res]; :set ec 0 ' .
             '} on-error={ :set out "ISP_FAIL"; :set ec 255 }; ' .
             ':put $out; :put ("ISP_END:" . [:tostr $ec])';
 
         $legacyAutoprint = sprintf(
-            '/system ssh-exec address="%s" user="%s" password="%s" command="%s"',
+            '/system ssh-exec address="%s"%s user="%s" password="%s" command="%s"',
             $ip,
+            $portArg,
             $user,
             $pass,
             $cmd

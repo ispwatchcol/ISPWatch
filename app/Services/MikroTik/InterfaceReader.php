@@ -2,6 +2,7 @@
 
 namespace App\Services\MikroTik;
 
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Log;
  */
 class InterfaceReader
 {
+    use BuildsCoreSshExec;
+
     private const SSH_FIELD_DELIMITER = '|#|';
     // Only physical ports are valid WAN candidates — no VLANs, bridges, or tunnels.
     private const ALLOWED_WAN_TYPES = ['ether', 'sfp'];
@@ -52,7 +55,8 @@ class InterfaceReader
         string $clientUser,
         string $clientPass,
         int $clientPort = 8728,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array {
         $attempts = [];
 
@@ -60,6 +64,7 @@ class InterfaceReader
             Log::info('[InterfaceReader] Getting interfaces', [
                 'client_ip' => $clientIp,
                 'configured_port' => $clientPort,
+                'client_ssh_port' => $clientSshPort ?? 22,
                 'client_firmware' => $clientFirmwareVersion,
             ]);
 
@@ -354,7 +359,7 @@ class InterfaceReader
         ?string $clientFirmwareVersion = null
     ): array {
         try {
-            $variants = $this->buildCoreInterfaceCommandVariants($clientIp, $clientUser, $clientPass);
+            $variants = $this->buildCoreInterfaceCommandVariants($clientIp, $clientUser, $clientPass, $clientSshPort);
 
             $lastRawOutput = '';
             $lastExitCode  = null;
@@ -541,9 +546,14 @@ class InterfaceReader
      * Sentinel markers ISP_BEGIN/ISP_END let us tell apart "script never ran"
      * from "script ran but client side failed" from "script ran and got data".
      */
-    private function buildCoreInterfaceCommandVariants(string $clientIp, string $clientUser, string $clientPass): array
+    private function buildCoreInterfaceCommandVariants(string $clientIp, string $clientUser, string $clientPass, ?int $clientSshPort = null): array
     {
         $clientCommand = '/interface ethernet print terse';
+
+        // RouterOS defaults ssh-exec to 22; routers that serve SSH elsewhere
+        // (CORE_TOCAIMA uses 2200) refuse the connect and every variant below
+        // fails identically with `<connection failed>`.
+        $portArg = $this->sshExecPortArg($clientSshPort);
 
         $ip   = $this->escapeRouterOsQuotedValue($clientIp);
         $user = $this->escapeRouterOsQuotedValue($clientUser);
@@ -560,7 +570,7 @@ class InterfaceReader
             ':local r ""; ' .
             ':local ec -1; ' .
             ':do { ' .
-                ':local res [/system ssh-exec address="' . $ip . '" user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
+                ':local res [/system ssh-exec address="' . $ip . '"' . $portArg . ' user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
                 ':set r [:tostr $res]; ' .
                 ':set ec 0 ' .
             '} on-error={ :set r "ISP_FAIL"; :set ec 1 }; ' .
@@ -575,7 +585,7 @@ class InterfaceReader
             ':local r ""; ' .
             ':local ec -1; ' .
             ':do { ' .
-                ':local res [/system ssh-exec address="' . $ip . '" user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
+                ':local res [/system ssh-exec address="' . $ip . '"' . $portArg . ' user="' . $user . '" password="' . $pass . '" command="' . $cmd . '"]; ' .
                 ':set r ($res->"output"); ' .
                 ':set ec ($res->"exit-code") ' .
             '} on-error={ :set r "ISP_FAIL"; :set ec 1 }; ' .
@@ -586,8 +596,8 @@ class InterfaceReader
         // Kept as the very last fallback. No envelope here because RouterOS 6.x
         // sometimes can't run the multi-statement form via SSH exec channel.
         $variantLegacy = sprintf(
-            '/system ssh-exec address="%s" user="%s" password="%s" command="%s"',
-            $ip, $user, $pass, $cmd
+            '/system ssh-exec address="%s"%s user="%s" password="%s" command="%s"',
+            $ip, $portArg, $user, $pass, $cmd
         );
 
         return [

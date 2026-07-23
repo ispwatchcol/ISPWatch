@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Router;
 use App\Models\TrafficSample;
 use App\Models\TrafficDaily;
+use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
 use App\Services\MikroTik\MikroTikConnectionManager;
 use Illuminate\Support\Facades\Log;
 
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\Log;
  */
 class TrafficHistoryService
 {
+    use BuildsCoreSshExec;
+
     private MikroTikConnectionManager $connectionManager;
 
     public function __construct(?MikroTikConnectionManager $connectionManager = null)
@@ -123,8 +126,16 @@ class TrafficHistoryService
         $wanEsc = addcslashes($wan, "\\\"\$");
         $inner  = ':put ([/interface get [find name="' . $wanEsc . '"] rx-byte].",".[/interface get [find name="' . $wanEsc . '"] tx-byte])';
 
-        $safe = str_replace('"', '\\"', (string) $router->password_rb);
-        $core = "/system ssh-exec address={$router->ip} user={$router->user_rb} password=\"{$safe}\" command=\"" . addslashes($inner) . "\"";
+        // Resolve the live overlay address (router.ip drifts on reconnect) and
+        // dial the router's real SSH port instead of assuming 22.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+        $core = $this->coreSshExecCommand(
+            $endpoint['ip'],
+            (string) $router->user_rb,
+            (string) $router->password_rb,
+            $inner,
+            $endpoint['ssh_port']
+        );
 
         $res = $this->connectionManager->executeSsh($core);
         if (!($res['success'] ?? false)) {

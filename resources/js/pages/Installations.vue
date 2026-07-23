@@ -223,7 +223,12 @@
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales previstos</label>
-            <input v-model="createForm.equipment" type="text"
+            <select v-if="availableDevices.length" v-model="equipPick" @change="appendDeviceTo(createForm)"
+              class="w-full mb-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Agregar equipo desde inventario —</option>
+              <option v-for="d in availableDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+            </select>
+            <input v-model="createForm.equipment" type="text" placeholder="Se llena al elegir del inventario, o escribe manualmente"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
           </div>
           <div class="sm:col-span-2">
@@ -323,6 +328,11 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales</label>
+            <select v-if="availableDevices.length" v-model="equipPick" @change="appendDeviceTo(editForm)"
+              class="w-full mb-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
+              <option :value="null">— Agregar equipo desde inventario —</option>
+              <option v-for="d in availableDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+            </select>
             <input v-model="editForm.equipment" type="text"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
           </div>
@@ -347,14 +357,29 @@
         </div>
       </div>
     </div>
+
+    <!-- Confirmación: eliminar orden de instalación -->
+    <ConfirmModal
+      :visible="!!deleteTarget"
+      title="Eliminar instalación"
+      :message="deleteTarget ? `Vas a eliminar la orden de ${deleteTarget.customer_name || deleteTarget.prospect_name || deleteTarget.customer_email || 'el prospecto'} programada para ${formatDate(deleteTarget.scheduled_date)}. Se borrarán sus firmas y no se puede deshacer.` : ''"
+      require-text="BORRAR_INSTALACION"
+      confirm-text="Eliminar"
+      loading-text="Eliminando..."
+      :loading="deleting"
+      variant="danger"
+      @confirm="confirmDelete"
+      @cancel="deleteTarget = null"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import api from '@/services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
+import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 
 const router = useRouter()
 const toast = ref(null)
@@ -364,6 +389,37 @@ const loading = ref(true)
 const filters = ref({ status: '', from: '', to: '' })
 
 const technicians = ref([])
+
+// Equipos del inventario para autollenar "Equipo / Materiales" sin digitar seriales.
+const inventoryDevices = ref([])
+const equipPick = ref(null)
+
+const availableDevices = computed(() =>
+  inventoryDevices.value.filter(d => !d.user_id)
+)
+
+const deviceLabel = (d) => {
+  const name = `${d.stock?.brand ?? ''} ${d.stock?.model ?? ''}`.trim() || 'Equipo'
+  const parts = [name]
+  if (d.serial) parts.push(`S/N ${d.serial}`)
+  if (d.mac)    parts.push(`MAC ${d.mac}`)
+  return parts.join(' · ')
+}
+
+const appendDeviceTo = (form) => {
+  const d = inventoryDevices.value.find(x => x.id === equipPick.value)
+  equipPick.value = null
+  if (!d) return
+  const label = deviceLabel(d)
+  form.equipment = form.equipment?.trim() ? `${form.equipment.trim()}; ${label}` : label
+}
+
+const loadInventory = async () => {
+  try {
+    const { data } = await api.inventory.getAll()
+    inventoryDevices.value = Array.isArray(data) ? data : []
+  } catch { /* non-blocking: sin permiso de inventario se escribe manual */ }
+}
 
 const blankCreate = () => ({
   // Prospect data
@@ -412,6 +468,7 @@ const loadTechnicians = async () => {
 const openCreate = () => {
   createError.value = ''
   createForm.value = blankCreate()
+  equipPick.value = null
   creating.value = true
 }
 
@@ -492,20 +549,31 @@ const saveEdit = async () => {
   }
 }
 
-const remove = async (inst) => {
-  if (!confirm(`¿Eliminar la orden de ${inst.customer_name || inst.customer_email || 'el prospecto'} programada para ${formatDate(inst.scheduled_date)}?`)) return
+const deleteTarget = ref(null)
+const deleting = ref(false)
+
+const remove = (inst) => {
+  deleteTarget.value = inst
+}
+
+const confirmDelete = async () => {
+  if (!deleteTarget.value) return
+  deleting.value = true
   try {
-    await api.customers.deleteInstallation(inst.id)
+    await api.customers.deleteInstallation(deleteTarget.value.id)
     toast.value?.success('Eliminada', 'Orden eliminada correctamente.')
+    deleteTarget.value = null
     await load()
   } catch {
     toast.value?.error('Error', 'No se pudo eliminar la orden.')
+  } finally {
+    deleting.value = false
   }
 }
 
 const convertToClient = (inst) => {
   if (!inst.prospect_id) return
-  router.push({ path: '/customers/add', query: { prospect_id: inst.prospect_id } })
+  router.push({ path: '/customers/create', query: { prospect_id: inst.prospect_id } })
 }
 
 const statusBadge = (s) => ({
@@ -523,5 +591,6 @@ const formatDate = (d) => {
 onMounted(() => {
   load()
   loadTechnicians()
+  loadInventory()
 })
 </script>

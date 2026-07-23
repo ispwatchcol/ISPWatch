@@ -6,6 +6,7 @@ use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Router;
 use App\Models\User;
+use App\Services\MikroTik\RouterEndpointResolver;
 
 /**
  * Aprovisionamiento de un cliente al MikroTik según el MÉTODO DE CONTROL del
@@ -24,6 +25,13 @@ class CustomerProvisioningService
     public const MODE_HOTSPOT      = 'hotspot';
     public const MODE_PPPOE        = 'pppoe';
     public const MODE_DHCP         = 'dhcp';
+
+    private RouterEndpointResolver $endpoints;
+
+    public function __construct(?RouterEndpointResolver $endpoints = null)
+    {
+        $this->endpoints = $endpoints ?? new RouterEndpointResolver();
+    }
 
     /**
      * Devuelve el método de control activo del router (excluyente) o null.
@@ -138,7 +146,16 @@ class CustomerProvisioningService
         $mikrotik = app(MikroTikSshService::class);
         $name     = trim("{$customer->name} {$customer->last_name}");
         $mode     = self::resolveControlMode($router);
-        $port     = $router->puerto_api ?? 8728;
+
+        // Never dial `router.ip` blindly: the CORE hands client routers a pool
+        // address on each L2TP reconnect, so the stored value goes stale and
+        // every push lands on an address nobody answers (`<connection failed>`
+        // / `action timed out`, which reads like a client-side firewall issue).
+        // The resolver asks the CORE which address this router is really using.
+        $endpoint = $this->endpoints->resolve($router);
+        $ip       = $endpoint['ip'];
+        $port     = $endpoint['api_port'];
+        $sshPort  = $endpoint['ssh_port'];
 
         $queueResult   = null;
         $pppoeResult   = null;
@@ -154,22 +171,22 @@ class CustomerProvisioningService
         try {
             switch ($mode) {
                 case self::MODE_SIMPLE_QUEUE:
-                    $queueResult = $this->runQueue($mikrotik, $router, $customer, $plan, $name, $port);
+                    $queueResult = $this->runQueue($mikrotik, $router, $customer, $plan, $name, $port, $ip, $sshPort);
                     break;
 
                 case self::MODE_PCQ:
                     $pcqResult = $mikrotik->ensureClientInAddressList(
-                        $router->ip, $router->user_rb, $router->password_rb,
-                        $plan->name, $customer->ip_user, $port, $name
+                        $ip, $router->user_rb, $router->password_rb,
+                        $plan->name, $customer->ip_user, $port, $name, $sshPort
                     );
                     break;
 
                 case self::MODE_HOTSPOT:
                     if ($customer->hotspot_username && $customer->hotspot_password) {
                         $hotspotResult = $mikrotik->ensureHotspotUserOnRouter(
-                            $router->ip, $router->user_rb, $router->password_rb,
+                            $ip, $router->user_rb, $router->password_rb,
                             $customer->hotspot_username, $customer->hotspot_password,
-                            $plan->name, $port, $customer->ip_user, $name
+                            $plan->name, $port, $customer->ip_user, $name, $sshPort
                         );
                     } else {
                         $skipped = true;
@@ -180,15 +197,15 @@ class CustomerProvisioningService
                 case self::MODE_PPPOE:
                     if ($customer->pppoe_username && $customer->pppoe_password) {
                         $pppoeResult = $mikrotik->ensurePppoeSecretOnRouter(
-                            $router->ip, $router->user_rb, $router->password_rb,
+                            $ip, $router->user_rb, $router->password_rb,
                             $customer->pppoe_username, $customer->pppoe_password,
                             $plan->name, 'pppoe', $port,
-                            $customer->ip_user, $customer->pppoe_local_address, $name
+                            $customer->ip_user, $customer->pppoe_local_address, $name, $sshPort
                         );
                         // En modo 'queue' el secret se complementa con una Simple
                         // Queue; en 'dynamic' el rate-limit lo aplica el perfil.
                         if (($router->pppoe_limit_mode ?? 'dynamic') === 'queue') {
-                            $queueResult = $this->runQueue($mikrotik, $router, $customer, $plan, $name, $port);
+                            $queueResult = $this->runQueue($mikrotik, $router, $customer, $plan, $name, $port, $ip, $sshPort);
                         }
                     } else {
                         $pppoeSkipped = true;
@@ -200,11 +217,11 @@ class CustomerProvisioningService
                 case self::MODE_DHCP:
                     if ($customer->mac_address) {
                         $dhcpResult = $mikrotik->ensureDhcpLeaseOnRouter(
-                            $router->ip, $router->user_rb, $router->password_rb,
+                            $ip, $router->user_rb, $router->password_rb,
                             $customer->ip_user, $customer->mac_address,
                             $plan->is_courtesy ? '0' : $plan->speed_up,
                             $plan->is_courtesy ? '0' : $plan->speed_down,
-                            $port, $name
+                            $port, $name, $sshPort
                         );
                     } else {
                         $skipped = true;
@@ -225,16 +242,16 @@ class CustomerProvisioningService
             if ($router->ip_bindings) {
                 $arpResult = $customer->mac_address
                     ? $mikrotik->ensureArpBindingOnRouter(
-                        $router->ip, $router->user_rb, $router->password_rb,
-                        $customer->ip_user, $customer->mac_address, $router->lan_interface, $port, $name
+                        $ip, $router->user_rb, $router->password_rb,
+                        $customer->ip_user, $customer->mac_address, $router->lan_interface, $port, $name, $sshPort
                     )
                     : ['success' => false, 'message' => 'IP Bindings activo pero el cliente no tiene MAC configurada'];
             }
             if ($router->amarre) {
                 $amarreResult = $customer->mac_address
                     ? $mikrotik->ensureMacAmarreOnRouter(
-                        $router->ip, $router->user_rb, $router->password_rb,
-                        $customer->ip_user, $customer->mac_address, $port, $name
+                        $ip, $router->user_rb, $router->password_rb,
+                        $customer->ip_user, $customer->mac_address, $port, $name, $sshPort
                     )
                     : ['success' => false, 'message' => 'Amarre IP/MAC activo pero el cliente no tiene MAC configurada'];
             }
@@ -301,10 +318,10 @@ class CustomerProvisioningService
      * Helper: Simple Queue con el nombre espejando el secret PPPoE cuando existe
      * y el comentario con el nombre completo (igual que el flujo previo).
      */
-    private function runQueue(MikroTikSshService $mikrotik, Router $router, CustomerProfile $customer, Plan $plan, string $name, int $port): array
+    private function runQueue(MikroTikSshService $mikrotik, Router $router, CustomerProfile $customer, Plan $plan, string $name, int $port, string $ip, ?int $sshPort = null): array
     {
         return $mikrotik->syncQueueViaCore(
-            $router->ip,
+            $ip,
             $router->user_rb,
             $router->password_rb,
             $customer->ip_user,
@@ -314,7 +331,8 @@ class CustomerProvisioningService
             $plan->is_courtesy ? '0' : $plan->speed_down,
             $port,
             $customer->pppoe_username,
-            $name
+            $name,
+            $sshPort
         );
     }
 }

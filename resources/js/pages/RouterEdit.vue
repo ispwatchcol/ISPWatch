@@ -136,6 +136,16 @@
               <input v-model="form.puerto_www" type="number" placeholder="80" class="input" />
             </div>
 
+            <!-- PUERTO SSH -->
+            <div>
+              <label class="label">Puerto SSH</label>
+              <input v-model="form.puerto_ssh" type="number" placeholder="22" class="input" />
+              <p class="text-xs text-gray-400 mt-1">
+                Puerto donde el router escucha SSH (/ip service). El CORE lo usa para cargar
+                clientes, planes y cortes. Déjalo vacío si es el 22.
+              </p>
+            </div>
+
             <!-- INTERFAZ LAN -->
             <div class="col-span-2">
                 <label class="label">Interfaz LAN</label>
@@ -666,6 +676,7 @@ const form = reactive({
   password: "",
   puerto_api: 8728,
   puerto_www: 80,
+  puerto_ssh: null,
   interfaz_lan: "",
   rangos_ip: "",
   tipo_corte: null,
@@ -738,6 +749,7 @@ const loadRouterData = async () => {
     form.password = data.password_rb || ""
     form.puerto_api = data.puerto_api || 8728
     form.puerto_www = data.puerto_www || 80
+    form.puerto_ssh = data.puerto_ssh || null
     form.interfaz_lan = data.lan_interface || ""
     form.rangos_ip = data.rangos_ip || ""
     form.tipo_corte = data.cut_type_id || null
@@ -904,6 +916,7 @@ const saveRouter = async () => {
     password_rb: form.password,
     puerto_api: form.puerto_api || 8728,
     puerto_www: form.puerto_www || 80,
+    puerto_ssh: form.puerto_ssh || null,
     lan_interface: form.interfaz_lan,
     cut_type_id: form.tipo_corte,
     firmware_version: form.version,

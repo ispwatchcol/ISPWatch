@@ -142,9 +142,13 @@ class PlanController extends Controller
             ], 422);
         }
 
+        // Resolve the address/port the CORE must really dial: `router.ip` goes
+        // stale whenever the L2TP tunnel reconnects onto another pool address.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+
         $mikrotik = app(MikroTikSshService::class);
         $result = $mikrotik->syncPppoeProfileOnRouter(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
             $plan->name,
@@ -152,7 +156,8 @@ class PlanController extends Controller
             $plan->is_courtesy ? '0' : $plan->speed_down,
             $plan->local_address,
             $plan->pppoe_pool,
-            $router->puerto_api ?? 8728
+            $endpoint['api_port'],
+            $endpoint['ssh_port']
         );
 
         if (!$result['success']) {
@@ -207,9 +212,13 @@ class PlanController extends Controller
             ], 422);
         }
 
+        // Resolve the address/port the CORE must really dial: `router.ip` goes
+        // stale whenever the L2TP tunnel reconnects onto another pool address.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+
         $mikrotik = app(MikroTikSshService::class);
         $result = $mikrotik->syncHotspotUserProfileOnRouter(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
             $plan->name,
@@ -218,7 +227,8 @@ class PlanController extends Controller
             $plan->shared_users !== null ? (int) $plan->shared_users : null,
             $plan->session_timeout,
             $plan->idle_timeout,
-            $router->puerto_api ?? 8728
+            $endpoint['api_port'],
+            $endpoint['ssh_port']
         );
 
         if (!$result['success']) {
@@ -265,9 +275,13 @@ class PlanController extends Controller
             ], 422);
         }
 
+        // Resolve the address/port the CORE must really dial: `router.ip` goes
+        // stale whenever the L2TP tunnel reconnects onto another pool address.
+        $endpoint = app(\App\Services\MikroTik\RouterEndpointResolver::class)->resolve($router);
+
         $mikrotik = app(MikroTikSshService::class);
         $result = $mikrotik->syncPcqEngineOnRouter(
-            $router->ip,
+            $endpoint['ip'],
             $router->user_rb,
             $router->password_rb,
             $plan->name,
@@ -275,7 +289,8 @@ class PlanController extends Controller
             $plan->is_courtesy ? '0' : $plan->speed_down,
             $plan->is_courtesy ? '0' : $plan->pcq_rate,
             $plan->address_mask,
-            $router->puerto_api ?? 8728
+            $endpoint['api_port'],
+            $endpoint['ssh_port']
         );
 
         if (!$result['success']) {
