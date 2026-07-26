@@ -55,10 +55,12 @@ class PlaceholderResolverTest extends TestCase
         $tenant = $this->makeTenant();
         $customer = $this->makeCustomer($tenant);
         CustomerProfile::create([
-            'user_id' => $customer->id,
-            'cedula'  => '123456789',
-            'address' => 'Calle Falsa 123',
-            'city'    => 'Ibagué',
+            'user_id'   => $customer->id,
+            'name'      => 'Juan',
+            'last_name' => 'Pérez',
+            'cedula'    => '123456789',
+            'address'   => 'Calle Falsa 123',
+            'city'      => 'Ibagué',
         ]);
 
         $invoice = Invoice::create([
@@ -102,10 +104,12 @@ class PlaceholderResolverTest extends TestCase
         $tenant = $this->makeTenant();
         $customer = $this->makeCustomer($tenant);
         $profile = CustomerProfile::create([
-            'user_id'  => $customer->id,
-            'cedula'   => '987654321',
-            'address'  => 'Av. Siempre Viva 742',
-            'ip_user'  => '10.0.0.5',
+            'user_id'   => $customer->id,
+            'name'      => 'Juan',
+            'last_name' => 'Pérez',
+            'cedula'    => '987654321',
+            'address'   => 'Av. Siempre Viva 742',
+            'ip_user'   => '10.0.0.5',
         ]);
         $plan = Plan::factory()->create([
             'tenant_id'    => $tenant->id,
@@ -139,13 +143,22 @@ class PlaceholderResolverTest extends TestCase
             'cedula'    => '111222333',
             'address'   => 'Diagonal 5 # 6-7',
         ]);
+        // customer_installations.customer_id es NOT NULL a nivel de esquema
+        // (columna heredada de antes de que existiera prospect_id), aunque el
+        // flujo de prospectos en producción también deja este registro sin
+        // vínculo real de negocio con ese customer. Se crea uno solo para
+        // satisfacer la restricción de BD; el resolver recibe `null` para
+        // $customer explícitamente más abajo, que es lo que de verdad ejercita
+        // la rama de fallback a prospecto.
         $installation = CustomerInstallation::create([
-            'tenant_id'   => $tenant->id,
-            'prospect_id' => $prospect->id,
-            'address'     => 'Diagonal 5 # 6-7',
-            'equipment'   => 'ONU + Router TP-Link',
-            'notes'       => 'Instalación en segundo piso.',
-            'status'      => 'pendiente',
+            'tenant_id'      => $tenant->id,
+            'customer_id'    => $this->makeCustomer($tenant)->id,
+            'prospect_id'    => $prospect->id,
+            'scheduled_date' => '2026-07-25',
+            'address'        => 'Diagonal 5 # 6-7',
+            'equipment'      => 'ONU + Router TP-Link',
+            'notes'          => 'Instalación en segundo piso.',
+            'status'         => 'pendiente',
         ]);
 
         $values = $this->resolver->forInstallation(

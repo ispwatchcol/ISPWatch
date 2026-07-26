@@ -24,15 +24,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $duplicates = DB::select("
-            SELECT router_id, pppoe_username, COUNT(*) AS cnt,
-                   string_agg(user_id::text, ', ') AS customer_ids
-            FROM customer_profile
-            WHERE pppoe_username IS NOT NULL AND pppoe_username != ''
-              AND router_id IS NOT NULL
-            GROUP BY router_id, pppoe_username
-            HAVING COUNT(*) > 1
-        ");
+        $duplicates = DB::select($this->duplicateCheckQuery(DB::connection()->getDriverName()));
 
         if (!empty($duplicates)) {
             $detail = collect($duplicates)
@@ -56,5 +48,34 @@ return new class extends Migration
     public function down(): void
     {
         DB::statement('DROP INDEX IF EXISTS customer_profile_pppoe_username_router_unique');
+    }
+
+    /**
+     * string_agg (Postgres) and group_concat (SQLite) are equivalent for
+     * this purpose; only the aggregate function name and the ::text cast
+     * (Postgres-only, SQLite is dynamically typed) differ between the two
+     * drivers this app actually runs on — pgsql in production/dev (see
+     * .env), sqlite in the test suite (see .env.testing). The rest of the
+     * query, and the resulting duplicate-guard behaviour, is unchanged.
+     */
+    private function duplicateCheckQuery(string $driver): string
+    {
+        $customerIds = match ($driver) {
+            'pgsql' => "string_agg(user_id::text, ', ')",
+            'sqlite' => "group_concat(user_id, ', ')",
+            default => throw new \RuntimeException(
+                "No se puede ejecutar esta migración: driver de base de datos '{$driver}' no soportado."
+            ),
+        };
+
+        return "
+            SELECT router_id, pppoe_username, COUNT(*) AS cnt,
+                   {$customerIds} AS customer_ids
+            FROM customer_profile
+            WHERE pppoe_username IS NOT NULL AND pppoe_username != ''
+              AND router_id IS NOT NULL
+            GROUP BY router_id, pppoe_username
+            HAVING COUNT(*) > 1
+        ";
     }
 };

@@ -52,7 +52,13 @@ class TemplateRendererFallbackTest extends TestCase
             'user_name'     => 'Juan',
             'user_lastname' => 'Pérez',
         ]);
-        CustomerProfile::create(['user_id' => $customer->id, 'cedula' => '123456789', 'address' => 'Calle 1']);
+        CustomerProfile::create([
+            'user_id'   => $customer->id,
+            'name'      => 'Juan',
+            'last_name' => 'Pérez',
+            'cedula'    => '123456789',
+            'address'   => 'Calle 1',
+        ]);
 
         return $customer;
     }
@@ -66,6 +72,8 @@ class TemplateRendererFallbackTest extends TestCase
             'number'       => 'FAC-0001',
             'issue_date'   => '2026-07-01',
             'due_date'     => '2026-07-15',
+            'period_start' => '2026-07-01',
+            'period_end'   => '2026-07-31',
             'currency'     => 'COP',
             'subtotal'     => 100000,
             'tax'          => 19000,
@@ -81,7 +89,7 @@ class TemplateRendererFallbackTest extends TestCase
     {
         $tenant = $this->makeTenant();
         $invoice = $this->makeInvoice($tenant, $this->makeCustomer($tenant));
-        $sentinel = new \stdClass();
+        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
 
         Pdf::shouldReceive('loadView')
             ->once()
@@ -103,7 +111,7 @@ class TemplateRendererFallbackTest extends TestCase
             'is_active' => true,
         ]);
 
-        $sentinel = new \stdClass();
+        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
 
         Pdf::shouldReceive('loadView')
             ->once()
@@ -134,7 +142,7 @@ class TemplateRendererFallbackTest extends TestCase
         Pdf::shouldReceive('loadView')
             ->once()
             ->withArgs(fn ($view) => $view === 'billing.invoice_pdf')
-            ->andReturn(new \stdClass());
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
 
         $this->renderer->renderInvoice($invoice);
 
@@ -203,12 +211,13 @@ class TemplateRendererFallbackTest extends TestCase
         $tenant = $this->makeTenant();
         $customer = $this->makeCustomer($tenant);
         $installation = CustomerInstallation::create([
-            'tenant_id'   => $tenant->id,
-            'customer_id' => $customer->id,
-            'address'     => 'Calle 1',
-            'status'      => 'pendiente',
+            'tenant_id'      => $tenant->id,
+            'customer_id'    => $customer->id,
+            'scheduled_date' => '2026-07-25',
+            'address'        => 'Calle 1',
+            'status'         => 'pendiente',
         ]);
-        $sentinel = new \stdClass();
+        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
 
         Pdf::shouldReceive('loadView')
             ->once()
@@ -229,11 +238,12 @@ class TemplateRendererFallbackTest extends TestCase
         $customer = $this->makeCustomer($tenant);
         $profile = $customer->customerProfile;
         $installation = CustomerInstallation::create([
-            'tenant_id'  => $tenant->id,
-            'customer_id' => $customer->id,
-            'address'    => 'Calle 1',
-            'equipment'  => 'ONU + Router',
-            'status'     => 'pendiente',
+            'tenant_id'      => $tenant->id,
+            'customer_id'    => $customer->id,
+            'scheduled_date' => '2026-07-25',
+            'address'        => 'Calle 1',
+            'equipment'      => 'ONU + Router',
+            'status'         => 'pendiente',
         ]);
 
         DocumentTemplate::create([
