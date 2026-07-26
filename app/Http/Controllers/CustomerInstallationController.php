@@ -12,7 +12,7 @@ use App\Models\Prospect;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\Templates\TemplateRenderer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -20,6 +20,13 @@ use Illuminate\Validation\Rule;
 
 class CustomerInstallationController extends Controller
 {
+    protected TemplateRenderer $templateRenderer;
+
+    public function __construct(TemplateRenderer $templateRenderer)
+    {
+        $this->templateRenderer = $templateRenderer;
+    }
+
     private function authTenant(Request $request): int
     {
         $tenantId = $request->user()?->tenant_id;
@@ -651,21 +658,23 @@ class CustomerInstallationController extends Controller
         $router    = !empty($sheet['router_id'])    ? \App\Models\Router::find($sheet['router_id'])       : null;
         $plan      = !empty($sheet['plan_id'])      ? \App\Models\Plan::find($sheet['plan_id'])           : null;
 
-        $pdf = Pdf::loadView('documents.installation_sheet_pdf', [
-            'installation'         => $installation,
-            'customer'             => $customer,
-            'profile'              => $profile,
-            'prospect'             => $prospect,
-            'tenant'               => $tenant,
-            'technician'           => $tech,
-            'photos'               => $photos,
-            'sectorial'            => $sectorial,
-            'router'               => $router,
-            'plan'                 => $plan,
-            'customer_signature'   => $custSig,
-            'technician_signature' => $techSig,
-            'date'                 => now()->format('d/m/Y H:i'),
-        ]);
+        $date = now()->format('d/m/Y H:i');
+
+        $pdf = $this->templateRenderer->renderInstallationSheet(
+            $installation,
+            $customer,
+            $profile,
+            $prospect,
+            $tenant,
+            $tech,
+            $photos,
+            $sectorial,
+            $router,
+            $plan,
+            $custSig,
+            $techSig,
+            $date
+        );
 
         $folder = $this->storageFolder($installation);
         $fileName = 'hoja_instalacion_' . $installation->id . '_' . now()->format('Ymd_His') . '.pdf';

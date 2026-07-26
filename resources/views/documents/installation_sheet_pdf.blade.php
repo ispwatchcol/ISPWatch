@@ -95,8 +95,13 @@
                         <span class="badge">{{ $isPppoe ? 'PPPoE' : 'IP estática / DHCP' }}</span></td></tr>
             @endif
             @if($plan)
+                @php
+                    $planSpeed = $plan->speed_down
+                        ? ' — ' . $plan->speed_down . ($plan->speed_up ? '/' . $plan->speed_up : '') . ' Mbps'
+                        : '';
+                @endphp
                 <tr><td class="label">Plan</td>
-                    <td>{{ $plan->name }}@if($plan->speed_down) — {{ $plan->speed_down }}@if($plan->speed_up)/{{ $plan->speed_up }}@endif Mbps@endif</td></tr>
+                    <td>{{ $plan->name }}{{ $planSpeed }}</td></tr>
             @endif
             @if(!empty($sheet['vlan']))<tr><td class="label">VLAN</td><td>{{ $sheet['vlan'] }}</td></tr>@endif
 
