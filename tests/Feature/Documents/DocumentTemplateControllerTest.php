@@ -152,9 +152,23 @@ class DocumentTemplateControllerTest extends TestCase
         $this->assertDatabaseCount('document_templates', 0);
     }
 
-    public function test_a_user_without_manage_tenant_permission_is_forbidden(): void
+    public function test_a_user_without_manage_document_templates_permission_is_forbidden(): void
     {
         $role = Role::create(['name' => 'Soporte', 'permissions' => ['view_support']]);
+        $user = User::factory()->create(['tenant_id' => $this->tenant->id, 'role_id' => $role->id]);
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/document-templates')->assertStatus(403);
+    }
+
+    /**
+     * manage_tenant is deliberately NOT enough on its own: a custom role
+     * scoped to "edit our company config" must not automatically be able to
+     * rewrite legal contract clauses / invoice footers.
+     */
+    public function test_manage_tenant_alone_does_not_grant_access_to_document_templates(): void
+    {
+        $role = Role::create(['name' => 'Config Empresa', 'permissions' => ['manage_tenant']]);
         $user = User::factory()->create(['tenant_id' => $this->tenant->id, 'role_id' => $role->id]);
         Sanctum::actingAs($user);
 

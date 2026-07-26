@@ -32,6 +32,7 @@ class Permissions
     const VIEW_STAFF = 'view_staff';
     const MANAGE_ROLES = 'manage_roles';
     const MANAGE_TENANT = 'manage_tenant';
+    const MANAGE_DOCUMENT_TEMPLATES = 'manage_document_templates';
     const VIEW_SETTINGS = 'view_settings';
     const EXECUTE_MASS_ACTIONS = 'execute_mass_actions';
 
@@ -104,6 +105,7 @@ class Permissions
                 self::VIEW_STAFF => 'Ver Personal',
                 self::MANAGE_ROLES => 'Gestionar Roles',
                 self::MANAGE_TENANT => 'Gestionar Configuración de Empresa',
+                self::MANAGE_DOCUMENT_TEMPLATES => 'Gestionar Plantillas de Documentos (factura, contrato, instalación)',
                 self::VIEW_SETTINGS => 'Ver Ajustes del Sistema',
                 self::EXECUTE_MASS_ACTIONS => 'Ejecutar Acciones Masivas',
             ],

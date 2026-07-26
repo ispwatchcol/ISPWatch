@@ -7,8 +7,8 @@ use Illuminate\Foundation\Http\FormRequest;
 class UpdateDocumentTemplateRequest extends FormRequest
 {
     /**
-     * Authorization is handled by the 'permission:manage_tenant' route
-     * middleware (same gate as TenantController::update/updateConfig).
+     * Authorization is handled by the 'permission:manage_document_templates'
+     * route middleware.
      */
     public function authorize(): bool
     {

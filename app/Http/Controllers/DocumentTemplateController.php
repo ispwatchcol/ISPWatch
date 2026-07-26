@@ -17,8 +17,8 @@ use Illuminate\Http\Request;
 
 /**
  * CRUD for per-tenant document templates (factura, contrato, instalación).
- * Gated by the 'permission:manage_tenant' route middleware — same gate as
- * TenantController::update/updateConfig.
+ * Gated by the 'permission:manage_document_templates' route middleware —
+ * deliberately separate from 'manage_tenant' (see routes/api.php for why).
  */
 class DocumentTemplateController extends Controller
 {
