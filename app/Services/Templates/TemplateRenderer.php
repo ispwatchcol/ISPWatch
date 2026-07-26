@@ -13,10 +13,9 @@ use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 /**
- * Single entry point for generating the 3 document PDFs. Not yet wired into
- * BillingController / CustomerDocumentController / CustomerInstallationController
- * (Fase 2) — those still call Pdf::loadView(...) directly against the legacy
- * blades.
+ * Single entry point for generating the 3 document PDFs. Wired into
+ * BillingController::downloadPdf, CustomerDocumentController::signContract
+ * and CustomerInstallationController::renderSheetPdf (Fase 2).
  *
  * Business rule for which template is used, per tenant + type:
  *   - no row in document_templates                => legacy/base blade.
@@ -133,6 +132,85 @@ class TemplateRenderer
         );
 
         return Pdf::loadView('documents.shells.installation_shell', $legacyData + ['body' => $body]);
+    }
+
+    /**
+     * Renders an UNSAVED draft body against the given invoice — always
+     * through the custom shell, never the legacy view, regardless of
+     * whether the tenant has an active/inactive/no template row. Used by
+     * DocumentTemplateController::preview() so a tenant can see their edits
+     * before saving.
+     */
+    public function previewInvoice(Invoice $invoice, string $draftHtml)
+    {
+        $body = $this->compile($draftHtml, $this->resolver->forInvoice($invoice));
+
+        return Pdf::loadView('documents.shells.invoice_shell', [
+            'invoice' => $invoice,
+            'tenant'  => $invoice->tenant,
+            'body'    => $body,
+        ]);
+    }
+
+    public function previewContract(
+        User $customer,
+        ?CustomerProfile $profile,
+        Tenant $tenant,
+        ?Plan $plan,
+        string $signature,
+        string $date,
+        string $draftHtml
+    ) {
+        $body = $this->compile($draftHtml, $this->resolver->forContract($customer, $profile, $tenant, $plan, $date));
+
+        return Pdf::loadView('documents.shells.contract_shell', [
+            'customer'  => $customer,
+            'profile'   => $profile,
+            'tenant'    => $tenant,
+            'plan'      => $plan,
+            'signature' => $signature,
+            'date'      => $date,
+            'body'      => $body,
+        ]);
+    }
+
+    public function previewInstallationSheet(
+        CustomerInstallation $installation,
+        ?User $customer,
+        ?CustomerProfile $profile,
+        ?Prospect $prospect,
+        Tenant $tenant,
+        ?User $technician,
+        $photos,
+        $sectorial,
+        $router,
+        ?Plan $plan,
+        string $customerSignature,
+        ?string $technicianSignature,
+        string $date,
+        string $draftHtml
+    ) {
+        $body = $this->compile(
+            $draftHtml,
+            $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date)
+        );
+
+        return Pdf::loadView('documents.shells.installation_shell', [
+            'installation'         => $installation,
+            'customer'             => $customer,
+            'profile'              => $profile,
+            'prospect'             => $prospect,
+            'tenant'               => $tenant,
+            'technician'           => $technician,
+            'photos'               => $photos,
+            'sectorial'            => $sectorial,
+            'router'               => $router,
+            'plan'                 => $plan,
+            'customer_signature'   => $customerSignature,
+            'technician_signature' => $technicianSignature,
+            'date'                 => $date,
+            'body'                 => $body,
+        ]);
     }
 
     private function activeTemplate(int $tenantId, string $type): ?DocumentTemplate

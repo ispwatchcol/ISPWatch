@@ -98,7 +98,11 @@
 
     <div class="sign-area">
         <div class="sign-box">
-            <img class="sign-img" src="{{ $signature }}" alt="Firma del cliente">
+            @if(!empty($signature))
+                <img class="sign-img" src="{{ $signature }}" alt="Firma del cliente">
+            @else
+                <div style="height:90px; display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:10px;">(Pendiente de firma)</div>
+            @endif
             <div class="sign-line">
                 <strong>{{ $cName }}</strong><br>
                 C.C. {{ $profile->cedula ?? '—' }}<br>
