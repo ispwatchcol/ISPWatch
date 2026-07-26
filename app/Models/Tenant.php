@@ -36,6 +36,8 @@ class Tenant extends Model
         'status',
         'max_customers',
         'logo',
+        'brand_color',
+        'document_footer_text',
         'email_tenant',
         'tel_tenant',
         'address_tenant',
