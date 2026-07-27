@@ -591,6 +591,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api, { apiClient } from '@/services/api'
+import { compressImage } from '@/utils/image'
 import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 
@@ -953,16 +954,37 @@ const onFilesPicked = (e) => {
 const uploadFiles = async () => {
   if (!pendingFiles.value.length) return
   uploading.value = true
+  // Comprimir en el navegador y subir UNA foto por request: así ninguna carga
+  // supera el límite de tamaño del gateway (varias fotos de celular juntas
+  // devolvían un 413/504 sin cuerpo JSON → "No se pudieron subir las fotos").
+  // Además cada archivo queda muy por debajo del límite de 10 MB por foto.
+  let ok = 0
+  const failed = []
   try {
-    const fd = new FormData()
-    pendingFiles.value.forEach(f => fd.append('files[]', f))
-    await api.customers.uploadInstallationPhotos(installationId.value, fd)
+    for (const original of pendingFiles.value) {
+      try {
+        const file = await compressImage(original)
+        const fd = new FormData()
+        fd.append('files[]', file)
+        await api.customers.uploadInstallationPhotos(installationId.value, fd)
+        ok++
+      } catch (e) {
+        failed.push(original.name)
+        console.error('Fallo al subir foto', original.name, e)
+      }
+    }
+
     pendingFiles.value = []
     if (fileInput.value) fileInput.value.value = ''
-    toast.value?.success('Listo', 'Fotos subidas.')
     await loadInstallation()
-  } catch (e) {
-    toast.value?.error('Error', e.response?.data?.message || 'No se pudieron subir las fotos.')
+
+    if (!failed.length) {
+      toast.value?.success('Listo', `${ok} foto(s) subida(s).`)
+    } else if (ok) {
+      toast.value?.error('Subida parcial', `${ok} subida(s); fallaron: ${failed.join(', ')}. Revisa tu conexión e inténtalo de nuevo.`)
+    } else {
+      toast.value?.error('Error', 'No se pudieron subir las fotos. Revisa tu conexión e inténtalo de nuevo.')
+    }
   } finally {
     uploading.value = false
   }
