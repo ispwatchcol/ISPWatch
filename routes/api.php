@@ -35,6 +35,7 @@ use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
+use App\Http\Controllers\DocumentTemplateController;
 
 /*
 |--------------------------------------------------------------------------
@@ -298,6 +299,31 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:manage_tenant');
     Route::match(['put', 'patch'], '/tenant/config', [TenantController::class, 'updateConfig'])
         ->middleware('permission:manage_tenant');
+    Route::post('/tenant/logo', [TenantController::class, 'uploadLogo'])
+        ->middleware('permission:manage_tenant');
+
+    // ─── DOCUMENT TEMPLATES (factura, contrato, instalación) ───
+    // Deliberately its OWN permission, not manage_tenant: manage_tenant only
+    // guards structured company-identity fields (NIT, razón social,
+    // dirección de facturación...) with tight validation. Document template
+    // bodies are free-form legal/fiscal-facing text — a tenant could grant
+    // manage_tenant to a custom role meant only for "update our phone
+    // number" (this app supports arbitrary custom role/permission
+    // combinations, see RoleController), and that role would otherwise also
+    // be able to rewrite contract clauses or invoice footers. Splitting it
+    // keeps that blast radius separate.
+    //
+    // No ->where() constraint on {type}: an invalid value must still hit the
+    // controller so DocumentTemplateController::assertValidType() can return
+    // a clean JSON 404, instead of the route failing to match and falling
+    // through to the SPA catch-all route.
+    Route::middleware(['permission:manage_document_templates'])->group(function () {
+        Route::get('/document-templates', [DocumentTemplateController::class, 'index']);
+        Route::get('/document-templates/{type}', [DocumentTemplateController::class, 'show']);
+        Route::put('/document-templates/{type}', [DocumentTemplateController::class, 'update']);
+        Route::post('/document-templates/{type}/reset', [DocumentTemplateController::class, 'reset']);
+        Route::post('/document-templates/{type}/preview', [DocumentTemplateController::class, 'preview']);
+    });
 
     // ─── SETTINGS ───
     Route::middleware(['permission:view_settings'])->group(function () {

@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateTenantRequest;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class TenantController extends Controller
 {
@@ -194,5 +195,48 @@ class TenantController extends Controller
                 'message' => 'Error al actualizar la configuración: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Upload/replace the current tenant's logo. Used by the document
+     * templates branding tab to wire up Tenant::$logo, which existed in the
+     * schema but had no upload path before.
+     */
+    public function uploadLogo(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user || !$user->tenant_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Usuario no autenticado o no pertenece a ningún tenant'
+            ], 401);
+        }
+
+        $request->validate([
+            'logo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp,svg', 'max:2048'],
+        ]);
+
+        $tenant = Tenant::find($user->tenant_id);
+
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant no encontrado'
+            ], 404);
+        }
+
+        if ($tenant->logo) {
+            Storage::disk('public')->delete($tenant->logo);
+        }
+
+        $path = $request->file('logo')->store("tenant_logos/{$tenant->id}", 'public');
+        $tenant->update(['logo' => $path]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Logo actualizado correctamente',
+            'data'    => ['logo' => $path, 'logo_url' => asset('storage/' . $path)],
+        ]);
     }
 }

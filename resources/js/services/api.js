@@ -80,6 +80,7 @@ export { default as tenantApi } from './api/tenant'
 export { default as rolesApi } from './api/roles'
 export { default as helpCenterApi } from './api/help-center'
 export { default as catalogsApi } from './api/catalogs'
+export { default as documentTemplatesApi } from './api/document-templates'
 
 // =========================
 // LEGACY DEFAULT EXPORT (backward-compatible)
@@ -97,6 +98,7 @@ import tenantApi from './api/tenant'
 import rolesApi from './api/roles'
 import helpCenterApi from './api/help-center'
 import catalogsApi from './api/catalogs'
+import documentTemplatesApi from './api/document-templates'
 
 export default {
   auth: authApi,
@@ -113,4 +115,5 @@ export default {
   roles: rolesApi,
   helpCenter: helpCenterApi,
   catalogs: catalogsApi,
+  documentTemplates: documentTemplatesApi,
 }

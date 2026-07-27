@@ -24,7 +24,11 @@ class UpdateTenantRequest extends FormRequest
     {
         return [
             // ── General ────────────────────────────────────────────────────────
-            'name' => ['required', 'string', 'max:255'],
+            // 'sometimes' so partial updates (e.g. the branding-only payload
+            // from the document templates tab, which only sends brand_color /
+            // document_footer_text) don't fail just for omitting name — but
+            // if it IS sent, it still can't be blank.
+            'name' => ['sometimes', 'required', 'string', 'max:255'],
             'domain' => ['sometimes', 'nullable', 'string', 'max:255'],
             'status' => ['sometimes', 'nullable', 'string', 'max:50'],
             'max_customers' => ['sometimes', 'nullable', 'integer', 'min:0'],
@@ -60,6 +64,10 @@ class UpdateTenantRequest extends FormRequest
 
             // ── Integrations ────────────────────────────────────────────────────
             'google_maps_api_key' => ['sometimes', 'nullable', 'string', 'max:255'],
+
+            // ── Document branding (facturas, contratos, hojas de instalación) ────
+            'brand_color' => ['sometimes', 'nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'document_footer_text' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ];
     }
 
@@ -89,6 +97,8 @@ class UpdateTenantRequest extends FormRequest
             'department' => 'departamento',
             'country' => 'país',
             'google_maps_api_key' => 'clave de API de Google Maps',
+            'brand_color' => 'color de marca',
+            'document_footer_text' => 'texto de pie de página',
         ];
     }
 
@@ -102,6 +112,7 @@ class UpdateTenantRequest extends FormRequest
         return [
             'nit.regex' => 'El NIT debe contener solo dígitos con guion opcional (ej: 900123456 o 900123456-7).',
             'country.size' => 'El código de país debe tener exactamente 2 caracteres (ISO 3166-1 alpha-2).',
+            'brand_color.regex' => 'El color de marca debe ser un hex válido (ej: #1e5fa8).',
         ];
     }
 }

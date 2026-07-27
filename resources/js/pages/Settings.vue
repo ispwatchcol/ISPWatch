@@ -1025,6 +1025,11 @@
                     <CustomersUpdateSection />
                     <InventoryImportSection />
                 </div>
+
+                <!-- Document Templates -->
+                <div v-if="activeTab === 'templates'" class="space-y-6">
+                    <DocumentTemplatesSection />
+                </div>
             </div>
     </div>
 </template>
@@ -1036,6 +1041,7 @@ import NotificationToast from "@/components/NotificationToast.vue";
 import ImportSection from "@/components/import/ImportSection.vue";
 import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.vue";
 import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
+import DocumentTemplatesSection from "@/components/settings/DocumentTemplatesSection.vue";
 import { apiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 
@@ -1053,13 +1059,16 @@ const hasGoogleMapsKey = ref(false);  // indica si ya hay una clave configurada 
 const toast = ref(null);
 const errors = ref({});
 
-const tabs = [
+const tabs = computed(() => [
     { id: "general", label: "General", icon: "ri-settings-4-line" },
     { id: "appearance", label: "Apariencia", icon: "md-palette" },
     { id: "notifications", label: "Notificaciones", icon: "md-notifications" },
+    ...(authStore.hasPermission("manage_document_templates")
+        ? [{ id: "templates", label: "Plantillas de Documentos", icon: "md-description" }]
+        : []),
     { id: "import", label: "Importar Datos", icon: "md-cloudupload" },
     { id: "system", label: "Sistema", icon: "md-computer" },
-];
+]);
 
 const settings = ref({
     // General (from tenant)

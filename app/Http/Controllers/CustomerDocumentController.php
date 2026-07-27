@@ -7,12 +7,19 @@ use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Tenant;
 use App\Models\User;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\Templates\TemplateRenderer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class CustomerDocumentController extends Controller
 {
+    protected TemplateRenderer $templateRenderer;
+
+    public function __construct(TemplateRenderer $templateRenderer)
+    {
+        $this->templateRenderer = $templateRenderer;
+    }
+
     /**
      * Resolve a customer (users.id) and assert it belongs to the
      * authenticated user's tenant. Prevents cross-tenant access.
@@ -153,15 +160,9 @@ class CustomerDocumentController extends Controller
         $profile = CustomerProfile::where('user_id', $customer->id)->first();
         $tenant  = Tenant::find($customer->tenant_id);
         $plan    = $profile?->service_id ? Plan::find($profile->service_id) : null;
+        $date    = now()->format('d/m/Y');
 
-        $pdf = Pdf::loadView('documents.contract_pdf', [
-            'customer'  => $customer,
-            'profile'   => $profile,
-            'tenant'    => $tenant,
-            'plan'      => $plan,
-            'signature' => $data['signature'],
-            'date'      => now()->format('d/m/Y'),
-        ]);
+        $pdf = $this->templateRenderer->renderContract($customer, $profile, $tenant, $plan, $data['signature'], $date);
 
         $fileName = 'contrato_firmado_' . now()->format('Ymd_His') . '.pdf';
         $path = "customer_documents/{$customer->id}/{$fileName}";
