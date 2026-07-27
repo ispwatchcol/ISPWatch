@@ -33,7 +33,14 @@ return [
 
         'sqlite' => [
             'driver' => 'sqlite',
-            'url' => env('DB_URL'),
+            // SECURITY: no 'url' key here on purpose. Illuminate\Support\ConfigurationUrlParser
+            // merges DB_URL's driver/host/database/credentials into WHATEVER connection
+            // resolves it, overriding this array's own settings regardless of name — so
+            // with 'url' => env('DB_URL') present, selecting the 'sqlite' connection could
+            // silently reconnect to the real Postgres instance defined by DB_URL in .env
+            // whenever a script boots the app without APP_ENV=testing (.env.testing has no
+            // DB_URL). sqlite has no legitimate use for a URL override in this project, so
+            // the key is omitted entirely to make that redirection structurally impossible.
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),

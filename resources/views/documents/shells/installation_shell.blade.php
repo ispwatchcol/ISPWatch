@@ -1,3 +1,14 @@
+{{--
+    Shell fijo para la hoja de instalación cuando el tenant tiene una
+    plantilla activa en document_templates. $body ya llega resuelto
+    (placeholders sustituidos) y saneado
+    (App\Services\Templates\TemplateSanitizer) — se imprime tal cual, nunca
+    se vuelve a interpretar como Blade/PHP.
+
+    Las secciones de datos del cliente/orden/red/hoja técnica/fotos son
+    estructurales y no son editables en V1; $body se agrega como bloque
+    adicional (observaciones/legales propios del tenant) antes de las firmas.
+--}}
 <!DOCTYPE html>
 <html lang="es">
 
@@ -7,10 +18,11 @@
     <style>
         * { font-family: DejaVu Sans, sans-serif; }
         body { color: #1f2937; font-size: 12px; line-height: 1.5; }
-        .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 16px; }
-        .header h1 { margin: 0; font-size: 18px; color: #2563eb; }
+        .header { text-align: center; border-bottom: 2px solid {{ $tenant->brand_color ?: '#2563eb' }}; padding-bottom: 10px; margin-bottom: 16px; }
+        .header h1 { margin: 0; font-size: 18px; color: {{ $tenant->brand_color ?: '#2563eb' }}; }
         .header p { margin: 4px 0 0; font-size: 11px; color: #6b7280; }
-        h2 { font-size: 13px; color: #2563eb; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin: 14px 0 6px; }
+        .logo { max-height: 36px; margin-bottom: 6px; }
+        h2 { font-size: 13px; color: {{ $tenant->brand_color ?: '#2563eb' }}; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin: 14px 0 6px; }
         table.info { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
         table.info td { padding: 3px 6px; vertical-align: top; }
         table.info td.label { width: 30%; color: #6b7280; font-weight: bold; }
@@ -18,6 +30,8 @@
         .photo { display: inline-block; width: 47%; vertical-align: top; margin: 0 1% 8px 0; text-align: center; }
         .photo img { max-width: 100%; max-height: 160px; border: 1px solid #e5e7eb; }
         .photo .cap { font-size: 9px; color: #6b7280; margin-top: 2px; word-break: break-all; }
+        .custom-block { margin: 10px 0; font-size: 11px; line-height: 1.5; }
+        .custom-block p { margin-bottom: 5px; }
         .sign-area { margin-top: 24px; width: 100%; }
         .sign-box { width: 45%; display: inline-block; text-align: center; vertical-align: top; }
         .sign-img { max-height: 80px; max-width: 220px; }
@@ -32,14 +46,14 @@
         $companyName = $tenant?->legal_name ?: ($tenant?->trade_name ?: $tenant?->name ?? 'Proveedor de Internet');
         $prospect = $prospect ?? null;
         $cName = $customer
-            ? trim(($profile?->name ?? $customer?->user_name) . ' ' . ($profile?->last_name ?? $customer?->user_lastname))
+            ? ($customer->name ?? $customer->user_name)
             : trim(($prospect?->name ?? '') . ' ' . ($prospect?->last_name ?? ''));
         $cCedula  = $profile?->cedula ?? $prospect?->cedula;
         $cEmail   = $customer?->email ?? $prospect?->email;
         $cTel     = $customer?->tel ?? $prospect?->tel;
         $cAddress = $installation->address ?? $profile?->address ?? $prospect?->address;
         $techName = $technician
-            ? trim(($technician->user_name ?? '') . ' ' . ($technician->user_lastname ?? '')) ?: $technician->name
+            ? ($technician->name ?? $technician->user_name ?? '') ?: $technician->name
             : ($installation->technician ?? '—');
         $sheet = $installation->sheet ?? [];
         $clientLabel = $customer ? 'Cliente' : 'Prospecto';
@@ -49,9 +63,13 @@
         $hasNetwork = $sectorial || $router || $plan
             || !empty($sheet['client_ip']) || !empty($sheet['pppoe_username'])
             || !empty($sheet['pppoe_local_address']) || !empty($sheet['vlan']);
+        $logoPath = $tenant->logo ? public_path('storage/' . $tenant->logo) : null;
     @endphp
 
     <div class="header">
+        @if($logoPath && file_exists($logoPath))
+            <img class="logo" src="{{ $logoPath }}" alt="Logo">
+        @endif
         <h1>HOJA DE INSTALACIÓN</h1>
         <p>{{ $companyName }} @if($tenant?->nit) — NIT {{ $tenant->nit }}@endif</p>
         <p>Orden #{{ $installation->id }} · {{ $date }}</p>
@@ -151,6 +169,13 @@
         </div>
     @endif
 
+    @if(trim($body) !== '')
+        <h2>Observaciones del Proveedor</h2>
+        <div class="custom-block">
+            {!! $body !!}
+        </div>
+    @endif
+
     <div class="sign-area">
         <div class="sign-box">
             @if(!empty($customer_signature))
@@ -168,6 +193,9 @@
 
     <div class="footer">
         Documento generado el {{ $date }} por {{ $companyName }}.
+        @if($tenant->document_footer_text)
+            <br>{{ $tenant->document_footer_text }}
+        @endif
     </div>
 </body>
 

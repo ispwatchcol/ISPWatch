@@ -46,7 +46,19 @@
       "Bash(grep -n 'customerProfile\\\\|class User\\\\|protected $with\\\\|customer_profile' app/Models/User.php)",
       "Bash(php artisan *)",
       "Bash(php artisan tinker '--execute= *)",
-      "Bash(git rev-list *)"
+      "Bash(git rev-list *)",
+      "Bash(xargs grep -liE \"invoice|factura\")",
+      "Bash(xargs grep -liE \"contract|contrato\")",
+      "Bash(xargs grep -liE \"installation.*sheet|hoja.*instalacion|hoja_instalacion|installsheet\")",
+      "Bash(xargs grep -liE \"Pdf::loadView|dompdf|Browsershot|snappy\")",
+      "Bash(xargs grep -liE \"quill|editor|template\")",
+      "Bash(xargs cat)",
+      "Bash(composer --version)",
+      "Bash(php -v)",
+      "Bash(composer require *)",
+      "Bash(php -r \"require 'vendor/autoload.php'; var_dump\\(class_exists\\('HTMLPurifier'\\)\\);\")",
+      "Bash(printenv)",
+      "PowerShell([System.Environment]::GetEnvironmentVariable\\('DB_URL','User'\\); [System.Environment]::GetEnvironmentVariable\\('DB_URL','Machine'\\); $env:DB_URL)"
     ]
   }
 }

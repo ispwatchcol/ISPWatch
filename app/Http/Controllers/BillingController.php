@@ -9,17 +9,19 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Services\OverdueSuspensionService;
+use App\Services\Templates\TemplateRenderer;
 use Illuminate\Http\Request;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 
 class BillingController extends Controller
 {
     protected $billingService;
+    protected TemplateRenderer $templateRenderer;
 
-    public function __construct(BillingService $billingService)
+    public function __construct(BillingService $billingService, TemplateRenderer $templateRenderer)
     {
         $this->billingService = $billingService;
+        $this->templateRenderer = $templateRenderer;
     }
 
     // List Invoices
@@ -275,7 +277,7 @@ class BillingController extends Controller
     {
         $invoice = Invoice::with(['customer.customerProfile', 'items', 'tenant', 'ticket'])->findOrFail($id);
 
-        $pdf = Pdf::loadView('billing.invoice_pdf', compact('invoice'));
+        $pdf = $this->templateRenderer->renderInvoice($invoice);
         return $pdf->download('Invoice-' . $invoice->number . '.pdf');
     }
 
