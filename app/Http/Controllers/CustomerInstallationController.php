@@ -493,7 +493,7 @@ class CustomerInstallationController extends Controller
 
         foreach (['customer_signature_path', 'technician_signature_path'] as $col) {
             if ($installation->{$col}) {
-                Storage::disk('public')->delete($installation->{$col});
+                Storage::disk('s3')->delete($installation->{$col});
             }
         }
         $installation->delete();
@@ -568,7 +568,7 @@ class CustomerInstallationController extends Controller
         $created = [];
         foreach ($request->file('files') as $file) {
             $fileName = time() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $file->getClientOriginalName());
-            $path = $file->storeAs($folder, $fileName, 'public');
+            $path = $file->storeAs($folder, $fileName, 's3');
 
             $created[] = CustomerDocument::create([
                 'tenant_id'       => $installation->tenant_id,
@@ -637,7 +637,7 @@ class CustomerInstallationController extends Controller
         $bytes = base64_decode($clean);
         $folder = $this->storageFolder($installation);
         $path = "{$folder}/installations/{$installation->id}/firma_{$who}_" . time() . ".png";
-        Storage::disk('public')->put($path, $bytes);
+        Storage::disk('s3')->put($path, $bytes);
         return $path;
     }
 
@@ -680,7 +680,7 @@ class CustomerInstallationController extends Controller
         $fileName = 'hoja_instalacion_' . $installation->id . '_' . now()->format('Ymd_His') . '.pdf';
         $path = "{$folder}/{$fileName}";
 
-        Storage::disk('public')->put($path, $pdf->output());
+        Storage::disk('s3')->put($path, $pdf->output());
 
         return CustomerDocument::create([
             'tenant_id'       => $installation->tenant_id,
@@ -689,7 +689,7 @@ class CustomerInstallationController extends Controller
             'type'            => 'instalacion',
             'file_name'       => $fileName,
             'file_path'       => $path,
-            'file_size'       => Storage::disk('public')->size($path),
+            'file_size'       => Storage::disk('s3')->size($path),
             'mime_type'       => 'application/pdf',
             'signed'          => true,
             'uploaded_by'     => auth()->id(),

@@ -66,7 +66,7 @@ class CustomerDocumentController extends Controller
             $path = $file->storeAs(
                 "customer_documents/{$customer->id}",
                 $fileName,
-                'public'
+                's3'
             );
 
             $created[] = CustomerDocument::create([
@@ -98,7 +98,7 @@ class CustomerDocumentController extends Controller
 
         $document = CustomerDocument::where('tenant_id', $tenantId)->findOrFail($documentId);
 
-        Storage::disk('public')->delete($document->file_path);
+        Storage::disk('s3')->delete($document->file_path);
         $document->delete();
 
         return response()->json(['message' => 'Documento eliminado correctamente.']);
@@ -167,7 +167,7 @@ class CustomerDocumentController extends Controller
         $fileName = 'contrato_firmado_' . now()->format('Ymd_His') . '.pdf';
         $path = "customer_documents/{$customer->id}/{$fileName}";
 
-        Storage::disk('public')->put($path, $pdf->output());
+        Storage::disk('s3')->put($path, $pdf->output());
 
         $document = CustomerDocument::create([
             'tenant_id'   => $customer->tenant_id,
@@ -175,7 +175,7 @@ class CustomerDocumentController extends Controller
             'type'        => 'contrato',
             'file_name'   => $fileName,
             'file_path'   => $path,
-            'file_size'   => Storage::disk('public')->size($path),
+            'file_size'   => Storage::disk('s3')->size($path),
             'mime_type'   => 'application/pdf',
             'signed'      => true,
             'uploaded_by' => $request->user()?->id,
