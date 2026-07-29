@@ -55,7 +55,10 @@ return [
             'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
-            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            // Supabase Storage (and most non-AWS S3-compatible providers) only
+            // support path-style addressing — there's no DNS/cert for
+            // arbitrary-bucket virtual-hosted subdomains.
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', true),
             'throw' => false,
             'report' => false,
         ],
