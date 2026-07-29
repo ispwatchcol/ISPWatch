@@ -254,6 +254,29 @@
           </p>
         </div>
 
+        <!-- Primera factura (altas a mitad de mes) -->
+        <div class="col-span-1 sm:col-span-2">
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
+            Primera factura — clientes que entran a mitad de mes
+          </label>
+          <select
+            v-model="billing.first_invoice_policy"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                  border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                  focus:ring focus:ring-blue-500 transition-colors"
+          >
+            <option value="none">No cobrar el mes en curso — su primera factura sale el próximo ciclo</option>
+            <option value="prorated">Cobrar proporcional a los días restantes del mes</option>
+            <option value="full">Cobrar el mes completo</option>
+          </select>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Se aplica sólo a clientes cuyo servicio empieza después de que el mes ya se facturó
+            (ej. instalado el día 20 con día de facturación 1). Proporcional: si el mes tiene 30 días
+            y se instaló el 20, se cobran 10 días. Cada cliente puede sobreescribir esta política
+            desde su ficha.
+          </p>
+        </div>
+
         <!-- Comentarios -->
         <div class="col-span-1 sm:col-span-2 mt-0">
           <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">

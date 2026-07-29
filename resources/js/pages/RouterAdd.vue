@@ -725,6 +725,7 @@ const form = reactive({
     pay_day: null,
     notification_type: 'email',
     billing_mode: 'anticipado',
+    first_invoice_policy: 'none',
   }
 })
 
@@ -897,6 +898,7 @@ const buildBillingPayload = () => {
     notificar_wpp: form.billing.notificar_wpp || false,
     notification_type: form.billing.notification_type || 'email',
     billing_mode: form.billing.billing_mode || 'anticipado',
+    first_invoice_policy: form.billing.first_invoice_policy || 'none',
     comments: form.billing.comentarios || null,
   }
 }

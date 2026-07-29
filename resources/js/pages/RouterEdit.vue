@@ -713,6 +713,7 @@ const form = reactive({
     payment_reminder_enabled: true,
     notification_type: 'email',
     billing_mode: 'anticipado',
+    first_invoice_policy: 'none',
   }
 })
 
@@ -839,6 +840,7 @@ const loadRouterData = async () => {
         form.billing.payment_reminder_enabled = data.billing.payment_reminder_enabled === false ? false : true
         form.billing.notification_type = data.billing.notification_type || 'email'
         form.billing.billing_mode = data.billing.billing_mode || 'anticipado'
+        form.billing.first_invoice_policy = data.billing.first_invoice_policy || 'none'
     }
 
   } catch (e) {
@@ -890,6 +892,7 @@ const buildBillingPayload = () => {
     notificar_wpp: form.billing.notificar_wpp || false,
     notification_type: form.billing.notification_type || 'email',
     billing_mode: form.billing.billing_mode || 'anticipado',
+    first_invoice_policy: form.billing.first_invoice_policy || 'none',
     comments: form.billing.comentarios || null,
   }
 }

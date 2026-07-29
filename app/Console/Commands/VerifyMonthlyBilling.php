@@ -40,7 +40,7 @@ class VerifyMonthlyBilling extends Command
         }
 
         $this->table(
-            ['Router', 'Tenant', 'Periodo', 'Día', 'Toca hoy', 'Esperadas', 'Generadas', 'Logs fallidos', 'Estado'],
+            ['Router', 'Tenant', 'Periodo', 'Día', 'Toca hoy', 'Esperadas', 'Generadas', 'Logs fallidos', 'Nuevos s/cobro', 'Borradas', 'Estado'],
             collect($rows)->map(fn ($r) => [
                 "#{$r['router_id']} {$r['router_name']}",
                 $r['tenant_id'],
@@ -50,9 +50,19 @@ class VerifyMonthlyBilling extends Command
                 $r['expected'],
                 $r['actual'],
                 $r['failed_logs'],
+                $r['skipped_new'] ?? 0,
+                $r['suppressed'] ?? 0,
                 strtoupper($r['status']),
             ])->all()
         );
+
+        // Las dos columnas informativas explican por qué se facturó a menos
+        // clientes de los que tiene el router; no son un fallo.
+        $skippedTotal = collect($rows)->sum(fn ($r) => $r['skipped_new'] ?? 0);
+        if ($skippedTotal > 0) {
+            $this->line("ℹ {$skippedTotal} cliente(s) nuevo(s) de este mes quedaron sin cobro por la política de "
+                . 'primera factura del router/cliente. Se facturarán en el próximo ciclo.');
+        }
 
         $problems = collect($rows)->whereIn('status', ['no_show', 'partial'])->values();
 

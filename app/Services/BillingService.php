@@ -189,6 +189,7 @@ class BillingService
             $customerProfiles = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
                 ->where('exclude_from_billing', false)
+                ->with('user:id,created_at')
                 ->get();
 
             Log::info("Billing: Router {$router->id} ({$router->name}) — {$customerProfiles->count()} active customer(s) to check.");
@@ -221,20 +222,32 @@ class BillingService
 
                 $tenantId = $router->tenant_id;
 
-                // Idempotency check: skip if invoice already exists for this period
-                $exists = Invoice::where('tenant_id', $tenantId)
-                    ->where('customer_id', $customerId)
-                    ->where('period_start', $periodStart)
-                    ->where('period_end', $periodEnd)
-                    ->exists();
-
-                if ($exists) {
+                // Idempotency check: skip if a monthly invoice already covers
+                // this month (an exact period_start match is not enough — a
+                // prorated first invoice starts on the installation day).
+                if ($this->monthlyInvoiceExists($tenantId, $customerId, $periodStart, $periodEnd)) {
                     continue;
                 }
 
-                $subtotal = $servicePlan->cost_product ?? 0;
-                $tax      = 0;
-                $total    = $subtotal + $tax;
+                // El administrador borró la factura de este periodo a propósito:
+                // NO se vuelve a crear. Sólo aplica a ese mes.
+                if ($this->isRegenerationSuppressed($tenantId, $customerId, $periodStart)) {
+                    Log::info("Billing: Customer {$customerId} — factura de {$periodStart->format('Y-m')} eliminada por un administrador. No se regenera.");
+                    continue;
+                }
+
+                // "Primera factura": un cliente cuyo servicio arrancó DENTRO de
+                // este periodo (instalación a mitad de mes) no se factura como
+                // uno antiguo. Devuelve null cuando no hay nada que cobrar.
+                $charge = $this->resolveFirstInvoiceCharge(
+                    $profile, $userService, $billingConfig, $servicePlan, $periodStart, $periodEnd
+                );
+
+                if ($charge === null) {
+                    Log::info("Billing: Customer {$customerId} — servicio iniciado dentro de {$periodStart->format('Y-m')}; "
+                        . 'la política de primera factura indica no cobrar este periodo.');
+                    continue;
+                }
 
                 try {
                     $invoice = $this->createMonthlyInvoiceFor(
@@ -245,9 +258,11 @@ class BillingService
                         servicePlan: $servicePlan,
                         issueDate:   $issueDate,
                         dueDate:     $dueDate,
-                        periodStart: $periodStart,
+                        periodStart: $charge['period_start'],
                         periodEnd:   $periodEnd,
                         billingConfig: $billingConfig,
+                        amount:      $charge['amount'],
+                        itemDescription: $charge['description'],
                     );
                     $created++;
                     $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $invoice->id);
@@ -336,24 +351,61 @@ class BillingService
             // (non-courtesy) service — the same set generation would invoice.
             // Excluded ("no facturar") customers are not expected to be invoiced,
             // so they must not count toward the no-show/partial audit either.
-            $custIds = CustomerProfile::where('router_id', $router->id)
+            // Tampoco cuentan los que la política de primera factura deja fuera
+            // (alta a mitad de mes) ni aquellos cuya factura borró el operador:
+            // si contaran, verify-monthly gritaría "partial" por facturas que
+            // NUNCA debieron existir.
+            $profiles = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
                 ->where('exclude_from_billing', false)
-                ->pluck('user_id');
+                ->with('user:id,created_at')
+                ->get();
 
-            $expected = $custIds->isEmpty() ? 0 : UserService::whereIn('user_id', $custIds->all())
-                ->where('status', UserService::STATUS_ACTIVE)
-                ->whereHas('servicePlan', function ($q) {
-                    $q->where('is_courtesy', false)->orWhereNull('is_courtesy');
-                })
-                ->distinct('user_id')
-                ->count('user_id');
+            $custIds = $profiles->pluck('user_id');
+
+            $services = $custIds->isEmpty()
+                ? collect()
+                : UserService::whereIn('user_id', $custIds->all())
+                    ->where('status', UserService::STATUS_ACTIVE)
+                    ->with('servicePlan')
+                    ->get()
+                    ->keyBy('user_id');
+
+            $expected   = 0;
+            $skippedNew = 0;   // altas a mitad de mes que la política deja sin cobro
+            $suppressed = 0;   // facturas que el operador borró a propósito
+
+            foreach ($profiles as $profile) {
+                $userService = $services->get($profile->user_id);
+                $plan        = $userService?->servicePlan;
+
+                if (!$userService || !$plan || $plan->is_courtesy) {
+                    continue;
+                }
+
+                if ($this->isRegenerationSuppressed($router->tenant_id, (int) $profile->user_id, $periodStart)) {
+                    $suppressed++;
+                    continue;
+                }
+
+                $charge = $this->resolveFirstInvoiceCharge(
+                    $profile, $userService, $billingConfig, $plan, $periodStart, $periodEnd
+                );
+
+                if ($charge === null) {
+                    $skippedNew++;
+                    continue;
+                }
+
+                $expected++;
+            }
 
             // Actual: monthly invoices for the resolved period, scoped to this
             // router's customers (so multi-router tenants compare apples to apples).
-            $actual = $custIds->isEmpty() ? 0 : Invoice::where('tenant_id', $router->tenant_id)
-                ->where('period_start', $periodStart)
-                ->where('period_end', $periodEnd)
+            // Se cuenta por MES, no por period_start exacto: una primera factura
+            // prorrateada arranca el día de la instalación.
+            $actual = $custIds->isEmpty() ? 0 : $this->monthlyInvoicesOfPeriod($periodStart, $periodEnd)
+                ->where('tenant_id', $router->tenant_id)
                 ->whereIn('customer_id', $custIds->all())
                 ->count();
 
@@ -382,6 +434,10 @@ class BillingService
                 'expected'    => $expected,
                 'actual'      => $actual,
                 'failed_logs' => $failedLogs,
+                // Informativos: NO son un problema, pero explican por qué se
+                // facturó a menos clientes de los que hay en el router.
+                'skipped_new' => $skippedNew,
+                'suppressed'  => $suppressed,
                 'status'      => $status,
             ];
         }
@@ -390,8 +446,170 @@ class BillingService
     }
 
     /**
+     * Is there already a monthly invoice covering $periodStart's month for this
+     * customer? Matches on the MONTH rather than an exact period_start because a
+     * prorated first invoice legitimately starts mid-month (installation day).
+     * Non-monthly invoices (instalación, cargos, tickets) never count.
+     */
+    protected function monthlyInvoiceExists(int $tenantId, int $customerId, Carbon $periodStart, Carbon $periodEnd): bool
+    {
+        return $this->monthlyInvoicesOfPeriod($periodStart, $periodEnd)
+            ->where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->exists();
+    }
+
+    /**
+     * Base query for the monthly invoices covering [$periodStart, $periodEnd].
+     *
+     * whereDate en ambos extremos (y no whereBetween): el cast 'date' guarda
+     * "Y-m-d H:i:s", que en SQLite se compara como texto y dejaría fuera una
+     * factura cuyo period_start caiga justo en el último día del rango.
+     */
+    protected function monthlyInvoicesOfPeriod(Carbon $periodStart, Carbon $periodEnd)
+    {
+        return Invoice::query()
+            ->where(fn ($q) => $q->where('invoice_type', Invoice::TYPE_MONTHLY)->orWhereNull('invoice_type'))
+            ->whereDate('period_start', '>=', $periodStart->toDateString())
+            ->whereDate('period_start', '<=', $periodEnd->toDateString());
+    }
+
+    /**
+     * True when the operator deleted this customer's invoice for this period.
+     * deleteInvoice() leaves the tombstone; generation must respect it forever.
+     */
+    protected function isRegenerationSuppressed(int $tenantId, int $customerId, Carbon $periodStart): bool
+    {
+        return $this->monthlyActionLogQuery($tenantId, $customerId, $periodStart)
+            ->where('status', BillingActionLog::STATUS_SUPPRESSED)
+            ->exists();
+    }
+
+    /**
+     * Query for THE action-log row of a (tenant, customer, month) pair.
+     *
+     * whereDate y no una igualdad simple: el cast 'date' del modelo guarda
+     * "2026-06-01 00:00:00", que en PostgreSQL la columna `date` normaliza pero
+     * en SQLite (los tests) queda tal cual y una comparación con "2026-06-01"
+     * no encontraría nada.
+     */
+    protected function monthlyActionLogQuery(int $tenantId, int $customerId, Carbon $periodStart)
+    {
+        return BillingActionLog::where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->whereDate('period_start', $periodStart->copy()->startOfMonth()->toDateString())
+            ->where('action', BillingActionLog::ACTION_GENERATE_MONTHLY);
+    }
+
+    /**
+     * Fecha en que el cliente realmente empezó a tener servicio.
+     *
+     * Toma la MÁS ANTIGUA de las señales disponibles (fecha de instalación,
+     * inicio del servicio, alta del usuario). El mínimo es deliberado: si una
+     * de ellas es reciente por un motivo operativo — por ejemplo una carga
+     * masiva que reescribió user_services — un cliente antiguo seguirá
+     * facturándose como siempre en vez de quedar silenciosamente sin factura.
+     */
+    protected function resolveServiceStart(CustomerProfile $profile, ?UserService $userService): ?Carbon
+    {
+        $candidates = [];
+
+        if ($profile->installation_date) {
+            $candidates[] = Carbon::parse($profile->installation_date)->startOfDay();
+        }
+        if ($userService?->start_date) {
+            $candidates[] = Carbon::parse($userService->start_date)->startOfDay();
+        }
+        if ($profile->user?->created_at) {
+            $candidates[] = Carbon::parse($profile->user->created_at)->startOfDay();
+        }
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        return collect($candidates)->sortBy(fn (Carbon $d) => $d->timestamp)->first();
+    }
+
+    /**
+     * Qué cobrarle a este cliente por el periodo en curso.
+     *
+     * Cliente normal (su servicio ya existía cuando empezó el periodo) → mes
+     * completo, exactamente como antes. Cliente que se instaló DENTRO del
+     * periodo → manda la política de "primera factura": el modo del cliente
+     * (customer_profile.first_invoice_mode) y, si no tiene, el del router
+     * (billing.first_invoice_policy):
+     *
+     *   none     → null (no se factura; su primera factura sale el próximo ciclo)
+     *   prorated → sólo los días restantes del mes
+     *   full     → mes completo
+     *
+     * El prorrateo usa la aritmética del operador: instalado el día 20 de un mes
+     * de 30 ⇒ 10 días (30 − 20), es decir el día de instalación no se cobra.
+     *
+     * @return array{period_start: Carbon, amount: float, description: string}|null
+     */
+    protected function resolveFirstInvoiceCharge(
+        CustomerProfile $profile,
+        ?UserService $userService,
+        Billing $billingConfig,
+        \App\Models\Plan $servicePlan,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+    ): ?array {
+        $fullAmount = (float) ($servicePlan->cost_product ?? 0);
+
+        $fullMonth = [
+            'period_start' => $periodStart->copy(),
+            'amount'       => $fullAmount,
+            'description'  => "Servicio mensual: {$servicePlan->name}",
+        ];
+
+        $serviceStart = $this->resolveServiceStart($profile, $userService);
+
+        // Cliente ya activo antes de que empezara el periodo → mes completo.
+        if (!$serviceStart || $serviceStart->lte($periodStart)) {
+            return $fullMonth;
+        }
+
+        // El servicio empieza después del periodo facturado (típico en cobro
+        // vencido): todavía no hay nada consumido que cobrar.
+        if ($serviceStart->gt($periodEnd)) {
+            return null;
+        }
+
+        $mode = $profile->first_invoice_mode
+            ?: ($billingConfig->first_invoice_policy ?: Billing::FIRST_INVOICE_NONE);
+
+        if ($mode === Billing::FIRST_INVOICE_FULL) {
+            return $fullMonth;
+        }
+
+        if ($mode !== Billing::FIRST_INVOICE_PRORATED) {
+            return null; // 'none' (por defecto) o un valor desconocido
+        }
+
+        $daysInMonth  = $periodStart->daysInMonth;
+        $billableDays = $daysInMonth - $serviceStart->day;
+
+        if ($billableDays <= 0 || $fullAmount <= 0) {
+            return null; // instalado el último día del mes / plan sin costo
+        }
+
+        return [
+            'period_start' => $serviceStart->copy(),
+            'amount'       => round($fullAmount * $billableDays / $daysInMonth, 2),
+            'description'  => "Servicio proporcional: {$servicePlan->name} "
+                . "({$billableDays} de {$daysInMonth} días — desde el {$serviceStart->format('d/m/Y')})",
+        ];
+    }
+
+    /**
      * Shared invoice-creation block used by the monthly run AND by failover retries.
      * Throws on failure so the caller can log it.
+     *
+     * $amount / $itemDescription permiten cobrar algo distinto al plan completo
+     * (prorrateo de primera factura). Por defecto: el costo del plan.
      */
     protected function createMonthlyInvoiceFor(
         int $tenantId,
@@ -404,10 +622,13 @@ class BillingService
         Carbon $periodStart,
         Carbon $periodEnd,
         Billing $billingConfig,
+        ?float $amount = null,
+        ?string $itemDescription = null,
     ): Invoice {
-        $subtotal = $servicePlan->cost_product ?? 0;
-        $tax      = 0;
-        $total    = $subtotal + $tax;
+        $subtotal    = $amount ?? (float) ($servicePlan->cost_product ?? 0);
+        $tax         = 0;
+        $total       = $subtotal + $tax;
+        $description = $itemDescription ?: "Servicio mensual: {$servicePlan->name}";
 
         $invoiceNumber = $this->generateInvoiceNumber($tenantId);
 
@@ -415,6 +636,7 @@ class BillingService
             'tenant_id'    => $tenantId,
             'customer_id'  => $customerId,
             'service_id'   => $servicePlan->id,
+            'invoice_type' => Invoice::TYPE_MONTHLY,
             'number'       => $invoiceNumber,
             'issue_date'   => $issueDate,
             'due_date'     => $dueDate,
@@ -431,7 +653,7 @@ class BillingService
         InvoiceItem::create([
             'invoice_id' => $invoice->id,
             'type'       => 'plan',
-            'description'=> "Servicio mensual: {$servicePlan->name}",
+            'description'=> $description,
             'quantity'   => 1,
             'unit_price' => $subtotal,
             'amount'     => $subtotal,
@@ -501,11 +723,13 @@ class BillingService
             return false;
         }
 
+        $logPeriodStart = Carbon::parse($log->period_start)->startOfDay();
+        $logPeriodEnd   = Carbon::parse($log->period_end)->startOfDay();
+
         // Idempotency: if the invoice already exists, just mark success.
-        $existing = Invoice::where('tenant_id', $log->tenant_id)
+        $existing = $this->monthlyInvoicesOfPeriod($logPeriodStart, $logPeriodEnd)
+            ->where('tenant_id', $log->tenant_id)
             ->where('customer_id', $log->customer_id)
-            ->where('period_start', $log->period_start)
-            ->where('period_end', $log->period_end)
             ->first();
 
         if ($existing) {
@@ -516,6 +740,27 @@ class BillingService
                 'last_error' => null,
             ]);
             return true;
+        }
+
+        // Misma política de "primera factura" que la corrida mensual: el
+        // failover no debe cobrar un mes completo que la generación había
+        // decidido no cobrar (o cobrar prorrateado).
+        $charge = $this->resolveFirstInvoiceCharge(
+            $profile->loadMissing('user:id,created_at'),
+            $userService,
+            $router->billingConfig,
+            $userService->servicePlan,
+            $logPeriodStart,
+            $logPeriodEnd,
+        );
+
+        if ($charge === null) {
+            $log->update([
+                'status'     => BillingActionLog::STATUS_EXHAUSTED,
+                'last_error' => 'Sin cargo para el periodo (política de primera factura del cliente/router)',
+                'attempts'   => $log->attempts + 1,
+            ]);
+            return false;
         }
 
         // Recompute due date from billing config (mirror of main loop).
@@ -545,9 +790,11 @@ class BillingService
                 servicePlan: $userService->servicePlan,
                 issueDate:   $issueDate,
                 dueDate:     $dueDate,
-                periodStart: Carbon::parse($log->period_start)->startOfDay(),
-                periodEnd:   Carbon::parse($log->period_end)->startOfDay(),
+                periodStart: $charge['period_start'],
+                periodEnd:   $logPeriodEnd,
                 billingConfig: $billingConfig,
+                amount:      $charge['amount'],
+                itemDescription: $charge['description'],
             );
 
             $log->update([
@@ -1005,10 +1252,16 @@ class BillingService
      * credit so a received payment is never silently lost when the invoice is
      * removed (the payment record itself is kept for history). Hard delete —
      * for legal invoicing prefer voiding (status=cancelled) over deleting.
+     *
+     * Borrar es una DECISIÓN del administrador: se deja una lápida para que la
+     * corrida horaria no vuelva a crear la misma factura. Sólo se bloquea ese
+     * mes; la generación de los meses siguientes sigue igual.
      */
     public function deleteInvoice(Invoice $invoice): void
     {
         DB::transaction(function () use ($invoice) {
+            $this->suppressRegeneration($invoice);
+
             $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
 
             if ($allocations->isNotEmpty()) {
@@ -1029,6 +1282,57 @@ class BillingService
 
             Log::info("Billing: Invoice {$invoice->id} (#{$invoice->number}) deleted.");
         });
+    }
+
+    /**
+     * Deja constancia de que el administrador borró la factura mensual de un
+     * periodo, para que generateMonthlyInvoices() no la vuelva a crear.
+     *
+     * Sólo aplica a facturas mensuales: instalación, cargos y tickets no los
+     * genera nadie automáticamente, así que no necesitan lápida.
+     */
+    protected function suppressRegeneration(Invoice $invoice): void
+    {
+        $type = $invoice->invoice_type ?: Invoice::TYPE_MONTHLY;
+
+        if ($type !== Invoice::TYPE_MONTHLY || !$invoice->period_start) {
+            return;
+        }
+
+        $periodStart = Carbon::parse($invoice->period_start)->startOfMonth();
+        $periodEnd   = $periodStart->copy()->endOfMonth();
+        $routerId    = CustomerProfile::where('user_id', $invoice->customer_id)->value('router_id');
+
+        $attributes = [
+            'router_id'     => $routerId,
+            'period_end'    => $periodEnd->toDateString(),
+            // La factura se está borrando: la referencia debe quedar vacía.
+            'invoice_id'    => null,
+            'status'        => BillingActionLog::STATUS_SUPPRESSED,
+            'attempts'      => 0,
+            'last_error'    => "Factura #{$invoice->number} eliminada por un administrador. "
+                . 'No se regenerará automáticamente en este periodo.',
+            'next_retry_at' => null,
+        ];
+
+        // Puede existir ya una fila (un intento fallido previo del mismo
+        // periodo); se reescribe en vez de crear otra — hay un índice único
+        // por (tenant, cliente, periodo, acción).
+        $existing = $this->monthlyActionLogQuery(
+            (int) $invoice->tenant_id, (int) $invoice->customer_id, $periodStart
+        )->first();
+
+        if ($existing) {
+            $existing->update($attributes);
+            return;
+        }
+
+        BillingActionLog::create($attributes + [
+            'tenant_id'    => $invoice->tenant_id,
+            'customer_id'  => $invoice->customer_id,
+            'period_start' => $periodStart->toDateString(),
+            'action'       => BillingActionLog::ACTION_GENERATE_MONTHLY,
+        ]);
     }
 
     /**

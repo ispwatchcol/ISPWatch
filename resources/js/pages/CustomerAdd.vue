@@ -234,6 +234,25 @@
                 </div>
                 </div>
 
+                <!-- Primera factura: cliente que entra a mitad del mes ya facturado -->
+                <div class="md:col-span-2">
+                <label class="label">
+                    <v-icon name="md-payments-outlined" class="w-4 h-4 mr-1 inline" />
+                    Primera factura <span class="text-gray-400 font-normal text-xs">(si entra a mitad de mes)</span>
+                </label>
+                <select v-model="form.first_invoice_mode" class="input">
+                    <option value="">Usar la política del router</option>
+                    <option value="none">No cobrar el mes en curso — empieza el próximo ciclo</option>
+                    <option value="prorated">Cobrar proporcional a los días restantes</option>
+                    <option value="full">Cobrar el mes completo</option>
+                </select>
+                <p class="hint">
+                    Sólo aplica cuando el servicio empieza después de que el mes ya se facturó
+                    (ej. instalado el día 20 con facturación el día 1). Proporcional: mes de 30 días
+                    e instalación el 20 ⇒ se cobran 10 días del plan.
+                </p>
+                </div>
+
                 <div class="md:col-span-2">
                 <label class="label">
                     <v-icon name="md-description" class="w-4 h-4 mr-1 inline" />
@@ -736,6 +755,8 @@ const form = ref({
     installation_date: '',
     estrato: null,
     exclude_from_billing: false,
+    // '' = hereda la política de primera factura del router
+    first_invoice_mode: '',
     comments: '',
     ip_user: '',
     service_id: null,
@@ -1092,6 +1113,8 @@ const handleSubmit = async (pushToRouter = true) => {
         const payload = {
             ...form.value,
             email_tenant: username ? `${username}${tenant.value}` : '',
+            // '' (heredar del router) viaja como null, no como cadena vacía.
+            first_invoice_mode: form.value.first_invoice_mode || null,
             push_to_router: pushToRouter,
         }
         const res   = await api.customers.create(payload)

@@ -13,6 +13,13 @@ class BillingActionLog extends Model
     public const STATUS_FAILED    = 'failed';
     public const STATUS_EXHAUSTED = 'exhausted';
 
+    /**
+     * Lápida: el administrador BORRÓ la factura de ese periodo. La generación
+     * mensual jamás debe resucitarla — sólo afecta a ese par (cliente, periodo);
+     * el mes siguiente se factura con normalidad.
+     */
+    public const STATUS_SUPPRESSED = 'suppressed';
+
     public const MAX_ATTEMPTS = 3;
 
     // Backoff escalonado en segundos: tras intento 1, 2, 3

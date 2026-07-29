@@ -15,6 +15,24 @@ class Billing extends Model
     /** Invoice covers the previous month (cobro del mes consumido). */
     public const MODE_VENCIDO = 'vencido';
 
+    // ── "Primera factura": qué cobrar a un cliente cuyo servicio empieza a
+    //    mitad del periodo (instalación después del día de facturación). ──────
+
+    /** No facturar el periodo en curso; su primera factura sale el próximo ciclo. */
+    public const FIRST_INVOICE_NONE = 'none';
+
+    /** Cobrar sólo los días restantes del mes (prorrateo por instalación). */
+    public const FIRST_INVOICE_PRORATED = 'prorated';
+
+    /** Cobrar el mes completo igual que a un cliente antiguo. */
+    public const FIRST_INVOICE_FULL = 'full';
+
+    public const FIRST_INVOICE_MODES = [
+        self::FIRST_INVOICE_NONE,
+        self::FIRST_INVOICE_PRORATED,
+        self::FIRST_INVOICE_FULL,
+    ];
+
     protected $fillable = [
         'id_type',
         'create_invoice',
@@ -29,6 +47,7 @@ class Billing extends Model
         'amount',
         'status',
         'billing_mode',
+        'first_invoice_policy',
         'notificar_wpp',
         'notification_type',
         'comments',
@@ -36,6 +55,9 @@ class Billing extends Model
 
     protected $attributes = [
         'billing_mode' => self::MODE_ANTICIPADO,
+        // Un cliente que entra a mitad de mes NO se factura automáticamente
+        // salvo que el operador elija prorrateo o mes completo.
+        'first_invoice_policy' => self::FIRST_INVOICE_NONE,
         'payment_reminder_enabled' => true,
         // Hour-of-day for each event. Default midnight = same behaviour as the
         // date-only system (fire at the first scheduler run of the configured day).

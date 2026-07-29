@@ -283,6 +283,7 @@
                 <option value="failed">Solo fallidos</option>
                 <option value="exhausted">Solo exhausted</option>
                 <option value="success">Recuperados</option>
+                <option value="suppressed">Eliminadas por el admin</option>
               </select>
             </div>
             <button
@@ -787,12 +788,16 @@ const statusBadgeClass = (status) => ({
   failed:    'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   exhausted: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
   success:   'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  // Factura borrada a propósito por un administrador: no es un fallo, es una
+  // decisión — y el sistema no la va a regenerar.
+  suppressed: 'bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-200',
 }[status] || 'bg-gray-100 text-gray-700')
 
 const statusLabel = (status) => ({
   failed: 'Fallido',
   exhausted: 'Exhausted',
   success: 'Recuperado',
+  suppressed: 'Eliminada por admin',
 }[status] || status)
 
 const loadActionLogs = async (page = 1) => {

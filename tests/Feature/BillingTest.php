@@ -128,19 +128,28 @@ class BillingTest extends TestCase
             'billing_router_id' => $config->id,
             'status'            => 'active',
         ]);
-        $customer = User::factory()->create(['tenant_id' => $this->tenant->id]);
+        // Cliente antiguo: su servicio empezó meses antes del periodo, así que
+        // recibe el mes completo (los que entran a mitad de mes siguen la
+        // política de "primera factura", con sus propios tests).
+        $serviceStart = Carbon::create(2026, 1, 10);
+
+        $customer = User::factory()->create([
+            'tenant_id'  => $this->tenant->id,
+            'created_at' => $serviceStart,
+        ]);
         CustomerProfile::create([
             'user_id'   => $customer->id,
             'name'      => 'Cliente',
             'last_name' => 'Facturable',
             'router_id' => $router->id,
             'status'    => true, // boolean column (true = active)
+            'installation_date' => $serviceStart->toDateString(),
         ]);
         UserService::create([
             'user_id'         => $customer->id,
             'service_plan_id' => $this->plan->id,
             'status'          => 'active',
-            'start_date'      => now(),
+            'start_date'      => $serviceStart,
         ]);
 
         $this->assertEquals(0, Invoice::count());
