@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class CustomerDocument extends Model
 {
@@ -40,8 +41,15 @@ class CustomerDocument extends Model
         return $this->belongsTo(User::class, 'uploaded_by');
     }
 
+    /**
+     * Signed, time-limited URL — the bucket is private, so a permanent
+     * public URL is not an option for cedulas / contratos firmados.
+     */
     public function getUrlAttribute(): string
     {
-        return asset('storage/' . $this->file_path);
+        return Storage::disk('s3')->temporaryUrl(
+            $this->file_path,
+            now()->addMinutes(30)
+        );
     }
 }
