@@ -58,7 +58,12 @@
       "Bash(composer require *)",
       "Bash(php -r \"require 'vendor/autoload.php'; var_dump\\(class_exists\\('HTMLPurifier'\\)\\);\")",
       "Bash(printenv)",
-      "PowerShell([System.Environment]::GetEnvironmentVariable\\('DB_URL','User'\\); [System.Environment]::GetEnvironmentVariable\\('DB_URL','Machine'\\); $env:DB_URL)"
+      "PowerShell([System.Environment]::GetEnvironmentVariable\\('DB_URL','User'\\); [System.Environment]::GetEnvironmentVariable\\('DB_URL','Machine'\\); $env:DB_URL)",
+      "Bash(grep -viE \"Auth\\\\\\\\\\\\\\\\|ProfileTest|ExampleTest\")",
+      "Bash(grep -vE \"Auth\\\\\\\\\\\\\\\\\")",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(composer install *)",
+      "Bash(grep -vE \"Auth\\\\\\\\\\\\\\\\|ProfileTest|ExampleTest\")"
     ]
   }
 }
