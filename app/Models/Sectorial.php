@@ -182,9 +182,14 @@ class Sectorial extends Model
         }
 
         try {
-            // Usar ST_AsGeoJSON para convertir el punto geography a JSON
+            // Usar ST_AsGeoJSON para convertir el punto geography a JSON.
+            // La función va calificada con el schema: PostGIS está instalado en
+            // `public` y el search_path del entorno de desarrollo es
+            // `ispwatch_dev` (DB_SCHEMA), donde la función NO se ve y el
+            // accessor moría con 42883 "function st_asgeojson(unknown) does not
+            // exist" — dejando el sectorial sin coordenadas en el mapa.
             $result = DB::select(
-                "SELECT ST_AsGeoJSON(?)::json->'coordinates' as coords",
+                "SELECT public.ST_AsGeoJSON(?)::json->'coordinates' as coords",
                 [$value]
             );
 
@@ -220,9 +225,12 @@ class Sectorial extends Model
 
             // Si tiene lat y lng, crear el punto geography
             if (is_array($value) && isset($value['lat']) && isset($value['lng'])) {
-                // PostGIS usa (lng, lat), no (lat, lng)
+                // PostGIS usa (lng, lat), no (lat, lng).
+                // Calificada con `public.` por el mismo motivo que el accessor:
+                // bajo search_path=ispwatch_dev la función no es visible y
+                // guardar coordenadas fallaba en silencio (se grababa null).
                 $result = DB::select(
-                    "SELECT ST_GeogFromText(?) as geog",
+                    "SELECT public.ST_GeogFromText(?) as geog",
                     ["POINT({$value['lng']} {$value['lat']})"]
                 );
 
