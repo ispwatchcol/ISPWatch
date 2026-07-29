@@ -25,6 +25,8 @@ class CustomerProfile extends Model
         'installation_date',
         'estrato',
         'exclude_from_billing',
+        // null = hereda la política del router (billing.first_invoice_policy)
+        'first_invoice_mode',
         'comments',
         'state',
         'postal_code',

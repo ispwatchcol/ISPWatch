@@ -17,14 +17,18 @@ class GenerateMonthlyInvoices extends Command
 
     public function handle(): int
     {
-        $period = $this->argument('period') ?? now()->format('Y-m');
+        // Sin argumento el periodo lo resuelve cada router (modo anticipado /
+        // vencido) y se respeta su HORA de creación. Pasar siempre un periodo
+        // explícito — como se hacía antes — lo trataba como backfill manual y
+        // saltaba el gate horario: las facturas salían a cualquier hora.
+        $period = $this->argument('period');
 
-        $this->info("Generating monthly invoices for period: {$period}");
+        $this->info('Generating monthly invoices for period: ' . ($period ?? 'automático (según la config de cada router)'));
 
         try {
             $count = $this->billingService->generateMonthlyInvoices($period);
 
-            $this->info("Successfully generated {$count} invoices for {$period}");
+            $this->info("Successfully generated {$count} invoices" . ($period ? " for {$period}" : ''));
 
             return Command::SUCCESS;
         } catch (\Exception $e) {

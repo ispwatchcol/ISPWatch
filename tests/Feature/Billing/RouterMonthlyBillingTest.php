@@ -84,6 +84,11 @@ class RouterMonthlyBillingTest extends TestCase
     /**
      * Create a customer + profile (optionally assigned to a router) and an
      * active user_service pointing at $plan.
+     *
+     * By default the customer is ESTABLISHED: their service started long before
+     * the period being billed, so the "primera factura" policy (mid-month
+     * installs) does not apply and they get the usual full month. Pass
+     * $serviceStart to simulate a customer that comes in mid-cycle.
      */
     private function makeCustomer(
         Tenant $tenant,
@@ -91,9 +96,16 @@ class RouterMonthlyBillingTest extends TestCase
         Plan $plan,
         bool $profileActive = true,
         string $serviceStatus = UserService::STATUS_ACTIVE,
+        ?Carbon $serviceStart = null,
+        ?string $firstInvoiceMode = null,
     ): User {
         $this->seq++;
-        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $serviceStart ??= Carbon::now()->subMonths(6)->startOfDay();
+
+        $user = User::factory()->create([
+            'tenant_id'  => $tenant->id,
+            'created_at' => $serviceStart,
+        ]);
 
         CustomerProfile::create([
             'user_id'   => $user->id,
@@ -103,13 +115,15 @@ class RouterMonthlyBillingTest extends TestCase
             // customer_profile.status is a BOOLEAN column (true = active),
             // matching production (PostgreSQL).
             'status'    => $profileActive,
+            'installation_date'  => $serviceStart->toDateString(),
+            'first_invoice_mode' => $firstInvoiceMode,
         ]);
 
         UserService::create([
             'user_id'         => $user->id,
             'service_plan_id' => $plan->id,
             'status'          => $serviceStatus,
-            'start_date'      => Carbon::now(),
+            'start_date'      => $serviceStart,
         ]);
 
         return $user;

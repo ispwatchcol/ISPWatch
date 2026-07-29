@@ -66,15 +66,26 @@ class VerifyMonthlyBillingTest extends TestCase
         ]);
     }
 
+    /**
+     * Established customer: their service started well before the audited
+     * period, so the "primera factura" policy for mid-month installs does not
+     * apply and the audit expects a full invoice for them.
+     */
     private function makeCustomer(
         Tenant $tenant,
         ?Router $router,
         Plan $plan,
         bool $profileActive = true,
         string $serviceStatus = UserService::STATUS_ACTIVE,
+        ?Carbon $serviceStart = null,
     ): User {
         $this->seq++;
-        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $serviceStart ??= Carbon::now()->subMonths(6)->startOfDay();
+
+        $user = User::factory()->create([
+            'tenant_id'  => $tenant->id,
+            'created_at' => $serviceStart,
+        ]);
 
         CustomerProfile::create([
             'user_id'   => $user->id,
@@ -82,13 +93,14 @@ class VerifyMonthlyBillingTest extends TestCase
             'last_name' => "Apellido{$this->seq}",
             'router_id' => $router?->id,
             'status'    => $profileActive,
+            'installation_date' => $serviceStart->toDateString(),
         ]);
 
         UserService::create([
             'user_id'         => $user->id,
             'service_plan_id' => $plan->id,
             'status'          => $serviceStatus,
-            'start_date'      => Carbon::now(),
+            'start_date'      => $serviceStart,
         ]);
 
         return $user;

@@ -72,19 +72,28 @@ class BillingEventTimeTest extends TestCase
             'status'            => 'active',
         ]);
 
-        $customer = User::factory()->create(['tenant_id' => $tenant->id]);
+        // Cliente antiguo: su servicio arrancó mucho antes del periodo, así que
+        // la política de "primera factura" (altas a mitad de mes) no interviene
+        // y estos tests miden únicamente el gate de día/hora.
+        $serviceStart = Carbon::now()->subMonths(6)->startOfDay();
+
+        $customer = User::factory()->create([
+            'tenant_id'  => $tenant->id,
+            'created_at' => $serviceStart,
+        ]);
         CustomerProfile::create([
             'user_id'   => $customer->id,
             'name'      => "Cliente{$this->seq}",
             'last_name' => "Apellido{$this->seq}",
             'router_id' => $router->id,
             'status'    => true,
+            'installation_date' => $serviceStart->toDateString(),
         ]);
         UserService::create([
             'user_id'         => $customer->id,
             'service_plan_id' => $plan->id,
             'status'          => UserService::STATUS_ACTIVE,
-            'start_date'      => Carbon::now(),
+            'start_date'      => $serviceStart,
         ]);
 
         return compact('tenant', 'router', 'customer');

@@ -40,6 +40,9 @@ class StoreCustomerRequest extends FormRequest
             // Cliente "no facturar": queda fuera del ciclo automático (sin factura
             // mensual, sin recordatorios/notificaciones ni corte por mora).
             'exclude_from_billing' => 'nullable|boolean',
+            // Primera factura del cliente cuando entra a mitad del mes ya
+            // facturado: none | prorated | full. null = hereda del router.
+            'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
             'comments'       => 'nullable|string|max:2000',
 
             // Service configuration

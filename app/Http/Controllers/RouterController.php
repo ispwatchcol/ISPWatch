@@ -132,7 +132,8 @@ class RouterController extends Controller
             'create_invoice', 'create_invoice_time', 'cut_day', 'cut_time',
             'payment_day', 'payment_reminder', 'payment_reminder_time',
             'payment_reminder_enabled', 'overdue_invoices', 'amount', 'id_type',
-            'status', 'notificar_wpp', 'notification_type', 'billing_mode', 'comments',
+            'status', 'notificar_wpp', 'notification_type', 'billing_mode',
+            'first_invoice_policy', 'comments',
         ])->toArray();
     }
 
