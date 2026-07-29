@@ -26,7 +26,12 @@ class RouterController extends Controller
         // Tenant scoping is automatic via the BelongsToTenant global scope.
         // Fields/relation chosen to cover every former direct-Supabase reader
         // (Routers list, MassActions, Sectorial dropdowns, billing dropdowns).
-        $routers = Router::with('cutType:id,name')->select(
+        // billingConfig se incluye para que el formulario de cliente pueda
+        // mostrar qué política de "primera factura" heredaría del router.
+        $routers = Router::with([
+            'cutType:id,name',
+            'billingConfig:id,first_invoice_policy,create_invoice',
+        ])->select(
             'id',
             'name',
             'ip',
@@ -34,6 +39,7 @@ class RouterController extends Controller
             'lan_interface',
             'wan_interface',
             'cut_type_id',
+            'billing_router_id',
             'simple_queue',
             'control_pcq',
             'hotspot',
