@@ -186,6 +186,28 @@ class FirstInvoiceProrationTest extends TestCase
     }
 
     #[Test]
+    public function it_reproduces_the_real_mid_month_install_case(): void
+    {
+        // El caso que originó esto: plan de 52.500, instalación el 25 de julio
+        // (mes de 31 días) ⇒ 6 días. El operador lo había corregido a mano a
+        // 10.000; la fórmula da 10.161 y se redondea a pesos enteros.
+        Carbon::setTestNow(Carbon::create(2026, 7, 29, 21, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant, 52500);
+        $router = $this->makeRouter($tenant, createDay: 1, policy: Billing::FIRST_INVOICE_PRORATED);
+        $user   = $this->makeCustomer($tenant, $router, $plan, Carbon::create(2026, 7, 25));
+
+        $this->assertSame(1, $this->billing->generateMonthlyInvoices());
+
+        $invoice = Invoice::where('customer_id', $user->id)->firstOrFail();
+
+        $this->assertEquals(10161, (float) $invoice->total);
+        $this->assertSame('2026-07-25', Carbon::parse($invoice->period_start)->toDateString());
+        $this->assertStringContainsString('6 de 31 días', $invoice->items()->first()->description);
+    }
+
+    #[Test]
     public function the_customer_mode_overrides_the_router_policy(): void
     {
         Carbon::setTestNow(Carbon::create(2026, 6, 28, 10, 0, 0));

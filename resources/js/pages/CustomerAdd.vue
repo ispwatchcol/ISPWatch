@@ -241,11 +241,32 @@
                     Primera factura <span class="text-gray-400 font-normal text-xs">(si entra a mitad de mes)</span>
                 </label>
                 <select v-model="form.first_invoice_mode" class="input">
-                    <option value="">Usar la política del router</option>
+                    <option value="">Usar la política del router{{ routerPolicyLabel ? ` (${routerPolicyLabel})` : '' }}</option>
                     <option value="none">No cobrar el mes en curso — empieza el próximo ciclo</option>
                     <option value="prorated">Cobrar proporcional a los días restantes</option>
                     <option value="full">Cobrar el mes completo</option>
                 </select>
+
+                <!-- Cálculo en vivo: el operador decide con los números a la vista
+                     (faltando 5 días quizá sí cobra; faltando 2 quizá no). -->
+                <div v-if="firstInvoicePreview.show"
+                    class="mt-2 p-3 rounded-xl text-sm border"
+                    :class="firstInvoicePreview.willCharge
+                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                        : 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700'">
+                    <p class="text-gray-700 dark:text-gray-300">
+                        <span class="font-medium">Inicio de servicio:</span>
+                        {{ firstInvoicePreview.startLabel }} — quedan
+                        <strong>{{ firstInvoicePreview.billableDays }}</strong>
+                        de {{ firstInvoicePreview.daysInMonth }} días del mes.
+                    </p>
+                    <p class="mt-1" :class="firstInvoicePreview.willCharge
+                        ? 'text-blue-800 dark:text-blue-300 font-semibold'
+                        : 'text-gray-600 dark:text-gray-400'">
+                        {{ firstInvoicePreview.outcome }}
+                    </p>
+                </div>
+
                 <p class="hint">
                     Sólo aplica cuando el servicio empieza después de que el mes ya se facturó
                     (ej. instalado el día 20 con facturación el día 1). Proporcional: mes de 30 días
@@ -918,6 +939,87 @@ watch(() => form.value.router_id, (id) => loadFreeIps(id))
 const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.service_id))
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
 
+/* ============================
+   PRIMERA FACTURA — cálculo en vivo
+   Espeja resolveFirstInvoiceCharge() del backend para que el operador vea, en
+   el momento de convertir el prospecto, cuántos días quedan y cuánta plata es;
+   así decide caso por caso (faltando 5 días quizá cobra, faltando 2 no).
+============================ */
+const FIRST_INVOICE_LABELS = {
+    none:     'no cobrar el mes en curso',
+    prorated: 'cobrar proporcional',
+    full:     'cobrar el mes completo',
+}
+
+const money = (n) => new Intl.NumberFormat('es-CO', {
+    style: 'currency', currency: 'COP', maximumFractionDigits: 0,
+}).format(n || 0)
+
+// Política que heredaría del router seleccionado (null si aún no se sabe).
+const routerPolicy = computed(() =>
+    selectedRouter.value?.billing_config?.first_invoice_policy
+    ?? selectedRouter.value?.billingConfig?.first_invoice_policy
+    ?? null
+)
+const routerPolicyLabel = computed(() => FIRST_INVOICE_LABELS[routerPolicy.value] ?? '')
+
+const firstInvoicePreview = computed(() => {
+    const hidden = { show: false, willCharge: false }
+
+    const cost = Number(selectedPlan.value?.cost_product ?? 0)
+    if (!cost) return hidden
+
+    // El backend toma la fecha MÁS ANTIGUA entre instalación y alta del usuario;
+    // para un cliente nuevo el alta es hoy.
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    let start = today
+    if (form.value.installation_date) {
+        const d = new Date(`${form.value.installation_date}T00:00:00`)
+        if (!isNaN(d.getTime()) && d < start) start = d
+    }
+
+    // Servicio que arranca el día 1: no es un alta a mitad de mes, se factura
+    // como cualquier cliente antiguo.
+    if (start.getDate() === 1) return hidden
+
+    const daysInMonth  = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
+    const billableDays = daysInMonth - start.getDate()
+    const prorated     = billableDays > 0 ? Math.round(cost * billableDays / daysInMonth) : 0
+
+    const mode = form.value.first_invoice_mode || routerPolicy.value || 'none'
+
+    let outcome
+    let willCharge = false
+
+    if (mode === 'full') {
+        outcome = `Se cobrará el mes completo: ${money(cost)}.`
+        willCharge = true
+    } else if (mode === 'prorated' && billableDays > 0) {
+        outcome = `Se cobrarán ${money(prorated)} — ${billableDays} de ${daysInMonth} días `
+                + `del plan de ${money(cost)}.`
+        willCharge = true
+    } else if (mode === 'prorated') {
+        outcome = 'No queda ningún día por cobrar este mes: no se generará factura.'
+    } else {
+        outcome = 'No se generará factura de este mes. La primera saldrá en el ciclo siguiente.'
+    }
+
+    if (!form.value.first_invoice_mode) {
+        outcome += ' (heredado del router)'
+    }
+
+    return {
+        show: true,
+        willCharge,
+        billableDays: Math.max(0, billableDays),
+        daysInMonth,
+        startLabel: start.toLocaleDateString('es-CO'),
+        outcome,
+    }
+})
+
 const filteredPlans = computed(() => {
     const r = selectedRouter.value
     if (!r) return []
@@ -1027,7 +1129,28 @@ const loadProspect = async () => {
         form.value.city      = data.city      ?? form.value.city
         form.value.state     = data.state     ?? form.value.state
         form.value.estrato   = data.estrato   ?? form.value.estrato
-        toast.value?.info('Datos del prospecto cargados', 'Completá los campos faltantes y guardá.')
+
+        // La fecha de instalación decide el prorrateo de la primera factura, así
+        // que se toma de la orden del prospecto en vez de dejar que caiga en
+        // "hoy": convertir el día 27 una instalación del 25 cobraría 2 días de
+        // menos. Se prefiere la orden COMPLETADA más reciente (el endpoint las
+        // devuelve ordenadas por fecha agendada desc).
+        const installs = Array.isArray(data.installations) ? data.installations : []
+        const done     = installs.find(i => i.status === 'completada')
+        const rawDate  = done
+            ? (done.completed_at || done.scheduled_date)
+            : installs[0]?.scheduled_date
+
+        if (rawDate && !form.value.installation_date) {
+            form.value.installation_date = String(rawDate).slice(0, 10)
+        }
+
+        toast.value?.info(
+            'Datos del prospecto cargados',
+            form.value.installation_date
+                ? `Instalación del ${form.value.installation_date.split('-').reverse().join('/')}. Revisá la primera factura antes de guardar.`
+                : 'Completá los campos faltantes y guardá.'
+        )
     } catch (err) {
         console.error('No se pudo cargar el prospecto:', err)
     }

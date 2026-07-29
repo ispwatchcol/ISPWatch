@@ -598,7 +598,10 @@ class BillingService
 
         return [
             'period_start' => $serviceStart->copy(),
-            'amount'       => round($fullAmount * $billableDays / $daysInMonth, 2),
+            // A pesos enteros: la moneda es COP (sin centavos en la práctica) y
+            // así el monto coincide exacto con el que el formulario le muestra
+            // al operador antes de crear el cliente.
+            'amount'       => round($fullAmount * $billableDays / $daysInMonth),
             'description'  => "Servicio proporcional: {$servicePlan->name} "
                 . "({$billableDays} de {$daysInMonth} días — desde el {$serviceStart->format('d/m/Y')})",
         ];
