@@ -38,6 +38,15 @@ class Sectorial extends Model
 
     protected $appends = ['ports_used', 'ports_capacity', 'ports_free'];
 
+    /**
+     * Credencial del equipo cifrada en reposo (ver migración
+     * 2026_07_31_000002). El cast descifra al leer, así que $sectorial->pass_rb
+     * sigue devolviendo el valor en claro para el código que lo usa.
+     */
+    protected $casts = [
+        'pass_rb' => 'encrypted',
+    ];
+
     // Infraestructura inalámbrica / genérica
     public const ELEMENT_SECTORIAL = 'sectorial';
     public const ELEMENT_SWITCH    = 'switch';

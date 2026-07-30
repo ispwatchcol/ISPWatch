@@ -61,6 +61,12 @@ class CustomerProfile extends Model
         'exclude_from_billing' => 'boolean',
         'first_invoice_free_months' => 'integer',
         'retired_at'           => 'datetime',
+
+        // Contraseñas de servicio cifradas en reposo (migración
+        // 2026_07_31_000002). Se cifran sólo las CONTRASEÑAS: pppoe_username
+        // tiene un índice único por router y un valor cifrado no es consultable.
+        'pppoe_password'   => 'encrypted',
+        'hotspot_password' => 'encrypted',
     ];
 
     public function user()

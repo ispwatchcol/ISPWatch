@@ -19,8 +19,6 @@ class Router extends Model
         'external_id',
         'user_rb',
         'password_rb',
-        'user_rb_encrypted',
-        'password_rb_encrypted',
         'puerto_api',
         'puerto_www',
         'puerto_ssh',
@@ -28,8 +26,6 @@ class Router extends Model
         'wan_interface',
         'vpn_username',
         'vpn_password',
-        'vpn_username_encrypted',
-        'vpn_password_encrypted',
         'comments',
         'rangos_ip',
         'cut_type_id',
@@ -64,15 +60,35 @@ class Router extends Model
         'amarre' => 'boolean',
         'dhcp_leases' => 'boolean',
         'falla_general' => 'boolean',
-        // NOTE: the *_encrypted columns are deliberately NOT cast as 'encrypted'.
-        // Migration 2026_05_14_000001_encrypt_router_credentials copied PLAINTEXT
-        // into them via raw SQL (the comment there wrongly assumed the cast would
-        // encrypt on access). The 'encrypted' cast decrypts on read, so it threw
-        // DecryptException on every read in EVERY environment, breaking VPN script
-        // generation and provisioning. These columns hold plaintext (same as the
-        // intact legacy user_rb/password_rb/vpn_* columns); treat them as plaintext.
-        // Re-introduce real at-rest encryption later via a correct re-save migration.
+
+        // Credenciales cifradas en reposo. El cast descifra de forma transparente
+        // al leer, así que todo el código sigue usando $router->password_rb.
+        //
+        // Historia, para que no se repita: la migración 2026_05_14_000001 copió
+        // texto PLANO a unas columnas `*_encrypted` con un UPDATE de SQL crudo,
+        // dando por hecho que el cast cifraría. El cast cifra al escribir POR
+        // MODELO, no en SQL crudo, así que aquellas columnas quedaron en claro y
+        // el cast lanzaba DecryptException en cada lectura. Se desactivó y las
+        // credenciales siguieron en texto plano hasta la migración
+        // 2026_07_31_000002, que cifra EN LA MISMA COLUMNA (con el modelo) y
+        // elimina las `*_encrypted` duplicadas.
+        //
+        // Precaución: un valor cifrado NO es consultable en SQL. No añadas aquí
+        // ninguna columna por la que se filtre (p. ej. pppoe_username, que tiene
+        // índice único por router).
+        'user_rb' => 'encrypted',
+        'password_rb' => 'encrypted',
+        'vpn_username' => 'encrypted',
+        'vpn_password' => 'encrypted',
     ];
+
+    // NOTA: password_rb y vpn_password NO están en $hidden a propósito.
+    // El formulario de edición de router (resources/js/pages/RouterEdit.vue)
+    // prellena el campo con `data.password_rb` y lo reenvía tal cual al guardar;
+    // ocultarlo haría que el formulario cargara vacío y SOBRESCRIBIERA la
+    // credencial con una cadena vacía al primer guardado — pérdida de datos.
+    // Sacarlos de la respuesta exige antes cambiar el formulario a "dejar en
+    // blanco para conservar la contraseña actual". Anotado en MEJORAS_RECOMENDADAS.
 
 
     /**

@@ -39,6 +39,11 @@ class CustomerContractSignTest extends TestCase
         parent::setUp();
 
         Storage::fake('public');
+        // Los documentos de cliente viven en el disco 's3' (bucket privado, ver
+        // CustomerDocument::getUrlAttribute). Sin este fake, el SDK de AWS
+        // intenta resolver una región real y la petición muere con un 500
+        // "Missing required client configuration options: region".
+        Storage::fake('s3');
 
         $this->tenant = Tenant::factory()->create();
 
@@ -119,9 +124,9 @@ class CustomerContractSignTest extends TestCase
         ]);
 
         $path = \App\Models\CustomerDocument::where('customer_id', $this->customer->id)->first()->file_path;
-        Storage::disk('public')->assertExists($path);
+        Storage::disk('s3')->assertExists($path);
 
-        $bytes = Storage::disk('public')->get($path);
+        $bytes = Storage::disk('s3')->get($path);
         $this->assertStringStartsWith('%PDF-', $bytes);
     }
 
@@ -182,7 +187,7 @@ class CustomerContractSignTest extends TestCase
         $response->assertStatus(201)->assertJsonPath('document.signed', true);
 
         $path = \App\Models\CustomerDocument::where('customer_id', $this->customer->id)->first()->file_path;
-        $bytes = Storage::disk('public')->get($path);
+        $bytes = Storage::disk('s3')->get($path);
         $this->assertStringStartsWith('%PDF-', $bytes);
     }
 

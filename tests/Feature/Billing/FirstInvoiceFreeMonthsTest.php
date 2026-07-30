@@ -7,6 +7,7 @@ use App\Models\Billing;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\Plan;
+use App\Models\Role;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
@@ -373,6 +374,29 @@ class FirstInvoiceFreeMonthsTest extends TestCase
         $this->assertSame(0, $policy->freeMonths);
     }
 
+    /**
+     * Operador con permiso para usar la vista previa de primera factura.
+     *
+     * El endpoint /api/customers/first-invoice-preview exige
+     * `permission:view_clients,add_clients` (semántica OR). Un usuario sin rol
+     * recibe 403 "No role assigned", que es justo lo que debe pasar: la vista
+     * previa expone tarifas y política de cobro del tenant.
+     */
+    private function makeStaffWithPreviewPermission(Tenant $tenant): User
+    {
+        $role = Role::create([
+            'name'        => 'Operador ' . uniqid(),
+            'code'        => 'staff',
+            'tenant_id'   => $tenant->id,
+            'permissions' => ['view_clients', 'add_clients'],
+        ]);
+
+        return User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'role_id'   => $role->id,
+        ]);
+    }
+
     // ── Vista previa del formulario ─────────────────────────────────────
 
     #[Test]
@@ -381,7 +405,7 @@ class FirstInvoiceFreeMonthsTest extends TestCase
         $tenant = Tenant::factory()->create();
         $plan   = $this->makePlan($tenant, 60000, Billing::FIRST_INVOICE_PRORATED, freeMonths: 1);
         $router = $this->makeRouter($tenant, createDay: 1);
-        $staff  = User::factory()->create(['tenant_id' => $tenant->id]);
+        $staff  = $this->makeStaffWithPreviewPermission($tenant);
 
         $response = $this->actingAs($staff)->postJson('/api/customers/first-invoice-preview', [
             'installation_date' => '2026-07-16',
@@ -417,7 +441,7 @@ class FirstInvoiceFreeMonthsTest extends TestCase
         $tenant = Tenant::factory()->create();
         $plan   = $this->makePlan($tenant, 60000, Billing::FIRST_INVOICE_PRORATED, freeMonths: 1);
         $router = $this->makeRouter($tenant, createDay: 1);
-        $staff  = User::factory()->create(['tenant_id' => $tenant->id]);
+        $staff  = $this->makeStaffWithPreviewPermission($tenant);
 
         $response = $this->actingAs($staff)->postJson('/api/customers/first-invoice-preview', [
             'installation_date' => '2026-07-16',

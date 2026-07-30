@@ -32,3 +32,7 @@ mikrotik_core_id_ed25519.*
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Especificación de despliegue REAL (con secretos). Solo la plantilla se versiona.
+.do/deploy.yaml
+.do/*.local.yaml

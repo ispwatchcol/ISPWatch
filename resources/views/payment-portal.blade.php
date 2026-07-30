@@ -98,6 +98,12 @@
             transition: transform 0.2s, box-shadow 0.2s;
             width: 100%;
             margin-top: 10px;
+            /* Los botones son <a>, no <button> (ver comentario más abajo):
+               estas cuatro reglas los hacen ver y ocupar igual que antes. */
+            display: block;
+            box-sizing: border-box;
+            text-align: center;
+            text-decoration: none;
         }
 
         .btn:hover {
@@ -165,13 +171,20 @@
             </p>
         </div>
 
-        <button class="btn" onclick="window.location.href='tel:+573001234567'">
+        {{--
+            Enlaces, no <button onclick="...">. Los manejadores en línea son
+            script en línea a efectos de CSP y obligaban a mantener
+            'unsafe-inline' en script-src para toda la aplicación. Eran los dos
+            únicos del proyecto; como sólo navegan a una URL, un <a> hace lo
+            mismo sin script.
+        --}}
+        <a class="btn" href="tel:+573001234567">
             📞 Llamar a Soporte
-        </button>
+        </a>
 
-        <button class="btn btn-secondary" onclick="window.location.href='https://wa.me/573001234567'">
+        <a class="btn btn-secondary" href="https://wa.me/573001234567">
             💬 WhatsApp
-        </button>
+        </a>
 
         <div class="footer">
             Powered by ISPWatch<br>

@@ -856,6 +856,17 @@ class CustomerProfileController extends Controller
         // Update status (DB = estado deseado; la RB se reconcilia aparte)
         $customer->update(['status' => false, 'service_status' => 'suspendido']);
 
+        // Un corte manual deja al cliente sin servicio y, a diferencia del corte
+        // por mora, NO se revierte solo al pagar: hace falta que alguien lo
+        // reactive. Por eso queda registrado quién lo ejecutó.
+        \App\Models\AuditLog::log([
+            'action'      => 'customer.suspended_manually',
+            'model_type'  => CustomerProfile::class,
+            'model_id'    => (int) $customer->user_id,
+            'new_values'  => ['status' => false, 'service_status' => 'suspendido'],
+            'description' => "Cliente {$customer->name} {$customer->last_name} suspendido manualmente.",
+        ]);
+
         // If router assigned, add IP to block list via the provisioning service
         // so the attempt is recorded in suspension_action_logs (failover/sync).
         if ($customer->router_id && $customer->ip_user) {
@@ -909,6 +920,14 @@ class CustomerProfileController extends Controller
         $customer->update([
             'status' => true,
             'service_status' => ($activePlan && $activePlan->is_courtesy) ? 'gratis' : 'activo',
+        ]);
+
+        \App\Models\AuditLog::log([
+            'action'      => 'customer.activated_manually',
+            'model_type'  => CustomerProfile::class,
+            'model_id'    => (int) $customer->user_id,
+            'new_values'  => ['status' => true, 'service_status' => $customer->service_status],
+            'description' => "Cliente {$customer->name} {$customer->last_name} reactivado manualmente.",
         ]);
 
         // If router assigned, remove IP from block list via the provisioning

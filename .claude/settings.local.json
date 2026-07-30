@@ -72,7 +72,10 @@
       "Bash(grep -vE \"^\\\\s*\\(\\\\||/\\\\*|\\\\*\\)\" config/cors.php)",
       "Bash(sed -n '/public function rules/,/^    }/p' app/Http/Requests/StoreRouterRequest.php)",
       "Bash(sed -n '/public function rules/,/^    }/p' app/Http/Requests/StorePlanRequest.php)",
-      "Bash(echo \"--- exit $? ---\")"
+      "Bash(echo \"--- exit $? ---\")",
+      "Bash(git rm *)",
+      "Bash(sed -n '/DELETE.*customers\\\\/{customer}/,+4p')",
+      "Bash(sed -n '/function storeArticle/,/^    }/p' app/Http/Controllers/HelpCenterController.php)"
     ]
   }
 }

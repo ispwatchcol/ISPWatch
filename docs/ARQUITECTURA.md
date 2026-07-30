@@ -5,7 +5,7 @@
 > Cuando algo **no** puede inferirse del código se marca explícitamente como
 > `⚠️ No inferible del código`.
 
-**Última actualización:** 2026-07-30 · Rama analizada: `feat/first-invoice-free-months`
+**Última actualización:** 2026-07-30 (post-remediación) · Rama: `feat/first-invoice-free-months`
 
 ---
 
@@ -54,7 +54,7 @@ de facturación (`billing`), y el sistema ejecuta acciones reales sobre el equip
 | PHP | `^8.2` | Runtime |
 | Laravel Framework | `^12.0` | Framework HTTP, ORM, cola, scheduler |
 | Laravel Sanctum | `^4.2` | Autenticación SPA por cookie de sesión |
-| Livewire + Volt | `^3.6` / `^1.7` | Scaffolding de auth heredado de Breeze (`routes/auth.php`) |
+| Livewire + Volt | `^3.6` / `^1.7` | Dependencia heredada de Breeze. **Sin uso**: `routes/auth.php` se eliminó y no hay componentes Volt |
 | barryvdh/laravel-dompdf | `^3.1` | Generación de PDF (facturas, contratos, actas) |
 | maatwebsite/excel | `^3.1` | Importación/exportación masiva Excel |
 | phpseclib/phpseclib | `^3.0` | SSH hacia el CORE MikroTik |
@@ -85,7 +85,7 @@ de facturación (`billing`), y el sistema ejecuta acciones reales sobre el equip
 | PostgreSQL (Supabase, pooler) | Base de datos principal |
 | PostGIS | Tipo geográfico en `sectorial.coordinates` |
 | Driver `database` | Cache, cola y sesión en producción |
-| DigitalOcean App Platform | Hosting (servicio web + worker de cola) |
+| DigitalOcean App Platform | Hosting (web + worker de cola + scheduler) |
 | Amazon S3 | Documentos de cliente (bucket privado, URLs firmadas a 30 min) |
 | Brevo SMTP | Correo transaccional |
 
@@ -106,6 +106,7 @@ flowchart TB
     subgraph "DigitalOcean App Platform"
         WEB["Servicio web<br/>Apache + PHP 8.2<br/>Laravel 12"]
         WORKER["Worker<br/>queue:work"]
+        SCHED["Scheduler<br/>schedule:work"]
     end
 
     subgraph Datos
@@ -125,6 +126,8 @@ flowchart TB
     WEB -->|SSH phpseclib| CORE
     WORKER --> PG
     WORKER -->|SSH phpseclib| CORE
+    SCHED --> PG
+    SCHED -->|SSH phpseclib| CORE
     CORE -->|"/system ssh-exec"| RB1
     CORE -->|"/system ssh-exec"| RB2
     WEB -->|SMTP Brevo| MAIL["Correo"]
@@ -163,8 +166,7 @@ resources/js/
 ├── router/index.js         # 40+ rutas, todas lazy-loaded
 ├── stores/auth.js          # Pinia: sesión, permisos, refresh
 ├── services/
-│   ├── api.js              # instancia axios + interceptores
-│   ├── auth.js             # helpers de permisos (localStorage)
+│   ├── api.js              # instancia axios + manejador global de 401
 │   ├── billing.js
 │   └── api/                # 19 módulos: customers, routers, plans, …
 ├── composables/            # useNotification, usePermissions,
@@ -182,8 +184,10 @@ resources/js/
 - `stores/auth.js` lo guarda en `localStorage` (con "recordarme") o `sessionStorage`.
 - La guarda de `vue-router` (`router.beforeEach`) bloquea la navegación si
   `to.meta.permission` no está en el array de permisos.
-- `apiClient` inyecta `tenant`/`tenant_id` como query param en cada petición
-  (**el backend lo ignora por seguridad**: el tenant se deriva del usuario autenticado).
+- `hasPermission()` del store es el **espejo exacto** de `CheckPermission` en el backend,
+  bypass de superadministrador (`role_id == 1`) incluido. Si cambias uno, cambia el otro.
+- El tenant **no** se envía en las peticiones: el backend lo deriva siempre del usuario
+  autenticado.
 - Un `401` en cualquier respuesta borra `userData` y redirige a `/`.
 
 ```mermaid
@@ -213,9 +217,10 @@ sequenceDiagram
 
 | Alias | Clase | Función |
 |---|---|---|
-| `permission` / `can_do` | `CheckPermission` | Exige un permiso concreto; **bypass si `role_id == 1`** |
-| `staff_profile` | `CheckStaffProfile` | Exige que el usuario tenga fila en `staff_profile` |
-| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, etc. |
+| `permission` / `can_do` | `CheckPermission` | Exige uno o varios permisos con **semántica OR** (`permission:a,b`); **bypass si `role_id == 1`** |
+| `staff_profile` | `CheckStaffProfile` | Pese al nombre, comprueba `role.code ∈ {admin, staff}` o `role_id == 1`; **no** exige fila en `staff_profile` |
+| `throttle:<limitador>` | Laravel | Límite de peticiones: `api` (120/min), `router-ops` (10/min), `bulk-ops` (5/min) |
+| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`. **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`** |
 | *(api, prepend)* | `EnsureFrontendRequestsAreStateful` | Sanctum SPA |
 
 `trustProxies(at: '*')` está activo (necesario tras el balanceador de DigitalOcean).
@@ -496,7 +501,7 @@ Componentes cuyo fallo **detiene una función de negocio completa**:
 | Dependencia | Qué rompe si falla | Mitigación existente en el código |
 |---|---|---|
 | **Router CORE MikroTik** | Todo aprovisionamiento, corte y reconexión | `suspension_action_logs` con reintentos + `billing:reconcile-suspensions` |
-| **Cron `schedule:run` del servidor** | No se factura, no se corta, no se avisa | `billing:verify-monthly` / `verify-cuts` alertan el *no-show* |
+| **Componente `scheduler`** | No se factura, no se corta, no se avisa | `billing:verify-monthly` / `verify-cuts` alertan el *no-show* |
 | **PostgreSQL / Supabase** | Todo | — |
 | **Worker de cola** | Aprovisionamiento masivo asíncrono queda "processing" | Endpoint de estado por `jobId`; el camino síncrono sigue disponible |
 | **S3** | Subida y descarga de documentos y firmas | — |
@@ -517,11 +522,21 @@ Dos componentes definidos en `.do/deploy.template.yaml`:
 |---|---|---|
 | `ispwatch` (servicio web) | materializa la clave SSH → `php artisan migrate --force` → `heroku-php-apache2 public/` | `apps-s-1vcpu-0.5gb` |
 | `worker` | materializa la clave SSH → `php artisan queue:work --tries=1 --timeout=120 --max-time=3600` | `apps-s-1vcpu-0.5gb` |
+| `scheduler` | materializa la clave SSH → `php artisan schedule:work` | `apps-s-1vcpu-0.5gb` |
 
 Despliegue automático por push a `main` del repositorio `ispwatchcol/ISPWatch`.
 La clave privada SSH del CORE viaja como secreto base64 (`MIKROTIK_CORE_SSH_KEY_B64`) y se
 escribe a `storage/keys/mikrotik_core_id_ed25519` con permisos `600` en cada arranque.
 
-> ⚠️ **No existe un componente que ejecute `schedule:run`** en la definición de la app.
-> Ver [`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md) — es un hallazgo de prioridad crítica
-> y coincide con el incidente histórico de facturación no ejecutada.
+El componente **`scheduler`** se añadió el 2026-07-30: hasta entonces la especificación no
+tenía ninguno, y sin él **nada del ciclo automático ocurría** — ni facturación, ni
+recordatorios, ni cortes. Coincide con el incidente histórico que motivó crear
+`billing:verify-monthly`.
+
+> 🔧 **Falta aplicar la especificación en DigitalOcean.** Verificar después con
+> `php artisan billing:verify-monthly` (debe reportar `ok`, nunca `no_show`).
+
+La plantilla `.do/deploy.template.yaml` **ya no contiene secretos**: todo valor sensible es un
+marcador `<<<CAMBIAR:...>>>` declarado como `type: SECRET`. La especificación real vive en
+`.do/deploy.yaml`, que está en `.gitignore`. Ver
+[`RUNBOOK_ROTACION_SECRETOS.md`](RUNBOOK_ROTACION_SECRETOS.md).
