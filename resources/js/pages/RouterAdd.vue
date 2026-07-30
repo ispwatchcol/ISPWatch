@@ -726,6 +726,7 @@ const form = reactive({
     notification_type: 'email',
     billing_mode: 'anticipado',
     first_invoice_policy: 'none',
+    first_invoice_free_months: 0,
   }
 })
 
@@ -899,6 +900,7 @@ const buildBillingPayload = () => {
     notification_type: form.billing.notification_type || 'email',
     billing_mode: form.billing.billing_mode || 'anticipado',
     first_invoice_policy: form.billing.first_invoice_policy || 'none',
+    first_invoice_free_months: cleanInt(form.billing.first_invoice_free_months) ?? 0,
     comments: form.billing.comentarios || null,
   }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Billing\FirstInvoicePolicy;
 use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
 use App\Models\BillingActionLog;
@@ -263,6 +264,7 @@ class BillingService
                         billingConfig: $billingConfig,
                         amount:      $charge['amount'],
                         itemDescription: $charge['description'],
+                        free:        $charge['free'] ?? false,
                     );
                     $created++;
                     $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $invoice->id);
@@ -534,20 +536,13 @@ class BillingService
     /**
      * Qué cobrarle a este cliente por el periodo en curso.
      *
-     * Cliente normal (su servicio ya existía cuando empezó el periodo) → mes
-     * completo, exactamente como antes. Cliente que se instaló DENTRO del
-     * periodo → manda la política de "primera factura": el modo del cliente
-     * (customer_profile.first_invoice_mode) y, si no tiene, el del router
-     * (billing.first_invoice_policy):
+     * Toda la aritmética y la cascada cliente → plan → router viven en
+     * App\Billing\FirstInvoicePolicy; aquí sólo se arma el contexto (cuándo
+     * arrancó el servicio y cuánto cuesta el plan). Devuelve null cuando no
+     * debe existir factura, y un cargo con free = true en los meses de
+     * cortesía posteriores a la instalación (factura en cero).
      *
-     *   none     → null (no se factura; su primera factura sale el próximo ciclo)
-     *   prorated → sólo los días restantes del mes
-     *   full     → mes completo
-     *
-     * El prorrateo usa la aritmética del operador: instalado el día 20 de un mes
-     * de 30 ⇒ 10 días (30 − 20), es decir el día de instalación no se cobra.
-     *
-     * @return array{period_start: Carbon, amount: float, description: string}|null
+     * @return array{period_start: Carbon, amount: float, description: string, free: bool}|null
      */
     protected function resolveFirstInvoiceCharge(
         CustomerProfile $profile,
@@ -557,54 +552,14 @@ class BillingService
         Carbon $periodStart,
         Carbon $periodEnd,
     ): ?array {
-        $fullAmount = (float) ($servicePlan->cost_product ?? 0);
-
-        $fullMonth = [
-            'period_start' => $periodStart->copy(),
-            'amount'       => $fullAmount,
-            'description'  => "Servicio mensual: {$servicePlan->name}",
-        ];
-
-        $serviceStart = $this->resolveServiceStart($profile, $userService);
-
-        // Cliente ya activo antes de que empezara el periodo → mes completo.
-        if (!$serviceStart || $serviceStart->lte($periodStart)) {
-            return $fullMonth;
-        }
-
-        // El servicio empieza después del periodo facturado (típico en cobro
-        // vencido): todavía no hay nada consumido que cobrar.
-        if ($serviceStart->gt($periodEnd)) {
-            return null;
-        }
-
-        $mode = $profile->first_invoice_mode
-            ?: ($billingConfig->first_invoice_policy ?: Billing::FIRST_INVOICE_NONE);
-
-        if ($mode === Billing::FIRST_INVOICE_FULL) {
-            return $fullMonth;
-        }
-
-        if ($mode !== Billing::FIRST_INVOICE_PRORATED) {
-            return null; // 'none' (por defecto) o un valor desconocido
-        }
-
-        $daysInMonth  = $periodStart->daysInMonth;
-        $billableDays = $daysInMonth - $serviceStart->day;
-
-        if ($billableDays <= 0 || $fullAmount <= 0) {
-            return null; // instalado el último día del mes / plan sin costo
-        }
-
-        return [
-            'period_start' => $serviceStart->copy(),
-            // A pesos enteros: la moneda es COP (sin centavos en la práctica) y
-            // así el monto coincide exacto con el que el formulario le muestra
-            // al operador antes de crear el cliente.
-            'amount'       => round($fullAmount * $billableDays / $daysInMonth),
-            'description'  => "Servicio proporcional: {$servicePlan->name} "
-                . "({$billableDays} de {$daysInMonth} días — desde el {$serviceStart->format('d/m/Y')})",
-        ];
+        return FirstInvoicePolicy::resolve($profile, $servicePlan, $billingConfig)
+            ->chargeFor(
+                serviceStart: $this->resolveServiceStart($profile, $userService),
+                periodStart:  $periodStart,
+                periodEnd:    $periodEnd,
+                fullAmount:   (float) ($servicePlan->cost_product ?? 0),
+                planName:     $servicePlan->name,
+            );
     }
 
     /**
@@ -613,6 +568,12 @@ class BillingService
      *
      * $amount / $itemDescription permiten cobrar algo distinto al plan completo
      * (prorrateo de primera factura). Por defecto: el costo del plan.
+     *
+     * $free marca un mes de cortesía (promoción de instalación): la factura se
+     * emite igual —para que quede constancia y para que la auditoría no la lea
+     * como una factura que faltó— pero nace en cero y ya saldada, así queda
+     * fuera del seguimiento de mora y del corte automático, que filtran por
+     * balance_due > 0 y status not in (void, cancelled, paid).
      */
     protected function createMonthlyInvoiceFor(
         int $tenantId,
@@ -627,8 +588,9 @@ class BillingService
         Billing $billingConfig,
         ?float $amount = null,
         ?string $itemDescription = null,
+        bool $free = false,
     ): Invoice {
-        $subtotal    = $amount ?? (float) ($servicePlan->cost_product ?? 0);
+        $subtotal    = $free ? 0.0 : ($amount ?? (float) ($servicePlan->cost_product ?? 0));
         $tax         = 0;
         $total       = $subtotal + $tax;
         $description = $itemDescription ?: "Servicio mensual: {$servicePlan->name}";
@@ -649,8 +611,8 @@ class BillingService
             'subtotal'     => $subtotal,
             'tax'          => $tax,
             'total'        => $total,
-            'balance_due'  => $total,
-            'status'       => 'issued',
+            'balance_due'  => $free ? 0 : $total,
+            'status'       => $free ? 'paid' : 'issued',
         ]);
 
         InvoiceItem::create([
@@ -665,14 +627,19 @@ class BillingService
         $profile->refresh();
         $this->applyCreditToInvoice($invoice, $profile);
 
-        Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id}).");
+        Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id})"
+            . ($free ? ' — mes de cortesía, emitida en cero.' : '.'));
 
-        // Notification failure must NOT roll back the invoice.
-        try {
-            $invoice->refresh()->load('tenant');
-            $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
-        } catch (\Throwable $e) {
-            Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+        // Un mes de cortesía no se notifica: avisarle al cliente de una factura
+        // de $0 que no tiene que pagar sólo genera confusión (y gasta mensajes).
+        if (!$free) {
+            // Notification failure must NOT roll back the invoice.
+            try {
+                $invoice->refresh()->load('tenant');
+                $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+            } catch (\Throwable $e) {
+                Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+            }
         }
 
         return $invoice;
@@ -798,6 +765,7 @@ class BillingService
                 billingConfig: $billingConfig,
                 amount:      $charge['amount'],
                 itemDescription: $charge['description'],
+                free:        $charge['free'] ?? false,
             );
 
             $log->update([

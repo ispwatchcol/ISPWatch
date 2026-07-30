@@ -714,6 +714,7 @@ const form = reactive({
     notification_type: 'email',
     billing_mode: 'anticipado',
     first_invoice_policy: 'none',
+    first_invoice_free_months: 0,
   }
 })
 
@@ -841,6 +842,7 @@ const loadRouterData = async () => {
         form.billing.notification_type = data.billing.notification_type || 'email'
         form.billing.billing_mode = data.billing.billing_mode || 'anticipado'
         form.billing.first_invoice_policy = data.billing.first_invoice_policy || 'none'
+        form.billing.first_invoice_free_months = Number(data.billing.first_invoice_free_months ?? 0)
     }
 
   } catch (e) {
@@ -893,6 +895,7 @@ const buildBillingPayload = () => {
     notification_type: form.billing.notification_type || 'email',
     billing_mode: form.billing.billing_mode || 'anticipado',
     first_invoice_policy: form.billing.first_invoice_policy || 'none',
+    first_invoice_free_months: cleanInt(form.billing.first_invoice_free_months) ?? 0,
     comments: form.billing.comentarios || null,
   }
 }

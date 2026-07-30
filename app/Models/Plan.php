@@ -19,6 +19,11 @@ class Plan extends Model
         'speed_up',
         'cost_product',
         'is_courtesy',
+        // "Primera factura" a nivel de producto: la promoción de instalación
+        // suele venderse con el plan ("Hogar 100M: instalación con mes de
+        // regalo"). null = hereda del router. Ver App\Billing\FirstInvoicePolicy.
+        'first_invoice_mode',
+        'first_invoice_free_months',
         'commit',
         'type',
         'tenant_id',
@@ -40,6 +45,7 @@ class Plan extends Model
 
     protected $casts = [
         'is_courtesy' => 'boolean',
+        'first_invoice_free_months' => 'integer',
     ];
 
     public function typePlan()

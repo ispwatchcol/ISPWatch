@@ -77,6 +77,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
     Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
     Route::get('/customers/used-ips', [CustomerProfileController::class, 'usedIps']);
+    // Sólo calcula (no escribe): qué se le cobraría al cliente en sus primeros
+    // meses. Lo usa el formulario de alta/edición para mostrar el prorrateo y
+    // los meses de cortesía antes de guardar.
+    Route::post('/customers/first-invoice-preview', [CustomerProfileController::class, 'firstInvoicePreview']);
     Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision'])
         ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision'])

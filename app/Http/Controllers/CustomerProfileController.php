@@ -27,6 +27,80 @@ class CustomerProfileController extends Controller
     use FixesSequences;
 
     /**
+     * Vista previa de la "primera factura": qué se le va a cobrar al cliente en
+     * sus primeros meses según la fecha de instalación, el plan, el router y los
+     * overrides que el operador esté escribiendo en el formulario.
+     *
+     * Existe para que el formulario NO tenga su propia copia de la fórmula: los
+     * números que ve el operador antes de guardar salen de la misma clase que
+     * después emite las facturas (App\Billing\FirstInvoicePolicy), así no puede
+     * pasar que la vista previa prometa un prorrateo y la corrida mensual cobre
+     * otra cosa.
+     *
+     * No escribe nada.
+     */
+    public function firstInvoicePreview(Request $request)
+    {
+        $data = $request->validate([
+            'installation_date' => 'required|date',
+            'plan_id'           => 'nullable|integer',
+            'router_id'         => 'nullable|integer',
+            'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
+            'first_invoice_free_months' => 'nullable|integer|min:0|max:' . \App\Billing\FirstInvoicePolicy::MAX_FREE_MONTHS,
+        ]);
+
+        // Los modelos van tenant-scoped por el global scope de BelongsToTenant.
+        $plan   = !empty($data['plan_id']) ? Plan::find($data['plan_id']) : null;
+        $router = !empty($data['router_id']) ? Router::with('billingConfig')->find($data['router_id']) : null;
+
+        // Perfil "en borrador": lo que el operador tiene escrito ahora mismo,
+        // sin tocar la base. Un valor vacío significa heredar.
+        $draft = new CustomerProfile([
+            'first_invoice_mode' => ($data['first_invoice_mode'] ?? null) ?: null,
+            'first_invoice_free_months' => isset($data['first_invoice_free_months']) && $data['first_invoice_free_months'] !== ''
+                ? (int) $data['first_invoice_free_months']
+                : null,
+        ]);
+
+        $policy = \App\Billing\FirstInvoicePolicy::resolve($draft, $plan, $router?->billingConfig);
+
+        $serviceStart = \Carbon\Carbon::parse($data['installation_date'])->startOfDay();
+        $fullAmount   = (float) ($plan->cost_product ?? 0);
+        $planName     = $plan->name ?? 'Plan';
+
+        // Se proyecta el mes de instalación, los de cortesía y el primero que se
+        // cobra completo: con eso el operador ve el ciclo entero de la promoción.
+        $months = [];
+        for ($i = 0; $i <= $policy->freeMonths + 1; $i++) {
+            $periodStart = $serviceStart->copy()->startOfMonth()->addMonthsNoOverflow($i);
+            $periodEnd   = $periodStart->copy()->endOfMonth();
+
+            $charge = $policy->chargeFor($serviceStart, $periodStart, $periodEnd, $fullAmount, $planName);
+
+            $months[] = [
+                'period'      => $periodStart->format('Y-m'),
+                'label'       => self::MONTH_NAMES[(int) $periodStart->format('n')] . ' ' . $periodStart->format('Y'),
+                'charged'     => $charge !== null,
+                'free'        => (bool) ($charge['free'] ?? false),
+                'amount'      => (float) ($charge['amount'] ?? 0),
+                'description' => $charge['description'] ?? 'No se genera factura de este mes.',
+            ];
+        }
+
+        return response()->json([
+            'policy' => $policy->toArray(),
+            'months' => $months,
+        ]);
+    }
+
+    /** Nombres de mes en español (sin depender del locale instalado). */
+    private const MONTH_NAMES = [
+        1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril',
+        5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
+        9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
+    ];
+
+    /**
      * Distinct, non-null customer IPs for the current tenant. Used by the router
      * add form to compute free/used IPs against the configured IP ranges.
      * Tenant scoping mirrors index(): via the related users.tenant_id.
@@ -422,8 +496,11 @@ class CustomerProfileController extends Controller
                 'installation_date' => $data['installation_date'] ?? null,
                 'estrato'     => $data['estrato'] ?? null,
                 'exclude_from_billing' => $data['exclude_from_billing'] ?? false,
-                // null = hereda la política de primera factura del router
+                // null = hereda la política de primera factura del plan/router
                 'first_invoice_mode' => ($data['first_invoice_mode'] ?? null) ?: null,
+                'first_invoice_free_months' => isset($data['first_invoice_free_months']) && $data['first_invoice_free_months'] !== ''
+                    ? (int) $data['first_invoice_free_months']
+                    : null,
                 'comments'    => $data['comments'] ?? null,
                 'ip_user'        => $data['ip_user'] ?? null,
                 'service_id'     => $data['service_id'] ?? null,
@@ -557,6 +634,7 @@ class CustomerProfileController extends Controller
             'estrato'      => $customer->estrato,
             'exclude_from_billing' => (bool) $customer->exclude_from_billing,
             'first_invoice_mode' => $customer->first_invoice_mode,
+            'first_invoice_free_months' => $customer->first_invoice_free_months,
             'comments'     => $customer->comments,
             'latitude'     => $customer->latitude,
             'longitude'    => $customer->longitude,
@@ -890,6 +968,7 @@ class CustomerProfileController extends Controller
             'estrato'   => 'nullable|integer|between:1,6',
             'exclude_from_billing' => 'nullable|boolean',
             'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
+            'first_invoice_free_months' => 'nullable|integer|min:0|max:' . \App\Billing\FirstInvoicePolicy::MAX_FREE_MONTHS,
             'comments'  => 'nullable|string|max:2000',
             'latitude'  => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
@@ -1023,6 +1102,11 @@ class CustomerProfileController extends Controller
                 'estrato'     => array_key_exists('estrato', $data) ? ($data['estrato'] !== '' ? $data['estrato'] : null) : $customer->estrato,
                 'exclude_from_billing' => array_key_exists('exclude_from_billing', $data) ? (bool) $data['exclude_from_billing'] : $customer->exclude_from_billing,
                 'first_invoice_mode' => array_key_exists('first_invoice_mode', $data) ? ($data['first_invoice_mode'] ?: null) : $customer->first_invoice_mode,
+                'first_invoice_free_months' => array_key_exists('first_invoice_free_months', $data)
+                    ? ($data['first_invoice_free_months'] !== '' && $data['first_invoice_free_months'] !== null
+                        ? (int) $data['first_invoice_free_months']
+                        : null)
+                    : $customer->first_invoice_free_months,
                 'comments'    => array_key_exists('comments', $data) ? $data['comments'] : $customer->comments,
                 'latitude'    => array_key_exists('latitude', $data) ? ($data['latitude'] !== '' ? $data['latitude'] : null) : $customer->latitude,
                 'longitude'   => array_key_exists('longitude', $data) ? ($data['longitude'] !== '' ? $data['longitude'] : null) : $customer->longitude,

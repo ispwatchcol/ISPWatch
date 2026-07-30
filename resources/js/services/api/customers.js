@@ -26,6 +26,12 @@ export default {
     getUsedIps() {
         return apiClient.get('/customers/used-ips')
     },
+    // Qué se le cobrará al cliente en sus primeros meses (prorrateo + meses de
+    // cortesía). Sólo calcula: lo resuelve el backend con la MISMA clase que
+    // después emite las facturas, para que la vista previa no pueda mentir.
+    firstInvoicePreview(payload) {
+        return apiClient.post('/customers/first-invoice-preview', payload)
+    },
     provision(id) {
         return apiClient.post(`/customers/${id}/provision`)
     },
