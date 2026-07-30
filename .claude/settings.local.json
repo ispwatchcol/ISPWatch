@@ -63,7 +63,16 @@
       "Bash(grep -vE \"Auth\\\\\\\\\\\\\\\\\")",
       "Bash(grep -vE \"^\\\\s*$\")",
       "Bash(composer install *)",
-      "Bash(grep -vE \"Auth\\\\\\\\\\\\\\\\|ProfileTest|ExampleTest\")"
+      "Bash(grep -vE \"Auth\\\\\\\\\\\\\\\\|ProfileTest|ExampleTest\")",
+      "PowerShell(git -C \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\" status --short)",
+      "PowerShell(git -C \"c:\\\\Users\\\\User\\\\Desktop\\\\GITHUB\\\\ISPWatch\" branch -vv)",
+      "Bash(grep -n \"public function\\\\|private function\\\\|protected function\\\\|^    \\\\* \\\\|^/\\\\*\\\\*\" app/Services/BillingService.php)",
+      "Bash(grep -vE '^\\\\s*\\(//|\\\\*|/\\\\*\\)' config/sanctum.php)",
+      "Bash(php -r ' *)",
+      "Bash(grep -vE \"^\\\\s*\\(\\\\||/\\\\*|\\\\*\\)\" config/cors.php)",
+      "Bash(sed -n '/public function rules/,/^    }/p' app/Http/Requests/StoreRouterRequest.php)",
+      "Bash(sed -n '/public function rules/,/^    }/p' app/Http/Requests/StorePlanRequest.php)",
+      "Bash(echo \"--- exit $? ---\")"
     ]
   }
 }
