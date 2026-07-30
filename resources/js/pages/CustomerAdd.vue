@@ -241,36 +241,61 @@
                     Primera factura <span class="text-gray-400 font-normal text-xs">(si entra a mitad de mes)</span>
                 </label>
                 <select v-model="form.first_invoice_mode" class="input">
-                    <option value="">Usar la política del router{{ routerPolicyLabel ? ` (${routerPolicyLabel})` : '' }}</option>
+                    <option value="">Usar la política del plan / router{{ routerPolicyLabel ? ` (${routerPolicyLabel})` : '' }}</option>
                     <option value="none">No cobrar el mes en curso — empieza el próximo ciclo</option>
                     <option value="prorated">Cobrar proporcional a los días restantes</option>
                     <option value="full">Cobrar el mes completo</option>
                 </select>
 
-                <!-- Cálculo en vivo: el operador decide con los números a la vista
-                     (faltando 5 días quizá sí cobra; faltando 2 quizá no). -->
-                <div v-if="firstInvoicePreview.show"
-                    class="mt-2 p-3 rounded-xl text-sm border"
-                    :class="firstInvoicePreview.willCharge
-                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                        : 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700'">
-                    <p class="text-gray-700 dark:text-gray-300">
-                        <span class="font-medium">Inicio de servicio:</span>
-                        {{ firstInvoicePreview.startLabel }} — quedan
-                        <strong>{{ firstInvoicePreview.billableDays }}</strong>
-                        de {{ firstInvoicePreview.daysInMonth }} días del mes.
+                <label class="label mt-3">
+                    <v-icon name="md-moneyoff" class="w-4 h-4 mr-1 inline" />
+                    Meses de cortesía después de la instalación
+                </label>
+                <select v-model="form.first_invoice_free_months" class="input">
+                    <option value="">Usar lo que diga el plan / router</option>
+                    <option :value="0">Ninguno — se cobra todos los meses</option>
+                    <option :value="1">1 mes gratis (el siguiente a la instalación)</option>
+                    <option :value="2">2 meses gratis</option>
+                    <option :value="3">3 meses gratis</option>
+                </select>
+
+                <!-- Vista previa: la calcula el backend con la misma clase que
+                     después emite las facturas, así el número que ve el operador
+                     es exactamente el que se va a cobrar. -->
+                <div v-if="firstInvoice.loading" class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    Calculando la primera factura…
+                </div>
+                <div v-else-if="firstInvoice.months.length"
+                    class="mt-2 p-3 rounded-xl text-sm border bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700">
+                    <p class="text-gray-700 dark:text-gray-300 font-medium mb-2">
+                        Así quedarían sus primeros meses:
                     </p>
-                    <p class="mt-1" :class="firstInvoicePreview.willCharge
-                        ? 'text-blue-800 dark:text-blue-300 font-semibold'
-                        : 'text-gray-600 dark:text-gray-400'">
-                        {{ firstInvoicePreview.outcome }}
+                    <ul class="space-y-1">
+                        <li v-for="m in firstInvoice.months" :key="m.period"
+                            class="flex items-baseline justify-between gap-3">
+                            <span class="capitalize text-gray-600 dark:text-gray-400">{{ m.label }}</span>
+                            <span v-if="!m.charged" class="text-gray-500 dark:text-gray-500 italic">sin factura</span>
+                            <span v-else-if="m.free" class="font-semibold text-emerald-700 dark:text-emerald-400">
+                                cortesía — {{ money(0) }}
+                            </span>
+                            <span v-else class="font-semibold text-blue-800 dark:text-blue-300">{{ money(m.amount) }}</span>
+                        </li>
+                    </ul>
+                    <p v-if="firstInvoice.policy" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        Cobro del primer mes: {{ FIRST_INVOICE_LABELS[firstInvoice.policy.mode] }}
+                        ({{ POLICY_SOURCE_LABELS[firstInvoice.policy.mode_source] }}) ·
+                        cortesía: {{ firstInvoice.policy.free_months }}
+                        {{ firstInvoice.policy.free_months === 1 ? 'mes' : 'meses' }}
+                        ({{ POLICY_SOURCE_LABELS[firstInvoice.policy.free_months_source] }}).
                     </p>
                 </div>
 
                 <p class="hint">
-                    Sólo aplica cuando el servicio empieza después de que el mes ya se facturó
-                    (ej. instalado el día 20 con facturación el día 1). Proporcional: mes de 30 días
-                    e instalación el 20 ⇒ se cobran 10 días del plan.
+                    El primer punto sólo aplica cuando el servicio empieza después de que el mes ya se
+                    facturó (ej. instalado el día 20 con facturación el día 1): mes de 30 días e
+                    instalación el 20 ⇒ se cobran 10 días. Los meses de cortesía son los que van
+                    <strong>después</strong> del de instalación — sirven para promociones del tipo
+                    "paga el prorrateo y el mes siguiente va incluido en la instalación".
                 </p>
                 </div>
 
@@ -776,8 +801,9 @@ const form = ref({
     installation_date: '',
     estrato: null,
     exclude_from_billing: false,
-    // '' = hereda la política de primera factura del router
+    // '' = hereda la política de primera factura del plan y, si no, del router
     first_invoice_mode: '',
+    first_invoice_free_months: '',
     comments: '',
     ip_user: '',
     service_id: null,
@@ -940,15 +966,25 @@ const selectedPlan   = computed(() => plans.value.find(p => p.id === form.value.
 const selectedRouter = computed(() => routers.value.find(r => r.id === form.value.router_id))
 
 /* ============================
-   PRIMERA FACTURA — cálculo en vivo
-   Espeja resolveFirstInvoiceCharge() del backend para que el operador vea, en
-   el momento de convertir el prospecto, cuántos días quedan y cuánta plata es;
-   así decide caso por caso (faltando 5 días quizá cobra, faltando 2 no).
+   PRIMERA FACTURA — vista previa
+   El cálculo NO se repite aquí: se le pide al backend, que lo resuelve con la
+   misma clase que después emite las facturas (App\Billing\FirstInvoicePolicy).
+   Antes esta pantalla tenía su propia copia de la fórmula del prorrateo; con la
+   cascada cliente → plan → router y los meses de cortesía, mantener dos
+   versiones era pedir que la vista previa prometiera un número y la corrida
+   mensual cobrara otro.
 ============================ */
 const FIRST_INVOICE_LABELS = {
     none:     'no cobrar el mes en curso',
     prorated: 'cobrar proporcional',
     full:     'cobrar el mes completo',
+}
+
+const POLICY_SOURCE_LABELS = {
+    customer: 'definido para este cliente',
+    plan:     'heredado del plan',
+    router:   'heredado del router',
+    default:  'valor por defecto',
 }
 
 const money = (n) => new Intl.NumberFormat('es-CO', {
@@ -963,62 +999,54 @@ const routerPolicy = computed(() =>
 )
 const routerPolicyLabel = computed(() => FIRST_INVOICE_LABELS[routerPolicy.value] ?? '')
 
-const firstInvoicePreview = computed(() => {
-    const hidden = { show: false, willCharge: false }
+const firstInvoice = ref({ loading: false, months: [], policy: null })
+let firstInvoiceTimer = null
 
-    const cost = Number(selectedPlan.value?.cost_product ?? 0)
-    if (!cost) return hidden
-
-    // El backend toma la fecha MÁS ANTIGUA entre instalación y alta del usuario;
-    // para un cliente nuevo el alta es hoy.
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    let start = today
-    if (form.value.installation_date) {
-        const d = new Date(`${form.value.installation_date}T00:00:00`)
-        if (!isNaN(d.getTime()) && d < start) start = d
+const loadFirstInvoicePreview = async () => {
+    // Sin plan no hay tarifa que proyectar. Sin fecha de instalación se asume
+    // hoy, que es lo que hará el backend al dar de alta al cliente.
+    if (!form.value.service_id) {
+        firstInvoice.value = { loading: false, months: [], policy: null }
+        return
     }
 
-    // Servicio que arranca el día 1: no es un alta a mitad de mes, se factura
-    // como cualquier cliente antiguo.
-    if (start.getDate() === 1) return hidden
+    firstInvoice.value = { ...firstInvoice.value, loading: true }
 
-    const daysInMonth  = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
-    const billableDays = daysInMonth - start.getDate()
-    const prorated     = billableDays > 0 ? Math.round(cost * billableDays / daysInMonth) : 0
-
-    const mode = form.value.first_invoice_mode || routerPolicy.value || 'none'
-
-    let outcome
-    let willCharge = false
-
-    if (mode === 'full') {
-        outcome = `Se cobrará el mes completo: ${money(cost)}.`
-        willCharge = true
-    } else if (mode === 'prorated' && billableDays > 0) {
-        outcome = `Se cobrarán ${money(prorated)} — ${billableDays} de ${daysInMonth} días `
-                + `del plan de ${money(cost)}.`
-        willCharge = true
-    } else if (mode === 'prorated') {
-        outcome = 'No queda ningún día por cobrar este mes: no se generará factura.'
-    } else {
-        outcome = 'No se generará factura de este mes. La primera saldrá en el ciclo siguiente.'
+    try {
+        const { data } = await api.customers.firstInvoicePreview({
+            installation_date: form.value.installation_date || new Date().toISOString().slice(0, 10),
+            plan_id:   form.value.service_id,
+            router_id: form.value.router_id || null,
+            first_invoice_mode: form.value.first_invoice_mode || null,
+            first_invoice_free_months: form.value.first_invoice_free_months === ''
+                ? null
+                : form.value.first_invoice_free_months,
+        })
+        firstInvoice.value = {
+            loading: false,
+            months:  data.months ?? [],
+            policy:  data.policy ?? null,
+        }
+    } catch (e) {
+        console.warn('No se pudo calcular la vista previa de la primera factura:', e)
+        firstInvoice.value = { loading: false, months: [], policy: null }
     }
+}
 
-    if (!form.value.first_invoice_mode) {
-        outcome += ' (heredado del router)'
-    }
-
-    return {
-        show: true,
-        willCharge,
-        billableDays: Math.max(0, billableDays),
-        daysInMonth,
-        startLabel: start.toLocaleDateString('es-CO'),
-        outcome,
-    }
-})
+watch(
+    () => [
+        form.value.installation_date,
+        form.value.service_id,
+        form.value.router_id,
+        form.value.first_invoice_mode,
+        form.value.first_invoice_free_months,
+    ].join('|'),
+    () => {
+        clearTimeout(firstInvoiceTimer)
+        firstInvoiceTimer = setTimeout(loadFirstInvoicePreview, 350)
+    },
+    { immediate: true },
+)
 
 const filteredPlans = computed(() => {
     const r = selectedRouter.value
@@ -1236,8 +1264,13 @@ const handleSubmit = async (pushToRouter = true) => {
         const payload = {
             ...form.value,
             email_tenant: username ? `${username}${tenant.value}` : '',
-            // '' (heredar del router) viaja como null, no como cadena vacía.
+            // '' (heredar del plan/router) viaja como null, no como cadena vacía.
+            // Ojo con los meses: 0 es una decisión válida ("no le regales nada"),
+            // así que sólo la cadena vacía se convierte en null.
             first_invoice_mode: form.value.first_invoice_mode || null,
+            first_invoice_free_months: form.value.first_invoice_free_months === ''
+                ? null
+                : form.value.first_invoice_free_months,
             push_to_router: pushToRouter,
         }
         const res   = await api.customers.create(payload)

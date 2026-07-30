@@ -1,8 +1,10 @@
 # 🚀 ISPWatch
 
-**La Solución Inteligente para la Gestión de tu ISP**
+**La solución inteligente para la gestión de tu ISP**
 
-ISPWatch es una plataforma **multi-tenant** completa para optimizar, automatizar y escalar la administración de Proveedores de Servicios de Internet (ISP): gestiona clientes, monitorea redes MikroTik, factura automáticamente y suspende/reactiva servicios por mora, todo en un solo lugar.
+Plataforma **multi-tenant** para administrar Proveedores de Servicios de Internet: gestiona
+clientes, monitorea redes MikroTik, factura automáticamente y suspende o reactiva servicios
+por mora — **actuando de verdad sobre los equipos de red**, no sólo sobre la base de datos.
 
 ![PHP](https://img.shields.io/badge/PHP-8.2%2B-777BB4)
 ![Laravel](https://img.shields.io/badge/Laravel-12-FF2D20)
@@ -12,266 +14,284 @@ ISPWatch es una plataforma **multi-tenant** completa para optimizar, automatizar
 
 ---
 
-## 📑 Tabla de Contenidos
+## 📚 Documentación
 
-- [Características](#-características)
-- [Tecnologías](#-tecnologías)
-- [Arquitectura](#-arquitectura)
-- [Requisitos Previos](#-requisitos-previos)
-- [Instalación](#-instalación)
-- [Configuración (.env)](#-configuración-env)
-- [Ejecutar en Desarrollo](#️-ejecutar-en-desarrollo)
-- [Build para Producción](#️-build-para-producción)
-- [Comandos Artisan](#-comandos-artisan)
-- [Tareas Programadas](#-tareas-programadas)
-- [Módulo de Facturación](#-módulo-de-facturación)
-- [Estructura del Proyecto](#-estructura-del-proyecto)
-- [Testing](#-testing)
-- [Seguridad](#-seguridad)
-- [Solución de Problemas](#-solución-de-problemas)
-- [Licencia](#-licencia)
+La documentación completa vive en [`docs/`](docs/). Empieza por la que corresponda a tu rol:
 
----
+| Documento | Para quién | Contenido |
+|---|---|---|
+| [**MANUAL_USUARIO.md**](docs/MANUAL_USUARIO.md) | Operadores, administrativos, técnicos | Uso diario paso a paso, en lenguaje no técnico |
+| [**MANUAL_DESARROLLADOR.md**](docs/MANUAL_DESARROLLADOR.md) | Desarrolladores | Instalación, entorno, pruebas, despliegue, trampas conocidas |
+| [**ARQUITECTURA.md**](docs/ARQUITECTURA.md) | Arquitectos, nuevos integrantes | Diseño del sistema, stack, integración MikroTik, flujo de datos |
+| [**BITACORA_TECNICA.md**](docs/BITACORA_TECNICA.md) | Mantenimiento | Inventario de código, módulos de negocio, trazabilidad, flujo completo |
+| [**API_REFERENCE.md**](docs/API_REFERENCE.md) | Integradores, frontend | Todos los endpoints con parámetros, respuestas y errores |
+| [**BASE_DATOS.md**](docs/BASE_DATOS.md) | DBA, backend | Diccionario de datos, ER, índices, restricciones |
+| [**MEJORAS_RECOMENDADAS.md**](docs/MEJORAS_RECOMENDADAS.md) | Responsables técnicos | Auditoría con problema, impacto, prioridad y recomendación |
+| [**BLOQUEO_MOROSOS_MANUAL.md**](docs/BLOQUEO_MOROSOS_MANUAL.md) | Redes | Configuración del bloqueo en MikroTik |
 
-## ✨ Características
-
-### 👥 Gestión de Clientes
-- Alta por formulario o **importación masiva desde Excel** (clientes, planes, routers y sectoriales en un solo archivo)
-- Asignación automática de IP y aprovisionamiento en MikroTik (Simple Queue / secret PPPoE)
-- Perfiles con cédula, ubicación geográfica (mapa Leaflet) y datos de contacto
-- Límite de clientes por plan del tenant con aviso de upgrade
-
-### 💰 Facturación Automática
-- Generación mensual de facturas para clientes con servicio activo (idempotente)
-- Numeración de facturas secuencial y segura por tenant (concurrency-safe)
-- Registro de pagos con asignación automática a facturas (más antigua primero)
-- **Planes de cortesía**: el estado `gratis` excluye al cliente de la facturación automática
-- Facturas en PDF, recordatorios de pago por correo / WhatsApp
-
-### ✂️ Corte y Reactivación Automática
-- Corte automático por router según día/hora y cantidad de facturas vencidas
-- Modos *Corte Automático* y *Corte Manual* (cola de pendientes)
-- Suspensión/reactivación vía MikroTik con registro de auditoría
-
-### 📡 Monitoreo e Integración MikroTik
-- Conexión a RouterBoards por **API** y **SSH** (directa o vía túnel CORE)
-- Generación de scripts VPN (L2TP/IPSec), verificación de conexión y de interfaz WAN
-- Instalación de reglas de bloqueo y políticas en el router
-
-### 🎫 Soporte y Administración
-- Sistema de tickets con categorías, mensajes y adjuntos
-- Roles personalizados con permisos granulares y auditoría de acciones
-- Autenticación con Laravel Sanctum y verificación de correo
+> ⚠️ **Regla del proyecto:** todo cambio de código debe reflejarse en los manuales
+> correspondientes en el mismo PR. Ver [Mantener la documentación](#-mantener-la-documentación).
 
 ---
 
-## 🛠 Tecnologías
+## ✨ Qué hace
+
+### 👥 Clientes
+Alta por formulario o **importación masiva desde Excel** (clientes, planes, routers y
+sectoriales en un solo archivo). Asignación de IP y aprovisionamiento automático en MikroTik.
+Mapa georreferenciado, documentos en S3 con URL firmada, contrato firmado digitalmente.
+Límite de clientes por plan del tenant.
+
+### 💰 Facturación
+Generación mensual **dirigida por router** (cada equipo tiene su día y hora de facturación),
+idempotente y con recuperación ante caídas. Numeración secuencial segura por tenant.
+**Política de primera factura** en cascada cliente → plan → router: sin cobro, prorrateado o
+mes completo, más meses de cortesía posteriores a la instalación. Facturas en PDF,
+recordatorios por correo y WhatsApp, pagos con asignación automática y saldo a favor.
+
+### ✂️ Corte y reactivación
+Corte automático por router según día, hora y número de facturas vencidas.
+**Reconexión automática al registrar el pago.** Failover con reintentos escalonados,
+reconciliación base de datos ⇄ RouterBoard y auditoría de *no-show*.
+
+### 📡 MikroTik
+Conexión por API y SSH a través de un router **CORE** central. Cinco métodos de control
+excluyentes (Simple Queue, PCQ, HotSpot, PPPoE, DHCP) más aditivos de IP Bindings y amarre
+IP-MAC. Generación de scripts VPN L2TP/IPSec, lectura de interfaces, reglas de bloqueo,
+historial de tráfico WAN y difusión de falla masiva.
+
+### 🌐 Planta externa
+Árbol FTTH completo (OLT → splitter → NAP → mufa) con puertos calculados y vista de topología.
+
+### 🎫 Soporte y administración
+Tickets con categorías, mensajes internos, adjuntos y cargos facturables.
+Roles personalizados con permisos granulares. Inventario, gastos, plantillas de documentos
+editables y centro de ayuda embebido.
+
+---
+
+## 🛠 Stack
 
 | Backend | Frontend | Datos / Infra |
-|---------|----------|---------------|
-| PHP 8.2+ | Vue 3 + Vue Router | PostgreSQL (Supabase) |
-| Laravel 12 | Vite 6 | Cola/caché en base de datos |
-| Laravel Sanctum | Pinia (estado) | DomPDF (facturas PDF) |
-| Livewire 3 + Volt | TailwindCSS 3 | Maatwebsite Excel (import/export) |
-| phpseclib (SSH) | Leaflet (mapas) | doctrine/dbal |
+|---|---|---|
+| PHP 8.2 · Laravel 12 | Vue 3 · Vue Router 4 | PostgreSQL (Supabase) + PostGIS |
+| Laravel Sanctum (SPA) | Pinia 3 · Vite 6 | Cache, cola y sesión en base de datos |
+| DomPDF · Maatwebsite Excel | TailwindCSS 3 | Amazon S3 (documentos privados) |
+| phpseclib (SSH) · Guzzle | Leaflet · axios | DigitalOcean App Platform |
+
+Detalle completo en [`ARQUITECTURA.md`](docs/ARQUITECTURA.md#2-stack-tecnológico).
 
 ---
 
-## 🏗 Arquitectura
+## 🏗 Arquitectura en una imagen
 
 ```
-Vue 3 SPA  ──HTTP/Sanctum──▶  API Laravel  ──▶  PostgreSQL (Supabase)
-                                   │
-                                   ├─▶ Services/   Lógica de negocio
-                                   │     • BillingService          (facturación)
-                                   │     • OverdueSuspensionService (corte por mora)
-                                   │     • RouterProvisioningService(alta en router)
-                                   │     • MikroTikSshService / RouterApiService
-                                   │     • VpnService / WhatsAppService
-                                   │
-                                   └─▶ Scheduler   Tareas programadas (cron)
+Vue 3 SPA  ──HTTPS/Sanctum──▶  API Laravel  ──▶  PostgreSQL (Supabase)
+                                     │
+                                     ├─▶ Services/     Lógica de negocio
+                                     ├─▶ Billing/      Políticas puras de facturación
+                                     ├─▶ MikroTik/     SSH → CORE → ssh-exec → RouterBoard
+                                     └─▶ Scheduler     9 tareas programadas
 ```
 
-- **Multi-tenant**: el trait `BelongsToTenant` filtra automáticamente por `tenant_id` del usuario autenticado (mitigación OWASP A01). En contextos de consola/jobs sin auth, no aplica filtro (procesa todos los tenants).
-- **Facturación dirigida por `user_services`**: el job mensual solo factura servicios con `status = 'active'`. Los planes de cortesía usan `status = 'gratis'`.
+- **Multi-tenant:** el trait `BelongsToTenant` filtra por el `tenant_id` **del usuario
+  autenticado**, nunca por parámetros del request.
+- **Facturación dirigida por `user_services`:** sólo se factura lo que tenga
+  `status = 'active'`. Los planes de cortesía usan `status = 'gratis'`.
+- **Doble salto SSH:** los RouterBoards no son accesibles desde internet; se alcanzan a
+  través del CORE con `/system ssh-exec`.
 
 ---
 
-## 📋 Requisitos Previos
+## 📋 Requisitos
 
-- **PHP** >= 8.2 (extensiones: `pdo_pgsql`, `mbstring`, `openssl`, `zip`, `gd`)
-- **Composer** >= 2.0
-- **Node.js** >= 18.x y **NPM** >= 9.x
-- **PostgreSQL** 14+ (o una cuenta en Supabase)
-- *(Opcional)* `pg_dump`/`pg_restore` para respaldos y squash de esquema
+- **PHP** ≥ 8.2 — extensiones `pdo_pgsql`, `mbstring`, `openssl`, `zip`, `gd`, `bcmath`
+- **Composer** ≥ 2.0
+- **Node.js** ≥ 18 y **NPM** ≥ 9
+- **PostgreSQL** 14+ con PostGIS (o una cuenta Supabase)
+- *(Para la red)* credenciales SSH del router CORE MikroTik
 
 ---
 
-## 🚀 Instalación
+## 🚀 Instalación rápida
 
 ```bash
-# 1. Clonar
-git clone https://github.com/tuusuario/ISPWatch.git
+git clone https://github.com/ispwatchcol/ISPWatch.git
 cd ISPWatch
 
-# 2. Dependencias PHP
 composer install
-
-# 3. Dependencias Node
 npm install
 
-# 4. Variables de entorno
 cp .env.example .env
-
-# 5. Clave de aplicación
 php artisan key:generate
 
-# 6. Migraciones
 php artisan migrate
-
-# 7. Datos iniciales
 php artisan db:seed
 ```
 
-El seeder crea, en orden: roles → tenant demo → tipos de plan → tipos de corte → planes de servicio → routers → usuarios base → clientes de ejemplo.
+El seeder crea, en orden: roles → tenant demo → tipos de plan → tipos de corte →
+planes de servicio → routers → usuarios base → clientes de ejemplo.
+
+Guía completa en [`MANUAL_DESARROLLADOR.md`](docs/MANUAL_DESARROLLADOR.md#2-instalación).
 
 ---
 
-## 🔧 Configuración (.env)
+## 🔧 Configuración mínima (.env)
 
 ```env
-# Aplicación
 APP_NAME=ISPWatch
 APP_ENV=local
 APP_DEBUG=true
 APP_URL=http://localhost:8000
 
-# Base de Datos (PostgreSQL / Supabase)
+# Base de datos — ⚠️ DB_SCHEMA=public es PRODUCCIÓN
 DB_CONNECTION=pgsql
-DB_HOST=tu-host.pooler.supabase.com
+DB_HOST=127.0.0.1
 DB_PORT=5432
-DB_DATABASE=postgres
-DB_USERNAME=tu_usuario
-DB_PASSWORD=tu_contraseña
+DB_DATABASE=ispwatch
+DB_USERNAME=postgres
+DB_PASSWORD=
+DB_SCHEMA=ispwatch_dev
 
-# Supabase (frontend)
-VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
-VITE_SUPABASE_ANON_KEY=tu_anon_key
-
-# Sanctum (agrega el host del dev server de Vite)
+# Sanctum + CORS (añade el host de Vite en local)
 SANCTUM_STATEFUL_DOMAINS=localhost,localhost:5173,127.0.0.1,127.0.0.1:5173
+CORS_ALLOWED_ORIGINS=http://localhost:8000,http://localhost:5173
 
-# MikroTik CORE (servidor central / túnel VPN)
-MIKROTIK_CORE_API_HOST=
-MIKROTIK_CORE_API_PORT=8728
-MIKROTIK_CORE_API_USER=
-MIKROTIK_CORE_API_PASS=
-MIKROTIK_USE_CORE_TUNNEL=false   # producción debe ir en true
+# MikroTik CORE
+MIKROTIK_CORE_SSH_HOST=
+MIKROTIK_CORE_SSH_PORT=2222
+MIKROTIK_CORE_SSH_USER=
+MIKROTIK_CORE_SSH_PASS=
+MIKROTIK_USE_CORE_TUNNEL=false     # true en producción
+PORTAL_IP=192.168.88.252           # portal accesible al cliente cortado
 
-# Email (Brevo / SMTP)
+# Correo
 MAIL_MAILER=smtp
 MAIL_HOST=smtp-relay.brevo.com
 MAIL_PORT=587
-MAIL_USERNAME=
-MAIL_PASSWORD=
 MAIL_ENCRYPTION=tls
 ```
 
-> ⚠️ **Nunca** subas el `.env` ni claves SSH al repositorio. El `.gitignore` ya excluye `.env`, `*.log` y claves (`*.pem`, `id_ed25519*`, etc.).
+Referencia completa de variables en
+[`MANUAL_DESARROLLADOR.md`](docs/MANUAL_DESARROLLADOR.md#3-variables-de-entorno).
+
+> ⚠️ **Nunca** subas `.env`, claves SSH ni secretos al repositorio.
+> **No definas `DB_URL`**: puede redirigir silenciosamente la conexión de los tests a la
+> base de datos real.
 
 ---
 
-## ▶️ Ejecutar en Desarrollo
+## ▶️ Ejecutar en desarrollo
 
 ```bash
-# Opción 1: backend + Vite en un comando
-npm run dev
-
-# Opción 2: full-stack con cola y logs (recomendado para depurar)
-composer run dev      # serve + queue:listen + pail + vite
-
-# Opción 3: terminales separadas
-php artisan serve
-npm run vite
+npm run dev          # backend + Vite
+composer run dev     # serve + queue:listen + pail + vite  (recomendado para depurar)
+php artisan serve    # sólo backend
 ```
 
 Aplicación en **http://localhost:8000**.
 
 ---
 
-## 🏗️ Build para Producción
+## 🗄️ Migraciones
+
+> **Nunca uses `php artisan migrate` a secas contra Supabase.**
+
+La misma base de datos aloja dos esquemas: `ispwatch_dev` (desarrollo) y `public`
+(producción). El comando correcto los cubre ambos:
 
 ```bash
-npm run build         # assets optimizados en public/build/
-php artisan config:cache
-php artisan route:cache
+php artisan migrate:both
+php artisan migrate:both --path=database/migrations/<archivo>.php
+php artisan migrate:both --seed     # el seed sólo corre en ispwatch_dev
+php artisan db:sync-dev             # copia public → ispwatch_dev
 ```
-
-Ver [`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md) para el despliegue completo.
 
 ---
 
 ## 🧰 Comandos Artisan
 
 | Comando | Descripción |
-|---------|-------------|
-| `php artisan billing:generate-monthly` | Genera las facturas del **mes actual** para clientes activos (idempotente). |
-| `php artisan billing:void-courtesy {period?}` | Anula las facturas de clientes con plan de cortesía para un período `YYYY-MM` (por defecto, mes actual). |
-| `php artisan billing:auto-cut` | Procesa cortes automáticos por mora según la config de cada router. |
-| `php artisan db:seed` | Carga los datos iniciales. |
-| `php artisan migrate --path=...` | Aplica **una** migración específica (recomendado: la BD aplica migraciones de forma selectiva). |
+|---|---|
+| `billing:generate-monthly {period?}` | Genera facturas del periodo (idempotente) |
+| `billing:retry-failed` | Reintenta facturas fallidas (backoff 2h/6h/24h) |
+| `billing:verify-monthly` | Audita que la facturación mensual ocurrió |
+| `billing:auto-cut` | Corte automático por mora |
+| `billing:reconcile-suspensions` | Reconcilia cortes entre base de datos y router |
+| `billing:verify-cuts` | Audita que los cortes ocurrieron |
+| `billing:send-reminders` | Recordatorios de pago |
+| `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
+| `billing:simulate` | Simulador del ciclo completo |
+| `traffic:collect` / `traffic:prune` | Historial de tráfico WAN |
+| `migrate:both` | Migraciones en ambos esquemas |
+| `db:fix-sequences --all` | Repara secuencias de PostgreSQL |
 
-> ℹ️ `billing:generate-monthly` está definido como *closure* en `routes/console.php` y **no acepta argumentos**: siempre factura el mes actual. Para un período específico usa `tinker`:
-> `app(\App\Services\BillingService::class)->generateMonthlyInvoices('2026-04')`.
+Lista completa en [`MANUAL_DESARROLLADOR.md`](docs/MANUAL_DESARROLLADOR.md#8-comandos-artisan).
 
 ---
 
-## ⏰ Tareas Programadas
+## ⏰ Tareas programadas
 
-Definidas en [`routes/console.php`](routes/console.php) (requieren `php artisan schedule:work` o un cron a `schedule:run`):
+Definidas en [`routes/console.php`](routes/console.php). Requieren `schedule:run` cada minuto
+o un worker con `schedule:work`.
 
 | Frecuencia | Tarea |
-|------------|-------|
-| Día 1 de cada mes, 00:00 | `billing:generate-monthly` |
-| Cada hora | `billing:auto-cut` (procesa routers cuyo horario de corte ya llegó) |
+|---|---|
+| Cada hora | `billing:generate-monthly`, `billing:retry-failed`, `billing:auto-cut`, `billing:reconcile-suspensions`, `billing:send-reminders` |
+| Diario 06:00 | `billing:verify-monthly` |
+| Diario 07:00 | `billing:verify-cuts` |
+| Cada 5 min | `traffic:collect` |
+| Diario | `traffic:prune --days=30` |
+
+Los comandos horarios aplican su propio filtro de día y hora por router, así que ejecutarlos
+de más es una operación sin efecto. Si el sistema estuvo caído el día de facturación,
+**recupera al arrancar**.
+
+> ⚠️ **Verifica que el planificador esté corriendo en producción.** Sin él no se factura ni
+> se corta. Comprueba con `php artisan billing:verify-monthly`.
 
 ---
 
-## 💸 Módulo de Facturación
+## 💸 Notas sobre facturación
 
-- **Origen de datos**: la facturación se basa en la tabla `user_services`, no en `customer_profile.service_id`. Cada cliente con servicio debe tener una fila en `user_services`.
-- **Estados** (`user_services.status`): `active` (se factura), `gratis` (plan de cortesía, **no** se factura), `suspended`, `cancelled`, `expired`.
-- **Cortesía**: marca el plan con `is_courtesy = true`. Al importar/crear/editar clientes, el servicio queda en `gratis` automáticamente (`UserService::syncForCustomer`).
-- **Idempotencia**: regenerar el mismo período no duplica facturas (se valida por `tenant_id + customer_id + período`).
-- **Mora y corte**: facturas vencidas con saldo > 0 cuentan para el corte automático; las anuladas (`void`) no.
+- **Dirigida por router:** cada router lleva su configuración (día y hora de emisión,
+  vencimiento, recordatorio, corte, número de facturas vencidas toleradas y modo
+  anticipado/vencido). Si un cliente no recibe factura, revisa **primero su router**.
+- **Origen de datos:** se factura desde `user_services`, no desde `customer_profile.service_id`.
+- **Cortesía:** un plan con `is_courtesy = true` deja el servicio en `gratis` y nunca se factura.
+- **Exclusión por cliente:** la casilla `exclude_from_billing` saca al cliente de todo el
+  ciclo automático.
+- **Primera factura:** dos ejes independientes (modo y meses de cortesía) que se resuelven en
+  cascada cliente → plan → router. Una única fuente de la fórmula:
+  [`app/Billing/FirstInvoicePolicy.php`](app/Billing/FirstInvoicePolicy.php).
+- **Factura eliminada = lápida:** no se regenera nunca para ese cliente y ese periodo.
 
 ---
 
-## 📁 Estructura del Proyecto
+## 📁 Estructura del proyecto
 
 ```
 ISPWatch/
+├── .do/                    # Especificación de despliegue DigitalOcean
 ├── app/
-│   ├── Console/Commands/   # Comandos Artisan (billing, auto-cut, etc.)
-│   ├── Http/Controllers/   # API: Customer, Billing, Router, Plan, Auth…
-│   ├── Imports/Sheets/     # Importación Excel (Clientes, Planes, Routers)
-│   ├── Models/             # Eloquent (User, Plan, Invoice, UserService…)
-│   ├── Services/           # Lógica de negocio (Billing, MikroTik, VPN…)
+│   ├── Billing/            # Políticas puras de facturación
+│   ├── Console/Commands/   # 18 comandos Artisan
+│   ├── Http/               # Controladores, middleware, FormRequests
+│   ├── Models/             # 43 modelos Eloquent
+│   ├── Services/           # Lógica de negocio
+│   │   ├── MikroTik/       #   Un manager por recurso RouterOS
+│   │   └── Templates/      #   Render y saneado de documentos
 │   └── Traits/             # BelongsToTenant, FixesSequences
-├── config/                 # Configuración Laravel
-├── database/
-│   ├── migrations/         # Migraciones (idempotentes, con guardas hasColumn)
-│   ├── seeders/            # Datos iniciales
-│   └── factories/          # Factories para tests
+├── database/               # 129 migraciones, 13 seeders, 3 factories
+├── docs/                   # 📚 DOCUMENTACIÓN
 ├── resources/
-│   ├── js/{components,pages}/  # SPA Vue 3
-│   └── views/              # Blade (PDF de facturas, emails)
-├── routes/
-│   ├── api.php             # API REST (auth Sanctum)
-│   ├── web.php             # Rutas web / portal de pago
-│   └── console.php         # Comandos closure + scheduler
-└── tests/                  # PHPUnit (Feature/Unit)
+│   ├── js/                 # SPA Vue 3 (44 páginas)
+│   └── views/              # Blade: shell SPA, PDFs, correos, portal de pago
+├── routes/                 # api.php · web.php · console.php · auth.php
+└── tests/                  # 40 archivos PHPUnit (SQLite en memoria)
 ```
+
+Detalle en [`BITACORA_TECNICA.md`](docs/BITACORA_TECNICA.md#2-estructura-de-carpetas).
 
 ---
 
@@ -279,36 +299,80 @@ ISPWatch/
 
 ```bash
 php artisan test                       # toda la suite (SQLite en memoria)
-composer run test                      # limpia config y corre la suite
-php artisan test tests/Feature/Billing # solo facturación
+composer run test                      # limpia config y ejecuta
+php artisan test tests/Feature/Billing # sólo facturación
 ```
 
-Los tests usan `DB_CONNECTION=sqlite` (`:memory:`), aislado de la BD real.
+> Los tests corren sobre SQLite. **Las migraciones deben ser portables**: SQL exclusivo de
+> PostgreSQL rompe toda la suite si no se protege por driver.
 
 ---
 
 ## 🔐 Seguridad
 
-- Autenticación con **Laravel Sanctum** (SPA) y verificación de email.
-- Aislamiento **multi-tenant** en cada modelo vía `BelongsToTenant` (OWASP A01).
-- Credenciales de router cifradas en BD; claves SSH excluidas del repo.
-- Auditoría de acciones sensibles (`audit_logs`, `suspension_action_logs`).
-- Revisión OWASP documentada en [`OWASP_SECURITY_AUDIT.md`](OWASP_SECURITY_AUDIT.md) y [`SECURITY_IMPLEMENTATION_SUMMARY.md`](SECURITY_IMPLEMENTATION_SUMMARY.md).
+- Autenticación **Laravel Sanctum** (SPA por cookie) con verificación de correo obligatoria,
+  límite de 5 intentos por minuto y detección de patrones de inyección en el login.
+- Aislamiento **multi-tenant** por `BelongsToTenant`, con el `tenant_id` derivado siempre del
+  usuario autenticado.
+- Permisos granulares por rol, editables por tenant.
+- Cabeceras de seguridad globales (CSP, HSTS, X-Frame-Options, COOP).
+- Documentos en bucket S3 **privado** con URL firmada de 30 minutos.
+- Clave de Google Maps cifrada en reposo y nunca serializada.
+- Bitácoras de facturación y de cortes con reintentos y auditoría de *no-show*.
+
+Auditoría histórica en [`OWASP_SECURITY_AUDIT.md`](OWASP_SECURITY_AUDIT.md) y
+[`SECURITY_IMPLEMENTATION_SUMMARY.md`](SECURITY_IMPLEMENTATION_SUMMARY.md).
+
+> 🔴 **Hay hallazgos abiertos de prioridad crítica y alta.** Consulta
+> [`MEJORAS_RECOMENDADAS.md`](docs/MEJORAS_RECOMENDADAS.md) antes de considerar el sistema
+> listo para producción.
 
 ---
 
-## 🩹 Solución de Problemas
+## 🩹 Solución de problemas
 
 | Problema | Solución |
-|----------|----------|
-| `billing:generate-monthly` dice *"No arguments expected"* | El comando no acepta período; usa `tinker` con `generateMonthlyInvoices('YYYY-MM')`. |
-| Migración pendiente que no quieres aplicar a producción | Aplica solo la tuya: `php artisan migrate --path=database/migrations/<archivo>.php`. |
-| Cliente no recibe factura | Verifica que tenga fila en `user_services` con `status = 'active'` (los creados antes de la corrección manual podrían no tenerla). |
-| Error CORS/CSRF con Vite | Agrega el host de Vite a `SANCTUM_STATEFUL_DOMAINS`. |
-| Conexión MikroTik falla en local | Revisa `MIKROTIK_USE_CORE_TUNNEL` y credenciales API/SSH del router. |
+|---|---|
+| No se generan facturas | Ejecuta `billing:verify-monthly`. Si reporta `no_show`, el planificador no está corriendo |
+| Un cliente no recibe factura | Revisa: config de facturación del router → `user_services` activo → plan no cortesía → `exclude_from_billing` → lápida `suppressed` |
+| Cliente cortado sigue navegando | Aplica las reglas de bloqueo al router y ejecuta `billing:reconcile-suspensions` |
+| `<connection failed> <ip>:22` | IP del router obsoleta (la resuelve `RouterEndpointResolver`) o SSH en puerto distinto de 22 (`router.puerto_ssh`) |
+| Error CORS/CSRF con Vite | Añade el host de Vite a `SANCTUM_STATEFUL_DOMAINS` y `CORS_ALLOWED_ORIGINS` |
+| Falso `403 No role assigned` | Desajuste de `tenant_id` entre usuario y rol; el rol debe cargarse con `withoutGlobalScope('tenant')` |
+| Pestaña ausente para un administrador | Permiso nuevo sin backfill en los roles ya sembrados |
+| `504` al importar | Los importadores no deben consultar por fila; precarga en bloque |
+
+Más casos en
+[`MANUAL_DESARROLLADOR.md`](docs/MANUAL_DESARROLLADOR.md#12-solución-de-problemas).
+
+---
+
+## 📝 Mantener la documentación
+
+**Todo cambio de código debe actualizar la documentación afectada en el mismo PR.**
+Guía rápida de qué tocar:
+
+| Si cambias… | Actualiza |
+|---|---|
+| Un endpoint o su validación | `API_REFERENCE.md` |
+| El esquema (migración) | `BASE_DATOS.md` |
+| Un flujo de negocio o un servicio | `BITACORA_TECNICA.md` |
+| El diseño, el stack o una integración | `ARQUITECTURA.md` |
+| Algo visible para el usuario final | `MANUAL_USUARIO.md` |
+| Instalación, entorno o despliegue | `MANUAL_DESARROLLADOR.md` |
+| Resuelves un hallazgo de auditoría | `MEJORAS_RECOMENDADAS.md` (márcalo como resuelto) |
+
+Actualiza también la fecha de *Última actualización* en la cabecera del documento.
+
+### Contribuir
+
+- **Nunca hagas push directo a `main`**: es producción y despliega automáticamente.
+- Trabaja en rama de feature y abre PR. Verifica el upstream con `git branch -vv`.
+- Ejecuta `php artisan test` antes de abrir el PR.
+- Usa `php artisan migrate:both` para cualquier cambio de esquema.
 
 ---
 
 ## 📄 Licencia
 
-Proyecto bajo Licencia **MIT**.
+Proyecto bajo licencia **MIT**.

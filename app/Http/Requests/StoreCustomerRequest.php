@@ -41,8 +41,10 @@ class StoreCustomerRequest extends FormRequest
             // mensual, sin recordatorios/notificaciones ni corte por mora).
             'exclude_from_billing' => 'nullable|boolean',
             // Primera factura del cliente cuando entra a mitad del mes ya
-            // facturado: none | prorated | full. null = hereda del router.
+            // facturado: none | prorated | full. null = hereda del plan/router.
             'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
+            // Meses de cortesía posteriores al de instalación. null = hereda.
+            'first_invoice_free_months' => 'nullable|integer|min:0|max:' . \App\Billing\FirstInvoicePolicy::MAX_FREE_MONTHS,
             'comments'       => 'nullable|string|max:2000',
 
             // Service configuration

@@ -30,7 +30,7 @@ class RouterController extends Controller
         // mostrar qué política de "primera factura" heredaría del router.
         $routers = Router::with([
             'cutType:id,name',
-            'billingConfig:id,first_invoice_policy,create_invoice',
+            'billingConfig:id,first_invoice_policy,first_invoice_free_months,create_invoice',
         ])->select(
             'id',
             'name',
@@ -139,7 +139,7 @@ class RouterController extends Controller
             'payment_day', 'payment_reminder', 'payment_reminder_time',
             'payment_reminder_enabled', 'overdue_invoices', 'amount', 'id_type',
             'status', 'notificar_wpp', 'notification_type', 'billing_mode',
-            'first_invoice_policy', 'comments',
+            'first_invoice_policy', 'first_invoice_free_months', 'comments',
         ])->toArray();
     }
 

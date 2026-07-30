@@ -129,6 +129,50 @@
                 </span>
               </label>
 
+              <!-- Primera factura: cómo se cobra a quien contrata este plan -->
+              <div class="rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 px-4 py-3 space-y-3">
+                <div>
+                  <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">Primera factura de este plan</span>
+                  <span class="block text-xs text-gray-500 dark:text-gray-400">
+                    Aplica a los clientes que contraten el plan. Si se deja en "heredar", manda la
+                    configuración del router.
+                  </span>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Mes de la instalación</label>
+                  <select
+                    v-model="form.first_invoice_mode"
+                    class="w-full h-11 px-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                           text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  >
+                    <option value="">Heredar del router</option>
+                    <option value="none">No cobrar el mes en curso</option>
+                    <option value="prorated">Cobrar proporcional a los días restantes</option>
+                    <option value="full">Cobrar el mes completo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Meses de cortesía posteriores</label>
+                  <select
+                    v-model="form.first_invoice_free_months"
+                    class="w-full h-11 px-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600
+                           text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  >
+                    <option value="">Heredar del router</option>
+                    <option :value="0">Ninguno</option>
+                    <option :value="1">1 mes gratis</option>
+                    <option :value="2">2 meses gratis</option>
+                    <option :value="3">3 meses gratis</option>
+                  </select>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Ej.: proporcional + 1 mes gratis ⇒ quien se instale el 16 de julio paga los días
+                    que quedan de julio y agosto le sale en cero (lo cubre la instalación).
+                  </p>
+                </div>
+              </div>
+
               <!-- Descripción -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Descripción <span class="text-gray-400 font-normal">(Opcional)</span></label>
@@ -451,6 +495,9 @@ const form = ref({
   address_mask: '32',
   shared_users: 1,
   is_courtesy: false,
+  // '' = heredar del router. Ver App\Billing\FirstInvoicePolicy.
+  first_invoice_mode: '',
+  first_invoice_free_months: '',
 })
 
 const toast = ref(null)
@@ -521,6 +568,10 @@ const fetchPlanData = async () => {
     // Cortesía
     form.value.is_courtesy = !!data.is_courtesy
 
+    // Primera factura (0 meses es un valor real; sólo null/undefined = heredar)
+    form.value.first_invoice_mode = data.first_invoice_mode || ''
+    form.value.first_invoice_free_months = data.first_invoice_free_months ?? ''
+
     // Si hay burst, mostrar sección avanzada
     if (form.value.burst_download || form.value.burst_upload) {
         showAdvancedSpeed.value = true
@@ -588,6 +639,11 @@ const updatePlan = async () => {
       pcq_rate: form.value.pcq_rate || null,
       address_mask: form.value.address_mask || null,
       is_courtesy: !!form.value.is_courtesy,
+      // '' = heredar; 0 en meses es una decisión ("sin cortesía"), no un heredar.
+      first_invoice_mode: form.value.first_invoice_mode || null,
+      first_invoice_free_months: form.value.first_invoice_free_months === ''
+        ? null
+        : form.value.first_invoice_free_months,
     }
 
     // Asumimos endpoint update(id, payload)

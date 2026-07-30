@@ -77,6 +77,9 @@ class PlanController extends Controller
             'address_mask' => 'nullable|string',
             // Plan de cortesía: el cliente queda en 'gratis' y nunca se factura.
             'is_courtesy' => 'sometimes|boolean',
+            // "Primera factura" del producto (null = hereda del router).
+            'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
+            'first_invoice_free_months' => 'nullable|integer|min:0|max:' . \App\Billing\FirstInvoicePolicy::MAX_FREE_MONTHS,
         ]);
 
         $plan->update($validated);

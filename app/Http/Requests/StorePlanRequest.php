@@ -34,6 +34,11 @@ class StorePlanRequest extends FormRequest
             'address_mask' => 'nullable|string',
             // Plan de cortesía: el cliente queda en 'gratis' y nunca se factura.
             'is_courtesy' => 'sometimes|boolean',
+            // "Primera factura" del producto: qué se cobra el mes de instalación
+            // y cuántos meses siguientes van de cortesía. null = hereda del
+            // router. Ver App\Billing\FirstInvoicePolicy.
+            'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
+            'first_invoice_free_months' => 'nullable|integer|min:0|max:' . \App\Billing\FirstInvoicePolicy::MAX_FREE_MONTHS,
         ];
     }
 

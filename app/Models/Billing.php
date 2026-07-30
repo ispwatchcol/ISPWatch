@@ -48,6 +48,7 @@ class Billing extends Model
         'status',
         'billing_mode',
         'first_invoice_policy',
+        'first_invoice_free_months',
         'notificar_wpp',
         'notification_type',
         'comments',
@@ -58,6 +59,8 @@ class Billing extends Model
         // Un cliente que entra a mitad de mes NO se factura automáticamente
         // salvo que el operador elija prorrateo o mes completo.
         'first_invoice_policy' => self::FIRST_INVOICE_NONE,
+        // Meses de cortesía DESPUÉS del de instalación (0 = ninguno).
+        'first_invoice_free_months' => 0,
         'payment_reminder_enabled' => true,
         // Hour-of-day for each event. Default midnight = same behaviour as the
         // date-only system (fire at the first scheduler run of the configured day).
@@ -73,6 +76,7 @@ class Billing extends Model
         'payment_reminder_enabled' => 'boolean',
         'cut_day' => 'date',
         'overdue_invoices' => 'integer',
+        'first_invoice_free_months' => 'integer',
         'amount' => 'decimal:2',
         'notificar_wpp' => 'boolean',
     ];

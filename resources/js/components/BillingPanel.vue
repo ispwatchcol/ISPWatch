@@ -272,8 +272,31 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Se aplica sólo a clientes cuyo servicio empieza después de que el mes ya se facturó
             (ej. instalado el día 20 con día de facturación 1). Proporcional: si el mes tiene 30 días
-            y se instaló el 20, se cobran 10 días. Cada cliente puede sobreescribir esta política
-            desde su ficha.
+            y se instaló el 20, se cobran 10 días. Es el valor por defecto: el plan y la ficha del
+            cliente pueden sobreescribirlo.
+          </p>
+        </div>
+
+        <!-- Meses de cortesía posteriores a la instalación -->
+        <div class="col-span-1 sm:col-span-2">
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
+            Meses de cortesía después de la instalación
+          </label>
+          <select
+            v-model.number="billing.first_invoice_free_months"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                  border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                  focus:ring focus:ring-blue-500 transition-colors"
+          >
+            <option :value="0">Ninguno — se cobra todos los meses</option>
+            <option :value="1">1 mes gratis (el siguiente a la instalación)</option>
+            <option :value="2">2 meses gratis</option>
+            <option :value="3">3 meses gratis</option>
+          </select>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Meses que van en cero <strong>después</strong> del de instalación, para promociones del
+            tipo "paga el prorrateo y el mes siguiente lo cubre la instalación". La factura igual se
+            emite, en $0, para que quede constancia. Normalmente esto se configura en el plan.
           </p>
         </div>
 

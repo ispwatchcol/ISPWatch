@@ -261,10 +261,22 @@
                     Primera factura <span class="text-gray-400 font-normal text-xs">(si entra a mitad de mes)</span>
                 </label>
                 <select v-model="form.first_invoice_mode" class="input">
-                    <option value="">Usar la política del router</option>
+                    <option value="">Usar la política del plan / router</option>
                     <option value="none">No cobrar el mes en curso — empieza el próximo ciclo</option>
                     <option value="prorated">Cobrar proporcional a los días restantes</option>
                     <option value="full">Cobrar el mes completo</option>
+                </select>
+
+                <label class="label mt-3">
+                    <v-icon name="md-moneyoff" class="w-4 h-4 mr-1 inline" />
+                    Meses de cortesía después de la instalación
+                </label>
+                <select v-model="form.first_invoice_free_months" class="input">
+                    <option value="">Usar lo que diga el plan / router</option>
+                    <option :value="0">Ninguno — se cobra todos los meses</option>
+                    <option :value="1">1 mes gratis (el siguiente a la instalación)</option>
+                    <option :value="2">2 meses gratis</option>
+                    <option :value="3">3 meses gratis</option>
                 </select>
                 <p class="hint">
                     Sólo aplica cuando el servicio empieza después de que el mes ya se facturó
@@ -843,8 +855,9 @@ const form = ref({
     installation_date: '',
     estrato: null,
     exclude_from_billing: false,
-    // '' = hereda la política de primera factura del router
+    // '' = hereda la política de primera factura del plan y, si no, del router
     first_invoice_mode: '',
+    first_invoice_free_months: '',
     comments: '',
     latitude: '',
     longitude: '',
@@ -1155,6 +1168,8 @@ const loadCustomer = async () => {
             estrato:      d.estrato ?? null,
             exclude_from_billing: !!d.exclude_from_billing,
             first_invoice_mode: d.first_invoice_mode || '',
+            // 0 es un valor legítimo, así que sólo null/undefined significan "heredar".
+            first_invoice_free_months: d.first_invoice_free_months ?? '',
             comments:     d.comments || '',
             latitude:     d.latitude ?? '',
             longitude:    d.longitude ?? '',
@@ -1260,8 +1275,12 @@ const handleSubmit = async (pushToRouter = true) => {
     try {
         const dataToSend = { ...form.value, push_to_router: pushToRouter }
         if (!dataToSend.password) delete dataToSend.password
-        // '' (heredar del router) viaja como null, no como cadena vacía.
+        // '' (heredar del plan/router) viaja como null, no como cadena vacía.
+        // Los meses de cortesía admiten 0 ("no le regales nada"), que NO es heredar.
         dataToSend.first_invoice_mode = form.value.first_invoice_mode || null
+        dataToSend.first_invoice_free_months = form.value.first_invoice_free_months === ''
+            ? null
+            : form.value.first_invoice_free_months
 
         const res   = await api.customers.update(route.params.id, dataToSend)
         const jobId = res.data?.job_id // presente solo si provision_status === 'queued'
