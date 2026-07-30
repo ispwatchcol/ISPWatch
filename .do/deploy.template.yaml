@@ -1,3 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ISPWatch — plantilla de despliegue para DigitalOcean App Platform
+#
+# ESTE ARCHIVO ES UNA PLANTILLA VERSIONADA. NO CONTIENE SECRETOS.
+#
+# Todo valor sensible aparece como marcador `<<<CAMBIAR:...>>>` y está declarado
+# con `type: SECRET`, de modo que App Platform lo cifra (EV[1:...]) y nunca lo
+# devuelve en claro.
+#
+# Motivo: hasta 2026-07-30 este archivo estaba versionado con las credenciales
+# REALES de producción en texto plano — contraseña de la base de datos, del CORE
+# MikroTik (API y SSH), secreto IPSec, clave SMTP y APP_KEY. Cualquiera con
+# acceso al repositorio, a un fork o a una copia local las tenía, y el historial
+# de Git las conserva. Ver docs/RUNBOOK_ROTACION_SECRETOS.md.
+#
+# CÓMO USARLA
+#   1. Copia:  cp .do/deploy.template.yaml .do/deploy.yaml
+#   2. Rellena los marcadores en .do/deploy.yaml (está en .gitignore).
+#   3. Aplica:  doctl apps update <APP_ID> --spec .do/deploy.yaml
+#   Alternativa recomendada: gestiona los secretos SÓLO desde el panel de
+#   DigitalOcean y nunca los escribas en un archivo local.
+#
+# COMPONENTES
+#   ispwatch   servicio web (Apache + PHP)
+#   worker     procesador de la cola
+#   scheduler  planificador de tareas  ← sin él NO se factura ni se corta
+# ─────────────────────────────────────────────────────────────────────────────
+
 alerts:
 - rule: DEPLOYMENT_FAILED
 - rule: DOMAIN_FAILED
@@ -16,6 +44,7 @@ ingress:
         prefix: /
 name: ispwatch
 region: atl
+
 services:
 - environment_slug: php
   envs:
@@ -25,9 +54,12 @@ services:
   - key: APP_ENV
     scope: RUN_AND_BUILD_TIME
     value: production
+  # SECRETO: cifra tenant.google_maps_api_key. Rotarla exige descifrar,
+  # re-cifrar y re-guardar esos valores. Ver el runbook.
   - key: APP_KEY
     scope: RUN_AND_BUILD_TIME
-    value: base64:KMgwMTT+H2C3vYqFBuWoSiBVCKO29Ht/hMJkZihbdNA=
+    type: SECRET
+    value: <<<CAMBIAR:APP_KEY>>>
   - key: APP_DEBUG
     scope: RUN_AND_BUILD_TIME
     value: "false"
@@ -66,7 +98,8 @@ services:
     value: pgsql
   - key: DB_HOST
     scope: RUN_AND_BUILD_TIME
-    value: aws-0-us-east-1.pooler.supabase.com
+    type: SECRET
+    value: <<<CAMBIAR:DB_HOST>>>
   - key: DB_PORT
     scope: RUN_AND_BUILD_TIME
     value: "5432"
@@ -75,10 +108,13 @@ services:
     value: postgres
   - key: DB_USERNAME
     scope: RUN_AND_BUILD_TIME
-    value: postgres.wusbteybfrmsjuuwzljl
+    type: SECRET
+    value: <<<CAMBIAR:DB_USERNAME>>>
   - key: DB_PASSWORD
     scope: RUN_AND_BUILD_TIME
-    value: ISPWatch.2025*
+    type: SECRET
+    value: <<<CAMBIAR:DB_PASSWORD>>>
+  # public = PRODUCCIÓN. ispwatch_dev = desarrollo (misma base de datos).
   - key: DB_SCHEMA
     scope: RUN_AND_BUILD_TIME
     value: public
@@ -123,57 +159,76 @@ services:
   - key: REDIS_PASSWORD
     scope: RUN_AND_BUILD_TIME
     value: "null"
+  # Residuales: el frontend ya no accede a Supabase directamente (RLS activo).
+  # Se conservan sólo hasta retirar las referencias del bundle.
   - key: VITE_SUPABASE_URL
     scope: RUN_AND_BUILD_TIME
-    value: https://wusbteybfrmsjuuwzljl.supabase.co
+    type: SECRET
+    value: <<<CAMBIAR:VITE_SUPABASE_URL>>>
   - key: VITE_SUPABASE_ANON_KEY
     scope: RUN_AND_BUILD_TIME
-    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1c2J0ZXliZnJtc2p1dXd6bGpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI3ODY3NTIsImV4cCI6MjA1ODM2Mjc1Mn0.lPleLQiYdGyS547NQCngDjGKzP7YyB1TfSDUYjv1iUk
+    type: SECRET
+    value: <<<CAMBIAR:VITE_SUPABASE_ANON_KEY>>>
   - key: VITE_API_URL
     scope: RUN_AND_BUILD_TIME
     value: ${APP_URL}/api
   - key: VITE_APP_NAME
     scope: RUN_AND_BUILD_TIME
     value: ${APP_NAME}
+  # IP del portal de pago: la regla de firewall la deja accesible al cliente cortado.
   - key: PORTAL_IP
     scope: RUN_AND_BUILD_TIME
     value: 192.168.88.252
   - key: MIKROTIK_CORE_VPN_IP
     scope: RUN_AND_BUILD_TIME
-    value: 167.172.132.234
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_VPN_IP>>>
   - key: MIKROTIK_CORE_API_HOST
     scope: RUN_AND_BUILD_TIME
-    value: 167.172.132.234
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_HOST>>>
   - key: MIKROTIK_CORE_API_PORT
     scope: RUN_AND_BUILD_TIME
     value: "8728"
   - key: MIKROTIK_CORE_API_USER
     scope: RUN_AND_BUILD_TIME
-    value: admin
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_USER>>>
   - key: MIKROTIK_CORE_API_PASS
     scope: RUN_AND_BUILD_TIME
-    value: Colombia2018
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_PASS>>>
   - key: MIKROTIK_VPN_PASSWORD
     scope: RUN_AND_BUILD_TIME
-    value: claveSegura
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_VPN_PASSWORD>>>
   - key: MIKROTIK_IPSEC_SECRET
     scope: RUN_AND_BUILD_TIME
-    value: Q9fZ7MrL2xSA8DkEpHwCy
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_IPSEC_SECRET>>>
   - key: MIKROTIK_CORE_SSH_HOST
     scope: RUN_AND_BUILD_TIME
-    value: 167.172.132.234
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_HOST>>>
   - key: MIKROTIK_CORE_SSH_PORT
     scope: RUN_AND_BUILD_TIME
     value: "2222"
   - key: MIKROTIK_CORE_SSH_USER
     scope: RUN_AND_BUILD_TIME
-    value: admin
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_USER>>>
   - key: MIKROTIK_CORE_SSH_KEY_PASSPHRASE
     scope: RUN_AND_BUILD_TIME
-    value: REMOTO
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_KEY_PASSPHRASE>>>
   - key: MIKROTIK_CORE_SSH_PASS
     scope: RUN_AND_BUILD_TIME
-    value: Colombia2018
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_PASS>>>
+  - key: MIKROTIK_CORE_SSH_KEY_B64
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_KEY_B64>>>
   - key: MAIL_MAILER
     scope: RUN_AND_BUILD_TIME
     value: smtp
@@ -185,10 +240,12 @@ services:
     value: "587"
   - key: MAIL_USERNAME
     scope: RUN_AND_BUILD_TIME
-    value: a19972001@smtp-brevo.com
+    type: SECRET
+    value: <<<CAMBIAR:MAIL_USERNAME>>>
   - key: MAIL_PASSWORD
     scope: RUN_AND_BUILD_TIME
-    value: xsmtpsib-bc388b840bd005de99297b3c79a00f141cd944eeed1de8a72c7c8bf55d23a351-CSFZAeFHUS9dbVQp
+    type: SECRET
+    value: <<<CAMBIAR:MAIL_PASSWORD>>>
   - key: MAIL_ENCRYPTION
     scope: RUN_AND_BUILD_TIME
     value: tls
@@ -201,10 +258,9 @@ services:
   - key: SANCTUM_STATEFUL_DOMAINS
     scope: RUN_AND_BUILD_TIME
     value: ispwatch-crm.app
-  - key: MIKROTIK_CORE_SSH_KEY_B64
+  - key: CORS_ALLOWED_ORIGINS
     scope: RUN_AND_BUILD_TIME
-    type: SECRET
-    value: EV[1:23FzkPu6wdA+fcNjv+EFpBLSFCityTA1:RTAn89F1kPZHjzBUjeeEjKNMiFCLklw6rHWkRMDmxwDnghGDAczrikEsgdydZBEjCWffpvCrXPpqlxqBKZrsxJHW6axLMCK+OCCwECRBToAjyz4bNtBIbnajdxdFUHvLjO2GMJyhBv8HQrBQjQRiJufKJKJ0v7jIbFvaDVJdBCI4tLL6MvIOMOsQ7Ah6/k0g6fA6Bb6ESXAF5zAjDv6Ocl2d2ofeKdw/a69+ZajZkYREzBKQofwWVEcHwgqcCAMT0RwF2Yi6ZS5VEJX8jXD6RzrU1HJVjwA4NE8wdQvQmziHgfb2bZ2cQcAlm3l+Kjem9/YXXCz0HNKgWusTdAMdDL+k8TWXZlZcj31jRkjtKmid/i9eOuoycyj/FTqPxyMcLsiWYxyzL4BVRMX5ngUnlv4txNsWamiwinGjG3kiStPbuOwu8s2XZtz2z3nuriUTEJ+gTxdH7WuMKGC/RAinI+YFmOLVJCr209qn/Fm9NQ3pOb0Ib2G0zCZhsBqEkMHz34TVayAzN9CnyJfFe/ooelnN/T3r9F4yV2CzE6dCELrjuwKHclPN4VPyelTNX44evAwNKy0DYZybMnVyRYj0+4fMWxyJG5OpyiKVo9llHzcnANx4W5sh72Ye11vLo9H1b5vXea9l91Z7syIO3iJwTllbuT98RIAsc07SKGJKZLh77KerG56p/328PXYuhx62ypgp6xJBgkEwd3Y/VD5PlAxbIveNUIBJN/AILljQ94iCk+CQ]
+    value: https://ispwatch-crm.app
   github:
     branch: main
     deploy_on_push: true
@@ -222,7 +278,9 @@ services:
     php artisan migrate --force
     heroku-php-apache2 public/
   source_dir: /
+
 workers:
+# ── Procesador de la cola ───────────────────────────────────────────────────
 - environment_slug: php
   envs:
   - key: APP_NAME
@@ -233,7 +291,8 @@ workers:
     value: production
   - key: APP_KEY
     scope: RUN_AND_BUILD_TIME
-    value: base64:KMgwMTT+H2C3vYqFBuWoSiBVCKO29Ht/hMJkZihbdNA=
+    type: SECRET
+    value: <<<CAMBIAR:APP_KEY>>>
   - key: APP_DEBUG
     scope: RUN_AND_BUILD_TIME
     value: "false"
@@ -254,7 +313,8 @@ workers:
     value: pgsql
   - key: DB_HOST
     scope: RUN_AND_BUILD_TIME
-    value: aws-0-us-east-1.pooler.supabase.com
+    type: SECRET
+    value: <<<CAMBIAR:DB_HOST>>>
   - key: DB_PORT
     scope: RUN_AND_BUILD_TIME
     value: "5432"
@@ -263,10 +323,12 @@ workers:
     value: postgres
   - key: DB_USERNAME
     scope: RUN_AND_BUILD_TIME
-    value: postgres.wusbteybfrmsjuuwzljl
+    type: SECRET
+    value: <<<CAMBIAR:DB_USERNAME>>>
   - key: DB_PASSWORD
     scope: RUN_AND_BUILD_TIME
-    value: ISPWatch.2025*
+    type: SECRET
+    value: <<<CAMBIAR:DB_PASSWORD>>>
   - key: DB_SCHEMA
     scope: RUN_AND_BUILD_TIME
     value: public
@@ -278,38 +340,46 @@ workers:
     value: database
   - key: MIKROTIK_CORE_VPN_IP
     scope: RUN_AND_BUILD_TIME
-    value: 167.172.132.234
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_VPN_IP>>>
   - key: MIKROTIK_CORE_API_HOST
     scope: RUN_AND_BUILD_TIME
-    value: 167.172.132.234
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_HOST>>>
   - key: MIKROTIK_CORE_API_PORT
     scope: RUN_AND_BUILD_TIME
     value: "8728"
   - key: MIKROTIK_CORE_API_USER
     scope: RUN_AND_BUILD_TIME
-    value: admin
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_USER>>>
   - key: MIKROTIK_CORE_API_PASS
     scope: RUN_AND_BUILD_TIME
-    value: Colombia2018
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_PASS>>>
   - key: MIKROTIK_CORE_SSH_HOST
     scope: RUN_AND_BUILD_TIME
-    value: 167.172.132.234
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_HOST>>>
   - key: MIKROTIK_CORE_SSH_PORT
     scope: RUN_AND_BUILD_TIME
     value: "2222"
   - key: MIKROTIK_CORE_SSH_USER
     scope: RUN_AND_BUILD_TIME
-    value: admin
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_USER>>>
   - key: MIKROTIK_CORE_SSH_KEY_PASSPHRASE
     scope: RUN_AND_BUILD_TIME
-    value: REMOTO
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_KEY_PASSPHRASE>>>
   - key: MIKROTIK_CORE_SSH_PASS
     scope: RUN_AND_BUILD_TIME
-    value: Colombia2018
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_PASS>>>
   - key: MIKROTIK_CORE_SSH_KEY_B64
     scope: RUN_AND_BUILD_TIME
     type: SECRET
-    value: EV[1:23FzkPu6wdA+fcNjv+EFpBLSFCityTA1:RTAn89F1kPZHjzBUjeeEjKNMiFCLklw6rHWkRMDmxwDnghGDAczrikEsgdydZBEjCWffpvCrXPpqlxqBKZrsxJHW6axLMCK+OCCwECRBToAjyz4bNtBIbnajdxdFUHvLjO2GMJyhBv8HQrBQjQRiJufKJKJ0v7jIbFvaDVJdBCI4tLL6MvIOMOsQ7Ah6/k0g6fA6Bb6ESXAF5zAjDv6Ocl2d2ofeKdw/a69+ZajZkYREzBKQofwWVEcHwgqcCAMT0RwF2Yi6ZS5VEJX8jXD6RzrU1HJVjwA4NE8wdQvQmziHgfb2bZ2cQcAlm3l+Kjem9/YXXCz0HNKgWusTdAMdDL+k8TWXZlZcj31jRkjtKmid/i9eOuoycyj/FTqPxyMcLsiWYxyzL4BVRMX5ngUnlv4txNsWamiwinGjG3kiStPbuOwu8s2XZtz2z3nuriUTEJ+gTxdH7WuMKGC/RAinI+YFmOLVJCr209qn/Fm9NQ3pOb0Ib2G0zCZhsBqEkMHz34TVayAzN9CnyJfFe/ooelnN/T3r9F4yV2CzE6dCELrjuwKHclPN4VPyelTNX44evAwNKy0DYZybMnVyRYj0+4fMWxyJG5OpyiKVo9llHzcnANx4W5sh72Ye11vLo9H1b5vXea9l91Z7syIO3iJwTllbuT98RIAsc07SKGJKZLh77KerG56p/328PXYuhx62ypgp6xJBgkEwd3Y/VD5PlAxbIveNUIBJN/AILljQ94iCk+CQ]
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_KEY_B64>>>
   github:
     branch: main
     deploy_on_push: true
@@ -324,6 +394,171 @@ workers:
       chmod 600 storage/keys/mikrotik_core_id_ed25519
     fi
     php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600
+  build_command: |
+    composer install --no-dev --optimize-autoloader
+  source_dir: /
+
+# ── Planificador de tareas ──────────────────────────────────────────────────
+# CRÍTICO. Sin este componente NO ocurre nada del ciclo automático: no se
+# generan facturas, no se envían recordatorios, no se corta a los morosos, no se
+# reconcilian los cortes y no se recolecta tráfico. Hasta 2026-07-30 no existía
+# en esta especificación, y es la causa del incidente que motivó crear el
+# comando `billing:verify-monthly` (el failover sólo ve fallos por cliente, no
+# un job que nunca llegó a ejecutarse).
+#
+# `schedule:work` es un proceso de larga vida que dispara `schedule:run` cada
+# minuto — el equivalente a un cron, apropiado para un worker de App Platform.
+#
+# Verificación tras el despliegue:
+#   php artisan billing:verify-monthly   → debe reportar 'ok', nunca 'no_show'
+#   php artisan billing:verify-cuts
+- environment_slug: php
+  envs:
+  - key: APP_NAME
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch
+  - key: APP_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: APP_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:APP_KEY>>>
+  - key: APP_DEBUG
+    scope: RUN_AND_BUILD_TIME
+    value: "false"
+  - key: APP_URL
+    scope: RUN_AND_BUILD_TIME
+    value: https://ispwatch-crm.app
+  - key: LOG_CHANNEL
+    scope: RUN_AND_BUILD_TIME
+    value: stack
+  - key: LOG_STACK
+    scope: RUN_AND_BUILD_TIME
+    value: single
+  # info (no warning): el planificador registra en INFO el resultado de cada
+  # ciclo de facturación y corte; con `warning` esa traza se pierde.
+  - key: LOG_LEVEL
+    scope: RUN_AND_BUILD_TIME
+    value: info
+  - key: DB_CONNECTION
+    scope: RUN_AND_BUILD_TIME
+    value: pgsql
+  - key: DB_HOST
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:DB_HOST>>>
+  - key: DB_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "5432"
+  - key: DB_DATABASE
+    scope: RUN_AND_BUILD_TIME
+    value: postgres
+  - key: DB_USERNAME
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:DB_USERNAME>>>
+  - key: DB_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:DB_PASSWORD>>>
+  - key: DB_SCHEMA
+    scope: RUN_AND_BUILD_TIME
+    value: public
+  - key: CACHE_STORE
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  - key: QUEUE_CONNECTION
+    scope: RUN_AND_BUILD_TIME
+    value: database
+  # El planificador envía correo (factura creada, recordatorios, alertas de
+  # no-show), así que necesita la configuración SMTP completa.
+  - key: MAIL_MAILER
+    scope: RUN_AND_BUILD_TIME
+    value: smtp
+  - key: MAIL_HOST
+    scope: RUN_AND_BUILD_TIME
+    value: smtp-relay.brevo.com
+  - key: MAIL_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "587"
+  - key: MAIL_USERNAME
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MAIL_USERNAME>>>
+  - key: MAIL_PASSWORD
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MAIL_PASSWORD>>>
+  - key: MAIL_ENCRYPTION
+    scope: RUN_AND_BUILD_TIME
+    value: tls
+  - key: MAIL_FROM_ADDRESS
+    scope: RUN_AND_BUILD_TIME
+    value: ispwatchcol@gmail.com
+  - key: MAIL_FROM_NAME
+    scope: RUN_AND_BUILD_TIME
+    value: ISPWatch
+  # El corte y la recolección de tráfico hablan con el CORE por SSH.
+  - key: PORTAL_IP
+    scope: RUN_AND_BUILD_TIME
+    value: 192.168.88.252
+  - key: MIKROTIK_CORE_VPN_IP
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_VPN_IP>>>
+  - key: MIKROTIK_CORE_API_HOST
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_HOST>>>
+  - key: MIKROTIK_CORE_API_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "8728"
+  - key: MIKROTIK_CORE_API_USER
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_USER>>>
+  - key: MIKROTIK_CORE_API_PASS
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_API_PASS>>>
+  - key: MIKROTIK_CORE_SSH_HOST
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_HOST>>>
+  - key: MIKROTIK_CORE_SSH_PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "2222"
+  - key: MIKROTIK_CORE_SSH_USER
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_USER>>>
+  - key: MIKROTIK_CORE_SSH_KEY_PASSPHRASE
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_KEY_PASSPHRASE>>>
+  - key: MIKROTIK_CORE_SSH_PASS
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_PASS>>>
+  - key: MIKROTIK_CORE_SSH_KEY_B64
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:MIKROTIK_CORE_SSH_KEY_B64>>>
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: ispwatchcol/ISPWatch
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-0.5gb
+  name: scheduler
+  run_command: |
+    mkdir -p storage/keys
+    if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
+      printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
+      chmod 600 storage/keys/mikrotik_core_id_ed25519
+    fi
+    php artisan schedule:work
   build_command: |
     composer install --no-dev --optimize-autoloader
   source_dir: /

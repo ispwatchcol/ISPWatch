@@ -1104,23 +1104,31 @@ const loadGoogleMaps = (apiKey) => {
     return googleMapsPromise;
 };
 
+// El agrupador de marcadores se empaqueta con la aplicación en lugar de
+// descargarse de unpkg.com en tiempo de ejecución. Motivos:
+//   1. CSP: era el único uso de un CDN externo en script-src; retirarlo permite
+//      quitar unpkg.com de la política (ver SecurityHeaders).
+//   2. Cadena de suministro: un CDN público comprometido inyectaba script
+//      arbitrario en una página autenticada.
+//   3. Disponibilidad: el mapa dejaba de agrupar si unpkg no respondía.
+// Import dinámico para que el peso siga fuera del bundle inicial: sólo se
+// descarga al abrir el mapa, igual que antes.
 let clustererPromise = null;
+let clustererModule = null;
 const loadMarkerClusterer = () => {
-    if (window.markerClusterer) return Promise.resolve(window.markerClusterer);
+    if (clustererModule) return Promise.resolve(clustererModule);
     if (clustererPromise) return clustererPromise;
 
-    clustererPromise = new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src =
-            "https://unpkg.com/@googlemaps/markerclusterer@2.5.3/dist/index.min.js";
-        script.async = true;
-        script.onload = () => resolve(window.markerClusterer);
-        script.onerror = () => {
+    clustererPromise = import("@googlemaps/markerclusterer")
+        .then((mod) => {
+            clustererModule = mod;
+            return mod;
+        })
+        .catch((e) => {
             clustererPromise = null;
-            reject(new Error("CLUSTERER_LOAD_ERROR"));
-        };
-        document.head.appendChild(script);
-    });
+            throw new Error("CLUSTERER_LOAD_ERROR", { cause: e });
+        });
+
     return clustererPromise;
 };
 
@@ -1311,8 +1319,8 @@ const applyLayers = () => {
             hasBounds = true;
         });
 
-        if (window.markerClusterer && customerMarkers.length) {
-            clusterer = new window.markerClusterer.MarkerClusterer({
+        if (clustererModule && customerMarkers.length) {
+            clusterer = new clustererModule.MarkerClusterer({
                 map,
                 markers: customerMarkers,
             });
@@ -1941,7 +1949,7 @@ const loadMapData = async () => {
         step = "cargar Google Maps";
         await loadGoogleMaps(config.google_maps_api_key);
 
-        // Clusterer is optional: if the CDN fails we fall back to plain markers.
+        // El agrupador es opcional: si su chunk no carga, se dibujan marcadores sueltos.
         step = "cargar agrupador de marcadores (opcional)";
         await loadMarkerClusterer().catch((e) =>
             console.warn("MarkerClusterer no disponible, se usarán marcadores individuales:", e)

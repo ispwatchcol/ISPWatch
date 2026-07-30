@@ -61,17 +61,50 @@ class SecurityHeaders
             $isLocal = app()->environment('local') &&
                 (str_contains($host, 'localhost') || str_contains($host, '127.0.0.1'));
 
-            // Build CSP based on environment
+            // ── Content Security Policy ──────────────────────────────────────
+            //
+            // Endurecida el 2026-07-30. Tres cambios, cada uno verificado antes
+            // de aplicarlo — no se retiró nada "por si acaso":
+            //
+            //  1. FUERA 'unsafe-eval' en script-src. Se compiló el bundle de
+            //     producción y se comprobó que no contiene ni `eval(` ni
+            //     `new Function(`: Vite emite SFC ya compilados y el runtime de
+            //     Vue usado no necesita compilar plantillas en el navegador.
+            //     Mantenerlo desactivaba una de las defensas más útiles contra
+            //     XSS en una aplicación que, además, permite HTML editable por
+            //     el usuario en las plantillas de documentos.
+            //
+            //  2. FUERA https://unpkg.com. Era el único CDN externo, y sólo lo
+            //     usaba el mapa de clientes para cargar @googlemaps/markerclusterer
+            //     en tiempo de ejecución. Ese paquete ahora se empaqueta con la
+            //     aplicación (ver CustomerMap.vue), así que la excepción sobra:
+            //     un CDN público comprometido inyectaba script arbitrario en una
+            //     página autenticada.
+            //
+            //  3. FUERA 'unsafe-inline' en SCRIPT-src. Los dos únicos scripts en
+            //     línea del proyecto eran `onclick="window.location.href=..."` en
+            //     el portal de pago; se convirtieron en enlaces <a>. Laravel emite
+            //     los assets de Vite como <script src>, sin código en línea.
+            //
+            // style-src CONSERVA 'unsafe-inline' a propósito: Vue inyecta estilos
+            // en línea para los componentes con <style scoped> y quitarlo rompe
+            // el render. Es la excepción habitual y de riesgo mucho menor que la
+            // de script-src.
             if ($isLocal) {
-                // Development: Allow Vite dev server
+                // Desarrollo: además hay que permitir el dev server de Vite, que
+                // sí inyecta un preámbulo en línea para el HMR (de ahí que aquí
+                // 'unsafe-inline' siga presente en script-src).
                 $response->header(
                     'Content-Security-Policy',
                     "default-src 'self' http://localhost:5173 ws://localhost:5173; " .
-                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 ws://localhost:5173 https://maps.googleapis.com https://unpkg.com; " .
+                    "script-src 'self' 'unsafe-inline' http://localhost:5173 ws://localhost:5173 https://maps.googleapis.com; " .
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com http://localhost:5173; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: blob: http://localhost:5173; " .
                     "connect-src 'self' http://localhost:* ws://localhost:*; " .
+                    "object-src 'none'; " .
+                    "base-uri 'self'; " .
+                    "form-action 'self'; " .
                     "frame-ancestors 'self';"
                 );
             } else {
@@ -82,11 +115,18 @@ class SecurityHeaders
                 $response->header(
                     'Content-Security-Policy',
                     "default-src 'self' {$currentOrigin}; " .
-                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$currentOrigin} https://maps.googleapis.com https://unpkg.com; " .
+                    "script-src 'self' {$currentOrigin} https://maps.googleapis.com; " .
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com {$currentOrigin}; " .
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: http: blob:; " .
                     "connect-src 'self' https: wss:; " .
+                    // object-src 'none' bloquea <object>/<embed>, vectores clásicos
+                    // de XSS. base-uri 'self' impide que una inyección reescriba
+                    // la base de las URLs relativas. form-action 'self' evita que
+                    // un formulario inyectado envíe credenciales a otro dominio.
+                    "object-src 'none'; " .
+                    "base-uri 'self'; " .
+                    "form-action 'self'; " .
                     "frame-ancestors 'self';"
                 );
             }

@@ -74,78 +74,125 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/roles', [RoleController::class, 'index']);
 
     // ─── CUSTOMERS (custom routes before apiResource) ───
-    Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics']);
-    Route::get('/customers/map', [CustomerProfileController::class, 'mapData']);
-    Route::get('/customers/used-ips', [CustomerProfileController::class, 'usedIps']);
+    Route::get('/customers/statistics', [CustomerProfileController::class, 'statistics'])
+        ->middleware('permission:view_clients');
+    Route::get('/customers/map', [CustomerProfileController::class, 'mapData'])
+        ->middleware('permission:view_clients');
+    Route::get('/customers/used-ips', [CustomerProfileController::class, 'usedIps'])
+        ->middleware('permission:view_clients,add_clients');
     // Sólo calcula (no escribe): qué se le cobraría al cliente en sus primeros
     // meses. Lo usa el formulario de alta/edición para mostrar el prorrateo y
     // los meses de cortesía antes de guardar.
-    Route::post('/customers/first-invoice-preview', [CustomerProfileController::class, 'firstInvoicePreview']);
+    Route::post('/customers/first-invoice-preview', [CustomerProfileController::class, 'firstInvoicePreview'])
+        ->middleware('permission:view_clients,add_clients');
     Route::post('/customers/{id}/provision', [CustomerProfileController::class, 'provision'])
-        ->middleware('permission:activate_deactivate_clients');
+        ->middleware(['permission:activate_deactivate_clients', 'throttle:router-ops']);
     Route::post('/customers/bulk-provision', [CustomerProfileController::class, 'bulkProvision'])
-        ->middleware('permission:activate_deactivate_clients');
+        ->middleware(['permission:activate_deactivate_clients', 'throttle:bulk-ops']);
     // Aprovisionamiento masivo asíncrono (job en cola + polling de progreso).
     Route::post('/customers/bulk-provision-async', [CustomerProfileController::class, 'bulkProvisionAsync'])
-        ->middleware('permission:activate_deactivate_clients');
+        ->middleware(['permission:activate_deactivate_clients', 'throttle:bulk-ops']);
     Route::get('/customers/bulk-provision-status/{jobId}', [CustomerProfileController::class, 'bulkProvisionStatus'])
         ->middleware('permission:activate_deactivate_clients');
     Route::post('/customers/{id}/suspend', [CustomerProfileController::class, 'suspend'])
-        ->middleware('permission:activate_deactivate_clients');
+        ->middleware(['permission:activate_deactivate_clients', 'throttle:router-ops']);
     Route::post('/customers/{id}/activate', [CustomerProfileController::class, 'activate'])
-        ->middleware('permission:activate_deactivate_clients');
+        ->middleware(['permission:activate_deactivate_clients', 'throttle:router-ops']);
 
     // ─── CUSTOMER INSTALLATIONS ───
-    Route::get('/installations', [CustomerInstallationController::class, 'all']);
-    Route::post('/installations', [CustomerInstallationController::class, 'createWithProspect']);
-    Route::get('/installations/technicians', [CustomerInstallationController::class, 'technicians']);
-    Route::get('/installations/customers', [CustomerInstallationController::class, 'customersForInstallation']);
-    Route::get('/installations/{installation}', [CustomerInstallationController::class, 'show']);
-    Route::put('/installations/{installation}/prospect', [CustomerInstallationController::class, 'updateProspect']);
-    Route::get('/customers/{customer}/installations', [CustomerInstallationController::class, 'index']);
-    Route::post('/customers/{customer}/installations', [CustomerInstallationController::class, 'store']);
-    Route::put('/customers/installations/{installation}', [CustomerInstallationController::class, 'update']);
-    Route::delete('/customers/installations/{installation}', [CustomerInstallationController::class, 'destroy']);
+    // Instalaciones no tiene permiso propio: viaja con view_support (así lo
+    // refleja también el Sidebar). Las rutas colgadas de /customers/{customer}
+    // se abren además a view_clients porque la ficha del cliente las consulta
+    // desde su pestaña "Instalaciones".
+    Route::get('/installations', [CustomerInstallationController::class, 'all'])
+        ->middleware('permission:view_support');
+    Route::post('/installations', [CustomerInstallationController::class, 'createWithProspect'])
+        ->middleware('permission:view_support');
+    Route::get('/installations/technicians', [CustomerInstallationController::class, 'technicians'])
+        ->middleware('permission:view_support');
+    Route::get('/installations/customers', [CustomerInstallationController::class, 'customersForInstallation'])
+        ->middleware('permission:view_support');
+    Route::get('/installations/{installation}', [CustomerInstallationController::class, 'show'])
+        ->middleware('permission:view_support,view_clients');
+    Route::put('/installations/{installation}/prospect', [CustomerInstallationController::class, 'updateProspect'])
+        ->middleware('permission:view_support');
+    Route::get('/customers/{customer}/installations', [CustomerInstallationController::class, 'index'])
+        ->middleware('permission:view_support,view_clients');
+    Route::post('/customers/{customer}/installations', [CustomerInstallationController::class, 'store'])
+        ->middleware('permission:view_support,add_clients');
+    Route::put('/customers/installations/{installation}', [CustomerInstallationController::class, 'update'])
+        ->middleware('permission:view_support');
+    Route::delete('/customers/installations/{installation}', [CustomerInstallationController::class, 'destroy'])
+        ->middleware('permission:delete_installations,view_support');
     Route::put('/installations/{installation}/billing', [CustomerInstallationController::class, 'updateBilling'])
         ->middleware('permission:edit_discount');
-    Route::put('/installations/{installation}/sheet', [CustomerInstallationController::class, 'saveSheet']);
-    Route::post('/installations/{installation}/photos', [CustomerInstallationController::class, 'uploadPhotos']);
-    Route::post('/installations/{installation}/sign', [CustomerInstallationController::class, 'sign']);
+    Route::put('/installations/{installation}/sheet', [CustomerInstallationController::class, 'saveSheet'])
+        ->middleware('permission:view_support');
+    Route::post('/installations/{installation}/photos', [CustomerInstallationController::class, 'uploadPhotos'])
+        ->middleware('permission:view_support');
+    Route::post('/installations/{installation}/sign', [CustomerInstallationController::class, 'sign'])
+        ->middleware('permission:view_support');
 
     // ─── PROSPECTS ───
-    Route::apiResource('prospects', ProspectController::class);
-    Route::post('/prospects/{prospect}/mark-converted', [ProspectController::class, 'markConverted']);
-    Route::post('/prospects/{prospect}/installations', [CustomerInstallationController::class, 'storeForProspect']);
+    // El alta de cliente lee el prospecto y lo marca como convertido, así que
+    // add_clients también entra además de view_support.
+    Route::middleware('permission:view_support,view_clients,add_clients')->group(function () {
+        Route::get('/prospects', [ProspectController::class, 'index']);
+        Route::get('/prospects/{prospect}', [ProspectController::class, 'show']);
+    });
+    Route::middleware('permission:view_support,add_clients')->group(function () {
+        Route::post('/prospects', [ProspectController::class, 'store']);
+        Route::put('/prospects/{prospect}', [ProspectController::class, 'update']);
+        Route::patch('/prospects/{prospect}', [ProspectController::class, 'update']);
+        Route::post('/prospects/{prospect}/mark-converted', [ProspectController::class, 'markConverted']);
+        Route::post('/prospects/{prospect}/installations', [CustomerInstallationController::class, 'storeForProspect']);
+    });
+    Route::delete('/prospects/{prospect}', [ProspectController::class, 'destroy'])
+        ->middleware('permission:view_support');
 
     // ─── CUSTOMER DOCUMENTS & CONTRACT ───
-    Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index']);
-    Route::post('/customers/{customer}/documents', [CustomerDocumentController::class, 'store']);
-    Route::delete('/customers/documents/{document}', [CustomerDocumentController::class, 'destroy']);
-    Route::get('/customers/{customer}/contract-data', [CustomerDocumentController::class, 'contractData']);
-    Route::post('/customers/{customer}/contract-sign', [CustomerDocumentController::class, 'signContract']);
+    Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index'])
+        ->middleware('permission:view_clients');
+    Route::post('/customers/{customer}/documents', [CustomerDocumentController::class, 'store'])
+        ->middleware('permission:edit_internet_service,add_clients,view_support');
+    Route::delete('/customers/documents/{document}', [CustomerDocumentController::class, 'destroy'])
+        ->middleware('permission:edit_internet_service');
+    Route::get('/customers/{customer}/contract-data', [CustomerDocumentController::class, 'contractData'])
+        ->middleware('permission:view_clients');
+    Route::post('/customers/{customer}/contract-sign', [CustomerDocumentController::class, 'signContract'])
+        ->middleware('permission:edit_internet_service,add_clients');
 
     // ─── ROUTER MANAGEMENT ───
-    Route::get('/routers/{router}/free-ips', [RouterController::class, 'getFreeIps']);
+    // free-ips lo consulta el formulario de alta de cliente, así que add_clients
+    // también entra. El resto son operaciones de infraestructura: manage_routers.
+    Route::get('/routers/{router}/free-ips', [RouterController::class, 'getFreeIps'])
+        ->middleware('permission:manage_routers,add_clients,view_clients');
     Route::get('/routers/{router}/vpn-script', [RouterController::class, 'generateVpnScript'])
         ->middleware('permission:manage_routers');
     Route::post('/routers/{router}/verify-vpn', [RouterController::class, 'verifyVpnConnection'])
+        ->middleware(['permission:manage_routers', 'throttle:router-ops']);
+    Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces'])
         ->middleware('permission:manage_routers');
-    Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces']);
-    Route::get('/routers/{router}/traffic', [RouterController::class, 'trafficHistory']);
+    Route::get('/routers/{router}/traffic', [RouterController::class, 'trafficHistory'])
+        ->middleware('permission:manage_routers,view_client_traffic');
     Route::post('/routers/{router}/set-wan-interface', [RouterController::class, 'setWanInterface'])
         ->middleware('permission:manage_routers');
     Route::post('/routers/{router}/apply-block-rules', [RouterController::class, 'applyBlockRules'])
-        ->middleware('permission:activate_deactivate_clients');
-    Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules']);
-    Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection']);
-    Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection']);
+        ->middleware(['permission:activate_deactivate_clients', 'throttle:router-ops']);
+    Route::get('/routers/{router}/verify-block-rules', [RouterController::class, 'verifyBlockRules'])
+        ->middleware('permission:manage_routers,activate_deactivate_clients');
+    Route::get('/routers/{router}/test-ssh-connection', [RouterController::class, 'testClientSshConnection'])
+        ->middleware(['permission:manage_routers', 'throttle:router-ops']);
+    Route::get('/routers/test-core-connection', [RouterController::class, 'testCoreConnection'])
+        ->middleware(['permission:manage_routers', 'throttle:router-ops']);
     Route::post('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync'])
         ->middleware('permission:manage_routers');
     // SECURITY FIX (OWASP A01): the GET variant must require the same
     // permission as POST — otherwise it is a method-based authz bypass.
     Route::get('/routers/{router}/test-secret-sync', [RouterController::class, 'testSecretSync'])
         ->middleware('permission:manage_routers');
-    Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync']);
+    Route::get('/routers/{router}/test-queue-sync', [RouterController::class, 'testQueueSync'])
+        ->middleware('permission:manage_routers');
 
     // ─── FALLA MASIVA (mass outage broadcast) ───
     // Records the outage/recovery signal; Converza polls it read-only and sends.
@@ -156,9 +203,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:manage_routers');
 
     // Plan → RB engine sync (per control method)
-    Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
-    Route::post('/plans/{plan}/sync-hotspot-profile', [PlanController::class, 'syncHotspotProfile']);
-    Route::post('/plans/{plan}/sync-pcq-engine', [PlanController::class, 'syncPcqEngine']);
+    Route::middleware('permission:view_plans,manage_routers')->group(function () {
+        Route::post('/plans/{plan}/sync-pppoe-profile', [PlanController::class, 'syncPppoeProfile']);
+        Route::post('/plans/{plan}/sync-hotspot-profile', [PlanController::class, 'syncHotspotProfile']);
+        Route::post('/plans/{plan}/sync-pcq-engine', [PlanController::class, 'syncPcqEngine']);
+    });
 
     // ─── BILLING ───
     Route::middleware(['permission:view_billing'])->group(function () {
@@ -226,36 +275,118 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // ─── SECTORIAL: photos / notes / history / linked tickets ───
-    Route::get('/sectorials/{sectorial}/photos',  [SectorialPhotoController::class, 'index']);
-    Route::post('/sectorials/{sectorial}/photos', [SectorialPhotoController::class, 'store']);
-    Route::delete('/sectorials/{sectorial}/photos/{photo}', [SectorialPhotoController::class, 'destroy']);
+    Route::middleware('permission:view_sectorials')->group(function () {
+        Route::post('/sectorials/{sectorial}/photos', [SectorialPhotoController::class, 'store']);
+        Route::delete('/sectorials/{sectorial}/photos/{photo}', [SectorialPhotoController::class, 'destroy']);
 
-    Route::get('/sectorials/{sectorial}/notes',  [SectorialNoteController::class, 'index']);
-    Route::post('/sectorials/{sectorial}/notes', [SectorialNoteController::class, 'store']);
-    Route::put('/sectorials/{sectorial}/notes/{note}', [SectorialNoteController::class, 'update']);
-    Route::delete('/sectorials/{sectorial}/notes/{note}', [SectorialNoteController::class, 'destroy']);
+        Route::post('/sectorials/{sectorial}/notes', [SectorialNoteController::class, 'store']);
+        Route::put('/sectorials/{sectorial}/notes/{note}', [SectorialNoteController::class, 'update']);
+        Route::delete('/sectorials/{sectorial}/notes/{note}', [SectorialNoteController::class, 'destroy']);
+    });
 
-    Route::get('/sectorials/{sectorial}/history', [SectorialHistoryController::class, 'index']);
-    Route::get('/sectorials/{sectorial}/tickets', [SectorialHistoryController::class, 'tickets']);
+    Route::middleware('permission:view_sectorials,view_support')->group(function () {
+        Route::get('/sectorials/{sectorial}/photos',  [SectorialPhotoController::class, 'index']);
+        Route::get('/sectorials/{sectorial}/notes',   [SectorialNoteController::class, 'index']);
+        Route::get('/sectorials/{sectorial}/history', [SectorialHistoryController::class, 'index']);
+        Route::get('/sectorials/{sectorial}/tickets', [SectorialHistoryController::class, 'tickets']);
+    });
 
-    // ─── CRUD RESOURCES ───
-    Route::apiResources([
-        'customers' => CustomerProfileController::class,
-        'routers' => RouterController::class,
-        'inventory' => InventoryDeviceController::class,
-        'plans' => PlanController::class,
-        'sectorials' => SectorialController::class,
-        'support'    => SupportTicketController::class,
-    ]);
+    /*
+    |--------------------------------------------------------------------------
+    | CRUD RESOURCES
+    |--------------------------------------------------------------------------
+    |
+    | SECURITY FIX (OWASP A01, 2026-07-30): estos apiResource sólo exigían
+    | `auth:sanctum`. El control de acceso real lo hacía la guarda de vue-router,
+    | que es puramente cosmética: cualquier usuario autenticado —incluido un rol
+    | "Cliente" con permisos vacíos— podía crear, modificar o borrar clientes,
+    | routers y planes llamando la API directamente.
+    |
+    | Los permisos de LECTURA llevan varios valores (semántica OR en
+    | CheckPermission) porque son datos de referencia que otras pantallas
+    | necesitan: el formulario de alta de cliente carga planes, sectoriales y
+    | routers, y el rol Técnico tiene `add_clients` pero no `view_plans`,
+    | `view_sectorials` ni `manage_routers`. La ESCRITURA sí exige el permiso
+    | dueño del módulo, a secas.
+    |
+    | Nota: no existe un permiso `delete_clients` en App\Constants\Permissions.
+    | El borrado de cliente se apoya en `edit_internet_service` para no inventar
+    | un permiso nuevo que ningún rol sembrado tendría (ver MEJORAS_RECOMENDADAS).
+    |
+    */
 
-    // Inventory sub-resources (stock / providers / branches). Tenant-scoped via
-    // the models' BelongsToTenant trait. Replace the former direct Supabase CRUD.
-    Route::apiResource('inventory-stock', InventoryStockController::class)
-        ->only(['index', 'store', 'update', 'destroy']);
-    Route::apiResource('inventory-providers', InventoryProviderController::class)
-        ->only(['index', 'store', 'update', 'destroy']);
-    Route::apiResource('inventory-branches', InventoryBranchController::class)
-        ->only(['index', 'store', 'update', 'destroy']);
+    // Clientes
+    Route::middleware('permission:view_clients')->group(function () {
+        Route::get('/customers', [CustomerProfileController::class, 'index']);
+        Route::get('/customers/{customer}', [CustomerProfileController::class, 'show']);
+    });
+    Route::post('/customers', [CustomerProfileController::class, 'store'])
+        ->middleware('permission:add_clients');
+    Route::match(['put', 'patch'], '/customers/{customer}', [CustomerProfileController::class, 'update'])
+        ->middleware('permission:edit_internet_service');
+    Route::delete('/customers/{customer}', [CustomerProfileController::class, 'destroy'])
+        ->middleware('permission:edit_internet_service');
+
+    // Routers
+    Route::middleware('permission:manage_routers,view_clients,add_clients,view_billing,execute_mass_actions')
+        ->group(function () {
+            Route::get('/routers', [RouterController::class, 'index']);
+            Route::get('/routers/{router}', [RouterController::class, 'show']);
+        });
+    Route::middleware('permission:manage_routers')->group(function () {
+        Route::post('/routers', [RouterController::class, 'store']);
+        Route::match(['put', 'patch'], '/routers/{router}', [RouterController::class, 'update']);
+        Route::delete('/routers/{router}', [RouterController::class, 'destroy']);
+    });
+
+    // Planes
+    Route::middleware('permission:view_plans,view_clients,add_clients,view_billing')->group(function () {
+        Route::get('/plans', [PlanController::class, 'index']);
+        Route::get('/plans/{plan}', [PlanController::class, 'show']);
+    });
+    Route::middleware('permission:view_plans')->group(function () {
+        Route::post('/plans', [PlanController::class, 'store']);
+        Route::match(['put', 'patch'], '/plans/{plan}', [PlanController::class, 'update']);
+        Route::delete('/plans/{plan}', [PlanController::class, 'destroy']);
+    });
+
+    // Sectoriales / planta FTTH
+    Route::middleware('permission:view_sectorials,view_clients,add_clients,view_support')->group(function () {
+        Route::get('/sectorials', [SectorialController::class, 'index']);
+        Route::get('/sectorials/{sectorial}', [SectorialController::class, 'show']);
+    });
+    Route::middleware('permission:view_sectorials')->group(function () {
+        Route::post('/sectorials', [SectorialController::class, 'store']);
+        Route::match(['put', 'patch'], '/sectorials/{sectorial}', [SectorialController::class, 'update']);
+        Route::delete('/sectorials/{sectorial}', [SectorialController::class, 'destroy']);
+    });
+
+    // Soporte
+    Route::middleware('permission:view_support')->group(function () {
+        Route::apiResource('support', SupportTicketController::class);
+    });
+
+    // Inventario. La lectura se abre a view_support porque la pantalla de
+    // Instalaciones lista equipos para asignarlos en la visita.
+    Route::middleware('permission:view_inventory,view_support')->group(function () {
+        Route::get('/inventory', [InventoryDeviceController::class, 'index']);
+        Route::get('/inventory/{inventory}', [InventoryDeviceController::class, 'show']);
+        Route::get('/inventory-stock', [InventoryStockController::class, 'index']);
+        Route::get('/inventory-providers', [InventoryProviderController::class, 'index']);
+        Route::get('/inventory-branches', [InventoryBranchController::class, 'index']);
+    });
+    Route::middleware('permission:view_inventory')->group(function () {
+        Route::post('/inventory', [InventoryDeviceController::class, 'store']);
+        Route::match(['put', 'patch'], '/inventory/{inventory}', [InventoryDeviceController::class, 'update']);
+        Route::delete('/inventory/{inventory}', [InventoryDeviceController::class, 'destroy']);
+
+        Route::apiResource('inventory-stock', InventoryStockController::class)
+            ->only(['store', 'update', 'destroy']);
+        Route::apiResource('inventory-providers', InventoryProviderController::class)
+            ->only(['store', 'update', 'destroy']);
+        Route::apiResource('inventory-branches', InventoryBranchController::class)
+            ->only(['store', 'update', 'destroy']);
+    });
 
     // ─── STAFF ───
     Route::middleware(['permission:view_staff'])->group(function () {
@@ -335,16 +466,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // ─── HELP CENTER / MANUAL ───
+    // La LECTURA queda abierta a cualquier autenticado: es el manual del
+    // producto y la ruta /manual no exige permiso. La ESCRITURA no: hasta
+    // 2026-07-30 cualquier usuario autenticado podía reescribir o borrar los
+    // artículos de ayuda de su tenant.
     Route::get('/help-center', [HelpCenterController::class, 'index']);
-    Route::post('/help-center/categories', [HelpCenterController::class, 'storeCategory']);
-    Route::put('/help-center/categories/{id}', [HelpCenterController::class, 'updateCategory']);
-    Route::delete('/help-center/categories/{id}', [HelpCenterController::class, 'destroyCategory']);
-    Route::post('/help-center/articles', [HelpCenterController::class, 'storeArticle']);
-    Route::put('/help-center/articles/{id}', [HelpCenterController::class, 'updateArticle']);
-    Route::delete('/help-center/articles/{id}', [HelpCenterController::class, 'destroyArticle']);
+    Route::middleware('permission:view_settings')->group(function () {
+        Route::post('/help-center/categories', [HelpCenterController::class, 'storeCategory']);
+        Route::put('/help-center/categories/{id}', [HelpCenterController::class, 'updateCategory']);
+        Route::delete('/help-center/categories/{id}', [HelpCenterController::class, 'destroyCategory']);
+        Route::post('/help-center/articles', [HelpCenterController::class, 'storeArticle']);
+        Route::put('/help-center/articles/{id}', [HelpCenterController::class, 'updateArticle']);
+        Route::delete('/help-center/articles/{id}', [HelpCenterController::class, 'destroyArticle']);
+    });
 
     // ─── MASS ACTIONS / IMPORT ───
-    Route::middleware(['permission:execute_mass_actions'])->prefix('import')->group(function () {
+    Route::middleware(['permission:execute_mass_actions', 'throttle:bulk-ops'])->prefix('import')->group(function () {
         Route::get('template', [ImportController::class, 'downloadUnifiedTemplate']);
         Route::post('upload', [ImportController::class, 'importUnified']);
         Route::get('docs', [ImportController::class, 'fieldDocs']);

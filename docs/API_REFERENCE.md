@@ -5,7 +5,7 @@
 > validación reales de cada `FormRequest` o `$request->validate()`.
 > Cuando un endpoint no declara validación explícita se indica así en lugar de inventar campos.
 
-**Última actualización:** 2026-07-30 · Prefijo base: `/api`
+**Última actualización:** 2026-07-30 (post-remediación) · Prefijo base: `/api`
 
 ---
 
@@ -73,8 +73,9 @@ Dos mecanismos encadenados:
 | Middleware | Regla |
 |---|---|
 | `auth:sanctum` | Debe existir sesión válida |
-| `permission:<nombre>` | El rol del usuario debe incluir `<nombre>` en `role.permissions` **o** `*`. **`role_id == 1` recibe bypass total** |
-| `staff_profile` | El usuario debe tener fila en `staff_profile` |
+| `permission:<nombre>` | El usuario debe tener `<nombre>` entre sus **permisos efectivos** (`role.permissions` ∪ `users.permissions`) o `*`. **`role_id == 1` recibe bypass total.** Admite varios permisos con semántica **OR**: `permission:a,b` |
+| `throttle:<limitador>` | Límite de peticiones. Ver §2 |
+| `staff_profile` | Pese al nombre, **no** exige fila en `staff_profile`: comprueba `role.code ∈ {admin, staff}` o `role_id == 1` |
 
 ---
 
@@ -126,10 +127,29 @@ Dos mecanismos encadenados:
 }
 ```
 
+### Límites de peticiones
+
+Desde 2026-07-30 toda la API tiene límite. Al superarlo se devuelve **429** con las cabeceras
+`X-RateLimit-Limit`, `X-RateLimit-Remaining` y `Retry-After`.
+
+| Limitador | Límite | Aplica a |
+|---|---|---|
+| `api` | 120/min | Toda la API, por usuario autenticado (o por IP si no hay sesión) |
+| `router-ops` | 10/min | `provision`, `suspend`, `activate`, `apply-block-rules`, `verify-vpn`, `test-ssh-connection`, `test-core-connection` |
+| `bulk-ops` | 5/min | `bulk-provision`, `bulk-provision-async` y todo `/api/import/*` |
+
+El límite estricto de `router-ops` no es teórico: cada llamada abre una sesión SSH al CORE y
+tarda 17-34 s, así que unas pocas peticiones concurrentes agotan el pool de conexiones del
+CORE y tumban el aprovisionamiento y el corte para todos los tenants.
+
+Aparte, `POST /api/login` mantiene su propio límite de **5 intentos por minuto** por
+combinación IP + email.
+
 ### Parámetro `tenant` / `tenant_id`
 
-El interceptor de axios lo añade a **toda** petición. **El backend lo ignora**: el tenant se
-deriva del usuario autenticado. Es un residuo de la etapa anterior a la migración.
+**Ya no se envía.** El interceptor de axios que lo añadía a toda petición se eliminó: el
+backend siempre lo ignoró (el tenant se deriva del usuario autenticado) y su presencia
+sugería falsamente que el cliente puede elegir su propio tenant.
 
 ---
 
@@ -777,8 +797,10 @@ Reemplazan las lecturas directas del frontend a Supabase.
 | `POST/PUT/DELETE` | `/api/help-center/categories[/{id}]` |
 | `POST/PUT/DELETE` | `/api/help-center/articles[/{id}]` |
 
-> ⚠️ Los endpoints de **escritura** del centro de ayuda **no exigen ningún permiso**
-> más allá de estar autenticado. Ver [`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md).
+> La **lectura** queda abierta a cualquier usuario autenticado (es el manual del producto).
+> La **escritura** exige `permission:view_settings` en la ruta **y**, además,
+> `users.is_superadmin` por una comprobación dentro de `HelpCenterController`. Tener
+> `view_settings` no basta.
 
 ### Ajustes
 
@@ -814,24 +836,33 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 
 | Permiso | Endpoints que lo exigen |
 |---|---|
-| `activate_deactivate_clients` | `customers/{id}/provision`, `customers/bulk-provision*`, `customers/{id}/suspend`, `customers/{id}/activate`, `routers/{router}/apply-block-rules` |
-| `manage_routers` | `routers/{router}/vpn-script`, `verify-vpn`, `set-wan-interface`, `test-secret-sync` (GET y POST), `outage/notify`, `outage/resolve` |
+| `view_clients` | Lista y detalle de clientes, estadísticas, mapa, documentos, datos de contrato |
+| `add_clients` | `POST /api/customers`; **además abre por OR** la lectura de planes, sectoriales, routers, IPs libres y la vista previa de primera factura |
+| `edit_internet_service` | `PUT/PATCH` y `DELETE` de cliente, borrado de documentos, firma de contrato |
+| `activate_deactivate_clients` | `customers/{id}/provision`, `bulk-provision*`, `suspend`, `activate`, `routers/{router}/apply-block-rules`, `verify-block-rules` |
+| `manage_routers` | CRUD de routers, `vpn-script`, `verify-vpn`, `set-wan-interface`, `interfaces`, `traffic`, `test-*`, `outage/notify`, `outage/resolve`, sincronización de perfiles de plan |
+| `view_client_traffic` | `routers/{router}/traffic` (por OR con `manage_routers`) |
+| `view_plans` | Escritura de planes y sincronización al router; lectura por OR |
+| `view_sectorials` | Escritura de sectoriales, fotos y notas; lectura por OR |
+| `view_inventory` | Escritura de inventario, stock, proveedores y sucursales; lectura por OR con `view_support` |
+| `view_support` | Tickets (CRUD), instalaciones, prospectos; lectura de fotos/notas/historial de sectorial |
+| `delete_installations` | `DELETE /api/customers/installations/{installation}` (por OR con `view_support`) |
 | `edit_discount` | `installations/{installation}/billing` |
-| `view_billing` | Todo el bloque `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago) |
+| `view_billing` | Todo `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago) |
 | `delete_invoice` | `DELETE /api/billing/invoices/{id}` |
 | `execute_mass_actions` | `/api/billing/action-logs*`, `/api/billing/suspension-logs*`, `/api/import/*` |
 | `view_staff` | `/api/staff*` |
 | `manage_roles` | `POST/PUT/DELETE /api/roles`, `/api/roles/permissions` |
 | `manage_tenant` | `/api/tenants/{id}`, `/api/tenant/config`, `/api/tenant/logo` |
 | `manage_document_templates` | `/api/document-templates*` |
-| `view_settings` | `/api/settings/cache/clear` |
-| `view_expenses` | `GET /api/expenses`, `GET /api/expense-categories` |
-| `add_expense` | `POST /api/expenses`, `POST /api/expense-categories` |
-| `edit_expense` | `PUT/DELETE` de gastos y categorías |
+| `view_settings` | `/api/settings/cache/clear`, escritura del centro de ayuda (+ `is_superadmin`) |
+| `view_expenses` / `add_expense` / `edit_expense` | Lectura / alta / edición de gastos y categorías |
 | *(sólo `staff_profile`)* | `/api/support/statistics`, mensajes, cambio de estado y cargos de ticket |
+| *(sólo autenticación)* | `GET /api/roles`, `/api/auth/me`, `/api/dashboard/stats`, `/api/catalogs/*`, `GET /api/help-center`, `/api/tenant/maps-config` |
 
-> **Cobertura incompleta:** `apiResource` de `customers`, `routers`, `plans`, `sectorials`,
-> `inventory`, `support` y las sub-rutas de inventario, instalaciones, prospectos, documentos
-> y centro de ayuda **sólo exigen autenticación**. La restricción real de acceso a esas
-> pantallas la impone la guarda de `vue-router` en el frontend — que es evitable llamando la
-> API directamente. Ver [`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md).
+> **Cobertura completa desde 2026-07-30.** Todos los `apiResource` y sub-recursos llevan ya
+> su permiso. Los de **lectura** declaran varios permisos con semántica OR porque son datos
+> de referencia que otras pantallas necesitan: el formulario de alta de cliente carga planes,
+> sectoriales y routers, y el rol Técnico tiene `add_clients` pero no `view_plans`,
+> `view_sectorials` ni `manage_routers`. La **escritura** exige el permiso dueño a secas.
+> Contrato fijado por 42 tests en `tests/Feature/Auth/ApiAuthorizationTest.php`.

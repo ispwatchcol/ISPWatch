@@ -33,6 +33,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);
+
+        // Límite general de peticiones de la API (limitador 'api', definido en
+        // AppServiceProvider::configureRateLimiting). Sin esto la API no tenía
+        // ningún límite salvo el manual del login.
+        $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // Handle database exceptions with user-friendly messages

@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-07-30 · Rama analizada: `feat/first-invoice-free-months`
+**Última actualización:** 2026-07-30 (post-remediación) · Rama: `feat/first-invoice-free-months`
 
 ---
 
@@ -79,11 +79,12 @@ crear roles personalizados desde `/roles`.
 ```
 ISPWatch/
 ├── .do/                     # Especificación de despliegue DigitalOcean App Platform
-│   ├── deploy.template.yaml #   servicio web + worker, envs, comandos de arranque
+│   ├── deploy.template.yaml #   web + worker + scheduler. SIN secretos (type: SECRET)
 │   └── nginx.conf
+├── .github/workflows/       # CI: suite en SQLite y en PostgreSQL+PostGIS
 ├── app/                     # Código de aplicación (PSR-4: App\)
 │   ├── Billing/             #   Políticas de facturación puras (sin IO)
-│   ├── Console/Commands/    #   18 comandos Artisan
+│   ├── Console/Commands/    #   19 comandos Artisan
 │   ├── Constants/           #   Catálogo de permisos
 │   ├── Exports/             #   Plantillas Excel de descarga
 │   ├── Helpers/             #   Traducción de errores de BD
@@ -97,7 +98,7 @@ ISPWatch/
 │   ├── Models/              #   43 modelos Eloquent
 │   ├── Notifications/       #   Verificación de correo
 │   ├── Policies/            #   CustomerInstallationPolicy
-│   ├── Providers/           #   AppServiceProvider, VoltServiceProvider
+│   ├── Providers/           #   AppServiceProvider, SearchMacros, Volt
 │   ├── Services/            #   Lógica de negocio
 │   │   ├── MikroTik/        #     Managers por recurso RouterOS
 │   │   │   └── Concerns/    #     Traits compartidos (SSH, escapado, verificación)
@@ -109,7 +110,7 @@ ISPWatch/
 ├── config/                  # 14 archivos de configuración
 ├── database/
 │   ├── factories/           #   PlanFactory, TenantFactory, UserFactory
-│   ├── migrations/          #   129 migraciones
+│   ├── migrations/          #   134 migraciones
 │   └── seeders/             #   13 seeders
 ├── docs/                    # ESTA DOCUMENTACIÓN
 ├── public/                  # Punto de entrada + assets compilados
@@ -117,10 +118,10 @@ ISPWatch/
 │   ├── css/ · sass/
 │   ├── js/                  #   SPA Vue 3
 │   └── views/               #   Blade: shell de la SPA, PDFs, correos, portal de pago
-├── routes/                  # api.php · web.php · console.php · auth.php
+├── routes/                  # api.php · web.php · console.php
 ├── scripts/                 # gen_favicon.py · supabase_lockdown_rls.sql
 ├── storage/                 # Logs, cache, claves SSH (keys/ está en .gitignore)
-└── tests/                   # 40 archivos de prueba (Unit + Feature)
+└── tests/                   # 27 archivos de prueba (245 tests, 0 fallos)
 ```
 
 ### Responsabilidad de cada directorio
@@ -139,7 +140,7 @@ ISPWatch/
 | `resources/js/pages` | Una página = una ruta del SPA | UI |
 | `resources/js/services/api` | Cliente HTTP por dominio | Al añadir endpoints |
 | `resources/views/documents` | Plantillas Blade de PDF y sus *shells* | Al cambiar documentos legales |
-| `tests` | PHPUnit sobre **SQLite en memoria** | Siempre que cambies lógica |
+| `tests` | PHPUnit sobre **SQLite en memoria**; el CI repite la suite en PostgreSQL | Siempre que cambies lógica |
 
 ---
 
@@ -173,6 +174,7 @@ ISPWatch/
 | `FixSequences.php` | `db:fix-sequences` | Repara secuencias PostgreSQL |
 | `MigrateDocumentsToS3.php` | `documents:migrate-to-s3 {--dry-run}` | Migra documentos locales a S3 |
 | `DiagnoseRouterWan.php` | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
+| `SyncRolePermissions.php` | `permissions:sync` | Reconcilia los roles canónicos con el catálogo de permisos (aditivo) |
 
 ### 3.3 `app/Http/Controllers`
 
@@ -256,14 +258,15 @@ ISPWatch/
 
 | Archivo | Descripción |
 |---|---|
-| `Constants/Permissions.php` | Catálogo de **32 permisos** agrupados en 8 categorías + mapa rol → permisos |
+| `Constants/Permissions.php` | Catálogo de **35 permisos** agrupados en 8 categorías + mapa rol → permisos. Reconciliado con la base por `permissions:sync` |
 | `Helpers/ErrorMessages.php` | Traduce `QueryException` a mensajes en español |
-| `Http/Middleware/CheckPermission.php` | Verifica permiso. Carga el rol con `withoutGlobalScope('tenant')`. Bypass `role_id == 1` |
-| `Http/Middleware/CheckStaffProfile.php` | Exige fila en `staff_profile` |
+| `Http/Middleware/CheckPermission.php` | Verifica permiso, con **semántica OR** (`permission:a,b`). Carga el rol con `withoutGlobalScope('tenant')`. Bypass `role_id == 1`. Consulta los permisos **efectivos** (rol ∪ usuario) |
+| `Http/Middleware/CheckStaffProfile.php` | Pese al nombre, **no** exige fila en `staff_profile`: comprueba `role.code ∈ {admin, staff}` o `role_id == 1` |
 | `Http/Middleware/SecurityHeaders.php` | CSP, HSTS, X-Frame-Options, COOP, Permissions-Policy |
 | `Traits/BelongsToTenant.php` | Global scope + auto-relleno de `tenant_id` desde el usuario autenticado |
 | `Traits/FixesSequences.php` | Repara secuencias PostgreSQL desincronizadas al crear |
 | `Traits/InputSanitizer.php` | Saneado de entrada |
+| `Providers/SearchMacrosServiceProvider.php` | Macros `whereLike`/`orWhereLike`: eligen `ilike` o `like` según el driver y escapan comodines |
 | `Jobs/ProvisionCustomerJob.php` | Un job por cliente en el aprovisionamiento masivo asíncrono |
 | `Imports/UnifiedImport.php` + `Sheets/*` | Importación de clientes, planes, routers y sectoriales en un solo archivo |
 | `Imports/CustomersUpdateImport.php` | Actualización masiva de clientes |
@@ -277,10 +280,10 @@ ISPWatch/
 | Archivo | Descripción |
 |---|---|
 | `bootstrap/app.php` | Registro de rutas, alias de middleware, `trustProxies('*')`, manejo de `QueryException` → JSON 422 |
-| `routes/api.php` | **363 líneas.** Toda la API REST con sus middleware de permiso |
+| `routes/api.php` | Toda la API REST. **Cada endpoint lleva su permiso** desde 2026-07-30; los de lectura usan semántica OR |
 | `routes/web.php` | Redirección raíz, portal de pago, ruta CSRF de Sanctum, **catch-all de la SPA** |
 | `routes/console.php` | Planificador: 9 tareas programadas |
-| `routes/auth.php` | Rutas Volt heredadas de Breeze (registro, login, recuperación de contraseña) |
+| ~~`routes/auth.php`~~ | **Eliminado** (2026-07-30): no lo cargaba `bootstrap/app.php` y referenciaba un controlador y unas vistas Volt inexistentes |
 | `config/database.php` | Conexiones. **Nota de seguridad:** `sqlite` no define `url` a propósito, para que `DB_URL` no pueda redirigir los tests a la base real |
 | `config/cors.php` | Orígenes desde `CORS_ALLOWED_ORIGINS`; `supports_credentials = true` |
 | `config/sanctum.php` | Dominios stateful, guard `web`, sin expiración de token |
@@ -296,9 +299,9 @@ ISPWatch/
 | Archivo | Descripción |
 |---|---|
 | `router/index.js` | ~40 rutas, todas *lazy-loaded*. Guarda `beforeEach`: autenticación, `requiresStaff`, `meta.permission`, título de página |
-| `stores/auth.js` | Pinia: `user`, `isAuthenticated`, `permissions`, `roleCode`, `isStaffOrAdmin`, `hasPermission()`, `refreshUserPermissions()` |
-| `services/api.js` | Instancia axios: interceptor que inyecta `tenant`/`tenant_id` y manejador global de `401` |
-| `services/auth.js` | Helpers de permisos sobre `localStorage`. **Incluye bypass admin** (`role_id == 1`) |
+| `stores/auth.js` | Pinia: `user`, `isAuthenticated`, `permissions`, `roleCode`, `isStaffOrAdmin`, `hasPermission()` (espejo exacto de `CheckPermission`, **con** bypass de superadmin), `refreshUserPermissions()` |
+| `services/api.js` | Instancia axios y manejador global de `401`. El interceptor que inyectaba `tenant`/`tenant_id` se eliminó: el backend siempre lo ignoró |
+| ~~`services/auth.js`~~ | **Eliminado**: duplicaba `hasPermission` con lógica distinta a la del store, que es la que usa el guard |
 | `services/billing.js` | Cliente de facturación |
 | `services/api/*.js` | 19 módulos por dominio: `auth`, `customers`, `routers`, `plans`, `staff`, `support`, `inventory`, `inventory-stock/-provider/-branch`, `sectorials`, `tenant`, `roles`, `prospects`, `catalogs`, `expense`, `expense-category`, `document-templates`, `help-center` |
 
@@ -615,8 +618,12 @@ incidentes reales.
 | 12 | La IP es única **por router**, no por tenant | `CustomerProfileController` |
 | 13 | El usuario PPPoE es único por router; sin ello RouterOS **sobrescribe en silencio** el secret de otro cliente | Índice parcial + `StoreCustomerRequest` |
 | 14 | El correo de login se normaliza a ASCII; los nombres conservan tildes y ñ | `User::sanitizeEmail` |
-| 15 | Un permiso nuevo **no llega solo** a los roles admin existentes: hace falta migración de backfill | `2026_07_27_120000` |
+| 15 | Un permiso nuevo **no llega solo** a los roles existentes: hay que ejecutar `permissions:sync` (o una migración de backfill) | `SyncRolePermissions` |
 | 16 | El scope de tenant sobre `Role` puede anular el rol propio y producir un falso `403` | `CheckPermission`, `AuthController@login` |
+| 17 | Los permisos efectivos son la **unión** de `role.permissions` y `users.permissions`; la unión sólo concede, nunca revoca | `User::effectivePermissions()` |
+| 18 | `email_verified_at` **no está en `$fillable`**: `User::create()` lo descarta en silencio y el usuario nace sin verificar (login 403) | `User::$fillable` |
+| 19 | En el grupo `api`, `SubstituteBindings` corre **antes** que el middleware de la ruta: un id inexistente da 404 antes de comprobar el permiso | `RouterController::destroy(Router $router)` |
+| 20 | El modo de corte se compara con `CutType::matches()`, que normaliza tildes y mayúsculas: `'Corte Automatico'` sin tilde dejaba de cortar sin error | `CutType`, `OverdueSuspensionService` |
 
 ---
 

@@ -71,7 +71,13 @@ Las columnas de **nombre sí conservan** tildes y ñ.
 
 ## 2. Inventario de tablas
 
-Volumetría medida en producción (`pg_stat_user_tables`, aproximada).
+Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
+
+> ⚠️ Una versión anterior de este documento usaba `pg_stat_user_tables.n_live_tup`, que es
+> una **estimación** actualizada por `autovacuum`/`ANALYZE`: en tablas pequeñas o nunca
+> analizadas informa `0` aunque tengan filas. Eso llevó a dar por muertas a `cut_type`,
+> `type_billing` y `script_version`, que sí tienen datos. Para decidir si una tabla está en
+> uso, cuenta de verdad.
 
 ### Núcleo de identidad y tenant
 
@@ -88,27 +94,27 @@ Volumetría medida en producción (`pg_stat_user_tables`, aproximada).
 | Tabla | Filas | Función |
 |---|---:|---|
 | `service_plan` | 55 | Planes de internet (velocidad, precio, parámetros por tecnología) |
-| `type_plans` | 0 | Catálogo de tipos de plan (Queue/PPPoE/Hotspot/PCQ) |
+| `type_plans` | 4 | Catálogo de tipos de plan (Queue/PPPoE/Hotspot/PCQ) |
 | `user_services` | 987 | **Contrato de servicio**: qué plan tiene cada cliente y en qué estado |
 | `router` | 6 | RouterBoards MikroTik: credenciales, método de control, VPN |
 | `sectorial` | 150 | Elementos de red: sectoriales, nodos, switches, OLT, splitter, NAP, mufa |
 | `sectorial_history` | 157 | Bitácora de cambios sobre un elemento |
 | `sectorial_note` / `sectorial_photo` | 0 / 0 | Notas y fotos del elemento |
-| `ip_range` / `router_ip_range` / `ip_assignment` | 0 | Gestión de rangos IP (**sin uso en producción**) |
+| ~~`ip_range` / `router_ip_range` / `ip_assignment`~~ | 0 | **Eliminadas** por la migración `2026_07_31_000005` (0 filas, sin referencias) |
 | `traffic_samples` | 1 252 | Muestras de contadores WAN cada 5 min |
 | `traffic_daily` | 57 | Agregado diario de tráfico |
 | `router_outage_events` | 0 | Falla masiva (append-only), consumido por Converza |
-| `script_version` | 0 | Catálogo de versiones de script |
+| `script_version` | 2 | Catálogo de versiones de script |
 
 ### Facturación
 
 | Tabla | Filas | Función |
 |---|---:|---|
 | `billing` | 11 | **Configuración de facturación por router** (días, horas, modo, políticas) |
-| `type_billing` | 0 | Catálogo de tipos de facturación |
-| `cut_type` | 0 | Catálogo: "Corte Automático" / "Corte Manual" |
+| `type_billing` | 3 | Catálogo de tipos de facturación |
+| `cut_type` | 3 | Catálogo: `Corte Automático`, `Corte Manual`, `Sin Corte` |
 | `invoices` | 1 168 | Facturas |
-| `invoice_items` | 1 167 | Ítems de factura |
+| `invoice_items` | 1 166 | Ítems de factura |
 | `payments` | 1 086 | Pagos recibidos |
 | `payment_allocations` | 1 061 | Asignación pago → factura (N:M con importe) |
 | `payment_methods` | 16 | Formas de pago por tenant |
@@ -130,7 +136,7 @@ Volumetría medida en producción (`pg_stat_user_tables`, aproximada).
 | `help_categories` / `help_articles` | 9 / 30 | Centro de ayuda embebido |
 | `bulk_provision_runs` | 50 | Progreso de aprovisionamiento masivo asíncrono |
 | `audit_logs` | 0 | Auditoría genérica de modelos |
-| `activity_log` | 0 | Bitácora heredada (**sin uso**) |
+| ~~`activity_log`~~ | 0 | **Eliminada** por la migración `2026_07_31_000005` |
 
 ### Infraestructura Laravel
 
@@ -832,17 +838,17 @@ Agregado permanente.
 
 ## 8. Deuda técnica del esquema
 
-Hallazgos verificados. El detalle con prioridad e impacto está en
-[`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md).
+Hallazgos verificados y su estado tras la remediación del 2026-07-30. El detalle con
+prioridad e impacto está en [`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md).
 
-| # | Hallazgo | Evidencia |
-|---|---|---|
-| 1 | **Columnas `*_encrypted` de `router` contienen texto plano.** La migración `2026_05_14_000001` copió el valor con SQL crudo asumiendo que el cast cifraría. El propio modelo documenta que el cast `encrypted` está deshabilitado a propósito porque lanzaba `DecryptException` en toda lectura. | `app/Models/Router.php`, comentario en `$casts` |
-| 2 | **`inventory_stock.desc` es de tipo `date`** cuando funcionalmente es una descripción de texto. Hubo una migración de corrección (`2026_02_13_160000_fix_inventory_stock_brand_type`) que no cubrió esta columna. | `information_schema` |
-| 3 | **FK duplicada en `service_plan.tenant_id`**: dos restricciones sobre la misma columna con reglas distintas (`SET NULL` y `NO ACTION`). | `information_schema` |
-| 4 | **`invoices.tenant_id`, `payments.tenant_id` y `router.tenant_id` usan `NO ACTION`** mientras el resto del esquema usa `SET NULL`/`CASCADE`: borrar un tenant fallará con error de FK. | `information_schema` |
-| 5 | **Tablas muertas**: `ip_range`, `router_ip_range`, `ip_assignment`, `activity_log`, `script_version`, `type_billing`, `cut_type` (0 filas). `cut_type` es especialmente delicado: `OverdueSuspensionService` **compara por el nombre literal** `'Corte Automático'` / `'Corte Manual'`, así que la tabla vacía en producción implica que ningún router entra al corte automático. | `pg_stat_user_tables` + `OverdueSuspensionService.php` |
-| 6 | **`customer_profile.status` es booleano** pero se parece a un campo de estado textual. Consultarlo como `'active'` lanza `SQLSTATE 22P02` en PostgreSQL y coincide con cero filas en SQLite (los tests no lo detectan). | `BillingService.php`, comentario explícito |
-| 7 | **Contraseñas de servicio en texto plano**: `customer_profile.pppoe_password`, `hotspot_password`, `sectorial.pass_rb`, `router.password_rb`. | `information_schema` |
-| 8 | **Migración pendiente en producción**: `2026_07_30_000000_add_first_invoice_free_months_and_plan_policy` (128 de 129 aplicadas). | `migrate:status` |
-| 9 | `customer_documents.installation_id` y `prospects.converted_user_id` sin FK declarada. | `information_schema` |
+| # | Hallazgo | Evidencia | Estado |
+|---|---|---|---|
+| 1 | **Columnas `*_encrypted` de `router` contienen texto plano.** La migración `2026_05_14_000001` copió el valor con SQL crudo asumiendo que el cast cifraría. El propio modelo documenta que el cast `encrypted` está deshabilitado a propósito porque lanzaba `DecryptException` en toda lectura. | `app/Models/Router.php`, comentario en `$casts` | ✅ Resuelto: migración `2026_07_31_000002` cifra en la misma columna y elimina las duplicadas |
+| 2 | **`inventory_stock.desc` es de tipo `date`** cuando funcionalmente es una descripción de texto. Hubo una migración de corrección (`2026_02_13_160000_fix_inventory_stock_brand_type`) que no cubrió esta columna. | `information_schema` | ✅ Resuelto: migración `2026_07_31_000003` |
+| 3 | **FK duplicada en `service_plan.tenant_id`**: dos restricciones sobre la misma columna con reglas distintas (`SET NULL` y `NO ACTION`). | `information_schema` | ✅ Resuelto: migración `2026_07_31_000003` |
+| 4 | **`invoices.tenant_id`, `payments.tenant_id` y `router.tenant_id` usan `NO ACTION`** mientras el resto del esquema usa `SET NULL`/`CASCADE`: borrar un tenant fallará con error de FK. | `information_schema` | ✅ Resuelto: homogeneizadas a `CASCADE` |
+| 5 | **Tablas muertas**: `ip_range`, `router_ip_range`, `ip_assignment`, `activity_log` (0 filas reales, sin referencias en código). | `COUNT(*)` + búsqueda en `app/`, `routes/`, `resources/js/` | ✅ Eliminadas: migración `2026_07_31_000005`. **`cut_type`, `type_billing` y `script_version` NO estaban muertas** (3/3/2 filas): el análisis previo se basó en una estimación |
+| 6 | **`customer_profile.status` es booleano** pero se parece a un campo de estado textual. Consultarlo como `'active'` lanza `SQLSTATE 22P02` en PostgreSQL y coincide con cero filas en SQLite (los tests no lo detectan). | `BillingService.php`, comentario explícito | ℹ️ Por diseño; documentado |
+| 7 | **Contraseñas de servicio en texto plano**: `customer_profile.pppoe_password`, `hotspot_password`, `sectorial.pass_rb`, `router.password_rb`. | `information_schema` | ✅ Resuelto: cast `encrypted` en los tres modelos |
+| 8 | ~~Migración pendiente en producción~~ | `migrate:status` | ❌ Falso positivo: `2026_07_30_000000` figura aplicada (batch 68) |
+| 9 | `customer_documents.installation_id` y `prospects.converted_user_id` sin FK declarada. | `information_schema` | 📋 Pendiente |

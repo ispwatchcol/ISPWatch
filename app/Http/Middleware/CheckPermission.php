@@ -11,9 +11,19 @@ class CheckPermission
     /**
      * Handle an incoming request.
      *
+     * Acepta UNO O VARIOS permisos con semántica OR: `permission:a,b` deja pasar
+     * a quien tenga `a` **o** `b`.
+     *
+     * El OR no es un capricho: hay datos de referencia que una pantalla necesita
+     * aunque el permiso "dueño" de ese módulo no sea suyo. El formulario de alta
+     * de cliente carga planes, sectoriales y routers, y el rol Técnico tiene
+     * `add_clients` pero NO `view_plans`, `view_sectorials` ni `manage_routers`.
+     * Exigir sólo el permiso dueño dejaría el formulario con los desplegables
+     * vacíos. La escritura de esos módulos sí exige el permiso dueño a secas.
+     *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
-    public function handle(Request $request, Closure $next, string $permission): Response
+    public function handle(Request $request, Closure $next, string ...$permissions): Response
     {
         // SECURITY FIX (OWASP A01): Always use the authenticated user from Sanctum/session.
         // Never trust user_id from request input — that allows privilege escalation.
@@ -39,18 +49,22 @@ class CheckPermission
         }
 
         // Superadmin bypass: role_id == 1 (Administrador) has full access.
-        // Mirrors frontend logic in resources/js/services/auth.js
+        // Mirrors frontend logic in resources/js/stores/auth.js
         if ((int) $user->role_id === 1) {
             return $next($request);
         }
 
-        if (!$user->role->hasPermission($permission)) {
-            return response()->json([
-                'message' => 'Forbidden - You do not have permission to perform this action',
-                'required_permission' => $permission,
-            ], 403);
+        foreach ($permissions as $permission) {
+            if ($user->hasPermission($permission)) {
+                return $next($request);
+            }
         }
 
-        return $next($request);
+        return response()->json([
+            'message' => 'Forbidden - You do not have permission to perform this action',
+            'required_permission' => count($permissions) === 1
+                ? $permissions[0]
+                : $permissions,
+        ], 403);
     }
 }

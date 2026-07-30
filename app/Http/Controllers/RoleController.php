@@ -130,11 +130,22 @@ class RoleController extends Controller
             'permissions' => 'nullable|array',
         ]);
 
-        if (isset($data['permissions'])) {
-            $data['permissions'] = $data['permissions'];
-        }
+        $antes = $role->only(['name', 'permissions']);
 
         $role->update($data);
+
+        // Cambiar los permisos de un rol altera lo que puede hacer TODO el
+        // personal que lo tenga asignado. Es la acción con mayor radio de acción
+        // del módulo de administración, así que se audita con el antes y el
+        // después para poder reconstruir quién concedió qué.
+        \App\Models\AuditLog::log([
+            'action'      => 'role.permissions_updated',
+            'model_type'  => Role::class,
+            'model_id'    => $role->id,
+            'old_values'  => $antes,
+            'new_values'  => $role->only(['name', 'permissions']),
+            'description' => "Rol '{$role->name}' actualizado.",
+        ]);
 
         return response()->json([
             'success' => true,

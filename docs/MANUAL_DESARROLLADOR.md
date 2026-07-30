@@ -4,7 +4,7 @@
 > Complementa a [`ARQUITECTURA.md`](ARQUITECTURA.md) (diseño) y
 > [`BITACORA_TECNICA.md`](BITACORA_TECNICA.md) (inventario de código).
 
-**Última actualización:** 2026-07-30
+**Última actualización:** 2026-07-30 (post-remediación)
 
 ---
 
@@ -253,22 +253,33 @@ php artisan test --filter=FirstInvoice    # por nombre
 ```
 
 **Entorno de pruebas:** SQLite `:memory:`, `BCRYPT_ROUNDS=4`, cache/sesión en array,
-cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`.
+cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`
+(que no se versiona: parte de `.env.testing.example`).
 
-### Cobertura actual (40 archivos)
+**Estado:** 245 tests, **0 fallos**. Hasta 2026-07-30 había 34 fallos permanentes —
+19 de andamiaje de Breeze que probaba rutas y componentes inexistentes, 10 de documentos que
+falseaban el disco `public` mientras el código escribe en `s3`, y el resto residuos del
+esqueleto de Laravel. Se eliminaron los muertos y se arreglaron los reales: una suite con
+fallos crónicos no es una red de seguridad, porque nadie la mira.
+
+**CI:** `.github/workflows/tests.yml` ejecuta la suite dos veces, en SQLite y en
+**PostgreSQL 16 + PostGIS**. Sólo el segundo puede detectar el booleano comparado con
+cadena, el `LIKE` sensible a mayúsculas y los índices parciales.
+
+### Cobertura actual (27 archivos, 245 tests)
 
 | Suite | Archivos |
 |---|---|
 | `Feature/Billing` | `AutoCutoffTest`, `AutoReconnectOnPaymentTest`, `BillingEventTimeTest`, `BillingModuleTest`, `DeleteInvoiceTest`, `FirstInvoiceFreeMonthsTest`, `FirstInvoiceProrationTest`, `MarkInvoiceUnpaidTest`, `PaymentReminderTest`, `ReconcileSuspensionsTest`, `RouterMonthlyBillingTest`, `VerifyAutomaticCutsTest`, `VerifyMonthlyBillingTest` |
 | `Feature/Documents` | `BillingPdfDownloadTest`, `CustomerContractSignTest`, `DocumentTemplateControllerTest`, `InstallationSheetSignTest` |
-| `Feature/Auth` | Autenticación, verificación de correo, contraseñas, registro |
+| `Feature/Auth` | `ApiAuthorizationTest` (42: permiso por endpoint, OR, bypass admin, unión de permisos), `ApiLoginTest` (7: login real, verificación, rate limit), `RolePermissionsSyncTest` (7) |
 | `Feature/Router` | `RouterOutageTest` |
 | `Feature/Inventory` | `InventoryImportTest` |
 | `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
 | `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest` |
 
-**Zona sin cobertura relevante:** clientes, prospectos, sectoriales, soporte, gastos,
-inventario (más allá de la importación) y roles/permisos.
+**Zona sin cobertura relevante:** la lógica de negocio de clientes, prospectos, sectoriales,
+soporte y gastos. La **autorización** de todos ellos sí está cubierta.
 
 ### Cuidado con SQLite
 
@@ -306,21 +317,16 @@ al hacer push a `main`.
 | `ispwatch` (web) | Materializa la clave SSH → `php artisan migrate --force` → `heroku-php-apache2 public/` |
 | `worker` | Materializa la clave SSH → `php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600` |
 
-### ⚠️ El planificador no está en la definición de la app
+### El planificador
 
-La especificación **no incluye ningún componente que ejecute `php artisan schedule:run`**.
-Sin él, **nada del ciclo automático ocurre**: no se factura, no se recuerda, no se corta, no
-se recolecta tráfico. Este es un fallo que ya se materializó en producción.
+Desde 2026-07-30 la especificación incluye un tercer componente, `scheduler`, que ejecuta
+`php artisan schedule:work`. **Antes no existía**, y sin él nada del ciclo automático
+ocurre: no se factura, no se recuerda, no se corta, no se recolecta tráfico. Es un fallo que
+ya se materializó en producción.
 
-Opciones para resolverlo:
-
-```bash
-# A) Worker adicional en App Platform
-php artisan schedule:work
-
-# B) Cron en un droplet o servidor con acceso al proyecto
-* * * * * cd /ruta/al/proyecto && php artisan schedule:run >> /dev/null 2>&1
-```
+> 🔧 Falta **aplicar** la especificación en DigitalOcean para que el componente exista de
+> verdad. Alternativa si se prefiere un cron externo:
+> `* * * * * cd /ruta/al/proyecto && php artisan schedule:run >> /dev/null 2>&1`
 
 Verificación de que está funcionando:
 
@@ -383,6 +389,12 @@ php artisan billing:verify-cuts
 | `db:fix-sequences [--table=] [--all]` | Repara secuencias |
 | `documents:migrate-to-s3 [--dry-run]` | Migra documentos locales a S3 |
 
+### Permisos
+
+| Comando | Descripción |
+|---|---|
+| `permissions:sync [--dry-run] [--tenant=]` | Añade a los roles canónicos los permisos que les falten según `App\Constants\Permissions`. **Aditivo**: nunca quita. No toca roles personalizados |
+
 ---
 
 ## 9. Convenciones de desarrollo
@@ -415,6 +427,11 @@ php artisan billing:verify-cuts
    añade `coreSshExecCommand()`. Envuelve todo statement en `:do {} on-error={}`.
 7. **Verifica el `exit-code`** de `ssh-exec`: un código distinto de cero se reportaba como
    éxito y ocultaba fallos reales.
+8. **Toda ruta nueva lleva su permiso.** La guarda de `vue-router` es cosmética: quien llame
+   la API directamente la evita. Añade además un caso a `ApiAuthorizationTest`.
+9. **Los permisos de LECTURA pueden llevar varios valores** (`permission:a,b`, semántica OR)
+   cuando son datos de referencia que otra pantalla necesita. Los de ESCRITURA, nunca.
+10. **Las búsquedas de texto usan `whereLike`/`orWhereLike`**, jamás `like` ni `ilike` a pelo.
 
 ### Git
 
@@ -486,17 +503,20 @@ Cubre el manager con un test unitario que verifique **la cadena de comando gener
 | 1 | **`.env` local apunta a producción** | `DB_SCHEMA=public` = datos reales. Verifica antes de cualquier escritura |
 | 2 | **`migrate` a secas** | Deja los esquemas desincronizados. Usa `migrate:both` |
 | 3 | **`customer_profile.status` es booleano** | Compararlo con `'active'` lanza `22P02` en PostgreSQL y coincide con cero filas en SQLite |
-| 4 | **`LIKE` sensible a mayúsculas** | Los tests SQLite no lo detectan. Usa `ilike` por driver |
+| 4 | **`LIKE` sensible a mayúsculas** | Usa las macros `whereLike`/`orWhereLike`, que eligen operador por driver. Escribir `ilike` a pelo tiene el defecto simétrico: SQLite no lo conoce y revienta en los tests |
 | 5 | **Scope de tenant sobre `Role`** | Si `users.tenant_id` ≠ `role.tenant_id`, el rol se anula y sale un falso 403. Carga el rol con `withoutGlobalScope('tenant')` |
-| 6 | **Permiso nuevo sin backfill** | El frontend lee `role.permissions` de la base, no `getPermissionsByRole()` |
-| 7 | **Columnas `*_encrypted` de `router`** | Contienen **texto plano**. No añadas el cast `encrypted` sin una migración de re-guardado |
+| 6 | **Permiso nuevo sin backfill** | El frontend lee `role.permissions` de la base, no `getPermissionsByRole()`. Ejecuta `php artisan permissions:sync` |
+| 7 | **Cifrado de credenciales** | Ya resuelto: se cifran en su propia columna y las `*_encrypted` se eliminaron. **No cifres columnas por las que se filtre en SQL** (`pppoe_username` tiene índice único): un valor cifrado no es consultable |
 | 8 | **La IP del router deriva** | Usa `RouterEndpointResolver`, no `router->ip` directamente |
 | 9 | **SSH del cliente puede no estar en el 22** | Usa `Router::sshPort()` y pasa `port=` |
 | 10 | **`/ip hotspot user profile` no acepta `comment`** | Añadirlo rompe el comando entero |
 | 11 | **Subida múltiple de fotos** | `413`/`504` sin JSON. Comprimir y enviar de una en una |
 | 12 | **Push PPPoE síncrono** | 17–34 s por cliente; el gateway corta. Usa el camino asíncrono |
 | 13 | **`cut_type` vacío en producción** | `OverdueSuspensionService` compara por el **nombre literal** `'Corte Automático'`. Sin filas en la tabla, nadie se corta |
-| 14 | **Migración pendiente** | `2026_07_30_000000_add_first_invoice_free_months_and_plan_policy` no está aplicada en `public` |
+| 14 | **`email_verified_at` no está en `$fillable`** | `User::create()` lo descarta en silencio y el usuario nace sin verificar → el login devuelve 403. Márcalo con `forceFill()` |
+| 15 | **`SubstituteBindings` corre antes que el middleware de ruta** | En el grupo `api`, un id inexistente en una ruta con vinculación implícita (`destroy(Router $router)`) devuelve **404 antes** de comprobar el permiso. Al testear autorización, crea el registro |
+| 16 | **No ocultes `password_rb` en `$hidden`** | `RouterEdit.vue` prellena el formulario con ese valor y lo reenvía al guardar: ocultarlo **borra la credencial** del router en la primera edición |
+| 17 | **El modo de corte se compara normalizado** | Usa `CutType::matches()` / `isAutomatic()`, nunca `=== 'Corte Automático'`: una tilde de menos dejaba de cortar sin ningún error |
 
 ---
 

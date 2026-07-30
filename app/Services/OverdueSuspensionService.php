@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Billing;
+use App\Models\CutType;
 use App\Models\Invoice;
 use App\Models\CustomerProfile;
 use App\Models\Router;
@@ -72,7 +73,10 @@ class OverdueSuspensionService
             }
 
             // ── Handle Corte Manual (just queue / notify, no auto-suspend) ─────
-            if ($cutTypeName === 'Corte Manual') {
+            // La comparación va por CutType::matches (normaliza tildes, mayúsculas
+            // y espacios): un 'Corte Automatico' sin tilde caía antes en la rama
+            // "no action" y dejaba de cortar sin ningún error visible.
+            if (CutType::matches($cutTypeName, CutType::MANUAL)) {
                 $stats['routers_processed']++;
                 $customersForManual = $this->getEligibleCustomers($router, $billingConfig, checkTime: false);
                 $stats['manual_pending'] += $customersForManual->count();
@@ -81,7 +85,7 @@ class OverdueSuspensionService
             }
 
             // ── Skip non-auto routers ──────────────────────────────────────────
-            if ($cutTypeName !== 'Corte Automático') {
+            if (!CutType::matches($cutTypeName, CutType::AUTOMATIC)) {
                 Log::info("Auto-cut: Router {$router->id} is '{$cutTypeName}'. No action.");
                 $stats['no_action']++;
                 continue;
@@ -199,7 +203,7 @@ class OverdueSuspensionService
 
         foreach ($routerQuery->get() as $router) {
             $billingConfig = $router->billingConfig;
-            if (!$billingConfig || $router->cutType?->name !== 'Corte Automático') {
+            if (!$billingConfig || !CutType::matches($router->cutType?->name, CutType::AUTOMATIC)) {
                 continue;
             }
 

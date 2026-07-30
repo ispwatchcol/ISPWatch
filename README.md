@@ -26,7 +26,8 @@ La documentación completa vive en [`docs/`](docs/). Empieza por la que correspo
 | [**BITACORA_TECNICA.md**](docs/BITACORA_TECNICA.md) | Mantenimiento | Inventario de código, módulos de negocio, trazabilidad, flujo completo |
 | [**API_REFERENCE.md**](docs/API_REFERENCE.md) | Integradores, frontend | Todos los endpoints con parámetros, respuestas y errores |
 | [**BASE_DATOS.md**](docs/BASE_DATOS.md) | DBA, backend | Diccionario de datos, ER, índices, restricciones |
-| [**MEJORAS_RECOMENDADAS.md**](docs/MEJORAS_RECOMENDADAS.md) | Responsables técnicos | Auditoría con problema, impacto, prioridad y recomendación |
+| [**MEJORAS_RECOMENDADAS.md**](docs/MEJORAS_RECOMENDADAS.md) | Responsables técnicos | Auditoría con problema, impacto, prioridad y **estado de resolución** |
+| [**RUNBOOK_ROTACION_SECRETOS.md**](docs/RUNBOOK_ROTACION_SECRETOS.md) | Operaciones | Procedimiento de rotación de las credenciales expuestas |
 | [**BLOQUEO_MOROSOS_MANUAL.md**](docs/BLOQUEO_MOROSOS_MANUAL.md) | Redes | Configuración del bloqueo en MikroTik |
 
 > ⚠️ **Regla del proyecto:** todo cambio de código debe reflejarse en los manuales
@@ -224,6 +225,7 @@ php artisan db:sync-dev             # copia public → ispwatch_dev
 | `billing:simulate` | Simulador del ciclo completo |
 | `traffic:collect` / `traffic:prune` | Historial de tráfico WAN |
 | `migrate:both` | Migraciones en ambos esquemas |
+| `permissions:sync [--dry-run]` | Añade a los roles los permisos que les falten (aditivo) |
 | `db:fix-sequences --all` | Repara secuencias de PostgreSQL |
 
 Lista completa en [`MANUAL_DESARROLLADOR.md`](docs/MANUAL_DESARROLLADOR.md#8-comandos-artisan).
@@ -247,8 +249,11 @@ Los comandos horarios aplican su propio filtro de día y hora por router, así q
 de más es una operación sin efecto. Si el sistema estuvo caído el día de facturación,
 **recupera al arrancar**.
 
-> ⚠️ **Verifica que el planificador esté corriendo en producción.** Sin él no se factura ni
-> se corta. Comprueba con `php artisan billing:verify-monthly`.
+El despliegue incluye un componente **`scheduler`** (`php artisan schedule:work`) desde
+2026-07-30. Antes no existía, y sin él no se factura ni se corta.
+
+> ⚠️ Verifica que esté corriendo con `php artisan billing:verify-monthly`: debe reportar
+> `ok`, nunca `no_show`.
 
 ---
 
@@ -275,20 +280,20 @@ ISPWatch/
 ├── .do/                    # Especificación de despliegue DigitalOcean
 ├── app/
 │   ├── Billing/            # Políticas puras de facturación
-│   ├── Console/Commands/   # 18 comandos Artisan
+│   ├── Console/Commands/   # 19 comandos Artisan
 │   ├── Http/               # Controladores, middleware, FormRequests
 │   ├── Models/             # 43 modelos Eloquent
 │   ├── Services/           # Lógica de negocio
 │   │   ├── MikroTik/       #   Un manager por recurso RouterOS
 │   │   └── Templates/      #   Render y saneado de documentos
 │   └── Traits/             # BelongsToTenant, FixesSequences
-├── database/               # 129 migraciones, 13 seeders, 3 factories
+├── database/               # 134 migraciones, 13 seeders, 3 factories
 ├── docs/                   # 📚 DOCUMENTACIÓN
 ├── resources/
 │   ├── js/                 # SPA Vue 3 (44 páginas)
 │   └── views/              # Blade: shell SPA, PDFs, correos, portal de pago
-├── routes/                 # api.php · web.php · console.php · auth.php
-└── tests/                  # 40 archivos PHPUnit (SQLite en memoria)
+├── routes/                 # api.php · web.php · console.php
+└── tests/                  # 27 archivos PHPUnit · 245 tests en verde
 ```
 
 Detalle en [`BITACORA_TECNICA.md`](docs/BITACORA_TECNICA.md#2-estructura-de-carpetas).
@@ -302,6 +307,10 @@ php artisan test                       # toda la suite (SQLite en memoria)
 composer run test                      # limpia config y ejecuta
 php artisan test tests/Feature/Billing # sólo facturación
 ```
+
+**245 tests, 0 fallos.** El CI (`.github/workflows/tests.yml`) repite la suite contra
+**PostgreSQL + PostGIS**, que es lo único capaz de detectar el booleano comparado con cadena,
+el `LIKE` sensible a mayúsculas y los índices parciales.
 
 > Los tests corren sobre SQLite. **Las migraciones deben ser portables**: SQL exclusivo de
 > PostgreSQL rompe toda la suite si no se protege por driver.
@@ -323,9 +332,17 @@ php artisan test tests/Feature/Billing # sólo facturación
 Auditoría histórica en [`OWASP_SECURITY_AUDIT.md`](OWASP_SECURITY_AUDIT.md) y
 [`SECURITY_IMPLEMENTATION_SUMMARY.md`](SECURITY_IMPLEMENTATION_SUMMARY.md).
 
-> 🔴 **Hay hallazgos abiertos de prioridad crítica y alta.** Consulta
-> [`MEJORAS_RECOMENDADAS.md`](docs/MEJORAS_RECOMENDADAS.md) antes de considerar el sistema
-> listo para producción.
+Añadido en la remediación del 2026-07-30:
+
+- **Permiso obligatorio en cada endpoint** de la API (antes ~60 sólo pedían sesión).
+- **Límite de peticiones**: 120/min general, 10/min contra el CORE, 5/min en masivas.
+- **Credenciales de red cifradas en reposo** (router, sectorial, PPPoE, HotSpot).
+- **CSP sin `unsafe-eval` ni `unsafe-inline` en `script-src`** y sin CDN externo.
+- **Auditoría** de borrado de factura, cambio de permisos de rol y suspensión manual.
+
+> 🔴 **Queda pendiente rotar las credenciales expuestas.** El repositorio ya está limpio, pero
+> las antiguas siguen en el historial de Git. Sigue
+> [`RUNBOOK_ROTACION_SECRETOS.md`](docs/RUNBOOK_ROTACION_SECRETOS.md).
 
 ---
 

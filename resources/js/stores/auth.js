@@ -50,8 +50,24 @@ export const useAuthStore = defineStore('auth', () => {
         sessionStorage.removeItem('isLoggedIn')
     }
 
+    /**
+     * Espejo EXACTO de App\Http\Middleware\CheckPermission.
+     *
+     * Antes esta función no tenía el bypass de superadministrador y
+     * services/auth.js sí. Como el guard de vue-router usa ESTA (el store), un
+     * Administrador (role_id 1) cuyo array role.permissions no incluyera un
+     * permiso concreto quedaba bloqueado en la navegación aunque el backend sí
+     * le hubiera dado acceso. Fue exactamente el síntoma de
+     * manage_document_templates: admins con 34 de 35 permisos que no veían la
+     * pestaña Plantillas.
+     *
+     * Si cambias el criterio aquí, cámbialo también en CheckPermission.php.
+     */
     function hasPermission(permission) {
         if (!user.value) return false
+        // Superadmin: role_id == 1 (Administrador) tiene acceso total.
+        if (Number(user.value.role_id) === 1) return true
+        if (user.value.is_superadmin === true) return true
         if (permissions.value.includes('*')) return true
         return permissions.value.includes(permission)
     }

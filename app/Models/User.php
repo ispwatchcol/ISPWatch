@@ -131,4 +131,46 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->hasMany(UserService::class, 'user_id');
     }
+
+    /**
+     * Permisos efectivos del usuario: los de su ROL más los suyos propios.
+     *
+     * `users.permissions` existía en el esquema, estaba en $fillable y en $casts,
+     * y la interfaz permitía asignarlos — pero NADA los leía: la autorización
+     * miraba únicamente `role.permissions`. Un administrador que concediera un
+     * permiso individual no obtenía ningún efecto ni ningún aviso: fallo de
+     * configuración silencioso. La unión hace que la columna signifique lo que
+     * aparenta.
+     *
+     * La unión sólo CONCEDE, nunca revoca: un permiso individual no puede
+     * quitarle a alguien lo que su rol ya le da. Para restringir hay que cambiar
+     * el rol.
+     *
+     * @return array<int,string>
+     */
+    public function effectivePermissions(): array
+    {
+        $delRol = $this->role?->permissions ?? [];
+        $propios = $this->permissions ?? [];
+
+        return array_values(array_unique(array_merge(
+            is_array($delRol) ? $delRol : [],
+            is_array($propios) ? $propios : [],
+        )));
+    }
+
+    /**
+     * ¿Tiene este usuario el permiso indicado?
+     *
+     * No incluye el bypass de superadministrador (`role_id == 1`): eso es una
+     * decisión de la capa de autorización, no del modelo. Lo aplica
+     * {@see \App\Http\Middleware\CheckPermission}.
+     */
+    public function hasPermission(string $permission): bool
+    {
+        $permisos = $this->effectivePermissions();
+
+        return in_array('*', $permisos, true)
+            || in_array($permission, $permisos, true);
+    }
 }

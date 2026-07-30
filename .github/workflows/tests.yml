@@ -1,0 +1,115 @@
+name: Tests
+
+# Hallazgo M-2: la suite corría únicamente sobre SQLite, y hay diferencias con
+# PostgreSQL que SQLite no puede revelar:
+#
+#   · Comparar una columna booleana con la cadena 'active' lanza SQLSTATE 22P02
+#     en PostgreSQL y coincide con CERO filas en SQLite, en silencio. Ya provocó
+#     un fallo de facturación en producción.
+#   · LIKE distingue mayúsculas en PostgreSQL y no en SQLite: una búsqueda
+#     pasaba los tests y luego no encontraba nada en producción.
+#   · Los índices parciales (WHERE) sólo existen en PostgreSQL.
+#
+# Por eso hay dos trabajos: el rápido sobre SQLite (el de siempre) y uno sobre
+# PostgreSQL con PostGIS, que es el motor real.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sqlite:
+    name: PHPUnit (SQLite, rápido)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, mbstring, openssl, zip, gd, bcmath
+          coverage: none
+
+      - name: Instalar dependencias
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Preparar entorno
+        run: |
+          cp .env.testing.example .env.testing
+          php artisan key:generate --env=testing
+
+      - name: Ejecutar la suite
+        run: php artisan test
+
+  postgres:
+    name: PHPUnit (PostgreSQL, motor real)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # postgis incluye PostGIS, que sectorial.coordinates necesita.
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: ispwatch_test
+          POSTGRES_USER: ispwatch
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: ispwatch_test
+      DB_USERNAME: ispwatch
+      DB_PASSWORD: secret
+      DB_SCHEMA: public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_pgsql, mbstring, openssl, zip, gd, bcmath
+          coverage: none
+
+      - name: Instalar dependencias
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Preparar entorno
+        run: |
+          cp .env.testing.example .env.testing
+          # Sobrescribe el driver sqlite del archivo de ejemplo.
+          {
+            echo "DB_CONNECTION=pgsql"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=5432"
+            echo "DB_DATABASE=ispwatch_test"
+            echo "DB_USERNAME=ispwatch"
+            echo "DB_PASSWORD=secret"
+            echo "DB_SCHEMA=public"
+          } >> .env.testing
+          php artisan key:generate --env=testing
+
+      - name: Habilitar PostGIS
+        run: |
+          PGPASSWORD=secret psql -h 127.0.0.1 -U ispwatch -d ispwatch_test \
+            -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+      - name: Ejecutar migraciones
+        run: php artisan migrate --force --env=testing
+
+      # El grupo que más sufre las diferencias entre motores: facturación
+      # (booleanos, fechas), documentos y autorización (búsquedas con LIKE).
+      - name: Ejecutar la suite
+        run: php artisan test --env=testing

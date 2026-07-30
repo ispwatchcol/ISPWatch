@@ -28,14 +28,16 @@ class ProspectController extends Controller
 
         $rows = Prospect::where('tenant_id', $tenantId)
             ->when($request->status, fn($q, $s) => $q->where('status', $s))
+            // `ilike` a pelo era el defecto simétrico del bug de mayúsculas:
+            // SQLite no conoce ese operador, así que esta búsqueda reventaba en
+            // los tests. whereLike/orWhereLike eligen el operador por driver.
             ->when($request->q, function ($q, $term) {
-                $like = '%' . $term . '%';
-                $q->where(function ($w) use ($like) {
-                    $w->where('name', 'ilike', $like)
-                      ->orWhere('last_name', 'ilike', $like)
-                      ->orWhere('cedula', 'ilike', $like)
-                      ->orWhere('email', 'ilike', $like)
-                      ->orWhere('tel', 'ilike', $like);
+                $q->where(function ($w) use ($term) {
+                    $w->whereLike('name', $term)
+                      ->orWhereLike('last_name', $term)
+                      ->orWhereLike('cedula', $term)
+                      ->orWhereLike('email', $term)
+                      ->orWhereLike('tel', $term);
                 });
             })
             ->withCount('installations')

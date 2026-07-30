@@ -47,12 +47,15 @@ class SupportTicketController extends Controller
             $query->where('user_id', $request->user_id);
         }
 
-        // Búsqueda
-        if ($request->has('search')) {
-            $search = str_replace(['%', '_'], ['\\%', '\\_'], $request->search);
+        // Búsqueda. whereLike/orWhereLike eligen ilike o like según el motor y
+        // escapan los comodines: con `LIKE` a secas, PostgreSQL distingue
+        // mayúsculas y buscar "eliud" no encontraba "Eliud" — un fallo que los
+        // tests no ven porque corren sobre SQLite, donde LIKE es insensible.
+        if ($request->filled('search')) {
+            $search = $request->search;
             $query->where(function ($q) use ($search) {
-                $q->where('subject', 'like', "%{$search}%")
-                    ->orWhere('description', 'like', "%{$search}%");
+                $q->whereLike('subject', $search)
+                  ->orWhereLike('description', $search);
             });
         }
 

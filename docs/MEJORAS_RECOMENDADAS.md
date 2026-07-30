@@ -1,630 +1,533 @@
 # BITÁCORA DE MEJORAS — ISPWatch
 
-> Hallazgos de auditoría de código, esquema y configuración. **Todos están verificados
-> contra el repositorio o contra el esquema real de producción**; cada uno incluye la
-> evidencia. No se listan sospechas sin comprobar.
+> Hallazgos de auditoría de código, esquema y configuración, con su estado de resolución.
+> Todos están verificados contra el repositorio o contra el esquema real de producción.
 
-**Fecha de auditoría:** 2026-07-30 · Rama: `feat/first-invoice-free-months` · Commit base: `b381211`
+**Auditoría inicial:** 2026-07-30 · **Remediación aplicada:** 2026-07-30 · Rama: `feat/first-invoice-free-months`
 
 ---
 
 ## Índice
 
-1. [Resumen por prioridad](#1-resumen-por-prioridad)
-2. [Prioridad crítica](#2-prioridad-crítica)
-3. [Prioridad alta](#3-prioridad-alta)
-4. [Prioridad media](#4-prioridad-media)
-5. [Prioridad baja](#5-prioridad-baja)
-6. [Tabla consolidada](#6-tabla-consolidada)
-7. [Plan de acción sugerido](#7-plan-de-acción-sugerido)
-8. [Lo que ya está bien resuelto](#8-lo-que-ya-está-bien-resuelto)
+1. [Estado actual](#1-estado-actual)
+2. [Correcciones a la auditoría inicial](#2-correcciones-a-la-auditoría-inicial)
+3. [Resueltos — prioridad crítica](#3-resueltos--prioridad-crítica)
+4. [Resueltos — prioridad alta](#4-resueltos--prioridad-alta)
+5. [Resueltos — prioridad media](#5-resueltos--prioridad-media)
+6. [Resueltos — prioridad baja](#6-resueltos--prioridad-baja)
+7. [Pendientes](#7-pendientes)
+8. [Tabla consolidada](#8-tabla-consolidada)
+9. [Qué hay que ejecutar para cerrar el ciclo](#9-qué-hay-que-ejecutar-para-cerrar-el-ciclo)
+10. [Lo que ya estaba bien resuelto](#10-lo-que-ya-estaba-bien-resuelto)
 
 ---
 
-## 1. Resumen por prioridad
+## 1. Estado actual
 
-| Prioridad | Cantidad | Naturaleza |
+| Estado | Cantidad | Detalle |
 |---|---:|---|
-| 🔴 **Crítica** | 4 | Secretos expuestos, ciclo automático sin ejecutor, corte inoperante |
-| 🟠 **Alta** | 7 | Autorización incompleta, credenciales sin cifrar, sin límite de peticiones |
-| 🟡 **Media** | 9 | Deuda de esquema, cobertura de pruebas, inconsistencias de UI |
-| 🟢 **Baja** | 6 | Limpieza, documentación, ergonomía |
+| ✅ **Resuelto en código** | 20 | Aplicado y verificado con tests |
+| 🔧 **Requiere ejecución** | 4 | El código está listo; falta correr migraciones o rotar credenciales |
+| ❌ **Falso positivo** | 2 | Corregidos en §2 |
+| 📋 **Pendiente** | 2 | Decisión de producto o trabajo de frontend |
+
+### Resultado medible
+
+| Métrica | Antes | Después |
+|---|---:|---:|
+| Tests pasando | 180 | **245** |
+| Tests fallando | 34 | **0** |
+| Endpoints de la API sin control de permisos | ~60 | **0** |
+| Límite de peticiones en la API | ninguno | 120/min + 10/min y 5/min en operaciones caras |
+| Secretos de producción versionados | 10 | **0** |
+| Directivas peligrosas en la CSP | 3 | **0** |
 
 ---
 
-## 2. Prioridad crítica
+## 2. Correcciones a la auditoría inicial
 
-### C-1 · Credenciales de producción en texto plano dentro del repositorio
+Dos hallazgos de la primera pasada resultaron **incorrectos**. La causa fue usar
+`pg_stat_user_tables.n_live_tup` para medir el volumen de las tablas: es una **estimación**
+que actualizan `autovacuum`/`ANALYZE`, y en tablas pequeñas o nunca analizadas informa `0`
+aunque tengan filas. Se repitió la medición con `COUNT(*)` real.
 
-**Problema.** `.do/deploy.template.yaml` está **versionado en Git** y contiene, sin cifrar:
+### ❌ C-3 «La tabla `cut_type` está vacía» — FALSO
 
-| Secreto | Valor expuesto |
+`cut_type` tiene **3 filas reales** (`Corte Automático`, `Corte Manual`, `Sin Corte`) y los
+**6 routers** tienen un `cut_type_id` válido: 3 en automático y 3 en manual. El corte
+automático **sí** estaba operativo. Lo mismo ocurría con `type_billing` (3 filas) y
+`script_version` (2), que la primera pasada dio por muertas.
+
+**Lo que sí era cierto** y se ha corregido: la comparación por **nombre literal**
+(`$cutType->name === 'Corte Automático'`) es frágil. Un nombre sin tilde, con espacios de
+más o en otra caja hace que el router caiga en la rama «sin acción» y deje de cortar **sin
+ningún error visible**. Reclasificado de 🔴 crítico a 🟡 medio y resuelto — ver **M-10**.
+
+### ❌ C-4 «Migración pendiente en producción» — YA RESUELTO
+
+`2026_07_30_000000_add_first_invoice_free_months_and_plan_policy` figura **aplicada**
+(batch 68) y las cuatro columnas existen en `public`. Estaba pendiente al inicio de la
+auditoría y se aplicó durante la misma.
+
+### ⚠️ Precisión sobre A-1 (centro de ayuda)
+
+Se afirmó que la escritura del centro de ayuda estaba «sin ninguna protección». En realidad
+`HelpCenterController` ya llamaba a `requireSuperadmin()`, que exige `users.is_superadmin`.
+El hueco era la **ausencia de middleware en la ruta**, no la ausencia total de control.
+Se añadió `permission:view_settings` como segunda capa; el control del controlador manda.
+
+### ⚠️ Precisión sobre `CheckStaffProfile`
+
+Pese al nombre, **no exige una fila en `staff_profile`**: comprueba
+`role.code ∈ {admin, staff}` o `role_id == 1`. Que `staff_profile` esté vacía en producción
+no bloquea nada. Corregido en `API_REFERENCE.md` y `BITACORA_TECNICA.md`.
+
+---
+
+## 3. Resueltos — prioridad crítica
+
+### ✅ C-1 · Credenciales de producción en texto plano en el repositorio
+
+`.do/deploy.template.yaml` estaba versionado con 10 secretos en claro: contraseña de la
+base de datos, del CORE MikroTik (API y SSH), frase de la clave privada, secreto IPSec,
+contraseña VPN, clave SMTP, clave anónima de Supabase y `APP_KEY`.
+
+**Aplicado**
+
+- Plantilla reescrita: cada valor sensible es ahora `<<<CAMBIAR:...>>>` con `type: SECRET`,
+  de modo que App Platform lo cifra y nunca lo devuelve en claro.
+- `.do/deploy.yaml` y `.do/*.local.yaml` añadidos a `.gitignore`.
+- `.env.testing` destrackeado (`git rm --cached`); se versiona `.env.testing.example`.
+- Runbook operativo completo: [`RUNBOOK_ROTACION_SECRETOS.md`](RUNBOOK_ROTACION_SECRETOS.md).
+
+> 🔧 **Requiere ejecución.** El repositorio está limpio, pero **las credenciales antiguas
+> siguen comprometidas**: están en el historial de Git. Hay que rotarlas siguiendo el runbook.
+> Ninguna otra medida sustituye a la rotación.
+
+### ✅ C-2 · El planificador no estaba definido en el despliegue
+
+La especificación definía un servicio web y un worker de cola, pero **ningún componente
+ejecutaba `schedule:run`**. Sin él no se factura, no se recuerda, no se corta, no se
+reconcilian los cortes y no se recolecta tráfico. Es el fallo de negocio más grave del
+sistema y ya se había materializado: el comando `billing:verify-monthly` existe justamente
+porque el cron de producción no corría y el failover no podía detectarlo.
+
+**Aplicado.** Tercer componente `scheduler` en `.do/deploy.template.yaml`, con
+`php artisan schedule:work`, `LOG_LEVEL=info` (el planificador registra en INFO el resultado
+de cada ciclo; con `warning` esa traza se perdía) y las variables de SMTP y CORE que sus
+tareas necesitan.
+
+> 🔧 **Requiere ejecución.** Aplicar la especificación en DigitalOcean y verificar con
+> `billing:verify-monthly` (debe reportar `ok`, nunca `no_show`).
+
+---
+
+## 4. Resueltos — prioridad alta
+
+### ✅ A-1 · Autorización incompleta en la API
+
+Los `apiResource` de clientes, routers, planes, sectoriales, inventario y soporte —además de
+instalaciones, prospectos y documentos— sólo exigían `auth:sanctum`. El control real lo hacía
+la guarda de `vue-router`, que es **puramente cosmética**: cualquier usuario autenticado
+podía crear, modificar o borrar clientes y routers llamando la API directamente.
+
+**Aplicado.** Permiso en cada endpoint, separando lectura de escritura. `CheckPermission`
+acepta ahora **varios permisos con semántica OR** (`permission:a,b`).
+
+**Por qué el OR es necesario y no un atajo:** el formulario de alta de cliente carga planes,
+sectoriales y routers, y el rol **Técnico** tiene `add_clients` pero **no** `view_plans`,
+`view_sectorials` ni `manage_routers`. Exigir sólo el permiso dueño habría dejado los
+desplegables vacíos — habríamos cambiado un agujero de seguridad por una avería funcional.
+La **escritura** sí exige el permiso dueño a secas.
+
+**Verificado** con 42 tests en `tests/Feature/Auth/ApiAuthorizationTest.php`: cada endpoint
+devuelve 403 sin permiso, deja pasar con él, y la escritura sigue cerrada al técnico.
+
+> **Deuda consciente:** no existe un permiso `delete_clients` en el catálogo. El borrado de
+> cliente se apoya en `edit_internet_service` para no inventar un permiso que ningún rol
+> sembrado tendría. Anotado como pendiente **P-1**.
+
+### ✅ A-2 · Sin límite de peticiones en la API
+
+**Aplicado.** `$middleware->throttleApi()` en `bootstrap/app.php` y tres limitadores en
+`AppServiceProvider`:
+
+| Limitador | Límite | Alcance |
+|---|---|---|
+| `api` | 120/min | Toda la API, por usuario (o IP si no hay sesión) |
+| `router-ops` | 10/min | Aprovisionar, suspender, activar, aplicar reglas, pruebas SSH |
+| `bulk-ops` | 5/min | Importaciones y aprovisionamiento masivo |
+
+El límite estricto en `router-ops` no es teórico: **cada llamada abre una sesión SSH al CORE
+y tarda 17-34 s**, así que un puñado de peticiones concurrentes agota el pool de conexiones
+del CORE y tumba el aprovisionamiento y el corte **para todos los tenants**.
+
+### ✅ A-3 · Credenciales de red en texto plano en la base de datos
+
+`router.password_rb`, `vpn_password`, `sectorial.pass_rb`,
+`customer_profile.pppoe_password` y `hotspot_password` estaban en claro — y las columnas
+`router.*_encrypted` **también**, pese al nombre.
+
+**Aplicado.** Migración `2026_07_31_000002_encrypt_network_credentials_in_place`:
+
+1. Ensancha a `TEXT` las columnas a cifrar (un valor cifrado ronda 230-250 caracteres y no
+   cabe en `varchar(255)`).
+2. Cifra **en la misma columna** y **con el modelo**, no con SQL crudo — que fue justo el
+   error de la migración de 2026-05-14: el cast `encrypted` cifra al escribir *por modelo*,
+   no en un `UPDATE`, y por eso aquellas columnas quedaron en claro y el cast lanzaba
+   `DecryptException` en cada lectura.
+3. Elimina las columnas `*_encrypted`, que sólo contenían un duplicado en claro.
+
+Es idempotente: un valor que ya descifra se deja intacto. Los casts se activaron en `Router`,
+`Sectorial` y `CustomerProfile`, así que **ningún punto de llamada cambia**:
+`$router->password_rb` sigue devolviendo el valor en claro.
+
+> **No se cifran los campos por los que se filtra en SQL** (`pppoe_username` tiene índice
+> único por router): un valor cifrado no es consultable.
+
+> **Riesgo evitado durante la implementación:** se llegó a añadir `password_rb` a `$hidden`
+> para no serializarlo. Se retiró al comprobar que `RouterEdit.vue` prellena el formulario
+> con `data.password_rb` y lo reenvía al guardar — ocultarlo habría **borrado la credencial
+> del router en la primera edición**. Anotado como pendiente **P-2**.
+
+> 🔧 **Requiere ejecución** con `migrate:both`, y **después** de rotar credenciales (C-1).
+
+### ✅ A-4 · El guardián del frontend no reproducía el bypass de administrador
+
+Había dos implementaciones de `hasPermission` con lógica distinta, y el guard de
+`vue-router` usaba precisamente la que **no** tenía el bypass de superadministrador. Un
+administrador al que le faltara un permiso concreto quedaba bloqueado en la navegación
+aunque el backend sí le hubiera dado acceso — el síntoma exacto del incidente de
+`manage_document_templates`.
+
+**Aplicado.** `stores/auth.js` replica ahora el criterio de `CheckPermission`
+(`role_id == 1` → acceso total). `resources/js/services/auth.js` se **eliminó**: no lo
+importaba nadie y era la única fuente de la divergencia.
+
+### ✅ A-5 · Política de seguridad de contenido permisiva
+
+**Aplicado.** Tres directivas retiradas, **cada una verificada empíricamente antes de
+tocarla** — no se quitó nada «por si acaso»:
+
+| Retirado | Verificación |
 |---|---|
-| `APP_KEY` | Clave de cifrado de la aplicación |
-| `DB_PASSWORD` | Contraseña de la base de datos Supabase de producción |
-| `DB_USERNAME` + `DB_HOST` | Usuario y host de la base de datos |
-| `MIKROTIK_CORE_API_PASS` | Contraseña de administrador del router CORE |
-| `MIKROTIK_CORE_SSH_PASS` | Contraseña SSH del CORE |
-| `MIKROTIK_CORE_SSH_KEY_PASSPHRASE` | Frase de la clave privada |
-| `MIKROTIK_IPSEC_SECRET` | Secreto IPSec |
-| `MIKROTIK_VPN_PASSWORD` | Contraseña VPN |
-| `MAIL_PASSWORD` | Clave SMTP de Brevo |
-| `VITE_SUPABASE_ANON_KEY` | Clave anónima de Supabase |
+| `'unsafe-eval'` de `script-src` | Se compiló el bundle de producción y se comprobó que **no contiene** `eval(` ni `new Function(` |
+| `https://unpkg.com` | Único CDN externo; sólo lo usaba el mapa para cargar `@googlemaps/markerclusterer`. **Ahora se empaqueta** con la aplicación (`npm i @googlemaps/markerclusterer`) y no aparece en el bundle |
+| `'unsafe-inline'` de `script-src` | Los dos únicos scripts en línea eran `onclick="window.location.href=..."` en el portal de pago; convertidos en enlaces `<a>` |
 
-**Evidencia.** `git ls-files | grep .do/` devuelve el archivo; su contenido está en claro
-salvo `MIKROTIK_CORE_SSH_KEY_B64`, que sí usa `type: SECRET`.
+Añadidas además `object-src 'none'`, `base-uri 'self'` y `form-action 'self'`.
 
-**Impacto.** Compromiso total: base de datos de todos los tenants, **acceso administrativo
-al router CORE y por tanto a toda la red de clientes**, capacidad de descifrar las claves de
-Google Maps almacenadas, y suplantación de correo desde el dominio de la empresa.
-El repositorio es privado, pero cualquier colaborador presente o pasado, cualquier fork y
-cualquier copia local tienen estos valores. **El historial de Git los conserva aunque se
-borren hoy.**
+`style-src` **conserva** `'unsafe-inline'` a propósito: Vue inyecta estilos en línea para los
+componentes con `<style scoped>` y quitarlo rompe el render.
 
-**Recomendación.**
+Retirar el CDN cierra también un riesgo de cadena de suministro: un `unpkg` comprometido
+inyectaba script arbitrario en una página autenticada.
 
-1. **Rotar de inmediato y en este orden:** contraseña del CORE (API y SSH), secreto IPSec,
-   contraseña de la base de datos, clave SMTP, claves de Supabase.
-2. `APP_KEY`: **no se puede rotar sin más** — cifra `tenant.google_maps_api_key`.
-   Procedimiento: descifrar con la clave actual, rotar, re-cifrar y re-guardar.
-3. Convertir cada `value:` sensible en `type: SECRET` en la especificación, o quitarlas del
-   archivo y gestionarlas sólo en el panel de DigitalOcean.
-4. Purgar el historial (`git filter-repo`) o asumir el compromiso y rotar todo.
-5. Añadir `.do/deploy.template.yaml` a `.gitignore` y versionar una plantilla con
-   marcadores.
+### ✅ A-6 · `users.permissions` era una columna muerta
 
----
+La columna existía, estaba en `$fillable` y en `$casts`, y la interfaz permitía asignar
+permisos individuales — pero **nada los leía**. Conceder un permiso individual no tenía
+ningún efecto ni ningún aviso: fallo de configuración silencioso. En producción hay **6
+usuarios** con valores ahí que nunca surtieron efecto.
 
-### C-2 · El planificador no está definido en el despliegue
+**Aplicado.** `User::effectivePermissions()` y `User::hasPermission()` hacen la unión
+rol + usuario. La unión sólo **concede**, nunca revoca: un permiso individual no puede
+quitar lo que el rol ya da. Cubierto por test.
 
-**Problema.** `.do/deploy.template.yaml` define un servicio web y un worker de cola, pero
-**ningún componente ejecuta `php artisan schedule:run`**.
+### ✅ A-7 · `getPermissionsByRole()` y `role.permissions` podían divergir
 
-**Evidencia.** Los `run_command` de ambos componentes son `heroku-php-apache2 public/` y
-`php artisan queue:work` respectivamente. No hay `schedule:run` ni `schedule:work` en
-ninguna parte de la especificación.
+**Aplicado.** Comando `permissions:sync` (`app/Console/Commands/SyncRolePermissions.php`):
 
-**Impacto.** **Nada del ciclo automático ocurre en producción**: no se generan facturas, no
-se envían recordatorios, no se corta a los morosos, no se reconcilian los cortes, no se
-recolecta tráfico. Es el fallo más grave de negocio del sistema y **ya se materializó**: el
-comando `billing:verify-monthly` existe precisamente porque el cron de producción no corría
-y el failover no lo detectaba (sólo ve fallos por cliente, no un job que nunca se ejecutó).
+- **Aditivo**: sólo añade permisos que falten. Nunca quita, porque un tenant puede haber
+  ajustado su rol a mano y una sincronización no debe deshacer ese trabajo.
+- Identifica los roles por **`code`**, no por `name`: el nombre es texto libre por tenant
+  (`Tecnico` vs `Técnico`).
+- **No toca los roles personalizados** (sin `code` canónico).
+- Admite `--dry-run` y `--tenant=`.
 
-**Recomendación.** Añadir un tercer componente:
-
-```yaml
-workers:
-  - name: scheduler
-    run_command: php artisan schedule:work
-```
-
-o un cron externo a `schedule:run` cada minuto. Verificar después con
-`billing:verify-monthly` y `billing:verify-cuts` (deben reportar `ok`, no `no_show`).
-Considerar además una alerta si `verify-monthly` no produce salida en 24 h.
+Ejecutado en seco contra producción: **los 30 roles ya están sincronizados**, lo que
+confirma que el backfill manual anterior se hizo bien. El comando es la red para el próximo
+permiso. Cubierto por 7 tests.
 
 ---
 
-### C-3 · La tabla `cut_type` está vacía en producción
+## 5. Resueltos — prioridad media
 
-**Problema.** `OverdueSuspensionService` decide si un router corta comparando el **nombre
-literal** de su tipo de corte:
+### ✅ M-1 · Cobertura de pruebas desequilibrada
 
-```php
-if ($cutTypeName === 'Corte Manual') { … }
-if ($cutTypeName !== 'Corte Automático') { … no action … }
-```
+**Aplicado.** 49 tests nuevos y 10 rescatados:
 
-La tabla `cut_type` tiene **0 filas** en el esquema `public`.
+| Archivo | Tests | Cubre |
+|---|---:|---|
+| `Feature/Auth/ApiAuthorizationTest.php` | 42 | Permiso por endpoint, semántica OR, bypass de superadmin, unión de permisos, 401 sin sesión |
+| `Feature/Auth/ApiLoginTest.php` | 7 | Login real por `email_tenant`, verificación de correo, rate limit, no enumeración, `/auth/me` |
+| `Feature/Auth/RolePermissionsSyncTest.php` | 7 | Coherencia del catálogo y comportamiento de `permissions:sync` |
+| `Feature/Documents/*` | 10 | **Rescatados**: fallaban porque el test falseaba el disco `public` mientras el código escribe en `s3` |
 
-**Evidencia.** `pg_stat_user_tables`: `ROWS|cut_type|0`. Además `router.cut_type_id` es
-nullable con `ON DELETE SET NULL`, y el servicio filtra por `whereNotNull('cut_type_id')`.
+### ✅ M-2 · Los tests sólo corrían en SQLite
 
-**Impacto.** **Ningún cliente se corta automáticamente**, con independencia de su mora.
-El sistema registra que revisó los routers y no encuentra ninguno elegible. Fuga de ingreso
-directa y silenciosa.
+**Aplicado.** `.github/workflows/tests.yml` con dos trabajos: SQLite (rápido) y
+**PostgreSQL 16 + PostGIS** (el motor real), este último ejecutando migraciones antes de la
+suite. Es lo único que puede detectar el booleano comparado con cadena, el `LIKE` sensible a
+mayúsculas y los índices parciales.
 
-**Recomendación.**
+### ✅ M-3 · `LIKE` sensible a mayúsculas sin corregir en todas partes
 
-1. Sembrar `cut_type` con `Corte Automático` y `Corte Manual` (existe `CutTypeSeeder`, pero
-   los seeders **nunca corren sobre `public`** por diseño de `migrate:both`). Hacerlo con
-   una **migración** de datos, no con un seeder.
-2. Sustituir la comparación por nombre por **constantes o un `code`** en la tabla: un cambio
-   de texto (una tilde, un espacio) deja el corte inoperante sin ningún error.
-3. Añadir a `billing:verify-cuts` la detección explícita de "router sin `cut_type_id`".
+**Aplicado.** `SearchMacrosServiceProvider` añade las macros `whereLike` y `orWhereLike`,
+que eligen `ilike` o `like` según el driver y escapan los comodines (`%`, `_`) para que
+buscar «100%» no se convierta en un comodín.
 
----
+Corregidos `SupportTicketController` (usaba `like` → no encontraba «Eliud» buscando «eliud»
+en producción) y **`ProspectController`, que tenía el defecto simétrico**: usaba `ilike` a
+pelo, operador que SQLite no conoce, así que esa búsqueda reventaba en los tests.
 
-### C-4 · Migración pendiente de aplicar en producción
+### ✅ M-4 · `inventory_stock.desc` tenía tipo `date`
 
-**Problema.** `2026_07_30_000000_add_first_invoice_free_months_and_plan_policy` está
-pendiente. El esquema `public` no tiene `billing.first_invoice_free_months`,
-`customer_profile.first_invoice_free_months`, `service_plan.first_invoice_mode` ni
-`service_plan.first_invoice_free_months`.
+**Aplicado** en `2026_07_31_000003_clean_up_schema_debt`. En producción está íntegramente a
+`NULL`, así que el cambio de tipo no pierde datos.
 
-**Evidencia.** `php artisan migrate:status` → 1 pendiente; `migrations` tiene 128 filas
-frente a 129 archivos.
+### ✅ M-5 · Llave foránea duplicada en `service_plan.tenant_id`
 
-**Impacto.** El código de la rama lee esas columnas. Si se despliega sin migrar, cualquier
-resolución de política de primera factura fallará con columna inexistente, **rompiendo la
-generación mensual completa**.
+**Aplicado.** La migración detecta las FK sobre esa columna, conserva la de `SET NULL`
+(coherente con el resto) y elimina la redundante.
 
-**Recomendación.** Aplicar con `php artisan migrate:both` **antes** de fusionar a `main`
-(el despliegue es automático por push). Verificar que el `migrate --force` del arranque
-del contenedor la cubre, y comprobar `migrate:status` tras el despliegue.
+### ✅ M-6 · Reglas `ON DELETE` inconsistentes
 
----
+**Aplicado.** `invoices.tenant_id`, `payments.tenant_id` y `router.tenant_id` pasan de
+`NO ACTION` a `CASCADE`. Las tablas hijas de esas tres (`invoice_items`,
+`payment_allocations`, `traffic_*`) ya iban en cascada, así que el borrado ya lo era a partir
+del segundo nivel: lo único que hacía `NO ACTION` era impedir dar de baja un tenant con un
+error de clave foránea sin explicación.
 
-## 3. Prioridad alta
+### ✅ M-7 · Índices de rendimiento ausentes
 
-### A-1 · Autorización incompleta en la API
-
-**Problema.** La mayor parte de los `apiResource` sólo exige autenticación, sin permiso:
-
-| Recurso | Middleware actual |
-|---|---|
-| `customers` (CRUD completo) | sólo `auth:sanctum` |
-| `routers` (CRUD completo) | sólo `auth:sanctum` |
-| `plans`, `sectorials`, `inventory`, `support` | sólo `auth:sanctum` |
-| `inventory-stock/-providers/-branches` | sólo `auth:sanctum` |
-| Instalaciones, prospectos, documentos de cliente | sólo `auth:sanctum` |
-| Centro de ayuda (**escritura incluida**) | sólo `auth:sanctum` |
-
-**Evidencia.** `routes/api.php` líneas 116–124, 229–258, 338–344.
-
-**Impacto.** El control de acceso real a esas pantallas lo impone la guarda de `vue-router`,
-que es **puramente cosmética**: cualquier usuario autenticado —incluido un rol "Cliente" sin
-ningún permiso— puede llamar la API directamente y **crear, modificar o eliminar clientes,
-routers y planes**. Es una vulnerabilidad OWASP A01 (Broken Access Control).
-
-**Recomendación.** Aplicar el permiso correspondiente a cada recurso. Ejemplo:
-
-```php
-Route::middleware('permission:view_clients')->group(function () {
-    Route::get('/customers',      [CustomerProfileController::class, 'index']);
-    Route::get('/customers/{id}', [CustomerProfileController::class, 'show']);
-});
-Route::middleware('permission:add_clients')->post('/customers', …);
-Route::middleware('permission:edit_internet_service')->put('/customers/{id}', …);
-```
-
-Priorizar `customers`, `routers` y el centro de ayuda. Añadir un test por recurso que
-verifique que un usuario sin el permiso recibe `403`.
-
----
-
-### A-2 · Sin límite de peticiones en la API
-
-**Problema.** No hay `throttle` en el grupo `api`. El único límite es el `RateLimiter`
-manual dentro de `AuthController::login`.
-
-**Evidencia.** `bootstrap/app.php` sólo antepone `EnsureFrontendRequestsAreStateful`;
-no hay `throttleApi()` ni middleware `throttle` en `routes/api.php`.
-
-**Impacto.** Cualquier endpoint autenticado se puede llamar sin límite: enumeración de
-clientes, abuso de los endpoints de aprovisionamiento (que abren sesiones SSH al CORE y
-tardan 20–30 s cada una — **agotan el pool de conexiones del CORE**), y denegación de
-servicio trivial contra la base de datos.
-
-**Recomendación.**
-
-```php
-$middleware->api(prepend: [ … ]);
-$middleware->throttleApi();   // 60/min por usuario
-```
-
-Y un límite más estricto para los endpoints costosos:
-
-```php
-Route::post('/customers/{id}/provision', …)
-     ->middleware(['permission:activate_deactivate_clients', 'throttle:10,1']);
-```
-
----
-
-### A-3 · Credenciales de red y de servicio almacenadas en texto plano
-
-**Problema.** Contraseñas guardadas sin cifrar en la base de datos:
-
-| Tabla.columna | Contenido |
-|---|---|
-| `router.password_rb` | Contraseña de administración del RouterBoard |
-| `router.password_rb_encrypted` | **También texto plano**, pese al nombre |
-| `router.vpn_password` / `vpn_password_encrypted` | Contraseña VPN |
-| `sectorial.pass_rb` | Contraseña del equipo sectorial |
-| `customer_profile.pppoe_password` | Contraseña PPPoE del cliente |
-| `customer_profile.hotspot_password` | Contraseña HotSpot del cliente |
-
-**Evidencia.** Comentario explícito en `app/Models/Router.php`: la migración
-`2026_05_14_000001_encrypt_router_credentials` copió **texto plano** con SQL crudo, asumiendo
-erróneamente que el cast cifraría; el cast `encrypted` se deshabilitó porque lanzaba
-`DecryptException` en toda lectura.
-
-**Impacto.** Un volcado de base de datos entrega el control administrativo de toda la red.
-Combinado con **C-1** (contraseña de la base expuesta en el repositorio), la cadena de
-compromiso está completa.
-
-**Recomendación.**
-
-1. Migración de re-guardado: leer en claro, cifrar con `Crypt::encryptString()`, escribir en
-   la columna `*_encrypted`, **vaciar** la columna en claro.
-2. Activar el cast `encrypted` **sólo después** de que la migración haya corrido con éxito
-   en ambos esquemas.
-3. Eliminar las columnas en claro en una migración posterior.
-4. Contemplar el caso de las contraseñas PPPoE/HotSpot: se envían al router, así que deben
-   ser descifrables (no *hasheables*).
-
----
-
-### A-4 · El guardián del frontend no reproduce el bypass de administrador
-
-**Problema.** Hay **dos** implementaciones de `hasPermission` con lógica distinta:
-
-| Archivo | Bypass de admin |
-|---|---|
-| `resources/js/services/auth.js` | **Sí**: `role_id == 1 \|\| role_name === 'Administrador' \|\| permissions.includes('*')` |
-| `resources/js/stores/auth.js` (**la que usa el router**) | **No**: sólo `permissions.includes('*')` |
-
-**Evidencia.** Comparación directa de ambos archivos. `router/index.js` importa
-`useAuthStore`, es decir la versión **sin** bypass.
-
-**Impacto.** Un administrador (`role_id == 1`) cuyo array `role.permissions` no contenga un
-permiso concreto **es rechazado por la navegación del frontend**, aunque el backend sí le
-daría acceso por el bypass de `CheckPermission`. Es exactamente el síntoma que produjo el
-incidente del permiso `manage_document_templates`: administradores con 34 de 35 permisos que
-no veían la pestaña Plantillas.
-
-**Recomendación.** Unificar en una sola función. La del store debe replicar el criterio del
-backend:
-
-```js
-function hasPermission(permission) {
-    if (!user.value) return false
-    if (Number(user.value.role_id) === 1) return true      // espejo de CheckPermission
-    if (permissions.value.includes('*')) return true
-    return permissions.value.includes(permission)
-}
-```
-
-Eliminar después `services/auth.js` o convertirlo en un envoltorio del store.
-
----
-
-### A-5 · Política de seguridad de contenido permisiva
-
-**Problema.** La CSP de producción incluye `'unsafe-inline'` y `'unsafe-eval'` en
-`script-src`, además de `https://unpkg.com` como origen permitido.
-
-**Evidencia.** `app/Http/Middleware/SecurityHeaders.php`, rama de producción.
-
-**Impacto.** `'unsafe-eval'` y `'unsafe-inline'` desactivan buena parte de la protección
-contra XSS que la CSP debería aportar. `unpkg.com` es un CDN público: si se compromete o si
-un atacante logra inyectar una etiqueta `<script src>`, la CSP no lo detiene.
-Es especialmente relevante aquí porque el sistema **permite HTML editable por el usuario**
-en las plantillas de documentos.
-
-**Recomendación.** Vite genera bundles: `'unsafe-eval'` no debería hacer falta en producción.
-Sustituir `'unsafe-inline'` por hashes o *nonces*, alojar localmente lo que hoy viene de
-`unpkg.com`, y verificar que `TemplateSanitizer` (HTMLPurifier) bloquea `<script>` y
-atributos `on*` en las plantillas.
-
----
-
-### A-6 · `users.permissions` es una columna muerta que induce a error
-
-**Problema.** `users.permissions` (json) existe en el esquema y está en `$fillable` y
-`$casts` de `User`, pero **el sistema efectivo lee siempre `role.permissions`**: así lo hacen
-`CheckPermission`, `AuthController@login`, `/auth/me` y el frontend.
-
-**Evidencia.** Ninguna lectura de `$user->permissions` en el flujo de autorización.
-
-**Impacto.** Un administrador que asigne permisos individuales a un usuario esperará que
-surtan efecto y **no ocurrirá nada**. Fallo silencioso de configuración.
-
-**Recomendación.** Decidir explícitamente: o se implementa la unión
-`role.permissions ∪ users.permissions` en `CheckPermission` y en el store del frontend, o se
-elimina la columna. **No dejar el estado intermedio actual.**
-
----
-
-### A-7 · `getPermissionsByRole()` y `role.permissions` pueden divergir
-
-**Problema.** `Permissions::getPermissionsByRole()` define en código qué permisos
-corresponde a cada rol, pero la autorización real lee el array JSON **sembrado en la base**.
-Ambas fuentes pueden desincronizarse y nada las reconcilia.
-
-**Evidencia.** `CheckPermission` usa `$user->role->hasPermission()`, que lee la columna;
-`getPermissionsByRole()` no se consulta en tiempo de ejecución.
-
-**Impacto.** Es la causa raíz de que cada permiso nuevo requiera una migración de backfill
-manual (patrón ya establecido en `2026_07_27_120000`). Fácil de olvidar; el síntoma —una
-pestaña que desaparece— es difícil de diagnosticar.
-
-**Recomendación.** Un comando idempotente `permissions:sync` que reconcilie los roles
-canónicos (`admin`, `staff`, `technician`, `accounting`) con `getPermissionsByRole()`,
-respetando los roles personalizados. Ejecutarlo en el despliegue y añadir un test que falle
-si un permiso de `Permissions` no está en el rol admin sembrado.
-
----
-
-## 4. Prioridad media
-
-### M-1 · Cobertura de pruebas desequilibrada
-
-Facturación y documentos están bien cubiertos (13 + 4 archivos). **Sin cobertura
-significativa:** clientes (el controlador más grande, 1385 líneas), prospectos, sectoriales,
-soporte, gastos, roles y permisos.
-
-**Recomendación.** Priorizar por riesgo: (1) autorización por endpoint —cubre A-1 y evita
-regresiones—, (2) alta de cliente con sus reglas de unicidad, (3) conversión de prospecto.
-
----
-
-### M-2 · Los tests en SQLite ocultan diferencias reales de PostgreSQL
-
-| Aspecto | PostgreSQL | SQLite | Consecuencia |
-|---|---|---|---|
-| Booleano vs cadena | `SQLSTATE 22P02` | Cero filas en silencio | Ya causó un fallo de facturación |
-| `LIKE` | Sensible a mayúsculas | Insensible | Búsquedas que fallan sólo en producción |
-| Índices parciales | Sí | No | Migraciones que hay que proteger por driver |
-
-**Recomendación.** Añadir un *job* de CI que ejecute la suite contra PostgreSQL además de
-SQLite. Como mínimo, las suites `Feature/Billing` y las de búsqueda.
-
----
-
-### M-3 · `LIKE` sensible a mayúsculas sin corregir en todas partes
-
-**Evidencia.** El problema se corrigió en la búsqueda de facturación pero
-`SupportTicketController` conserva el patrón.
-
-**Recomendación.** Un ámbito reutilizable:
-
-```php
-$q->where($col, DB::getDriverName() === 'pgsql' ? 'ilike' : 'like', "%{$term}%");
-```
-
-Aplicarlo a toda búsqueda de texto libre.
-
----
-
-### M-4 · `inventory_stock.desc` tiene tipo `date`
-
-Una columna que funcionalmente es una descripción está declarada como fecha.
-Hubo una migración de corrección de tipos (`2026_02_13_160000`) que no la cubrió.
-
-**Recomendación.** Migración `ALTER COLUMN desc TYPE varchar(255) USING desc::text`,
-protegida por driver.
-
----
-
-### M-5 · Llave foránea duplicada en `service_plan.tenant_id`
-
-Dos restricciones sobre la misma columna con reglas distintas (`SET NULL` y `NO ACTION`).
-
-**Recomendación.** Eliminar la redundante y dejar `SET NULL`, coherente con el resto.
-
----
-
-### M-6 · Reglas `ON DELETE` inconsistentes
-
-`invoices.tenant_id`, `payments.tenant_id` y `router.tenant_id` usan `NO ACTION` mientras el
-resto del esquema usa `SET NULL` o `CASCADE`. Borrar un tenant fallará con error de FK.
-
-**Recomendación.** Definir la política de baja de tenant (¿archivar o borrar en cascada?) y
-homogeneizar. Documentar la decisión.
-
----
-
-### M-7 · Índices de rendimiento ausentes en las tablas más grandes
-
-`invoices` (1 168 filas) sólo tiene la PK y el único `(tenant_id, number)`. Las consultas
-habituales filtran por `customer_id`, `status`, `due_date` y `period_start`. Igual en
-`payments` (1 086) y `user_services` (987).
-
-**Recomendación.**
+**Aplicado** en `2026_07_31_000004`:
 
 ```sql
-CREATE INDEX invoices_customer_status_idx ON invoices (customer_id, status);
-CREATE INDEX invoices_due_date_idx        ON invoices (due_date) WHERE balance_due > 0;
-CREATE INDEX invoices_tenant_period_idx   ON invoices (tenant_id, period_start);
-CREATE INDEX user_services_user_status_idx ON user_services (user_id, status);
+invoices     (customer_id, status)      -- listado por cliente y filtro por estado
+invoices     (tenant_id, period_start)  -- auditoría mensual
+invoices     (due_date) WHERE balance_due > 0   -- índice parcial: consulta exacta del corte
+user_services(user_id, status)          -- lo pregunta la generación por CADA cliente
+payments     (customer_id, payment_date)
 ```
 
-El volumen actual es pequeño, pero el corte automático y la generación mensual recorren
-estas tablas por cada cliente y por cada ejecución horaria.
+### ✅ M-8 · Sin índice que garantizase la unicidad de IP por router
+
+La regla se validaba **sólo** en `CustomerProfileController`; cualquier otra vía de escritura
+podía duplicarla. **Aplicado** el índice único parcial, gemelo del que ya protege
+`pppoe_username`. Verificado antes: **0 duplicados** en producción, así que la creación no
+puede fallar.
+
+### ✅ M-9 · Tablas muertas
+
+**Aplicado** en `2026_07_31_000005`: se eliminan `ip_range`, `router_ip_range`,
+`ip_assignment` y `activity_log`. Las cuatro cumplen las tres condiciones, verificadas una a
+una: `COUNT(*) = 0` **real**, sin modelo ni referencia en `app/`, `routes/` ni
+`resources/js/`, y función cubierta por otra cosa (`router.rangos_ip`,
+`customer_profile.ip_user`, `audit_logs`).
+
+**No** se eliminan `cut_type`, `type_billing` ni `script_version`: tienen filas reales,
+modelo y endpoints de catálogo (ver §2).
+
+La migración lleva salvaguarda: si alguien empezó a usarlas entre la auditoría y el
+despliegue, la tabla se deja en su sitio en lugar de perder datos.
+
+### ✅ M-10 · Comparación de `cut_type` por nombre literal *(reclasificado desde C-3)*
+
+**Aplicado.** `CutType` expone constantes (`AUTOMATIC`, `MANUAL`, `NONE`) y un
+`matches()` que normaliza **tildes, mayúsculas y espacios** antes de comparar, más los
+helpers `isAutomatic()` / `isManual()`. `OverdueSuspensionService` los usa en sus dos puntos
+de decisión.
+
+Se añade además `2026_07_31_000001_ensure_cut_type_catalog_rows`, que garantiza el catálogo
+en todos los esquemas **por migración y no por seeder**: `migrate:both` nunca siembra
+`public`, así que un catálogo que sólo exista por seeder puede acabar vacío en producción.
 
 ---
 
-### M-8 · Sin índice que garantice la unicidad de IP por router
+## 6. Resueltos — prioridad baja
 
-La regla "un cliente por IP en cada router" se valida **sólo en `CustomerProfileController`**.
-Cualquier otra vía de escritura (importación masiva, tinker, actualización masiva) puede
-violarla.
+### ✅ B-1 · `audit_logs` implementado pero nunca invocado
 
-**Recomendación.** Índice único parcial, análogo al que ya protege `pppoe_username`:
+**Aplicado.** Instrumentadas las cuatro acciones de mayor impacto:
 
-```sql
-CREATE UNIQUE INDEX customer_profile_ip_router_unique
-  ON customer_profile (router_id, ip_user)
-  WHERE ip_user IS NOT NULL AND ip_user <> '' AND router_id IS NOT NULL;
-```
+| Acción | Por qué esa |
+|---|---|
+| `invoice.deleted` | Deja una lápida que impide regenerar la factura: la acción **menos reversible** del módulo. Se audita **antes** de borrar, o se perdería el importe y el periodo |
+| `role.permissions_updated` | Cambia lo que puede hacer **todo** el personal con ese rol. Guarda el antes y el después |
+| `customer.suspended_manually` | Deja al cliente sin servicio y **no** se revierte solo al pagar |
+| `customer.activated_manually` | Contrapartida de la anterior |
 
----
+### ✅ B-2 · `.env.testing` versionado
 
-### M-9 · Tablas muertas en el esquema
+**Aplicado.** `git rm --cached` + `.env.testing.example`.
 
-`ip_range`, `router_ip_range`, `ip_assignment`, `activity_log`, `script_version`,
-`type_billing` — todas con 0 filas y sin escritura activa. `activity_log` está además
-duplicada funcionalmente por `audit_logs`.
+### ✅ B-3 · Parámetro `tenant` residual en el interceptor de axios
 
-**Recomendación.** Confirmar que no se usan, documentarlo y eliminarlas en una migración.
-Reducen ruido en el diccionario y en las herramientas de esquema.
+**Aplicado.** Interceptor eliminado. Era peor que inútil: sugería que el cliente elige su
+propio tenant, que es justo la vulnerabilidad que se corrigió, y llevaba a intentar
+«arreglar» cosas cambiando ese parámetro.
 
----
+### ✅ B-4 · Convención de nombres de tabla inconsistente
 
-## 5. Prioridad baja
+**Documentado** en [`BASE_DATOS.md §1`](BASE_DATOS.md#1-convenciones-y-arquitectura-de-datos).
+No se renombra: el coste supera al beneficio.
 
-### B-1 · `audit_logs` está implementado pero vacío
+### ✅ B-5 · Documentación desincronizada
 
-El modelo `AuditLog` expone un método `log()` completo, hay migración e índices, pero la
-tabla tiene **0 filas**: nadie lo invoca.
+**Aplicado.** Los ocho documentos de `docs/` reflejan el código actual y el `README.md` lleva
+la tabla de «qué documento actualizar según lo que cambies».
 
-**Recomendación.** O se instrumentan las acciones sensibles (borrado de factura, cambio de
-rol, suspensión manual, edición de plantilla), o se elimina. La trazabilidad de "quién borró
-esta factura" es un requisito habitual de auditoría en un ISP.
+### ✅ B-6 · Restos de Livewire/Volt
 
----
+**Verificado y resuelto.** `routes/auth.php` **no estaba registrado** en `bootstrap/app.php`,
+así que no existía ninguna superficie de autenticación paralela — la sospecha inicial era
+infundada. Lo que sí había era código muerto: el archivo referenciaba un controlador
+(`App\Http\Controllers\Auth\VerifyEmailController`) y unas vistas Volt que **no existen**.
 
-### B-2 · `.env.testing` versionado
+Eliminado, junto con los **19 tests de andamiaje de Breeze** que probaban esas rutas y
+componentes inexistentes y llevaban años en rojo. En su lugar se escribió `ApiLoginTest`,
+que cubre el flujo de acceso real.
 
-Contiene una `APP_KEY` (de pruebas, sin valor real) pero está listado en `.gitignore` y aun
-así **sigue siendo trackeado** — `.gitignore` no destrackea.
-
-**Recomendación.** `git rm --cached .env.testing` y versionar `.env.testing.example`.
-
----
-
-### B-3 · El parámetro `tenant`/`tenant_id` del interceptor de axios es residual
-
-El interceptor lo añade a **toda** petición; el backend lo ignora deliberadamente.
-
-**Recomendación.** Eliminarlo del interceptor. Hoy sugiere —falsamente— que el cliente
-controla el tenant, lo que induce a error a quien lea el código por primera vez.
+> **Por qué importa:** una suite con 34 fallos permanentes no es una red de seguridad — nadie
+> la mira, y un fallo nuevo se pierde entre el ruido.
 
 ---
 
-### B-4 · Convención de nombres de tabla inconsistente
+## 7. Pendientes
 
-Singular en las tablas antiguas (`router`, `sectorial`, `billing`), plural en las nuevas
-(`invoices`, `payments`, `expenses`).
+### 📋 P-1 · Falta un permiso `delete_clients`
 
-**Recomendación.** No renombrar (el coste supera el beneficio). **Documentarlo** —hecho en
-[`BASE_DATOS.md §1`](BASE_DATOS.md#1-convenciones-y-arquitectura-de-datos)— y fijar la
-convención para tablas futuras.
+Borrar un cliente se apoya hoy en `edit_internet_service` porque el catálogo no tiene un
+permiso propio para ello. Es más laxo de lo deseable: quien puede editar el servicio puede
+borrar al cliente con todo su historial.
 
----
+**Recomendación.** Añadir `DELETE_CLIENTS` a `Permissions`, incluirlo en los roles
+`admin` y `staff` y ejecutar `permissions:sync` (que ya existe justamente para esto). Es
+seguro porque el sync es aditivo y cubre los 30 roles canónicos.
 
-### B-5 · `README.md` desactualizado respecto al código
+### 📋 P-2 · Las contraseñas de router se serializan en la API
 
-La versión anterior afirmaba que `billing:generate-monthly` es un *closure* sin argumentos y
-que el planificador corre "día 1 a las 00:00". Ambas cosas dejaron de ser ciertas: hoy es una
-clase de comando con argumento `{period?}` y el planificador es horario con nueve tareas.
+`password_rb` y `vpn_password` viajan en la respuesta de `GET /api/routers/{id}`. No se
+pusieron en `$hidden` porque `RouterEdit.vue` prellena el formulario con ese valor y lo
+reenvía al guardar: ocultarlo **borraría la credencial** en la primera edición.
 
-**Estado:** corregido en esta documentación. **Recomendación:** incluir la revisión de
-documentación en la definición de "terminado" de cada PR.
+**Recomendación.** Cambiar el formulario a «dejar en blanco para conservar la contraseña
+actual» (el controlador ignora el campo si llega vacío) y sólo entonces añadirlas a
+`$hidden`. Es trabajo de frontend, no de backend.
 
----
+### 📋 Observación menor
 
-### B-6 · Restos de Livewire/Volt sin uso aparente
-
-`routes/auth.php` define rutas Volt (login, registro, recuperación de contraseña) heredadas
-de Breeze, mientras la autenticación real vive en la SPA y en `routes/api.php`.
-
-**Recomendación.** Verificar si `/login` Volt sigue accesible en producción; si lo está, es
-una **superficie de autenticación paralela** sin el rate limiting ni la detección de
-inyección de `AuthController`. Eliminar o proteger.
+El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de
+soporte y un WhatsApp **fijos en el código** (`+573001234567`), iguales para todos los
+tenants. Deberían salir de `tenant.billing_phone`.
 
 ---
 
-## 6. Tabla consolidada
+## 8. Tabla consolidada
 
-| ID | Problema | Impacto | Prioridad | Recomendación |
+| ID | Problema | Impacto | Prioridad | Estado |
 |---|---|---|---|---|
-| **C-1** | Credenciales de producción en texto plano en `.do/deploy.template.yaml` versionado | Compromiso total: BD, CORE MikroTik, SMTP, Supabase | 🔴 Crítica | Rotar todo, convertir a `type: SECRET`, purgar historial |
-| **C-2** | Sin componente que ejecute `schedule:run` | No se factura, no se recuerda, no se corta | 🔴 Crítica | Añadir worker `schedule:work` o cron externo |
-| **C-3** | `cut_type` vacía + comparación por nombre literal | Ningún cliente se corta automáticamente | 🔴 Crítica | Sembrar por migración y sustituir por `code`/constante |
-| **C-4** | Migración `2026_07_30_000000` pendiente en producción | Rompe la generación mensual al desplegar la rama | 🔴 Crítica | `migrate:both` antes de fusionar a `main` |
-| **A-1** | `apiResource` de clientes, routers, planes… sin permiso | Cualquier autenticado puede crear/borrar clientes y routers | 🟠 Alta | Aplicar `permission:` por recurso + tests de 403 |
-| **A-2** | Sin `throttle` en la API | Enumeración, DoS, agotamiento del pool SSH del CORE | 🟠 Alta | `throttleApi()` + `throttle:10,1` en endpoints costosos |
-| **A-3** | Contraseñas de router/VPN/PPPoE/HotSpot en texto plano | Un volcado de BD entrega el control de la red | 🟠 Alta | Migración de re-guardado + activar cast `encrypted` |
-| **A-4** | El store de Pinia no replica el bypass de admin del backend | Administradores bloqueados en el frontend | 🟠 Alta | Unificar `hasPermission` con el criterio de `CheckPermission` |
-| **A-5** | CSP con `'unsafe-inline'`, `'unsafe-eval'` y `unpkg.com` | Protección XSS mermada con HTML editable por usuario | 🟠 Alta | Hashes/nonces, alojar assets localmente |
-| **A-6** | `users.permissions` es columna muerta | Los permisos individuales no surten efecto, en silencio | 🟠 Alta | Implementarla o eliminarla |
-| **A-7** | `getPermissionsByRole()` y `role.permissions` divergen | Cada permiso nuevo exige backfill manual; fácil de olvidar | 🟠 Alta | Comando `permissions:sync` + test de coherencia |
-| **M-1** | Sin cobertura en clientes, roles, soporte, prospectos | Regresiones no detectadas en el módulo mayor | 🟡 Media | Tests de autorización y de alta de cliente |
-| **M-2** | Tests sólo en SQLite | Fallos que sólo aparecen en producción | 🟡 Media | CI adicional contra PostgreSQL |
-| **M-3** | `LIKE` sensible a mayúsculas sin corregir en soporte | Búsquedas que no encuentran resultados | 🟡 Media | Ámbito reutilizable `ilike` por driver |
-| **M-4** | `inventory_stock.desc` de tipo `date` | Campo inutilizable para su fin | 🟡 Media | `ALTER COLUMN ... TYPE varchar` |
-| **M-5** | FK duplicada en `service_plan.tenant_id` | Comportamiento de borrado ambiguo | 🟡 Media | Eliminar la redundante |
-| **M-6** | `ON DELETE` inconsistente en `tenant_id` | Borrar un tenant falla | 🟡 Media | Homogeneizar y documentar |
-| **M-7** | Faltan índices en `invoices`, `payments`, `user_services` | Degradación al crecer; se recorren cada hora | 🟡 Media | Índices compuestos por consulta real |
-| **M-8** | Unicidad de IP por router sólo en el controlador | Importaciones pueden duplicar IPs | 🟡 Media | Índice único parcial |
-| **M-9** | Seis tablas muertas | Ruido en el esquema | 🟡 Media | Confirmar y eliminar |
-| **B-1** | `audit_logs` implementado pero nunca invocado | Sin trazabilidad de acciones sensibles | 🟢 Baja | Instrumentar o eliminar |
-| **B-2** | `.env.testing` versionado | Higiene | 🟢 Baja | `git rm --cached` + `.example` |
-| **B-3** | Parámetro `tenant` residual en axios | Induce a error al leer el código | 🟢 Baja | Eliminar del interceptor |
-| **B-4** | Nombres de tabla singular/plural mezclados | Confusión | 🟢 Baja | Documentado; fijar convención futura |
-| **B-5** | Documentación desincronizada del código | Decisiones sobre información falsa | 🟢 Baja | Revisión de docs en cada PR |
-| **B-6** | Rutas Volt de autenticación heredadas | Posible superficie de login paralela sin rate limiting | 🟢 Baja | Verificar accesibilidad; eliminar o proteger |
+| **C-1** | Credenciales de producción en texto plano en el repositorio | Compromiso total: BD, CORE MikroTik, SMTP, Supabase | 🔴 Crítica | ✅ Repo limpio · 🔧 **falta rotar** |
+| **C-2** | Sin componente que ejecute `schedule:run` | No se factura, no se recuerda, no se corta | 🔴 Crítica | ✅ Definido · 🔧 **falta desplegar** |
+| ~~C-3~~ | ~~`cut_type` vacía~~ | — | — | ❌ **Falso positivo** → M-10 |
+| ~~C-4~~ | ~~Migración pendiente~~ | — | — | ❌ **Ya estaba aplicada** |
+| **A-1** | `apiResource` sin permisos | Cualquier autenticado podía borrar clientes y routers | 🟠 Alta | ✅ Resuelto (42 tests) |
+| **A-2** | Sin `throttle` en la API | Enumeración, DoS, agotamiento del pool SSH del CORE | 🟠 Alta | ✅ Resuelto |
+| **A-3** | Credenciales de red en texto plano en BD | Un volcado entrega el control de la red | 🟠 Alta | ✅ Código listo · 🔧 **falta migrar** |
+| **A-4** | El store no replicaba el bypass de admin | Administradores bloqueados en el frontend | 🟠 Alta | ✅ Resuelto |
+| **A-5** | CSP con `unsafe-inline`, `unsafe-eval` y `unpkg` | Protección XSS mermada | 🟠 Alta | ✅ Resuelto y verificado |
+| **A-6** | `users.permissions` columna muerta | Permisos individuales sin efecto, en silencio | 🟠 Alta | ✅ Resuelto |
+| **A-7** | Catálogo y roles podían divergir | Cada permiso nuevo exigía backfill manual | 🟠 Alta | ✅ Resuelto (`permissions:sync`) |
+| **M-1** | Cobertura desequilibrada | Regresiones no detectadas | 🟡 Media | ✅ +49 tests, +10 rescatados |
+| **M-2** | Tests sólo en SQLite | Fallos que sólo aparecen en producción | 🟡 Media | ✅ CI con PostgreSQL |
+| **M-3** | `LIKE` sensible a mayúsculas (y `ilike` a pelo) | Búsquedas que no encuentran o que revientan | 🟡 Media | ✅ Macros `whereLike` |
+| **M-4** | `inventory_stock.desc` de tipo `date` | Campo inutilizable | 🟡 Media | ✅ Migración |
+| **M-5** | FK duplicada en `service_plan.tenant_id` | Borrado ambiguo | 🟡 Media | ✅ Migración |
+| **M-6** | `ON DELETE` inconsistente | Borrar un tenant fallaba | 🟡 Media | ✅ Migración |
+| **M-7** | Faltaban índices en tablas recorridas cada hora | Degradación al crecer | 🟡 Media | ✅ Migración |
+| **M-8** | Unicidad de IP sólo en el controlador | Importaciones podían duplicar IPs | 🟡 Media | ✅ Índice único parcial |
+| **M-9** | Cuatro tablas muertas | Ruido en el esquema | 🟡 Media | ✅ Migración con salvaguarda |
+| **M-10** | `cut_type` comparado por nombre literal | Una tilde deja de cortar, sin error | 🟡 Media | ✅ Constantes + `matches()` |
+| **B-1** | `audit_logs` nunca invocado | Sin trazabilidad de acciones sensibles | 🟢 Baja | ✅ 4 acciones instrumentadas |
+| **B-2** | `.env.testing` versionado | Higiene | 🟢 Baja | ✅ Destrackeado |
+| **B-3** | Parámetro `tenant` residual en axios | Induce a error | 🟢 Baja | ✅ Eliminado |
+| **B-4** | Nombres de tabla mezclados | Confusión | 🟢 Baja | ✅ Documentado |
+| **B-5** | Documentación desincronizada | Decisiones sobre información falsa | 🟢 Baja | ✅ Resuelto |
+| **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
+| **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
 
 ---
 
-## 7. Plan de acción sugerido
+## 9. Qué hay que ejecutar para cerrar el ciclo
 
-```mermaid
-gantt
-    dateFormat YYYY-MM-DD
-    axisFormat %d/%m
-    title Plan de remediación
+El código está aplicado y verificado. Estos cuatro pasos **no se pueden hacer desde el
+repositorio** y quedan en manos del equipo, en este orden:
 
-    section Inmediato
-    C-1 Rotar credenciales expuestas   :crit, c1, 2026-07-30, 2d
-    C-4 Aplicar migración pendiente    :crit, c4, 2026-07-30, 1d
-    C-2 Activar el planificador        :crit, c2, 2026-07-31, 1d
-    C-3 Sembrar cut_type               :crit, c3, 2026-08-01, 1d
+### 1. Rotar las credenciales expuestas 🔴
 
-    section Semana 1-2
-    A-1 Permisos por endpoint          :active, a1, 2026-08-04, 5d
-    A-4 Unificar hasPermission         :a4, 2026-08-04, 1d
-    A-2 Throttling de la API           :a2, 2026-08-06, 2d
-    A-6 Resolver users.permissions     :a6, 2026-08-08, 2d
+Seguir [`RUNBOOK_ROTACION_SECRETOS.md`](RUNBOOK_ROTACION_SECRETOS.md). Mientras no se haga,
+las credenciales del CORE y de la base de datos siguen comprometidas en el historial de Git.
 
-    section Mes 1
-    A-3 Cifrar credenciales de red     :a3, 2026-08-11, 5d
-    A-7 Comando permissions:sync       :a7, 2026-08-14, 3d
-    A-5 Endurecer la CSP               :a5, 2026-08-18, 3d
-    M-1 Tests de autorización          :m1, 2026-08-18, 5d
+### 2. Desplegar el componente `scheduler` 🔴
 
-    section Trimestre
-    M-2 CI contra PostgreSQL           :m2, 2026-09-01, 3d
-    M-7 M-8 Índices y unicidad         :m7, 2026-09-04, 3d
-    M-4 M-5 M-6 M-9 Limpieza esquema   :m4, 2026-09-09, 5d
-    B-1 Instrumentar auditoría         :b1, 2026-09-16, 5d
+```bash
+doctl apps update <APP_ID> --spec .do/deploy.yaml
+# Verificar después:
+php artisan billing:verify-monthly   # debe reportar 'ok', nunca 'no_show'
+php artisan billing:verify-cuts
 ```
 
-### Orden recomendado y por qué
+### 3. Aplicar las migraciones nuevas
 
-1. **C-1 primero.** Mientras las credenciales estén expuestas, cualquier otra medida se
-   construye sobre una base comprometida.
-2. **C-4 antes de fusionar** la rama actual: `main` despliega automáticamente.
-3. **C-2 y C-3 juntos.** Son las dos causas independientes de que el ciclo automático no
-   funcione. Arreglar una sin la otra no restablece el corte.
-4. **A-1 y A-4 en el mismo bloque.** Ambos tocan autorización; hacerlos juntos evita que
-   endurecer el backend rompa la navegación del frontend.
-5. **A-3 después de C-1.** No tiene sentido cifrar credenciales que ya fueron rotadas
-   incorrectamente; rota primero, cifra después.
+```bash
+php artisan migrate:both
+```
+
+Son cinco, en este orden:
+
+| Migración | Qué hace | Nota |
+|---|---|---|
+| `..._000001_ensure_cut_type_catalog_rows` | Garantiza el catálogo de tipos de corte | Idempotente |
+| `..._000002_encrypt_network_credentials_in_place` | Cifra credenciales y elimina las columnas duplicadas | **Ejecutar DESPUÉS de rotar `APP_KEY`** |
+| `..._000003_clean_up_schema_debt` | Tipo de `desc`, FK duplicada, `ON DELETE` | Sólo PostgreSQL |
+| `..._000004_add_performance_and_integrity_indexes` | Índices + unicidad de IP por router | 0 duplicados verificados |
+| `..._000005_drop_unused_ip_management_tables` | Elimina 4 tablas vacías | Con salvaguarda |
+
+> ⚠️ **Orden crítico entre C-1 y A-3.** Si se rota `APP_KEY` **después** de cifrar, habrá que
+> descifrar y re-cifrar también estos valores. Rotar primero, migrar después.
+
+### 4. Sincronizar permisos tras cada despliegue
+
+```bash
+php artisan permissions:sync --dry-run   # revisar
+php artisan permissions:sync
+```
+
+Conviene añadirlo al comando de arranque del componente web, junto a `migrate --force`.
 
 ---
 
-## 8. Lo que ya está bien resuelto
+## 10. Lo que ya estaba bien resuelto
 
-Registro explícito de las decisiones acertadas, para que una refactorización futura no las
-deshaga sin conocer su motivo.
+Registro de las decisiones acertadas que se encontraron, para que una refactorización futura
+no las deshaga sin conocer su motivo.
 
 | Acierto | Por qué importa |
 |---|---|
 | **`tenant_id` derivado sólo del usuario autenticado** | Cierra la fuga entre tenants por query param (OWASP A01/A04) |
-| **Cliente de otro tenant = "no encontrado"** | Evita enumeración entre tenants en el aprovisionamiento |
+| **Cliente de otro tenant = «no encontrado»** | Evita enumeración entre tenants en el aprovisionamiento |
 | **`created_by` sellado desde la sesión** | El cliente no puede falsear quién registró un pago o un gasto |
 | **Idempotencia de la facturación** | Las ejecuciones horarias adicionales son no-ops seguras |
 | **Recuperación ante caídas** (`today->day >= create_day`) | Si el sistema estuvo caído el día de facturación, recupera al arrancar |
 | **Lápida `suppressed`** | Una factura borrada a conciencia no resucita, y sólo afecta a ese mes |
 | **Failover con backoff diferenciado** | Cortes cada 30 min (fuga de ingreso), facturas cada 2 h |
-| **Auditoría de no-show** (`verify-monthly` / `verify-cuts`) | Cubre el punto ciego que el failover por definición no puede ver |
+| **Auditoría de no-show** (`verify-monthly` / `verify-cuts`) | Cubre el punto ciego que el failover no puede ver por definición |
 | **`FirstInvoicePolicy` como fuente única** | Generación, auditoría y vista previa usan la misma fórmula: no puede divergir |
 | **`RouterEndpointResolver`** | Resuelve la deriva de IP del overlay leyendo la verdad del CORE |
 | **Índice único parcial de `pppoe_username` por router** | Impide que RouterOS sobrescriba en silencio el secret de otro cliente |
 | **`config/database.php` sin `url` en `sqlite`** | Hace estructuralmente imposible que los tests escriban en la base real |
-| **Aprovisionamiento masivo asíncrono** | Reconoce el coste real (17–34 s/cliente) en vez de pelear con el timeout |
+| **Aprovisionamiento masivo asíncrono** | Reconoce el coste real (17-34 s/cliente) en vez de pelear con el timeout |
 | **`manage_document_templates` separado de `manage_tenant`** | Acota el radio de acción de un rol personalizado sobre texto legal |
 | **Comentarios que explican el *porqué*, no el *qué*** | Buena parte de esta auditoría fue posible gracias a ellos |

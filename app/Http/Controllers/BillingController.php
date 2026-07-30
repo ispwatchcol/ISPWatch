@@ -143,6 +143,22 @@ class BillingController extends Controller
     public function destroy($id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        // Auditoría ANTES de borrar: después la fila ya no existe y se perdería
+        // el importe, el periodo y el cliente. Borrar una factura además deja
+        // una lápida `suppressed` que impide regenerarla, así que es la acción
+        // menos reversible del módulo: tiene que quedar quién la ejecutó.
+        \App\Models\AuditLog::log([
+            'action'      => 'invoice.deleted',
+            'model_type'  => Invoice::class,
+            'model_id'    => $invoice->id,
+            'old_values'  => $invoice->only([
+                'number', 'customer_id', 'total', 'balance_due',
+                'status', 'period_start', 'period_end', 'invoice_type',
+            ]),
+            'description' => "Factura {$invoice->number} eliminada (no se regenerará para ese periodo).",
+        ]);
+
         $this->billingService->deleteInvoice($invoice);
 
         return response()->json(['message' => 'Factura eliminada correctamente.']);

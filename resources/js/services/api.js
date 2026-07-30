@@ -13,31 +13,16 @@ export const apiClient = axios.create({
 })
 
 // =========================
-// INTERCEPTOR: AUTO-INJECT TENANT
+// NOTA: NO se inyecta el tenant en las peticiones
 // =========================
-apiClient.interceptors.request.use(
-  config => {
-    let userData = null
-    try {
-      userData =
-        JSON.parse(localStorage.getItem('userData') ?? 'null') ||
-        JSON.parse(sessionStorage.getItem('userData') ?? 'null')
-    } catch {
-      userData = null
-    }
-
-    if (userData?.tenant_id) {
-      config.params = {
-        ...(config.params || {}),
-        tenant: userData.tenant_id,
-        tenant_id: userData.tenant_id,
-      }
-    }
-
-    return config
-  },
-  error => Promise.reject(error)
-)
+// Hubo un interceptor que añadía `tenant` y `tenant_id` como query param a TODAS
+// las peticiones. Se eliminó porque el backend lo ignora por completo: desde la
+// mitigación de OWASP A01/A04, el trait BelongsToTenant deriva el tenant SIEMPRE
+// del usuario autenticado y nunca del request.
+//
+// Mantenerlo era peor que inútil: sugería que el cliente elige su propio tenant,
+// que es justo la vulnerabilidad que se corrigió, y llevaba a quien leía el
+// código por primera vez a intentar "arreglar" cosas cambiando ese parámetro.
 
 // =========================
 // INTERCEPTOR: HANDLE EXPIRED SESSION (401)
