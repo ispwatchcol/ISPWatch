@@ -7,6 +7,7 @@ import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { customerDisplayName } from '@/utils/customerName'
+import { invoiceTypeLabel, invoiceTypeColor } from '@/utils/invoiceType'
 import { usePermissions } from '@/composables/usePermissions'
 
 const router = useRouter()
@@ -109,22 +110,10 @@ const getStatusLabel = (status) => ({
     void:      'Anulada',
 }[status] ?? status)
 
-const getInvoiceTypeLabel = (type) => ({
-    monthly:        'Plan Mensual',
-    installation:   'Instalación',
-    additional:     'Adicional',
-    service_charge: 'Cargo Ticket',
-}[type] ?? (type || 'Plan Mensual'))
-
-const getInvoiceTypeColor = (type) => {
-    switch (type) {
-        case 'monthly':        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-        case 'installation':   return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-        case 'additional':     return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-        case 'service_charge': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-        default:               return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-    }
-}
+// Etiqueta y color viven en un util compartido con Recaudos: el mismo tipo debe
+// verse igual en las dos vistas.
+const getInvoiceTypeLabel = invoiceTypeLabel
+const getInvoiceTypeColor = invoiceTypeColor
 
 const showUnpaidModal = ref(false)
 const unpaidTarget = ref(null)

@@ -345,43 +345,151 @@ class BillingController extends Controller
         ]);
     }
 
-    // List Payments
+    /**
+     * Listado de recaudos: búsqueda general + filtros específicos por columna,
+     * ordenamiento y paginación real.
+     *
+     * Antes solo existía `search` y el frontend nunca mandaba `page`, así que la
+     * vista se quedaba clavada en los 10 recaudos más recientes: el resto solo
+     * aparecía escribiendo en el buscador. Ahora se filtra por fecha, cliente,
+     * monto, método, referencia y quién lo registró, y se recorren todas las
+     * páginas.
+     */
     public function getPayments(Request $request)
     {
+        $f = $request->validate([
+            'search'        => 'nullable|string|max:255',
+            'customer'      => 'nullable|string|max:255',
+            'customer_id'   => 'nullable|integer',
+            'reference'     => 'nullable|string|max:255',
+            'method'        => 'nullable|string|max:100',
+            'registered_by' => 'nullable|string|max:255',
+            'invoice'       => 'nullable|string|max:100',
+            'date_from'     => 'nullable|date',
+            'date_to'       => 'nullable|date',
+            'amount_min'    => 'nullable|numeric',
+            'amount_max'    => 'nullable|numeric',
+            'sort_by'       => 'nullable|in:payment_date,amount,method,reference,created_at',
+            'sort_dir'      => 'nullable|in:asc,desc',
+            'per_page'      => 'nullable|integer|min:1|max:200',
+        ]);
+
+        // Sólo las columnas que pinta la tabla: `users` y `customer_profile`
+        // tienen decenas de campos y traerlos enteros multiplicaba el peso de la
+        // respuesta, sobre todo con per_page alto.
         $query = Payment::query()->with([
-            'customer.customerProfile',
-            'allocations.invoice',
+            'customer:id,user_name,email',
+            'customer.customerProfile:user_id,name,last_name',
+            'allocations:id,payment_id,invoice_id,amount',
+            'allocations.invoice:id,number,invoice_type',
             'creator:id,name,user_name,user_lastname',
         ]);
 
-        if ($request->filled('search')) {
-            $search = $request->search;
-            // ILIKE en pgsql para que la búsqueda sea insensible a mayúsculas
-            // (LIKE en pgsql es sensible). SQLite usa LIKE, ya insensible.
-            $likeOp = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-            $query->where(function ($q) use ($search, $likeOp) {
-                $q->where('reference', $likeOp, "%$search%")
-                    ->orWhereHas('customer', function ($cq) use ($search, $likeOp) {
-                        $cq->where('user_name', $likeOp, "%$search%")
-                            ->orWhere('email', $likeOp, "%$search%")
-                            ->orWhereHas('customerProfile', function ($cpq) use ($search, $likeOp) {
-                                $cpq->where('name', $likeOp, "%$search%")
-                                    ->orWhere('last_name', $likeOp, "%$search%");
-                            });
-                    });
+        // Búsqueda general: referencia o cliente.
+        if (!empty($f['search'])) {
+            $search = $f['search'];
+            $query->where(function ($q) use ($search) {
+                $q->whereLike('reference', $search)
+                    ->orWhereHas('customer', fn ($cq) => $this->applyCustomerSearch($cq, $search));
             });
         }
 
-        if ($request->filled('method')) {
-            $query->where('method', $request->input('method'));
+        // ── Filtros específicos por columna ───────────────────────────────────
+        if (!empty($f['customer'])) {
+            $query->whereHas('customer', fn ($cq) => $this->applyCustomerSearch($cq, $f['customer']));
         }
 
-        if ($request->has('tenant_id') || $request->has('tenant')) {
-            $tenantId = $request->tenant_id ?? $request->tenant;
+        if (!empty($f['customer_id'])) {
+            $query->where('customer_id', $f['customer_id']);
+        }
+
+        if (!empty($f['reference'])) {
+            $query->whereLike('reference', $f['reference']);
+        }
+
+        if (!empty($f['method'])) {
+            $query->where('method', $f['method']);
+        }
+
+        // Columna "Facturas afectadas": número de alguna factura cubierta por
+        // el recaudo.
+        if (!empty($f['invoice'])) {
+            $invoice = $f['invoice'];
+            $query->whereHas('allocations.invoice', fn ($iq) => $iq->whereLike('number', $invoice));
+        }
+
+        if (!empty($f['date_from'])) {
+            $query->whereDate('payment_date', '>=', $f['date_from']);
+        }
+
+        if (!empty($f['date_to'])) {
+            $query->whereDate('payment_date', '<=', $f['date_to']);
+        }
+
+        // Ojo: 0 es un monto válido, por eso aquí sí se usa isset y no !empty.
+        if (isset($f['amount_min'])) {
+            $query->where('amount', '>=', $f['amount_min']);
+        }
+
+        if (isset($f['amount_max'])) {
+            $query->where('amount', '<=', $f['amount_max']);
+        }
+
+        // Quién registró el recaudo. Los pagos automáticos (facturación de
+        // instalación, etc.) no tienen creator: se filtran con "sistema".
+        if (!empty($f['registered_by'])) {
+            $registeredBy = trim($f['registered_by']);
+            if (in_array(mb_strtolower($registeredBy), ['sistema', 'system', 'automatico', 'automático'], true)) {
+                $query->whereNull('created_by');
+            } else {
+                $query->whereHas('creator', function ($uq) use ($registeredBy) {
+                    $uq->where(function ($q) use ($registeredBy) {
+                        $q->whereLike('user_name', $registeredBy)
+                            ->orWhereLike('user_lastname', $registeredBy)
+                            ->orWhereLike('name', $registeredBy)
+                            ->orWhereLike("COALESCE(user_name, '') || ' ' || COALESCE(user_lastname, '')", $registeredBy);
+                    });
+                });
+            }
+        }
+
+        // SECURITY FIX (OWASP A01): el tenant SIEMPRE sale del usuario
+        // autenticado. Aceptarlo por query param permitía ver los recaudos de
+        // otro tenant (y un `tenant=` vacío dejaba la lista en blanco).
+        $tenantId = $request->user()?->tenant_id;
+        if ($tenantId) {
             $query->where('tenant_id', $tenantId);
         }
 
-        return response()->json($query->orderBy('payment_date', 'desc')->paginate(10));
+        $sortBy  = $f['sort_by'] ?? 'payment_date';
+        $sortDir = $f['sort_dir'] ?? 'desc';
+
+        return response()->json(
+            $query->orderBy($sortBy, $sortDir)
+                ->orderBy('id', 'desc') // desempate estable entre páginas
+                ->paginate($f['per_page'] ?? 15)
+                ->withQueryString()
+        );
+    }
+
+    /**
+     * Filtro de cliente reutilizado por la búsqueda general y por el filtro
+     * específico "Cliente": nombre, apellido, nombre completo, cédula, usuario
+     * o correo. El nombre completo va concatenado porque buscar "Juan Pérez"
+     * no coincide con ninguna columna por separado.
+     */
+    private function applyCustomerSearch($query, string $term)
+    {
+        return $query->where(function ($cq) use ($term) {
+            $cq->whereLike('user_name', $term)
+                ->orWhereLike('email', $term)
+                ->orWhereHas('customerProfile', function ($cpq) use ($term) {
+                    $cpq->whereLike('name', $term)
+                        ->orWhereLike('last_name', $term)
+                        ->orWhereLike('cedula', $term)
+                        ->orWhereLike("COALESCE(customer_profile.name, '') || ' ' || COALESCE(customer_profile.last_name, '')", $term);
+                });
+        });
     }
 
     // Dashboard Stats
