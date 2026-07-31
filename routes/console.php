@@ -39,6 +39,12 @@ Schedule::command('billing:reconcile-suspensions')->hourly();
 // pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.
 Schedule::command('billing:verify-cuts')->dailyAt('07:00');
 
+// Salud del túnel por router (handshake WireGuard / sesión L2TP). Cubre el
+// punto ciego que dejó a CORE_TOCAIMA 8 días caído sin que nada avisara: el
+// failover de cortes solo ve fallos POR CLIENTE, nunca "este router no está".
+// Cada 30 min: un túnel caído hay que saberlo en minutos, no al día siguiente.
+Schedule::command('vpn:verify-tunnels')->everyThirtyMinutes()->withoutOverlapping();
+
 // Payment reminders: run hourly — the service fires on each router's
 // billing.payment_reminder DAY at its payment_reminder_time HOUR and is
 // idempotent per billing cycle (invoices.last_reminder_sent), so the extra

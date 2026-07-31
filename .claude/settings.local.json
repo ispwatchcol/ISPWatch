@@ -75,7 +75,17 @@
       "Bash(echo \"--- exit $? ---\")",
       "Bash(git rm *)",
       "Bash(sed -n '/DELETE.*customers\\\\/{customer}/,+4p')",
-      "Bash(sed -n '/function storeArticle/,/^    }/p' app/Http/Controllers/HelpCenterController.php)"
+      "Bash(sed -n '/function storeArticle/,/^    }/p' app/Http/Controllers/HelpCenterController.php)",
+      "Bash(php -r 'echo '\\\\''sodium: '\\\\''.\\(extension_loaded\\('\\\\''sodium'\\\\''\\)?'\\\\''SI'\\\\'':'\\\\''NO'\\\\''\\).PHP_EOL; if\\(extension_loaded\\('\\\\''sodium'\\\\''\\)\\){ $kp=sodium_crypto_box_keypair\\(\\); $sk=sodium_crypto_box_secretkey\\($kp\\); $pk=sodium_crypto_box_publickey\\($kp\\); echo '\\\\''X25519 keygen OK  priv_len='\\\\''.strlen\\($sk\\).'\\\\'' pub_len='\\\\''.strlen\\($pk\\).PHP_EOL; echo '\\\\''ejemplo pub b64: '\\\\''.base64_encode\\($pk\\).PHP_EOL; } echo '\\\\''php: '\\\\''.PHP_VERSION.PHP_EOL;')",
+      "Bash(php -r '$j=json_decode\\(file_get_contents\\('\\\\''composer.json'\\\\''\\),true\\); print_r\\($j['\\\\''require'\\\\'']\\);')",
+      "Bash(sed -i 's|^rp\\($api,$sock,'\\\\''ADDRESS LISTS'\\\\''.*|rp\\($api,$sock,'\\\\''ADDRESS LISTS \\(no blacklist\\)'\\\\'','\\\\''/ip/firewall/address-list/print'\\\\'',['\\\\''?list'\\\\''=>'\\\\''ISPWATCH_VPN_POOLS'\\\\''],['\\\\''list'\\\\'','\\\\''address'\\\\'','\\\\''comment'\\\\'']\\);|' core_audit.php)",
+      "Bash(sed -i 's|^rp\\($api,$sock,'\\\\''WIREGUARD INTERFACES'\\\\''.*||; s|^rp\\($api,$sock,'\\\\''WIREGUARD PEERS'\\\\''.*||; s|^rp\\($api,$sock,'\\\\''INTERFACES'\\\\''.*||; s|^rp\\($api,$sock,'\\\\''IP ADDRESSES'\\\\''.*||' core_audit.php)",
+      "Bash(sed -i 's/| `VpnService` | 945 | Generación y verificación de scripts L2TP\\\\/IPSec |/| `VpnService` | 945 | Generación y verificación de scripts de túnel \\(WireGuard v7 · L2TP\\\\/IPSec v6\\) |/' docs/ARQUITECTURA.md)",
+      "Bash(sed -i 's/| `RouterEndpointResolver` | Resuelve la IP real del router en el overlay L2TP |/| `RouterEndpointResolver` | Resuelve la IP real del router en el overlay \\(en WireGuard es fija; en L2TP corrige la deriva del pool\\) |/' docs/ARQUITECTURA.md)",
+      "Bash(sed -i 's/CORE\\\\[\"Router CORE MikroTik<br\\\\/>concentrador L2TP\\\\/IPSec\"\\\\]/CORE[\"Router CORE MikroTik<br\\\\/>concentrador WireGuard + L2TP\\\\/IPSec\"]/' docs/ARQUITECTURA.md)",
+      "Bash(grep -n \"VpnService\\\\` | 945\\\\|RouterEndpointResolver\\\\` | Resuelve\\\\|concentrador\" docs/ARQUITECTURA.md)",
+      "PowerShell(\\(Get-Command gh -ErrorAction SilentlyContinue\\).Source; if \\(-not $?\\) { \"gh no encontrado en PATH\" })",
+      "PowerShell(php artisan config:show database.connections.pgsql)"
     ]
   }
 }

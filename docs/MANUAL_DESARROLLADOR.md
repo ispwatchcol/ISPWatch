@@ -109,6 +109,7 @@ planes de servicio → routers → usuarios base → clientes de ejemplo.
 | `DB_DATABASE` | `postgres` | |
 | `DB_USERNAME` / `DB_PASSWORD` | — | |
 | `DB_SCHEMA` | `ispwatch_dev` \| `public` | **`public` = producción** |
+| `DB_SSLMODE` | `require` (por defecto) | Supabase exige TLS. Sólo se baja a `disable` en CI, cuyo contenedor de PostgreSQL no tiene SSL |
 
 > `DB_URL` **no debe definirse.** `ConfigurationUrlParser` la mezcla en *cualquier* conexión
 > que se resuelva, incluida `sqlite`, y podría redirigir los tests a la base real.

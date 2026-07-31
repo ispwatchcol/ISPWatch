@@ -142,9 +142,17 @@ class AutoCutoffTest extends TestCase
     #[Test]
     public function does_not_suspend_if_cut_day_is_in_future(): void
     {
+        // El reloj va fijo a propósito. Con `now()->addDay()` este test fallaba
+        // el ÚLTIMO DÍA DE CADA MES: el día siguiente cae en el mes que viene,
+        // así que `cut_day` valía 1, hoy valía 31 y —como la regla es "hoy >=
+        // cut_day"— el corte disparaba justo cuando el test esperaba que no.
+        // Un 31 de julio la suite entera se caía en cascada (el fallo de
+        // Mockery en tearDown deja abierta la transacción de RefreshDatabase).
+        Carbon::setTestNow(Carbon::create(2026, 3, 10, 9, 0, 0));
+
         $tenant = Tenant::factory()->create();
         $billing = $this->makeBilling([
-            'cut_day' => now()->addDay()->format('Y-m-d'),
+            'cut_day' => '2026-03-20',
             'overdue_invoices' => 1,
         ]);
         $router = $this->makeRouter('Corte Automático', $billing, $tenant);

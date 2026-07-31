@@ -115,7 +115,7 @@ flowchart TB
     end
 
     subgraph "Red del ISP"
-        CORE["Router CORE MikroTik<br/>concentrador L2TP/IPSec"]
+        CORE["Router CORE MikroTik<br/>concentrador WireGuard + L2TP/IPSec"]
         RB1["RouterBoard cliente 1"]
         RB2["RouterBoard cliente N"]
     end
@@ -238,7 +238,7 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento) |
 | `PaymentReminderService` | 157 | Recordatorios de pago (email/WhatsApp) |
 | `TrafficHistoryService` | 164 | Muestreo y agregación de tráfico WAN |
-| `VpnService` | 945 | Generación y verificación de scripts L2TP/IPSec |
+| `VpnService` | 945 | Generación y verificación de scripts de túnel (WireGuard v7 · L2TP/IPSec v6) |
 | `RouterApiService` | 912 | Protocolo API nativo MikroTik (puerto 8728) |
 | `MikroTikSshService` | 603 | SSH directo/vía CORE |
 | `WhatsAppService` | 162 | WhatsApp Cloud API (Meta Graph v18) |
@@ -257,7 +257,7 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `FirewallRulesManager` | `/ip firewall filter` + `address-list` de suspendidos |
 | `SuspensionManager` | Alta/baja en la address-list de morosos |
 | `InterfaceReader` | Lectura robusta de interfaces WAN (multi-variante) |
-| `RouterEndpointResolver` | Resuelve la IP real del router en el overlay L2TP |
+| `RouterEndpointResolver` | Resuelve la IP real del router en el overlay (en WireGuard es fija; en L2TP corrige la deriva del pool) |
 | `SshTunnel` / `SshTunnelManager` | Túnel SSH hacia el CORE |
 | `MikroTikApiProtocol` / `MikroTikConnectionManager` | Protocolo binario API |
 
@@ -271,6 +271,7 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
+| `vpn:verify-tunnels` | Alerta los routers sin túnel vivo contra el CORE |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:process-overdue` | Procesamiento manual de morosos |
 | `billing:simulate` | Simulador del ciclo completo |
@@ -324,8 +325,51 @@ Detalle completo en [`BASE_DATOS.md`](BASE_DATOS.md).
 ### Topología de conexión
 
 Los RouterBoards de los clientes **no son accesibles directamente desde Internet**.
-Se conectan por túnel **L2TP/IPSec** contra un router **CORE** central. ISPWatch
-alcanza cada router en dos saltos:
+Se conectan por túnel contra un router **CORE** central. ISPWatch alcanza cada
+router en dos saltos.
+
+### Transporte del túnel: WireGuard o L2TP, por router
+
+La columna `router.vpn_transport` decide el transporte de cada equipo. **No es una
+migración en curso, es un estado permanente**: WireGuard existe desde RouterOS 7.1
+y en v6 no lo hay.
+
+| | WireGuard (v7) | L2TP/IPsec (v6) |
+|---|---|---|
+| Flujos | uno solo (UDP) | IKE udp/500 **+** datos udp/1701 |
+| Identidad del peer | clave pública | IP + PSK + usuario PPP |
+| IP de overlay | fija (`allowed-address`) | del pool, **deriva** al reconectar |
+| Señal de salud | `last-handshake` del peer | presencia en `/ppp active` |
+| Rango | `172.18.<tenant>.0/24` | `172.16.<tenant>.0/24` |
+
+**Por qué se agregó WireGuard.** L2TP parte el túnel en dos flujos. Si el router
+cliente tiene multi-WAN, balanceo o un src-nat que reescribe el origen, cada flujo
+puede salir por una IP pública distinta: el CORE levanta la SA de IPsec contra la
+primera, el paquete L2TP llega de la segunda sin política que lo cubra y —con
+`use-ipsec=required`— lo rechaza (`no IPsec encryption while it was required`).
+Eso dejó `CORE_TOCAIMA` 8 días caído en julio de 2026, con 212 clientes sin
+gestión, reintentando cada 12 segundos.
+
+WireGuard no puede fallar así: al ser un único flujo autenticado por clave
+pública, el CORE aprende el endpoint venga de la IP que venga. Que la pública del
+cliente cambie es irrelevante — lo que rompía era tener **dos a la vez**.
+
+**Para la flota v6, que no puede migrar**, el script de provisión inyecta
+obligatoriamente las defensas equivalentes, acotadas a la IP del CORE:
+`ISPWatch-CORE-no-mark` (mangle output), `ISPWatch-CORE-no-nat` (srcnat) y
+`ISPWatch-CORE-pin` (ruta /32 por el gateway activo, para el caso ECMP).
+
+**Las claves las acuña ISPWatch** con phpseclib (X25519), no el router. Si
+esperáramos a que el equipo nos entregara su clave pública haría falta un túnel
+previo para leerla, y un router recién instalado no tiene ninguno.
+
+**Trampa conocida:** el `listen-port` del cliente no se puede fijar a ciegas.
+13231 es el default de RouterOS y lo ocupa el *Back To Home VPN* de MikroTik; si
+choca, la interfaz queda deshabilitada con `Listen port already used`. Como el
+cliente es quien disca, ese puerto es indiferente —el único que debe coincidir es
+el `endpoint-port`, que es el del CORE—, así que el script busca uno libre.
+
+### Los dos saltos
 
 ```mermaid
 sequenceDiagram
@@ -342,10 +386,13 @@ sequenceDiagram
 
 **Dos problemas resueltos explícitamente en el código** (`BuildsCoreSshExec`):
 
-1. **Puerto SSH del cliente.** RouterOS asume 22; despliegues reales lo mueven
-   (p. ej. `CORE_TOCAIMA` en 2200). Sin `port=` el operador veía
-   `<connection failed> <ip>:22` y creía que el cliente bloqueaba.
-   → columna `router.puerto_ssh`.
+1. **Puerto SSH del cliente.** RouterOS asume 22; despliegues reales lo mueven.
+   Sin `port=` el operador veía `<connection failed> <ip>:22` y creía que el
+   cliente bloqueaba. → columna `router.puerto_ssh`.
+   ⚠️ Ojo al llenarla a mano: el script de provisión ejecuta
+   `/ip service set ssh port=22` en el cliente, así que **pisa** cualquier otro
+   valor en el siguiente push. Si un equipo debe servir SSH fuera del 22 hay que
+   cambiar también el script, no solo la columna.
 2. **Deriva de IP en el overlay.** El secret PPP no tiene `remote-address` fijo, así que
    el CORE reasigna del pool `pool-vpn-<tenant>` en cada reconexión y `router.ip`
    queda obsoleto. → `RouterEndpointResolver` lee `/ppp active` del CORE, empareja por
@@ -429,6 +476,7 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:send-reminders` | `withoutOverlapping`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
+| Cada 30 min | `vpn:verify-tunnels` | Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
 | Cada 5 min | `traffic:collect` | Sólo routers con `historial_trafico = true` |
 | Diario | `traffic:prune --days=30` | Conserva los agregados diarios |
 

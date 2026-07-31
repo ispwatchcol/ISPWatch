@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Router;
 use App\Services\MikroTik\SshTunnelManager;
+use App\Services\MikroTik\WireguardManager;
 use Illuminate\Support\Facades\Log;
 
 class VpnService
@@ -148,7 +149,165 @@ class VpnService
         return $this->vpnPublicIp;
     }
 
+    /**
+     * Script de provisión del router, según su transporte.
+     *
+     * WireGuard existe desde RouterOS 7.1 y en v6 no lo hay, así que esto NO es
+     * una migración global sino una decisión por equipo. Un router marcado como
+     * wireguard cuyo firmware no lo soporte cae a L2TP: preferimos el transporte
+     * que funciona en las dos ramas antes que emitir un script que su RouterOS
+     * va a rechazar entero.
+     */
     public function generateScript(Router $router): string
+    {
+        if ($router->usesWireguard()) {
+            if (Router::firmwareSupportsWireguard($router->firmware_version)) {
+                return $this->generateWireguardScript($router);
+            }
+
+            Log::warning('[VPN] Router marcado como WireGuard con firmware que no lo soporta; se emite L2TP', [
+                'router_id' => $router->id,
+                'firmware'  => $router->firmware_version,
+            ]);
+        }
+
+        return $this->generateL2tpScript($router);
+    }
+
+    /**
+     * Script WireGuard. El par de claves lo acuña ISPWatch y el peer queda
+     * registrado en el CORE antes de devolver nada, así que el script es
+     * autosuficiente: sirve para un router recién sacado de la caja, sin túnel
+     * previo por el que negociar.
+     */
+    public function generateWireguardScript(Router $router): string
+    {
+        $wg       = new WireguardManager();
+        $tenantId = (int) $router->tenant_id;
+
+        $core = $wg->ensureCoreInterface();
+        if (!($core['success'] ?? false)) {
+            throw new \RuntimeException(
+                'No se pudo preparar la interfaz WireGuard del CORE: ' . ($core['message'] ?? 'error desconocido')
+            );
+        }
+
+        if ($tenantId > 0) {
+            $wg->ensureTenantAddress($tenantId);
+        }
+
+        $overlayIp = $wg->allocateOverlayIp($router);
+        if (!$overlayIp) {
+            throw new \RuntimeException('No hay direcciones libres en el overlay WireGuard del tenant');
+        }
+
+        // Reusar las claves ya emitidas mantiene válido el peer del CORE si el
+        // operador vuelve a pedir el script; solo se acuñan nuevas la primera vez.
+        $privateKey = $router->wg_private_key;
+        $publicKey  = $router->wg_public_key;
+        if (empty($privateKey) || empty($publicKey)) {
+            $pair       = $wg->generateKeypair();
+            $privateKey = $pair['private'];
+            $publicKey  = $pair['public'];
+        }
+
+        $peer = $wg->upsertPeer($router, $publicKey, $overlayIp);
+        if (!($peer['success'] ?? false)) {
+            throw new \RuntimeException(
+                'No se pudo registrar el peer en el CORE: ' . ($peer['message'] ?? 'error desconocido')
+            );
+        }
+
+        $router->update([
+            'vpn_transport'   => Router::TRANSPORT_WIREGUARD,
+            'wg_private_key'  => $privateKey,
+            'wg_public_key'   => $publicKey,
+            'wg_address'      => $overlayIp,
+            'ip'              => $overlayIp,
+        ]);
+
+        $localUser = 'ispwatch';
+        $localPass = $this->ensureManagementCredentials($router, $localUser);
+
+        $subnet   = $wg->tenantSubnet($tenantId > 0 ? $tenantId : 1);
+        $mgmtNet  = $subnet['network_cidr'];
+        $coreOv   = $subnet['local_address'];
+        $corePub  = $core['public_key'];
+        $corePort = $core['listen_port'];
+        $iface    = WireguardManager::IFACE;
+
+        return <<<SCRIPT
+# ====================================
+# USUARIO DE GESTIÓN
+# ====================================
+/user remove [find name="{$localUser}"]
+/user add name="{$localUser}" password="{$localPass}" group=full
+/ip service set api disabled=no port=8728
+/ip service set ssh disabled=no port=22
+
+# ====================================
+# TÚNEL WIREGUARD HACIA EL CORE
+# ====================================
+# El listen-port NO se puede fijar a ciegas: 13231 es el default de RouterOS y
+# lo ocupa el Back To Home VPN de MikroTik. Si choca, la interfaz queda
+# deshabilitada con "Listen port already used". Como el cliente es quien disca,
+# el puerto local da igual — el único que debe coincidir es el endpoint-port,
+# que es el del CORE. Por eso se busca uno libre.
+/interface/wireguard remove [find name="{$iface}"]
+:local wgport {$corePort}
+:while ([:len [/interface/wireguard find listen-port=\$wgport]] > 0) do={ :set wgport (\$wgport + 1) }
+/interface/wireguard add name="{$iface}" private-key="{$privateKey}" listen-port=\$wgport comment="ISPWatch WireGuard"
+
+/ip/address remove [find comment="ISPWatch WG overlay"]
+/ip/address add address={$overlayIp}/24 interface="{$iface}" comment="ISPWatch WG overlay"
+
+# persistent-keepalive mantiene vivo el mapeo NAT del lado del cliente.
+/interface/wireguard/peers remove [find comment="ISPWatch CORE"]
+/interface/wireguard/peers add interface="{$iface}" \\
+    public-key="{$corePub}" \\
+    endpoint-address={$this->vpnPublicIp} endpoint-port={$corePort} \\
+    allowed-address={$mgmtNet} \\
+    persistent-keepalive=25s comment="ISPWatch CORE"
+
+# ====================================
+# ACCESO DE GESTIÓN DESDE EL CORE
+# ====================================
+/ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
+/ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
+
+# ====================================
+# WATCHDOG
+# ====================================
+# WireGuard no "se cae" como L2TP (no hay sesión que renegociar), pero si el
+# handshake muere por un cambio de ruteo, recrear la interfaz lo fuerza.
+/tool netwatch remove [find comment="ISPWatch-VPN-Watchdog"]
+/tool netwatch add host={$coreOv} interval=60s timeout=5s comment="ISPWatch-VPN-Watchdog" \\
+    up-script=":log info \\"ISPWatch: VPN UP - CORE {$coreOv} alcanzable\\"" \\
+    down-script="/interface/wireguard disable [find name={$iface}]; :delay 3s; /interface/wireguard enable [find name={$iface}]; :log warning \\"ISPWatch: VPN DOWN - reiniciando WireGuard (watchdog)\\""
+SCRIPT;
+    }
+
+    /**
+     * Credencial de gestión local. Devuelve la vigente o acuña una nueva si no
+     * hay, o si sigue el default histórico que se filtró en instalaciones viejas.
+     */
+    private function ensureManagementCredentials(Router $router, string $localUser): string
+    {
+        if (empty($router->password_rb) || $router->password_rb === 'Sena2017') {
+            $localPass = \Illuminate\Support\Str::random(24);
+            $router->update(['user_rb' => $localUser, 'password_rb' => $localPass]);
+
+            return $localPass;
+        }
+
+        if ($router->user_rb !== $localUser) {
+            $router->update(['user_rb' => $localUser]);
+        }
+
+        return $router->password_rb;
+    }
+
+    public function generateL2tpScript(Router $router): string
     {
         $routerName = $this->sanitizeName($router->name);
 
@@ -168,33 +327,20 @@ class VpnService
             $vpnPassword = \Illuminate\Support\Str::random(20);
         }
 
-        // Guardar credentials VPN en la base de datos (encriptadas)
+        // Guardar credenciales VPN (el cast del modelo las cifra al escribir).
+        // Las columnas *_encrypted que aquí se seteaban ya no existen: las
+        // eliminó la migración 2026_07_31_000002, que pasó a cifrar EN LA MISMA
+        // columna. Se quitaron de este update porque no estaban en $fillable y
+        // el mass-assignment las descartaba en silencio — código muerto que
+        // aparentaba estar haciendo algo.
         $router->update([
             'vpn_username' => $vpnUsername,
             'vpn_password' => $vpnPassword,
-            'vpn_username_encrypted' => $vpnUsername,
-            'vpn_password_encrypted' => $vpnPassword,
         ]);
 
         // Generar credenciales de gestión local (INTERNO - no mostrar al usuario)
         $localUser = 'ispwatch';
-        if (empty($router->password_rb) || $router->password_rb === 'Sena2017') {
-            $localPass = \Illuminate\Support\Str::random(16);
-            $router->update([
-                'user_rb' => $localUser,
-                'password_rb' => $localPass,
-                'user_rb_encrypted' => $localUser,
-                'password_rb_encrypted' => $localPass,
-            ]);
-        } else {
-            $localPass = $router->password_rb;
-            if ($router->user_rb !== $localUser) {
-                $router->update([
-                    'user_rb' => $localUser,
-                    'user_rb_encrypted' => $localUser,
-                ]);
-            }
-        }
+        $localPass = $this->ensureManagementCredentials($router, $localUser);
 
         // ==============================
         // SINCRONIZAR CON EL CORE (Importantísimo)
@@ -282,6 +428,44 @@ TENANT;
 # script no duplica la regla ni requiere inspeccionar las reglas existentes.
 /ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
 /ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
+
+# ====================================
+# BLINDAJE DEL TÚNEL CONTRA MULTI-WAN
+# ====================================
+# ESTO NO ES OPCIONAL. L2TP/IPsec parte el túnel en dos flujos: el IKE por
+# udp/500 y los datos por udp/1701. Si el router tiene dos salidas, balanceo,
+# policy routing o un src-nat que reescribe el origen, cada flujo puede salir
+# por una IP pública distinta. El CORE levanta la SA contra la primera; el
+# paquete L2TP llega de la segunda sin política que lo cubra y, con
+# use-ipsec=required, lo rechaza: "no IPsec encryption while it was required".
+# Así estuvo CORE_TOCAIMA 8 días caído en julio de 2026, reintentando cada 12s.
+#
+# Las dos reglas siguientes fuerzan a que ambos flujos salgan igual:
+#   - mangle output: que ningún marcado de balanceo lo desvíe a otra tabla.
+#   - srcnat: que nadie le reescriba el origen (si se lo reescriben, deja de
+#     matchear la política IPsec y sale en claro).
+# Van acotadas a la IP del CORE, así que no tocan el tráfico de los clientes.
+#
+# Los routers v7 no necesitan nada de esto porque van por WireGuard, donde la
+# clase de falla no existe. Para los v6 es la única defensa disponible.
+/ip firewall mangle remove [find comment="ISPWatch-CORE-no-mark"]
+/ip firewall mangle add chain=output action=accept dst-address={$this->vpnPublicIp} comment="ISPWatch-CORE-no-mark" place-before=0
+
+/ip firewall nat remove [find comment="ISPWatch-CORE-no-nat"]
+/ip firewall nat add chain=srcnat action=accept dst-address={$this->vpnPublicIp} comment="ISPWatch-CORE-no-nat" place-before=0
+
+# Si además hay ECMP (varios gateways en la misma default), el accept de mangle
+# no alcanza: el hash por conexión todavía puede separar el 500 del 1701. La
+# ruta /32 al CORE por el gateway activo lo fija. Se resuelve el gateway en
+# caliente para no depender de conocer la topología del cliente.
+/ip route remove [find comment="ISPWatch-CORE-pin"]
+:local gw ""
+:foreach r in=[/ip route find dst-address="0.0.0.0/0"] do={
+    :if ([:len \$gw] = 0 && [/ip route get \$r active]) do={ :set gw [/ip route get \$r gateway] }
+}
+:if ([:len \$gw] > 0) do={
+    /ip route add dst-address={$this->vpnPublicIp}/32 gateway=\$gw distance=1 comment="ISPWatch-CORE-pin"
+}
 
 # ====================================
 # CONFIGURACIÓN VPN L2TP
