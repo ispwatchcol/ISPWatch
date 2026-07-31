@@ -18,19 +18,35 @@
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Formulario -->
                 <div class="lg:col-span-2 space-y-6">
-                    <!-- Cliente -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
-                        <h2 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Cliente</h2>
-                        <SearchableSelect
-                            v-model="form.customer_id"
-                            :items="customers"
-                            item-key="user_id"
-                            :item-label="customerLabel"
-                            item-icon="bi-person"
-                            label="Seleccionar cliente"
-                            placeholder="-- Selecciona un cliente --"
-                            search-placeholder="Buscar por nombre..."
-                        />
+                    <!-- Cliente y tipo -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 space-y-5">
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Cliente</h2>
+                            <SearchableSelect
+                                v-model="form.customer_id"
+                                :items="customers"
+                                item-key="user_id"
+                                :item-label="customerLabel"
+                                item-icon="bi-person"
+                                label="Seleccionar cliente"
+                                placeholder="-- Selecciona un cliente --"
+                                search-placeholder="Buscar por nombre..."
+                            />
+                        </div>
+
+                        <!-- Tipo de la factura que se va a emitir: equipos, TV,
+                             reconexión... del catálogo administrable. -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de factura</label>
+                            <select v-model="form.invoice_type"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option v-for="t in typeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
+                            </select>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                ¿Falta un tipo?
+                                <button type="button" @click="router.push('/billing/invoice-types')" class="text-blue-600 dark:text-blue-400 hover:underline">Administrar tipos de factura</button>
+                            </p>
+                        </div>
                     </div>
 
                     <!-- Ítems -->
@@ -176,16 +192,20 @@ import billingService from '@/services/billing'
 import api from '@/services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
+import { activeInvoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const router = useRouter()
 const toast = ref(null)
 const submitting = ref(false)
 const customers = ref([])
 
+const typeOptions = computed(() => activeInvoiceTypes())
+
 const defaultItem = () => ({ description: '', quantity: 1, unit_price: 0, type: '' })
 
 const form = ref({
     customer_id: '',
+    invoice_type: 'additional',
     items: [defaultItem()],
     due_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     notes: '',
@@ -232,6 +252,7 @@ const submitCharge = async () => {
         submitting.value = true
         const payload = {
             customer_id: form.value.customer_id,
+            invoice_type: form.value.invoice_type || undefined,
             items: form.value.items.map(i => ({
                 description: i.description,
                 quantity: i.quantity,
@@ -243,7 +264,13 @@ const submitCharge = async () => {
         }
         const res = await billingService.storeAdditionalCharge(payload)
         toast.value?.success('Cargo generado', res.data.message || 'El cargo adicional fue creado correctamente.')
-        form.value = { customer_id: '', items: [defaultItem()], due_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], notes: '' }
+        form.value = {
+            customer_id: '',
+            invoice_type: form.value.invoice_type,
+            items: [defaultItem()],
+            due_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            notes: '',
+        }
         if (res.data.invoice?.id) {
             setTimeout(() => router.push(`/billing/invoices/${res.data.invoice.id}`), 1200)
         }
@@ -255,5 +282,8 @@ const submitCharge = async () => {
     }
 }
 
-onMounted(loadCustomers)
+onMounted(() => {
+    loadCustomers()
+    loadInvoiceTypes()
+})
 </script>

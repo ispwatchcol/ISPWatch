@@ -5,7 +5,7 @@ import { apiClient } from '@/services/api'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { customerDisplayName } from '@/utils/customerName'
-import { invoiceTypeLabel, invoiceTypeColor } from '@/utils/invoiceType'
+import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const payments       = ref({ data: [] })
 const paymentMethods = ref([])
@@ -124,6 +124,9 @@ const loadPaymentMethods = async () => {
 onMounted(() => {
     fetchPayments()
     loadPaymentMethods()
+    // Los chips de "Facturas afectadas" heredan el tipo de la factura: sin el
+    // catálogo, un tipo propio del tenant saldría con la etiqueta genérica.
+    loadInvoiceTypes()
 })
 
 // Al cambiar un filtro volvemos a la primera página: la actual puede no existir

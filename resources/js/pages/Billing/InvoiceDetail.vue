@@ -5,6 +5,7 @@ import billingService from '@/services/billing'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { customerDisplayName as resolveCustomerDisplayName } from '@/utils/customerName'
+import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,6 +14,17 @@ const invoice = ref(null)
 const loading = ref(true)
 
 const customerDisplayName = computed(() => resolveCustomerDisplayName(invoice.value?.customer))
+
+// Trazabilidad del arrastre: de qué facturas viene el saldo que esta cobra y a
+// cuál se fue el que ella dejó pendiente.
+const carriedInFrom = computed(() =>
+    (invoice.value?.carryovers_in ?? [])
+        .map(c => c.from_invoice?.number)
+        .filter(Boolean)
+)
+const carriedOutTo = computed(() =>
+    (invoice.value?.carryovers_out ?? []).find(c => c.to_invoice?.number)?.to_invoice?.number ?? null
+)
 
 const fetchInvoice = async () => {
     loading.value = true
@@ -87,6 +99,7 @@ const downloadPdf = async () => {
 const getStatusColor = (status) => {
     switch (status) {
         case 'paid':      return 'text-emerald-700 bg-emerald-100'
+        case 'partial':   return 'text-amber-700 bg-amber-100'
         case 'pending':   return 'text-amber-700 bg-amber-100'
         case 'overdue':   return 'text-rose-700 bg-rose-100'
         case 'issued':    return 'text-indigo-700 bg-white'
@@ -97,6 +110,7 @@ const getStatusColor = (status) => {
 
 const statusLabels = {
     paid:      'Pagado',
+    partial:   'Pago parcial',
     pending:   'Pendiente de pago',
     overdue:   'Vencida',
     issued:    'Emitida',
@@ -111,7 +125,10 @@ const formatDate = (date) => {
     return d.toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: '2-digit' })
 }
 
-onMounted(fetchInvoice)
+onMounted(() => {
+    fetchInvoice()
+    loadInvoiceTypes()
+})
 </script>
 
 <template>
@@ -159,6 +176,9 @@ onMounted(fetchInvoice)
                          <div>
                              <h2 class="text-xs font-medium uppercase tracking-[0.3em] mb-4 opacity-70">Documento Electrónico</h2>
                              <h1 class="text-4xl font-medium mb-2">Factura No. {{ invoice.number }}</h1>
+                             <span class="px-3 py-1 rounded-full text-xs font-semibold" :class="invoiceTypeColor(invoice.invoice_type)">
+                                 {{ invoiceTypeLabel(invoice.invoice_type) }}
+                             </span>
                              <div class="flex items-center gap-6 mt-6">
                                  <div class="flex flex-col">
                                      <span class="text-[10px] font-medium uppercase opacity-60">Emisión</span>
@@ -210,6 +230,29 @@ onMounted(fetchInvoice)
                                 <div class="flex justify-between items-center text-sm">
                                     <span class="text-slate-400">Periodo:</span>
                                     <span class="text-slate-600 dark:text-slate-300 font-medium">{{ formatDate(invoice.period_start) }} — {{ formatDate(invoice.period_end) }}</span>
+                                </div>
+
+                                <!-- Arrastre por abono parcial -->
+                                <div v-if="Number(invoice.carried_out) > 0"
+                                    class="mt-4 pt-4 border-t border-slate-200 dark:border-gray-700 text-sm">
+                                    <div class="flex justify-between items-center text-amber-600 dark:text-amber-400 font-medium">
+                                        <span>↷ Trasladado a la próxima factura:</span>
+                                        <span>${{ Number(invoice.carried_out).toLocaleString() }}</span>
+                                    </div>
+                                    <p class="text-xs text-slate-400 mt-1">
+                                        Se recibió un abono parcial: la factura se cerró y el faltante se cobra en la siguiente
+                                        <span v-if="carriedOutTo"> (ya facturado en la #{{ carriedOutTo }})</span>.
+                                    </p>
+                                </div>
+                                <div v-if="Number(invoice.carried_in) > 0"
+                                    class="mt-4 pt-4 border-t border-slate-200 dark:border-gray-700 text-sm">
+                                    <div class="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-medium">
+                                        <span>Incluye saldo de facturas anteriores:</span>
+                                        <span>${{ Number(invoice.carried_in).toLocaleString() }}</span>
+                                    </div>
+                                    <p v-if="carriedInFrom.length" class="text-xs text-slate-400 mt-1">
+                                        Viene de: {{ carriedInFrom.map(n => `#${n}`).join(', ') }}
+                                    </p>
                                 </div>
                             </div>
                         </div>

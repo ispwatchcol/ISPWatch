@@ -94,7 +94,10 @@
       "PowerShell(php artisan test tests/Feature/Billing/PaymentsListFilterTest.php 2>&1)",
       "PowerShell(php artisan migrate:both --force 2>&1)",
       "Bash(docker --version)",
-      "Bash(php -m)"
+      "Bash(php -m)",
+      "Bash(grep -n 'protected $table' app/Models/User.php app/Models/Invoice.php app/Models/Payment.php app/Models/CustomerProfile.php)",
+      "Bash(python -c ' *)",
+      "Bash(grep -n \"| \\\\`invoice_items.invoice_id\\\\` | \\\\`invoices.id\\\\` | CASCADE |\" docs/BASE_DATOS.md)"
     ]
   }
 }

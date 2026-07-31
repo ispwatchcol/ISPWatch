@@ -14,6 +14,10 @@
         <p class="text-xs mt-1 opacity-70">
           {{ netBalance > 0 ? 'Monto que el cliente aún debe' : 'El cliente está al día' }}
         </p>
+        <!-- Arrastre: no se debe hoy, se cobra en la próxima factura. -->
+        <p v-if="carryoverBalance > 0" class="text-xs mt-2 bg-white/20 rounded-lg px-2 py-1 inline-block">
+          ↷ ${{ fmt(carryoverBalance) }} para la próxima factura
+        </p>
       </div>
 
       <!-- Saldo a favor -->
@@ -85,6 +89,26 @@
             <template v-else>
               En este momento el cliente no debe nada; el crédito cubre todas sus facturas abiertas.
             </template>
+          </p>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ── Banner: saldo arrastrado de abonos parciales ───────────────── -->
+    <Transition name="slide-down">
+      <div v-if="carryoverBalance > 0"
+        class="flex items-start gap-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-2xl px-5 py-4">
+        <div class="shrink-0 w-10 h-10 bg-amber-100 dark:bg-amber-800 rounded-xl flex items-center justify-center text-amber-600 dark:text-amber-300 text-xl font-bold">
+          ↷
+        </div>
+        <div>
+          <p class="font-semibold text-amber-800 dark:text-amber-200">
+            ${{ fmt(carryoverBalance) }} de saldo pendiente arrastrado
+          </p>
+          <p class="text-sm text-amber-700 dark:text-amber-400 mt-0.5">
+            El cliente abonó menos del total en una o más facturas: esas facturas quedaron cerradas como pagadas
+            y el faltante se sumará automáticamente a la próxima factura mensual. Hoy no cuenta como mora
+            ni provoca corte.
           </p>
         </div>
       </div>
@@ -264,9 +288,10 @@
               <Transition name="slide-down">
                 <div v-if="modalPaymentType === 'partial'"
                   class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-                  Quedará un saldo pendiente de
+                  La factura quedará <strong>pagada</strong> y los
                   <strong>${{ fmt((targetInvoice ? Number(targetInvoice.balance_due) : netBalance) - payForm.amount) }}</strong>
-                  por cobrar.
+                  restantes se cobrarán en la próxima factura del cliente.
+                  Al no quedar saldo vencido, el cliente sale de mora y, si estaba cortado, se reconecta.
                 </div>
               </Transition>
 
@@ -331,6 +356,9 @@ const invoices       = ref([])
 const grossBalance   = ref(0)   // sum of invoice balance_due
 const creditBalance  = ref(0)   // credit_balance from overpayments
 const netBalance     = ref(0)   // what they actually owe
+// Faltante de abonos parciales cuyas facturas ya se cerraron: se cobra en la
+// próxima factura, así que NO entra en el saldo pendiente de hoy.
+const carryoverBalance = ref(0)
 const loading        = ref(true)
 const showModal      = ref(false)
 const submitting     = ref(false)
@@ -397,6 +425,7 @@ const fetchData = async () => {
     grossBalance.value  = balRes.data.balance        ?? 0
     creditBalance.value = balRes.data.credit_balance ?? 0
     netBalance.value    = balRes.data.net_balance    ?? balRes.data.balance ?? 0
+    carryoverBalance.value = balRes.data.carryover_balance ?? 0
   } catch (e) {
     console.error('Error cargando facturación:', e)
     emit('notify', { type: 'error', title: 'Error', message: 'No se pudo cargar la facturación del cliente.' })

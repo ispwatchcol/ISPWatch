@@ -211,6 +211,10 @@ class BillingModuleTest extends TestCase
         $this->assertEquals(25000, $payment->allocations->first()->amount);
     }
 
+    /**
+     * Un abono parcial ya NO deja la factura a medias: la cierra como pagada y
+     * manda el faltante al arrastre, que cobrará la siguiente factura mensual.
+     */
     #[Test]
     public function it_allocates_partial_payment_correctly()
     {
@@ -242,9 +246,12 @@ class BillingModuleTest extends TestCase
 
         // Assert
         $invoice->refresh();
-        $this->assertEquals(15000, $invoice->balance_due);
-        $this->assertEquals('partial', $invoice->status);
+        $this->assertEquals(0, $invoice->balance_due);
+        $this->assertEquals('paid', $invoice->status);
+        $this->assertEquals(15000, $invoice->carried_out);
         $this->assertEquals(10000, $payment->allocations->first()->amount);
+
+        $this->assertEquals(15000, \App\Models\InvoiceCarryover::pendingTotalFor($customer->id));
     }
 
     #[Test]
@@ -296,8 +303,12 @@ class BillingModuleTest extends TestCase
         $this->assertEquals(0, $oldInvoice->balance_due);
         $this->assertEquals('paid', $oldInvoice->status);
 
-        $this->assertEquals(15000, $newInvoice->balance_due);
-        $this->assertEquals('partial', $newInvoice->status);
+        // La segunda factura recibió un abono parcial: queda pagada y sus
+        // 15.000 restantes viajan como saldo pendiente a la próxima.
+        $this->assertEquals(0, $newInvoice->balance_due);
+        $this->assertEquals('paid', $newInvoice->status);
+        $this->assertEquals(15000, $newInvoice->carried_out);
+        $this->assertEquals(15000, \App\Models\InvoiceCarryover::pendingTotalFor($customer->id));
 
         $this->assertEquals(2, $payment->allocations->count());
     }

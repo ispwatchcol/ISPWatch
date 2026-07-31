@@ -28,6 +28,7 @@ use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PaymentMethodController;
+use App\Http\Controllers\InvoiceTypeController;
 use App\Http\Controllers\HelpCenterController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
@@ -246,6 +247,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/payment-methods', [PaymentMethodController::class, 'store']);
         Route::put('/billing/payment-methods/{id}', [PaymentMethodController::class, 'update']);
         Route::delete('/billing/payment-methods/{id}', [PaymentMethodController::class, 'destroy']);
+
+        // Tipos de factura (catálogo: equipos, TV, reconexión...). Va con
+        // view_billing igual que las formas de pago: un permiso nuevo dejaría a
+        // los roles admin existentes sin la pestaña hasta re-sembrarlos.
+        Route::get('/billing/invoice-types', [InvoiceTypeController::class, 'index']);
+        Route::post('/billing/invoice-types', [InvoiceTypeController::class, 'store']);
+        Route::put('/billing/invoice-types/{id}', [InvoiceTypeController::class, 'update']);
+        Route::delete('/billing/invoice-types/{id}', [InvoiceTypeController::class, 'destroy']);
     });
 
     // ─── BILLING ACTION LOGS (failover de facturación) ───

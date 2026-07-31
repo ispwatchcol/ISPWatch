@@ -107,6 +107,23 @@ export default {
     return apiClient.post('/billing/additional-charges', data)
   },
 
+  // ── Tipos de factura (catálogo: equipos, TV, reconexión...) ──
+  getInvoiceTypes() {
+    return apiClient.get('/billing/invoice-types')
+  },
+
+  createInvoiceType(data) {
+    return apiClient.post('/billing/invoice-types', data)
+  },
+
+  updateInvoiceType(id, data) {
+    return apiClient.put(`/billing/invoice-types/${id}`, data)
+  },
+
+  deleteInvoiceType(id) {
+    return apiClient.delete(`/billing/invoice-types/${id}`)
+  },
+
   // ── Failover: billing action logs ─────────────────────
   getActionLogs(params = {}) {
     return apiClient.get('/billing/action-logs', { params })

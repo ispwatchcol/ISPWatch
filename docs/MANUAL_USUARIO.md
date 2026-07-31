@@ -87,7 +87,7 @@ A la izquierda está el **menú lateral**. Los grupos que ves dependen de tu rol
 | **Soporte** | Tickets, nuevo ticket, instalaciones, estadísticas | Ver soporte |
 | **Gestión** | Routers, planes de internet, sectoriales, topología FTTH | Cualquiera de los tres |
 | **Inventarios** | Equipos, stock/modelos, proveedores, sucursales | Ver inventario |
-| **Finanzas** | Resumen, facturación, pagos, formas de pago, servicios adicionales, gastos, categorías | Ver facturación **o** ver gastos |
+| **Finanzas** | Resumen, facturación, pagos, formas de pago, tipos de factura, servicios adicionales, gastos, categorías | Ver facturación **o** ver gastos |
 | **Personal** | Empleados y técnicos | Ver personal |
 | **Acciones masivas** | Cargas por Excel y paneles de reintentos | Ejecutar acciones masivas |
 | **Configuración** | Datos de la empresa, plantillas, ajustes | Ver ajustes |
@@ -358,13 +358,37 @@ El botón **Descargar PDF** genera la factura con el diseño y los datos de tu e
 
 ### 7.4 Crear una factura manual
 
-**Finanzas → Facturación → Nueva factura.** Necesitas indicar cliente, fecha de emisión,
-fecha de vencimiento, periodo y total. El número lo asigna el sistema.
+**Finanzas → Facturación → Nueva factura.** Necesitas indicar cliente, **tipo de
+factura**, fecha de emisión, fecha de vencimiento, periodo y total. El número lo asigna
+el sistema.
 
 ### 7.5 Servicios adicionales
 
 **Finanzas → Servicios adicionales.** Para cobrar algo puntual que no viene de un ticket
-(traslado, cambio de equipo, reconexión).
+(traslado, cambio de equipo, reconexión). También eliges el **tipo de factura** que se va
+a emitir.
+
+### 7.5.1 Tipos de factura (equipos, TV, reconexión…)
+
+**Finanzas → Tipos de factura.** Aquí decides con qué nombres facturas. No estás limitado
+a los cuatro de fábrica: crea "Factura de Equipos", "Factura de TV", "Reconexión", lo que
+uses.
+
+Para crear uno:
+
+1. Pulsa **Nuevo tipo**.
+2. Escribe el **nombre** (ej. *Factura de Equipos*).
+3. Elige un **color** para la etiqueta — es como se verá en el listado de facturas.
+4. Guarda. El tipo aparece de inmediato en **Nueva factura** y en **Servicios adicionales**.
+
+| | |
+|---|---|
+| **Tipos del sistema** | *Plan Mensual*, *Instalación*, *Servicio Adicional* y *Cargo de Ticket*. No se editan ni se borran: la facturación automática depende de ellos |
+| **Desactivar un tipo** | Deja de ofrecerse al facturar, pero las facturas que ya lo usan conservan su etiqueta. Es lo que hay que hacer cuando ya no se usa un tipo |
+| **Eliminar un tipo** | Sólo si **nunca** se ha emitido una factura con él. Si ya tiene facturas, el sistema no deja borrarlo y te pide desactivarlo |
+
+> El nombre se puede cambiar cuando quieras (las facturas viejas se ven con el nombre
+> nuevo). Lo que **no** cambia es el identificador interno que se creó al principio.
 
 ### 7.6 Corregir una factura
 
@@ -417,11 +441,45 @@ Esto ocurre solo, sin que hagas nada más:
 
 1. El pago se aplica a las facturas pendientes, **empezando por la más antigua**.
 2. Si sobra dinero, queda como **saldo a favor** del cliente y se usará en la próxima factura.
-3. **Si el cliente queda al día y estaba cortado por mora, el sistema le devuelve el
+3. Si **falta** dinero (abono parcial), la factura **queda pagada igual** y lo que faltó
+   pasa a la próxima factura. Ver 8.2.1.
+4. **Si el cliente queda al día y estaba cortado por mora, el sistema le devuelve el
    internet automáticamente.**
 
 > La reconexión automática **sólo aplica a cortes por facturación**. Si el cliente fue
 > suspendido a mano, hay que reactivarlo a mano.
+
+### 8.2.1 Abonos parciales: el saldo pasa a la próxima factura
+
+Cuando el cliente paga **menos** de lo que debe:
+
+- La factura se marca como **Pagada** y su saldo queda en cero.
+- Lo que faltó queda como **saldo pendiente** del cliente.
+- La **próxima factura mensual** lo cobra automáticamente: sale una línea
+  *"Saldo pendiente de facturas anteriores (#…)"* sumada al plan del mes.
+
+**Ejemplo.** El cliente debe $50.000 y abona $30.000. Esa factura queda pagada y quedan
+$20.000 pendientes. El mes siguiente, si el plan vale $50.000, su factura será de
+**$70.000**.
+
+> ⚠️ **Importante:** al quedar la factura pagada, el cliente **sale de mora**. Si estaba
+> cortado, se le devuelve el internet, y **no se le vuelve a cortar hasta que se venza la
+> factura nueva** (la que ya trae la deuda vieja sumada). Al registrar un abono parcial el
+> sistema te avisa de esto y te pide confirmar.
+
+Dónde ver el saldo arrastrado:
+
+| Dónde | Qué se ve |
+|---|---|
+| Al registrar un pago | Bloque ámbar *"Saldo pendiente arrastrado"* junto al saldo del cliente |
+| Ficha del cliente → Facturación | Aviso ámbar con el total arrastrado |
+| Lista de facturas, columna Saldo | *"↷ $X a la próxima"* en la factura que abonó, y *"incluye $Y de saldo anterior"* en la que lo cobra |
+| Detalle de la factura | De qué factura vino el saldo y a cuál se fue |
+
+Si registraste el abono por error: **eliminar el pago** o **Marcar como no pagada**
+devuelve el saldo a la factura original — siempre que la próxima factura no lo haya
+cobrado todavía. Si ya lo cobró, el saldo se queda en esa factura nueva (no se cobra dos
+veces).
 
 ### 8.3 Buscar en la lista de recaudos
 
@@ -472,6 +530,10 @@ con saldo.
 En la ficha del cliente, pestaña **Facturación**, verás su saldo a favor. Un administrador
 puede ajustarlo manualmente si hace falta.
 
+No confundir con el **saldo pendiente arrastrado** (8.2.1): el saldo a favor es plata que
+el cliente pagó de más y se le descuenta; el arrastrado es plata que le falta por pagar y
+se le sumará.
+
 ### 8.6 Formas de pago
 
 **Finanzas → Formas de pago.** Puedes crear las tuyas, editarlas o desactivarlas.
@@ -493,6 +555,10 @@ cumplen **todas** estas condiciones:
 
 Si el router está en **Corte Manual**, el sistema **no corta**: sólo deja la lista de
 pendientes para que alguien decida.
+
+> **Los abonos parciales sacan al cliente de la cuenta de facturas vencidas.** Al abonar,
+> esa factura queda pagada y el faltante viaja a la próxima (ver 8.2.1), así que deja de
+> contar para el corte hasta que la factura nueva se venza sin pagar.
 
 ### 9.2 Qué le pasa al cliente cortado
 
