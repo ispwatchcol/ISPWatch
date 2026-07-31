@@ -59,6 +59,18 @@ class RouterEndpointResolver
             'stored_ip' => $storedIp,
         ];
 
+        // WireGuard no tiene pool ni deriva: la dirección del overlay se asigna
+        // una vez (allowed-address del peer) y es fija por definición. Consultar
+        // /ppp active para estos routers no solo es inútil, es engañoso — no
+        // aparecen ahí, y el "no encontrado" se confundiría con un túnel caído.
+        if ($router->usesWireguard()) {
+            $wgIp = trim((string) ($router->wg_address ?: $storedIp));
+            $endpoint['ip']     = $wgIp;
+            $endpoint['source'] = 'wireguard';
+
+            return $this->cache[$key] = $endpoint;
+        }
+
         $liveIp = $this->liveOverlayIp($router);
 
         if ($liveIp !== null && $liveIp !== '') {

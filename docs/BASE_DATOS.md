@@ -206,7 +206,9 @@ erDiagram
     router {
         bigint id PK
         varchar name
-        varchar ip "overlay L2TP, puede derivar"
+        varchar ip "overlay; fija en WireGuard, deriva en L2TP"
+        varchar vpn_transport "wireguard | l2tp"
+        varchar wg_address
         integer puerto_ssh
         boolean simple_queue
         boolean control_pcq
@@ -447,7 +449,12 @@ Contiene **todos** los actores: clientes, técnicos, staff y administradores. El
 | `ipv6` | varchar(255) | | | |
 | `puerto_api` | integer | NN | `8728` | Puerto API |
 | `puerto_www` | integer | NN | `80` | Puerto web |
-| `puerto_ssh` | integer | | | Puerto SSH (`NULL` ⇒ 22) |
+| `puerto_ssh` | integer | | | Puerto SSH (`NULL` ⇒ 22). ⚠️ El script de provisión ejecuta `/ip service set ssh port=22`, así que pisa cualquier otro valor |
+| `vpn_transport` | varchar(16) | NN | `'l2tp'` | Transporte del túnel: `wireguard` (RouterOS ≥ 7.1) o `l2tp`. Permanente, no una migración en curso: v6 no soporta WireGuard |
+| `wg_private_key` | text | | | Clave privada X25519 del router, **cifrada** por cast |
+| `wg_public_key` | varchar(64) | | | Clave pública X25519. **Sin cifrar** a propósito: se compara contra los peers del CORE |
+| `wg_address` | varchar(45) | | | IP del router en el overlay WireGuard (`172.18.<tenant>.<n>`). Fija por diseño |
+| `wg_listen_port` | integer | | | Puerto local WireGuard del cliente. Se busca libre al provisionar (13231 suele estar ocupado por Back To Home) |
 | `user_rb` / `password_rb` | varchar(255) | | | Credenciales de gestión (**texto plano**) |
 | `user_rb_encrypted` / `password_rb_encrypted` | text | | | ⚠️ Contienen **texto plano** pese al nombre — ver §8 |
 | `vpn_username` / `vpn_password` | varchar(255) | | | Credenciales L2TP |
