@@ -8,6 +8,7 @@
     "require": {
         "php": "^8.2",
         "barryvdh/laravel-dompdf": "^3.1",
+        "cerdic/css-tidy": "^2.2",
         "doctrine/dbal": "^4.4",
         "ezyang/htmlpurifier": "^4.17",
         "guzzlehttp/guzzle": "^7.9",
@@ -22,7 +23,6 @@
         "phpseclib/phpseclib": "^3.0"
     },
     "require-dev": {
-        "cerdic/css-tidy": "^2.2",
         "fakerphp/faker": "^1.23",
         "laravel/breeze": "^2.3",
         "laravel/pail": "^1.2.2",

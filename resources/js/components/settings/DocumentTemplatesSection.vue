@@ -160,12 +160,41 @@
             </div>
           </div>
 
+          <!-- Modo avanzado: HTML/CSS completo, sin shell fijo. V1 mínima
+               a propósito (textarea, sin editor visual) — se mejora después
+               si hace falta; lo que no se negocia es la sanitización server-
+               side (AdvancedTemplateSanitizer), no el pulido del editor. -->
+          <div class="flex items-center gap-2">
+            <input
+              id="advanced-mode-toggle"
+              type="checkbox"
+              v-model="current.is_advanced_mode"
+              class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+            />
+            <label for="advanced-mode-toggle" class="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+              Modo avanzado (HTML/CSS completo, sin plantilla base fija)
+            </label>
+          </div>
+          <div v-if="current.is_advanced_mode" class="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded-lg p-3">
+            Editas el documento completo (&lt;html&gt;&lt;style&gt;&lt;body&gt;). Se sigue saneando en el servidor
+            (sin &lt;script&gt;, sin atributos on-*, sin url()/@import en CSS) — no todo lo que escribas va a sobrevivir.
+            Usa "Vista previa" para confirmar antes de guardar.
+          </div>
+
           <!-- Editor -->
           <div class="flex-1 flex flex-col min-h-[280px]">
             <label class="label">
               {{ activeType === 'contract' ? 'Condiciones adicionales' : 'Contenido' }}
             </label>
+            <textarea
+              v-if="current.is_advanced_mode"
+              v-model="draftHtml"
+              spellcheck="false"
+              class="flex-1 min-h-[280px] font-mono text-xs bg-white dark:bg-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-b-xl p-3 resize-y"
+              placeholder="<html><head><style>...</style></head><body>...</body></html>"
+            ></textarea>
             <QuillEditor
+              v-else
               ref="quillRef"
               v-model:content="draftHtml"
               contentType="html"
@@ -259,7 +288,13 @@ const previewing = ref(false)
 const showResetModal = ref(false)
 
 const draftHtml = ref('')
-const current = reactive({ is_active: false, has_draft: false, placeholders: {}, block_placeholders: {} })
+const current = reactive({
+  is_active: false,
+  is_advanced_mode: false,
+  has_draft: false,
+  placeholders: {},
+  block_placeholders: {},
+})
 
 // ── Branding ──
 const logoUrl = ref(null)
@@ -279,6 +314,7 @@ async function loadType(type) {
   try {
     const { data } = await documentTemplatesApi.show(type)
     current.is_active = data.is_active
+    current.is_advanced_mode = data.is_advanced_mode || false
     current.has_draft = data.has_draft
     current.placeholders = data.placeholders || {}
     current.block_placeholders = data.block_placeholders || {}
@@ -350,8 +386,9 @@ function insertBlockPlaceholder(token) {
 async function save() {
   saving.value = true
   try {
-    const { data } = await documentTemplatesApi.update(activeType.value, draftHtml.value)
+    const { data } = await documentTemplatesApi.update(activeType.value, draftHtml.value, current.is_advanced_mode)
     current.is_active = data.data.is_active
+    current.is_advanced_mode = data.data.is_advanced_mode
     current.has_draft = data.data.has_draft
     toast.value?.success('Plantilla guardada', 'Se guardó y activó correctamente.')
   } catch (e) {
@@ -404,7 +441,7 @@ function warnOnOrphanedBlocks(response) {
 async function preview() {
   previewing.value = true
   try {
-    const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value)
+    const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value, current.is_advanced_mode)
     warnOnOrphanedBlocks(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')

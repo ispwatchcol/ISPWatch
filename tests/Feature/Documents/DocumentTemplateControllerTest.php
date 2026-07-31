@@ -100,6 +100,52 @@ class DocumentTemplateControllerTest extends TestCase
         ]);
     }
 
+    /**
+     * Modo avanzado (auditoría 2026-08-01): usa AdvancedTemplateSanitizer,
+     * no TemplateSanitizer — por eso <div>/<style> sobreviven (el sanitizer
+     * de modo seguro los habría quitado), pero <script> sigue bloqueado
+     * igual que en modo seguro. is_advanced_mode queda persistido en true.
+     */
+    public function test_update_in_advanced_mode_uses_the_advanced_sanitizer_and_persists_the_flag(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->putJson('/api/document-templates/invoice', [
+            'body_html'        => '<html><head><style>.card{color:#1e5fa8;border-radius:8px;}</style></head>'
+                . '<body><div class="card">Gracias {{cliente.nombre}}</div><script>alert(1)</script></body></html>',
+            'is_advanced_mode' => true,
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.is_active', true)
+            ->assertJsonPath('data.is_advanced_mode', true);
+
+        $body = $response->json('data.body_html');
+        $this->assertStringContainsString('<div class="card">Gracias {{cliente.nombre}}</div>', $body);
+        $this->assertStringContainsString('border-radius:8px', $body);
+        $this->assertStringNotContainsString('<script', $body);
+
+        $this->assertDatabaseHas('document_templates', [
+            'tenant_id'        => $this->tenant->id,
+            'type'             => 'invoice',
+            'is_advanced_mode' => true,
+        ]);
+    }
+
+    public function test_preview_in_advanced_mode_renders_a_real_pdf_without_the_fixed_shell(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->postJson('/api/document-templates/invoice/preview', [
+            'body_html'        => '<html><body><h1>Vista previa avanzada {{cliente.nombre}}</h1></body></html>',
+            'is_advanced_mode' => true,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertDatabaseCount('document_templates', 0);
+    }
+
     public function test_update_upserts_an_existing_draft_instead_of_duplicating_it(): void
     {
         Sanctum::actingAs($this->admin);

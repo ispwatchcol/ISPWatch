@@ -19,49 +19,47 @@ use Barryvdh\DomPDF\Facade\Pdf;
  *
  * Business rule for which template is used, per tenant + type:
  *   - no row in document_templates                => legacy/base blade.
- *   - row with is_active = true                    => tenant's custom body,
- *                                                       placeholders resolved
- *                                                       and sanitized.
+ *   - row with is_active = true, is_advanced_mode = false
+ *                                                   => shell fijo + placeholders
+ *                                                      (compile(), sin cambios).
+ *   - row with is_active = true, is_advanced_mode = true
+ *                                                   => documento HTML completo
+ *                                                      del tenant, saneado por
+ *                                                      AdvancedTemplateSanitizer,
+ *                                                      Pdf::loadHTML() directo,
+ *                                                      SIN el shell fijo
+ *                                                      (compileAdvanced()).
  *   - row with is_active = false                   => legacy/base blade,
  *                                                       the draft in body_html
  *                                                       is left untouched so
  *                                                       it can be reactivated.
  *
- * The legacy blades (billing.invoice_pdf, documents.contract_pdf,
- * documents.installation_sheet_pdf) are kept as the fallback as a
- * transitional, zero-regression strategy for Fase 1 — not as the permanent
- * design. A future iteration should fold the "base" template into this same
- * pipeline (e.g. a system-seeded row) so there is a single render path.
+ * compile() pipeline (modo seguro, shell fijo):
+ *   A. sanitize the tenant's RAW stored body_html first (TemplateSanitizer,
+ *      allowlist acotado) — un token de bloque como {{factura.tabla_items}}
+ *      es solo texto inerte para HTMLPurifier en este punto.
+ *   B. substitute scalar placeholders, HTML-escaped.
+ *   C. block placeholders vía BlockMarkerInjector — marcador opaco + splice
+ *      por DOM, nunca un reemplazo de string crudo de HTML de confianza.
  *
- * compile() pipeline (Fase 1 de "placeholders de bloque", 2026-07-31):
- *   A. sanitize the tenant's RAW stored body_html first — a block token like
- *      {{factura.tabla_items}} is just inert text to HTMLPurifier at this
- *      point, same as any other word, never a privileged injection point.
- *   B. substitute scalar placeholders, HTML-escaped — safe in both content
- *      and attribute position, so no DOM-awareness is needed for scalars.
- *      No second full-document sanitize pass runs after this: escaping at
- *      substitution time gives the same guarantee more precisely, and a
- *      second sanitize pass would corrupt the trusted block HTML from step C
- *      (e.g. <img> for photos/signatures, which the tenant-facing allowlist
- *      forbids on purpose).
- *   C. block placeholders (factura.tabla_items, instalacion.fotos,
- *      instalacion.firma_cliente, instalacion.firma_tecnico) are substituted
- *      via App\Services\Templates\BlockMarkerInjector — opaque per-token
- *      marker + DOM-based splice, never a raw string-replace of trusted HTML.
- *      Skipped entirely (cheap no-op) when the tenant's template uses none.
+ * compileAdvanced() pipeline (modo avanzado, sin shell — auditoría 2026-08-01):
+ *   A. AdvancedTemplateSanitizer::sanitizeParts() separa y sanea el bloque
+ *      <style> (Filter.ExtractStyleBlocks + CSSTidy, sin url()/@import/
+ *      expression()/behavior) y el body (allowlist amplio: div, table, img,
+ *      h1-h6, etc.) del documento COMPLETO que guardó el tenant.
+ *   B/C. Exactamente el mismo BlockMarkerInjector + PlaceholderResolver que
+ *      el modo seguro, aplicados solo sobre el body ya saneado (nunca sobre
+ *      el <style>, que no tiene placeholders) — mismo pipeline de
+ *      cliente/empresa/servicio, factura.tabla_items, instalacion.fotos y
+ *      firmas ya existente, sin duplicar lógica de resolución.
+ *   Reensambla <html><head><style>...</style></head><body>...</body></html>
+ *   y lo pasa a Pdf::loadHTML() directo — nunca a un shell Blade.
  */
 class TemplateRenderer
 {
     /**
-     * Block tokens that never made it into the document body on the most
-     * recent compile() call (attribute position, or otherwise unreachable —
-     * see BlockMarkerInjector). Read by DocumentTemplateController::preview()
-     * right after a preview*() call to surface an explicit warning instead of
-     * silently rendering the document without that content. Not meaningful
-     * for the production render*() paths (nobody reads it there) — kept as
-     * a getter rather than a return-value change so BillingController,
-     * CustomerDocumentController and CustomerInstallationController don't
-     * need to change at all.
+     * Block tokens que no se pudieron insertar en el último compile()/
+     * compileAdvanced(). Ver documentación completa en lastRenderWarnings().
      *
      * @var string[]
      */
@@ -70,6 +68,7 @@ class TemplateRenderer
     public function __construct(
         private readonly PlaceholderResolver $resolver,
         private readonly TemplateSanitizer $sanitizer,
+        private readonly AdvancedTemplateSanitizer $advancedSanitizer,
         private readonly BlockPlaceholderResolver $blockResolver,
         private readonly BlockMarkerInjector $blockInjector,
     ) {
@@ -87,6 +86,16 @@ class TemplateRenderer
 
         if (!$template) {
             return Pdf::loadView('billing.invoice_pdf', ['invoice' => $invoice]);
+        }
+
+        if ($template->is_advanced_mode) {
+            return Pdf::loadHTML($this->compileAdvanced(
+                $template->body_html,
+                $this->resolver->forInvoice($invoice),
+                $this->blockResolver->forInvoice($invoice),
+                (int) $invoice->tenant_id,
+                DocumentTemplate::TYPE_INVOICE
+            ));
         }
 
         $body = $this->compile(
@@ -127,16 +136,21 @@ class TemplateRenderer
             return Pdf::loadView('documents.contract_pdf', $legacyData);
         }
 
-        // No block placeholders for contract in this scope: the signature
-        // image is rendered by the shell itself, outside body_html, and the
-        // additional-clauses text has no repeating/image content to justify one.
-        $body = $this->compile(
-            $template->body_html,
-            $this->resolver->forContract($customer, $profile, $tenant, $plan, $date),
-            [],
-            (int) $tenant->id,
-            DocumentTemplate::TYPE_CONTRACT
-        );
+        $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date);
+
+        if ($template->is_advanced_mode) {
+            return Pdf::loadHTML($this->compileAdvanced(
+                $template->body_html,
+                $scalarValues,
+                [],
+                (int) $tenant->id,
+                DocumentTemplate::TYPE_CONTRACT
+            ));
+        }
+
+        // No block placeholders para contrato en modo seguro: la firma la
+        // sigue renderizando el shell fijo, fuera de body_html.
+        $body = $this->compile($template->body_html, $scalarValues, [], (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         return Pdf::loadView('documents.shells.contract_shell', $legacyData + ['body' => $body]);
     }
@@ -178,33 +192,41 @@ class TemplateRenderer
             return Pdf::loadView('documents.installation_sheet_pdf', $legacyData);
         }
 
-        $body = $this->compile(
-            $template->body_html,
-            $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan),
-            $this->blockResolver->forInstallation($installation, $photos, $customerSignature, $technicianSignature),
-            (int) $tenant->id,
-            DocumentTemplate::TYPE_INSTALLATION
-        );
+        $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
+        $blockValues = $this->blockResolver->forInstallation($installation, $photos, $customerSignature, $technicianSignature);
+
+        if ($template->is_advanced_mode) {
+            return Pdf::loadHTML($this->compileAdvanced(
+                $template->body_html,
+                $scalarValues,
+                $blockValues,
+                (int) $tenant->id,
+                DocumentTemplate::TYPE_INSTALLATION
+            ));
+        }
+
+        $body = $this->compile($template->body_html, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION);
 
         return Pdf::loadView('documents.shells.installation_shell', $legacyData + ['body' => $body]);
     }
 
     /**
      * Renders an UNSAVED draft body against the given invoice — always
-     * through the custom shell, never the legacy view, regardless of
-     * whether the tenant has an active/inactive/no template row. Used by
-     * DocumentTemplateController::preview() so a tenant can see their edits
-     * before saving.
+     * through the custom shell (modo seguro) o Pdf::loadHTML directo (modo
+     * avanzado), nunca la vista legacy. $isAdvancedMode refleja el modo que
+     * el tenant tiene seleccionado AHORA en el editor (puede no coincidir
+     * con lo persistido si todavía no guardó el cambio de modo).
      */
-    public function previewInvoice(Invoice $invoice, string $draftHtml)
+    public function previewInvoice(Invoice $invoice, string $draftHtml, bool $isAdvancedMode = false)
     {
-        $body = $this->compile(
-            $draftHtml,
-            $this->resolver->forInvoice($invoice),
-            $this->blockResolver->forInvoice($invoice),
-            (int) $invoice->tenant_id,
-            DocumentTemplate::TYPE_INVOICE
-        );
+        $scalarValues = $this->resolver->forInvoice($invoice);
+        $blockValues = $this->blockResolver->forInvoice($invoice);
+
+        if ($isAdvancedMode) {
+            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $invoice->tenant_id, DocumentTemplate::TYPE_INVOICE));
+        }
+
+        $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $invoice->tenant_id, DocumentTemplate::TYPE_INVOICE);
 
         return Pdf::loadView('documents.shells.invoice_shell', [
             'invoice' => $invoice,
@@ -220,15 +242,16 @@ class TemplateRenderer
         ?Plan $plan,
         string $signature,
         string $date,
-        string $draftHtml
+        string $draftHtml,
+        bool $isAdvancedMode = false
     ) {
-        $body = $this->compile(
-            $draftHtml,
-            $this->resolver->forContract($customer, $profile, $tenant, $plan, $date),
-            [],
-            (int) $tenant->id,
-            DocumentTemplate::TYPE_CONTRACT
-        );
+        $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date);
+
+        if ($isAdvancedMode) {
+            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, [], (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT));
+        }
+
+        $body = $this->compile($draftHtml, $scalarValues, [], (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         return Pdf::loadView('documents.shells.contract_shell', [
             'customer'  => $customer,
@@ -255,15 +278,17 @@ class TemplateRenderer
         string $customerSignature,
         ?string $technicianSignature,
         string $date,
-        string $draftHtml
+        string $draftHtml,
+        bool $isAdvancedMode = false
     ) {
-        $body = $this->compile(
-            $draftHtml,
-            $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan),
-            $this->blockResolver->forInstallation($installation, $photos, $customerSignature, $technicianSignature),
-            (int) $tenant->id,
-            DocumentTemplate::TYPE_INSTALLATION
-        );
+        $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
+        $blockValues = $this->blockResolver->forInstallation($installation, $photos, $customerSignature, $technicianSignature);
+
+        if ($isAdvancedMode) {
+            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION));
+        }
+
+        $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION);
 
         return Pdf::loadView('documents.shells.installation_shell', [
             'installation'         => $installation,
@@ -292,6 +317,9 @@ class TemplateRenderer
     }
 
     /**
+     * Modo seguro: sanitiza con el allowlist acotado (TemplateSanitizer) y
+     * embebe el resultado dentro del shell fijo.
+     *
      * @param array<string,string> $scalarValues  {{namespace.campo}} => texto plano
      * @param array<string,string> $blockValues   {{namespace.campo}} => fragmento HTML de confianza
      */
@@ -299,16 +327,31 @@ class TemplateRenderer
     {
         $sanitized = $this->sanitizer->sanitize($html);
 
-        // Block tokens MUST become opaque markers before scalar substitution
-        // runs — PlaceholderResolver::apply() blanks any {{...}} it doesn't
-        // recognize as a scalar value, which would otherwise wipe out block
-        // tokens before BlockMarkerInjector ever saw them.
         [$marked, $markers] = $this->blockInjector->markify($sanitized, $blockValues);
-
         $withScalars = $this->resolver->apply($marked, $scalarValues);
-
         [$result, $this->lastWarnings] = $this->blockInjector->splice($withScalars, $markers, $tenantId, $documentType);
 
         return $result;
+    }
+
+    /**
+     * Modo avanzado: sanitiza con el allowlist amplio (AdvancedTemplateSanitizer,
+     * documento completo) y devuelve un documento HTML completo — nunca pasa
+     * por un shell Blade, se entrega directo a Pdf::loadHTML().
+     */
+    private function compileAdvanced(string $html, array $scalarValues, array $blockValues, ?int $tenantId, string $documentType): string
+    {
+        ['body' => $body, 'style' => $style] = $this->advancedSanitizer->sanitizeParts($html);
+
+        // Los placeholders solo tienen sentido dentro del body (nombres,
+        // montos, tablas, fotos) — el <style> ya salió limpio de
+        // Filter.ExtractStyleBlocks y no se vuelve a tocar.
+        [$marked, $markers] = $this->blockInjector->markify($body, $blockValues);
+        $withScalars = $this->resolver->apply($marked, $scalarValues);
+        [$finalBody, $this->lastWarnings] = $this->blockInjector->splice($withScalars, $markers, $tenantId, $documentType);
+
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+            . ($style !== '' ? '<style>' . $style . '</style>' : '')
+            . '</head><body>' . $finalBody . '</body></html>';
     }
 }

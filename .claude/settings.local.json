@@ -94,7 +94,15 @@
       "Bash(php -l app/Http/Controllers/DocumentTemplateController.php)",
       "Bash(php -l tests/Feature/Documents/DocumentTemplateControllerTest.php)",
       "Bash(npm run *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(composer remove *)",
+      "Bash(php \"C:\\\\Users\\\\grupo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--isp-ispwatch\\\\48899523-e84a-46be-a05f-afe75f6b23e9\\\\scratchpad\\\\probe_advanced_sanitizer.php\")",
+      "Bash(php -l app/Services/Templates/AdvancedTemplateSanitizer.php)",
+      "Bash(php -l tests/Unit/Services/AdvancedTemplateSanitizerTest.php)",
+      "Bash(php -l database/migrations/2026_08_01_120000_add_is_advanced_mode_to_document_templates_table.php)",
+      "Bash(php -l app/Models/DocumentTemplate.php)",
+      "Bash(php -l tests/Feature/TemplateRendererAdvancedModeTest.php)",
+      "Bash(php -l app/Http/Requests/UpdateDocumentTemplateRequest.php)"
     ]
   }
 }
