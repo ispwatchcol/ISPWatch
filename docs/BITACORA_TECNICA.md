@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-07-30 (post-remediación) · Rama: `feat/first-invoice-free-months`
+**Última actualización:** 2026-07-31 (arrastre de abonos parciales + catálogo de tipos de factura) · Rama: `feat/wireguard-dual-transport`
 
 ---
 
@@ -52,7 +52,7 @@ pago registrado dispara la reconexión real**, con bitácora y reintentos autom�
 |---|---|
 | **Clientes** | Alta individual o masiva por Excel, mapa georreferenciado, documentos en S3, contrato firmado, exclusión de facturación por cliente |
 | **Comercial** | Prospectos, agenda de instalaciones, acta de instalación firmada, cobro de instalación |
-| **Facturación** | Generación mensual por router, prorrateo y meses de cortesía, numeración segura por tenant, PDF, recordatorios email/WhatsApp, pagos con asignación automática y saldo a favor |
+| **Facturación** | Generación mensual por router, prorrateo y meses de cortesía, numeración segura por tenant, tipos de factura administrables, PDF, recordatorios email/WhatsApp, pagos con asignación automática, saldo a favor y arrastre de abonos parciales |
 | **Cobranza** | Corte automático por mora con día y hora configurables, reconexión automática al pagar, reconciliación DB ⇄ router |
 | **Red** | Aprovisionamiento por método de control (Queue/PCQ/HotSpot/PPPoE/DHCP), reglas de bloqueo, scripts VPN L2TP/IPSec, lectura de interfaces, historial de tráfico WAN |
 | **Planta externa** | Árbol FTTH (OLT → splitter → NAP → mufa), puertos calculados, topología visual |
@@ -208,6 +208,7 @@ ISPWatch/
 | `RouterOutageController.php` | — | Falla masiva |
 | `CatalogController.php` | — | Catálogos globales |
 | `PaymentMethodController.php` | — | Formas de pago |
+| `InvoiceTypeController.php` | — | Catálogo de tipos de factura (sistema + propios del tenant) |
 | `SettingsController.php` | — | Limpieza de cache |
 | `VerificationController.php` | — | Verificación de correo |
 
@@ -215,7 +216,7 @@ ISPWatch/
 
 | Archivo | Líneas | Responsabilidad |
 |---|---:|---|
-| `BillingService.php` | 1432 | Núcleo financiero: generación, numeración, primera factura, pagos, asignación, saldo a favor, anulación con lápida, reconexión al pagar, notificaciones |
+| `BillingService.php` | ~1560 | Núcleo financiero: generación, numeración, primera factura, pagos, asignación, saldo a favor, **arrastre de abonos parciales**, anulación con lápida, reconexión al pagar, notificaciones |
 | `VpnService.php` | 945 | Generación y verificación de scripts L2TP/IPSec |
 | `RouterApiService.php` | 912 | Protocolo API nativo MikroTik |
 | `MikroTikSshService.php` | 603 | SSH directo o vía CORE |
@@ -324,7 +325,7 @@ ISPWatch/
 | Clientes | `Customers`, `CustomerAdd`, `CustomerEdit`, `CustomerStatistics`, `CustomerMap` |
 | Red | `Routers`, `RouterAdd`, `RouterEdit`, `Sectorial`, `SectorialAdd`, `SectorialEdit`, `SectorialDetail`, `FiberTopology` |
 | Planes | `PlanList`, `PlanCreate`, `PlanEdit` |
-| Facturación | `Billing/BillingDashboard`, `InvoicesList`, `InvoiceDetail`, `InvoiceEdit`, `PaymentsList`, `RegisterPayment`, `PaymentMethods`, `AdditionalCharges` |
+| Facturación | `Billing/BillingDashboard`, `InvoicesList`, `InvoiceDetail`, `InvoiceEdit`, `PaymentsList`, `RegisterPayment`, `PaymentMethods`, `InvoiceTypes`, `AdditionalCharges` |
 | Gastos | `Expenses`, `ExpenseCategories` |
 | Soporte | `Support`, `SupportCreate`, `SupportDetail`, `SupportEdit`, `SupportStatistics`, `Installations`, `InstallationDetail` |
 | Inventario | `Inventory`, `InventoryForm`, `StockList`, `ProviderList`, `BranchList` |
@@ -625,6 +626,10 @@ incidentes reales.
 | 18 | `email_verified_at` **no está en `$fillable`**: `User::create()` lo descarta en silencio y el usuario nace sin verificar (login 403) | `User::$fillable` |
 | 19 | En el grupo `api`, `SubstituteBindings` corre **antes** que el middleware de la ruta: un id inexistente da 404 antes de comprobar el permiso | `RouterController::destroy(Router $router)` |
 | 20 | El modo de corte se compara con `CutType::matches()`, que normaliza tildes y mayúsculas: `'Corte Automatico'` sin tilde dejaba de cortar sin error | `CutType`, `OverdueSuspensionService` |
+| 21 | Un **abono parcial cierra la factura** (`paid`, saldo 0) y el faltante viaja a la siguiente en `invoice_carryovers`. Efecto buscado: el cliente sale de mora y **se reconecta** aunque no haya pagado todo | `BillingService::carryOverShortfall` |
+| 22 | Sólo la generación **mensual** absorbe arrastres; los cargos adicionales, las facturas manuales y los meses de cortesía **no** | `BillingService::applyPendingCarryoversTo` |
+| 23 | Un arrastre ya `applied` **no se revierte** al anular el pago original: la deuda se queda en la factura que la cobró para no duplicarla | `revertPendingCarryoversOfPayment`, `markInvoiceUnpaid` |
+| 24 | `invoices.invoice_type` guarda el **slug en texto**, no una FK a `invoice_types`: los tipos del sistema son globales (`tenant_id` NULL) y hay facturas anteriores al catálogo | `InvoiceType`, `Invoice::type()` |
 
 ---
 
@@ -716,16 +721,22 @@ stateDiagram-v2
     [*] --> draft: creación manual
     [*] --> issued: generación mensual
     draft --> issued
-    issued --> partial: pago parcial
     issued --> paid: pago total
-    partial --> paid: se completa
+    issued --> paid: abono parcial (carried_out > 0)
     issued --> overdue: vence sin pago
-    overdue --> paid: pago
+    overdue --> paid: pago total o abono parcial
     paid --> issued: mark-unpaid (revierte pagos)
+    paid --> partial: mark-unpaid con arrastre ya cobrado en otra factura
+    partial --> paid: se completa
     issued --> void: anulación
     issued --> [*]: DELETE → lápida suppressed
     paid --> [*]
 ```
+
+> **`partial` ya casi no se ve.** Desde el arrastre de saldo, un abono que no cubre la
+> factura la deja en `paid` con `carried_out > 0`. El estado `partial` sólo aparece al
+> revertir un pago cuyo arrastre **ya** lo cobró otra factura: entonces la original
+> vuelve a deber sólo la parte que el abono había cubierto.
 
 ---
 
@@ -737,7 +748,8 @@ stateDiagram-v2
 | Mapa | `CustomerMap` | `/api/customers/map`, `/api/tenant/maps-config` | `CustomerProfileController`, `TenantController` | — | `customer_profile`, `tenant` |
 | Prospectos | `Installations` | `/api/prospects*` | `ProspectController` | — | `prospects` |
 | Instalaciones | `InstallationDetail` | `/api/installations*` | `CustomerInstallationController` | `InstallationBillingService` | `customer_installations`, `customer_documents`, `invoices` |
-| Facturación | `Billing/*` | `/api/billing/*` | `BillingController` | `BillingService`, `FirstInvoicePolicy` | `billing`, `invoices`, `invoice_items`, `payments`, `payment_allocations` |
+| Facturación | `Billing/*` | `/api/billing/*` | `BillingController` | `BillingService`, `FirstInvoicePolicy` | `billing`, `invoices`, `invoice_items`, `invoice_carryovers`, `payments`, `payment_allocations` |
+| Tipos de factura | `Billing/InvoiceTypes` | `/api/billing/invoice-types*` | `InvoiceTypeController` | — | `invoice_types` |
 | Cobranza | `MassActions` | `/api/billing/suspension-logs*` | `SuspensionActionLogController` | `OverdueSuspensionService`, `RouterProvisioningService` | `suspension_action_logs`, `cut_type` |
 | Failover facturación | `MassActions` | `/api/billing/action-logs*` | `BillingActionLogController` | `BillingService` | `billing_action_logs` |
 | Routers | `Routers`, `RouterAdd/Edit` | `/api/routers*` | `RouterController` | `VpnService`, `RouterApiService`, managers MikroTik | `router` |

@@ -25,6 +25,9 @@ const form = ref({
 const customerBalance  = ref(0)
 const creditBalance    = ref(0)
 const netBalance       = ref(0)
+// Abonos parciales anteriores que ya cerraron su factura y se cobrarán en la
+// próxima: no se deben hoy, pero el cajero tiene que saber que existen.
+const carryoverBalance = ref(0)
 const showPaymentModal = ref(false)
 const showCreditModal  = ref(false)
 const creditSubmitting = ref(false)
@@ -47,12 +50,20 @@ const paymentTypeMeta = computed(() => ({
     excess:  { label: 'Pago en exceso', classes: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-700',         icon: '⬆' },
 }[paymentType.value] ?? null))
 
+const modalTitle = computed(() =>
+    paymentType.value === 'partial' ? 'Pago parcial' : 'Pago en exceso'
+)
+
 const modalMessage = computed(() => {
     const amt     = Number(form.value.amount).toLocaleString('es-CO')
     const bal     = Number(netBalance.value).toLocaleString('es-CO')
-    const surplus = Number(form.value.amount - netBalance.value).toLocaleString('es-CO')
+    const diff    = Number(Math.abs(form.value.amount - netBalance.value)).toLocaleString('es-CO')
     if (paymentType.value === 'excess') {
-        return `El monto ingresado ($${amt}) supera el saldo pendiente ($${bal}). El excedente de $${surplus} quedará registrado como saldo a favor del cliente y se aplicará automáticamente a la próxima factura.`
+        return `El monto ingresado ($${amt}) supera el saldo pendiente ($${bal}). El excedente de $${diff} quedará registrado como saldo a favor del cliente y se aplicará automáticamente a la próxima factura.`
+    }
+    if (paymentType.value === 'partial') {
+        return `El abono ($${amt}) no cubre el saldo pendiente ($${bal}). La factura quedará marcada como PAGADA y los $${diff} restantes pasarán como saldo pendiente a la próxima factura del cliente. `
+            + 'Ojo: al quedar sin saldo vencido, el cliente sale de mora y, si estaba cortado, se reconecta.'
     }
     return ''
 })
@@ -87,11 +98,13 @@ const getBalance = async () => {
     customerBalance.value = 0
     creditBalance.value   = 0
     netBalance.value      = 0
+    carryoverBalance.value = 0
     try {
         const res = await billingService.getBalance(form.value.customer_id)
-        customerBalance.value = res.data.balance        ?? 0
-        creditBalance.value   = res.data.credit_balance ?? 0
-        netBalance.value      = res.data.net_balance    ?? res.data.balance ?? 0
+        customerBalance.value  = res.data.balance           ?? 0
+        creditBalance.value    = res.data.credit_balance    ?? 0
+        netBalance.value       = res.data.net_balance       ?? res.data.balance ?? 0
+        carryoverBalance.value = res.data.carryover_balance ?? 0
     } catch (e) {
         // ignore
     }
@@ -100,7 +113,9 @@ const getBalance = async () => {
 const submitPayment = () => {
     errorMsg.value = ''
     successInfo.value = null
-    if (paymentType.value === 'excess') {
+    // Un abono parcial cierra la factura y arrastra el faltante: eso cambia el
+    // estado de mora del cliente, así que se confirma igual que el exceso.
+    if (paymentType.value === 'excess' || paymentType.value === 'partial') {
         showPaymentModal.value = true
     } else {
         doRegister()
@@ -291,6 +306,11 @@ onMounted(() => {
                             </svg>
                             Ajustar crédito
                         </button>
+                        <div v-if="carryoverBalance > 0" class="mb-2">
+                            <span class="text-xs font-medium bg-amber-400/30 rounded-lg px-2 py-1 inline-block">
+                                ↷ ${{ Number(carryoverBalance).toLocaleString('es-CO') }} pendiente de abonos anteriores
+                            </span>
+                        </div>
                         <p class="text-sm opacity-70">Saldo neto descontando crédito disponible.</p>
                     </div>
 
@@ -299,6 +319,21 @@ onMounted(() => {
                         <h4 class="font-bold text-slate-900 dark:text-white mb-2">Asignación Automática</h4>
                         <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                             Los pagos se aplicarán automáticamente a las facturas más antiguas (método FIFO) hasta agotar el saldo.
+                        </p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mt-3">
+                            <span class="font-semibold text-slate-700 dark:text-slate-300">Abonos parciales:</span>
+                            la factura queda pagada y el faltante se cobra en la próxima factura del cliente.
+                        </p>
+                    </div>
+
+                    <!-- Saldo arrastrado en detalle -->
+                    <div v-if="carryoverBalance > 0" class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-6 rounded-3xl">
+                        <h4 class="font-bold text-amber-800 dark:text-amber-400 mb-1">Saldo pendiente arrastrado</h4>
+                        <div class="text-2xl font-medium text-amber-700 dark:text-amber-300 mb-1">
+                            ${{ Number(carryoverBalance).toLocaleString('es-CO') }}
+                        </div>
+                        <p class="text-xs text-amber-700/80 dark:text-amber-400/80 leading-relaxed">
+                            Viene de abonos parciales cuyas facturas ya se cerraron. Se sumará automáticamente a la próxima factura mensual.
                         </p>
                     </div>
                 </div>
@@ -345,11 +380,11 @@ onMounted(() => {
         </Transition>
     </Teleport>
 
-    <!-- Overpayment confirmation modal -->
+    <!-- Confirmación de abono parcial / pago en exceso -->
     <ConfirmModal
         :visible="showPaymentModal"
-        variant="info"
-        title="Pago en exceso"
+        :variant="paymentType === 'partial' ? 'warning' : 'info'"
+        :title="modalTitle"
         :message="modalMessage"
         confirm-text="Registrar de todos modos"
         cancel-text="Cancelar"

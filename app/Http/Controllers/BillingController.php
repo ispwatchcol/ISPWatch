@@ -79,7 +79,15 @@ class BillingController extends Controller
     // Show Invoice
     public function show($id)
     {
-        return response()->json(Invoice::with(['customer.customerProfile', 'items', 'payments', 'ticket'])->findOrFail($id));
+        return response()->json(
+            Invoice::with([
+                'customer.customerProfile', 'items', 'payments', 'ticket',
+                // Arrastre: de dónde vino el saldo que cobra esta factura y a
+                // qué factura se fue el que ella dejó pendiente.
+                'carryoversIn.fromInvoice:id,number',
+                'carryoversOut.toInvoice:id,number',
+            ])->findOrFail($id)
+        );
     }
 
     // Manual Create (Draft)
@@ -94,7 +102,12 @@ class BillingController extends Controller
             'period_end'  => 'required|date',
             'total'       => 'nullable|numeric|min:0',
             'notes'       => 'nullable|string',
+            'invoice_type'=> ['nullable', 'string', 'max:50', $this->invoiceTypeRule($request)],
         ]);
+
+        // Sin tipo explícito se mantiene el comportamiento histórico (la columna
+        // nace con default 'monthly'), pero el formulario ya lo manda siempre.
+        $data['invoice_type'] = $data['invoice_type'] ?? Invoice::TYPE_MONTHLY;
 
         $total = $data['total'] ?? 0;
         $data['status']      = 'issued';
@@ -261,6 +274,9 @@ class BillingController extends Controller
             'items.*.type'        => 'nullable|string|max:50',
             'due_date'            => 'nullable|date',
             'notes'               => 'nullable|string',
+            // Cargo de equipos, de TV, de reconexión... el operador elige del
+            // catálogo; 'additional' sigue siendo el valor por defecto.
+            'invoice_type'        => ['nullable', 'string', 'max:50', $this->invoiceTypeRule($request)],
         ]);
 
         $tenantId = $request->user()?->tenant_id;
@@ -269,7 +285,7 @@ class BillingController extends Controller
             $invoice = $this->billingService->generateServiceChargeInvoice([
                 'tenant_id'    => $tenantId,
                 'customer_id'  => $data['customer_id'],
-                'invoice_type' => Invoice::TYPE_ADDITIONAL,
+                'invoice_type' => $data['invoice_type'] ?? Invoice::TYPE_ADDITIONAL,
                 'items'        => $data['items'],
                 'due_date'     => $data['due_date'] ?? null,
                 'notes'        => $data['notes'] ?? null,
@@ -286,6 +302,26 @@ class BillingController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Regla de validación del tipo de factura: tiene que existir en el catálogo
+     * del tenant (tipo del sistema o propio) y estar activo. Se rechaza el slug
+     * de otro tenant, que si no permitiría etiquetar facturas con tipos ajenos.
+     */
+    private function invoiceTypeRule(Request $request): \Closure
+    {
+        $tenantId = $request->user()?->tenant_id;
+
+        return function (string $attribute, $value, \Closure $fail) use ($tenantId) {
+            if ($value === null || $value === '') {
+                return;
+            }
+
+            if (!\App\Models\InvoiceType::isUsableSlug($value, $tenantId ? (int) $tenantId : null)) {
+                $fail('El tipo de factura seleccionado no existe o está inactivo.');
+            }
+        };
     }
 
     // PDF Download
@@ -338,10 +374,17 @@ class BillingController extends Controller
         $creditBalance = $customer ? (float) $customer->credit_balance : 0;
         $netBalance    = max(0, $balance - $creditBalance);
 
+        // Saldo arrastrado: abonos parciales que cerraron su factura y todavía
+        // no los ha cobrado ninguna factura nueva. NO se suma al saldo por
+        // cobrar de hoy (el cliente no lo debe aún), pero el cajero tiene que
+        // verlo: es plata que le va a llegar en la próxima factura.
+        $pendingCarryover = \App\Models\InvoiceCarryover::pendingTotalFor((int) $customerId);
+
         return response()->json([
-            'balance'        => $balance,
-            'credit_balance' => $creditBalance,
-            'net_balance'    => $netBalance,
+            'balance'          => $balance,
+            'credit_balance'   => $creditBalance,
+            'net_balance'      => $netBalance,
+            'carryover_balance'=> $pendingCarryover,
         ]);
     }
 

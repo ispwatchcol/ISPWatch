@@ -8,6 +8,7 @@ use App\Models\Billing;
 use App\Models\BillingActionLog;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
+use App\Models\InvoiceCarryover;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
@@ -624,6 +625,16 @@ class BillingService
             'amount'     => $subtotal,
         ]);
 
+        // Arrastre: lo que quedó debiendo de abonos parciales anteriores se
+        // cobra aquí, como un ítem más de la factura del mes.
+        //
+        // En un mes de cortesía NO: esa factura nace en cero y ya saldada para
+        // quedar fuera de la mora y del corte; meterle deuda la sacaría de esa
+        // condición. El arrastre espera a la siguiente factura cobrable.
+        if (!$free) {
+            $this->applyPendingCarryoversTo($invoice);
+        }
+
         $profile->refresh();
         $this->applyCreditToInvoice($invoice, $profile);
 
@@ -1037,6 +1048,11 @@ class BillingService
      * Allocate payment amount to invoices.
      * Any unallocated remainder is stored as credit_balance on the customer profile.
      *
+     * Un abono que no alcanza a cubrir la factura NO la deja a medias: la cierra
+     * como pagada y manda el faltante al arrastre (ver carryOverShortfall), que
+     * la siguiente factura mensual cobra. Es decisión de operación: el cliente
+     * que abona sale de mora y no se le corta hasta que venza esa factura nueva.
+     *
      * @param Payment $payment
      * @param array|null $allocations Manual allocations: [['invoice_id' => X, 'amount' => Y], ...]
      */
@@ -1065,6 +1081,7 @@ class BillingService
                 $invoice->balance_due -= $amountToApply;
                 $this->updateInvoiceStatus($invoice);
                 $invoice->save();
+                $this->carryOverShortfall($invoice, $payment);
 
                 $remainingAmount -= $amountToApply;
             }
@@ -1091,6 +1108,7 @@ class BillingService
                 $invoice->balance_due -= $amountToApply;
                 $this->updateInvoiceStatus($invoice);
                 $invoice->save();
+                $this->carryOverShortfall($invoice, $payment);
 
                 $remainingAmount -= $amountToApply;
             }
@@ -1105,6 +1123,125 @@ class BillingService
                 Log::info("Billing: Payment {$payment->id} — \${$remainingAmount} stored as credit for customer {$payment->customer_id}.");
             }
         }
+    }
+
+    // ─── Arrastre de saldo por pago parcial ──────────────────────────────────
+
+    /**
+     * Cierra una factura que recibió un abono parcial y manda el faltante al
+     * arrastre: la factura queda PAGADA (sale de la mora y del corte) y el saldo
+     * se cobrará en la siguiente factura mensual del cliente.
+     *
+     * No hace nada si la factura quedó saldada (pago exacto o en exceso).
+     */
+    protected function carryOverShortfall(Invoice $invoice, Payment $payment): void
+    {
+        $shortfall = round((float) $invoice->balance_due, 2);
+
+        if ($shortfall <= 0) {
+            return;
+        }
+
+        InvoiceCarryover::create([
+            'tenant_id'       => $invoice->tenant_id,
+            'customer_id'     => $invoice->customer_id,
+            'from_invoice_id' => $invoice->id,
+            'payment_id'      => $payment->id,
+            'amount'          => $shortfall,
+            'status'          => InvoiceCarryover::STATUS_PENDING,
+        ]);
+
+        $invoice->carried_out = (float) $invoice->carried_out + $shortfall;
+        $invoice->balance_due = 0;
+        $this->updateInvoiceStatus($invoice);
+        $invoice->save();
+
+        Log::info("Billing: abono parcial en factura {$invoice->id} (#{$invoice->number}) — "
+            . "se cierra como pagada y \${$shortfall} pasa como saldo pendiente "
+            . "del cliente {$invoice->customer_id} a la próxima factura.");
+    }
+
+    /**
+     * Cobra en $invoice todo el saldo arrastrado que el cliente tenga pendiente:
+     * lo agrega como un ítem más y marca los movimientos como aplicados.
+     *
+     * Sólo lo hace la facturación mensual: es "la próxima factura" del ciclo. Un
+     * cargo adicional o una factura manual no arrastran deuda ajena encima, que
+     * sorprendería al operador que la está emitiendo a mano.
+     */
+    protected function applyPendingCarryoversTo(Invoice $invoice): void
+    {
+        $pending = InvoiceCarryover::pending()
+            ->where('tenant_id', $invoice->tenant_id)
+            ->where('customer_id', $invoice->customer_id)
+            ->with('fromInvoice:id,number')
+            ->get();
+
+        $total = round((float) $pending->sum('amount'), 2);
+
+        if ($total <= 0) {
+            return;
+        }
+
+        $numbers = $pending->pluck('fromInvoice.number')->filter()->unique()->values();
+        $description = 'Saldo pendiente de facturas anteriores'
+            . ($numbers->isNotEmpty() ? ' (#' . $numbers->implode(', #') . ')' : '');
+
+        InvoiceItem::create([
+            'invoice_id'  => $invoice->id,
+            'type'        => 'carryover',
+            'description' => $description,
+            'quantity'    => 1,
+            'unit_price'  => $total,
+            'amount'      => $total,
+        ]);
+
+        $invoice->subtotal    = (float) $invoice->subtotal + $total;
+        $invoice->total       = (float) $invoice->total + $total;
+        $invoice->balance_due = (float) $invoice->balance_due + $total;
+        $invoice->carried_in  = (float) $invoice->carried_in + $total;
+        $this->updateInvoiceStatus($invoice);
+        $invoice->save();
+
+        InvoiceCarryover::whereIn('id', $pending->pluck('id')->all())->update([
+            'status'        => InvoiceCarryover::STATUS_APPLIED,
+            'to_invoice_id' => $invoice->id,
+            'applied_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+
+        Log::info("Billing: factura {$invoice->id} (#{$invoice->number}) cobra \${$total} "
+            . "de saldo arrastrado del cliente {$invoice->customer_id}.");
+    }
+
+    /**
+     * Deshace los arrastres que generó un pago y que TODAVÍA no ha cobrado
+     * ninguna factura: el monto vuelve a la factura original.
+     *
+     * Los que ya viajaron a otra factura (status applied) se quedan donde están:
+     * devolverlos cobraría dos veces el mismo dinero.
+     */
+    protected function revertPendingCarryoversOfPayment(Payment $payment): void
+    {
+        InvoiceCarryover::pending()
+            ->where('payment_id', $payment->id)
+            ->get()
+            ->each(fn (InvoiceCarryover $row) => $this->revertCarryover($row));
+    }
+
+    /** Devuelve un arrastre pendiente a su factura de origen y borra el movimiento. */
+    protected function revertCarryover(InvoiceCarryover $row): void
+    {
+        $invoice = $row->from_invoice_id ? Invoice::find($row->from_invoice_id) : null;
+
+        if ($invoice) {
+            $invoice->balance_due = (float) $invoice->balance_due + (float) $row->amount;
+            $invoice->carried_out = max(0, (float) $invoice->carried_out - (float) $row->amount);
+            $this->updateInvoiceStatus($invoice);
+            $invoice->save();
+        }
+
+        $row->delete();
     }
 
     /**
@@ -1153,6 +1290,11 @@ class BillingService
      */
     protected function reversePaymentAllocations(Payment $payment): void
     {
+        // PRIMERO el arrastre: devuelve saldo a las mismas facturas que se
+        // recargan abajo. Hacerlo después trabajaría sobre copias en memoria
+        // distintas de la misma factura y el último save() pisaría al otro.
+        $this->revertPendingCarryoversOfPayment($payment);
+
         $allocations = $payment->allocations()->with('invoice')->get();
 
         foreach ($allocations as $allocation) {
@@ -1232,6 +1374,23 @@ class BillingService
     {
         DB::transaction(function () use ($invoice) {
             $this->suppressRegeneration($invoice);
+
+            // Deuda arrastrada que ESTA factura estaba cobrando: vuelve a quedar
+            // pendiente para la siguiente. Si no, borrar la factura del mes le
+            // perdonaría al cliente un saldo que sí debe.
+            InvoiceCarryover::where('to_invoice_id', $invoice->id)
+                ->where('status', InvoiceCarryover::STATUS_APPLIED)
+                ->update([
+                    'status'        => InvoiceCarryover::STATUS_PENDING,
+                    'to_invoice_id' => null,
+                    'applied_at'    => null,
+                    'updated_at'    => now(),
+                ]);
+
+            // Arrastres que ESTA factura generó y que nadie ha cobrado todavía:
+            // mueren con ella (el abono que los originó se devuelve como crédito
+            // unas líneas más abajo).
+            InvoiceCarryover::pending()->where('from_invoice_id', $invoice->id)->delete();
 
             $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
 
@@ -1323,6 +1482,16 @@ class BillingService
         return DB::transaction(function () use ($invoice) {
             // Work from the persisted balance, not a possibly-stale in-memory one.
             $invoice->refresh();
+
+            // Saldo que esta factura había trasladado a la próxima y que aún no
+            // ha cobrado nadie: vuelve a deberse aquí. El que ya viajó a otra
+            // factura se queda allá — reclamarlo también aquí sería cobrarlo dos
+            // veces —, así que la factura queda debiendo sólo su parte.
+            foreach (InvoiceCarryover::pending()->where('from_invoice_id', $invoice->id)->get() as $row) {
+                $invoice->balance_due = (float) $invoice->balance_due + (float) $row->amount;
+                $invoice->carried_out = max(0, (float) $invoice->carried_out - (float) $row->amount);
+                $row->delete();
+            }
 
             $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
 

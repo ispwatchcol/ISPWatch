@@ -552,6 +552,9 @@ Cubre el manager con un test unitario que verifique **la cadena de comando gener
 | **No se generan facturas** | `php artisan billing:verify-monthly` | Si reporta `no_show`, el planificador no corre. Ver §7 |
 | **Un router concreto no factura** | Revisa `billing_router_id` y `create_invoice` | Asigna configuración de facturación al router |
 | **Un cliente no recibe factura** | ¿`user_services.status = 'active'`? ¿`exclude_from_billing`? ¿plan de cortesía? ¿lápida `suppressed` en `billing_action_logs`? | Según el caso |
+| **"El cliente abonó y no se le cortó"** | Por diseño: un abono parcial cierra la factura (`paid`, `carried_out > 0`) y saca al cliente de la mora | El faltante se cobra en la próxima factura. Ver `invoice_carryovers` (`status = pending`) |
+| **Una factura salió más cara de lo esperado** | ¿Tiene un ítem `carryover`? `invoices.carried_in > 0` | Es el arrastre de un abono parcial anterior; `invoice_carryovers.from_invoice_id` dice de cuál |
+| **El arrastre no volvió al anular el pago** | Ya estaba `applied`: otra factura lo cobró | Correcto: devolverlo lo cobraría dos veces. Si hay que deshacerlo, borrar la factura que lo cobró lo devuelve a `pending` |
 | **`SQLSTATE 22P02`** | Comparación de booleano con cadena | Corrige la consulta a `where('status', true)` |
 | **Falso `403 No role assigned`** | Desajuste de `tenant_id` entre usuario y rol | Carga el rol con `withoutGlobalScope('tenant')` |
 | **Pestaña ausente para un admin** | Permiso nuevo sin backfill | Migración de backfill, o marcar en `/roles` y re-loguear |

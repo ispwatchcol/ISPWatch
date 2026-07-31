@@ -7,7 +7,7 @@ import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { customerDisplayName } from '@/utils/customerName'
-import { invoiceTypeLabel, invoiceTypeColor } from '@/utils/invoiceType'
+import { invoiceTypeLabel, invoiceTypeColor, activeInvoiceTypes, invoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
 import { usePermissions } from '@/composables/usePermissions'
 
 const router = useRouter()
@@ -28,6 +28,7 @@ const showCreateModal = ref(false)
 const customers = ref([])
 const newInvoice = ref({
     customer_id: '',
+    invoice_type: 'monthly',
     total: 0,
     issue_date: new Date().toISOString().split('T')[0],
     due_date: new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0],
@@ -35,6 +36,11 @@ const newInvoice = ref({
     period_end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
     notes: ''
 })
+
+// Catálogo administrable: el filtro y el selector salen de la BD, no de una
+// lista fija en el código.
+const typeOptions = computed(() => activeInvoiceTypes())
+const allTypeOptions = computed(() => invoiceTypes.value)
 
 const customerLabel = (c) => `${c.name} ${c.last_name}`
 
@@ -191,6 +197,7 @@ onMounted(() => {
     if (stored) user.value = JSON.parse(stored)
     fetchInvoices()
     fetchCustomers()
+    loadInvoiceTypes()
 })
 
 // Al cambiar cualquier filtro, volvemos a la primera página para no quedar
@@ -313,10 +320,8 @@ const sendBulkReminders = async () => {
 
                     <select v-model="filters.invoice_type" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
                         <option value="">Todos los Tipos</option>
-                        <option value="monthly">Plan Mensual</option>
-                        <option value="installation">Instalación</option>
-                        <option value="additional">Servicio Adicional</option>
-                        <option value="service_charge">Cargo de Ticket</option>
+                        <!-- Incluye los inactivos: siguen existiendo facturas viejas con ese tipo. -->
+                        <option v-for="t in allTypeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
                     </select>
 
                     <input v-model="filters.period" type="month"
@@ -424,6 +429,14 @@ const sendBulkReminders = async () => {
                                 <span :class="Number(invoice.balance_due) > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'" class="dark:text-slate-300">
                                     ${{ Number(invoice.balance_due).toLocaleString() }}
                                 </span>
+                                <!-- Arrastre por abono parcial: la factura está pagada, pero
+                                     parte del dinero se cobra en la siguiente. -->
+                                <div v-if="Number(invoice.carried_out) > 0" class="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 whitespace-nowrap">
+                                    ↷ ${{ Number(invoice.carried_out).toLocaleString() }} a la próxima
+                                </div>
+                                <div v-if="Number(invoice.carried_in) > 0" class="text-[11px] text-indigo-500 dark:text-indigo-400 mt-0.5 whitespace-nowrap">
+                                    incluye ${{ Number(invoice.carried_in).toLocaleString() }} de saldo anterior
+                                </div>
                             </td>
                             <td class="px-6 py-4 text-center">
                                 <span :class="getStatusColor(invoice.status)" class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
@@ -501,6 +514,19 @@ const sendBulkReminders = async () => {
                                 search-placeholder="Buscar por nombre..."
                                 :required="true"
                             />
+                        </div>
+
+                        <!-- Tipo de factura -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Tipo de Factura</label>
+                            <select v-model="newInvoice.invoice_type" required
+                                class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white">
+                                <option v-for="t in typeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
+                            </select>
+                            <p class="text-[11px] text-slate-400 mt-1.5 px-2">
+                                ¿Falta un tipo (equipos, TV, reconexión…)?
+                                <button type="button" @click="router.push('/billing/invoice-types')" class="text-indigo-500 hover:underline">Administrar tipos</button>
+                            </p>
                         </div>
 
                         <!-- Valor -->
