@@ -4,7 +4,7 @@
 > sin conocimientos técnicos previos.
 > Si eres desarrollador, busca [`MANUAL_DESARROLLADOR.md`](MANUAL_DESARROLLADOR.md).
 
-**Última actualización:** 2026-07-30
+**Última actualización:** 2026-07-31
 
 ---
 
@@ -296,20 +296,42 @@ Pero hay algo que sorprende a casi todo el mundo la primera vez:
 
 Cada router tiene asociada una configuración con:
 
-| Concepto | Qué significa |
+| Campo en pantalla | Qué significa |
 |---|---|
-| **Día de creación de factura** | Día del mes en que se emiten las facturas de los clientes de ese router |
-| **Hora de creación** | A qué hora salen |
-| **Día de pago** | Fecha de vencimiento |
-| **Día y hora de recordatorio** | Cuándo se avisa al cliente |
-| **Día y hora de corte** | Cuándo se corta al moroso |
-| **Facturas vencidas para cortar** | Cuántas facturas sin pagar se toleran antes de cortar |
-| **Modo** | *Anticipado* (se cobra el mes que empieza) o *Vencido* (se cobra el mes que terminó) |
+| **Se emite la factura — Día / Hora** | Día y hora del mes en que se *genera* la factura de los clientes de ese router |
+| **Vence la factura — Día límite de pago** | Último día para pagar. Pasado ese día la factura queda *vencida*, pero el servicio sigue activo |
+| **Recordatorio de pago — Día / Hora** | Cuándo se avisa al cliente de lo que tiene pendiente |
+| **Se corta el servicio — Día / Hora** | Desde qué día del mes se empieza a suspender morosos |
+| **Suspender tras X facturas vencidas** | Cuántas facturas sin pagar tolera antes de cortar. **Es la condición real del corte** |
+| **Modo de facturación** | *Anticipado* (se cobra el mes que empieza) o *Vencido* (se cobra el mes que terminó) |
 
 Esto significa que **si un cliente no recibe factura, lo primero que hay que mirar es la
 configuración de su router**, no la del cliente.
 
 > Si configuras el día 31 y el mes tiene 30 días, el sistema factura el día 30. No se salta.
+
+#### Qué periodo cubre la factura, y por qué el corte no cae el día que uno espera
+
+Los cuatro días se configuran por separado y es fácil confundirlos. Estas son las reglas:
+
+- **El periodo facturado es siempre el mes calendario completo** (del 1 al último día), sin
+  importar qué día se emita. Emitir el 1 o el 15 no mueve el periodo; sólo cambia la fecha de
+  emisión. La única excepción es el prorrateo de la primera factura de un cliente nuevo, que
+  arranca el día de la instalación.
+- **Anticipado** = el periodo es el mes en que se emite. **Vencido** = el mes anterior.
+- **El día límite de pago no corta nada.** Sólo marca desde cuándo la factura cuenta como
+  vencida. Si ese día es anterior al de emisión, el vencimiento se corre al mes siguiente.
+- **El día de corte es una ventana, no una fecha exacta.** Desde ese día y hasta fin de mes el
+  sistema revisa cada hora; suspende únicamente a quien haya llegado al número de
+  **facturas vencidas** configurado. Con el umbral en 2, el cliente arrastra un ciclo entero
+  antes de que lo corten: por eso el corte "real" suele caer un mes después del primer impago.
+- **El recordatorio** se envía por día del mes, una sola vez por ciclo, sobre las facturas
+  pendientes que tenga el cliente en ese momento.
+
+El panel de facturación del router muestra un recuadro **«Así queda el ciclo»** que traduce la
+configuración a fechas reales del mes en curso (emisión, periodo cubierto, recordatorio,
+vencimiento y corte) y avisa de combinaciones sospechosas — recordatorio después del
+vencimiento, o día de corte anterior al vencimiento. Es sólo informativo: no cambia nada.
 
 ### 7.2 Ver y buscar facturas
 
@@ -545,6 +567,12 @@ Y dos opciones **adicionales** que se suman al método elegido:
 
 En la ficha del router eliges la **configuración de facturación** y el **tipo de corte**
 (Automático o Manual). **Sin esto, los clientes de ese router no se facturan ni se cortan.**
+
+El bloque *Facturación del Router* lleva los cuatro momentos del ciclo — emisión,
+vencimiento, recordatorio y corte — con un recuadro **«Así queda el ciclo»** debajo que los
+muestra ya traducidos a fechas del mes en curso. Si algo no cuadra (recordatorio después del
+vencimiento, corte antes del vencimiento) aparece un aviso ámbar. El detalle de cada regla
+está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 
 ### 11.4 Herramientas de diagnóstico
 

@@ -12,10 +12,11 @@
            en una celda; en móvil colapsa a 1 columna. -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5">
 
-        <!-- Crear factura automáticamente -->
+        <!-- Emisión de la factura -->
         <div>
-          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
-            Crear factura — Día
+          <label class="flex items-center gap-2 text-gray-800 dark:text-gray-300 font-medium mb-1">
+            <span class="h-2.5 w-2.5 rounded-full bg-blue-500 shrink-0"></span>
+            Se emite la factura — Día
           </label>
           <DayPicker v-model="billing.create_invoice" class="w-full" />
 
@@ -31,41 +32,31 @@
           />
 
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Día y hora en que se genera la factura (se evalúa cada hora).
+            Día y hora en que se <strong>genera</strong> la factura (se evalúa cada hora).
+            El periodo que cubre lo define «Modo de facturación», más abajo.
           </p>
         </div>
 
-        <!-- Día de corte -->
+        <!-- Vencimiento -->
         <div>
-          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
-            Día de corte
-          </label>
-          <DayPicker v-model="billing.cut_day" class="w-full" />
-
-          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
-            Hora de corte
-          </label>
-          <input
-            type="time"
-            v-model="billing.cut_time"
-            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
-                   border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
-                   focus:ring focus:ring-blue-500 transition-colors"
-          />
-        </div>
-
-        <!-- Día límite de pago -->
-        <div>
-          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
-            Día límite de pago
+          <label class="flex items-center gap-2 text-gray-800 dark:text-gray-300 font-medium mb-1">
+            <span class="h-2.5 w-2.5 rounded-full bg-indigo-500 shrink-0"></span>
+            Vence la factura — Día límite de pago
           </label>
           <DayPicker v-model="billing.pay_day" class="w-full" />
+
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Último día para pagar sin quedar en mora. Pasado ese día la factura cuenta como
+            <strong>vencida</strong>, pero por sí sola <strong>no corta</strong> el servicio:
+            el corte lo deciden el día de corte y el número de facturas vencidas.
+          </p>
         </div>
 
         <!-- Recordatorio -->
         <div>
           <div class="flex items-center justify-between mb-1">
-            <label class="text-gray-800 dark:text-gray-300 font-medium">
+            <label class="flex items-center gap-2 text-gray-800 dark:text-gray-300 font-medium">
+              <span class="h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0"></span>
               Recordatorio de pago
             </label>
 
@@ -103,9 +94,96 @@
 
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ billing.payment_reminder_enabled
-              ? 'Se enviará un recordatorio al cliente el día y hora seleccionados.'
+              ? 'Aviso al cliente con sus facturas pendientes. Se envía una vez por ciclo, el día y hora seleccionados.'
               : 'No se enviarán recordatorios de pago.' }}
           </p>
+        </div>
+
+        <!-- Corte del servicio -->
+        <div>
+          <label class="flex items-center gap-2 text-gray-800 dark:text-gray-300 font-medium mb-1">
+            <span class="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0"></span>
+            Se corta el servicio — Día
+          </label>
+          <DayPicker v-model="billing.cut_day" class="w-full" />
+
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1 mt-3">
+            Hora de corte
+          </label>
+          <input
+            type="time"
+            v-model="billing.cut_time"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                   border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                   focus:ring focus:ring-blue-500 transition-colors"
+          />
+
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <strong>Desde</strong> este día y hasta fin de mes se revisa cada hora y se suspende a
+            quien acumule las facturas vencidas indicadas más abajo. Sin día de corte, el corte
+            automático queda apagado.
+          </p>
+        </div>
+
+        <!-- Resumen del ciclo — traduce la configuración a fechas reales -->
+        <div class="col-span-1 sm:col-span-2 rounded-xl border border-blue-200 dark:border-blue-900/60
+                    bg-blue-50/70 dark:bg-blue-900/10 p-4">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <h4 class="font-semibold text-gray-800 dark:text-gray-100">
+              Así queda el ciclo
+            </h4>
+            <span class="text-[11px] text-gray-500 dark:text-gray-400">
+              Ejemplo con {{ ciclo.mesActual }}
+            </span>
+          </div>
+
+          <ul class="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+            <li class="flex gap-2">
+              <span class="mt-1.5 h-2.5 w-2.5 rounded-full bg-blue-500 shrink-0"></span>
+              <span>
+                <strong>Se emite</strong> el {{ ciclo.emision }} y la factura cubre el periodo
+                <strong>{{ ciclo.periodo }}</strong>.
+              </span>
+            </li>
+            <li v-if="billing.payment_reminder_enabled" class="flex gap-2">
+              <span class="mt-1.5 h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0"></span>
+              <span>
+                <strong>Recordatorio</strong> el {{ ciclo.recordatorio }}.
+              </span>
+            </li>
+            <li class="flex gap-2">
+              <span class="mt-1.5 h-2.5 w-2.5 rounded-full bg-indigo-500 shrink-0"></span>
+              <span>
+                <strong>Vence</strong> el {{ ciclo.vencimiento }}. Desde el día siguiente esa factura
+                cuenta como vencida, pero el servicio sigue activo.
+              </span>
+            </li>
+            <li class="flex gap-2">
+              <span class="mt-1.5 h-2.5 w-2.5 rounded-full bg-red-500 shrink-0"></span>
+              <span>
+                <strong>Corte</strong> {{ ciclo.corte }}: se suspende a quien acumule
+                {{ ciclo.umbral }} factura{{ ciclo.umbral === 1 ? '' : 's' }} vencida{{ ciclo.umbral === 1 ? '' : 's' }}.
+                {{ ciclo.corteExplicacion }}
+              </span>
+            </li>
+          </ul>
+
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
+            El periodo facturado es siempre el mes calendario completo (del 1 al último día), sin importar
+            el día de emisión; la única excepción es el prorrateo de la primera factura. Los tres eventos
+            se reintentan cada hora hasta fin de mes, así que un día caído no se pierde.
+          </p>
+
+          <div v-if="avisos.length" class="mt-3 space-y-1.5">
+            <p
+              v-for="(aviso, i) in avisos"
+              :key="i"
+              class="flex gap-2 text-xs text-amber-700 dark:text-amber-400"
+            >
+              <span class="shrink-0">⚠</span>
+              <span>{{ aviso }}</span>
+            </p>
+          </div>
         </div>
 
         <!-- Tipo de Aviso al Crear Facturas -->
@@ -205,11 +283,16 @@
           <input 
             v-model="billing.overdue_invoices"
             type="number"
-            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 
-                  border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                  border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
                   focus:ring focus:ring-blue-500 transition-colors"
             placeholder="Ej: 2"
           />
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Es la condición real del corte: el día de corte sólo abre la ventana, pero se suspende
+            únicamente a quien llegue a este número de facturas vencidas. Con 2, el cliente aguanta
+            un ciclo completo antes de que lo corten.
+          </p>
         </div>
 
         <!-- Método de cobro -->
@@ -321,11 +404,118 @@
 </template>
 
 <script setup>
+import { computed } from "vue"
 import DayPicker from "@/components/DayPicker.vue"
 
-defineProps({
+const props = defineProps({
   active: Boolean,
   billing: Object,
   types: Array
+})
+
+const MESES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+]
+
+const HOY = new Date()
+
+/** Día de mes válido (1–31) o null. Los DayPicker guardan "01".."31". */
+const dayOf = (value) => {
+  const n = parseInt(value, 10)
+  return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null
+}
+
+const lastDayOf = (year, month) => new Date(year, month + 1, 0).getDate()
+
+/** Espejo de Billing::clampDayToMonth: el día 31 cae al último día en meses cortos. */
+const clampDay = (day, year, month) => Math.min(day, lastDayOf(year, month))
+
+const fmtDate = (year, month, day) => `${clampDay(day, year, month)} de ${MESES[month]}`
+
+/** "14:30" → "2:30 p. m." (mismo formato que muestra el input de hora). */
+const fmtTime = (value) => {
+  const [h, m] = String(value || '00:00').split(':').map((n) => parseInt(n, 10))
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return '12:00 a. m.'
+  const suffix = h < 12 ? 'a. m.' : 'p. m.'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${suffix}`
+}
+
+const cfg = computed(() => ({
+  emision: dayOf(props.billing?.create_invoice),
+  vence: dayOf(props.billing?.pay_day),
+  recordatorio: dayOf(props.billing?.remember_day),
+  corte: dayOf(props.billing?.cut_day),
+  umbral: Math.max(1, parseInt(props.billing?.overdue_invoices, 10) || 1),
+  modo: props.billing?.billing_mode || 'anticipado'
+}))
+
+/**
+ * Traduce la configuración a fechas reales del mes en curso. Es sólo un espejo
+ * de lo que hace el backend (BillingService / OverdueSuspensionService /
+ * PaymentReminderService); no decide nada.
+ */
+const ciclo = computed(() => {
+  const c = cfg.value
+  const year = HOY.getFullYear()
+  const month = HOY.getMonth()
+
+  // Periodo cubierto: anticipado = mes de emisión, vencido = mes anterior.
+  const periodoMonth = c.modo === 'vencido' ? month - 1 : month
+  const pYear = periodoMonth < 0 ? year - 1 : year
+  const pMonth = (periodoMonth + 12) % 12
+  const periodo = `1 al ${lastDayOf(pYear, pMonth)} de ${MESES[pMonth]}`
+
+  // Vencimiento: si el día ya pasó respecto de la emisión, se corre al mes siguiente.
+  let vencimiento = '—'
+  if (c.vence !== null) {
+    const emitido = c.emision !== null ? clampDay(c.emision, year, month) : 1
+    const vence = clampDay(c.vence, year, month)
+    vencimiento = vence < emitido
+      ? `${fmtDate(year, (month + 1) % 12, c.vence)}${month === 11 ? ` de ${year + 1}` : ''} (mes siguiente)`
+      : fmtDate(year, month, c.vence)
+  }
+
+  const corteExplicacion = c.umbral <= 1
+    ? 'Con 1, el primer impago ya provoca el corte.'
+    : `Con ${c.umbral}, en la práctica el corte llega alrededor de ${c.umbral - 1} ciclo${c.umbral - 1 === 1 ? '' : 's'} después del primer impago.`
+
+  return {
+    mesActual: MESES[month],
+    periodo,
+    vencimiento,
+    umbral: c.umbral,
+    corteExplicacion,
+    emision: c.emision !== null
+      ? `${fmtDate(year, month, c.emision)} a las ${fmtTime(props.billing?.create_invoice_time)}`
+      : 'sin día configurado (no se emiten facturas automáticas)',
+    recordatorio: c.recordatorio !== null
+      ? `${fmtDate(year, month, c.recordatorio)} a las ${fmtTime(props.billing?.remember_time)}`
+      : 'sin día configurado',
+    corte: c.corte !== null
+      ? `desde el ${fmtDate(year, month, c.corte)}, ${fmtTime(props.billing?.cut_time)}`
+      : 'sin día configurado (corte automático apagado)'
+  }
+})
+
+/** Combinaciones que suelen ser un error de configuración. Sólo avisan. */
+const avisos = computed(() => {
+  const c = cfg.value
+  const out = []
+
+  if (props.billing?.payment_reminder_enabled && c.recordatorio !== null && c.vence !== null && c.recordatorio >= c.vence) {
+    out.push(`El recordatorio (día ${c.recordatorio}) sale el mismo día o después del vencimiento (día ${c.vence}); normalmente se avisa antes.`)
+  }
+
+  if (c.emision !== null && c.vence !== null && c.vence < c.emision) {
+    out.push(`El día límite de pago (${c.vence}) es anterior al de emisión (${c.emision}): el vencimiento se corre al mes siguiente.`)
+  }
+
+  if (c.corte !== null && c.vence !== null && c.corte <= c.vence) {
+    out.push(`El día de corte (${c.corte}) no es posterior al vencimiento (${c.vence}): las facturas impagas de este ciclo no se cortarán hasta el mes siguiente.`)
+  }
+
+  return out
 })
 </script>

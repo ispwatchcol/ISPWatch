@@ -257,7 +257,7 @@ php artisan test --filter=FirstInvoice    # por nombre
 cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`
 (que no se versiona: parte de `.env.testing.example`).
 
-**Estado:** 245 tests, **0 fallos**. Hasta 2026-07-30 había 34 fallos permanentes —
+**Estado:** 278 tests, **0 fallos**. Hasta 2026-07-30 había 34 fallos permanentes —
 19 de andamiaje de Breeze que probaba rutas y componentes inexistentes, 10 de documentos que
 falseaban el disco `public` mientras el código escribe en `s3`, y el resto residuos del
 esqueleto de Laravel. Se eliminaron los muertos y se arreglaron los reales: una suite con
@@ -284,17 +284,17 @@ la conexión) y aborta salvo en dos casos:
 > (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
 > seguir haciéndolo.
 
-### Cobertura actual (27 archivos, 245 tests)
+### Cobertura actual (37 archivos, 278 tests)
 
 | Suite | Archivos |
 |---|---|
-| `Feature/Billing` | `AutoCutoffTest`, `AutoReconnectOnPaymentTest`, `BillingEventTimeTest`, `BillingModuleTest`, `DeleteInvoiceTest`, `FirstInvoiceFreeMonthsTest`, `FirstInvoiceProrationTest`, `MarkInvoiceUnpaidTest`, `PaymentReminderTest`, `ReconcileSuspensionsTest`, `RouterMonthlyBillingTest`, `VerifyAutomaticCutsTest`, `VerifyMonthlyBillingTest` |
+| `Feature/Billing` | `AutoCutoffTest`, `AutoReconnectOnPaymentTest`, `BillingEventTimeTest`, `BillingModuleTest`, `DeleteInvoiceTest`, `FirstInvoiceFreeMonthsTest`, `FirstInvoiceProrationTest`, `MarkInvoiceUnpaidTest`, `PaymentReminderTest`, `PaymentsListFilterTest`, `ReconcileSuspensionsTest`, `RouterMonthlyBillingTest`, `VerifyAutomaticCutsTest`, `VerifyMonthlyBillingTest` |
 | `Feature/Documents` | `BillingPdfDownloadTest`, `CustomerContractSignTest`, `DocumentTemplateControllerTest`, `InstallationSheetSignTest` |
 | `Feature/Auth` | `ApiAuthorizationTest` (42: permiso por endpoint, OR, bypass admin, unión de permisos), `ApiLoginTest` (7: login real, verificación, rate limit), `RolePermissionsSyncTest` (7) |
 | `Feature/Router` | `RouterOutageTest` |
 | `Feature/Inventory` | `InventoryImportTest` |
 | `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
-| `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest` |
+| `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest`, `Services/PlaceholderResolverTest`, `Services/TemplateSanitizerTest` |
 
 **Zona sin cobertura relevante:** la lógica de negocio de clientes, prospectos, sectoriales,
 soporte y gastos. La **autorización** de todos ellos sí está cubierta.
@@ -308,8 +308,15 @@ Diferencias que los tests **no** detectan y sí rompen en producción:
 | Comparar `boolean` con `'active'` | `SQLSTATE 22P02` | Coincide con cero filas, silenciosamente |
 | `LIKE` | **Sensible** a mayúsculas | Insensible |
 | Índices parciales | Soportados | No |
+| Ids tras el rollback de `RefreshDatabase` | La secuencia **no** se revierte: el siguiente test empieza donde quedó el anterior | El `AUTOINCREMENT` se recicla: cada test vuelve a empezar en 1 |
 
 Cuando el filtrado sea insensible a mayúsculas, usa `ilike` seleccionado por driver.
+
+**Nunca des por hecho un id concreto.** Un test daba por sentado que la primera fila de
+`role` recibía el id 1 —el que `CheckPermission` trata como superadministrador—, y en
+PostgreSQL el rol nacía con id 77 a partir del segundo test del proceso, así que el
+bypass "fallaba" con el código intacto. Si un test necesita un id fijo, fíjalo a mano
+(`$role->id = 1; $role->save();`, ver `ApiAuthorizationTest::crearRol()`).
 
 ---
 
@@ -548,7 +555,7 @@ Cubre el manager con un test unitario que verifique **la cadena de comando gener
 | **`SQLSTATE 22P02`** | Comparación de booleano con cadena | Corrige la consulta a `where('status', true)` |
 | **Falso `403 No role assigned`** | Desajuste de `tenant_id` entre usuario y rol | Carga el rol con `withoutGlobalScope('tenant')` |
 | **Pestaña ausente para un admin** | Permiso nuevo sin backfill | Migración de backfill, o marcar en `/roles` y re-loguear |
-| **`<connection failed> <ip>:22`** | IP obsoleta o puerto SSH distinto | `RouterEndpointResolver` + `router.puerto_ssh`. El CORE necesita `forwarding-enabled=both` |
+| **`<connection failed> <ip>:22`** | IP obsoleta o puerto SSH distinto | `RouterEndpointResolver` + `router.puerto_ssh`. El CORE necesita `forwarding-enabled=both`. Comprueba que el puerto llegue **hasta el `ssh-exec`**: si un método intermedio no lo recibe en su firma, el `port=` se pierde y todo cae al 22 |
 | **Aprovisionamiento con éxito pero sin efecto** | `ssh-exec` con `exit-code ≠ 0` | Revisar centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END` en el log |
 | **Cliente cortado sigue navegando** | Faltan reglas en el router o falta flush de conntrack | *Aplicar reglas de bloqueo* + `billing:reconcile-suspensions` |
 | **Toda la suite Feature falla** | SQL exclusivo de PostgreSQL en una migración | Protégelo por driver |
