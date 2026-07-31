@@ -401,17 +401,56 @@ Esto ocurre solo, sin que hagas nada más:
 > La reconexión automática **sólo aplica a cortes por facturación**. Si el cliente fue
 > suspendido a mano, hay que reactivarlo a mano.
 
-### 8.3 Corregir o eliminar un pago
+### 8.3 Buscar en la lista de recaudos
+
+**Finanzas → Pagos / Recaudos** muestra **todos** los recaudos, de más nuevo a más
+viejo, repartidos en páginas (los botones de página están al final de la tabla).
+No hace falta buscar nada para verlos.
+
+Para acotar la lista:
+
+- **Buscador de arriba:** busca a la vez por **cliente** y por **referencia**.
+- **Cada columna tiene su propio buscador**, en la casilla que hay justo debajo del
+  título. Se combinan entre sí:
+
+| Columna | Qué acepta |
+|---|---|
+| Fecha | Dos casillas: **desde** y **hasta** (ambas fechas incluidas). Puedes usar solo una |
+| Cliente | Nombre, apellido, nombre completo o cédula |
+| Monto | Dos casillas: **mínimo** y **máximo** |
+| Método | Lista con tus formas de pago |
+| Referencia | Parte del número de comprobante |
+| Registrado por | Nombre del usuario que lo registró. Escribe `sistema` para ver los pagos automáticos (los de instalación, que no los registró una persona) |
+| Facturas afectadas | Número (o parte) de una factura cubierta por el recaudo |
+
+**Limpiar** (al final de la fila de casillas, o arriba junto al buscador) quita todos
+los filtros de golpe.
+
+También puedes **ordenar** pulsando en los títulos **Fecha**, **Monto**, **Método** y
+**Referencia**; el segundo clic invierte el orden.
+
+**Los colores de la lista:** cada forma de pago tiene su color fijo, para distinguirlas
+de un vistazo. Los números de **Facturas afectadas** usan el mismo código de color que
+la columna *Tipo* de Facturación (azul = Plan Mensual, verde = Instalación, morado =
+Adicional, ámbar = Cargo Ticket); pasando el mouse por encima sale el tipo y cuánto se
+aplicó a esa factura. Si un recaudo no cubrió ninguna factura, dice **Saldo a favor**.
+
+En el pie de la tabla eliges cuántos recaudos ver por página (15, 25, 50, 100 o 200).
+
+> En el celular no hay tabla, así que los mismos filtros salen con el botón
+> **Filtros** que aparece al lado del buscador.
+
+### 8.4 Corregir o eliminar un pago
 
 Desde la lista de pagos. Al eliminarlo, las facturas que había cubierto vuelven a quedar
 con saldo.
 
-### 8.4 Saldo a favor
+### 8.5 Saldo a favor
 
 En la ficha del cliente, pestaña **Facturación**, verás su saldo a favor. Un administrador
 puede ajustarlo manualmente si hace falta.
 
-### 8.5 Formas de pago
+### 8.6 Formas de pago
 
 **Finanzas → Formas de pago.** Puedes crear las tuyas, editarlas o desactivarlas.
 El sistema trae por defecto: Efectivo, Tarjeta, Corresponsal y Transacción.

@@ -3,6 +3,7 @@
 namespace Tests;
 
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\DB;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -10,31 +11,70 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
-        if (config('database.default') !== 'sqlite') {
-            throw new \RuntimeException("Salesguard: Tests are running on '" . config('database.default') . "' database! Aborting to prevent data loss. Please ensure .env.testing exists and is being used.");
+        $this->abortIfConnectedToARealDatabase();
+    }
+
+    /**
+     * La suite usa RefreshDatabase, que ejecuta `migrate:fresh`: apuntarla por
+     * error a la base real la deja vacía. El riesgo no es teórico — el `.env`
+     * local apunta a Supabase, así que un `DB_CONNECTION` mal puesto basta.
+     *
+     * La versión anterior de este guardia exigía que el driver fuese sqlite y
+     * nada más. Eso dejaba imposible el job "PHPUnit (PostgreSQL, motor real)"
+     * del CI, que existe justamente para cazar las diferencias que SQLite
+     * esconde (booleanos, LIKE sensible a mayúsculas, índices parciales): el
+     * job abortaba en TODOS los tests con base de datos.
+     *
+     * Lo que hay que prohibir no es un motor, es una base *real*. Así que:
+     *
+     *   · sqlite  → sólo en memoria (nunca un archivo del proyecto).
+     *   · pgsql   → sólo si es desechable: host local y base terminada en
+     *               `_test`. Es exactamente el contenedor del CI.
+     *   · cualquier otra cosa → se aborta.
+     *
+     * Se comprueba la conexión YA RESUELTA, no la configuración escrita: un
+     * `DB_URL` perdido puede reescribir driver y host de una conexión llamada
+     * "sqlite" sin que el nombre cambie, y eso fue lo que casi manda un script
+     * a la base real durante el desarrollo.
+     */
+    private function abortIfConnectedToARealDatabase(): void
+    {
+        $connection = DB::connection();
+        $driver     = $connection->getDriverName();
+
+        if ($driver === 'sqlite') {
+            if ($connection->getDatabaseName() !== ':memory:') {
+                throw new \RuntimeException(
+                    "Salvaguarda: la conexión sqlite usa la base '{$connection->getDatabaseName()}' "
+                    . "en vez de ':memory:' — abortando para no tocar un archivo real."
+                );
+            }
+
+            return;
         }
 
-        // Belt-and-suspenders: config('database.default') === 'sqlite' only proves
-        // the connection NAME is sqlite, not that it actually behaves like sqlite.
-        // Illuminate\Support\ConfigurationUrlParser lets a stray DB_URL silently
-        // override a named connection's driver/host — this is exactly what almost
-        // sent a stray script to the real Supabase database during development.
-        // Assert the resolved driver and database path too, so this guard can't
-        // be fooled by a similar misconfiguration creeping back in.
-        $connection = \Illuminate\Support\Facades\DB::connection();
+        if ($driver === 'pgsql') {
+            $host     = (string) $connection->getConfig('host');
+            $database = (string) $connection->getConfig('database');
 
-        if ($connection->getDriverName() !== 'sqlite') {
+            $esLocal      = in_array($host, ['127.0.0.1', 'localhost', '::1', 'postgres'], true);
+            $esDesechable = str_ends_with($database, '_test');
+
+            if ($esLocal && $esDesechable && !str_contains($host, 'supabase')) {
+                return;
+            }
+
             throw new \RuntimeException(
-                "Safeguard: connection 'sqlite' resolved to driver '{$connection->getDriverName()}' instead of sqlite "
-                . '(likely a DB_URL override) — aborting to prevent hitting a real database.'
+                "Salvaguarda: la suite intentó correr sobre PostgreSQL en '{$host}/{$database}'. "
+                . 'Sólo se admite una base desechable (host local y nombre terminado en `_test`), '
+                . 'porque RefreshDatabase ejecuta migrate:fresh y vaciaría la base.'
             );
         }
 
-        if ($connection->getDatabaseName() !== ':memory:') {
-            throw new \RuntimeException(
-                "Safeguard: sqlite connection is using database '{$connection->getDatabaseName()}' instead of ':memory:' "
-                . '— aborting to prevent tests from touching a real sqlite file.'
-            );
-        }
+        throw new \RuntimeException(
+            "Salvaguarda: la suite intentó correr sobre el driver '{$driver}'. "
+            . 'Sólo se admiten sqlite en memoria y un PostgreSQL desechable; '
+            . 'revisa .env.testing y que no haya un DB_URL perdido.'
+        );
     }
 }

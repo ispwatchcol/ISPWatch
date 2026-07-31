@@ -267,6 +267,23 @@ fallos crónicos no es una red de seguridad, porque nadie la mira.
 **PostgreSQL 16 + PostGIS**. Sólo el segundo puede detectar el booleano comparado con
 cadena, el `LIKE` sensible a mayúsculas y los índices parciales.
 
+**La salvaguarda de `tests/TestCase.php`.** La suite usa `RefreshDatabase`, que ejecuta
+`migrate:fresh`: apuntarla por error a la base real la deja vacía, y el `.env` local
+apunta a Supabase. Por eso cada `setUp` comprueba la conexión **ya resuelta** (no la
+configuración escrita, que un `DB_URL` perdido puede reescribir sin cambiar el nombre de
+la conexión) y aborta salvo en dos casos:
+
+| Motor | Se admite si |
+|---|---|
+| `sqlite` | la base es `:memory:` — nunca un archivo del proyecto |
+| `pgsql` | es **desechable**: host local (`127.0.0.1`, `localhost`, `::1`, `postgres`) y base terminada en `_test` — o sea, el contenedor del CI |
+
+> Hasta el 2026-07-31 la salvaguarda exigía driver `sqlite` **y nada más**, así que el job
+> de PostgreSQL abortaba en todos los tests con base de datos y nunca llegó a ejecutar una
+> sola aserción. Si necesitas correrlo en local, levanta un Postgres desechable
+> (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
+> seguir haciéndolo.
+
 ### Cobertura actual (27 archivos, 245 tests)
 
 | Suite | Archivos |

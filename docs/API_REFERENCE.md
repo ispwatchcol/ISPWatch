@@ -592,6 +592,32 @@ totales de la factura.
 | `GET` | `/api/billing/customers/{customerId}/balance` | Saldo del cliente |
 | `PATCH` | `/api/billing/customers/{customerId}/credit` | Ajusta el saldo a favor |
 
+**`GET /api/billing/payments`** — listado paginado (por defecto 15 por página,
+orden `payment_date` descendente). Todos los parámetros son opcionales y se
+combinan con `AND`:
+
+| Parámetro | Reglas | Filtra |
+|---|---|---|
+| `search` | texto | Búsqueda general: referencia **o** cliente |
+| `customer` | texto | Nombre, apellido, **nombre completo**, cédula, usuario o correo |
+| `customer_id` | entero | Un cliente exacto |
+| `reference` | texto | Referencia (coincidencia parcial) |
+| `method` | texto | Forma de pago exacta |
+| `registered_by` | texto | Quién lo registró. `sistema` \| `system` \| `automatico` = pagos sin `created_by` |
+| `invoice` | texto | Número de alguna factura cubierta por el recaudo (`allocations.invoice.number`) |
+| `date_from`, `date_to` | fecha | Rango de `payment_date`, inclusive |
+| `amount_min`, `amount_max` | numérico | Rango de `amount`, inclusive |
+| `sort_by` | `payment_date`\|`amount`\|`method`\|`reference`\|`created_at` | Columna de orden |
+| `sort_dir` | `asc`\|`desc` | Sentido (por defecto `desc`) |
+| `per_page` | entero 1–200 | Tamaño de página |
+| `page` | entero | Página |
+
+Las búsquedas de texto son insensibles a mayúsculas en PostgreSQL y en SQLite
+(macros `whereLike`/`orWhereLike`, ver `SearchMacrosServiceProvider`).
+
+> El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
+> query param se ignora: antes permitía leer los recaudos de otro tenant.
+
 **`POST /api/billing/payments`**
 
 | Campo | Reglas |

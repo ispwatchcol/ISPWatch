@@ -805,7 +805,10 @@ Agregado permanente.
 | `customer_installations` | `prospect_id`, `(tenant_id, customer_id)` |
 | `customer_profile` | `olt_id` |
 | `expenses` | `expense_date`, `status`, `tenant_id` |
-| `payments` | `created_by` |
+| `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, **parcial** `due_date WHERE balance_due > 0` |
+| `payment_allocations` | `payment_id`, `invoice_id` |
+| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)` |
+| `user_services` | `(user_id, status)` |
 | `prospects` | `converted_user_id`, `(tenant_id, status)` |
 | `router` | `tenant_id` |
 | `router_outage_events` | `(router_id, id)`, `(tenant_id, id)` |
