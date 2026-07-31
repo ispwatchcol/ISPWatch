@@ -101,7 +101,11 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'schema' => env('DB_SCHEMA', 'public'),
-            'sslmode' => 'require',
+            // Supabase (dev y producción) exige TLS, así que 'require' sigue
+            // siendo el valor por defecto. Es configurable porque el Postgres
+            // de CI corre en un contenedor sin SSL y rechaza la conexión con
+            // «server does not support SSL, but SSL was required».
+            'sslmode' => env('DB_SSLMODE', 'require'),
         ],
 
 

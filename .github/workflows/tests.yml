@@ -72,6 +72,10 @@ jobs:
       DB_USERNAME: ispwatch
       DB_PASSWORD: secret
       DB_SCHEMA: public
+      # El contenedor de Postgres no tiene TLS; sin esto la conexión falla con
+      # «server does not support SSL, but SSL was required» (en Supabase el
+      # valor por defecto sigue siendo 'require').
+      DB_SSLMODE: disable
 
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +102,7 @@ jobs:
             echo "DB_USERNAME=ispwatch"
             echo "DB_PASSWORD=secret"
             echo "DB_SCHEMA=public"
+            echo "DB_SSLMODE=disable"
           } >> .env.testing
           php artisan key:generate --env=testing
 
