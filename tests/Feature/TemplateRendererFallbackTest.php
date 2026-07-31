@@ -107,7 +107,7 @@ class TemplateRendererFallbackTest extends TestCase
         DocumentTemplate::create([
             'tenant_id' => $tenant->id,
             'type'      => DocumentTemplate::TYPE_INVOICE,
-            'body_html' => '<p>Gracias {{cliente.nombre}}, su factura {{factura.numero}}</p><script>alert(1)</script>',
+            'body_html' => '<p>Gracias {{cliente.nombre}} {{cliente.apellido}}, su factura {{factura.numero}}</p><script>alert(1)</script>',
             'is_active' => true,
         ]);
 

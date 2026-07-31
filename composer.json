@@ -22,6 +22,7 @@
         "phpseclib/phpseclib": "^3.0"
     },
     "require-dev": {
+        "cerdic/css-tidy": "^2.2",
         "fakerphp/faker": "^1.23",
         "laravel/breeze": "^2.3",
         "laravel/pail": "^1.2.2",

@@ -84,4 +84,10 @@ class CustomerProfile extends Model
     {
         return $this->belongsTo(Sectorial::class, 'olt_id');
     }
+
+    /** Sector/AP inalámbrico asignado al cliente (distinto de la OLT de fibra). */
+    public function sectorial()
+    {
+        return $this->belongsTo(Sectorial::class, 'sectorial_id');
+    }
 }

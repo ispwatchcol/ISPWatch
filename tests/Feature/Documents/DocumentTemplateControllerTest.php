@@ -66,6 +66,20 @@ class DocumentTemplateControllerTest extends TestCase
         $this->getJson('/api/document-templates/not-a-type')->assertStatus(404);
     }
 
+    public function test_show_returns_the_closed_block_placeholder_whitelist_for_the_type(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->getJson('/api/document-templates/invoice');
+
+        $response->assertStatus(200);
+        $this->assertSame(
+            array_keys(config('document_placeholder_blocks.invoice')),
+            array_keys($response->json('block_placeholders'))
+        );
+        $this->assertArrayHasKey('factura.tabla_items', $response->json('block_placeholders'));
+    }
+
     public function test_update_creates_and_sanitizes_the_draft_and_activates_it(): void
     {
         Sanctum::actingAs($this->admin);
@@ -150,6 +164,76 @@ class DocumentTemplateControllerTest extends TestCase
         }
 
         $this->assertDatabaseCount('document_templates', 0);
+    }
+
+    public function test_preview_omits_x_template_warnings_header_when_nothing_is_orphaned(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        // Well-formed draft, real pipeline (no mocks): the token sits in
+        // content position, so nothing should ever end up in
+        // TemplateRenderer::lastRenderWarnings().
+        $response = $this->postJson('/api/document-templates/invoice/preview', [
+            'body_html' => '<div>{{factura.tabla_items}}</div>',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertFalse($response->headers->has('X-Template-Warnings'));
+    }
+
+    /**
+     * Contrato implícito con el frontend (DocumentTemplatesSection.vue):
+     * cuando TemplateRenderer::lastRenderWarnings() reporta un token
+     * huérfano, el header X-Template-Warnings debe ser un JSON array de
+     * objetos {token, label} — exactamente esa forma, sin envoltorio extra
+     * ni renombrar claves. Este test debe fallar si esa forma cambia sin
+     * querer en un refactor futuro.
+     *
+     * Nota: reproducir un huérfano real de punta a punta (a través del
+     * TemplateSanitizer real) resultó más difícil de lo esperado — todos los
+     * atributos permitidos hoy (span[style], a[href]) pasan por validadores
+     * estructurados (CSS/URI) que no preservan un token {{...}} como texto
+     * literal (ver hallazgo en el resumen). Por eso este test fuerza el
+     * escenario vía TemplateRenderer::lastRenderWarnings() en vez de
+     * fabricar un body_html "malicioso" que hoy no logra atravesar el
+     * sanitizer real — el objetivo aquí es fijar el CONTRATO del header, no
+     * re-probar el mecanismo de detección (eso ya lo cubre
+     * BlockMarkerInjectorTest).
+     */
+    public function test_preview_reports_orphaned_block_placeholders_via_x_template_warnings_header(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf->shouldReceive('stream')
+            ->once()
+            ->with('vista-previa.pdf')
+            ->andReturn(response('%PDF-fake', 200, ['Content-Type' => 'application/pdf']));
+
+        $renderer = \Mockery::mock(\App\Services\Templates\TemplateRenderer::class);
+        $renderer->shouldReceive('previewInvoice')->once()->andReturn($fakePdf);
+        $renderer->shouldReceive('lastRenderWarnings')->once()->andReturn(['factura.tabla_items']);
+        $this->app->instance(\App\Services\Templates\TemplateRenderer::class, $renderer);
+
+        $response = $this->postJson('/api/document-templates/invoice/preview', [
+            'body_html' => '<p>Hola</p>',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertTrue($response->headers->has('X-Template-Warnings'));
+
+        $decoded = json_decode($response->headers->get('X-Template-Warnings'), true);
+
+        // OJO: 'factura.tabla_items' es una sola clave de array que contiene
+        // un punto — NO dos niveles anidados. config('...invoice.factura.tabla_items')
+        // rompería (Laravel interpretaría cada punto como un nivel), por eso
+        // se busca el array del tipo primero y se indexa con la clave literal.
+        $this->assertSame([
+            [
+                'token' => 'factura.tabla_items',
+                'label' => config('document_placeholder_blocks.invoice')['factura.tabla_items'],
+            ],
+        ], $decoded);
     }
 
     public function test_a_user_without_manage_document_templates_permission_is_forbidden(): void

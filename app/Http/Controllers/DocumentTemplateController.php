@@ -69,12 +69,13 @@ class DocumentTemplateController extends Controller
         $row = DocumentTemplate::where('tenant_id', $tenantId)->where('type', $type)->first();
 
         return response()->json([
-            'type'         => $type,
-            'body_html'    => $row?->body_html,
-            'is_active'    => (bool) ($row?->is_active),
-            'has_draft'    => $row !== null,
-            'updated_at'   => $row?->updated_at,
-            'placeholders' => config("document_placeholders.{$type}", []),
+            'type'              => $type,
+            'body_html'         => $row?->body_html,
+            'is_active'         => (bool) ($row?->is_active),
+            'has_draft'         => $row !== null,
+            'updated_at'        => $row?->updated_at,
+            'placeholders'      => config("document_placeholders.{$type}", []),
+            'block_placeholders' => config("document_placeholder_blocks.{$type}", []),
         ]);
     }
 
@@ -137,6 +138,14 @@ class DocumentTemplateController extends Controller
      * customer/invoice, so nobody's data leaks into a live-typing preview
      * and it works identically for a brand new tenant with zero records.
      * Always uses the custom shell, regardless of is_active.
+     *
+     * If any block placeholder (config/document_placeholder_blocks.php)
+     * couldn't be inserted — e.g. the tenant pasted it inside an HTML
+     * attribute — TemplateRenderer::lastRenderWarnings() reports it here, and
+     * it's surfaced as an X-Template-Warnings response header alongside the
+     * PDF stream (informational only: the PDF still renders, without that
+     * block's content, matching the "never break the render" rule already in
+     * place for every other placeholder failure mode).
      */
     public function preview(UpdateDocumentTemplateRequest $request, string $type)
     {
@@ -177,7 +186,31 @@ class DocumentTemplateController extends Controller
             ),
         };
 
-        return $pdf->stream('vista-previa.pdf');
+        $response = $pdf->stream('vista-previa.pdf');
+
+        $warnings = $this->buildTemplateWarnings($type);
+        if (!empty($warnings)) {
+            $response->headers->set('X-Template-Warnings', json_encode($warnings));
+        }
+
+        return $response;
+    }
+
+    /**
+     * @return array<int,array{token:string,label:string}>
+     */
+    private function buildTemplateWarnings(string $type): array
+    {
+        $labels = config("document_placeholder_blocks.{$type}", []);
+
+        return collect($this->templateRenderer->lastRenderWarnings())
+            ->unique()
+            ->map(fn (string $token) => [
+                'token' => $token,
+                'label' => $labels[$token] ?? $token,
+            ])
+            ->values()
+            ->all();
     }
 
     private function authTenant(Request $request): int

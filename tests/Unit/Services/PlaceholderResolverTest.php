@@ -92,7 +92,8 @@ class PlaceholderResolverTest extends TestCase
 
         $this->assertSame('Internet Rápido S.A.S.', $values['empresa.nombre']);
         $this->assertSame('900123456-7', $values['empresa.nit']);
-        $this->assertSame('Juan Pérez', $values['cliente.nombre']);
+        $this->assertSame('Juan', $values['cliente.nombre']);
+        $this->assertSame('Pérez', $values['cliente.apellido']);
         $this->assertSame('123456789', $values['cliente.cedula']);
         $this->assertSame('FAC-0001', $values['factura.numero']);
         $this->assertSame('119,000.00', $values['factura.total']);
@@ -176,10 +177,75 @@ class PlaceholderResolverTest extends TestCase
             array_keys($values)
         );
 
-        $this->assertSame('María Gómez', $values['cliente.nombre']);
+        $this->assertSame('María', $values['cliente.nombre']);
+        $this->assertSame('Gómez', $values['cliente.apellido']);
         $this->assertSame('111222333', $values['cliente.cedula']);
         $this->assertSame((string) $installation->id, $values['instalacion.numero']);
         $this->assertSame('ONU + Router TP-Link', $values['instalacion.equipo']);
+        // Sin $plan/perfil de red vinculado, los tokens de servicio.* quedan
+        // vacíos en vez de romper la whitelist (misma regla que cualquier
+        // otro placeholder sin dato de origen).
+        $this->assertSame('', $values['servicio.plan']);
+        $this->assertSame('', $values['servicio.ip']);
+        $this->assertSame('', $values['servicio.punto_acceso']);
+        $this->assertSame('', $values['servicio.dia_pago']);
+        $this->assertSame('', $values['servicio.dia_corte']);
+    }
+
+    public function test_for_installation_resolves_servicio_namespace_from_profile_and_plan(): void
+    {
+        $tenant = $this->makeTenant();
+        $customer = $this->makeCustomer($tenant);
+        $sectorial = \App\Models\Sectorial::create([
+            'tenant_id'    => $tenant->id,
+            'name'         => 'Sector Norte',
+            'element_type' => 'sectorial',
+        ]);
+        $profile = CustomerProfile::create([
+            'user_id'        => $customer->id,
+            'name'           => 'Juan',
+            'last_name'      => 'Pérez',
+            'cedula'         => '123456789',
+            'address'        => 'Calle Falsa 123',
+            'ip_user'        => '10.0.0.9',
+            'pppoe_username' => 'juan.perez',
+            'sectorial_id'   => $sectorial->id,
+        ]);
+        $plan = Plan::factory()->create([
+            'tenant_id'  => $tenant->id,
+            'name'       => 'Plan 100MB',
+            'speed_down' => '100',
+            'speed_up'   => '50',
+        ]);
+        $installation = CustomerInstallation::create([
+            'tenant_id'      => $tenant->id,
+            'customer_id'    => $customer->id,
+            'scheduled_date' => '2026-07-25',
+            'address'        => 'Calle Falsa 123',
+            'status'         => 'pendiente',
+        ]);
+
+        $values = $this->resolver->forInstallation(
+            $installation,
+            $customer,
+            $profile,
+            null,
+            $tenant,
+            null,
+            '25/07/2026',
+            $plan
+        );
+
+        $this->assertSame('Plan 100MB', $values['servicio.plan']);
+        $this->assertSame('100', $values['servicio.velocidad_bajada']);
+        $this->assertSame('50', $values['servicio.velocidad_subida']);
+        $this->assertSame('10.0.0.9', $values['servicio.ip']);
+        $this->assertSame('juan.perez', $values['servicio.usuario_pppoe']);
+        $this->assertSame('Sector Norte', $values['servicio.punto_acceso']);
+        // Sin router/billing vinculado al perfil, día de pago/corte quedan
+        // vacíos (mismo criterio de "sin romper" que el resto de la whitelist).
+        $this->assertSame('', $values['servicio.dia_pago']);
+        $this->assertSame('', $values['servicio.dia_corte']);
     }
 
     public function test_apply_replaces_known_tokens_and_blanks_unknown_ones(): void
@@ -196,5 +262,26 @@ class PlaceholderResolverTest extends TestCase
             '<p>Cliente: Juan Pérez, Factura: FAC-0001, Token roto: </p>',
             $result
         );
+    }
+
+    /**
+     * Desde el pipeline de placeholders de bloque (2026-07-31), apply() ya
+     * no depende de una pasada de sanitización posterior — así que un valor
+     * escalar que contenga caracteres especiales de HTML debe quedar inerte
+     * por sí mismo, tanto en posición de contenido como dentro de un
+     * atributo (ENT_QUOTES escapa también comillas simples y dobles).
+     */
+    public function test_apply_html_escapes_scalar_values_since_no_sanitize_pass_runs_after_it(): void
+    {
+        $html = '<p title="{{cliente.nombre}}">{{factura.notas}}</p>';
+
+        $result = $this->resolver->apply($html, [
+            'cliente.nombre' => 'O\'Brien & "Asociados"',
+            'factura.notas'  => '<script>alert(1)</script>',
+        ]);
+
+        $this->assertStringNotContainsString('<script>', $result);
+        $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $result);
+        $this->assertStringContainsString('title="O&#039;Brien &amp; &quot;Asociados&quot;"', $result);
     }
 }

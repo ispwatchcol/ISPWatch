@@ -85,7 +85,16 @@
       "Bash(sed -i 's/CORE\\\\[\"Router CORE MikroTik<br\\\\/>concentrador L2TP\\\\/IPSec\"\\\\]/CORE[\"Router CORE MikroTik<br\\\\/>concentrador WireGuard + L2TP\\\\/IPSec\"]/' docs/ARQUITECTURA.md)",
       "Bash(grep -n \"VpnService\\\\` | 945\\\\|RouterEndpointResolver\\\\` | Resuelve\\\\|concentrador\" docs/ARQUITECTURA.md)",
       "PowerShell(\\(Get-Command gh -ErrorAction SilentlyContinue\\).Source; if \\(-not $?\\) { \"gh no encontrado en PATH\" })",
-      "PowerShell(php artisan config:show database.connections.pgsql)"
+      "PowerShell(php artisan config:show database.connections.pgsql)",
+      "Bash(php -l tests/Unit/Services/BlockMarkerInjectorTest.php)",
+      "Bash(php -l app/Services/Templates/BlockMarkerInjector.php)",
+      "Bash(php -l tests/Unit/Services/BlockPlaceholderResolverTest.php)",
+      "Bash(php -l tests/Feature/TemplateRendererBlockPlaceholdersTest.php)",
+      "Bash(php -l app/Services/Templates/TemplateRenderer.php)",
+      "Bash(php -l app/Http/Controllers/DocumentTemplateController.php)",
+      "Bash(php -l tests/Feature/Documents/DocumentTemplateControllerTest.php)",
+      "Bash(npm run *)",
+      "Bash(git stash *)"
     ]
   }
 }

@@ -118,7 +118,7 @@
             Lo que escribas abajo se agrega como <strong>"4. Condiciones Adicionales del Proveedor"</strong>, después de esas cláusulas.
           </div>
 
-          <!-- Placeholders -->
+          <!-- Placeholders escalares -->
           <div>
             <label class="label">Placeholders disponibles (click para insertar)</label>
             <div class="flex flex-wrap gap-1.5">
@@ -131,6 +131,31 @@
                 class="text-xs font-mono bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-md transition-colors"
               >
                 {{ placeholderToken(token) }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Placeholders de bloque: insertan contenido de servidor (tabla,
+               imágenes), no texto — por eso son tarjetas grandes y distintas,
+               no pastillas como las de arriba. Se insertan siempre en su
+               propio párrafo (ver insertBlockPlaceholder), nunca donde el
+               cursor esté parado, para que nunca queden a mitad de una
+               oración o dentro de un atributo. -->
+          <div v-if="Object.keys(current.block_placeholders || {}).length">
+            <label class="label">Bloques de contenido (se insertan en su propio párrafo)</label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                v-for="(label, token) in current.block_placeholders"
+                :key="token"
+                type="button"
+                @click="insertBlockPlaceholder(token)"
+                class="text-left flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 px-3 py-2 rounded-lg transition-colors"
+              >
+                <v-icon :name="blockIcon(token)" class="w-4 h-4 mt-0.5 shrink-0" />
+                <span>
+                  <span class="font-mono font-semibold block">{{ placeholderToken(token) }}</span>
+                  <span class="opacity-80">{{ label }}</span>
+                </span>
               </button>
             </div>
           </div>
@@ -234,7 +259,7 @@ const previewing = ref(false)
 const showResetModal = ref(false)
 
 const draftHtml = ref('')
-const current = reactive({ is_active: false, has_draft: false, placeholders: {} })
+const current = reactive({ is_active: false, has_draft: false, placeholders: {}, block_placeholders: {} })
 
 // ── Branding ──
 const logoUrl = ref(null)
@@ -256,6 +281,7 @@ async function loadType(type) {
     current.is_active = data.is_active
     current.has_draft = data.has_draft
     current.placeholders = data.placeholders || {}
+    current.block_placeholders = data.block_placeholders || {}
     draftHtml.value = data.body_html || ''
   } catch (e) {
     toast.value?.error('No se pudo cargar', 'No se pudo cargar la plantilla. Intenta de nuevo.')
@@ -288,6 +314,39 @@ function insertPlaceholder(token) {
   quill.setSelection(index + text.length)
 }
 
+function blockIcon(token) {
+  if (token.includes('foto')) return 'bi-images'
+  if (token.includes('firma')) return 'bi-pen'
+  return 'bi-table'
+}
+
+/**
+ * A diferencia de insertPlaceholder(), esto NUNCA inserta donde el cursor
+ * esté parado dentro de una oración — siempre fuerza el token a su propio
+ * párrafo (salto de línea antes y después) y lo resalta visualmente, para
+ * que el tenant no pueda pegarlo a mitad de texto y luego reportar "no
+ * aparece nada" cuando el backend lo descarta por no poder insertarlo en esa
+ * posición (ver App\Services\Templates\BlockMarkerInjector — solo posiciones
+ * de contenido son alcanzables, nunca dentro de un atributo).
+ */
+function insertBlockPlaceholder(token) {
+  const quill = quillRef.value?.getQuill?.()
+  const text = `{{${token}}}`
+  if (!quill) {
+    draftHtml.value += `<p><span style="background:#eef2ff;color:#4338ca;">${text}</span></p>`
+    return
+  }
+
+  const range = quill.getSelection(true)
+  const index = range ? range.index : quill.getLength()
+
+  quill.insertText(index, '\n', 'user')
+  quill.insertText(index + 1, text, 'user')
+  quill.formatText(index + 1, text.length, { background: '#eef2ff', color: '#4338ca' }, 'user')
+  quill.insertText(index + 1 + text.length, '\n', 'user')
+  quill.setSelection(index + 1 + text.length + 1)
+}
+
 async function save() {
   saving.value = true
   try {
@@ -317,10 +376,36 @@ async function confirmReset() {
   }
 }
 
+/**
+ * Lee el header X-Template-Warnings (DocumentTemplateController::preview(),
+ * JSON array de {token, label}) y avisa explícitamente qué bloque no se pudo
+ * insertar, en vez de dejar que el tenant solo vea el PDF sin ese contenido
+ * y no entienda por qué — nunca bloquea la vista previa, solo informa.
+ */
+function warnOnOrphanedBlocks(response) {
+  const header = response.headers?.['x-template-warnings']
+  if (!header) return
+
+  let warnings = []
+  try {
+    warnings = JSON.parse(header)
+  } catch (e) {
+    return
+  }
+  if (!warnings.length) return
+
+  const labels = warnings.map((w) => `"${w.label}"`).join(', ')
+  toast.value?.warning(
+    'Un bloque no se pudo insertar',
+    `${labels} no se pudo insertar en esa posición del documento — verifica que esté en su propio párrafo, no dentro de un enlace o texto con formato.`
+  )
+}
+
 async function preview() {
   previewing.value = true
   try {
     const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value)
+    warnOnOrphanedBlocks(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')
   } catch (e) {
