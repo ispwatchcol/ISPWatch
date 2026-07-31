@@ -92,7 +92,9 @@
       "PowerShell(php artisan test tests/Feature/Billing tests/Feature/BillingTest.php 2>&1)",
       "PowerShell(php artisan test 2>&1)",
       "PowerShell(php artisan test tests/Feature/Billing/PaymentsListFilterTest.php 2>&1)",
-      "PowerShell(php artisan migrate:both --force 2>&1)"
+      "PowerShell(php artisan migrate:both --force 2>&1)",
+      "Bash(docker --version)",
+      "Bash(php -m)"
     ]
   }
 }

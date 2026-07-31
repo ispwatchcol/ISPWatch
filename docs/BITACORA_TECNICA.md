@@ -235,7 +235,7 @@ ISPWatch/
 
 | Archivo | Líneas | Recurso RouterOS |
 |---|---:|---|
-| `InterfaceReader.php` | 905 | Lectura robusta de interfaces WAN (multi-variante v6/v7, envelope `:do/:put`, centinelas) |
+| `InterfaceReader.php` | 912 | Lectura robusta de interfaces WAN (multi-variante v6/v7, envelope `:do/:put`, centinelas, puerto SSH del cliente propagado hasta el `ssh-exec`) |
 | `FirewallRulesManager.php` | 753 | `/ip firewall filter` + address-list de suspendidos |
 | `PppProfileManager.php` | 723 | `/ppp profile` |
 | `MikroTikApiProtocol.php` | 602 | Protocolo binario del API |

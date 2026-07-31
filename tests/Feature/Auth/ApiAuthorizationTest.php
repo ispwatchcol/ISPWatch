@@ -30,21 +30,44 @@ class ApiAuthorizationTest extends TestCase
     private Tenant $tenant;
     private Role $superadminRole;
 
+    /** Próximo id a usar para los roles de prueba; el 1 es del superadministrador. */
+    private int $siguienteRolId = 2;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->tenant = Tenant::create(['name' => 'ISP Test', 'domain' => 'isp-test']);
 
-        // Se crea PRIMERO para que ocupe el id 1, que es el que CheckPermission
-        // trata como superadministrador. Así cualquier rol que creen los tests
-        // después tiene id >= 2 y no hereda el bypass sin querer.
-        $this->superadminRole = Role::create([
-            'name'        => 'Administrador',
-            'code'        => 'admin',
-            'tenant_id'   => null,
-            'permissions' => [],
+        // Ocupa el id 1, que es el que CheckPermission trata como
+        // superadministrador. Los roles que creen los tests después llevan id
+        // >= 2 y no heredan el bypass sin querer.
+        $this->superadminRole = $this->crearRol('Administrador', 'admin', null, [], 1);
+    }
+
+    /**
+     * Crea un rol FIJANDO su id a mano.
+     *
+     * Los ids no se dejan a la secuencia de la tabla a propósito. Antes sí, y el
+     * test del bypass daba por hecho que una tabla vacía entrega el id 1: sólo
+     * es cierto en SQLite. En PostgreSQL la secuencia de `role.id` NO se revierte
+     * con el rollback de RefreshDatabase, así que a partir del segundo test del
+     * proceso el rol de superadministrador nacía con id 77 (el CI lo cazó) y el
+     * test fallaba aunque el código estuviera bien.
+     */
+    private function crearRol(string $name, string $code, ?int $tenantId, array $permissions, int $id): Role
+    {
+        $role = new Role([
+            'name'        => $name,
+            'code'        => $code,
+            'tenant_id'   => $tenantId,
+            'permissions' => $permissions,
         ]);
+
+        $role->id = $id;
+        $role->save();
+
+        return $role;
     }
 
     /**
@@ -56,12 +79,13 @@ class ApiAuthorizationTest extends TestCase
      */
     private function userWithPermissions(array $permissions): User
     {
-        $role = Role::create([
-            'name'        => 'Rol ' . uniqid(),
-            'code'        => 'custom',
-            'tenant_id'   => $this->tenant->id,
-            'permissions' => $permissions,
-        ]);
+        $role = $this->crearRol(
+            'Rol ' . uniqid(),
+            'custom',
+            $this->tenant->id,
+            $permissions,
+            $this->siguienteRolId++
+        );
 
         $this->assertNotSame(1, (int) $role->id, 'El rol de prueba no debe ser el superadministrador.');
 
