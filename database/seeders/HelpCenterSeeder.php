@@ -3,24 +3,39 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use App\Models\HelpCategory;
 use App\Models\HelpArticle;
 
 class HelpCenterSeeder extends Seeder
 {
+    /**
+     * Reemplaza por completo el contenido del Centro de Ayuda.
+     *
+     * Va en una transacción porque el primer paso es BORRARLO TODO: si el
+     * seeder se cortara a mitad (timeout, error de conexión), los usuarios
+     * verían un Centro de Ayuda vacío o a medias. Con la transacción es todo
+     * o nada — ante cualquier fallo queda el contenido anterior intacto.
+     *
+     * OJO: sigue siendo un reemplazo total, no un upsert. Cualquier artículo
+     * escrito desde el editor de superadmin se pierde al re-sembrar
+     * (ver MEJORAS_RECOMENDADAS.md P-8).
+     */
     public function run(): void
     {
-        HelpArticle::query()->delete();
-        HelpCategory::query()->delete();
+        DB::transaction(function () {
+            HelpArticle::query()->delete();
+            HelpCategory::query()->delete();
 
-        foreach ($this->getCategories() as $catData) {
-            $articles = $catData['articles'];
-            unset($catData['articles']);
-            $category = HelpCategory::create($catData);
-            foreach ($articles as $article) {
-                HelpArticle::create(array_merge($article, ['category_id' => $category->id]));
+            foreach ($this->getCategories() as $catData) {
+                $articles = $catData['articles'];
+                unset($catData['articles']);
+                $category = HelpCategory::create($catData);
+                foreach ($articles as $article) {
+                    HelpArticle::create(array_merge($article, ['category_id' => $category->id]));
+                }
             }
-        }
+        });
     }
 
     // ─────────────────────────────────────────────────────────────
