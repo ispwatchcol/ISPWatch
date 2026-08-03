@@ -142,7 +142,7 @@ class CustomerContractSignTest extends TestCase
         DocumentTemplate::create([
             'tenant_id' => $this->tenant->id,
             'type'      => DocumentTemplate::TYPE_CONTRACT,
-            'body_html' => '<p>Condición especial para {{cliente.nombre}}.</p><script>alert(1)</script>',
+            'body_html' => '<p>Condición especial para {{cliente.nombre}} {{cliente.apellido}}.</p><script>alert(1)</script>',
             'is_active' => true,
         ]);
 

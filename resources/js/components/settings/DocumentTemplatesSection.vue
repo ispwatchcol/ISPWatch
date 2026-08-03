@@ -118,7 +118,7 @@
             Lo que escribas abajo se agrega como <strong>"4. Condiciones Adicionales del Proveedor"</strong>, después de esas cláusulas.
           </div>
 
-          <!-- Placeholders -->
+          <!-- Placeholders escalares -->
           <div>
             <label class="label">Placeholders disponibles (click para insertar)</label>
             <div class="flex flex-wrap gap-1.5">
@@ -135,12 +135,66 @@
             </div>
           </div>
 
+          <!-- Placeholders de bloque: insertan contenido de servidor (tabla,
+               imágenes), no texto — por eso son tarjetas grandes y distintas,
+               no pastillas como las de arriba. Se insertan siempre en su
+               propio párrafo (ver insertBlockPlaceholder), nunca donde el
+               cursor esté parado, para que nunca queden a mitad de una
+               oración o dentro de un atributo. -->
+          <div v-if="Object.keys(current.block_placeholders || {}).length">
+            <label class="label">Bloques de contenido (se insertan en su propio párrafo)</label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                v-for="(label, token) in current.block_placeholders"
+                :key="token"
+                type="button"
+                @click="insertBlockPlaceholder(token)"
+                class="text-left flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 px-3 py-2 rounded-lg transition-colors"
+              >
+                <v-icon :name="blockIcon(token)" class="w-4 h-4 mt-0.5 shrink-0" />
+                <span>
+                  <span class="font-mono font-semibold block">{{ placeholderToken(token) }}</span>
+                  <span class="opacity-80">{{ label }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Modo avanzado: HTML/CSS completo, sin shell fijo. V1 mínima
+               a propósito (textarea, sin editor visual) — se mejora después
+               si hace falta; lo que no se negocia es la sanitización server-
+               side (AdvancedTemplateSanitizer), no el pulido del editor. -->
+          <div class="flex items-center gap-2">
+            <input
+              id="advanced-mode-toggle"
+              type="checkbox"
+              v-model="current.is_advanced_mode"
+              class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+            />
+            <label for="advanced-mode-toggle" class="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+              Modo avanzado (HTML/CSS completo, sin plantilla base fija)
+            </label>
+          </div>
+          <div v-if="current.is_advanced_mode" class="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded-lg p-3">
+            Editas el documento completo (&lt;html&gt;&lt;style&gt;&lt;body&gt;). Se sigue saneando en el servidor
+            (sin &lt;script&gt;, sin atributos on-*, sin url()/@import en CSS) — no todo lo que escribas va a sobrevivir.
+            Usa "Vista previa" para confirmar antes de guardar.
+          </div>
+
           <!-- Editor -->
           <div class="flex-1 flex flex-col min-h-[280px]">
             <label class="label">
               {{ activeType === 'contract' ? 'Condiciones adicionales' : 'Contenido' }}
             </label>
+            <textarea
+              v-if="current.is_advanced_mode"
+              v-model="draftHtml"
+              spellcheck="false"
+              class="flex-1 min-h-[280px] font-mono text-xs bg-white dark:bg-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-b-xl p-3 resize-y"
+              placeholder="<html><head><style>...</style></head><body>...</body></html>"
+            ></textarea>
             <QuillEditor
+              v-else
               ref="quillRef"
               v-model:content="draftHtml"
               contentType="html"
@@ -234,7 +288,13 @@ const previewing = ref(false)
 const showResetModal = ref(false)
 
 const draftHtml = ref('')
-const current = reactive({ is_active: false, has_draft: false, placeholders: {} })
+const current = reactive({
+  is_active: false,
+  is_advanced_mode: false,
+  has_draft: false,
+  placeholders: {},
+  block_placeholders: {},
+})
 
 // ── Branding ──
 const logoUrl = ref(null)
@@ -254,8 +314,10 @@ async function loadType(type) {
   try {
     const { data } = await documentTemplatesApi.show(type)
     current.is_active = data.is_active
+    current.is_advanced_mode = data.is_advanced_mode || false
     current.has_draft = data.has_draft
     current.placeholders = data.placeholders || {}
+    current.block_placeholders = data.block_placeholders || {}
     draftHtml.value = data.body_html || ''
   } catch (e) {
     toast.value?.error('No se pudo cargar', 'No se pudo cargar la plantilla. Intenta de nuevo.')
@@ -288,11 +350,45 @@ function insertPlaceholder(token) {
   quill.setSelection(index + text.length)
 }
 
+function blockIcon(token) {
+  if (token.includes('foto')) return 'bi-images'
+  if (token.includes('firma')) return 'bi-pen'
+  return 'bi-table'
+}
+
+/**
+ * A diferencia de insertPlaceholder(), esto NUNCA inserta donde el cursor
+ * esté parado dentro de una oración — siempre fuerza el token a su propio
+ * párrafo (salto de línea antes y después) y lo resalta visualmente, para
+ * que el tenant no pueda pegarlo a mitad de texto y luego reportar "no
+ * aparece nada" cuando el backend lo descarta por no poder insertarlo en esa
+ * posición (ver App\Services\Templates\BlockMarkerInjector — solo posiciones
+ * de contenido son alcanzables, nunca dentro de un atributo).
+ */
+function insertBlockPlaceholder(token) {
+  const quill = quillRef.value?.getQuill?.()
+  const text = `{{${token}}}`
+  if (!quill) {
+    draftHtml.value += `<p><span style="background:#eef2ff;color:#4338ca;">${text}</span></p>`
+    return
+  }
+
+  const range = quill.getSelection(true)
+  const index = range ? range.index : quill.getLength()
+
+  quill.insertText(index, '\n', 'user')
+  quill.insertText(index + 1, text, 'user')
+  quill.formatText(index + 1, text.length, { background: '#eef2ff', color: '#4338ca' }, 'user')
+  quill.insertText(index + 1 + text.length, '\n', 'user')
+  quill.setSelection(index + 1 + text.length + 1)
+}
+
 async function save() {
   saving.value = true
   try {
-    const { data } = await documentTemplatesApi.update(activeType.value, draftHtml.value)
+    const { data } = await documentTemplatesApi.update(activeType.value, draftHtml.value, current.is_advanced_mode)
     current.is_active = data.data.is_active
+    current.is_advanced_mode = data.data.is_advanced_mode
     current.has_draft = data.data.has_draft
     toast.value?.success('Plantilla guardada', 'Se guardó y activó correctamente.')
   } catch (e) {
@@ -317,10 +413,36 @@ async function confirmReset() {
   }
 }
 
+/**
+ * Lee el header X-Template-Warnings (DocumentTemplateController::preview(),
+ * JSON array de {token, label}) y avisa explícitamente qué bloque no se pudo
+ * insertar, en vez de dejar que el tenant solo vea el PDF sin ese contenido
+ * y no entienda por qué — nunca bloquea la vista previa, solo informa.
+ */
+function warnOnOrphanedBlocks(response) {
+  const header = response.headers?.['x-template-warnings']
+  if (!header) return
+
+  let warnings = []
+  try {
+    warnings = JSON.parse(header)
+  } catch (e) {
+    return
+  }
+  if (!warnings.length) return
+
+  const labels = warnings.map((w) => `"${w.label}"`).join(', ')
+  toast.value?.warning(
+    'Un bloque no se pudo insertar',
+    `${labels} no se pudo insertar en esa posición del documento — verifica que esté en su propio párrafo, no dentro de un enlace o texto con formato.`
+  )
+}
+
 async function preview() {
   previewing.value = true
   try {
-    const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value)
+    const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value, current.is_advanced_mode)
+    warnOnOrphanedBlocks(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')
   } catch (e) {

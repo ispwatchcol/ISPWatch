@@ -27,7 +27,8 @@ return [
         'empresa.telefono'          => 'Teléfono de facturación',
         'empresa.email'             => 'Correo de facturación',
         'empresa.ciudad'            => 'Ciudad de la empresa',
-        'cliente.nombre'            => 'Nombre completo del cliente',
+        'cliente.nombre'            => 'Nombre(s) del cliente',
+        'cliente.apellido'          => 'Apellido(s) del cliente',
         'cliente.cedula'            => 'Cédula / NIT del cliente',
         'cliente.direccion'         => 'Dirección del cliente',
         'cliente.email'             => 'Correo del cliente',
@@ -47,7 +48,8 @@ return [
     'contract' => [
         'empresa.nombre'         => 'Nombre legal de la empresa',
         'empresa.nit'            => 'NIT (con dígito de verificación)',
-        'cliente.nombre'         => 'Nombre completo del cliente',
+        'cliente.nombre'         => 'Nombre(s) del cliente',
+        'cliente.apellido'       => 'Apellido(s) del cliente',
         'cliente.cedula'         => 'Cédula del cliente',
         'cliente.direccion'      => 'Dirección del cliente',
         'cliente.email'          => 'Correo del cliente',
@@ -62,7 +64,8 @@ return [
 
     'installation' => [
         'empresa.nombre'             => 'Nombre legal de la empresa',
-        'cliente.nombre'             => 'Nombre del cliente / prospecto',
+        'cliente.nombre'             => 'Nombre(s) del cliente / prospecto',
+        'cliente.apellido'           => 'Apellido(s) del cliente / prospecto',
         'cliente.cedula'             => 'Cédula del cliente / prospecto',
         'cliente.direccion'          => 'Dirección de la instalación',
         'instalacion.numero'         => 'Número / ID de la orden',
@@ -70,6 +73,14 @@ return [
         'instalacion.tecnico'        => 'Técnico asignado',
         'instalacion.equipo'         => 'Equipo / materiales usados',
         'instalacion.observaciones'  => 'Observaciones de la orden',
+        'servicio.plan'              => 'Nombre del plan contratado',
+        'servicio.velocidad_bajada'  => 'Velocidad de bajada del plan',
+        'servicio.velocidad_subida'  => 'Velocidad de subida del plan',
+        'servicio.ip'                => 'IP asignada al servicio',
+        'servicio.usuario_pppoe'     => 'Usuario PPPoE del servicio',
+        'servicio.punto_acceso'      => 'Sector / punto de acceso (AP) asignado',
+        'servicio.dia_pago'          => 'Día de pago mensual (según el router del cliente)',
+        'servicio.dia_corte'         => 'Día de corte por mora (según el router del cliente)',
     ],
 
 ];

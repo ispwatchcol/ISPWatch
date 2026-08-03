@@ -244,6 +244,51 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `WhatsAppService` | 162 | WhatsApp Cloud API (Meta Graph v18) |
 | `Templates/*` | — | Render, saneado y resolución de placeholders de documentos |
 
+### Plantillas de documentos (`app/Services/Templates`)
+
+Cada tenant puede personalizar el cuerpo de 3 documentos (factura, contrato, hoja de
+instalación), almacenado en `document_templates.body_html` (una fila por
+`tenant_id` + `type`). Sin fila, o con `is_active = false`, se usa la vista Blade legacy
+(`billing/invoice_pdf`, `documents/contract_pdf`, `documents/installation_sheet_pdf`) —
+zero-regression: personalizar es opt-in.
+
+**`TemplateRenderer`** es el único punto de entrada (`renderInvoice`, `renderContract`,
+`renderInstallationSheet` + sus `preview*`). Con fila activa, decide entre dos modos según
+`is_advanced_mode`:
+
+| | Modo seguro (`is_advanced_mode = false`) | Modo avanzado (`true`) |
+|---|---|---|
+| Qué edita el tenant | Un fragmento de body, insertado en un shell Blade fijo (`documents/shells/*_shell.blade.php`) | El documento HTML completo (`<html><head><style>…</style></head><body>…</body></html>`) |
+| Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
+| Render | `Pdf::loadView('documents.shells.*_shell', ['body' => $html, …])` | `Pdf::loadHTML($html)` directo, sin shell |
+
+**Placeholders** — dos tipos, mismo motor de sustitución (`PlaceholderResolver::apply()`,
+`BlockMarkerInjector`), reutilizado sin cambios entre ambos modos:
+
+- **Escalares** (`{{cliente.nombre}}`, `{{factura.total}}`…) — texto plano, `htmlspecialchars()`
+  al sustituir. Un token desconocido (typo, o de otro tipo de documento — ej. `{{factura.*}}`
+  dentro de un contrato) se blanquea a `''` en silencio; es una decisión consciente, no un bug
+  (ver `docs/MEJORAS_RECOMENDADAS.md`).
+- **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.fotos}}`, `{{instalacion.firma_cliente}}`,
+  `{{instalacion.firma_tecnico}}`) — HTML de confianza pre-renderizado por el servidor (tabla de
+  ítems, galería de fotos, imagen de firma), **nunca** sanitizado (necesita `<img>`/`colspan`,
+  prohibidos en el allowlist del tenant). Se insertan vía `BlockMarkerInjector`: cada token se
+  reemplaza primero por un marcador opaco de alta entropía (`Str::random()`), el HTML se
+  sanitiza/procesa, y sólo entonces se localiza el marcador en el árbol DOM (`DOMDocument`) y se
+  reemplaza por el fragmento real — nunca con un `str_replace` directo, porque el tenant podría
+  haber puesto el token dentro de un atributo HTML y corromper la estructura. Un marcador que no
+  se pudo insertar (posición inalcanzable) se blanquea igual, se loguea, y se reporta vía el
+  header `X-Template-Warnings` en el endpoint de vista previa.
+
+**Reglas de seguridad no negociables** (ambos sanitizers, verificadas con test dedicado —
+`TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest`): `<script>` y atributos `on-*` siempre
+bloqueados (nunca se activa `HTML.Trusted`); `url()`, `@import`, `expression()`, `behavior` en
+CSS siempre bloqueados (ninguna propiedad que sólo tenga sentido con `url()` está en el
+allowlist); `position`/`top`/`left`/`right`/`bottom`/`z-index` nunca disponibles (requieren
+`CSS.Trusted`, que tampoco se activa — evita overlays que oculten/falsifiquen contenido en un
+documento fiscal/legal); `config/dompdf.php` fuerza `enable_remote = false` explícito (no
+depende del default del paquete).
+
 ### Managers MikroTik (`app/Services/MikroTik`)
 
 | Manager | Recurso RouterOS |

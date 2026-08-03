@@ -19,11 +19,13 @@ class DocumentTemplate extends Model
         'type',
         'body_html',
         'is_active',
+        'is_advanced_mode',
         'updated_by',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_advanced_mode' => 'boolean',
     ];
 
     public function tenant()

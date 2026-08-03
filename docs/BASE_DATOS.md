@@ -709,7 +709,12 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 — el bucket es privado.
 
 **`document_templates`** — plantilla HTML por tenant y tipo (**UK** `(tenant_id, type)`),
-`type` ∈ {`invoice`, `contract`, `installation`}, `body_html`, `is_active`, `updated_by`.
+`type` ∈ {`invoice`, `contract`, `installation`}, `body_html`, `is_active`,
+`is_advanced_mode` (boolean, default `false` — `false` = fragmento insertado en el shell
+Blade fijo con allowlist acotado; `true` = documento HTML completo del tenant, saneado por
+`AdvancedTemplateSanitizer` y renderizado con `Pdf::loadHTML()` directo, sin shell —
+migración `2026_08_01_120000`), `updated_by`. Ver `docs/ARQUITECTURA.md` § Plantillas de
+documentos para el pipeline completo de saneado y sustitución de placeholders.
 
 ### 4.15 `support_ticket` y derivadas
 

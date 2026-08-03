@@ -416,6 +416,59 @@ reenvía al guardar: ocultarlo **borraría la credencial** en la primera edició
 actual» (el controlador ignora el campo si llega vacío) y sólo entonces añadirlas a
 `$hidden`. Es trabajo de frontend, no de backend.
 
+### 📋 P-3 · Un placeholder de otro tipo de documento se blanquea sin avisar
+
+Si un tenant pega `{{factura.tabla_items}}` (o cualquier `{{factura.*}}`) dentro de la
+plantilla de **contrato**, el sistema lo blanquea a `''` en silencio — mismo camino que un
+typo genuino (`{{factura.tabla_item}}` sin la "s"). El mecanismo de aviso `X-Template-Warnings`
+**no** lo cubre: sólo reporta bloques que sí correspondían al tipo de documento actual pero no
+se pudieron insertar en su posición (ej. dentro de un atributo HTML); un token de otro tipo ni
+siquiera llega a generar un marcador, así que `BlockMarkerInjector` nunca lo ve. Verificado
+empíricamente el 2026-08-01 (no es una suposición): `lastRenderWarnings()` vuelve `[]` en este
+caso.
+
+Es consistente con la regla ya aprobada de "token desconocido → vacío, sin romper el render"
+(vigente desde la Fase 1 de plantillas), pero un cross-type es plausiblemente el error más común
+en la práctica — copiar y pegar entre plantillas de distinto tipo — y hoy no tiene ninguna señal,
+a diferencia de un bloque mal posicionado del mismo tipo.
+
+**Recomendación.** Extender `PlaceholderResolver::apply()` (o una capa antes) para que, cuando
+un token no reconocido coincida con un nombre válido en el catálogo de **otro** tipo de
+documento (`config/document_placeholders.php` + `config/document_placeholder_blocks.php` de los
+3 tipos), lo reporte por el mismo canal que ya existe (`lastRenderWarnings()` /
+`X-Template-Warnings`) con un mensaje distinto ("este marcador es de Factura, no de Contrato")
+en vez de tratarlo como un typo genérico. No se implementó porque se identificó *después* de
+cerrar el alcance de la sesión que construyó el mecanismo de avisos, no por complejidad.
+
+### 📋 P-4 · Modo avanzado: editor de texto plano, sin editor visual ni protección contra typos en el token
+
+El modo avanzado de plantillas (HTML/CSS completo) se implementó con un `<textarea>` simple,
+a propósito ("sin editor visual sofisticado, eso se mejora después" — decisión explícita del
+2026-08-01 para cumplir un plazo). Un tenant en este modo puede: (a) escribir un placeholder mal
+y no enterarse (mismo comportamiento que P-3, pero más fácil de gatillar sin autocompletado),
+(b) no tener ninguna ayuda visual de qué placeholders existen mientras escribe.
+
+**Recomendación.** Evaluado y descartado para V1 un Quill Blot custom (chip no editable/atómico
+tipo "[📊 Tabla de ítems]") que eliminaría la clase completa de "typo en el token" — más caro
+en tiempo de desarrollo, se decidió no construirlo sin evidencia real de que se necesita. Si
+soporte empieza a recibir tickets de "mi plantilla avanzada no muestra X", es la señal de
+retomarlo.
+
+### 📋 P-5 · Modo avanzado no permite imágenes de fondo vía CSS, ni siquiera desde un host propio
+
+`background-image`, `background` (shorthand) y `list-style-image` están **excluidas a
+propósito** del allowlist de `AdvancedTemplateSanitizer` — ninguna propiedad que sólo tenga
+sentido con `url()` está permitida, para que `url()` quede bloqueado por diseño del allowlist
+y no sólo por el filtro de esquema (`URI.AllowedSchemes`). Efecto secundario: un tenant no
+puede poner una imagen de fondo en su factura desde CSS, ni siquiera apuntando a un host
+`https://` explícitamente permitido. Sí puede lograr un efecto similar con `<img>` en el body
+(sí está permitido, con `src` validado por el mismo filtro de esquema).
+
+**Recomendación.** Si se pide esta capacidad, la opción más segura no es abrir `url()` en CSS
+— es agregar un flujo de subida de imagen propio (como ya existe para el logo del tenant,
+`POST /api/tenant/logo`) y exponerla como un placeholder de bloque (`{{empresa.imagen_fondo}}`)
+en vez de como CSS libre, manteniendo la garantía de "cero `url()` en CSS" intacta.
+
 ### 📋 Observación menor
 
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de
@@ -457,6 +510,9 @@ tenants. Deberían salir de `tenant.billing_phone`.
 | **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
 | **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
 | **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
+| **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | 📋 Pendiente |
+| **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | 📋 Pendiente (deliberado, evaluar según demanda) |
+| **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 
 ---
 
