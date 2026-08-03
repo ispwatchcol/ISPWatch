@@ -117,7 +117,11 @@
       "Bash(php -l app/Models/DocumentTemplate.php)",
       "Bash(php -l tests/Feature/TemplateRendererAdvancedModeTest.php)",
       "Bash(php -l app/Http/Requests/UpdateDocumentTemplateRequest.php)",
-      "Bash(php -r \"json_decode\\(file_get_contents\\('.claude/settings.local.json'\\)\\); echo json_last_error_msg\\(\\).PHP_EOL;\")"
+      "Bash(php -r \"json_decode\\(file_get_contents\\('.claude/settings.local.json'\\)\\); echo json_last_error_msg\\(\\).PHP_EOL;\")",
+      "Bash(composer validate *)",
+      "Bash(xargs grep -ln \"success\")",
+      "Bash(echo \"=== EXIT: $? ===\")",
+      "Bash(php -l config/cors.php)"
     ]
   }
 }

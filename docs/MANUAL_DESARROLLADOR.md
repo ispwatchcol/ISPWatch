@@ -257,7 +257,7 @@ php artisan test --filter=FirstInvoice    # por nombre
 cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`
 (que no se versiona: parte de `.env.testing.example`).
 
-**Estado:** 309 tests, **0 fallos** (2026-08-03). Hasta 2026-07-30 había 34 fallos permanentes —
+**Estado:** 358 tests, **0 fallos** (2026-08-03). Hasta 2026-07-30 había 34 fallos permanentes —
 19 de andamiaje de Breeze que probaba rutas y componentes inexistentes, 10 de documentos que
 falseaban el disco `public` mientras el código escribe en `s3`, y el resto residuos del
 esqueleto de Laravel. Se eliminaron los muertos y se arreglaron los reales: una suite con
@@ -284,7 +284,7 @@ la conexión) y aborta salvo en dos casos:
 > (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
 > seguir haciéndolo.
 
-### Cobertura actual (42 archivos, 309 tests)
+### Cobertura actual (46 archivos, 358 tests)
 
 | Suite | Archivos |
 |---|---|

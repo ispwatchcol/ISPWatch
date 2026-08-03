@@ -895,6 +895,11 @@ ese contenido. Ausente si no hay huérfanos — el frontend sólo lo lee si el h
 [{ "token": "factura.tabla_items", "label": "Tabla de ítems de la factura…" }]
 ```
 
+Al ser un header no estándar, va declarado en `exposed_headers` de `config/cors.php`: sin eso
+el navegador lo oculta a JavaScript en cualquier llamada cross-origin (el servidor de Vite en
+`:5173` contra la API en `:8000`), y el aviso nunca se dispararía en desarrollo. En producción
+front y API comparten origen, donde la restricción no aplica.
+
 > Un placeholder **escalar** desconocido, con typo, o de **otro tipo de documento**
 > (ej. `{{factura.tabla_items}}` dentro de un contrato) no genera este header — se blanquea a
 > `''` en silencio, mismo criterio que cualquier token no reconocido. Ver

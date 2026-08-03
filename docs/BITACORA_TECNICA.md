@@ -287,7 +287,7 @@ ISPWatch/
 | `routes/console.php` | Planificador: 9 tareas programadas |
 | ~~`routes/auth.php`~~ | **Eliminado** (2026-07-30): no lo cargaba `bootstrap/app.php` y referenciaba un controlador y unas vistas Volt inexistentes |
 | `config/database.php` | Conexiones. **Nota de seguridad:** `sqlite` no define `url` a propósito, para que `DB_URL` no pueda redirigir los tests a la base real |
-| `config/cors.php` | Orígenes desde `CORS_ALLOWED_ORIGINS`; `supports_credentials = true` |
+| `config/cors.php` | Orígenes desde `CORS_ALLOWED_ORIGINS`; `supports_credentials = true`; `exposed_headers` incluye `X-Template-Warnings` (sin eso el aviso de la vista previa de plantillas no llega al JS en desarrollo, donde Vite y la API están en puertos distintos) |
 | `config/sanctum.php` | Dominios stateful, guard `web`, sin expiración de token |
 | `config/document_placeholders.php` | Placeholders disponibles en las plantillas |
 | `config/filesystems.php` | Disco `s3` para documentos |

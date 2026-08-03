@@ -35,7 +35,13 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    // Sin esto el navegador oculta el header a JS en cualquier llamada
+    // cross-origin (el servidor de Vite en :5173 contra la API en :8000),
+    // así que el aviso de "un bloque no se pudo insertar" de la vista previa
+    // de plantillas (DocumentTemplateController::preview) nunca se dispara.
+    // En producción front y API comparten origen y el header ya se ve, pero
+    // una función que solo funciona en un despliegue no es una función.
+    'exposed_headers' => ['X-Template-Warnings'],
 
     'max_age' => 0,
 
