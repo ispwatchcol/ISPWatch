@@ -689,6 +689,11 @@ siguiente factura cobrable.
 | `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración |
 | `POST` | `/api/billing/additional-charges` | Cargo adicional sin ticket |
 
+**`PUT /api/billing/configs/{id}`** — todos los campos son opcionales; sólo se actualiza lo
+que llega. Además de los días/horas del ciclo acepta `overdue_invoices` (≥1, umbral de corte)
+y `stop_invoicing_extra` (0–60, margen del **tope de facturación**; `null` = sin tope, se
+factura indefinidamente).
+
 **`POST /api/billing/additional-charges`** — `customer_id` e `items[]`
 (`description`, `quantity`, `unit_price`; opcionales `unit`, `type`) requeridos;
 `due_date`, `notes` e `invoice_type` opcionales. `invoice_type` acepta cualquier slug

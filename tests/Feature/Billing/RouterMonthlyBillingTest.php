@@ -98,6 +98,7 @@ class RouterMonthlyBillingTest extends TestCase
         string $serviceStatus = UserService::STATUS_ACTIVE,
         ?Carbon $serviceStart = null,
         ?string $firstInvoiceMode = null,
+        ?string $profileServiceStatus = null,
     ): User {
         $this->seq++;
         $serviceStart ??= Carbon::now()->subMonths(6)->startOfDay();
@@ -115,6 +116,9 @@ class RouterMonthlyBillingTest extends TestCase
             // customer_profile.status is a BOOLEAN column (true = active),
             // matching production (PostgreSQL).
             'status'    => $profileActive,
+            // Espejo de producción: el corte deja status=false + 'suspendido'.
+            // Es service_status quien decide si el cliente sigue facturando.
+            'service_status'     => $profileServiceStatus ?: ($profileActive ? 'activo' : 'suspendido'),
             'installation_date'  => $serviceStart->toDateString(),
             'first_invoice_mode' => $firstInvoiceMode,
         ]);
@@ -305,7 +309,30 @@ class RouterMonthlyBillingTest extends TestCase
     }
 
     #[Test]
-    public function it_skips_inactive_customer_profiles(): void
+    public function it_keeps_invoicing_a_customer_cut_for_debt(): void
+    {
+        // El corte NO congela la deuda: al suspendido se le siguen emitiendo
+        // mensualidades (hasta el tope del router), porque puede reconectarse
+        // pagando y esos meses de servicio existen.
+        Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->makePlan($tenant);
+        $config = $this->makeBilling(createDay: 15);
+        $router = $this->makeRouter($tenant, $config);
+
+        $active = $this->makeCustomer($tenant, $router, $plan, profileActive: true);
+        $cut    = $this->makeCustomer($tenant, $router, $plan, profileActive: false);
+
+        $count = $this->billing->generateMonthlyInvoices();
+
+        $this->assertSame(2, $count);
+        $this->assertSame(1, Invoice::where('customer_id', $active->id)->count());
+        $this->assertSame(1, Invoice::where('customer_id', $cut->id)->count());
+    }
+
+    #[Test]
+    public function it_never_invoices_retired_or_cancelled_customers(): void
     {
         Carbon::setTestNow(Carbon::create(2026, 6, 15, 9, 0, 0));
 
@@ -314,14 +341,18 @@ class RouterMonthlyBillingTest extends TestCase
         $config = $this->makeBilling(createDay: 15);
         $router = $this->makeRouter($tenant, $config);
 
-        $active    = $this->makeCustomer($tenant, $router, $plan, profileActive: true);
-        $suspended = $this->makeCustomer($tenant, $router, $plan, profileActive: false);
+        $retired = $this->makeCustomer(
+            $tenant, $router, $plan, profileActive: false, profileServiceStatus: 'retirado'
+        );
+        $cancelled = $this->makeCustomer(
+            $tenant, $router, $plan, profileActive: false, profileServiceStatus: 'cancelado'
+        );
 
         $count = $this->billing->generateMonthlyInvoices();
 
-        $this->assertSame(1, $count);
-        $this->assertSame(1, Invoice::where('customer_id', $active->id)->count());
-        $this->assertSame(0, Invoice::where('customer_id', $suspended->id)->count());
+        $this->assertSame(0, $count);
+        $this->assertSame(0, Invoice::where('customer_id', $retired->id)->count());
+        $this->assertSame(0, Invoice::where('customer_id', $cancelled->id)->count());
     }
 
     #[Test]

@@ -20,7 +20,11 @@
                         <td
                             style="padding: 40px 40px 30px; background: linear-gradient(135deg, {{ $isOverdue ? '#ef4444' : '#6366f1' }} 0%, {{ $isOverdue ? '#dc2626' : '#4f46e5' }} 100%); text-align: center;">
                             <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
-                                {{ $isOverdue ? '⚠️ Factura Vencida' : '📣 Recordatorio de Pago' }}
+                                @if($invoiceCount > 1)
+                                    {{ $isOverdue ? '⚠️ Facturas Pendientes' : '📣 Recordatorio de Pago' }}
+                                @else
+                                    {{ $isOverdue ? '⚠️ Factura Vencida' : '📣 Recordatorio de Pago' }}
+                                @endif
                             </h1>
                             <p style="margin: 10px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px;">
                                 {{ $companyName }}
@@ -35,6 +39,49 @@
                                 Hola <strong>{{ $customerName }}</strong>,
                             </p>
 
+                            @if($invoiceCount > 1)
+                                <p style="margin: 0 0 20px; color: #374151; font-size: 16px; line-height: 1.6;">
+                                    Tienes <strong>{{ $invoiceCount }} facturas pendientes</strong> con nosotros.
+                                    @if($isOverdue)
+                                        Algunas ya se encuentran <span style="color: #ef4444; font-weight: 600;">vencidas</span>,
+                                        así que te pedimos ponerte al día lo antes posible para evitar la suspensión de tu servicio.
+                                    @endif
+                                    Este es el detalle:
+                                </p>
+
+                                <!-- Detalle: una fila por factura pendiente -->
+                                <table role="presentation"
+                                    style="width: 100%; border-collapse: collapse; margin: 25px 0; background-color: #f8fafc; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0;">
+                                    @foreach($invoices as $item)
+                                        <tr>
+                                            <td style="padding: 14px 20px; border-bottom: 1px solid #e2e8f0;">
+                                                <span style="color: #1e293b; font-size: 15px; font-weight: 600;">#{{ $item['number'] }}</span>
+                                                <span style="color: #64748b; font-size: 13px;">
+                                                    &nbsp;· vence {{ \Carbon\Carbon::parse($item['due_date'])->format('d M, Y') }}
+                                                </span>
+                                                @if($item['is_overdue'])
+                                                    <span style="color: #ef4444; font-size: 13px; font-weight: 600;">&nbsp;· vencida</span>
+                                                @endif
+                                            </td>
+                                            <td align="right" style="padding: 14px 20px; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">
+                                                <span style="color: #1e293b; font-size: 15px; font-weight: 600;">
+                                                    ${{ number_format($item['amount'], 0, ',', '.') }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                    <tr>
+                                        <td style="padding: 18px 20px;">
+                                            <span style="color: #64748b; font-size: 14px;">Total a pagar</span>
+                                        </td>
+                                        <td align="right" style="padding: 18px 20px; white-space: nowrap;">
+                                            <span style="color: {{ $isOverdue ? '#ef4444' : '#10b981' }}; font-size: 26px; font-weight: 700;">
+                                                ${{ number_format($amount, 0, ',', '.') }}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </table>
+                            @else
                             @if($isOverdue)
                                 <p style="margin: 0 0 20px; color: #374151; font-size: 16px; line-height: 1.6;">
                                     Te informamos que tu factura <strong>#{{ $invoiceNumber }}</strong> se encuentra <span
@@ -84,6 +131,7 @@
                                     </td>
                                 </tr>
                             </table>
+                            @endif
 
                             <p style="margin: 25px 0; color: #374151; font-size: 16px; line-height: 1.6;">
                                 Si ya realizaste el pago, por favor ignora este mensaje. De lo contrario, te invitamos a
