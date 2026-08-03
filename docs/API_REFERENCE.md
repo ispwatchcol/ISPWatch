@@ -868,6 +868,43 @@ Clientes · Facturas · Contabilidad · Infraestructura · Inventario · Soporte
 ruta a propósito**: un valor inválido debe llegar al controlador para que
 `assertValidType()` devuelva un `404` JSON limpio en vez de caer en el catch-all de la SPA.
 
+**`GET /api/document-templates/{type}`** — además de `body_html`/`is_active`/`has_draft`,
+devuelve:
+- `is_advanced_mode` (bool) — si la plantilla usa el shell fijo o el documento HTML completo.
+- `placeholders` — whitelist de placeholders **escalares** para el tipo (`config/document_placeholders.php`), `{token: etiqueta}`.
+- `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Vacío para `contract` (sin bloques en su alcance).
+
+**`PUT /api/document-templates/{type}`** y **`POST .../preview`** — cuerpo:
+
+```json
+{ "body_html": "<p>…</p>", "is_advanced_mode": false }
+```
+
+`is_advanced_mode` es `sometimes|boolean` (default `false`). Determina **qué sanitizer** se
+usa para sanear `body_html` — `TemplateSanitizer` (acotado) o `AdvancedTemplateSanitizer`
+(amplio, documento completo). En `preview`, refleja el modo que el tenant tiene seleccionado
+*en ese momento* en el editor, no necesariamente lo persistido (puede estar probando antes de
+guardar).
+
+**Header `X-Template-Warnings`** (sólo en la respuesta de `preview`, sólo si aplica) — JSON
+array de `{token, label}` con los placeholders **de bloque** que no se pudieron insertar en el
+documento (ej. quedaron dentro de un atributo HTML). Informativo: el PDF se genera igual, sin
+ese contenido. Ausente si no hay huérfanos — el frontend sólo lo lee si el header existe.
+
+```json
+[{ "token": "factura.tabla_items", "label": "Tabla de ítems de la factura…" }]
+```
+
+Al ser un header no estándar, va declarado en `exposed_headers` de `config/cors.php`: sin eso
+el navegador lo oculta a JavaScript en cualquier llamada cross-origin (el servidor de Vite en
+`:5173` contra la API en `:8000`), y el aviso nunca se dispararía en desarrollo. En producción
+front y API comparten origen, donde la restricción no aplica.
+
+> Un placeholder **escalar** desconocido, con typo, o de **otro tipo de documento**
+> (ej. `{{factura.tabla_items}}` dentro de un contrato) no genera este header — se blanquea a
+> `''` en silencio, mismo criterio que cualquier token no reconocido. Ver
+> `docs/MEJORAS_RECOMENDADAS.md`.
+
 > **Por qué `manage_document_templates` es un permiso aparte de `manage_tenant`:**
 > `manage_tenant` sólo cubre campos de identidad de empresa con validación estricta. El cuerpo
 > de una plantilla es texto legal/fiscal libre. Como el sistema admite roles personalizados,

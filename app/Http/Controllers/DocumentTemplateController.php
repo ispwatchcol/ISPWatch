@@ -11,6 +11,7 @@ use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Templates\AdvancedTemplateSanitizer;
 use App\Services\Templates\TemplateRenderer;
 use App\Services\Templates\TemplateSanitizer;
 use Illuminate\Http\Request;
@@ -23,11 +24,16 @@ use Illuminate\Http\Request;
 class DocumentTemplateController extends Controller
 {
     protected TemplateSanitizer $sanitizer;
+    protected AdvancedTemplateSanitizer $advancedSanitizer;
     protected TemplateRenderer $templateRenderer;
 
-    public function __construct(TemplateSanitizer $sanitizer, TemplateRenderer $templateRenderer)
-    {
+    public function __construct(
+        TemplateSanitizer $sanitizer,
+        AdvancedTemplateSanitizer $advancedSanitizer,
+        TemplateRenderer $templateRenderer
+    ) {
         $this->sanitizer = $sanitizer;
+        $this->advancedSanitizer = $advancedSanitizer;
         $this->templateRenderer = $templateRenderer;
     }
 
@@ -45,11 +51,12 @@ class DocumentTemplateController extends Controller
             $row = $rows->get($type);
 
             return [
-                'type'       => $type,
-                'body_html'  => $row?->body_html,
-                'is_active'  => (bool) ($row?->is_active),
-                'has_draft'  => $row !== null,
-                'updated_at' => $row?->updated_at,
+                'type'             => $type,
+                'body_html'        => $row?->body_html,
+                'is_active'        => (bool) ($row?->is_active),
+                'is_advanced_mode' => (bool) ($row?->is_advanced_mode),
+                'has_draft'        => $row !== null,
+                'updated_at'       => $row?->updated_at,
             ];
         })->values();
 
@@ -69,12 +76,14 @@ class DocumentTemplateController extends Controller
         $row = DocumentTemplate::where('tenant_id', $tenantId)->where('type', $type)->first();
 
         return response()->json([
-            'type'         => $type,
-            'body_html'    => $row?->body_html,
-            'is_active'    => (bool) ($row?->is_active),
-            'has_draft'    => $row !== null,
-            'updated_at'   => $row?->updated_at,
-            'placeholders' => config("document_placeholders.{$type}", []),
+            'type'               => $type,
+            'body_html'          => $row?->body_html,
+            'is_active'          => (bool) ($row?->is_active),
+            'is_advanced_mode'   => (bool) ($row?->is_advanced_mode),
+            'has_draft'          => $row !== null,
+            'updated_at'         => $row?->updated_at,
+            'placeholders'       => config("document_placeholders.{$type}", []),
+            'block_placeholders' => config("document_placeholder_blocks.{$type}", []),
         ]);
     }
 
@@ -82,28 +91,40 @@ class DocumentTemplateController extends Controller
      * Upsert the tenant's draft for a type and activate it. body_html is
      * sanitized here (save time) and again at render time in
      * TemplateRenderer (defense in depth) — never trusted as-is, never
-     * compiled as Blade.
+     * compiled as Blade. is_advanced_mode decide CUÁL sanitizer se usa:
+     * TemplateSanitizer (allowlist acotado, shell fijo) o
+     * AdvancedTemplateSanitizer (documento completo, sin shell) — nunca se
+     * guarda HTML saneado por el sanitizer "equivocado" para el modo.
      */
     public function update(UpdateDocumentTemplateRequest $request, string $type)
     {
         $this->assertValidType($type);
         $tenantId = $this->authTenant($request);
 
-        $sanitized = $this->sanitizer->sanitize($request->validated()['body_html']);
+        $isAdvancedMode = (bool) ($request->validated()['is_advanced_mode'] ?? false);
+        $sanitized = $isAdvancedMode
+            ? $this->advancedSanitizer->sanitize($request->validated()['body_html'])
+            : $this->sanitizer->sanitize($request->validated()['body_html']);
 
         $row = DocumentTemplate::updateOrCreate(
             ['tenant_id' => $tenantId, 'type' => $type],
-            ['body_html' => $sanitized, 'is_active' => true, 'updated_by' => $request->user()->id]
+            [
+                'body_html'        => $sanitized,
+                'is_active'        => true,
+                'is_advanced_mode' => $isAdvancedMode,
+                'updated_by'       => $request->user()->id,
+            ]
         );
 
         return response()->json([
             'message' => 'Plantilla guardada y activada correctamente.',
             'data'    => [
-                'type'       => $type,
-                'body_html'  => $row->body_html,
-                'is_active'  => $row->is_active,
-                'has_draft'  => true,
-                'updated_at' => $row->updated_at,
+                'type'             => $type,
+                'body_html'        => $row->body_html,
+                'is_active'        => $row->is_active,
+                'is_advanced_mode' => $row->is_advanced_mode,
+                'has_draft'        => true,
+                'updated_at'       => $row->updated_at,
             ],
         ]);
     }
@@ -137,6 +158,14 @@ class DocumentTemplateController extends Controller
      * customer/invoice, so nobody's data leaks into a live-typing preview
      * and it works identically for a brand new tenant with zero records.
      * Always uses the custom shell, regardless of is_active.
+     *
+     * If any block placeholder (config/document_placeholder_blocks.php)
+     * couldn't be inserted — e.g. the tenant pasted it inside an HTML
+     * attribute — TemplateRenderer::lastRenderWarnings() reports it here, and
+     * it's surfaced as an X-Template-Warnings response header alongside the
+     * PDF stream (informational only: the PDF still renders, without that
+     * block's content, matching the "never break the render" rule already in
+     * place for every other placeholder failure mode).
      */
     public function preview(UpdateDocumentTemplateRequest $request, string $type)
     {
@@ -144,11 +173,16 @@ class DocumentTemplateController extends Controller
         $tenantId = $this->authTenant($request);
         $tenant = Tenant::findOrFail($tenantId);
         $draftHtml = $request->validated()['body_html'];
+        // Refleja el modo que el tenant tiene seleccionado AHORA en el
+        // editor, no lo persistido — puede estar probando un cambio de modo
+        // antes de guardar.
+        $isAdvancedMode = (bool) ($request->validated()['is_advanced_mode'] ?? false);
 
         $pdf = match ($type) {
             DocumentTemplate::TYPE_INVOICE => $this->templateRenderer->previewInvoice(
                 $this->sampleInvoice($tenant),
-                $draftHtml
+                $draftHtml,
+                $isAdvancedMode
             ),
             DocumentTemplate::TYPE_CONTRACT => $this->templateRenderer->previewContract(
                 $this->sampleCustomer(),
@@ -157,7 +191,8 @@ class DocumentTemplateController extends Controller
                 $this->samplePlan($tenant),
                 '',
                 now()->format('d/m/Y'),
-                $draftHtml
+                $draftHtml,
+                $isAdvancedMode
             ),
             DocumentTemplate::TYPE_INSTALLATION => $this->templateRenderer->previewInstallationSheet(
                 $this->sampleInstallation($tenant),
@@ -173,11 +208,36 @@ class DocumentTemplateController extends Controller
                 '',
                 null,
                 now()->format('d/m/Y H:i'),
-                $draftHtml
+                $draftHtml,
+                $isAdvancedMode
             ),
         };
 
-        return $pdf->stream('vista-previa.pdf');
+        $response = $pdf->stream('vista-previa.pdf');
+
+        $warnings = $this->buildTemplateWarnings($type);
+        if (!empty($warnings)) {
+            $response->headers->set('X-Template-Warnings', json_encode($warnings));
+        }
+
+        return $response;
+    }
+
+    /**
+     * @return array<int,array{token:string,label:string}>
+     */
+    private function buildTemplateWarnings(string $type): array
+    {
+        $labels = config("document_placeholder_blocks.{$type}", []);
+
+        return collect($this->templateRenderer->lastRenderWarnings())
+            ->unique()
+            ->map(fn (string $token) => [
+                'token' => $token,
+                'label' => $labels[$token] ?? $token,
+            ])
+            ->values()
+            ->all();
     }
 
     private function authTenant(Request $request): int

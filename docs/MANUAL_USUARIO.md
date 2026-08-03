@@ -861,8 +861,29 @@ Pestaña **Plantillas**. Puedes editar el contenido de tres documentos:
 | **Instalación** | Acta de instalación |
 
 Se editan con un editor de texto enriquecido. Puedes insertar **marcadores** que el sistema
-reemplaza por datos reales (nombre del cliente, plan, monto...). El botón **Vista previa**
-te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve a la plantilla original.
+reemplaza por datos reales (nombre del cliente, plan, monto...). Si escribes un marcador que
+no existe, o el de otro tipo de documento por error (por ejemplo, uno de factura dentro de la
+plantilla de Contrato), simplemente no aparece nada ahí — no da ningún aviso de error, así
+que revisa bien el nombre exacto antes de guardar.
+
+**Bloques de contenido.** Además de los marcadores de texto, hay marcadores especiales que
+insertan contenido más complejo: la tabla de ítems de la factura, la galería de fotos de la
+instalación, y las imágenes de firma del cliente y del técnico. Se insertan con botones
+aparte (tarjetas más grandes, con ícono) — al hacer clic, el sistema los coloca automáticamente
+en su propio párrafo para que no queden a mitad de una frase. Si por alguna razón uno de estos
+bloques no se pudo insertar donde lo pusiste, la **Vista previa** te avisa con un mensaje
+explícito (a diferencia de los marcadores de texto simples, que se quedan callados).
+
+El botón **Vista previa** te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve
+a la plantilla original (tu borrador no se pierde, puedes reactivarlo guardando de nuevo).
+
+**Modo avanzado.** Un interruptor arriba del editor cambia a un modo donde editas el
+documento HTML completo (incluyendo el diseño y los colores, no sólo el texto) en un cuadro
+de texto plano en vez del editor enriquecido — pensado para quien sabe HTML/CSS y quiere
+control total sobre el diseño. El sistema sigue revisando el contenido por seguridad (nunca
+se guarda código que pueda ejecutar algo en el navegador de quien lo abra), así que no todo lo
+que escribas va a sobrevivir tal cual — usa **Vista previa** para confirmar antes de guardar.
+Si no sabes HTML/CSS, no actives este modo: no hay ayuda visual todavía, es edición de código.
 
 > Esta pestaña necesita el permiso *Gestionar Plantillas de Documentos*, que es distinto
 > del de configuración de empresa. Si no la ves, revisa tu rol.

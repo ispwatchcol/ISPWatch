@@ -18,7 +18,11 @@ class UpdateDocumentTemplateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'body_html' => ['required', 'string', 'max:200000'],
+            'body_html'        => ['required', 'string', 'max:200000'],
+            // Modo avanzado permite un documento HTML completo (más grande
+            // que un fragmento de body) — mismo límite, dompdf ya tiene sus
+            // propios límites prácticos de tamaño de documento.
+            'is_advanced_mode' => ['sometimes', 'boolean'],
         ];
     }
 }

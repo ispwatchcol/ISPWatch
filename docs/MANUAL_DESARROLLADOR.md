@@ -257,7 +257,7 @@ php artisan test --filter=FirstInvoice    # por nombre
 cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`
 (que no se versiona: parte de `.env.testing.example`).
 
-**Estado:** 278 tests, **0 fallos**. Hasta 2026-07-30 había 34 fallos permanentes —
+**Estado:** 358 tests, **0 fallos** (2026-08-03). Hasta 2026-07-30 había 34 fallos permanentes —
 19 de andamiaje de Breeze que probaba rutas y componentes inexistentes, 10 de documentos que
 falseaban el disco `public` mientras el código escribe en `s3`, y el resto residuos del
 esqueleto de Laravel. Se eliminaron los muertos y se arreglaron los reales: una suite con
@@ -284,7 +284,7 @@ la conexión) y aborta salvo en dos casos:
 > (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
 > seguir haciéndolo.
 
-### Cobertura actual (37 archivos, 278 tests)
+### Cobertura actual (46 archivos, 358 tests)
 
 | Suite | Archivos |
 |---|---|
@@ -293,8 +293,10 @@ la conexión) y aborta salvo en dos casos:
 | `Feature/Auth` | `ApiAuthorizationTest` (42: permiso por endpoint, OR, bypass admin, unión de permisos), `ApiLoginTest` (7: login real, verificación, rate limit), `RolePermissionsSyncTest` (7) |
 | `Feature/Router` | `RouterOutageTest` |
 | `Feature/Inventory` | `InventoryImportTest` |
-| `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
-| `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest`, `Services/PlaceholderResolverTest`, `Services/TemplateSanitizerTest` |
+| `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
+| `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest` |
+| `Unit/Services` | `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest` |
+| `Unit/Spikes` | `CssTidyExtractStyleBlocksSpikeTest` (prueba aislada de `Filter.ExtractStyleBlocks`, no forma parte del sanitizer de producción) |
 
 **Zona sin cobertura relevante:** la lógica de negocio de clientes, prospectos, sectoriales,
 soporte y gastos. La **autorización** de todos ellos sí está cubierta.
@@ -519,6 +521,35 @@ caso en `CustomerProvisioningService::provisionByControlMode()` si aplica al alt
 Cubre el manager con un test unitario que verifique **la cadena de comando generada**
 (patrón de `CoreSshExecTest` y `FirewallRulesManagerTest`).
 
+### Ejemplo: nuevo placeholder de documento
+
+**Escalar** (texto plano, ej. `{{cliente.telefono}}`):
+
+1. Añádelo a la whitelist del tipo correspondiente en `config/document_placeholders.php`
+   (`{'namespace.campo' => 'Etiqueta legible'}`).
+2. Resuélvelo en `App\Services\Templates\PlaceholderResolver::forInvoice()` /
+   `forContract()` / `forInstallation()` — el array de retorno debe tener **exactamente**
+   las mismas claves que la whitelist (`PlaceholderResolverTest` lo verifica con
+   `assertEqualsCanonicalizing`). Si el dato puede no existir, cae a `''`, nunca `null`.
+3. No hace falta tocar nada más: `apply()` ya escapa el valor con `htmlspecialchars()`.
+
+**De bloque** (HTML de confianza, ej. una tabla o imagen — sólo úsalo si el contenido
+necesita un `<img>`, atributos que el allowlist del tenant prohíbe, o repetir filas; para
+todo lo demás, usa un placeholder escalar):
+
+1. Whitelist en `config/document_placeholder_blocks.php`.
+2. Partial Blade en `resources/views/documents/blocks/` — nunca pasa por
+   `TemplateSanitizer`/`AdvancedTemplateSanitizer`, así que puedes usar cualquier tag/atributo.
+3. Resuélvelo en `App\Services\Templates\BlockPlaceholderResolver`, envuelto en
+   `safeRender()` (try/catch — un bloque que revienta al renderizar **nunca** debe tumbar
+   el documento completo, se degrada a `''` y queda logueado).
+4. **No** lo insertes directo con `str_replace`: `TemplateRenderer::compile()` /
+   `compileAdvanced()` ya orquestan `BlockMarkerInjector::markify()` (antes de sustituir
+   escalares) y `::splice()` (después) — ver `docs/ARQUITECTURA.md` § Plantillas de
+   documentos para el porqué del orden.
+5. Si el frontend debe ofrecerlo en el selector de placeholders, ya llega solo:
+   `DocumentTemplateController::show()` expone `block_placeholders` desde el mismo config.
+
 ---
 
 ## 11. Trampas conocidas
@@ -542,6 +573,8 @@ Cubre el manager con un test unitario que verifique **la cadena de comando gener
 | 15 | **`SubstituteBindings` corre antes que el middleware de ruta** | En el grupo `api`, un id inexistente en una ruta con vinculación implícita (`destroy(Router $router)`) devuelve **404 antes** de comprobar el permiso. Al testear autorización, crea el registro |
 | 16 | **No ocultes `password_rb` en `$hidden`** | `RouterEdit.vue` prellena el formulario con ese valor y lo reenvía al guardar: ocultarlo **borra la credencial** del router en la primera edición |
 | 17 | **El modo de corte se compara normalizado** | Usa `CutType::matches()` / `isAutomatic()`, nunca `=== 'Corte Automático'`: una tilde de menos dejaba de cortar sin ningún error |
+| 18 | **`*/` dentro de un docblock lo cierra antes de tiempo** | Un comentario tipo `/** ... on*/url() ... */` rompe con `syntax error, unexpected identifier` en la línea *siguiente*, no en la que tiene el error. Pasó dos veces escribiendo docs de `BlockMarkerInjector`/`AdvancedTemplateSanitizer` (`on*/url()`, `cliente.*/empresa.*`). Evita `algo*/algo` en prosa dentro de `/** */` |
+| 19 | **No todas las propiedades CSS de HTMLPurifier están activas por default** | `CSSDefinition::doSetup()` sólo registra un subconjunto; `display`/`visibility`/`overflow`/`opacity` requieren `CSS.AllowTricky`, `border-radius` (y variantes) requiere `CSS.Proprietary` (no `Tricky`) — mensajes de error como `Style attribute 'X' is not supported` no dicen cuál flag falta. Verifica contra el código fuente de `CSSDefinition.php` instalado, no contra la memoria/docs generales de HTMLPurifier. **Nunca** actives `CSS.Trusted` (habilita `position`/`z-index`) ni `HTML.Trusted` (habilita `<script>`) para resolver esto |
 
 ---
 

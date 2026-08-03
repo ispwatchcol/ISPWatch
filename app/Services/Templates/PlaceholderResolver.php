@@ -2,6 +2,7 @@
 
 namespace App\Services\Templates;
 
+use App\Models\Billing;
 use App\Models\CustomerInstallation;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
@@ -35,7 +36,8 @@ class PlaceholderResolver
             'empresa.telefono'          => $tenant?->billing_phone ?: $tenant?->tel_tenant ?: '',
             'empresa.email'             => $tenant?->billing_email ?: $tenant?->email_tenant ?: '',
             'empresa.ciudad'            => $tenant?->city ?: $tenant?->zone_tenant ?: '',
-            'cliente.nombre'            => (string) ($customer?->name ?: ''),
+            'cliente.nombre'            => (string) ($customer?->user_name ?: ''),
+            'cliente.apellido'          => (string) ($customer?->user_lastname ?: ''),
             'cliente.cedula'            => (string) ($profile?->cedula ?: ''),
             'cliente.direccion'         => (string) ($profile?->address ?: ''),
             'cliente.email'             => (string) ($customer?->email ?: ''),
@@ -63,7 +65,8 @@ class PlaceholderResolver
         return [
             'empresa.nombre'        => $tenant->legal_name ?: $tenant->trade_name ?: $tenant->name ?: '',
             'empresa.nit'           => $this->formatNit($tenant),
-            'cliente.nombre'        => (string) ($customer->name ?: ''),
+            'cliente.nombre'        => (string) ($customer->user_name ?: ''),
+            'cliente.apellido'      => (string) ($customer->user_lastname ?: ''),
             'cliente.cedula'        => (string) ($profile?->cedula ?: ''),
             'cliente.direccion'     => (string) ($profile?->address ?: ''),
             'cliente.email'         => (string) ($customer->email ?: ''),
@@ -84,15 +87,18 @@ class PlaceholderResolver
         ?Prospect $prospect,
         Tenant $tenant,
         ?User $technician,
-        string $date
+        string $date,
+        ?Plan $plan = null
     ): array {
-        $name = $customer
-            ? (string) $customer->name
-            : trim((string) ($prospect?->name ?? '') . ' ' . (string) ($prospect?->last_name ?? ''));
+        $firstName = $customer ? (string) $customer->user_name : (string) ($prospect?->name ?? '');
+        $lastName  = $customer ? (string) $customer->user_lastname : (string) ($prospect?->last_name ?? '');
+
+        $billing = $profile?->router?->billing;
 
         return [
             'empresa.nombre'            => $tenant->legal_name ?: $tenant->trade_name ?: $tenant->name ?: '',
-            'cliente.nombre'            => $name,
+            'cliente.nombre'            => $firstName,
+            'cliente.apellido'          => $lastName,
             'cliente.cedula'            => (string) ($profile?->cedula ?: $prospect?->cedula ?: ''),
             'cliente.direccion'         => (string) ($installation->address ?: $profile?->address ?: $prospect?->address ?: ''),
             'instalacion.numero'        => (string) $installation->id,
@@ -100,19 +106,34 @@ class PlaceholderResolver
             'instalacion.tecnico'       => (string) ($technician?->name ?: $installation->technician ?: ''),
             'instalacion.equipo'        => (string) ($installation->equipment ?? ''),
             'instalacion.observaciones' => (string) ($installation->notes ?? ''),
+            'servicio.plan'             => (string) ($plan?->name ?: ''),
+            'servicio.velocidad_bajada' => (string) ($plan?->speed_down ?: ''),
+            'servicio.velocidad_subida' => (string) ($plan?->speed_up ?: ''),
+            'servicio.ip'               => (string) ($profile?->ip_user ?: ''),
+            'servicio.usuario_pppoe'    => (string) ($profile?->pppoe_username ?: ''),
+            'servicio.punto_acceso'     => (string) ($profile?->sectorial?->name ?: ''),
+            'servicio.dia_pago'         => $billing ? (string) (Billing::dayOf($billing->payment_day) ?? '') : '',
+            'servicio.dia_corte'        => $billing ? (string) ($billing->cut_day_of_month ?? '') : '',
         ];
     }
 
     /**
-     * Replaces every known {{namespace.campo}} token with its value and
-     * blanks out any token not present in $values (unknown/mistyped
+     * Replaces every known {{namespace.campo}} token with its HTML-escaped
+     * value and blanks out any token not present in $values (unknown/mistyped
      * placeholders never break rendering).
+     *
+     * Escaping happens here, at substitution time, rather than via a later
+     * full-document sanitize pass (see TemplateRenderer::compile()): this is
+     * what makes it safe to call apply() on HTML that already contains
+     * trusted, unescaped block markup — a second sanitize pass would corrupt
+     * that markup, but an escaped scalar value is inert in both content and
+     * attribute position regardless of what else is on the page.
      */
     public function apply(string $html, array $values): string
     {
         $result = preg_replace_callback(
             '/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/',
-            static fn (array $m) => $values[$m[1]] ?? '',
+            static fn (array $m) => htmlspecialchars($values[$m[1]] ?? '', ENT_QUOTES, 'UTF-8'),
             $html
         );
 
