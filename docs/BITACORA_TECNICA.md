@@ -226,7 +226,7 @@ ISPWatch/
 | `RouterProvisioningService.php` | 218 | Suspender/reactivar en el router |
 | `TrafficHistoryService.php` | 164 | Muestreo y agregación de tráfico |
 | `WhatsAppService.php` | 162 | WhatsApp Cloud API (Graph v18) |
-| `PaymentReminderService.php` | 157 | Recordatorios |
+| `PaymentReminderService.php` | 209 | Recordatorios (uno por cliente, con todas sus facturas pendientes) |
 | `RouterPolicyInstallerService.php` | 151 | Instalación de reglas de bloqueo |
 | `Templates/TemplateRenderer.php` | — | Render de plantillas |
 | `Templates/TemplateSanitizer.php` | — | Saneado con HTMLPurifier |
@@ -459,14 +459,16 @@ flowchart TD
     C -- sí --> D{"hora actual >=<br/>create_invoice_time?"}
     D -- no --> Z
     D -- sí --> E["Periodo según billing_mode<br/>anticipado = mes actual<br/>vencido = mes anterior"]
-    E --> F["Clientes activos del router<br/>status=true, exclude_from_billing=false"]
+    E --> F["Clientes facturables del router<br/>service_status ∈ activo/gratis/suspendido<br/>exclude_from_billing=false"]
     F --> G{"¿Servicio activo<br/>y no cortesía?"}
     G -- no --> Z
     G -- sí --> H{"¿Ya existe factura<br/>del periodo?"}
     H -- sí --> Z
     H -- no --> I{"¿Lápida suppressed?"}
     I -- sí --> Z
-    I -- no --> J["FirstInvoicePolicy::chargeFor()"]
+    I -- no --> T{"¿Pendientes >= tope?<br/>overdue_invoices + stop_invoicing_extra"}
+    T -- sí --> Z
+    T -- no --> J["FirstInvoicePolicy::chargeFor()"]
     J --> K{"¿Devuelve null?"}
     K -- sí --> Z
     K -- no --> L["Crear factura + ítem"]
@@ -477,6 +479,21 @@ flowchart TD
 **Regla clave — el día se recorta al mes.** Un `create_invoice` configurado en día 31 se
 convierte en 30 en abril y 28 en febrero (`Billing::clampDayToMonth`), para que la
 configuración "último día del mes" siga disparando.
+
+**Regla clave — el corte NO congela la deuda; el tope sí.** La audiencia de la generación es
+`service_status` (`CustomerProfile::BILLABLE_SERVICE_STATUSES`), no el booleano `status`: al
+cliente **cortado por mora** se le siguen emitiendo mensualidades porque puede reconectarse
+pagando. Lo que detiene la acumulación es el **tope de facturación**
+(`Billing::invoiceStopThreshold()` = `overdue_invoices + stop_invoicing_extra`, `null` = sin
+tope): al llegar a ese número de facturas **pendientes** (con saldo, de cualquier tipo, vencidas
+o no) no se emite ninguna más. `retirado` y `cancelado` no facturan nunca. El mismo tope se
+aplica en `retryFailedInvoice` (después de la idempotencia) y en `auditMonthlyBilling`, que
+reporta esos clientes en la columna informativa `capped` para no dar falsos `partial`.
+
+**Notificación al crear.** No se notifica la factura de un mes de cortesía ni la que **nace
+saldada** con el saldo a favor del cliente (`balance_due = 0` tras `applyCreditToInvoice`). Si el
+cliente arrastra deuda anterior, `InvoiceCreatedMail` incluye `pending_count`, `previous_due` y
+`pending_total` para que el correo muestre la deuda total y no sólo el mes.
 
 ---
 
@@ -521,9 +538,16 @@ sequenceDiagram
 comprueba si el cliente quedó al día y, **sólo si el corte fue de facturación**, lo reactiva
 en el router. Un corte manual no se revierte solo.
 
-> **Detalle no evidente:** `suspend`/`unsuspend` **no tocan** `customer_profile.status`.
-> Un cliente cortado automáticamente conserva `status = true`. El estado de corte vive en
-> el router y en `suspension_action_logs`.
+> **Detalle no evidente:** `RouterProvisioningService::suspend`/`unsuspend` **no tocan**
+> `customer_profile.status` — el estado real del corte vive en el router y en
+> `suspension_action_logs`. Quienes sí lo escriben son los llamadores: el auto-cut
+> (`OverdueSuspensionService`) y la suspensión manual dejan `status = false` +
+> `service_status = 'suspendido'` antes de hablar con la RB, para que el reconciliador
+> (que escanea `status = false`) cubra los cortes fallidos.
+>
+> Ese `service_status = 'suspendido'` **no** saca al cliente de la facturación: la generación
+> mensual filtra por `CustomerProfile::BILLABLE_SERVICE_STATUSES` y sólo excluye
+> `retirado`/`cancelado`. Ver §6.2 (tope de facturación).
 
 ---
 

@@ -604,6 +604,8 @@ class BillingController extends Controller
             'cut_day' => 'nullable|date',
             'cut_time' => 'nullable|date_format:H:i,H:i:s',
             'overdue_invoices' => 'nullable|integer|min:1',
+            // Margen del tope de facturación (null = sin tope, se factura siempre).
+            'stop_invoicing_extra' => 'nullable|integer|min:0|max:60',
             'billing_mode' => 'nullable|in:anticipado,vencido',
             'notification_type' => 'nullable|in:email,whatsapp,both,none',
             'notificar_wpp' => 'nullable|boolean',

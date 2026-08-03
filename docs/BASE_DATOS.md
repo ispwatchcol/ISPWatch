@@ -253,6 +253,7 @@ erDiagram
         date cut_day
         time cut_time
         integer overdue_invoices "facturas para cortar"
+        smallint stop_invoicing_extra "margen del tope de facturación"
         varchar billing_mode "anticipado|vencido"
         varchar first_invoice_policy "none|prorated|full"
         varchar notification_type "email|whatsapp|both|none"
@@ -524,6 +525,7 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 | `cut_day` | date | | | **Día** del corte |
 | `cut_time` | time | NN | `00:00:00` | **Hora** del corte |
 | `overdue_invoices` | integer | NN | `0` | Nº de facturas vencidas que disparan el corte |
+| `stop_invoicing_extra` | smallint | | `2` | **Tope de facturación**: margen sobre `overdue_invoices`. Al llegar a `overdue_invoices + stop_invoicing_extra` facturas **pendientes** el cliente deja de recibir mensualidades. `NULL` = sin tope |
 | `billing_mode` | varchar(255) | NN | `anticipado` | `anticipado` (mes en curso) \| `vencido` (mes anterior) |
 | `first_invoice_policy` | varchar(16) | NN | `none` | Política por defecto del router |
 | `notificar_wpp` | boolean | NN | `false` | |

@@ -143,6 +143,46 @@ class PaymentReminderTest extends TestCase
     }
 
     #[Test]
+    public function it_sends_one_consolidated_message_for_all_pending_invoices(): void
+    {
+        // El cliente debe tres facturas: antes salían TRES correos seguidos.
+        Carbon::setTestNow(Carbon::create(2026, 6, 5, 9, 0, 0));
+        ['customer' => $customer, 'tenant' => $tenant, 'invoice' => $invoice] = $this->scenario(reminderDay: 5);
+
+        foreach ([4, 5] as $i => $month) {
+            Invoice::create([
+                'tenant_id'    => $tenant->id,
+                'customer_id'  => $customer->id,
+                'number'       => "INV-EXTRA-{$month}",
+                'issue_date'   => Carbon::create(2026, $month, 1),
+                'due_date'     => Carbon::create(2026, $month, 10),
+                'period_start' => Carbon::create(2026, $month, 1),
+                'period_end'   => Carbon::create(2026, $month, 1)->endOfMonth(),
+                'total'        => 50000,
+                'balance_due'  => 50000,
+                'status'       => 'overdue',
+            ]);
+        }
+
+        $stats = $this->runReminders();
+
+        // Un cliente avisado, tres facturas dentro de ese único mensaje.
+        $this->assertSame(1, $stats['reminded']);
+        $this->assertSame(3, $stats['invoices_included']);
+        Mail::assertSent(PaymentReminderMail::class, 1);
+
+        Mail::assertSent(PaymentReminderMail::class, function (PaymentReminderMail $m) {
+            return $m->invoiceCount === 3
+                && (float) $m->amount === 150000.0 // total adeudado
+                && count($m->invoices) === 3;
+        });
+
+        // Todas quedan marcadas: nadie recibe un segundo aviso este ciclo.
+        $this->assertNotNull($invoice->fresh()->last_reminder_sent);
+        $this->assertSame(0, Invoice::whereNull('last_reminder_sent')->count());
+    }
+
+    #[Test]
     public function reminder_day_31_fires_on_feb_28_in_a_non_leap_year(): void
     {
         Carbon::setTestNow(Carbon::create(2026, 2, 28, 9, 0, 0));

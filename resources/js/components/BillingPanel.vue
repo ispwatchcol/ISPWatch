@@ -166,6 +166,12 @@
                 {{ ciclo.corteExplicacion }}
               </span>
             </li>
+            <li class="flex gap-2">
+              <span class="mt-1.5 h-2.5 w-2.5 rounded-full bg-gray-400 shrink-0"></span>
+              <span>
+                <strong>Tope</strong>: {{ ciclo.tope }}
+              </span>
+            </li>
           </ul>
 
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
@@ -292,6 +298,30 @@
             Es la condición real del corte: el día de corte sólo abre la ventana, pero se suspende
             únicamente a quien llegue a este número de facturas vencidas. Con 2, el cliente aguanta
             un ciclo completo antes de que lo corten.
+          </p>
+        </div>
+
+        <!-- Tope de facturación -->
+        <div>
+          <label class="block text-gray-800 dark:text-gray-300 font-medium mb-1">
+            Dejar de facturar al moroso
+          </label>
+          <select
+            v-model="billing.stop_invoicing_extra"
+            class="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
+                  border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2
+                  focus:ring focus:ring-blue-500 transition-colors"
+          >
+            <option :value="null">Nunca — se le sigue facturando indefinidamente</option>
+            <option v-for="op in topeOpciones" :key="op.value" :value="op.value">
+              {{ op.label }}
+            </option>
+          </select>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Al cliente cortado se le siguen emitiendo mensualidades (la deuda refleja los meses
+            transcurridos) hasta llegar a este número de facturas pendientes; a partir de ahí
+            <strong>no se le genera ninguna más</strong> y la deuda queda congelada. Cuenta todas las
+            facturas con saldo, no sólo las vencidas.
           </p>
         </div>
 
@@ -448,8 +478,27 @@ const cfg = computed(() => ({
   recordatorio: dayOf(props.billing?.remember_day),
   corte: dayOf(props.billing?.cut_day),
   umbral: Math.max(1, parseInt(props.billing?.overdue_invoices, 10) || 1),
+  // null = sin tope de facturación (se factura siempre)
+  topeExtra: props.billing?.stop_invoicing_extra === null || props.billing?.stop_invoicing_extra === undefined
+    ? null
+    : Math.max(0, parseInt(props.billing.stop_invoicing_extra, 10) || 0),
   modo: props.billing?.billing_mode || 'anticipado'
 }))
+
+/**
+ * Opciones del tope de facturación, expresadas en el número final de facturas
+ * pendientes (que es como lo piensa el operador), no en el margen suelto.
+ * Espejo de Billing::invoiceStopThreshold: umbral de corte + margen.
+ */
+const topeOpciones = computed(() =>
+  [0, 1, 2, 3, 4, 5, 6].map((extra) => {
+    const total = cfg.value.umbral + extra
+    return {
+      value: extra,
+      label: `Al acumular ${total} facturas pendientes (corte en ${cfg.value.umbral} + ${extra})`
+    }
+  })
+)
 
 /**
  * Traduce la configuración a fechas reales del mes en curso. Es sólo un espejo
@@ -481,12 +530,21 @@ const ciclo = computed(() => {
     ? 'Con 1, el primer impago ya provoca el corte.'
     : `Con ${c.umbral}, en la práctica el corte llega alrededor de ${c.umbral - 1} ciclo${c.umbral - 1 === 1 ? '' : 's'} después del primer impago.`
 
+  // Tope de facturación: al cortado se le sigue facturando hasta este número
+  // de facturas pendientes; después la deuda se congela.
+  const tope = c.topeExtra === null
+    ? 'sin tope — al moroso se le sigue facturando indefinidamente, aunque ya esté cortado.'
+    : `deja de emitirse la mensualidad cuando el cliente acumula ${c.umbral + c.topeExtra} facturas pendientes`
+      + `${c.topeExtra === 0 ? ' (justo al llegar al corte)' : `, es decir ${c.topeExtra} ciclo${c.topeExtra === 1 ? '' : 's'} después del corte`}`
+      + '. La deuda queda congelada ahí.'
+
   return {
     mesActual: MESES[month],
     periodo,
     vencimiento,
     umbral: c.umbral,
     corteExplicacion,
+    tope,
     emision: c.emision !== null
       ? `${fmtDate(year, month, c.emision)} a las ${fmtTime(props.billing?.create_invoice_time)}`
       : 'sin día configurado (no se emiten facturas automáticas)',

@@ -303,6 +303,7 @@ Cada router tiene asociada una configuración con:
 | **Recordatorio de pago — Día / Hora** | Cuándo se avisa al cliente de lo que tiene pendiente |
 | **Se corta el servicio — Día / Hora** | Desde qué día del mes se empieza a suspender morosos |
 | **Suspender tras X facturas vencidas** | Cuántas facturas sin pagar tolera antes de cortar. **Es la condición real del corte** |
+| **Dejar de facturar al moroso** | A partir de cuántas facturas pendientes se le deja de emitir la mensualidad. Por defecto: el umbral de corte **+ 2** |
 | **Modo de facturación** | *Anticipado* (se cobra el mes que empieza) o *Vencido* (se cobra el mes que terminó) |
 
 Esto significa que **si un cliente no recibe factura, lo primero que hay que mirar es la
@@ -326,7 +327,13 @@ Los cuatro días se configuran por separado y es fácil confundirlos. Estas son 
   **facturas vencidas** configurado. Con el umbral en 2, el cliente arrastra un ciclo entero
   antes de que lo corten: por eso el corte "real" suele caer un mes después del primer impago.
 - **El recordatorio** se envía por día del mes, una sola vez por ciclo, sobre las facturas
-  pendientes que tenga el cliente en ese momento.
+  pendientes que tenga el cliente en ese momento. Es **un solo mensaje** con todas ellas y el
+  total adeudado, no uno por factura.
+- **Al cliente cortado se le sigue facturando.** El corte no congela la deuda: puede reconectarse
+  pagando y esos meses de servicio existen. Lo que frena la acumulación es el tope
+  **«Dejar de facturar al moroso»**: al llegar a ese número de facturas pendientes no se le
+  genera ninguna más y la deuda queda quieta. Con corte en 2 y tope +2, el cliente acumula 4
+  facturas y ahí para. Los clientes **retirados** o **cancelados** no facturan nunca.
 
 El panel de facturación del router muestra un recuadro **«Así queda el ciclo»** que traduce la
 configuración a fechas reales del mes en curso (emisión, periodo cubierto, recordatorio,
@@ -410,6 +417,22 @@ por ambos. También puedes enviarlos manualmente:
 - **Masivo**: desde la lista, botón **Recordatorios masivos**.
 
 El sistema **no duplica** recordatorios: si ya se envió uno en ese ciclo, no lo repite.
+
+**Un cliente = un mensaje.** Si debe varias facturas recibe **un solo** correo/WhatsApp con el
+listado de todas y el total adeudado, no uno por factura. Los recordatorios automáticos van
+sólo a clientes **activos**: al que ya está cortado el aviso le llega tarde (el corte fue el
+aviso), aunque sus facturas se sigan emitiendo hasta el tope.
+
+### 7.7.1 El aviso de "nueva factura"
+
+Cuando se genera la mensualidad, el cliente recibe el aviso configurado en el router
+(correo / WhatsApp / ambos / ninguno). Dos detalles:
+
+- Si el cliente **ya debía facturas anteriores**, el correo lo dice: muestra cuántas tiene
+  pendientes, el saldo anterior y la **deuda total**. Antes sólo veía el valor del mes y pagaba
+  de menos.
+- Si la factura **nace saldada** porque el saldo a favor del cliente la cubrió entera, **no se
+  envía ningún aviso**: avisar de una factura ya pagada confunde al cliente.
 
 ### 7.8 Clientes que no se facturan
 

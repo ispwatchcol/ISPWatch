@@ -85,6 +85,26 @@
                                 </tr>
                             </table>
 
+                            @if($pendingCount > 1)
+                                <!-- Deuda anterior: el cliente ya tenía facturas sin pagar -->
+                                <table role="presentation"
+                                    style="width: 100%; border-collapse: collapse; margin: 0 0 25px; background-color: #fef3c7; border-radius: 12px; border: 1px solid #fcd34d;">
+                                    <tr>
+                                        <td style="padding: 18px 20px;">
+                                            <p style="margin: 0 0 6px; color: #92400e; font-size: 15px; font-weight: 600;">
+                                                Tienes {{ $pendingCount }} facturas pendientes
+                                            </p>
+                                            <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.6;">
+                                                Además de esta factura, tienes un saldo anterior de
+                                                <strong>${{ number_format($previousDue, 0, ',', '.') }}</strong>.
+                                                Tu deuda total con nosotros es de
+                                                <strong>${{ number_format($pendingTotal, 0, ',', '.') }}</strong>.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                            @endif
+
                             <p style="margin: 25px 0; color: #374151; font-size: 16px; line-height: 1.6;">
                                 Por favor realiza el pago antes de la fecha límite para evitar interrupciones en tu servicio.
                                 Si ya tienes saldo a favor, se aplicará automáticamente.
