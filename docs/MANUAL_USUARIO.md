@@ -3,8 +3,13 @@
 > Guía paso a paso para el uso diario del sistema. Escrita en lenguaje sencillo,
 > sin conocimientos técnicos previos.
 > Si eres desarrollador, busca [`MANUAL_DESARROLLADOR.md`](MANUAL_DESARROLLADOR.md).
+>
+> **Este documento es la fuente de verdad del manual.** Lo que el usuario lee dentro de la
+> aplicación (**Manual → Centro de Ayuda**) es su espejo, y sale de
+> `database/seeders/HelpCenterSeeder.php`. **Si corriges algo aquí, corrígelo también allí**:
+> los dos ya se separaron una vez y el de la app acumuló información falsa durante meses.
 
-**Última actualización:** 2026-07-31
+**Última actualización:** 2026-08-03
 
 ---
 
@@ -102,13 +107,25 @@ A la izquierda está el **menú lateral**. Los grupos que ves dependen de tu rol
 
 Es la primera pantalla al entrar. Muestra de un vistazo:
 
-- **Clientes totales** y **clientes activos**.
-- **Sectoriales** y **routers** registrados.
-- **Routers con falla general**: si un equipo está marcado en falla masiva, aparece aquí
-  con su nombre e IP. Es la alerta más importante del panel.
-- **Tickets abiertos** y **tickets urgentes**.
-- **Ingresos del mes**: suma de las facturas ya pagadas este mes.
-- **Pagos recibidos en el mes**.
+| Tarjeta | Qué cuenta exactamente |
+|---|---|
+| **Clientes** | **Totales**: clientes habilitados en el sistema. **Activos**: los que además tienen el servicio prendido. **Suspendidos**: la resta de los dos |
+| **Ingresos del mes** | El **dinero que entró este mes**: la suma de los pagos registrados con fecha de este mes. No es lo facturado |
+| **Saldo pendiente** | Lo que el conjunto de clientes debe: suma de los saldos de las facturas emitidas y vencidas, de **todos** los meses, no sólo del actual |
+| **Tasa de recaudo** | Qué porcentaje de lo facturado este mes ya se cobró. Si es 0 % puede ser que aún no se haya emitido nada este mes |
+| **Tickets** | Abiertos (incluye los que están en progreso) y urgentes |
+| **Infraestructura** | Sectoriales y routers registrados |
+| **Actividad reciente** | Últimos movimientos del sistema |
+
+> ⚠️ **La alerta más importante del panel son los routers con falla general.** Si un equipo
+> está marcado en falla masiva aparece resaltado con su nombre e IP. Ver [11.6](#116-falla-masiva).
+
+Dos cosas que suelen confundir:
+
+- **"Ingresos del mes" cuenta pagos, no facturas.** Un cliente que paga en agosto una factura
+  de julio suma a agosto. Si quieres ver lo *facturado*, ve a **Finanzas → Facturación**.
+- **"Saldo pendiente" arrastra deuda vieja.** No mide el mes: mide todo lo que está sin pagar.
+  Por eso puede subir aunque este mes se haya cobrado bien.
 
 ---
 
@@ -123,6 +140,10 @@ Verás la tabla con todos tus clientes. Puedes:
 - **Buscar** por nombre, cédula, IP o correo usando la barra de búsqueda.
 - **Ordenar** haciendo clic en el encabezado de una columna.
 - **Pasar de página** con los controles de abajo.
+
+> **La búsqueda ya no distingue mayúsculas.** Buscar `eliud` encuentra a *Eliud*. Antes no era
+> así y podía parecer que un cliente no existía; se corrigió en julio de 2026 en todas las
+> pantallas (clientes, facturación, prospectos y tickets).
 
 ### 5.2 Crear un cliente
 
@@ -208,9 +229,20 @@ Tienes dos botones:
 | **Guardar** | Registra al cliente **sólo en el sistema**. No toca el router |
 | **Guardar y cargar a la RB** | Registra al cliente **y lo configura en el equipo de red** |
 
-> **La carga al router tarda entre 17 y 34 segundos.** Es normal. Si ves un error de
-> "tiempo agotado" pero el cliente quedó creado, usa después el botón de aprovisionar
-> desde la ficha del cliente.
+**Cómo funciona "Guardar y cargar a la RB".** El cliente se guarda **de inmediato** y la carga
+al equipo se hace **en segundo plano**. No tienes que esperar con la pantalla abierta ni te va
+a salir un "tiempo de espera agotado": son dos cosas separadas. La parte del router tarda
+alrededor de medio minuto por cliente.
+
+> ⚠️ **El router tiene que tener activada el alta automática** (*Agregar cliente a MikroTik*,
+> en su ficha). **Viene apagada de fábrica.** Si está apagada, el cliente se guarda
+> perfectamente pero **nunca se carga al equipo**, y el aviso de esto sólo queda en la bitácora
+> del sistema — en pantalla no se ve nada raro. Es la causa más común de "creé el cliente y no
+> tiene internet".
+
+Si la carga en segundo plano falla (o el router la tenía apagada), entra a la ficha del cliente
+y usa el botón de **aprovisionar**. Ese botón exige que el cliente tenga **router**, **plan** e
+**IP** asignados; si le falta alguno te lo dice y no hace nada.
 
 ### 5.3 Editar un cliente
 
@@ -224,20 +256,48 @@ más unas pestañas adicionales:
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
 
-### 5.4 Suspender o activar un cliente
+### 5.4 Estados del cliente: suspender, retirar, cancelar
 
 Desde la ficha del cliente, con los botones **Suspender** y **Activar**.
 Esto actúa **de verdad sobre el router**: al suspender, el cliente deja de navegar.
 
 > Necesitas el permiso *Activar y Desactivar Clientes*.
 
+**Los estados no son lo mismo, y la diferencia se paga en la facturación.** Esto es lo que
+más se confunde:
+
+| Estado | Navega | ¿Se le sigue facturando? |
+|---|---|---|
+| **Activo** | Sí | Sí |
+| **Gratis** | Sí | No — es un plan de cortesía |
+| **Suspendido** | No | **Sí.** Es un corte temporal: puede volver pagando, así que esos meses se cobran |
+| **Retirado** | No | **No.** Es una baja definitiva |
+| **Cancelado** | No | **No.** Es una baja definitiva |
+
+> ⚠️ **Suspender no es dar de baja.** Al suspendido se le siguen emitiendo facturas mes a mes,
+> a propósito: si se reconecta, esos meses existen. Lo único que frena la acumulación es el
+> tope de *"Dejar de facturar al moroso"* del router (ver [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema)).
+>
+> **Al cliente que se fue de verdad hay que ponerlo en Retirado o Cancelado**, no dejarlo
+> suspendido. Si lo dejas suspendido, seguirá generando deuda que nadie va a pagar y ensuciará
+> tus reportes de cartera.
+
+El corte automático por mora deja al cliente en **Suspendido**, igual que si lo suspendieras a
+mano. La diferencia es que del corte por mora el sistema **lo reconecta solo cuando paga**;
+del manual, no (ver [8.2](#82-qué-pasa-automáticamente-al-guardar)).
+
 ### 5.5 Eliminar un cliente
 
 En la lista, icono de **eliminar**. El sistema pedirá confirmación.
 Se borran también su perfil, sus facturas y sus documentos.
 
+> ⚠️ **Eliminar al cliente NO lo saca del router.** El sistema lo borra de la base de datos,
+> pero su configuración se queda en el equipo y **el cliente sigue navegando** — sólo que ya
+> no aparece en ninguna pantalla, así que nadie se entera. Si de verdad quieres cortarle el
+> servicio: **suspéndelo primero** (5.4), comprueba que quedó cortado, y **después** bórralo.
+
 > **Piénsalo dos veces.** Si el cliente sólo se retiró, es mejor desactivarlo que borrarlo:
-> así conservas su historial de pagos.
+> así conservas su historial de pagos y el sistema deja de facturarle igual.
 
 ### 5.6 Ver el mapa y las estadísticas
 
@@ -266,9 +326,14 @@ El prospecto queda en estado **agendado**.
 El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
 
 1. **Llena el acta**: equipos instalados, observaciones, mediciones.
-2. **Sube fotos**.
-   > **Sube las fotos de una en una.** Si intentas subir varias a la vez el sistema puede
-   > fallar. El sistema las comprime solo antes de enviarlas.
+2. **Sube fotos**. Puedes seleccionarlas **todas juntas**: el sistema las comprime en el
+   teléfono y las va enviando **una por una** por su cuenta, para que no se caiga la subida.
+   Verás el progreso mientras trabaja.
+   > Antes había que subirlas de a una a mano porque varias juntas hacían fallar la subida.
+   > Eso se corrigió; ya no hace falta.
+   >
+   > Cada foto puede pesar hasta **10 MB** y ser **JPG, PNG o WEBP**. Si una foto no cumple,
+   > el sistema la rechaza y te lo dice.
 3. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
 4. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
@@ -355,8 +420,8 @@ Puedes filtrar por estado, cliente y fechas. Los estados son:
 | **Vencida** | Pasó la fecha de pago sin pagarse |
 | **Anulada** | Sin efecto |
 
-> **La búsqueda distingue mayúsculas.** Si buscas "eliud" y el cliente está guardado como
-> "Eliud", puede que no aparezca en algunas pantallas. Prueba con la inicial en mayúscula.
+El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido** y
+**correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
 
 ### 7.3 Ver el detalle y descargar el PDF
 
@@ -585,8 +650,17 @@ pendientes para que alguien decida.
 
 ### 9.2 Qué le pasa al cliente cortado
 
-Deja de navegar, pero **sí puede entrar al portal de pago** de tu empresa. Ese acceso
-queda abierto a propósito, para que pueda pagar y reconectarse.
+Deja de navegar, pero **sí puede entrar al portal de pago** de tu empresa. Ese acceso queda
+abierto a propósito, para que pueda pagar y reconectarse.
+
+Además, mientras está cortado, **cualquier página que intente abrir lo lleva al portal**. No
+ve un "sin conexión" a secas: ve tu página de pago. Es la forma de que entienda por qué se
+quedó sin servicio.
+
+> El portal es una dirección que se configura una sola vez al instalar el sistema. **Si esa
+> dirección no está configurada, las reglas de bloqueo ni siquiera se pueden aplicar**: el
+> sistema te lo dirá al pulsar *Aplicar reglas de bloqueo*. En ese caso es cosa de soporte
+> técnico, no algo que se arregle desde las pantallas.
 
 ### 9.3 Ver qué se cortó y qué falló
 
@@ -604,6 +678,74 @@ clientes que el sistema dio por suspendidos y comprueba que **realmente** estén
 el equipo. Si alguno no lo está, lo vuelve a cortar.
 
 > El sistema hace esta reconciliación solo cada hora. El botón sirve para forzarla.
+
+### 9.4 El cliente aparece cortado pero sigue navegando
+
+Este es **el problema más común del sistema**, y casi siempre es una de tres cosas. El
+sistema dice "cortado" porque hizo su parte; lo que falla está en el equipo. Revisa en este
+orden — está ordenado de la causa más frecuente a la menos frecuente.
+
+**1. El túnel VPN del router está caído.**
+
+Si el router no tiene túnel contra el equipo central, ISPWatch no puede darle ninguna orden:
+ni cortar, ni reconectar, ni cargar clientes nuevos. Y como el corte se registra en la base
+de datos antes de llegar al equipo, la pantalla muestra al cliente cortado aunque en la
+realidad nunca se tocó nada.
+
+- Entra a **Gestión → Lista de Routers**, abre el equipo y pulsa **Verificar VPN**.
+- Si sale caído, el equipo perdió el túnel. Hay que levantarlo desde el router (o volver a
+  aplicarle el script con **Generar script VPN**) antes de intentar cualquier otra cosa.
+- Señal de alarma: **muchos clientes del mismo router** sin cortar a la vez. Un cliente
+  suelto suele ser otra cosa; el router entero es casi siempre la VPN.
+
+> El sistema revisa los túneles solo cada 30 minutos y avisa por correo cuando encuentra uno
+> caído. No esperes ese aviso si ya tienes la sospecha: verifica a mano.
+
+**2. Las reglas de bloqueo no están, o quedaron muy abajo en el equipo.**
+
+El router aplica sus reglas **en orden, de arriba hacia abajo**, y se queda con la primera
+que coincide. Si las reglas de ISPWatch quedaron por debajo de una regla que deja pasar el
+tráfico (muy común: las que trae el equipo de fábrica), nunca llegan a ejecutarse. Para el
+router las reglas están ahí; simplemente no se leen nunca.
+
+Esto pasa sobre todo cuando alguien tocó el firewall del equipo a mano después de que
+ISPWatch instaló las reglas.
+
+- Pulsa **Verificar reglas de bloqueo** para ver cómo están puestas.
+- Pulsa **Aplicar reglas de bloqueo**: además de instalarlas si faltan, **las vuelve a subir
+  al primer lugar**. Es la forma normal de arreglar el orden — no hay que borrar nada a mano.
+- Puedes pulsarlo las veces que quieras. No duplica reglas ni rompe lo que ya está bien.
+
+> Para poder aplicarlas, el router necesita tener la **interfaz WAN** configurada. Si te dice
+> *"Router sin interfaz WAN configurada"*, ve a **Fijar interfaz WAN** primero.
+
+**3. El cliente sigue con conexiones abiertas de antes.**
+
+Un corte solo afecta a las conexiones **nuevas**. Si el cliente estaba con una descarga o un
+video ya andando, esa conexión sigue viva por su cuenta. El sistema corta esas conexiones al
+suspender, pero si el corte se aplicó tarde (por ejemplo, después de arreglar la VPN) puede
+que alguna quede colgada unos minutos.
+
+Espera un par de minutos y vuelve a comprobar antes de seguir buscando.
+
+**Después de arreglar cualquiera de las tres**, entra a **Acciones masivas → Bitácora de
+cortes** y pulsa **Reconciliar**. Eso revisa uno por uno a los clientes que figuran como
+suspendidos y vuelve a cortar a los que no lo estén de verdad. Sin este paso, los clientes
+que ya estaban mal marcados siguen navegando aunque el router ya esté bien configurado.
+
+**Si con esto no se arregla**, revisa lo demás:
+
+| Revisa | Dónde |
+|---|---|
+| Que el router esté en **Corte Automático**, no Manual | Ficha del router → tipo de corte |
+| Que el equipo responda al SSH | Ficha del router → **Probar conexión SSH** |
+| Que el cliente no esté marcado **"No facturar"** | Ficha del cliente |
+| Que el cliente no haya **abonado** (un abono parcial lo saca de mora, ver [8.2.1](#821-abonos-parciales-el-saldo-pasa-a-la-próxima-factura)) | Ficha del cliente → Facturación |
+| El error exacto del intento fallido | **Acciones masivas → Bitácora de cortes** |
+
+> **Antes de estrenar el corte automático en un router nuevo:** verifica la VPN y aplica las
+> reglas de bloqueo. Si no lo haces, el primer día de corte el sistema marcará a todos como
+> cortados y ninguno lo estará.
 
 ---
 
@@ -676,13 +818,25 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 | **Generar script VPN** | Genera el texto para configurar el túnel del equipo |
 | **Verificar VPN** | Comprueba que el túnel está arriba |
 
-> ⚠️ **Antes de usar el corte automático, aplica las reglas de bloqueo al router.**
-> Sin ellas el sistema marca al cliente como cortado pero el cliente sigue navegando.
+> ⚠️ **Antes de usar el corte automático: verifica la VPN y aplica las reglas de bloqueo.**
+> Si el túnel está caído o las reglas no están, el sistema marca al cliente como cortado pero
+> el cliente sigue navegando. **Aplicar reglas de bloqueo** sirve también cuando las reglas ya
+> existen pero quedaron muy abajo en el equipo: las vuelve a subir al primer lugar. Todo el
+> diagnóstico está en [9.4](#94-el-cliente-aparece-cortado-pero-sigue-navegando).
 
 ### 11.5 Historial de tráfico
 
-Si activas **Historial de tráfico** en el router, el sistema toma una medición cada
-5 minutos y guarda el consumo diario. Se consulta desde la ficha del router.
+Si activas **Historial de tráfico** en el router, el sistema mide el tráfico de su salida a
+internet **cada 5 minutos** y lo guarda. Se consulta desde la ficha del router.
+
+- El **detalle de 5 en 5 minutos** se conserva **30 días**. Sirve para ver el pico de ayer o
+  la caída de anoche.
+- El **consumo diario** se guarda **para siempre**. Sirve para comparar meses o años.
+
+> Empieza a medir **desde que lo activas**. No hay historial de antes; si acabas de prenderlo,
+> la gráfica sale vacía hasta la siguiente medición.
+>
+> Para que mida hace falta tener fijada la **interfaz WAN** del router (11.4).
 
 ### 11.6 Falla masiva
 
@@ -692,8 +846,57 @@ Cuando un nodo se cae y afecta a muchos clientes:
 2. Pulsa **Reportar falla masiva** en el router afectado.
 3. Cuando se restablezca, pulsa **Marcar como resuelta**.
 
-El router afectado aparece resaltado en el Dashboard y el aviso se difunde a los clientes
-por WhatsApp a través del sistema conectado.
+Al reportarla, el sistema marca el router, lo resalta en el Dashboard y **cuenta cuántos
+clientes activos quedan afectados**. Ambos avisos (la falla y la recuperación) quedan
+guardados con la hora y el usuario que los reportó; ese registro no se puede editar ni
+borrar, sirve como historial de la caída.
+
+> **Sobre el aviso por WhatsApp:** ISPWatch **no envía los mensajes**. Lo que hace es dejar el
+> aviso registrado para que el sistema de mensajería conectado lo lea y lo difunda. Si esa
+> conexión todavía no está montada en tu empresa, el botón sigue siendo útil (marca el router,
+> alerta en el Dashboard y deja el historial), pero **a los clientes no les llega nada**.
+> Confírmalo con tu proveedor antes de contar con el aviso automático.
+
+### 11.7 La VPN: cómo llega ISPWatch a tus equipos
+
+Esto explica **por qué** aparece tanto la palabra "VPN" en el manual. No hace falta entenderlo
+para el día a día, pero sí para saber a quién llamar cuando algo no responde.
+
+ISPWatch no habla directo con cada router tuyo. Habla con un **equipo central** (el CORE), y
+ese equipo central llega a tus routers por un **túnel privado** que se monta una sola vez,
+cuando das de alta el equipo. Todo lo que hace el sistema sobre la red —cargar un cliente,
+cortarlo, reconectarlo, leer las interfaces, medir el tráfico— pasa por ese túnel.
+
+**Si el túnel se cae, ISPWatch se queda ciego con ese router.** Sigue mostrando sus clientes,
+sigue facturándoles y sigue marcando cortes en pantalla, pero **ninguna orden llega al equipo**.
+Por eso el primer paso de casi todo diagnóstico de red es **Verificar VPN**.
+
+**Hay dos tipos de túnel** y el sistema elige solo según la versión del equipo:
+
+| Tipo | Para qué equipos | Cómo se sabe si está vivo |
+|---|---|---|
+| **WireGuard** | RouterOS **v7** en adelante | Por el último saludo del equipo (se renueva cada pocos minutos) |
+| **L2TP** | RouterOS **v6**, que no soporta WireGuard | Por la sesión activa contra el central |
+
+No tienes que elegir nada: al generar el script VPN el sistema mira la versión del equipo y
+arma el que corresponde.
+
+> **Por qué se cambió a WireGuard en los equipos nuevos.** Un router con dos salidas a internet
+> podía mandar media conversación por una y media por la otra, y el túnel L2TP se caía en bucle.
+> Pasó de verdad: un equipo estuvo **8 días caído con 212 clientes sin gestión** y nadie se dio
+> cuenta, porque el sistema sólo avisaba de fallos cliente por cliente, nunca de "este router no
+> está". WireGuard no tiene ese problema, y desde entonces hay una revisión automática.
+
+**La revisión automática.** Cada 30 minutos el sistema comprueba todos los túneles y **avisa por
+correo** los que encuentre caídos. Sólo mira y avisa: no toca nada ni intenta arreglarlo.
+
+> Los routers que nunca se dieron de alta por el central no se revisan (no tienen túnel que
+> mirar) y por eso tampoco salen en el aviso. Si un equipo "no aparece nunca en las alertas"
+> pero tampoco responde, es probable que sea uno de esos: revísalo con **Probar conexión SSH**.
+
+**Cuándo hay que volver a generar el script VPN:** cuando el equipo se formateó o se reemplazó,
+o cuando *Verificar VPN* da caído y el equipo sí tiene internet. Ojo: el script se aplica **en el
+router**, no desde ISPWatch — el botón sólo te da el texto para pegarlo.
 
 ---
 
@@ -720,6 +923,18 @@ OLT → splitter → NAP → cliente. Cada elemento indica cuántos puertos tien
 ocupados; los ocupados **se calculan solos** a partir de lo que cuelga de él.
 
 Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**.
+
+- En un **splitter** no escribes el número de puertos: lo saca de la **relación de división**
+  que le pongas (`1:8` son 8 salidas).
+- En el resto de elementos sí indicas el total de puertos a mano.
+- Los puertos ocupados **nunca se editan**: si el número no cuadra, lo que está mal es lo que
+  cuelga de ese elemento, no el contador.
+
+> **Un cliente de fibra tiene que estar marcado como fibra.** Si le asignas OLT y puerto NAP
+> pero la casilla *Es fibra* quedó apagada, al abrir *Editar* verás los campos de fibra vacíos
+> y parecerá que se perdió la información. Hoy el formulario **lo detecta solo** al cargar el
+> cliente, así que no debería volver a pasar; si ves un cliente así, ábrelo y guárdalo para
+> dejarlo consistente.
 
 ### 12.2 Fotos, notas e historial
 
@@ -806,28 +1021,47 @@ El rol es lo que determina qué podrá ver y hacer.
 
 ### 16.2 Roles y permisos
 
-En **Roles** puedes crear roles a medida. Los permisos están agrupados:
+En **Roles** puedes crear roles a medida. Estos son **todos** los permisos, agrupados como
+aparecen en pantalla:
 
-| Grupo | Ejemplos |
+| Grupo | Permisos |
 |---|---|
-| **Clientes** | Ver lista, agregar, editar servicio, activar/desactivar, editar descuento |
-| **Facturas** | Ver estadísticas, buscar facturas, registrar pagos, eliminar factura |
-| **Contabilidad** | Editar gasto, ver gastos, ver facturas, editar fecha de pago |
-| **Infraestructura** | Gestionar routers, ver planes, ver sectoriales |
-| **Inventario** | Ver inventario |
-| **Soporte** | Ver soporte técnico |
-| **Facturación** | Ver facturación |
-| **Sistema** | Ver personal, gestionar roles, configuración de empresa, plantillas de documentos, ajustes, acciones masivas |
+| **Clientes** | Lista de Clientes · Agregar Clientes · Editar Servicio Internet · Activar y Desactivar Clientes · Editar Descuento · Editar Saldo Pendiente · Eliminar Instalaciones · Tráfico Clientes |
+| **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · Eliminar Factura · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
+| **Contabilidad** | Lista de Gastos · Editar Gasto · Lista de Facturas · Registrar Pagos · Editar Fecha de Pago · Registrar Pago Mayor 3 Días · Agregar Transferencia · Eliminar Transferencia |
+| **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
+| **Inventario** | Ver Inventario |
+| **Soporte** | Ver Soporte Técnico |
+| **Facturación** | Ver Facturación |
+| **Sistema** | Ver Personal · Gestionar Roles · Gestionar Configuración de Empresa · Gestionar Plantillas de Documentos · Ver Ajustes del Sistema · Ejecutar Acciones Masivas |
+
+**Los roles que trae el sistema.** Son un punto de partida; puedes editarlos o crear otros:
+
+| Rol | Alcance |
+|---|---|
+| **Administrador** | Todo, sin excepción |
+| **Técnico** | Sólo clientes: verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones. **No ve dinero**: ni facturas, ni pagos, ni gastos |
+| **Contabilidad** | Todo lo de plata: facturas, pagos, gastos, transferencias y estadísticas. **No gestiona la red** ni el personal |
+| **Staff** | El operador de mostrador: clientes, planes, sectoriales, inventario, soporte, ver facturación y registrar pagos. **No borra facturas ni toca configuración** |
+| **Cliente** | Sin permisos de gestión. Es el rol de los clientes finales |
+
+> **Ojo con "Activar y Desactivar Clientes":** ese permiso no sólo cambia un estado en pantalla,
+> **actúa sobre el router de verdad**. Es también el que habilita cargar clientes al equipo. No
+> se lo des a quien no deba tocar la red.
 
 > ⚠️ **Muy importante:** cuando el sistema estrena un permiso nuevo, **los roles que ya
 > existían no lo reciben solos**. Si tras una actualización una pestaña desaparece para los
 > administradores, ve a **Roles**, marca el permiso nuevo, guarda, y pide a los usuarios
 > afectados que **cierren sesión y vuelvan a entrar**.
 
-### 16.3 Refrescar permisos sin cerrar sesión
+### 16.3 Cuándo hace falta volver a entrar
 
-Si un administrador te acaba de cambiar el rol, recarga la página. El sistema vuelve a
-consultar tus permisos.
+Si un administrador te acaba de cambiar el rol o de marcarte un permiso, **recarga la página**:
+el sistema vuelve a consultar tus permisos y normalmente con eso basta.
+
+Si tras recargar sigues sin ver lo que deberías, cierra sesión y vuelve a entrar. Y si aun así
+no aparece, entonces el permiso **no está marcado en tu rol** — no es cosa tuya, hay que
+marcarlo en **Roles** (ver el aviso de 16.2).
 
 ---
 
@@ -916,9 +1150,12 @@ Igual, para equipos. Cada fila es un equipo con su serial y su MAC.
 
 ### 18.4 Aprovisionamiento masivo
 
-Carga a los routers a varios clientes de golpe. Como cada cliente tarda unos 20–30 segundos,
-el proceso corre en segundo plano y verás una **barra de progreso**.
-Puedes seguir trabajando mientras tanto.
+Carga a los routers a varios clientes de golpe. Como cada cliente tarda alrededor de medio
+minuto, el proceso corre en segundo plano y verás una **barra de progreso**. Puedes cerrar la
+pantalla y seguir trabajando: no se cancela.
+
+> Vale lo mismo que en el alta individual (5.2): los routers que tengan **apagada** el alta
+> automática se saltan, y los clientes sin router, plan o IP no se pueden aprovisionar.
 
 ### 18.5 Paneles de reintentos
 
@@ -935,20 +1172,41 @@ Si es un permiso recién creado, además tendrás que cerrar sesión y volver a 
 **Un cliente no recibió su factura este mes.**
 Revisa en este orden:
 1. ¿El **router** del cliente tiene configuración de facturación asignada?
-2. ¿Ya pasó el **día de creación** configurado en ese router?
+2. ¿Ya pasó el **día y la hora de creación** configurados en ese router?
 3. ¿El cliente tiene un **servicio activo** con un plan que no sea de cortesía?
 4. ¿Está marcado como **"No facturar a este cliente"**?
-5. ¿Alguien **eliminó** esa factura? Si es así, no se regenera.
+5. ¿Está **retirado** o **cancelado**? A esos no se les factura nunca (al *suspendido* sí).
+6. ¿Ya llegó al tope de **"Dejar de facturar al moroso"**? Al alcanzarlo la deuda se congela
+   y no se emiten facturas nuevas. Ver [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
+7. ¿Es su **primer mes** y quedó en *No facturar* o con **meses de cortesía**? Ver [5.2](#52-crear-un-cliente).
+8. ¿Alguien **eliminó** esa factura? Si es así, no se regenera.
+
+**No se generó ninguna factura de ningún cliente.**
+Eso ya no es configuración, es que el proceso automático no corrió. El sistema tiene una
+revisión diaria que detecta exactamente eso y avisa por correo. Es cosa de soporte técnico.
 
 **Guardé el cliente pero no se cargó al router.**
-Suele ser tiempo de espera agotado, no un error de datos. Entra a la ficha del cliente y
-usa el botón de aprovisionar. Si insiste, pide a soporte técnico que revise la conexión al
-router (menú del router → *Probar conexión SSH*).
+Revisa, en este orden: (1) que el router tenga activada el **alta automática**, (2) que el
+cliente tenga **router, plan e IP**, (3) que el **túnel VPN** del equipo esté arriba. Después
+entra a la ficha del cliente y usa el botón de **aprovisionar**. Si insiste, pide a soporte
+técnico que pruebe la conexión (ficha del router → *Probar conexión SSH*).
 
 **Corté a un cliente pero sigue navegando.**
-Casi siempre es porque el router **no tiene las reglas de bloqueo instaladas**.
-Ve a **Gestión → Lista de Routers**, entra al equipo y pulsa **Aplicar reglas de bloqueo**.
-Después, en **Acciones masivas**, pulsa **Reconciliar**.
+Es el problema más común y tiene tres causas típicas: el **túnel VPN del router está caído**,
+las **reglas de bloqueo no están o quedaron muy abajo** en el equipo, o el cliente tenía
+conexiones abiertas de antes. Ve a **Gestión → Lista de Routers**, entra al equipo, pulsa
+**Verificar VPN** y luego **Aplicar reglas de bloqueo** (esto último también las vuelve a
+subir al primer lugar). Después, en **Acciones masivas**, pulsa **Reconciliar**.
+El procedimiento completo está en [9.4](#94-el-cliente-aparece-cortado-pero-sigue-navegando).
+
+**No se cortó ningún cliente de un router entero.**
+Sospecha del **túnel VPN** antes que de nada. Sin túnel, ISPWatch no le puede dar órdenes al
+equipo, pero igual marca a los clientes como cortados. Ficha del router → **Verificar VPN**.
+
+**Las reglas de bloqueo están instaladas y aun así no bloquean.**
+El router lee sus reglas de arriba hacia abajo y se queda con la primera que coincide: si las
+de ISPWatch quedaron debajo de una que deja pasar el tráfico, nunca se ejecutan. Pulsa
+**Aplicar reglas de bloqueo** — las sube de nuevo al primer lugar. Es seguro repetirlo.
 
 **El cliente pagó y sigue cortado.**
 La reconexión automática sólo funciona con cortes por facturación y sólo si el cliente quedó
@@ -956,11 +1214,26 @@ La reconexión automática sólo funciona con cortes por facturación y sólo si
 en la pestaña **Facturación** de su ficha.
 
 **No encuentro un cliente al buscarlo.**
-La búsqueda distingue mayúsculas en algunas pantallas. Prueba escribiendo el nombre con la
-inicial en mayúscula.
+Ya no es problema de mayúsculas: eso se corrigió. Revisa que estés buscando por un campo que
+esa pantalla mire (nombre, cédula, IP o correo en la lista de clientes) y que el cliente no
+esté filtrado por estado. Si lo borraron, no aparece: los clientes eliminados no se recuperan.
 
 **No puedo subir varias fotos de instalación.**
-Súbelas de una en una. Es una limitación conocida.
+Ya puedes seleccionarlas todas juntas; el sistema las comprime y las sube una por una solo.
+Si aun así falla, casi siempre es una foto que se pasa de **10 MB** o que no es JPG/PNG/WEBP.
+
+**Creé el cliente y no tiene internet.**
+Lo más probable: el router tiene **apagada el alta automática** (*Agregar cliente a MikroTik*),
+así que el cliente se guardó pero nunca se cargó al equipo. Revísalo en la ficha del router y
+después usa el botón de **aprovisionar** en la ficha del cliente. Ver [5.2](#52-crear-un-cliente).
+
+**Borré un cliente y sigue navegando.**
+Eliminarlo del sistema **no lo borra del router**. Hay que sacarlo del equipo aparte. Para la
+próxima: suspéndelo primero, confirma que quedó cortado, y después bórralo. Ver [5.5](#55-eliminar-un-cliente).
+
+**El sistema me dice que espere / que hay demasiadas peticiones.**
+Las operaciones que tocan los routers están limitadas a propósito (unas diez por minuto, y
+menos para las cargas masivas) para no tumbar los equipos. Espera un minuto y sigue.
 
 **Borré una factura por error.**
 Tendrás que crearla manualmente. El sistema **no la regenera** a propósito, para no
