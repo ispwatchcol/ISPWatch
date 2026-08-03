@@ -29,7 +29,7 @@
 | ✅ **Resuelto en código** | 20 | Aplicado y verificado con tests |
 | 🔧 **Requiere ejecución** | 4 | El código está listo; falta correr migraciones o rotar credenciales |
 | ❌ **Falso positivo** | 2 | Corregidos en §2 |
-| 📋 **Pendiente** | 2 | Decisión de producto o trabajo de frontend |
+| 📋 **Pendiente** | 8 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-6, P-7 y P-8, del repaso del manual del 2026-08-03) |
 
 ### Resultado medible
 
@@ -469,6 +469,62 @@ puede poner una imagen de fondo en su factura desde CSS, ni siquiera apuntando a
 `POST /api/tenant/logo`) y exponerla como un placeholder de bloque (`{{empresa.imagen_fondo}}`)
 en vez de como CSS libre, manteniendo la garantía de "cero `url()` en CSS" intacta.
 
+### 📋 P-6 · Eliminar un cliente no lo desaprovisiona del router
+
+`CustomerProfileController::destroy()` borra `customer_profile` y `users` dentro de una
+transacción y nada más: **no llama a `suspendCustomer()` ni a ninguna rutina de limpieza en
+RouterOS**. La cola/secret/binding del cliente se queda en el equipo y el cliente **sigue
+navegando**, ahora además invisible para el sistema — no aparece en ninguna lista, así que
+nadie lo detecta salvo por consumo anómalo.
+
+Es la variante silenciosa de la fuga de ingreso que el producto existe para cerrar. Detectado
+al verificar el manual de usuario el 2026-08-03; documentado como advertencia en
+`MANUAL_USUARIO.md` §5.5 mientras no se resuelva en código.
+
+**Recomendación.** Antes de borrar, ejecutar el mismo camino que la suspensión manual
+(`RouterProvisioningService::suspendCustomer`) o una limpieza dedicada, y registrar el intento
+en `suspension_action_logs` para que el failover lo reintente si el equipo no responde. Un
+borrado que falla en el router no debería abortar el borrado en BD, pero **sí** debe quedar
+registrado: hoy no queda rastro de ninguna clase.
+
+### 📋 P-7 · `$monthlyRevenue` se calcula en el Dashboard y nunca se usa
+
+En `DashboardController::stats()` se consulta la suma de facturas `paid` emitidas en el mes
+(`$monthlyRevenue`) y luego la respuesta devuelve `revenue.monthly => $monthlyPayments` — los
+**pagos** recibidos en el mes. La variable calculada queda muerta: es una consulta agregada por
+petición al Dashboard que no alimenta nada.
+
+Las dos métricas son legítimas pero distintas (facturado-y-cobrado del mes vs. caja del mes), y
+hoy no está claro cuál se quiso mostrar. El manual documenta **el comportamiento real** (pagos).
+
+**Recomendación.** Decidir producto: si la tarjeta debe seguir siendo caja, borrar
+`$monthlyRevenue`; si debía ser lo facturado, cambiar la clave de la respuesta y avisar del
+cambio de significado. No tocarlo a ciegas — el número que hoy ve el operador cambiaría.
+
+### 📋 P-8 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción
+
+El contenido que el usuario lee dentro de la app vive en `help_categories` / `help_articles` y
+lo produce `HelpCenterSeeder`. Hay dos problemas encadenados:
+
+1. **`migrate:both --seed` omite `public` a propósito** (`MigrateBothSchemas`: *"los datos solo
+   se crean en ispwatch_dev"*). La regla es correcta para catálogos y data demo, pero el Centro
+   de Ayuda **no es data demo: es contenido de producto**. Resultado: no existe un camino
+   sancionado para publicar una corrección del manual, hay que correr
+   `db:seed --class=HelpCenterSeeder` a mano contra `public`.
+2. **`HelpCenterSeeder::run()` empieza con `HelpArticle::query()->delete()` y
+   `HelpCategory::query()->delete()`.** Es un reemplazo total, no un upsert. Hoy eso es
+   inofensivo — verificado el 2026-08-03 contra `public`: 30 artículos, 9 categorías, **cero**
+   con `updated_at > created_at`, o sea nadie ha editado nada desde la UI. Pero el Centro de
+   Ayuda **tiene editor de superadmin**: en cuanto alguien escriba un artículo desde la app, el
+   siguiente seed lo borra sin aviso.
+
+**Recomendación.** Convertir el seeder en idempotente por clave estable (`updateOrCreate` sobre
+un `slug` de categoría/artículo, que hoy no existe) y borrar sólo lo que el propio seeder
+gestiona, dejando intacto lo creado desde la UI. Con eso, publicar contenido deja de ser
+destructivo y se puede permitir en `public` sin contradecir la separación dev/prod — que es lo
+que hoy obliga a elegir entre "no actualizar el manual" y "correr un seeder destructivo contra
+producción a mano".
+
 ### 📋 Observación menor
 
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de
@@ -513,6 +569,9 @@ tenants. Deberían salir de `tenant.billing_phone`.
 | **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | 📋 Pendiente |
 | **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | 📋 Pendiente (deliberado, evaluar según demanda) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
+| **P-6** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
+| **P-7** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
+| **P-8** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
 
 ---
 

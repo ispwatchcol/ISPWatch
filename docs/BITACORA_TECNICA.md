@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-07-31 (arrastre de abonos parciales + catálogo de tipos de factura) · Rama: `feat/wireguard-dual-transport`
+**Última actualización:** 2026-08-03 (auditoría del manual de usuario contra el código — §11) · Rama: `feat/david-editable-templates-merge`
 
 ---
 
@@ -20,6 +20,7 @@
 8. [Flujo completo del sistema](#8-flujo-completo-del-sistema)
 9. [Trazabilidad módulo → código → datos](#9-trazabilidad-módulo--código--datos)
 10. [Registro de decisiones técnicas](#10-registro-de-decisiones-técnicas)
+11. [Auditoría del manual de usuario — 2026-08-03](#11-auditoría-del-manual-de-usuario--2026-08-03)
 
 ---
 
@@ -807,7 +808,7 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | `withoutOverlapping` en las tareas horarias | Una ejecución larga no debe apilarse con el siguiente tick |
 | El corte usa `drop` incondicional en `chain=forward` | Funciona con cualquier topología: mono-WAN, multi-WAN, PCC, failover, PPPoE upstream |
 | Backoff de cortes más agresivo (30 min) que el de facturación (2 h) | Un corte sin aplicar es fuga de ingreso directa |
-| El aprovisionamiento masivo es asíncrono | Cada cliente tarda 17–34 s por el doble salto SSH; el síncrono provoca timeout del gateway |
+| El aprovisionamiento es asíncrono **también en el alta individual y en el botón "Aprovisionar"**, no sólo en el masivo | Cada cliente tarda 17–34 s por el doble salto SSH; el síncrono provocaba timeout del gateway. El alta persiste el cliente de forma síncrona y encola sólo el tramo que toca RouterOS (`startAsyncProvision`, run dedicado con `total=1`), así que un fallo de cola nunca se reporta como fallo de creación |
 | Las fotos de instalación se suben **de una en una** y comprimidas | Varias fotos juntas producían `413`/`504` sin JSON en el gateway |
 | Los importadores no consultan por fila | Con 200 filas se alcanzaba el `504` del gateway |
 | El transporte VPN es **por router**, no global (`router.vpn_transport`) | WireGuard existe desde RouterOS 7.1 y en v6 no lo hay: los dos transportes conviven de forma permanente |
@@ -828,3 +829,74 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | Ninguna propiedad CSS que sólo tenga sentido con `url()` está en el allowlist del modo avanzado (`background-image`, `background` shorthand, `list-style-image`) | Así `url()` queda excluido por diseño del allowlist, no sólo por el filtro de esquema de `URI.AllowedSchemes` — defensa en profundidad, no una sola capa |
 | `<html>`/`<head>`/`<body>` del tenant en modo avanzado no se validan como tags permitidos | HTMLPurifier no está diseñado para sanear documentos completos, sólo contenido de body. Se descartan y el documento final se reconstruye con un esqueleto propio (`AdvancedTemplateSanitizer::sanitizeParts()`), inyectando ahí el `<style>` ya limpiado por `Filter.ExtractStyleBlocks` |
 | `config/dompdf.php` se publicó y `enable_remote` quedó hardcodeado en `false`, no vía `env()` | El contenido de plantillas de tenant se renderiza con esta misma instancia de dompdf; no debe depender de un default del paquete que podría cambiar en una futura versión |
+
+---
+
+## 11. Auditoría del manual de usuario — 2026-08-03
+
+Repaso completo de `MANUAL_USUARIO.md` contra el código, para eliminar información que había
+quedado desactualizada tras los cambios de julio. Se verificó afirmación por afirmación; lo que
+sigue es lo que **estaba mal** y por qué.
+
+| Afirmación del manual | Realidad verificada en código | Corregido en |
+|---|---|---|
+| «La búsqueda distingue mayúsculas» | Falso desde el 2026-07-30: `SearchMacrosServiceProvider` elige `ilike` en pgsql y `like` en sqlite; `BillingController::index` hace lo propio en línea | §5.1, §7.2, FAQ |
+| «Sube las fotos de instalación de una en una» | Falso desde el fix de compresión en navegador (#195, en producción): el usuario las selecciona todas y el front las comprime y envía de a una | §6.2, FAQ |
+| «Ingresos del mes = suma de las facturas pagadas este mes» | La respuesta devuelve `revenue.monthly => $monthlyPayments` — **pagos** recibidos en el mes. `$monthlyRevenue` se calcula y se descarta (ver `MEJORAS_RECOMENDADAS.md` P-7). Faltaban además `pending` y `collection_rate` | §4 |
+| «La carga al router tarda 17–34 s; si sale timeout, reaprovisiona» | Ya no aplica: el alta encola el push (`startAsyncProvision`). El cliente se guarda de inmediato y no hay timeout que ver | §5.2 |
+| Nada sobre `agregar_cliente_mkt` | Es la compuerta real del push y **por defecto viene en `false`**. Con ella apagada el alta se guarda y nunca llega al equipo, sin señal en pantalla. Causa raíz frecuente de "creé el cliente y no navega" | §5.2, §18.4, FAQ |
+| «Eliminar un cliente borra su perfil, facturas y documentos» | Cierto pero incompleto: `destroy()` no desaprovisiona nada en RouterOS. El cliente sigue navegando y deja de ser visible (`MEJORAS_RECOMENDADAS.md` P-6) | §5.5, FAQ |
+| «El aviso de falla masiva se difunde por WhatsApp» | `RouterOutageController` sólo registra el evento y marca `falla_general`; el envío depende de que el sistema de mensajería conectado consuma el registro. Si esa integración no está montada, no le llega nada al cliente | §11.6 |
+| Nada sobre estados de servicio | `BILLABLE_SERVICE_STATUSES = ['activo','gratis','suspendido']`: al **suspendido se le sigue facturando** a propósito, y sólo `retirado`/`cancelado` son bajas definitivas. Dejar suspendido a quien se fue genera cartera incobrable | §5.4 (nueva) |
+| Nada sobre la VPN como dependencia | Todo el control de red pasa por el túnel contra el CORE; con el túnel caído el sistema marca cortes que nunca llegan al equipo. `vpn:verify-tunnels` corre cada 30 min y sólo alerta | §9.4 y §11.7 (nuevas) |
+| Catálogo de permisos incompleto | Faltaban 8 permisos de `Permissions::getAllPermissions()` y no se documentaban los roles de fábrica | §16.2 |
+
+**Añadido además:** §9.4 (diagnóstico ordenado de "aparece cortado pero navega": VPN caída →
+reglas por debajo en la cadena → conntrack → *Reconciliar*), retención real del historial de
+tráfico (detalle 30 días, diario permanente), puertos de splitter derivados del `split_ratio`,
+y la nota de que sin `PORTAL_IP` las reglas de bloqueo ni siquiera se pueden aplicar.
+
+**Deuda detectada durante el repaso:** `MEJORAS_RECOMENDADAS.md` P-6 (borrado sin
+desaprovisionamiento) y P-7 (`$monthlyRevenue` muerto).
+
+### 11.1 El manual dentro de la app (Centro de Ayuda)
+
+`MANUAL_USUARIO.md` no es lo que lee el usuario final: lo que ve en la app es el **Centro de
+Ayuda** (`pages/Manual.vue`), que renderiza `help_categories` / `help_articles` sembrados por
+`HelpCenterSeeder`. Los dos venían divergiendo por separado, así que el seeder se reescribió
+para que sea el espejo del manual corregido.
+
+| | Antes | Después |
+|---|---:|---:|
+| Categorías | 9 | **11** |
+| Artículos | 30 | **41** |
+
+**Categorías nuevas:** *Corte y Reconexión* (el diagnóstico de "aparece cortado pero navega",
+qué ve el cliente cortado, y las bitácoras) y *Prospectos e Instalaciones*, que no existía en
+la app pese a ser un módulo completo.
+
+**Artículos nuevos:** estados del cliente, eliminar un cliente (con la advertencia de que no lo
+saca del router), abonos parciales, clientes que no se facturan, el método de control del
+router, herramientas de diagnóstico, la VPN, falla masiva, historial de tráfico, plantillas de
+documentos, y aprovisionamiento masivo.
+
+**Errores que tenía la versión en la app y que el `.md` ya no tenía** (además de todos los de
+la tabla anterior, que también estaban replicados aquí):
+
+| Decía el Centro de Ayuda | Realidad |
+|---|---|
+| «La suspensión automática corre una vez al día» | Corre **cada hora** (`billing:auto-cut`) |
+| «Días de gracia» como campo del router | No existe: son día de vencimiento, día de corte y N facturas vencidas |
+| «IP: déjala en blanco para asignación automática» | No hay asignación automática. El formulario carga los rangos del router y marca libres/ocupadas para que el operador **elija** |
+| Estados del cliente: activo / suspendido / **inactivo** | Son `activo`, `gratis`, `suspendido`, `retirado`, `cancelado` |
+| Estados de factura: pendiente / pagada / vencida | Faltaban **borrador**, **parcial** y **anulada** |
+| «Generar script VPN: configura el túnel L2TP/IPSec» | Transporte dual desde julio: WireGuard en v7, L2TP sólo en v6 |
+| Acciones del router: «Sincronizar colas», «Asignar IP libre» | No son botones reales; los de verdad son los 8 de diagnóstico |
+| «Recordatorios: indica los días antes del vencimiento» | Se configuran por **día y hora del mes** en el router, no por días de antelación |
+| «El nombre del plan debe coincidir con el perfil en MikroTik» | No es requisito del aprovisionamiento |
+| Google Maps en «Configuración → Tenant» | Es **Configuración → Mapas** |
+
+**Verificación:** estructura y HTML validados artículo por artículo, y el seeder se ejecutó
+contra `ispwatch_dev` (11 categorías / 41 artículos). **`public` no se tocó** — ver la nota de
+despliegue en `MEJORAS_RECOMENDADAS.md` P-8: `migrate:both --seed` omite `public` a propósito,
+así que publicar contenido del Centro de Ayuda no tiene hoy un camino sancionado.
