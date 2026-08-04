@@ -525,6 +525,28 @@ destructivo y se puede permitir en `public` sin contradecir la separación dev/p
 que hoy obliga a elegir entre "no actualizar el manual" y "correr un seeder destructivo contra
 producción a mano".
 
+### 📋 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue
+
+Hasta el 29-jul-2026 (`828865c`) los documentos de cliente se escribían en el disco `public`
+de Laravel y se servían con `asset('storage/…')`. En App Platform el sistema de archivos del
+contenedor es **efímero**: en cada despliegue los bytes desaparecían mientras las filas de
+`customer_documents` sobrevivían. Ese es el origen del síntoma «subo los documentos y después
+no se ven». El almacenamiento ya está corregido (todo va a S3, con URL firmada de 30 minutos),
+pero quedan dos cabos:
+
+1. **`documents:migrate-to-s3` sólo rescata lo que siga vivo en el disco local**, y sólo si se
+   ejecuta desde la misma instancia que recibió los archivos. Si producción se redesplegó antes
+   de correrlo, esos bytes ya no existen en ninguna parte. **No consta que se haya ejecutado.**
+2. **La convención de rutas no cambió, sólo el disco**, así que una fila vieja y una nueva se
+   ven idénticas: `file_path` no permite distinguirlas. La interfaz pinta la tarjeta igual y el
+   enlace devuelve un error del proveedor, sin explicación para el usuario.
+
+**Recomendación.** Un comando de auditoría que recorra `customer_documents` comprobando
+`Storage::disk('s3')->exists($file_path)` y, o bien marque las filas huérfanas con una columna
+propia, o las liste para decidir si se purgan. Sin eso, el operador no puede distinguir «este
+documento se perdió en la migración» de «hay un problema con el almacenamiento ahora mismo», y
+cada caso llega a soporte como un bug nuevo.
+
 ### 📋 Observación menor
 
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de
@@ -572,6 +594,7 @@ tenants. Deberían salir de `tenant.billing_phone`.
 | **P-6** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
 | **P-7** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-8** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 
 ---
 
