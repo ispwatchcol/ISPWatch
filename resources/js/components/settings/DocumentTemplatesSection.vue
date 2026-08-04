@@ -56,6 +56,23 @@
             <label class="label">Texto de pie de página</label>
             <textarea v-model="branding.document_footer_text" rows="2" class="input resize-none" placeholder="Ej: Empresa vigilada por la Superintendencia..."></textarea>
           </div>
+
+          <div>
+            <label class="label">Prefijo del consecutivo de contratos</label>
+            <input
+              type="text"
+              v-model="branding.contract_prefix"
+              placeholder="CTR"
+              maxlength="20"
+              class="input"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              Cada contrato firmado recibe un número consecutivo irrepetible.
+              Próximo:
+              <span class="font-mono text-gray-500 dark:text-gray-300">{{ nextContractNumberPreview }}</span>.
+              Solo letras, números y guion; si lo dejas vacío se usa <span class="font-mono">CTR</span>.
+            </p>
+          </div>
         </div>
 
         <div class="mt-4 flex justify-end">
@@ -300,7 +317,15 @@ const current = reactive({
 const logoUrl = ref(null)
 const uploadingLogo = ref(false)
 const savingBranding = ref(false)
-const branding = reactive({ brand_color: '', document_footer_text: '' })
+const branding = reactive({ brand_color: '', document_footer_text: '', contract_prefix: '' })
+// Espejo de App\Services\ContractNumberService::format(): solo para mostrar
+// cómo quedará el número mientras se escribe el prefijo. El número real lo
+// reserva el backend al firmar.
+const nextContractNumber = ref(1)
+const nextContractNumberPreview = computed(() => {
+  const clean = (branding.contract_prefix || '').replace(/[^A-Za-z0-9-]/g, '').replace(/^-+|-+$/g, '')
+  return `${clean || 'CTR'}-${String(nextContractNumber.value).padStart(5, '0')}`
+})
 // <input type="color"> rejects an empty string ("" does not conform to
 // #rrggbb"); the text field next to it can still be genuinely empty to mean
 // "no custom color set", so the native swatch gets its own fallback view.
@@ -478,6 +503,7 @@ async function saveBranding() {
     await tenantApi.updateConfig({
       brand_color: branding.brand_color || null,
       document_footer_text: branding.document_footer_text || null,
+      contract_prefix: branding.contract_prefix || null,
     })
     toast.value?.success('Marca guardada', 'Los cambios se aplicarán en los próximos documentos.')
   } catch (e) {
@@ -495,6 +521,8 @@ async function loadTenantBranding() {
     const tenant = data.data || data
     branding.brand_color = tenant.brand_color || ''
     branding.document_footer_text = tenant.document_footer_text || ''
+    branding.contract_prefix = tenant.contract_prefix || ''
+    nextContractNumber.value = Number(tenant.next_contract_number) || 1
     logoUrl.value = tenant.logo ? `/storage/${tenant.logo}` : null
   } catch (e) {
     // Non-fatal: branding panel just starts empty.

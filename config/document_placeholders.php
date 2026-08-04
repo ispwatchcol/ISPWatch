@@ -46,6 +46,7 @@ return [
     ],
 
     'contract' => [
+        'contrato.numero'        => 'Número consecutivo del contrato',
         'empresa.nombre'         => 'Nombre legal de la empresa',
         'empresa.nit'            => 'NIT (con dígito de verificación)',
         'cliente.nombre'         => 'Nombre(s) del cliente',

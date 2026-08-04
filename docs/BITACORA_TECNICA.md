@@ -21,6 +21,7 @@
 9. [Trazabilidad módulo → código → datos](#9-trazabilidad-módulo--código--datos)
 10. [Registro de decisiones técnicas](#10-registro-de-decisiones-técnicas)
 11. [Auditoría del manual de usuario — 2026-08-03](#11-auditoría-del-manual-de-usuario--2026-08-03)
+12. [Consecutivo de contratos — 2026-08-04](#12-consecutivo-de-contratos--2026-08-04)
 
 ---
 
@@ -829,6 +830,8 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | Ninguna propiedad CSS que sólo tenga sentido con `url()` está en el allowlist del modo avanzado (`background-image`, `background` shorthand, `list-style-image`) | Así `url()` queda excluido por diseño del allowlist, no sólo por el filtro de esquema de `URI.AllowedSchemes` — defensa en profundidad, no una sola capa |
 | `<html>`/`<head>`/`<body>` del tenant en modo avanzado no se validan como tags permitidos | HTMLPurifier no está diseñado para sanear documentos completos, sólo contenido de body. Se descartan y el documento final se reconstruye con un esqueleto propio (`AdvancedTemplateSanitizer::sanitizeParts()`), inyectando ahí el `<style>` ya limpiado por `Filter.ExtractStyleBlocks` |
 | `config/dompdf.php` se publicó y `enable_remote` quedó hardcodeado en `false`, no vía `env()` | El contenido de plantillas de tenant se renderiza con esta misma instancia de dompdf; no debe depender de un default del paquete que podría cambiar en una futura versión |
+| El consecutivo del contrato se reserva **antes** de renderizar el PDF | El número va impreso en el encabezado del documento. Un render fallido quema el número, y un hueco en la secuencia es preferible a dos contratos con el mismo número (§12) |
+| Los contratos subidos a mano (`signed = false`) **no** reciben consecutivo | No se puede sellar por dentro un archivo que el sistema no generó; el número existiría sólo en la base y no en el papel (§12) |
 
 ---
 
@@ -900,3 +903,64 @@ la tabla anterior, que también estaban replicados aquí):
 contra `ispwatch_dev` (11 categorías / 41 artículos). **`public` no se tocó** — ver la nota de
 despliegue en `MEJORAS_RECOMENDADAS.md` P-8: `migrate:both --seed` omite `public` a propósito,
 así que publicar contenido del Centro de Ayuda no tiene hoy un camino sancionado.
+
+---
+
+## 12. Consecutivo de contratos — 2026-08-04
+
+### Qué se pidió
+
+Que **todo contrato firmado lleve un número consecutivo**. Hasta esta fecha no existía nada:
+`customer_documents` no tenía columna de número, el archivo se llamaba
+`contrato_firmado_{Ymd_His}.pdf` (marca de tiempo, no consecutivo), el PDF no lo imprimía en
+ninguna parte, y `config/document_placeholders.php` no exponía ningún token para insertarlo
+desde una plantilla editable. La única secuencia del sistema era la de facturas.
+
+### Qué se hizo
+
+| Pieza | Archivo |
+|---|---|
+| Columnas `tenant.contract_prefix` / `tenant.next_contract_number` y `customer_documents.contract_number` + **UK** `(tenant_id, contract_number)` | `2026_08_04_120000_add_contract_numbering.php` |
+| Numeración retroactiva de los contratos ya firmados | `2026_08_04_120100_backfill_contract_numbers.php` |
+| Reserva del número | `App\Services\ContractNumberService` |
+| Asignación al firmar + nombre del archivo | `CustomerDocumentController::signContract()` |
+| Placeholder `{{contrato.numero}}` | `config/document_placeholders.php`, `PlaceholderResolver::forContract()` |
+| Impresión en el PDF (ruta legacy y shell de plantilla) | `documents/contract_pdf.blade.php`, `documents/shells/contract_shell.blade.php` |
+| Prefijo configurable | `UpdateTenantRequest`, `DocumentTemplatesSection.vue` |
+| Número visible en la ficha y antes de firmar | `CustomerDocuments.vue` |
+
+El formato es `PREFIJO-00001`; el prefijo sale de `tenant.contract_prefix` y cae a `CTR` si
+está vacío.
+
+### Decisiones y su porqué
+
+| Decisión | Justificación |
+|---|---|
+| El número se reserva **antes** de renderizar | Va impreso en el encabezado del PDF; no se puede asignar después de generar el archivo. Un render fallido quema el número: un hueco en la secuencia es preferible a dos contratos con el mismo |
+| La vista previa (`contract-data` y el preview de plantillas) **no** consume secuencia | Previsualizar no es firmar. Ambas rutas usan el helper estático `format()` sobre el contador actual, nunca `allocate()` |
+| Los PDF **subidos a mano** (`signed = false`) no reciben número | No se puede sellar por dentro un archivo que el sistema no generó; un consecutivo que no aparece en el papel prometería una trazabilidad inexistente |
+| El backfill numera por **orden cronológico de firma**, por tenant | El consecutivo refleja el orden real en que se celebraron los contratos. El PDF viejo no se regenera —ya está firmado— así que en los históricos el número existe sólo en la ficha |
+| La lógica de formato está **duplicada** entre el servicio y la migración de backfill | Una migración tiene que poder re-ejecutarse aunque la clase de servicio cambie o desaparezca |
+| El prefijo se valida con `regex:/^[A-Za-z0-9\-]+$/` en el `FormRequest` **y** se sanea otra vez en `format()` | Acaba dentro del nombre del archivo y de la ruta en S3. Se rechaza en la puerta; el saneado es defensa en profundidad por si entrara por otra vía |
+
+### Efecto colateral corregido: la hoja de instalación firmada no se veía
+
+Mientras se revisaba el flujo de documentos apareció un síntoma reportado desde hacía tiempo
+—«al firmar, los documentos no quedan cargados»— que ya **no** era el bug de almacenamiento
+resuelto en `828865c` (paso del disco `public` efímero a S3), sino un filtro del frontend:
+`InstallationDetail.vue` construía la lista de `photos` con
+`documents.filter(d => /\.(jpe?g|png|webp)$/.test(d.file_name))`, así que la hoja de
+instalación en PDF —generada correctamente y guardada en S3— quedaba fuera de la única lista
+que esa pantalla pintaba. El PDF sólo era alcanzable desde la pestaña **Documentos** del
+cliente, y en una instalación de prospecto sin convertir (con `customer_id = NULL`) no era
+alcanzable desde ninguna parte hasta la conversión.
+
+Se añadió el bloque **Documentos de la orden**, que lista todo lo que no es imagen con enlace
+directo al PDF.
+
+### Deuda que queda
+
+Los documentos subidos **antes** del paso a S3 (29-jul-2026) pueden estar perdidos: vivían en
+el disco efímero del contenedor y `documents:migrate-to-s3` sólo sirve ejecutado desde la
+misma instancia que los recibió. Las filas sobreviven y la interfaz las pinta con un enlace
+roto, sin distinguirlas de las buenas — anotado en `MEJORAS_RECOMENDADAS.md`.

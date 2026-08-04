@@ -272,6 +272,27 @@
         </button>
       </div>
 
+      <!-- Documentos generados (hoja de instalación firmada) -->
+      <div v-if="generatedDocs.length"
+        class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+        <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Documentos de la orden</h2>
+        <ul class="space-y-2">
+          <li v-for="d in generatedDocs" :key="d.id"
+            class="flex items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div class="min-w-0">
+              <p class="text-sm text-gray-800 dark:text-white truncate" :title="d.file_name">{{ d.file_name }}</p>
+              <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                {{ d.signed ? 'Generado y firmado por el sistema' : 'Archivo adjunto' }}
+              </p>
+            </div>
+            <a :href="d.url" target="_blank" rel="noopener"
+              class="shrink-0 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition">
+              Ver PDF
+            </a>
+          </li>
+        </ul>
+      </div>
+
       <!-- Fotos de la instalación -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Fotos de la instalación</h2>
@@ -754,6 +775,7 @@ const showBillingSection  = computed(() => installation.value?.can_edit_billing 
 const discountIsPositive  = computed(() => Number(billing.value.discount) > 0)
 
 const photos = ref([])
+const generatedDocs = ref([])
 const fileInput = ref(null)
 const pendingFiles = ref([])
 const uploading = ref(false)
@@ -810,7 +832,12 @@ const loadInstallation = async () => {
       }
     }
 
-    photos.value = (data.documents || []).filter(d => d.type === 'instalacion' && /\.(jpe?g|png|webp)$/i.test(d.file_name))
+    const docs = data.documents || []
+    photos.value = docs.filter(d => d.type === 'instalacion' && /\.(jpe?g|png|webp)$/i.test(d.file_name))
+    // Todo lo que no es foto (la hoja de instalación firmada, en PDF) tenía
+    // que verse en algún lado: antes se filtraba fuera de `photos` y no se
+    // mostraba aquí, así que tras firmar parecía que no se había generado nada.
+    generatedDocs.value = docs.filter(d => !/\.(jpe?g|png|webp|gif)$/i.test(d.file_name || ''))
   } catch {
     installation.value = null
     toast.value?.error('Error', 'No se pudo cargar la orden.')
