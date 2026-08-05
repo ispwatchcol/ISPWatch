@@ -183,4 +183,197 @@ class AdvancedTemplateSanitizerTest extends TestCase
         $this->assertStringContainsString('<html>', $result);
         $this->assertStringContainsString('<body>', $result);
     }
+
+    // ── id/style en todos los tags (auditoría 2026-08-03) ───────────────
+
+    public function test_keeps_style_attribute_on_a_p_tag(): void
+    {
+        // Antes de esta auditoría solo div/span/td/th tenían style — otra
+        // propiedad cualquiera en un <p> (frecuente en plantillas reales
+        // exportadas de WispHub) se perdía en silencio. page-break-before no
+        // sirve aquí como ejemplo: si este <p> es el primer elemento del
+        // documento, stripLeadingPageBreak() la retira a propósito (ver
+        // tests dedicados más abajo) — se usa text-align en su lugar.
+        $result = $this->sanitizer->sanitize('<p style="text-align:right;">x</p>');
+
+        $this->assertStringContainsString('text-align:right', $result);
+    }
+
+    // ── página en blanco inicial en dompdf (auditoría 2026-08-04) ───────
+
+    /**
+     * Verificado empíricamente contra dompdf directo antes de implementar:
+     * la MISMA estructura con/sin page-break-before en el primer elemento
+     * del documento da 4 páginas vs. 2 — dompdf, a diferencia de un
+     * navegador, no ignora el salto quando no hay página anterior de la que
+     * rompar. Plantillas reales de WispHub envuelven CADA "página" lógica en
+     * un <div style="page-break-before:always">, incluida la primera.
+     */
+    public function test_strips_page_break_before_only_on_the_first_element_of_the_document(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<div style="page-break-before:always; color:red;">primero</div>'
+            . '<div style="page-break-before:always;">segundo</div>'
+        );
+
+        // Al primero se le retira SOLO la propiedad problemática — el resto
+        // del style (aquí, color) sobrevive intacto (CSSTidy normaliza el
+        // nombre de color a hex, mismo comportamiento ya documentado en esta
+        // clase).
+        $this->assertStringContainsStringIgnoringCase('<div style="color:#ff0000;">primero</div>', $result);
+        // El segundo salto de página sí es real (separa contenido del
+        // tenant) y se respeta tal cual.
+        $this->assertStringContainsString('<div style="page-break-before:always;">segundo</div>', $result);
+    }
+
+    public function test_removes_the_style_attribute_entirely_when_page_break_before_was_the_only_property(): void
+    {
+        $result = $this->sanitizer->sanitize('<div style="page-break-before:always;">x</div>');
+
+        $this->assertStringContainsString('<div>x</div>', $result);
+        $this->assertStringNotContainsString('style=', $result);
+    }
+
+    // ── width/height como atributo HTML en table/td/th (auditoría 2026-08-04) ──
+
+    /**
+     * Plantillas reales de WispHub arman su layout de 2 columnas con
+     * width="50%" como ATRIBUTO HTML, no como CSS — sin esto, ambas <td>
+     * quedaban sin ancho explícito y dompdf rompía la maquetación de
+     * columnas por completo (verificado end-to-end contra un HTML real).
+     */
+    public function test_keeps_width_attribute_on_table_and_td_for_column_layout(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<table width="100%"><tr><td width="50%">izquierda</td><td width="50%">derecha</td></tr></table>'
+        );
+
+        $this->assertStringContainsString('<table width="100%">', $result);
+        $this->assertStringContainsString('<td width="50%">izquierda</td>', $result);
+        $this->assertStringContainsString('<td width="50%">derecha</td>', $result);
+    }
+
+    public function test_keeps_width_attribute_on_td_and_th(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<table><tr><td width="475">a</td><th width="5%">b</th></tr></table>'
+        );
+
+        $this->assertStringContainsString('<td width="475">a</td>', $result);
+        $this->assertStringContainsString('<th width="5%">b</th>', $result);
+    }
+
+    /**
+     * `width`/`height` en <tr> no son válidos según HTMLPurifier (a
+     * diferencia de table/td/th) — se descartan en silencio, nunca deben
+     * quedar como atributo crudo ni romper el sanitizer.
+     */
+    public function test_tr_never_keeps_width_or_height_as_a_raw_attribute(): void
+    {
+        $result = $this->sanitizer->sanitize('<table><tr width="100%" height="20"><td>a</td></tr></table>');
+
+        $this->assertStringNotContainsString('width="100%"', $result);
+        $this->assertStringContainsString('<tr><td>a</td></tr>', $result);
+    }
+
+    // ── alturas fijas en tablas (auditoría 2026-08-04) ──────────────────
+
+    /**
+     * Medido sobre un contrato real exportado de WispHub: quitando SÓLO las
+     * alturas fijas, el PDF pasa de 8 páginas con 3 en blanco a 7 con 1.
+     * Ninguna otra variante (quitar los saltos de página, la tabla más ancha
+     * que la hoja, o los <div> anidados) cambiaba nada.
+     */
+    public function test_strips_fixed_height_from_the_whole_table_family(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<table height="450" style="border:1px solid #000;">'
+            . '<tr><td height="500">a</td><th style="height:20px;color:#333;">b</th></tr></table>'
+        );
+
+        $this->assertStringNotContainsString('height="450"', $result);
+        $this->assertStringNotContainsString('height="500"', $result);
+        $this->assertStringNotContainsString('height:20px', $result);
+        // Sólo se retira la altura — el resto del estilo sobrevive intacto
+        // (CSSTidy sólo normaliza los bloques <style>, no los atributos
+        // style inline, así que los colores quedan tal cual se escribieron).
+        $this->assertStringContainsString('border:1px solid #000;', $result);
+        $this->assertStringContainsString('color:#333;', $result);
+    }
+
+    /**
+     * El filtro es por nombre exacto de propiedad: min-height, max-height y
+     * line-height no causan el problema de paginación y deben sobrevivir.
+     */
+    public function test_does_not_touch_min_max_or_line_height(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<table style="min-height:50px;"><tr><td style="line-height:96%;max-height:20px;">a</td></tr></table>'
+        );
+
+        $this->assertStringContainsString('min-height:50px', $result);
+        $this->assertStringContainsString('line-height:96%', $result);
+        $this->assertStringContainsString('max-height:20px', $result);
+    }
+
+    /** Fuera de la familia <table> la altura es legítima y no se toca. */
+    public function test_keeps_height_on_images_and_divs(): void
+    {
+        $img = $this->sanitizer->sanitize('<img src="https://example.test/a.png" alt="x" width="100" height="50">');
+        $this->assertStringContainsString('height="50"', $img);
+
+        $div = $this->sanitizer->sanitize('<div style="height:40px;">a</div>');
+        $this->assertStringContainsString('height:40px', $div);
+    }
+
+    public function test_keeps_id_attribute_on_a_div_and_it_survives_intact(): void
+    {
+        $result = $this->sanitizer->sanitize('<style>#clausulas{color:#333;}</style><div id="clausulas">x</div>');
+
+        $this->assertStringContainsString('id="clausulas"', $result);
+        // CSSTidy reformatea el selector (espacios/saltos de línea) al pasar
+        // por Filter.ExtractStyleBlocks — mismo comportamiento ya documentado
+        // para otros tests de esta clase, se verifica selector y propiedad
+        // por separado en vez de la cadena exacta.
+        $this->assertStringContainsString('#clausulas', $result);
+        $this->assertStringContainsStringIgnoringCase('color:#333', $result);
+    }
+
+    public function test_strips_a_duplicate_id_but_keeps_the_first_occurrence(): void
+    {
+        // Attr.EnableID fuerza unicidad de id en todo el documento — no es
+        // un bypass, HTMLPurifier valida esto de verdad.
+        $result = $this->sanitizer->sanitize('<div id="clausulas">a</div><div id="clausulas">b</div>');
+
+        $this->assertSame(1, substr_count($result, 'id="clausulas"'));
+        $this->assertStringContainsString('a</div>', $result);
+        $this->assertStringContainsString('<div>b</div>', $result);
+    }
+
+    public function test_strips_a_syntactically_invalid_id_value(): void
+    {
+        $result = $this->sanitizer->sanitize('<div id="javascript:alert(1)">x</div>');
+
+        $this->assertStringNotContainsString('javascript:alert', $result);
+        $this->assertStringContainsString('<div>x</div>', $result);
+    }
+
+    public function test_keeps_id_and_style_on_headings_lists_and_links(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<h1 id="titulo" style="color:#111;">Título</h1>'
+            . '<ul id="lista" style="margin:0;"><li id="item1" style="color:red;">x</li></ul>'
+            . '<a id="link1" href="https://example.test" style="color:blue;">Ver</a>'
+        );
+
+        $this->assertStringContainsString('id="titulo"', $result);
+        $this->assertStringContainsString('id="lista"', $result);
+        $this->assertStringContainsString('id="item1"', $result);
+        $this->assertStringContainsString('id="link1"', $result);
+        $this->assertStringContainsString('color:#111', $result);
+        // CSSTidy normaliza nombres de color a hex (red -> #FF0000, blue ->
+        // #0000FF) — mismo tipo de reformateo ya documentado en esta clase.
+        $this->assertStringContainsStringIgnoringCase('color:#ff0000', $result);
+        $this->assertStringContainsStringIgnoringCase('color:#0000ff', $result);
+    }
 }

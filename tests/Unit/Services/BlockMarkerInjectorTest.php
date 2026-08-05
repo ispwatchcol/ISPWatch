@@ -127,4 +127,31 @@ class BlockMarkerInjectorTest extends TestCase
 
         $this->assertSame(2, substr_count($result, '<img src="foto.jpg">'));
     }
+
+    /**
+     * Un bloque que resuelve a cadena vacía (ej. {{empresa.logo}} sin logo
+     * subido, {{contrato.firma_cliente}} antes de firmar) es un caso válido
+     * y frecuente, no huérfano — no debe generar ningún warning de PHP
+     * (descubierto end-to-end 2026-08-04: insertBefore() con un
+     * DocumentFragment sin hijos dispara "Document Fragment is empty").
+     */
+    public function test_an_empty_block_value_resolves_to_nothing_without_a_php_warning(): void
+    {
+        set_error_handler(function (int $errno, string $errstr) {
+            $this->fail("PHP warning inesperado (nivel {$errno}): {$errstr}");
+        }, E_WARNING);
+
+        try {
+            $result = $this->injector->inject(
+                '<div>Logo: {{empresa.logo}}</div>',
+                ['empresa.logo' => ''],
+                1,
+                'contract'
+            );
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame('<div>Logo: </div>', $result);
+    }
 }

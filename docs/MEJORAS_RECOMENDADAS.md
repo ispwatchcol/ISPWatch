@@ -29,7 +29,7 @@
 | ✅ **Resuelto en código** | 20 | Aplicado y verificado con tests |
 | 🔧 **Requiere ejecución** | 4 | El código está listo; falta correr migraciones o rotar credenciales |
 | ❌ **Falso positivo** | 2 | Corregidos en §2 |
-| 📋 **Pendiente** | 8 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-6, P-7 y P-8, del repaso del manual del 2026-08-03) |
+| 📋 **Pendiente** | 12 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-10, P-11 y P-12, del repaso del manual del 2026-08-03) |
 
 ### Resultado medible
 
@@ -469,7 +469,125 @@ puede poner una imagen de fondo en su factura desde CSS, ni siquiera apuntando a
 `POST /api/tenant/logo`) y exponerla como un placeholder de bloque (`{{empresa.imagen_fondo}}`)
 en vez de como CSS libre, manteniendo la garantía de "cero `url()` en CSS" intacta.
 
-### 📋 P-6 · Eliminar un cliente no lo desaprovisiona del router
+**Actualización 2026-08-03.** Exactamente este patrón ya se implementó para el logo
+(`{{empresa.logo}}`, `BlockPlaceholderResolver::resolveLogo()`, ruta local vía
+`public_path('storage/'.$tenant->logo)`, nunca `url()` en CSS ni una URL remota) — disponible en
+los 3 tipos de documento. Un `{{empresa.imagen_fondo}}` seguiría el mismo precedente casi sin
+trabajo nuevo si se pide.
+
+### 📋 P-6 · La `APP_KEY` de este `.env` local no desencripta los datos cifrados sincronizados desde producción
+
+Detectado 2026-08-04 al investigar por qué `GET /api/tenants/{id}` devolvía 500 y "reseteaba"
+la marca (logo/color/pie de página) en cada recarga de **Configuración → Plantillas de
+Documentos**. La causa real no tenía nada que ver con plantillas ni con branding:
+`TenantController::show()` intentaba leer `$tenant->google_maps_api_key` (columna con cast
+`encrypted`, ajena por completo al resto del payload) sólo para calcular un booleano, y el
+valor guardado no se puede desencriptar con la `APP_KEY` de este `.env` — `DecryptException:
+The MAC is invalid`.
+
+Verificado que **no es un caso aislado**: en `ispwatch_dev` fallan también `Router.password_rb`,
+`Router.wg_private_key`, `CustomerProfile.pppoe_password`/`hotspot_password` (todas las columnas
+con cast `encrypted` que se probaron). **También falla igual apuntando directo al schema
+`public`** (producción, mismo `.env`/misma `APP_KEY` de este equipo, sólo lectura) — es decir,
+esta `APP_KEY` local nunca coincidió con la que cifró esos datos, en ninguno de los dos schemas.
+La hipótesis con más evidencia es que **no es una incidencia de producción**: la app real en
+DigitalOcean App Platform tiene su propia `APP_KEY` en sus variables de entorno (no en este
+archivo), separada de la de este equipo por diseño — si production no pudiera desencriptar sus
+propios datos, routers y túneles VPN estarían caídos de forma visible en vivo, no sólo en una
+pantalla de configuración local. Sigue siendo una hipótesis: nadie ha comparado todavía la
+`APP_KEY` real de App Platform contra la de este `.env`.
+
+**Ya corregido (2026-08-04):** `TenantController::show()`/`mapsConfig()` ahora aíslan el acceso a
+`google_maps_api_key` en `safeGoogleMapsApiKey()` — un valor no desencriptable ya no tumba el
+resto del payload del tenant (branding, nombre, dirección...), sólo hace que
+`has_google_maps_key`/`has_key` reporten `false`. Esto resuelve el síntoma inmediato (branding
+otra vez visible) pero **no** resuelve el problema de fondo: mientras la `APP_KEY` local no
+coincida con la que cifró los datos, este equipo seguirá sin poder leer contraseñas de router,
+llaves WireGuard ni contraseñas PPPoE/hotspot sincronizadas desde producción — cualquier feature
+de dev que dependa de desencriptar esos campos (ej. probar una conexión SSH a un router real
+sincronizado) seguirá fallando en silencio o con `DecryptException` sin capturar.
+
+**Recomendación.** Confirmar contra las variables de entorno reales de App Platform si la
+`APP_KEY` de producción coincide con la de este `.env` (sin pegarla en ningún sitio inseguro,
+sólo confirmar que son la misma). Si no coincide — lo más probable — no hay nada que "reparar":
+es el comportamiento esperado de tener `APP_KEY` distintas entre entornos por seguridad, y
+`db:sync-dev`/una copia directa de `public` seguirán trayendo ciphertext indescifrable a menos
+que se traiga también la `APP_KEY` real (sólo si el equipo decide que vale la pena tener esa
+clave en local, con el riesgo que eso implica). Aplicar el mismo patrón de
+`safeGoogleMapsApiKey()` (degradar a `null` + loguear, nunca tumbar todo un endpoint) en
+cualquier otro sitio que lea un campo `encrypted` fuera de un flujo que ya lo espera
+explícitamente (ej. conexión real a un router).
+
+### 📋 P-7 · El whitelist de contrato no tiene "departamento"/"ciudad" del cliente
+
+Detectado 2026-08-04 preparando un HTML real de cliente (exportado de WispHub) para probar contra
+el modo avanzado: el contrato original usaba `{{cliente.localidad}}` (Departamento) y
+`{{cliente.ciudad}}` (Municipio) — ninguno de los dos existe en
+`config/document_placeholders.php` para `contract` (sólo hay `cliente.direccion`, que en la
+práctica es sólo la dirección de calle, sin departamento/ciudad por separado). Se reemplazaron por
+texto literal `(no disponible en ISPwatch)` en el HTML de prueba corregido, no por un placeholder
+real — de lo contrario se habrían blanqueado en silencio sin que nadie notara por qué.
+
+**Recomendación.** Si el negocio necesita mostrar departamento/ciudad en el contrato (común en
+plantillas migradas de WispHub), agregar `cliente.localidad`/`cliente.ciudad` (o nombres
+equivalentes) a la whitelist de `contract`, resueltos desde `CustomerProfile` (ver qué columnas
+existen ahí para departamento/ciudad antes de implementar — no asumir el nombre de columna). No
+implementado todavía: pendiente de confirmación explícita, mismo criterio que el resto de cambios
+de whitelist en esta sesión.
+
+### 📋 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página
+
+Detectado 2026-08-04 diagnosticando páginas en blanco en un contrato real exportado de WispHub.
+dompdf **no sabe partir una celda de tabla entre páginas**: si el contenido de un `<td>` excede el
+alto de la hoja, empuja la celda entera a la página siguiente (dejando la anterior en blanco) y
+**descarta en silencio lo que no cabe** — sin excepción, sin log, sin warning.
+
+Medido sobre el mismo documento, con el texto plano verificado idéntico antes y después de la
+conversión:
+
+| Bloque "TRATAMIENTO DE DATOS" | Páginas | En blanco | Texto extraído |
+|---|---|---|---|
+| Como `<table>` (original) | 7 | 1 | 15.847 caracteres |
+| Como `<div>` | 6 | 0 | **17.682 caracteres** |
+
+Es decir: **~1.800 caracteres de texto legal se estaban perdiendo del PDF firmado**, no sólo
+maquetando mal. En un contrato eso no es cosmético.
+
+**Por qué no se corrige en el sanitizer.** Saber si una celda va a desbordar exige renderizar
+primero (depende del contenido resuelto, del tamaño de papel y de la fuente). Convertir toda tabla
+de una celda a `<div>` a ciegas cambiaría el diseño de plantillas que hoy funcionan bien. Las otras
+dos causas de páginas en blanco sí se automatizaron
+(`AdvancedTemplateSanitizer::fixDompdfPaginationQuirks()`) precisamente porque son deterministas y
+no dependen del contenido.
+
+**Recomendación.** (a) Documentar la regla para quien edite plantillas en modo avanzado: *no
+envuelvas texto largo en una celda de tabla, usa `<div>`* — ya reflejado en `MANUAL_USUARIO.md`.
+(b) Evaluar un chequeo en la vista previa que detecte celdas sospechosamente largas y avise por el
+header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloques huérfanos. Es la
+única forma de que el tenant se entere sin tener que comparar el PDF carácter por carácter.
+
+### 📋 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue
+
+Hasta el 29-jul-2026 (`828865c`) los documentos de cliente se escribían en el disco `public`
+de Laravel y se servían con `asset('storage/…')`. En App Platform el sistema de archivos del
+contenedor es **efímero**: en cada despliegue los bytes desaparecían mientras las filas de
+`customer_documents` sobrevivían. Ese es el origen del síntoma «subo los documentos y después
+no se ven». El almacenamiento ya está corregido (todo va a S3, con URL firmada de 30 minutos),
+pero quedan dos cabos:
+
+1. **`documents:migrate-to-s3` sólo rescata lo que siga vivo en el disco local**, y sólo si se
+   ejecuta desde la misma instancia que recibió los archivos. Si producción se redesplegó antes
+   de correrlo, esos bytes ya no existen en ninguna parte. **No consta que se haya ejecutado.**
+2. **La convención de rutas no cambió, sólo el disco**, así que una fila vieja y una nueva se
+   ven idénticas: `file_path` no permite distinguirlas. La interfaz pinta la tarjeta igual y el
+   enlace devuelve un error del proveedor, sin explicación para el usuario.
+
+**Recomendación.** Un comando de auditoría que recorra `customer_documents` comprobando
+`Storage::disk('s3')->exists($file_path)` y, o bien marque las filas huérfanas con una columna
+propia, o las liste para decidir si se purgan. Sin eso, el operador no puede distinguir «este
+documento se perdió en la migración» de «hay un problema con el almacenamiento ahora mismo», y
+cada caso llega a soporte como un bug nuevo.
+### 📋 P-10 · Eliminar un cliente no lo desaprovisiona del router
 
 `CustomerProfileController::destroy()` borra `customer_profile` y `users` dentro de una
 transacción y nada más: **no llama a `suspendCustomer()` ni a ninguna rutina de limpieza en
@@ -487,7 +605,7 @@ en `suspension_action_logs` para que el failover lo reintente si el equipo no re
 borrado que falla en el router no debería abortar el borrado en BD, pero **sí** debe quedar
 registrado: hoy no queda rastro de ninguna clase.
 
-### 📋 P-7 · `$monthlyRevenue` se calcula en el Dashboard y nunca se usa
+### 📋 P-11 · `$monthlyRevenue` se calcula en el Dashboard y nunca se usa
 
 En `DashboardController::stats()` se consulta la suma de facturas `paid` emitidas en el mes
 (`$monthlyRevenue`) y luego la respuesta devuelve `revenue.monthly => $monthlyPayments` — los
@@ -501,7 +619,7 @@ hoy no está claro cuál se quiso mostrar. El manual documenta **el comportamien
 `$monthlyRevenue`; si debía ser lo facturado, cambiar la clave de la respuesta y avisar del
 cambio de significado. No tocarlo a ciegas — el número que hoy ve el operador cambiaría.
 
-### 📋 P-8 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción
+### 📋 P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción
 
 El contenido que el usuario lee dentro de la app vive en `help_categories` / `help_articles` y
 lo produce `HelpCenterSeeder`. Hay dos problemas encadenados:
@@ -525,27 +643,7 @@ destructivo y se puede permitir en `public` sin contradecir la separación dev/p
 que hoy obliga a elegir entre "no actualizar el manual" y "correr un seeder destructivo contra
 producción a mano".
 
-### 📋 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue
 
-Hasta el 29-jul-2026 (`828865c`) los documentos de cliente se escribían en el disco `public`
-de Laravel y se servían con `asset('storage/…')`. En App Platform el sistema de archivos del
-contenedor es **efímero**: en cada despliegue los bytes desaparecían mientras las filas de
-`customer_documents` sobrevivían. Ese es el origen del síntoma «subo los documentos y después
-no se ven». El almacenamiento ya está corregido (todo va a S3, con URL firmada de 30 minutos),
-pero quedan dos cabos:
-
-1. **`documents:migrate-to-s3` sólo rescata lo que siga vivo en el disco local**, y sólo si se
-   ejecuta desde la misma instancia que recibió los archivos. Si producción se redesplegó antes
-   de correrlo, esos bytes ya no existen en ninguna parte. **No consta que se haya ejecutado.**
-2. **La convención de rutas no cambió, sólo el disco**, así que una fila vieja y una nueva se
-   ven idénticas: `file_path` no permite distinguirlas. La interfaz pinta la tarjeta igual y el
-   enlace devuelve un error del proveedor, sin explicación para el usuario.
-
-**Recomendación.** Un comando de auditoría que recorra `customer_documents` comprobando
-`Storage::disk('s3')->exists($file_path)` y, o bien marque las filas huérfanas con una columna
-propia, o las liste para decidir si se purgan. Sin eso, el operador no puede distinguir «este
-documento se perdió en la migración» de «hay un problema con el almacenamiento ahora mismo», y
-cada caso llega a soporte como un bug nuevo.
 
 ### 📋 Observación menor
 
@@ -591,10 +689,13 @@ tenants. Deberían salir de `tenant.billing_phone`.
 | **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | 📋 Pendiente |
 | **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | 📋 Pendiente (deliberado, evaluar según demanda) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
-| **P-6** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
-| **P-7** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
-| **P-8** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
+| **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | 📋 Pendiente de confirmación |
+| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
+| **P-10** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
+| **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
+| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
 
 ---
 
