@@ -872,7 +872,7 @@ ruta a propósito**: un valor inválido debe llegar al controlador para que
 devuelve:
 - `is_advanced_mode` (bool) — si la plantilla usa el shell fijo o el documento HTML completo.
 - `placeholders` — whitelist de placeholders **escalares** para el tipo (`config/document_placeholders.php`), `{token: etiqueta}`.
-- `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Vacío para `contract` (sin bloques en su alcance).
+- `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Los 3 tipos incluyen `empresa.logo` (auditoría 2026-08-03) — `contract` ya no está vacío. `contract` también incluye `contrato.firma_cliente` (auditoría 2026-08-04) — necesario en modo avanzado, donde no hay shell fijo que la imprima por su cuenta (ver `docs/ARQUITECTURA.md`).
 
 **`PUT /api/document-templates/{type}`** y **`POST .../preview`** — cuerpo:
 

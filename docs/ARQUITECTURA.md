@@ -259,7 +259,7 @@ zero-regression: personalizar es opt-in.
 | | Modo seguro (`is_advanced_mode = false`) | Modo avanzado (`true`) |
 |---|---|---|
 | Qué edita el tenant | Un fragmento de body, insertado en un shell Blade fijo (`documents/shells/*_shell.blade.php`) | El documento HTML completo (`<html><head><style>…</style></head><body>…</body></html>`) |
-| Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
+| Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…), `id`/`style` en todos los tags (`Attr.EnableID=true`, auditoría 2026-08-03) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
 | Render | `Pdf::loadView('documents.shells.*_shell', ['body' => $html, …])` | `Pdf::loadHTML($html)` directo, sin shell |
 
 **Placeholders** — dos tipos, mismo motor de sustitución (`PlaceholderResolver::apply()`,
@@ -270,15 +270,30 @@ zero-regression: personalizar es opt-in.
   dentro de un contrato) se blanquea a `''` en silencio; es una decisión consciente, no un bug
   (ver `docs/MEJORAS_RECOMENDADAS.md`).
 - **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.fotos}}`, `{{instalacion.firma_cliente}}`,
-  `{{instalacion.firma_tecnico}}`) — HTML de confianza pre-renderizado por el servidor (tabla de
-  ítems, galería de fotos, imagen de firma), **nunca** sanitizado (necesita `<img>`/`colspan`,
-  prohibidos en el allowlist del tenant). Se insertan vía `BlockMarkerInjector`: cada token se
-  reemplaza primero por un marcador opaco de alta entropía (`Str::random()`), el HTML se
-  sanitiza/procesa, y sólo entonces se localiza el marcador en el árbol DOM (`DOMDocument`) y se
+  `{{instalacion.firma_tecnico}}`, `{{empresa.logo}}`) — HTML de confianza pre-renderizado por el
+  servidor (tabla de ítems, galería de fotos, imagen de firma/logo), **nunca** sanitizado (necesita
+  `<img>`/`colspan`, prohibidos en el allowlist del tenant). Se insertan vía `BlockMarkerInjector`:
+  cada token se reemplaza primero por un marcador opaco de alta entropía (`Str::random()`), el HTML
+  se sanitiza/procesa, y sólo entonces se localiza el marcador en el árbol DOM (`DOMDocument`) y se
   reemplaza por el fragmento real — nunca con un `str_replace` directo, porque el tenant podría
   haber puesto el token dentro de un atributo HTML y corromper la estructura. Un marcador que no
   se pudo insertar (posición inalcanzable) se blanquea igual, se loguea, y se reporta vía el
   header `X-Template-Warnings` en el endpoint de vista previa.
+  `{{empresa.logo}}` (auditoría 2026-08-03) resuelve a una ruta LOCAL en disco
+  (`public_path('storage/'.$tenant->logo)`, mismo patrón que `invoice_shell.blade.php`), nunca una
+  URL — inmune a `enable_remote=false` porque dompdf no hace ningún fetch de red. Es el primer
+  bloque presente en **contrato**, rompiendo deliberadamente la invariante previa de "contrato sin
+  bloques" (`config/document_placeholder_blocks.php`). `BlockPlaceholderResolver::resolveLogo()`
+  normaliza backslashes a `/` en la ruta antes de renderizar el fragmento — el serializador de
+  libxml usado por `BlockMarkerInjector` percent-codifica `\` en atributos URI, lo que rompería la
+  ruta en un entorno de desarrollo Windows (en producción, Linux, la ruta ya usa `/` y nunca ocurre).
+  `{{contrato.firma_cliente}}` (auditoría 2026-08-04) es el segundo bloque de contrato — en modo
+  seguro la firma la sigue imprimiendo el shell fijo (`contract_shell.blade.php`, fuera de
+  `body_html`), pero en **modo avanzado no hay shell**: sin este bloque, la firma real que
+  `CustomerDocumentController::signContract()` captura y pasa a `TemplateRenderer::renderContract()`
+  no tenía NINGÚN lugar donde insertarse — se perdía en silencio en cualquier contrato de modo
+  avanzado. Descubierto al preparar un HTML real de prueba para validar contra producción, no en
+  el diseño original del modo avanzado (2026-08-01).
 
 **Reglas de seguridad no negociables** (ambos sanitizers, verificadas con test dedicado —
 `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest`): `<script>` y atributos `on-*` siempre
@@ -288,6 +303,35 @@ allowlist); `position`/`top`/`left`/`right`/`bottom`/`z-index` nunca disponibles
 `CSS.Trusted`, que tampoco se activa — evita overlays que oculten/falsifiquen contenido en un
 documento fiscal/legal); `config/dompdf.php` fuerza `enable_remote = false` explícito (no
 depende del default del paquete).
+
+**Correcciones de paginación para dompdf** (`AdvancedTemplateSanitizer::fixDompdfPaginationQuirks()`,
+auditoría 2026-08-04) — una sola pasada de DOM sobre el body ya saneado, motivada por plantillas
+reales exportadas del editor WYSIWYG de WispHub que producían PDFs con páginas en blanco:
+(a) `page-break-before` en el **primer** elemento del documento se retira (dompdf inserta una página
+vacía porque no hay página anterior de la que romper; un navegador lo ignora) — el resto de saltos
+se respeta tal cual; (b) las **alturas fijas** (`height`, atributo o CSS) se retiran de toda la
+familia `<table>`, no de `<img>`/`<div>` donde son legítimas. Medido sobre un contrato real: sólo
+quitando las alturas, el PDF pasa de 8 páginas con 3 en blanco a 7 con 1. `width` **sí** se conserva
+como atributo en `table`/`td`/`th` — es como esas plantillas arman su layout de columnas, y sin él
+dompdf cae en auto-layout y rompe la maquetación.
+
+> **Limitación conocida, no corregida en el sanitizer:** dompdf no parte una celda de tabla entre
+> páginas — si un `<td>` excede el alto de la hoja, lo empuja entero (dejando la anterior en blanco)
+> y **recorta el excedente sin avisar**. La solución es del lado de la plantilla (usar `<div>` para
+> contenido largo, no una celda). No se automatiza porque saber si el contenido desbordará exige
+> renderizar, y convertir tablas a divs a ciegas alteraría el diseño del tenant. Ver
+> `docs/MEJORAS_RECOMENDADAS.md` P-8.
+
+`AdvancedTemplateSanitizer` habilita `id` (`Attr.EnableID=true`, auditoría 2026-08-03) — necesario
+porque plantillas reales de clientes exportadas de WispHub usan selectores CSS por id
+(`#clausulas{...}`), que antes se perdían en silencio (`id` se descarta siempre si no está este
+flag, aunque esté declarado en `HTML.Allowed`, verificado empíricamente). HTMLPurifier valida el
+valor (rechaza ids con sintaxis inválida, ej. `javascript:alert(1)`) y fuerza unicidad en todo el
+documento (un `id` duplicado se descarta en la 2ª aparición) — no es un bypass. El riesgo típico
+de este flag (colisión de id con la página que aloja el contenido) no aplica aquí: la salida es
+siempre un PDF standalone vía `Pdf::loadHTML()`, nunca se embebe en otra página. Una plantilla ya
+guardada **antes** de este fix perdió su `id` de forma permanente en `body_html` (la sanitización
+corre una sola vez, al guardar) — requiere volver a pegar/guardar el HTML para recuperarlo.
 
 ### Managers MikroTik (`app/Services/MikroTik`)
 

@@ -4,6 +4,7 @@ namespace App\Services\Templates;
 
 use App\Models\CustomerInstallation;
 use App\Models\Invoice;
+use App\Models\Tenant;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -13,10 +14,14 @@ use Throwable;
  * from tenant-stored content. Consumed by TemplateRenderer::compile() and
  * spliced into the tenant's template by BlockMarkerInjector.
  *
- * Alcance V1 (auditoría 2026-07-31): solo los 4 bloques que de verdad
+ * Alcance V1 (auditoría 2026-07-31): solo los bloques que de verdad
  * necesitan loop o <img>, que el allowlist del tenant no puede producir por
- * sí solo. Nada de contrato (la firma la sigue renderizando el shell fijo,
- * fuera de body_html) ni un bloque de totales (son placeholders escalares).
+ * sí solo. Nada de un bloque de totales (son placeholders escalares).
+ *
+ * empresa.logo (auditoría 2026-08-03): agregado a los 3 tipos, incluido
+ * contrato — la primera vez que contrato tiene un bloque. Misma resolución
+ * de ruta LOCAL (no URL) que ya usa invoice_shell.blade.php: inmune a
+ * enable_remote porque dompdf nunca hace un fetch de red.
  */
 class BlockPlaceholderResolver
 {
@@ -29,11 +34,36 @@ class BlockPlaceholderResolver
                 'factura.tabla_items',
                 (int) $invoice->tenant_id
             ),
+            'empresa.logo' => $this->resolveLogo($invoice->tenant, 'empresa.logo', (int) $invoice->tenant_id),
+        ];
+    }
+
+    /**
+     * contrato.firma_cliente (auditoría 2026-08-04): en modo seguro la firma
+     * la sigue imprimiendo el shell fijo (contract_shell.blade.php, fuera de
+     * $body) sin necesidad de este bloque. Pero en modo avanzado NO hay
+     * shell — compileAdvanced() sólo sustituye lo que esté en el HTML del
+     * tenant — así que sin este bloque un contrato en modo avanzado no tenía
+     * NINGUNA forma de mostrar la firma real del cliente, aunque
+     * CustomerDocumentController::signContract() sí la capturaba y se la
+     * pasaba a renderContract(); simplemente se perdía en silencio.
+     */
+    public function forContract(Tenant $tenant, ?string $signature = null): array
+    {
+        return [
+            'empresa.logo' => $this->resolveLogo($tenant, 'empresa.logo', (int) $tenant->id),
+            'contrato.firma_cliente' => $this->safeRender(
+                'documents.blocks.signature_image',
+                ['signature' => $signature, 'alt' => 'Firma cliente'],
+                'contrato.firma_cliente',
+                (int) $tenant->id
+            ),
         ];
     }
 
     public function forInstallation(
         CustomerInstallation $installation,
+        Tenant $tenant,
         $photos,
         ?string $customerSignature,
         ?string $technicianSignature
@@ -59,7 +89,35 @@ class BlockPlaceholderResolver
                 'instalacion.firma_tecnico',
                 $tenantId
             ),
+            'empresa.logo' => $this->resolveLogo($tenant, 'empresa.logo', $tenantId),
         ];
+    }
+
+    /**
+     * Ruta LOCAL en disco (no URL) al logo del tenant, mismo patrón ya
+     * probado en documents/shells/invoice_shell.blade.php. file_exists() se
+     * evalúa dentro del partial, igual que el resto de bloques de imagen —
+     * degrada a vacío si no hay logo o falta el symlink storage:link.
+     */
+    private function resolveLogo(?Tenant $tenant, string $token, int $tenantId): string
+    {
+        if (!$tenant || !$tenant->logo) {
+            return '';
+        }
+
+        // BlockMarkerInjector splice pasa este fragmento por un round-trip de
+        // DOMDocument, cuyo serializador de libxml percent-codifica el
+        // backslash en atributos URI (src/href/...) — inofensivo en
+        // producción (Linux, siempre forward slash), pero rompería la ruta
+        // en un dev local Windows si no se normaliza aquí.
+        $logoPath = str_replace('\\', '/', public_path('storage/' . $tenant->logo));
+
+        return $this->safeRender(
+            'documents.blocks.logo',
+            ['logoPath' => $logoPath],
+            $token,
+            $tenantId
+        );
     }
 
     /**

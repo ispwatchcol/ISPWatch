@@ -6,7 +6,9 @@ use Illuminate\Http\Request;
 use App\Http\Requests\UpdateTenantRequest;
 use App\Models\Tenant;
 use App\Models\User;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class TenantController extends Controller
@@ -32,7 +34,7 @@ class TenantController extends Controller
             // toArray() already excludes google_maps_api_key (it's in $hidden).
             // We add a safe boolean so the UI knows whether a key is set.
             $data = $tenant->toArray();
-            $data['has_google_maps_key'] = !empty($tenant->google_maps_api_key);
+            $data['has_google_maps_key'] = $this->safeGoogleMapsApiKey($tenant) !== null;
 
             return response()->json([
                 'success' => true,
@@ -44,6 +46,28 @@ class TenantController extends Controller
                 'message' => 'Error al obtener información del tenant',
                 'error'   => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * google_maps_api_key es un campo cifrado (`encrypted` cast) totalmente
+     * ajeno al resto de la información del tenant. Un valor no desencriptable
+     * (auditoría 2026-08-04: APP_KEY local no coincide con la que cifró el
+     * dato — ver docs/MEJORAS_RECOMENDADAS.md) NO debe tumbar toda la
+     * respuesta de show()/mapsConfig() — el resto del tenant (marca, nombre,
+     * dirección...) no tiene ninguna relación con este campo.
+     */
+    private function safeGoogleMapsApiKey(Tenant $tenant): ?string
+    {
+        try {
+            return $tenant->google_maps_api_key;
+        } catch (DecryptException $e) {
+            Log::warning("No se pudo desencriptar google_maps_api_key del tenant {$tenant->id}.", [
+                'tenant_id' => $tenant->id,
+                'exception' => $e->getMessage(),
+            ]);
+
+            return null;
         }
     }
 
@@ -144,7 +168,7 @@ class TenantController extends Controller
             ], 404);
         }
 
-        $apiKey = $tenant->google_maps_api_key;
+        $apiKey = $this->safeGoogleMapsApiKey($tenant);
 
         return response()->json([
             'success' => true,
