@@ -772,6 +772,10 @@ que ya estaban mal marcados siguen navegando aunque el router ya esté bien conf
 > **Los gastos no se borran.** Si te equivocaste, edítalo y cámbialo a estado **anulado**.
 > Así queda el rastro de la corrección.
 
+**Para encontrar un gasto**, el buscador de arriba busca por **descripción, observaciones y
+beneficiario** — útil cuando no recuerdas la fecha exacta. Se combina con los filtros de fecha,
+categoría y estado: puedes buscar "energía" *y* acotar a un mes *y* a una categoría a la vez.
+
 ---
 
 ## 11. Routers y red

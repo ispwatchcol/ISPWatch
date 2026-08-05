@@ -566,6 +566,41 @@ envuelvas texto largo en una celda de tabla, usa `<div>`* — ya reflejado en `M
 header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloques huérfanos. Es la
 única forma de que el tenant se entere sin tener que comparar el PDF carácter por carácter.
 
+### 📋 P-9 · Auditoría de Finanzas (2026-08-05): fases aprobadas pendientes de ejecutar
+
+Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
+Categorías de Gasto. La **Fase 1** (debounce y guard anti-carrera en Facturación, índices
+compuestos, búsqueda de texto en Gastos) ya está implementada. Queda pendiente, con plan
+aprobado:
+
+**Fase 2 — Gastos: paginación + agregados server-side.** `ExpenseController::index` hace
+`->get()`, sin paginar. **No es un cambio de una línea:** `Expenses.vue` calcula
+"Total del período filtrado" y el desglose por categoría en el cliente, sumando el array
+completo. Paginar sin mover esos totales al servidor haría que las tarjetas de resumen sumen
+sólo la página actual y sigan rotuladas como total del período — un número incorrecto
+presentado con la misma confianza, en un módulo financiero. **Las dos cosas van juntas o no van.**
+
+**Fase 3 — Totales en dinero en Facturación y Recaudos.** Hoy sólo se ve el conteo de registros
+("de X recaudos"), no cuánto suman. Debe usar la misma convención de agregados que se fije en la
+Fase 2 para no acabar con dos formas distintas de devolver totales.
+
+**Fase 4 — Exportación CSV** en Facturación, Recaudos y Gastos, sobre **todo el filtro
+aplicado** (decidido con el usuario, no sólo la página visible). Requiere `StreamedResponse`
+para no cargar el filtro entero en memoria.
+
+**Fase 5 — Unificación visual.** Hoy conviven tres lenguajes en el mismo submenú: Facturación y
+Recaudos (índigo, tabla), Formas de Pago y Tipos de Factura (esmeralda/índigo, grid de
+tarjetas), Gastos y Categorías (azul, tabla). Acordado: **esmeralda como acento único de
+Finanzas**, y Categorías de Gasto migra de tabla a grid de tarjetas como Formas de Pago.
+
+**Fase 6 — Servicios Adicionales.** No tiene listado ni historial: es un formulario de un solo
+uso, y para auditar qué cargos se generaron hay que ir a Facturación y filtrar por tipo a mano.
+Decisión de producto pendiente (vista propia vs. atajo preconfigurado en Facturación).
+
+**Deuda no bloqueante detectada en la misma auditoría.** La búsqueda por cliente en Facturación
+y Recaudos usa `whereHas` + `ILIKE`, que no aprovecha índice B-tree. Al volumen actual no duele;
+sería el próximo cuello de botella real y la salida sería `pg_trgm`/GIN.
+
 ### 📋 Observación menor
 
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de

@@ -771,6 +771,19 @@ cada hora.
 | `PUT` | `/api/expense-categories/{expenseCategory}` | `edit_expense` |
 | `DELETE` | `/api/expense-categories/{expenseCategory}` | `edit_expense` |
 
+**Filtros de `GET /api/expenses`** (todos combinables entre sí, en AND)
+
+| Parámetro | Efecto |
+|---|---|
+| `search` | Texto libre sobre `description`, `notes` y el nombre del beneficiario. Insensible a mayúsculas en los dos motores (macros `whereLike`/`orWhereLike`) |
+| `date_from` / `date_to` | Rango sobre `expense_date` |
+| `expense_category_id` | Categoría exacta |
+| `status` | `activo` \| `anulado` |
+
+> Devuelve un **array plano**, sin envoltorio de paginación. Pendiente de paginar
+> —ver `MEJORAS_RECOMENDADAS.md`—, y al hacerlo los totales del resumen deben
+> pasar a calcularse en el servidor.
+
 **Cuerpo de gasto**
 
 | Campo | Reglas |

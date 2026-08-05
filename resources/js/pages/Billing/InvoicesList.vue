@@ -14,7 +14,12 @@ const router = useRouter()
 const { can } = usePermissions()
 
 const invoices = ref({ data: [] })
+
+// `loading` sólo para la primera carga (no hay nada que mostrar todavía).
+// Los refrescos posteriores usan `refreshing`: la tabla se queda en pantalla y
+// sólo se atenúa, en vez de vaciarse y volver a llenarse en cada tecla.
 const loading = ref(true)
+const refreshing = ref(false)
 const currentPage = ref(1)
 const user = ref({})
 const filters = ref({
@@ -53,8 +58,13 @@ const fetchCustomers = async () => {
     }
 }
 
+// Descarta respuestas de peticiones viejas: al teclear rápido en el buscador la
+// primera puede llegar después de la última y pintar resultados obsoletos.
+let requestId = 0
+
 const fetchInvoices = async () => {
-    loading.value = true
+    const id = ++requestId
+    refreshing.value = true
     try {
         let periodValue = filters.value.period
         // If it's not empty and doesn't look like YYYY-MM, try to parse it
@@ -80,6 +90,7 @@ const fetchInvoices = async () => {
         }
 
         const response = await billingService.getInvoices(params)
+        if (id !== requestId) return
         // Normalize: ensure it follows the Laravel pagination structure { data: [] }
         if (Array.isArray(response.data)) {
             invoices.value = { data: response.data, total: response.data.length }
@@ -87,10 +98,21 @@ const fetchInvoices = async () => {
             invoices.value = response.data
         }
     } catch (e) {
-        console.error('Error loading invoices', e)
+        if (id === requestId) console.error('Error loading invoices', e)
     } finally {
-        loading.value = false
+        if (id === requestId) {
+            refreshing.value = false
+            loading.value = false
+        }
     }
+}
+
+// Los filtros de texto se escriben letra a letra: sin este respiro se dispara
+// una petición por tecla.
+let debounceTimer = null
+const scheduleFetch = () => {
+    clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(fetchInvoices, 400)
 }
 
 const getStatusColor = (status) => {
@@ -202,7 +224,7 @@ onMounted(() => {
 
 // Al cambiar cualquier filtro, volvemos a la primera página para no quedar
 // en una página que ya no existe con el nuevo conjunto de resultados.
-watch(filters, () => { currentPage.value = 1; fetchInvoices() }, { deep: true })
+watch(filters, () => { currentPage.value = 1; scheduleFetch() }, { deep: true })
 
 // ── Paginación ──────────────────────────────────────────
 const goToPage = (page) => {
@@ -352,8 +374,17 @@ const sendBulkReminders = async () => {
         </div>
 
         <!-- Main Table Section -->
-        <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200 dark:border-gray-700 overflow-hidden">
-            <div class="overflow-x-auto">
+        <div class="relative bg-white dark:bg-gray-800 rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200 dark:border-gray-700 overflow-hidden">
+
+            <!-- Refresco: los datos anteriores siguen visibles, sólo atenuados.
+                 Vaciar la tabla en cada tecla hacía que todo pareciera lento. -->
+            <div v-if="refreshing && !loading"
+                class="absolute top-0 left-0 right-0 h-0.5 bg-indigo-500/30 overflow-hidden z-10">
+                <div class="h-full w-1/3 bg-indigo-500 loading-bar"></div>
+            </div>
+
+            <div class="overflow-x-auto transition-opacity duration-150"
+                :class="refreshing && !loading ? 'opacity-60' : ''">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-slate-50/50 dark:bg-gray-900/50 border-b border-slate-200 dark:border-gray-700">
@@ -607,3 +638,17 @@ const sendBulkReminders = async () => {
         />
     </div>
 </template>
+
+<style scoped>
+/* Barra indeterminada del refresco: recorre el borde superior de la tabla
+   mientras llega la respuesta, sin ocultar los datos que ya están.
+   La animación se declara aquí (y no como clase arbitraria de Tailwind) porque
+   el scoped de Vue renombra los @keyframes y sólo reescribe las referencias que
+   viven en este mismo bloque. */
+.loading-bar { animation: loading-bar 1s ease-in-out infinite; }
+
+@keyframes loading-bar {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+}
+</style>

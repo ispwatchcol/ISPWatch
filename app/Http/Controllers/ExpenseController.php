@@ -15,6 +15,25 @@ class ExpenseController extends Controller
     {
         $query = Expense::with(['category', 'beneficiary', 'creator']);
 
+        // Búsqueda de texto: sin esto, encontrar un gasto puntual del que no se
+        // recuerda la fecha exacta obligaba a recorrer la lista a ojo. Cubre lo
+        // que la tabla muestra como texto libre — descripción, observaciones y
+        // la persona a nombre de quién quedó.
+        if ($request->filled('search')) {
+            $search = $request->query('search');
+            $query->where(function ($q) use ($search) {
+                $q->whereLike('description', $search)
+                    ->orWhereLike('notes', $search)
+                    ->orWhereHas('beneficiary', function ($uq) use ($search) {
+                        $uq->where(function ($iq) use ($search) {
+                            $iq->whereLike('name', $search)
+                                ->orWhereLike('user_name', $search)
+                                ->orWhereLike('user_lastname', $search);
+                        });
+                    });
+            });
+        }
+
         if ($request->filled('date_from')) {
             $query->whereDate('expense_date', '>=', $request->query('date_from'));
         }

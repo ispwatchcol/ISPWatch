@@ -31,6 +31,18 @@
 
             <!-- Filters -->
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 mb-6">
+                <div class="relative mb-4">
+                    <v-icon name="md-search" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                        v-model="filters.search"
+                        type="text"
+                        placeholder="Buscar por descripción, observaciones o beneficiario..."
+                        class="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                     bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                     focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-colors"
+                    />
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Desde</label>
@@ -430,6 +442,7 @@ const categories = ref([])
 const users = ref([])
 
 const filters = ref({
+    search: '',
     date_from: '',
     date_to: '',
     expense_category_id: '',
@@ -476,23 +489,39 @@ const formatMoney = (value) => {
     return num.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 }
 
+// Descarta respuestas de peticiones viejas: al teclear rápido en el buscador la
+// primera puede llegar después de la última y pintar resultados obsoletos.
+let requestId = 0
+
 const loadItems = async () => {
+    const id = ++requestId
     loading.value = true
     try {
         const params = {}
+        if (filters.value.search) params.search = filters.value.search
         if (filters.value.date_from) params.date_from = filters.value.date_from
         if (filters.value.date_to) params.date_to = filters.value.date_to
         if (filters.value.expense_category_id) params.expense_category_id = filters.value.expense_category_id
         if (filters.value.status) params.status = filters.value.status
 
         const { data } = await expenseApi.getAll(params)
+        if (id !== requestId) return
         items.value = data || []
     } catch (error) {
+        if (id !== requestId) return
         console.error('Error loading expenses:', error)
         toast.value?.error('Error', 'No se pudieron cargar los gastos')
     } finally {
-        loading.value = false
+        if (id === requestId) loading.value = false
     }
+}
+
+// Los filtros de texto se escriben letra a letra: sin este respiro se dispara
+// una petición por tecla.
+let debounceTimer = null
+const scheduleLoad = () => {
+    clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(loadItems, 400)
 }
 
 const loadCategories = async () => {
@@ -607,7 +636,7 @@ const voidItem = async () => {
 }
 
 watch(filters, () => {
-    loadItems()
+    scheduleLoad()
 }, { deep: true })
 
 onMounted(() => {

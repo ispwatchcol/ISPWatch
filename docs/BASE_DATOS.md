@@ -900,8 +900,8 @@ Agregado permanente.
 | `customer_documents` | `(customer_id, type)`, `installation_id`, `tenant_id` |
 | `customer_installations` | `prospect_id`, `(tenant_id, customer_id)` |
 | `customer_profile` | `olt_id` |
-| `expenses` | `expense_date`, `status`, `tenant_id` |
-| `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, **parcial** `due_date WHERE balance_due > 0` |
+| `expenses` | `expense_date`, `status`, `tenant_id`, `(tenant_id, expense_date)` |
+| `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, `(tenant_id, issue_date)`, **parcial** `due_date WHERE balance_due > 0` |
 | `payment_allocations` | `payment_id`, `invoice_id` |
 | `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)` |
 | `user_services` | `(user_id, status)` |
