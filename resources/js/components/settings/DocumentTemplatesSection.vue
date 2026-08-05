@@ -490,14 +490,23 @@ async function saveBranding() {
 async function loadTenantBranding() {
   try {
     const userData = JSON.parse(localStorage.getItem('userData') || sessionStorage.getItem('userData') || 'null')
-    if (!userData?.tenant_id) return
+    if (!userData?.tenant_id) {
+      console.error('loadTenantBranding: no tenant_id in stored userData, skipping load.', userData)
+      return
+    }
     const { data } = await tenantApi.getOne(userData.tenant_id)
     const tenant = data.data || data
     branding.brand_color = tenant.brand_color || ''
     branding.document_footer_text = tenant.document_footer_text || ''
     logoUrl.value = tenant.logo ? `/storage/${tenant.logo}` : null
   } catch (e) {
-    // Non-fatal: branding panel just starts empty.
+    // Antes este catch no dejaba ningún rastro: una falla de red/permiso al
+    // cargar se veía IDÉNTICO a "nunca se guardó nada" (auditoría 2026-08-04,
+    // reporte de usuario: color/pie/logo "reseteados" en cada reingreso). Sí
+    // sigue siendo no-fatal (el panel puede iniciar vacío), pero ahora es
+    // diagnosticable en vez de silencioso.
+    console.error('loadTenantBranding failed:', e)
+    toast.value?.error('No se pudo cargar la marca guardada', e.response?.data?.message || 'Los cambios previos siguen guardados; intenta recargar la página.')
   }
 }
 
