@@ -570,19 +570,14 @@ header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloqu
 
 Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
 Categorías de Gasto. La **Fase 1** (debounce y guard anti-carrera en Facturación, índices
-compuestos, búsqueda de texto en Gastos) ya está implementada. Queda pendiente, con plan
-aprobado:
-
-**Fase 2 — Gastos: paginación + agregados server-side.** `ExpenseController::index` hace
-`->get()`, sin paginar. **No es un cambio de una línea:** `Expenses.vue` calcula
-"Total del período filtrado" y el desglose por categoría en el cliente, sumando el array
-completo. Paginar sin mover esos totales al servidor haría que las tarjetas de resumen sumen
-sólo la página actual y sigan rotuladas como total del período — un número incorrecto
-presentado con la misma confianza, en un módulo financiero. **Las dos cosas van juntas o no van.**
+compuestos, búsqueda de texto en Gastos) y la **Fase 2** (paginación y agregados server-side en
+Gastos) ya están implementadas. Queda pendiente, con plan aprobado:
 
 **Fase 3 — Totales en dinero en Facturación y Recaudos.** Hoy sólo se ve el conteo de registros
-("de X recaudos"), no cuánto suman. Debe usar la misma convención de agregados que se fije en la
-Fase 2 para no acabar con dos formas distintas de devolver totales.
+("de X recaudos"), no cuánto suman. Debe reutilizar la convención fijada en la Fase 2: clave
+`summary` en la **misma** respuesta del listado, con los agregados calculados en SQL sobre el
+filtro completo. Un endpoint de totales aparte permitiría que la cifra y la lista respondan a
+filtros distintos sin que nada lo delate.
 
 **Fase 4 — Exportación CSV** en Facturación, Recaudos y Gastos, sobre **todo el filtro
 aplicado** (decidido con el usuario, no sólo la página visible). Requiere `StreamedResponse`

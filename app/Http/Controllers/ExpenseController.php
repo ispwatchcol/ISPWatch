@@ -50,7 +50,56 @@ class ExpenseController extends Controller
             $query->where('status', $request->query('status'));
         }
 
-        return response()->json($query->orderByDesc('expense_date')->get());
+        // Agregados del resumen: se calculan en SQL sobre el filtro COMPLETO,
+        // nunca sobre la página. Antes los sumaba la vista recorriendo el array
+        // entero, que funcionaba sólo porque el endpoint devolvía todo sin
+        // paginar; al paginar, ese mismo cálculo pasaría a mostrar el total de
+        // la página visible bajo el rótulo "total del período filtrado" — un
+        // importe incorrecto con la misma apariencia de correcto.
+        //
+        // Los anulados quedan fuera del resumen aunque el filtro de estado no
+        // los excluya: es la regla que ya aplicaba la vista (`activeItems`) y la
+        // que hace que el total represente dinero realmente gastado.
+        $summaryQuery = (clone $query)->where('status', '!=', Expense::STATUS_VOID);
+
+        // Se acota por arriba en vez de rechazar: un `per_page` absurdo es un
+        // error de quien llama, no algo que deba tumbar el listado.
+        $perPage = max(1, min((int) $request->query('per_page', 15), 200));
+
+        // `expense_date` es una fecha sin hora y se repite mucho: sin desempate
+        // estable, dos páginas pueden repetir u omitir el mismo gasto.
+        $paginator = $query->orderByDesc('expense_date')->orderByDesc('id')->paginate($perPage);
+
+        return response()->json($paginator->toArray() + [
+            'summary' => [
+                'total'       => (float) (clone $summaryQuery)->sum('amount'),
+                'count'       => (clone $summaryQuery)->count(),
+                'by_category' => $this->categoryBreakdown(clone $summaryQuery),
+            ],
+        ]);
+    }
+
+    /**
+     * Total por categoría del filtro completo, ordenado de mayor a menor.
+     *
+     * Va por `toBase()` para que no se hidraten modelos ni corran los eager
+     * loads del listado: es una agregación, no una lista de gastos. El
+     * "Sin categoría" se resuelve en PHP y no con COALESCE en SQL para no
+     * depender de cómo agrupa cada motor una columna nula.
+     */
+    private function categoryBreakdown($query): array
+    {
+        return $query->toBase()
+            ->leftJoin('expense_categories', 'expenses.expense_category_id', '=', 'expense_categories.id')
+            ->selectRaw('expense_categories.name as name, SUM(expenses.amount) as total')
+            ->groupBy('expense_categories.name')
+            ->orderByDesc('total')
+            ->get()
+            ->map(fn ($row) => [
+                'name'  => $row->name ?? 'Sin categoría',
+                'total' => (float) $row->total,
+            ])
+            ->all();
     }
 
     public function store(Request $request)

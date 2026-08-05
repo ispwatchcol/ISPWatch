@@ -65,8 +65,8 @@ class ExpensesListFilterTest extends TestCase
         // "Arriendo" también en producción, no sólo en SQLite.
         $this->getJson('/api/expenses?search=arriendo')
             ->assertStatus(200)
-            ->assertJsonCount(1)
-            ->assertJsonPath('0.description', 'Arriendo de la oficina');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.description', 'Arriendo de la oficina');
     }
 
     #[Test]
@@ -79,8 +79,8 @@ class ExpensesListFilterTest extends TestCase
 
         $this->getJson('/api/expenses?search=8891')
             ->assertStatus(200)
-            ->assertJsonCount(1)
-            ->assertJsonPath('0.description', 'Compra varios');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.description', 'Compra varios');
     }
 
     #[Test]
@@ -99,8 +99,8 @@ class ExpensesListFilterTest extends TestCase
 
         $this->getJson('/api/expenses?search=' . urlencode('Rojas'))
             ->assertStatus(200)
-            ->assertJsonCount(1)
-            ->assertJsonPath('0.description', 'Viáticos');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.description', 'Viáticos');
     }
 
     #[Test]
@@ -135,8 +135,8 @@ class ExpensesListFilterTest extends TestCase
             . '&date_from=2026-07-01&date_to=2026-07-31'
         )
             ->assertStatus(200)
-            ->assertJsonCount(1)
-            ->assertJsonPath('0.expense_category_id', $servicios->id);
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.expense_category_id', $servicios->id);
     }
 
     #[Test]
@@ -160,12 +160,12 @@ class ExpensesListFilterTest extends TestCase
 
         $this->getJson('/api/expenses?search=arriendo')
             ->assertStatus(200)
-            ->assertJsonCount(1)
-            ->assertJsonPath('0.description', 'Arriendo propio');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.description', 'Arriendo propio');
     }
 
     #[Test]
-    public function sin_search_el_listado_sigue_devolviendo_todo(): void
+    public function sin_search_el_listado_devuelve_todos_los_gastos(): void
     {
         Sanctum::actingAs($this->staff);
 
@@ -175,6 +175,7 @@ class ExpensesListFilterTest extends TestCase
 
         $this->getJson('/api/expenses')
             ->assertStatus(200)
-            ->assertJsonCount(3);
+            ->assertJsonCount(3, 'data')
+            ->assertJsonPath('total', 3);
     }
 }

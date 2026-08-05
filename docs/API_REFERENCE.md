@@ -779,10 +779,30 @@ cada hora.
 | `date_from` / `date_to` | Rango sobre `expense_date` |
 | `expense_category_id` | Categoría exacta |
 | `status` | `activo` \| `anulado` |
+| `page` / `per_page` | Paginación. `per_page` por defecto 15, acotado a 200 (no rechaza: recorta) |
 
-> Devuelve un **array plano**, sin envoltorio de paginación. Pendiente de paginar
-> —ver `MEJORAS_RECOMENDADAS.md`—, y al hacerlo los totales del resumen deben
-> pasar a calcularse en el servidor.
+**Respuesta.** Paginador estándar de Laravel (`data`, `current_page`, `last_page`,
+`total`, `from`, `to`…) **más** una clave `summary` con los agregados del filtro:
+
+```json
+{
+  "data": [ … ],
+  "current_page": 1, "last_page": 3, "total": 25,
+  "summary": {
+    "total": 25000,
+    "count": 25,
+    "by_category": [ { "name": "Arriendo", "total": 900000 }, { "name": "Sin categoría", "total": 7000 } ]
+  }
+}
+```
+
+> **`summary` cubre el filtro completo, no la página.** Va en la misma respuesta
+> —y no en un endpoint aparte— justamente para que sea imposible que el total
+> corresponda a un filtro distinto del que produjo la lista.
+>
+> **Los gastos anulados quedan fuera de `summary`** aunque sí aparezcan en `data`:
+> el total representa dinero realmente gastado. Si se filtra `status=anulado`, el
+> resumen da 0.
 
 **Cuerpo de gasto**
 

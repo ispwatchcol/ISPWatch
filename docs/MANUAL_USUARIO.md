@@ -776,6 +776,11 @@ que ya estaban mal marcados siguen navegando aunque el router ya esté bien conf
 beneficiario** — útil cuando no recuerdas la fecha exacta. Se combina con los filtros de fecha,
 categoría y estado: puedes buscar "energía" *y* acotar a un mes *y* a una categoría a la vez.
 
+La lista viene **paginada** (puedes cambiar cuántos gastos ves por página abajo a la izquierda).
+Las tarjetas de **Total del período filtrado** y **Por categoría** siempre suman **todos** los
+gastos que cumplen el filtro, no sólo los de la página que estás viendo. Los gastos **anulados**
+siguen apareciendo en la lista, pero no se suman en esos totales.
+
 ---
 
 ## 11. Routers y red

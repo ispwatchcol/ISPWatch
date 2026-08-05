@@ -98,18 +98,18 @@
                     <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
                         Total del período filtrado
                     </p>
-                    <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatMoney(totalFiltered) }}</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">{{ activeItems.length }} gasto(s) activo(s)</p>
+                    <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatMoney(summary.total) }}</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">{{ summary.count }} gasto(s) activo(s)</p>
                 </div>
                 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-5">
                     <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
                         Por categoría
                     </p>
-                    <div v-if="categoryBreakdown.length === 0" class="text-sm text-gray-400 dark:text-gray-500">
+                    <div v-if="summary.by_category.length === 0" class="text-sm text-gray-400 dark:text-gray-500">
                         Sin datos para el período seleccionado
                     </div>
                     <ul v-else class="space-y-1 max-h-24 overflow-y-auto">
-                        <li v-for="row in categoryBreakdown" :key="row.name" class="flex justify-between text-sm">
+                        <li v-for="row in summary.by_category" :key="row.name" class="flex justify-between text-sm">
                             <span class="text-gray-700 dark:text-gray-300">{{ row.name }}</span>
                             <span class="font-medium text-gray-900 dark:text-white">{{ formatMoney(row.total) }}</span>
                         </li>
@@ -241,6 +241,33 @@
                 <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 text-center">
                     <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">Sin gastos registrados</p>
                 </div>
+            </div>
+
+            <!-- Paginación -->
+            <div v-if="!loading && meta.total"
+                class="mt-4 bg-white dark:bg-gray-800 rounded-xl shadow-md px-4 md:px-6 py-4
+                       flex flex-col sm:flex-row gap-3 justify-between items-center text-sm">
+                <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+                    <span>
+                        Mostrando <span class="font-bold text-gray-900 dark:text-white">{{ meta.from }}</span>
+                        a <span class="font-bold text-gray-900 dark:text-white">{{ meta.to }}</span>
+                        de <span class="font-bold text-gray-900 dark:text-white">{{ meta.total }}</span> gastos
+                    </span>
+                    <select v-model.number="perPage" title="Gastos por página"
+                        class="bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option :value="15">15 / pág.</option>
+                        <option :value="25">25 / pág.</option>
+                        <option :value="50">50 / pág.</option>
+                        <option :value="100">100 / pág.</option>
+                        <option :value="200">200 / pág.</option>
+                    </select>
+                </div>
+                <Pagination
+                    :current-page="meta.current_page || 1"
+                    :total-pages="meta.last_page || 1"
+                    accent="blue"
+                    @change="goToPage"
+                />
             </div>
 
             <!-- Add/Edit Modal -->
@@ -425,11 +452,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import expenseApi from '@/services/api/expense'
 import expenseCategoryApi from '@/services/api/expense-category'
 import catalogsApi from '@/services/api/catalogs'
 import NotificationToast from '@/components/NotificationToast.vue'
+import Pagination from '@/components/ui/Pagination.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()
@@ -440,6 +468,13 @@ const saving = ref(false)
 const items = ref([])
 const categories = ref([])
 const users = ref([])
+
+// Paginación server-side y totales que llegan ya calculados del servidor. El
+// resumen NO se deriva de `items`: eso sumaría sólo la página visible.
+const meta = ref({ current_page: 1, last_page: 1, total: 0, from: 0, to: 0 })
+const summary = ref({ total: 0, count: 0, by_category: [] })
+const currentPage = ref(1)
+const perPage = ref(15)
 
 const filters = ref({
     search: '',
@@ -467,23 +502,6 @@ const emptyForm = () => ({
 
 const form = ref(emptyForm())
 
-const activeItems = computed(() => items.value.filter(i => i.status !== 'anulado'))
-
-const totalFiltered = computed(() =>
-    activeItems.value.reduce((sum, i) => sum + Number(i.amount || 0), 0)
-)
-
-const categoryBreakdown = computed(() => {
-    const map = {}
-    activeItems.value.forEach(i => {
-        const name = i.category?.name || 'Sin categoría'
-        map[name] = (map[name] || 0) + Number(i.amount || 0)
-    })
-    return Object.entries(map)
-        .map(([name, total]) => ({ name, total }))
-        .sort((a, b) => b.total - a.total)
-})
-
 const formatMoney = (value) => {
     const num = Number(value || 0)
     return num.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
@@ -497,7 +515,7 @@ const loadItems = async () => {
     const id = ++requestId
     loading.value = true
     try {
-        const params = {}
+        const params = { page: currentPage.value, per_page: perPage.value }
         if (filters.value.search) params.search = filters.value.search
         if (filters.value.date_from) params.date_from = filters.value.date_from
         if (filters.value.date_to) params.date_to = filters.value.date_to
@@ -506,7 +524,18 @@ const loadItems = async () => {
 
         const { data } = await expenseApi.getAll(params)
         if (id !== requestId) return
-        items.value = data || []
+
+        items.value   = data.data || []
+        meta.value    = data
+        summary.value = data.summary || { total: 0, count: 0, by_category: [] }
+
+        // Si pedimos una página que ya no existe (p. ej. tras anular el último
+        // gasto de la última página) retrocedemos en vez de dejar la tabla
+        // vacía.
+        if (items.value.length === 0 && (data.last_page || 1) < (data.current_page || 1)) {
+            currentPage.value = data.last_page || 1
+            return loadItems()
+        }
     } catch (error) {
         if (id !== requestId) return
         console.error('Error loading expenses:', error)
@@ -635,9 +664,25 @@ const voidItem = async () => {
     }
 }
 
+// Al cambiar un filtro volvemos a la primera página: la actual puede no existir
+// en el nuevo conjunto de resultados.
 watch(filters, () => {
+    currentPage.value = 1
     scheduleLoad()
 }, { deep: true })
+
+watch(perPage, () => {
+    currentPage.value = 1
+    loadItems()
+})
+
+const goToPage = (page) => {
+    const last = meta.value.last_page || 1
+    if (page < 1 || page > last || page === meta.value.current_page) return
+    currentPage.value = page
+    loadItems()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+}
 
 onMounted(() => {
     loadItems()
