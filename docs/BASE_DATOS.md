@@ -201,6 +201,7 @@ erDiagram
         varchar service_status
         boolean is_fiber
         boolean exclude_from_billing
+        boolean notify_invoice
         varchar first_invoice_mode
         numeric credit_balance
         date installation_date
@@ -422,6 +423,7 @@ Contiene **todos** los actores: clientes, técnicos, staff y administradores. El
 | `mac_address` | varchar(17) | | | Para DHCP lease / amarre IP-MAC |
 | `credit_balance` | numeric(12,2) | NN | `0` | Saldo a favor |
 | `exclude_from_billing` | boolean | NN | `false` | **Excluye de TODO el ciclo automático** |
+| `notify_invoice` | boolean | NN | `true` | Si es `false`, silencia el aviso de factura/recordatorio (email/WhatsApp); **no afecta** generación de factura ni mora/corte |
 | `first_invoice_mode` | varchar(16) | | | `none`\|`prorated`\|`full`. `NULL` = hereda del plan/router |
 | `retired_at` / `retired_reason` | timestamp / varchar(500) | | | Retiro del cliente |
 | `comments` | text | | | Observaciones |

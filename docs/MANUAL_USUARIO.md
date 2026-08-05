@@ -219,6 +219,10 @@ Si no aplica, el bloque no aparece.
 - **No facturar a este cliente**: lo saca de **todo** el ciclo automático. No recibe factura,
   ni recordatorio, ni notificación, ni corte. Úsalo para casos especiales (cortesías
   institucionales, pruebas).
+- **No enviar notificaciones de factura**: a diferencia de la anterior, **no** afecta la
+  facturación — la factura se sigue generando cada mes y la mora/corte funcionan igual.
+  Sólo apaga el aviso de correo/WhatsApp de factura nueva y los recordatorios de pago.
+  Úsalo para clientes que piden explícitamente no recibir esos mensajes.
 
 **Guardar**
 
@@ -507,6 +511,11 @@ Hay dos formas de dejar a un cliente fuera de la facturación:
 |---|---|
 | **Plan de cortesía** | Se le asigna un plan marcado como cortesía. Su servicio queda en "gratis" y no se factura |
 | **No facturar a este cliente** | Casilla en la ficha del cliente. Lo saca de todo: factura, recordatorio, notificación y corte |
+
+Si en cambio lo que quieres es que **la factura se siga generando y cobrando normalmente** pero
+el cliente deje de recibir los avisos por correo/WhatsApp, usa la casilla **"No enviar
+notificaciones de factura"** (misma ficha del cliente, pestaña **Datos del Cliente**). No afecta
+mora ni corte automático.
 
 ---
 

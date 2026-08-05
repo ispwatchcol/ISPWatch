@@ -272,6 +272,7 @@ Validado por `App\Http\Requests\StoreCustomerRequest`.
 | `installation_date` | date | opcional. **Base del prorrateo** |
 | `estrato` | int | opcional, entre 1 y 6 |
 | `exclude_from_billing` | bool | opcional. Saca al cliente de todo el ciclo automático |
+| `notify_invoice` | bool | opcional, default `true`. Si es `false`, silencia el aviso de factura nueva y recordatorios de pago (email/WhatsApp); la factura se sigue generando y la mora/corte funcionan igual |
 | `first_invoice_mode` | string | opcional: `none` \| `prorated` \| `full`. `null` = hereda |
 | `first_invoice_free_months` | int | opcional, 0–24. `null` = hereda |
 | `comments` | string | opcional, máx. 2000 |

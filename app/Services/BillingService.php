@@ -1638,6 +1638,13 @@ class BillingService
             return;
         }
 
+        // Cliente con notificaciones silenciadas: la factura ya se generó
+        // (líneas arriba) y se sigue generando igual todos los meses; esto
+        // sólo apaga el aviso de email/WhatsApp.
+        if (!$profile->notify_invoice) {
+            return;
+        }
+
         $periodLabel = $invoice->period_start
             ? Carbon::parse($invoice->period_start)->locale('es')->isoFormat('MMMM YYYY')
             : null;
