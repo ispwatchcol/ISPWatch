@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Expense;
+use App\Traits\ExportsCsv;
 use Illuminate\Http\Request;
 
 /**
@@ -11,7 +12,17 @@ use Illuminate\Http\Request;
  */
 class ExpenseController extends Controller
 {
-    public function index(Request $request)
+    use ExportsCsv;
+
+    /**
+     * Consulta de gastos con los filtros del listado aplicados, SIN orden ni
+     * paginación.
+     *
+     * Compartida por el listado y la exportación: si cada uno armara sus
+     * propios filtros acabarían divergiendo, y el CSV dejaría de corresponder a
+     * lo que el usuario tiene en pantalla — que es justo lo que promete.
+     */
+    private function filteredExpensesQuery(Request $request)
     {
         $query = Expense::with(['category', 'beneficiary', 'creator']);
 
@@ -49,6 +60,13 @@ class ExpenseController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->query('status'));
         }
+
+        return $query;
+    }
+
+    public function index(Request $request)
+    {
+        $query = $this->filteredExpensesQuery($request);
 
         // Agregados del resumen: se calculan en SQL sobre el filtro COMPLETO,
         // nunca sobre la página. Antes los sumaba la vista recorriendo el array
@@ -100,6 +118,38 @@ class ExpenseController extends Controller
                 'total' => (float) $row->total,
             ])
             ->all();
+    }
+
+    /**
+     * Exporta a CSV los gastos del filtro aplicado — todos, no la página.
+     *
+     * Incluye los anulados (con su estado en una columna) porque el archivo es
+     * el registro completo de lo que pasó: quitarlos escondería justamente las
+     * correcciones. Quien quiera sólo los vigentes filtra por estado antes de
+     * exportar, y el CSV respeta ese filtro.
+     */
+    public function exportExpenses(Request $request)
+    {
+        $query = $this->filteredExpensesQuery($request)
+            ->orderByDesc('expense_date')
+            ->orderByDesc('id');
+
+        $columns = ['Fecha', 'Categoría', 'Descripción', 'A nombre de', 'Monto', 'Estado', 'Observaciones'];
+
+        return $this->streamCsv(
+            'gastos-' . now()->format('Y-m-d') . '.csv',
+            $columns,
+            $query,
+            fn (Expense $expense) => [
+                $this->csvDate($expense->expense_date),
+                $expense->category?->name ?? 'Sin categoría',
+                $expense->description ?? '',
+                $expense->beneficiary?->name ?? '',
+                $this->csvMoney($expense->amount),
+                $expense->status,
+                $expense->notes ?? '',
+            ]
+        );
     }
 
     public function store(Request $request)

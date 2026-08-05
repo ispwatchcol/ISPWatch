@@ -214,6 +214,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['permission:view_billing'])->group(function () {
         Route::get('/billing/stats', [BillingController::class, 'getStats']);
         Route::get('/billing/invoices', [BillingController::class, 'index']);
+        // OJO: antes de `/billing/invoices/{id}`, o "export" se interpreta como un id.
+        Route::get('/billing/invoices/export', [BillingController::class, 'exportInvoices']);
         Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
         Route::post('/billing/invoices', [BillingController::class, 'store']);
         Route::put('/billing/invoices/{id}', [BillingController::class, 'update']);
@@ -223,6 +225,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
         Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
         Route::get('/billing/payments', [BillingController::class, 'getPayments']);
+        Route::get('/billing/payments/export', [BillingController::class, 'exportPayments']);
         Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
         Route::put('/billing/payments/{id}', [BillingController::class, 'updatePayment']);
         Route::delete('/billing/payments/{id}', [BillingController::class, 'deletePayment']);
@@ -406,6 +409,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // delete on expenses: they are voided (status=anulado) via update.
     Route::middleware(['permission:view_expenses'])->group(function () {
         Route::get('/expenses', [ExpenseController::class, 'index']);
+        Route::get('/expenses/export', [ExpenseController::class, 'exportExpenses']);
         Route::get('/expense-categories', [ExpenseCategoryController::class, 'index']);
     });
     Route::middleware(['permission:add_expense'])->group(function () {

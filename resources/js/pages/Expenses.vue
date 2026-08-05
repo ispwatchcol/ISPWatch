@@ -16,17 +16,33 @@
                     </p>
                 </div>
 
-                <button
-                    v-if="can('add_expense')"
-                    @click="openAddModal"
-                    class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800
-                 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
-                 transition-all transform hover:-translate-y-0.5
-                 font-medium w-full sm:w-auto justify-center"
-                >
-                    <v-icon name="md-add" class="w-5 h-5 fill-current" />
-                    <span>Nuevo Gasto</span>
-                </button>
+                <div class="flex flex-wrap gap-3 w-full sm:w-auto">
+                    <button
+                        @click="exportCsv"
+                        :disabled="exporting"
+                        title="Exporta todos los gastos del filtro actual, no sólo esta página"
+                        class="px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium justify-center
+                     border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200
+                     bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700
+                     transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                    >
+                        <v-icon v-if="!exporting" name="md-download" class="w-5 h-5" />
+                        <v-icon v-else name="ri-loader-4-line" animation="spin" class="w-5 h-5" />
+                        <span>{{ exporting ? 'Exportando...' : 'Exportar CSV' }}</span>
+                    </button>
+
+                    <button
+                        v-if="can('add_expense')"
+                        @click="openAddModal"
+                        class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800
+                     text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
+                     transition-all transform hover:-translate-y-0.5
+                     font-medium justify-center flex-1 sm:flex-none"
+                    >
+                        <v-icon name="md-add" class="w-5 h-5 fill-current" />
+                        <span>Nuevo Gasto</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Filters -->
@@ -458,6 +474,7 @@ import expenseCategoryApi from '@/services/api/expense-category'
 import catalogsApi from '@/services/api/catalogs'
 import NotificationToast from '@/components/NotificationToast.vue'
 import Pagination from '@/components/ui/Pagination.vue'
+import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()
@@ -507,6 +524,35 @@ const formatMoney = (value) => {
     return num.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 }
 
+// Filtros de la pantalla, sin paginación. Los usan el listado y la exportación:
+// si cada uno armara los suyos, el CSV podría dejar de corresponder a lo que se
+// ve en pantalla.
+const buildFilterParams = () => {
+    const params = {}
+    if (filters.value.search) params.search = filters.value.search
+    if (filters.value.date_from) params.date_from = filters.value.date_from
+    if (filters.value.date_to) params.date_to = filters.value.date_to
+    if (filters.value.expense_category_id) params.expense_category_id = filters.value.expense_category_id
+    if (filters.value.status) params.status = filters.value.status
+    return params
+}
+
+const exporting = ref(false)
+
+const exportCsv = async () => {
+    exporting.value = true
+    try {
+        // Sin `page`: el archivo trae TODOS los gastos del filtro.
+        const res = await expenseApi.exportCsv(buildFilterParams())
+        downloadBlob(res.data, filenameFromResponse(res, 'gastos.csv'))
+    } catch (error) {
+        console.error('Error exportando gastos:', error)
+        toast.value?.error('Error', 'No se pudo generar la exportación')
+    } finally {
+        exporting.value = false
+    }
+}
+
 // Descarta respuestas de peticiones viejas: al teclear rápido en el buscador la
 // primera puede llegar después de la última y pintar resultados obsoletos.
 let requestId = 0
@@ -515,12 +561,7 @@ const loadItems = async () => {
     const id = ++requestId
     loading.value = true
     try {
-        const params = { page: currentPage.value, per_page: perPage.value }
-        if (filters.value.search) params.search = filters.value.search
-        if (filters.value.date_from) params.date_from = filters.value.date_from
-        if (filters.value.date_to) params.date_to = filters.value.date_to
-        if (filters.value.expense_category_id) params.expense_category_id = filters.value.expense_category_id
-        if (filters.value.status) params.status = filters.value.status
+        const params = { ...buildFilterParams(), page: currentPage.value, per_page: perPage.value }
 
         const { data } = await expenseApi.getAll(params)
         if (id !== requestId) return

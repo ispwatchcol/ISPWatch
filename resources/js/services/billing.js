@@ -43,6 +43,16 @@ export default {
     })
   },
 
+  // Exportación a CSV: mismos filtros que el listado, pero SIN paginar — el
+  // archivo cubre todo el filtro, no la página visible.
+  exportInvoices(params = {}) {
+    return apiClient.get('/billing/invoices/export', { params, responseType: 'blob' })
+  },
+
+  exportPayments(params = {}) {
+    return apiClient.get('/billing/payments/export', { params, responseType: 'blob' })
+  },
+
   // Register Payment
   registerPayment(data) {
     return apiClient.post('/billing/payments', data)

@@ -555,6 +555,7 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `DELETE` | `/api/billing/invoices/{id}` | **`delete_invoice`** | Elimina (deja lápida) |
 | `POST` | `/api/billing/invoices/{id}/items` | — | Añade ítem |
 | `GET` | `/api/billing/invoices/{id}/pdf` | — | Descarga el PDF |
+| `GET` | `/api/billing/invoices/export` | — | **CSV** de todas las facturas del filtro |
 
 **`GET /api/billing/invoices`** — listado paginado (20 por página, orden
 `issue_date` descendente con desempate por `id`). Filtros opcionales combinables
@@ -572,6 +573,29 @@ del **filtro completo** (no de la página):
 > aparezcan en `data`: una factura anulada no es dinero facturado. Misma regla que
 > los gastos anulados. `balance_due` es lo que falta por cobrar de las facturas
 > que cumplen el filtro.
+
+### Exportación a CSV
+
+| Ruta | Permiso | Contenido |
+|---|---|---|
+| `GET /api/billing/invoices/export` | `view_billing` | Número, cliente, correo, tipo, estado, emisión, vencimiento, período, total, saldo |
+| `GET /api/billing/payments/export` | `view_billing` | Fecha, cliente, monto, método, referencia, registrado por, facturas afectadas |
+| `GET /api/expenses/export` | `view_expenses` | Fecha, categoría, descripción, a nombre de, monto, estado, observaciones |
+
+Los tres aceptan **exactamente los mismos filtros que su listado** (comparten el
+constructor de consulta, no una copia) e **ignoran la paginación**: el archivo
+cubre todo el filtro, no la página visible. La respuesta es un
+`StreamedResponse` — se escribe fila a fila y la consulta se recorre en lotes de
+500, así que un filtro grande no carga el conjunto entero en memoria.
+
+**Formato**, pensado para Excel con configuración regional en español:
+separador `;`, BOM UTF-8 e importes con coma decimal (`50000,00`). Ver la
+trampa 28 en `MANUAL_DESARROLLADOR.md` antes de cambiar cualquiera de los tres.
+
+> El CSV de gastos **sí incluye los anulados**, con su estado en una columna: el
+> archivo es el registro completo de lo que pasó, y esconderlos ocultaría
+> justamente las correcciones. Para exportar sólo los vigentes se filtra por
+> estado antes de exportar.
 
 **`POST /api/billing/invoices`**
 

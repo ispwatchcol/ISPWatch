@@ -5,6 +5,7 @@ import { apiClient } from '@/services/api'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { customerDisplayName } from '@/utils/customerName'
+import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const payments       = ref({ data: [] })
@@ -117,6 +118,26 @@ let debounceTimer = null
 const scheduleFetch = () => {
     clearTimeout(debounceTimer)
     debounceTimer = setTimeout(fetchPayments, 400)
+}
+
+// ── Exportación ───────────────────────────────────────────────────────────────
+const exporting = ref(false)
+
+const exportCsv = async () => {
+    exporting.value = true
+    try {
+        // Se mandan los mismos parámetros que el listado (incluido el orden, para
+        // que el archivo salga como se ve en pantalla); el backend ignora la
+        // paginación y exporta todo el filtro.
+        const { page, per_page, ...filterParams } = buildParams()
+        const res = await billingService.exportPayments(filterParams)
+        downloadBlob(res.data, filenameFromResponse(res, 'recaudos.csv'))
+    } catch (e) {
+        console.error('Error exportando recaudos', e)
+        alert('No se pudo generar la exportación.')
+    } finally {
+        exporting.value = false
+    }
 }
 
 const loadPaymentMethods = async () => {
@@ -268,11 +289,20 @@ const confirmDelete = async () => {
                 <h1 class="text-3xl font-medium text-slate-900 dark:text-white tracking-tight">Recaudos</h1>
                 <p class="text-slate-500 dark:text-slate-400 mt-1">Historial de pagos recibidos de los clientes.</p>
             </div>
-            <button @click="$router.push('/billing/payments/new')"
-                class="inline-flex items-center px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none">
-                <v-icon name="md-add" class="w-6 h-6 mr-2" />
-                Registrar Recaudo
-            </button>
+            <div class="flex flex-wrap gap-3">
+                <button @click="exportCsv" :disabled="exporting"
+                    title="Exporta todos los recaudos del filtro actual, no sólo esta página"
+                    class="inline-flex items-center px-4 py-3 bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 font-medium rounded-2xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <v-icon v-if="!exporting" name="md-download" class="w-5 h-5 mr-2" />
+                    <v-icon v-else name="bi-arrow-repeat" class="w-5 h-5 mr-2 animate-spin" />
+                    {{ exporting ? 'Exportando...' : 'Exportar CSV' }}
+                </button>
+                <button @click="$router.push('/billing/payments/new')"
+                    class="inline-flex items-center px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none">
+                    <v-icon name="md-add" class="w-6 h-6 mr-2" />
+                    Registrar Recaudo
+                </button>
+            </div>
         </div>
 
         <!-- Búsqueda general. Los filtros por columna viven bajo cada título de

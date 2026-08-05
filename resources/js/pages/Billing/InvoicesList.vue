@@ -7,6 +7,7 @@ import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { customerDisplayName } from '@/utils/customerName'
+import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { invoiceTypeLabel, invoiceTypeColor, activeInvoiceTypes, invoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
 import { usePermissions } from '@/composables/usePermissions'
 
@@ -66,31 +67,39 @@ const fetchCustomers = async () => {
 // primera puede llegar después de la última y pintar resultados obsoletos.
 let requestId = 0
 
+// Filtros de la pantalla, sin paginación. Lo usan el listado y la exportación:
+// si cada uno armara los suyos, el CSV podría dejar de corresponder a lo que se
+// ve en pantalla.
+const buildFilterParams = () => {
+    let periodValue = filters.value.period
+    // If it's not empty and doesn't look like YYYY-MM, try to parse it
+    if (periodValue && !/^\d{4}-\d{2}$/.test(periodValue)) {
+        const d = new Date(periodValue)
+        if (!isNaN(d.getTime())) {
+            periodValue = d.toISOString().slice(0, 7)
+        }
+    }
+
+    const params = { ...filters.value, period: periodValue }
+
+    // Al buscar por cliente o número, ignoramos el filtro de mes para que la
+    // búsqueda recorra TODOS los períodos. Si no, el mes seleccionado (por
+    // defecto el actual) oculta facturas del cliente de otros meses.
+    if (filters.value.search && filters.value.search.trim() !== '') {
+        delete params.period
+    }
+
+    return params
+}
+
 const fetchInvoices = async () => {
     const id = ++requestId
     refreshing.value = true
     try {
-        let periodValue = filters.value.period
-        // If it's not empty and doesn't look like YYYY-MM, try to parse it
-        if (periodValue && !/^\d{4}-\d{2}$/.test(periodValue)) {
-            const d = new Date(periodValue)
-            if (!isNaN(d.getTime())) {
-                periodValue = d.toISOString().slice(0, 7)
-            }
-        }
-
         const params = {
-            ...filters.value,
-            period: periodValue,
+            ...buildFilterParams(),
             page: currentPage.value,
             tenant: user.value?.tenant_id
-        }
-
-        // Al buscar por cliente o número, ignoramos el filtro de mes para que la
-        // búsqueda recorra TODOS los períodos. Si no, el mes seleccionado (por
-        // defecto el actual) oculta facturas del cliente de otros meses.
-        if (filters.value.search && filters.value.search.trim() !== '') {
-            delete params.period
         }
 
         const response = await billingService.getInvoices(params)
@@ -121,6 +130,23 @@ const scheduleFetch = () => {
 }
 
 const fmtMoney = (n) => Number(n || 0).toLocaleString('es-CO')
+
+// ── Exportación ─────────────────────────────────────────
+const exporting = ref(false)
+
+const exportCsv = async () => {
+    exporting.value = true
+    try {
+        // Sin `page`: el archivo trae TODAS las facturas del filtro.
+        const res = await billingService.exportInvoices(buildFilterParams())
+        downloadBlob(res.data, filenameFromResponse(res, 'facturas.csv'))
+    } catch (e) {
+        console.error('Error exportando facturas', e)
+        alert('No se pudo generar la exportación.')
+    } finally {
+        exporting.value = false
+    }
+}
 
 const getStatusColor = (status) => {
     switch (status) {
@@ -314,6 +340,13 @@ const sendBulkReminders = async () => {
             </div>
             
             <div class="flex gap-3">
+                <button @click="exportCsv" :disabled="exporting"
+                    title="Exporta todas las facturas del filtro actual, no sólo esta página"
+                    class="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 font-medium rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <v-icon v-if="!exporting" name="md-download" class="w-5 h-5 mr-2" />
+                    <v-icon v-else name="bi-arrow-repeat" class="w-5 h-5 mr-2 animate-spin" />
+                    {{ exporting ? 'Exportando...' : 'Exportar CSV' }}
+                </button>
                 <button @click="showCreateModal = true" class="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 font-medium rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all shadow-sm">
                     <v-icon name="md-add" class="w-5 h-5 mr-2" />
                     Nueva Factura

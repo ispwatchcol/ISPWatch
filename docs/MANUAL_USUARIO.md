@@ -435,6 +435,11 @@ sumar a mano. Las facturas **anuladas** no se cuentan en esos totales.
 En **Finanzas → Pagos / Recaudos** hay un total equivalente: **Total recaudado** con los filtros
 que tengas puestos.
 
+**Exportar a Excel.** El botón **Exportar CSV** (en Facturación, Recaudos y Gastos) descarga
+**todo lo que cumple el filtro que tengas puesto**, no sólo la página que estás viendo. Es decir:
+filtra primero por mes, estado, cliente o lo que necesites, y luego exporta. El archivo se abre
+directamente en Excel con las tildes y los importes bien puestos.
+
 ### 7.3 Ver el detalle y descargar el PDF
 
 Pulsa sobre una factura. Verás los ítems, los pagos aplicados y el saldo.
