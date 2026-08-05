@@ -556,6 +556,23 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `POST` | `/api/billing/invoices/{id}/items` | — | Añade ítem |
 | `GET` | `/api/billing/invoices/{id}/pdf` | — | Descarga el PDF |
 
+**`GET /api/billing/invoices`** — listado paginado (20 por página, orden
+`issue_date` descendente con desempate por `id`). Filtros opcionales combinables
+con `AND`: `search` (número o cliente), `customer_id`, `status`, `invoice_type`,
+`period` (`YYYY-MM` sobre `period_start`), `page`.
+
+Además del paginador, la respuesta trae una clave **`summary`** con los agregados
+del **filtro completo** (no de la página):
+
+```json
+"summary": { "total": 250000, "balance_due": 50000, "count": 25 }
+```
+
+> **Las facturas `void` y `cancelled` quedan fuera de `summary`** aunque sí
+> aparezcan en `data`: una factura anulada no es dinero facturado. Misma regla que
+> los gastos anulados. `balance_due` es lo que falta por cobrar de las facturas
+> que cumplen el filtro.
+
 **`POST /api/billing/invoices`**
 
 | Campo | Reglas |
@@ -619,6 +636,17 @@ combinan con `AND`:
 
 Las búsquedas de texto son insensibles a mayúsculas en PostgreSQL y en SQLite
 (macros `whereLike`/`orWhereLike`, ver `SearchMacrosServiceProvider`).
+
+Además del paginador, la respuesta trae una clave **`summary`** con los agregados
+del **filtro completo** (no de la página):
+
+```json
+"summary": { "total": 25000, "count": 25 }
+```
+
+> A diferencia de facturas y gastos, aquí **no se excluye ningún estado**: un
+> recaudo no se anula, se elimina — y al eliminarlo se revierten sus asignaciones.
+> Lo que está en la tabla es dinero recibido.
 
 > El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
 > query param se ignora: antes permitía leer los recaudos de otro tenant.

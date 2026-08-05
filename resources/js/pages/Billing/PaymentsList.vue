@@ -10,6 +10,10 @@ import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/in
 const payments       = ref({ data: [] })
 const paymentMethods = ref([])
 
+// Totales del filtro completo, calculados por el servidor. No se derivan de
+// `payments.data`: eso sumaría sólo la página visible.
+const summary = ref({ total: 0, count: 0 })
+
 // `loading` sólo para la primera carga (no hay nada que mostrar todavía).
 // Los refrescos posteriores usan `refreshing`: la tabla se queda en pantalla y
 // sólo se atenúa, en vez de vaciarse y volver a llenarse en cada tecla.
@@ -87,6 +91,7 @@ const fetchPayments = async () => {
         payments.value = Array.isArray(res.data)
             ? { data: res.data, total: res.data.length }
             : res.data
+        summary.value = res.data?.summary ?? { total: 0, count: 0 }
 
         // Si pedimos una página que ya no existe (p. ej. tras borrar el último
         // recaudo de la última página) retrocedemos en vez de dejar la tabla
@@ -343,6 +348,20 @@ const confirmDelete = async () => {
                     <input v-model="filters.invoice" type="text" placeholder="No. de factura" :class="panelInputClass">
                 </div>
             </div>
+        </div>
+
+        <!-- Total del filtro completo (no de la página visible) -->
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-5 mb-6
+                    flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Total recaudado
+                </p>
+                <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">${{ fmt(summary.total) }}</p>
+            </div>
+            <p class="text-xs text-slate-400 dark:text-slate-500">
+                {{ summary.count }} recaudo(s) con los filtros actuales
+            </p>
         </div>
 
         <!-- Table / Cards -->

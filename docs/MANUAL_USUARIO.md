@@ -427,6 +427,14 @@ Puedes filtrar por estado, cliente y fechas. Los estados son:
 El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido** y
 **correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
 
+Arriba de la tabla verás dos totales: **Total facturado** y **Saldo pendiente** (lo que falta
+por cobrar). Ambos suman **todas** las facturas que cumplen el filtro, no sólo las de la página
+que estás viendo, así que puedes filtrar por mes o por estado y leer la cifra directamente sin
+sumar a mano. Las facturas **anuladas** no se cuentan en esos totales.
+
+En **Finanzas → Pagos / Recaudos** hay un total equivalente: **Total recaudado** con los filtros
+que tengas puestos.
+
 ### 7.3 Ver el detalle y descargar el PDF
 
 Pulsa sobre una factura. Verás los ítems, los pagos aplicados y el saldo.

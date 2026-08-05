@@ -569,15 +569,10 @@ header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloqu
 ### 📋 P-9 · Auditoría de Finanzas (2026-08-05): fases aprobadas pendientes de ejecutar
 
 Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
-Categorías de Gasto. La **Fase 1** (debounce y guard anti-carrera en Facturación, índices
-compuestos, búsqueda de texto en Gastos) y la **Fase 2** (paginación y agregados server-side en
-Gastos) ya están implementadas. Queda pendiente, con plan aprobado:
-
-**Fase 3 — Totales en dinero en Facturación y Recaudos.** Hoy sólo se ve el conteo de registros
-("de X recaudos"), no cuánto suman. Debe reutilizar la convención fijada en la Fase 2: clave
-`summary` en la **misma** respuesta del listado, con los agregados calculados en SQL sobre el
-filtro completo. Un endpoint de totales aparte permitiría que la cifra y la lista respondan a
-filtros distintos sin que nada lo delate.
+Categorías de Gasto. Las **Fases 1** (debounce y guard anti-carrera en Facturación, índices
+compuestos, búsqueda de texto en Gastos), **2** (paginación y agregados server-side en Gastos) y
+**3** (totales en dinero en Facturación y Recaudos) ya están implementadas. Queda pendiente, con
+plan aprobado:
 
 **Fase 4 — Exportación CSV** en Facturación, Recaudos y Gastos, sobre **todo el filtro
 aplicado** (decidido con el usuario, no sólo la página visible). Requiere `StreamedResponse`

@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-05 (auditoría de Finanzas — Fases 1 y 2: debounce en Facturación, índices de listado, búsqueda en Gastos, paginación + agregados server-side en Gastos) · Rama: `david-ux-ui-improve`
+**Última actualización:** 2026-08-05 (auditoría de Finanzas — Fases 1-3: debounce e índices de listado, búsqueda en Gastos, paginación + agregados server-side en Gastos, totales en dinero en Facturación y Recaudos) · Rama: `david-ux-ui-improve`
 
 ---
 
@@ -856,3 +856,6 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | Los gastos anulados se excluyen del `summary` **aunque el filtro de estado no los excluya** | Es exactamente la regla que ya aplicaba la vista (`activeItems` = `status !== 'anulado'`) antes de mover el cálculo al servidor. Se conservó al pie de la letra: cambiar la semántica del total mientras se cambiaba dónde se calcula habría sido un segundo cambio invisible, imposible de atribuir si el número se veía raro |
 | El listado de gastos ordena por `(expense_date desc, id desc)`, no sólo por fecha | `expense_date` es una fecha sin hora y se repite muchísimo (varios gastos el mismo día). Sin desempate estable, dos páginas consecutivas pueden repetir u omitir el mismo gasto — mismo problema que ya se había resuelto en el listado de recaudos |
 | El desglose por categoría va por `toBase()` y resuelve "Sin categoría" en PHP, no con `COALESCE` en SQL | `toBase()` evita hidratar modelos y disparar los eager loads del listado en lo que es una agregación. El `COALESCE` se evitó para no depender de cómo agrupa cada motor una columna nula: agrupar por `expense_categories.name` y mapear el `null` después se comporta igual en PostgreSQL y en SQLite |
+| **Fase 3 (2026-08-05)**: Facturación y Recaudos reutilizan la convención `summary` de Gastos en vez de inventar la suya | Tres listados financieros con tres formas distintas de devolver totales es deuda garantizada. La convención quedó fijada en la Fase 2 precisamente para esto: clave `summary`, en la misma respuesta que la página, calculada en SQL sobre el filtro completo |
+| Las facturas `void`/`cancelled` se excluyen del `summary`, pero los recaudos **no** excluyen ningún estado | No es una inconsistencia: se verificó contra la base y el código. Las facturas sí tienen anulación (`VoidCourtesyInvoices` escribe `status = 'void'`, y la UI y `BillingService` tratan `void`/`cancelled` como no cobrables). Los pagos, en cambio, **sólo existen como `completed`**: no hay anulación, se eliminan con `deletePayment`, que revierte las asignaciones. Excluir estados en recaudos habría sido simetría cosmética sin nada que excluir |
+| El listado de facturas también recibió desempate por `id` | Toda la facturación mensual comparte `issue_date`, así que el problema es aún más agudo que en gastos: sin desempate, dos páginas consecutivas pueden repetir u omitir facturas del mismo lote mensual |

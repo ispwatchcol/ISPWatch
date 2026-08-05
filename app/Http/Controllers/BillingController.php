@@ -73,7 +73,27 @@ class BillingController extends Controller
             $query->where('tenant_id', $tenantId);
         }
 
-        return response()->json($query->orderBy('issue_date', 'desc')->paginate(20));
+        // Agregados del listado, misma convención que Gastos: clave `summary` en
+        // la MISMA respuesta, calculada en SQL sobre el filtro completo. En un
+        // endpoint aparte, la cifra y la lista podrían responder a filtros
+        // distintos sin que nada lo delatara.
+        //
+        // Las anuladas quedan fuera del dinero: una factura 'void'/'cancelled'
+        // no se facturó. Es la regla equivalente a la de los gastos anulados.
+        $summaryQuery = (clone $query)->whereNotIn('status', ['void', 'cancelled']);
+
+        // `issue_date` es una fecha sin hora y se repite (toda la facturación
+        // mensual comparte día): sin desempate estable, dos páginas pueden
+        // repetir u omitir la misma factura.
+        $paginator = $query->orderBy('issue_date', 'desc')->orderBy('id', 'desc')->paginate(20);
+
+        return response()->json($paginator->toArray() + [
+            'summary' => [
+                'total'       => (float) (clone $summaryQuery)->sum('total'),
+                'balance_due' => (float) (clone $summaryQuery)->sum('balance_due'),
+                'count'       => (clone $summaryQuery)->count(),
+            ],
+        ]);
     }
 
     // Show Invoice
@@ -507,12 +527,25 @@ class BillingController extends Controller
         $sortBy  = $f['sort_by'] ?? 'payment_date';
         $sortDir = $f['sort_dir'] ?? 'desc';
 
-        return response()->json(
-            $query->orderBy($sortBy, $sortDir)
-                ->orderBy('id', 'desc') // desempate estable entre páginas
-                ->paginate($f['per_page'] ?? 15)
-                ->withQueryString()
-        );
+        // Agregados del listado, misma convención que Gastos y Facturación.
+        //
+        // Aquí NO se excluye ningún estado: a diferencia de facturas y gastos,
+        // un recaudo no se anula — se elimina, y al eliminarlo se revierten sus
+        // asignaciones (`deletePayment`). Lo que está en la tabla es dinero
+        // efectivamente recibido.
+        $summaryQuery = clone $query;
+
+        $paginator = $query->orderBy($sortBy, $sortDir)
+            ->orderBy('id', 'desc') // desempate estable entre páginas
+            ->paginate($f['per_page'] ?? 15)
+            ->withQueryString();
+
+        return response()->json($paginator->toArray() + [
+            'summary' => [
+                'total' => (float) (clone $summaryQuery)->sum('amount'),
+                'count' => (clone $summaryQuery)->count(),
+            ],
+        ]);
     }
 
     /**

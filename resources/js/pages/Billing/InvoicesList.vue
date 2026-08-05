@@ -21,6 +21,10 @@ const invoices = ref({ data: [] })
 const loading = ref(true)
 const refreshing = ref(false)
 const currentPage = ref(1)
+
+// Totales del filtro completo, calculados por el servidor. No se derivan de
+// `invoices.data`: eso sumaría sólo la página visible.
+const summary = ref({ total: 0, balance_due: 0, count: 0 })
 const user = ref({})
 const filters = ref({
     status: '',
@@ -97,6 +101,7 @@ const fetchInvoices = async () => {
         } else {
             invoices.value = response.data
         }
+        summary.value = response.data?.summary ?? { total: 0, balance_due: 0, count: 0 }
     } catch (e) {
         if (id === requestId) console.error('Error loading invoices', e)
     } finally {
@@ -114,6 +119,8 @@ const scheduleFetch = () => {
     clearTimeout(debounceTimer)
     debounceTimer = setTimeout(fetchInvoices, 400)
 }
+
+const fmtMoney = (n) => Number(n || 0).toLocaleString('es-CO')
 
 const getStatusColor = (status) => {
     switch (status) {
@@ -370,6 +377,33 @@ const sendBulkReminders = async () => {
                         <span v-else>Enviar Recordatorio</span>
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Totales del filtro completo (no de la página visible) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-5">
+                <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Total facturado
+                </p>
+                <p class="text-2xl font-bold text-slate-900 dark:text-white">${{ fmtMoney(summary.total) }}</p>
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    {{ summary.count }} factura(s) · anuladas excluidas
+                </p>
+            </div>
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-5">
+                <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Saldo pendiente
+                </p>
+                <p class="text-2xl font-bold"
+                    :class="Number(summary.balance_due) > 0
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-emerald-600 dark:text-emerald-400'">
+                    ${{ fmtMoney(summary.balance_due) }}
+                </p>
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    Lo que falta por cobrar de estas facturas
+                </p>
             </div>
         </div>
 
