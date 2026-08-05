@@ -137,7 +137,8 @@ class RouterController extends Controller
         return collect($input)->only([
             'create_invoice', 'create_invoice_time', 'cut_day', 'cut_time',
             'payment_day', 'payment_reminder', 'payment_reminder_time',
-            'payment_reminder_enabled', 'overdue_invoices', 'amount', 'id_type',
+            'payment_reminder_enabled', 'overdue_invoices', 'stop_invoicing_extra',
+            'amount', 'id_type',
             'status', 'notificar_wpp', 'notification_type', 'billing_mode',
             'first_invoice_policy', 'first_invoice_free_months', 'comments',
         ])->toArray();

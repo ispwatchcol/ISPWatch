@@ -115,6 +115,8 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `cut_type` | 3 | Catálogo: `Corte Automático`, `Corte Manual`, `Sin Corte` |
 | `invoices` | 1 168 | Facturas |
 | `invoice_items` | 1 166 | Ítems de factura |
+| `invoice_types` | 4 + propios | **Catálogo de tipos de factura** (4 del sistema + los del tenant) |
+| `invoice_carryovers` | 0 | **Arrastre de saldo** por abono parcial (factura vieja → factura nueva) |
 | `payments` | 1 086 | Pagos recibidos |
 | `payment_allocations` | 1 061 | Asignación pago → factura (N:M con importe) |
 | `payment_methods` | 16 | Formas de pago por tenant |
@@ -235,7 +237,11 @@ erDiagram
     service_plan ||--o{ invoices : "service_id"
     tenant ||--o{ invoices : ""
     tenant ||--o{ payment_methods : ""
+    tenant ||--o{ invoice_types : "NULL = del sistema"
     invoices ||--o{ billing_action_logs : "invoice_id"
+    invoices ||--o{ invoice_carryovers : "from_invoice_id (dejó saldo)"
+    invoices ||--o{ invoice_carryovers : "to_invoice_id (lo cobra)"
+    payments ||--o{ invoice_carryovers : "payment_id (abono parcial)"
 
     billing {
         bigint id PK
@@ -247,6 +253,7 @@ erDiagram
         date cut_day
         time cut_time
         integer overdue_invoices "facturas para cortar"
+        smallint stop_invoicing_extra "margen del tope de facturación"
         varchar billing_mode "anticipado|vencido"
         varchar first_invoice_policy "none|prorated|full"
         varchar notification_type "email|whatsapp|both|none"
@@ -254,12 +261,14 @@ erDiagram
     invoices {
         bigint id PK
         varchar number "por tenant"
-        varchar invoice_type "monthly|service_charge|additional|installation"
+        varchar invoice_type "slug de invoice_types"
         date period_start
         date period_end
         date due_date
         numeric total
         numeric balance_due
+        numeric carried_in "saldo viejo que cobra"
+        numeric carried_out "saldo que trasladó"
         varchar status "draft|issued|paid|partial|void|overdue|cancelled"
         timestamp last_reminder_sent
     }
@@ -267,6 +276,23 @@ erDiagram
         bigint payment_id FK
         bigint invoice_id FK
         numeric amount
+    }
+    invoice_types {
+        bigint id PK
+        bigint tenant_id FK "NULL = del sistema"
+        varchar slug "UK con tenant_id"
+        varchar name
+        varchar color
+        boolean is_system
+        boolean is_active
+    }
+    invoice_carryovers {
+        bigint id PK
+        bigint from_invoice_id FK
+        bigint to_invoice_id FK "NULL mientras pending"
+        bigint payment_id FK
+        numeric amount
+        varchar status "pending|applied"
     }
 ```
 
@@ -499,6 +525,7 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 | `cut_day` | date | | | **Día** del corte |
 | `cut_time` | time | NN | `00:00:00` | **Hora** del corte |
 | `overdue_invoices` | integer | NN | `0` | Nº de facturas vencidas que disparan el corte |
+| `stop_invoicing_extra` | smallint | | `2` | **Tope de facturación**: margen sobre `overdue_invoices`. Al llegar a `overdue_invoices + stop_invoicing_extra` facturas **pendientes** el cliente deja de recibir mensualidades. `NULL` = sin tope |
 | `billing_mode` | varchar(255) | NN | `anticipado` | `anticipado` (mes en curso) \| `vencido` (mes anterior) |
 | `first_invoice_policy` | varchar(16) | NN | `none` | Política por defecto del router |
 | `notificar_wpp` | boolean | NN | `false` | |
@@ -520,18 +547,74 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 | `ticket_id` | bigint | | | **FK** → `support_ticket.id` (SET NULL). Cargo por servicio |
 | `installation_id` | bigint | | | **FK** → `customer_installations.id` (SET NULL) |
 | `number` | varchar(255) | | | **UK** con `tenant_id` |
-| `invoice_type` | varchar(255) | NN | `monthly` | `monthly`, `service_charge`, `additional`, `installation` |
+| `invoice_type` | varchar(255) | NN | `monthly` | Slug de `invoice_types`: los 4 del sistema (`monthly`, `service_charge`, `additional`, `installation`) o uno propio del tenant (`equipos`, `tv`…). Se guarda el texto, no una FK |
 | `issue_date` / `due_date` | date | NN | | Emisión y vencimiento |
 | `period_start` / `period_end` | date | NN | | Periodo cubierto (el prorrateo mueve `period_start`) |
 | `currency` | varchar(255) | NN | `COP` | |
 | `subtotal` / `tax` / `total` / `balance_due` | numeric(15,2) | NN | `0` | Importes |
+| `carried_in` | numeric(12,2) | NN | `0` | Saldo de facturas anteriores que ESTA factura está cobrando (ver `invoice_carryovers`) |
+| `carried_out` | numeric(12,2) | NN | `0` | Saldo que esta factura trasladó a la siguiente al cerrarse con un abono parcial |
 | `status` | varchar(255) | NN | `draft` | CHECK: `draft`, `issued`, `paid`, `partial`, `void`, `overdue`, `cancelled` |
 | `last_reminder_sent` | timestamp | | | Idempotencia del recordatorio |
 | `notes` | text | | | |
 
+> `carried_in` / `carried_out` son **denormalización para los listados**: la verdad
+> contable vive en `invoice_carryovers`. Un abono parcial ya no deja la factura en
+> `partial`: la cierra en `paid` con `carried_out > 0`.
+
+### 4.8.1 `invoice_types` — Catálogo de tipos de factura
+
+| Columna | Tipo | Nulo | Default | Descripción |
+|---|---|---|---|---|
+| `id` | bigint | NN | serial | **PK** |
+| `tenant_id` | bigint | | | **FK** → `tenant.id` (CASCADE). **NULL = tipo del sistema**, compartido por todos los tenants |
+| `slug` | varchar(50) | NN | | Lo que se guarda en `invoices.invoice_type`. **UK** con `tenant_id`. No se renombra nunca |
+| `name` | varchar(100) | NN | | Etiqueta visible ("Factura de Equipos") |
+| `color` | varchar(30) | NN | `slate` | Clave de paleta (`blue`, `emerald`, `purple`, `amber`, `rose`, `cyan`, `indigo`, `orange`, `teal`, `slate`). El front la traduce a clases |
+| `description` | varchar(255) | | | |
+| `is_system` | boolean | NN | `false` | Los del sistema son solo-lectura para el tenant |
+| `is_active` | boolean | NN | `true` | Inactivo = no se puede emitir con él, pero las facturas viejas conservan la etiqueta |
+| `sort_order` | integer | NN | `0` | Orden en los selectores |
+
+Siembra (tenant_id NULL, is_system): `monthly`, `installation`, `additional`,
+`service_charge`. La facturación automática, la instalación y los cargos de ticket
+dependen de esos slugs, por eso la API rechaza editarlos o borrarlos (403).
+
+### 4.8.2 `invoice_carryovers` — Arrastre de saldo por abono parcial
+
+Movimientos de deuda que pasan de una factura a la siguiente. Es el espejo negativo
+de `customer_profile.credit_balance` (que guarda el excedente de un pago de más).
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | bigint | NN | **PK** |
+| `tenant_id` | bigint | NN | **FK** → `tenant.id` (CASCADE) |
+| `customer_id` | bigint | NN | **FK** → `users.id` (CASCADE) |
+| `from_invoice_id` | bigint | | **FK** → `invoices.id` (SET NULL). Factura que se cerró dejando el faltante |
+| `to_invoice_id` | bigint | | **FK** → `invoices.id` (SET NULL). Factura que finalmente lo cobró. NULL mientras esté pendiente |
+| `payment_id` | bigint | | **FK** → `payments.id` (SET NULL). Abono que lo originó |
+| `amount` | numeric(12,2) | NN | Monto arrastrado |
+| `status` | varchar(20) | NN | `pending` \| `applied` |
+| `applied_at` | timestamp | | Cuándo lo absorbió `to_invoice_id` |
+
+Ciclo de vida:
+
+1. **`pending`** — el abono parcial cerró la factura; nadie ha cobrado el faltante.
+   Revertir el pago (borrarlo, cambiarle el monto o "marcar como no pagada")
+   devuelve el monto a `from_invoice_id` y **borra la fila**.
+2. **`applied`** — la siguiente factura mensual lo cobró como un ítem `carryover`.
+   A partir de aquí revertir el pago original **no** lo devuelve: cobrarlo dos veces
+   sería peor. Si se borra `to_invoice_id`, la fila **vuelve a `pending`** para que
+   la deuda no se pierda.
+
+> Sólo la generación **mensual** absorbe arrastres. Un cargo adicional o una factura
+> manual no cargan deuda ajena encima. Un mes de cortesía (factura en cero) tampoco:
+> el saldo espera a la siguiente factura cobrable.
+
 ### 4.9 `invoice_items`, `payments`, `payment_allocations`, `payment_methods`
 
-**`invoice_items`** — `invoice_id` (FK CASCADE), `type` (`plan` por defecto),
+**`invoice_items`** — `invoice_id` (FK CASCADE), `type` (`plan` por defecto;
+`carryover` para la línea de saldo arrastrado, `service`, `adjustment`…),
 `description`, `quantity` numeric(10,2), `unit` varchar(30), `unit_price` y `amount`
 numeric(15,2).
 
@@ -715,7 +798,13 @@ Agregado permanente.
 | `inventory_device.user_id` | `users.id` | SET NULL |
 | `inventory_provider.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_stock.tenant_id` | `tenant.id` | SET NULL |
+| `invoice_carryovers.customer_id` | `users.id` | CASCADE |
+| `invoice_carryovers.from_invoice_id` | `invoices.id` | SET NULL |
+| `invoice_carryovers.payment_id` | `payments.id` | SET NULL |
+| `invoice_carryovers.tenant_id` | `tenant.id` | CASCADE |
+| `invoice_carryovers.to_invoice_id` | `invoices.id` | SET NULL |
 | `invoice_items.invoice_id` | `invoices.id` | CASCADE |
+| `invoice_types.tenant_id` | `tenant.id` | CASCADE |
 | `invoices.customer_id` | `users.id` | CASCADE |
 | `invoices.installation_id` | `customer_installations.id` | SET NULL |
 | `invoices.service_id` | `service_plan.id` | SET NULL |
@@ -810,7 +899,12 @@ Agregado permanente.
 | `customer_installations` | `prospect_id`, `(tenant_id, customer_id)` |
 | `customer_profile` | `olt_id` |
 | `expenses` | `expense_date`, `status`, `tenant_id` |
-| `payments` | `created_by` |
+| `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, **parcial** `due_date WHERE balance_due > 0` |
+| `payment_allocations` | `payment_id`, `invoice_id` |
+| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)` |
+| `user_services` | `(user_id, status)` |
+| `invoice_carryovers` | `(customer_id, status)`, `(tenant_id, status)`, `from_invoice_id`, `to_invoice_id` |
+| `invoice_types` | `tenant_id` |
 | `prospects` | `converted_user_id`, `(tenant_id, status)` |
 | `router` | `tenant_id` |
 | `router_outage_events` | `(router_id, id)`, `(tenant_id, id)` |
@@ -830,6 +924,7 @@ Agregado permanente.
 | `billing` | `status` | `pending`, `paid`, `overdue`, `cancelled` |
 | `customer_installations` | `status` | `pendiente`, `completada`, `cancelada` |
 | `invoices` | `status` | `draft`, `issued`, `paid`, `partial`, `void`, `overdue`, `cancelled` |
+| `invoice_carryovers` | `status` | `pending`, `applied` *(sólo en PHP, sin CHECK)* |
 | `ip_assignment` | `ip_asig` | `static`, `dynamic`, `reserved` |
 | `ip_assignment` | `status` | `available`, `assigned`, `blocked` |
 | `payments` | `status` | `completed`, `void` |

@@ -715,6 +715,8 @@ const form = reactive({
     cut_day: null,
     cut_time: '00:00',
     overdue_invoices: "",
+    // Margen del tope de facturación (null = sin tope). Ver BillingPanel.
+    stop_invoicing_extra: 2,
     amount: null,
     comentarios: "",
     metodo: "",
@@ -893,6 +895,10 @@ const buildBillingPayload = () => {
     payment_reminder_time: timeToSql(form.billing.remember_time),
     payment_reminder_enabled: form.billing.payment_reminder_enabled !== false,
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
+    // null = sin tope; 0 es un valor válido (dejar de facturar al cortar).
+    stop_invoicing_extra: form.billing.stop_invoicing_extra === null || form.billing.stop_invoicing_extra === ''
+      ? null
+      : Number(form.billing.stop_invoicing_extra),
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
     status: 'pending',

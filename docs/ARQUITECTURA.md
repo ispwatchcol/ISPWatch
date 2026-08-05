@@ -236,7 +236,7 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `RouterProvisioningService` | 218 | Suspender/reactivar en el router |
 | `RouterPolicyInstallerService` | 151 | Instalar reglas de bloqueo en el router |
 | `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento) |
-| `PaymentReminderService` | 157 | Recordatorios de pago (email/WhatsApp) |
+| `PaymentReminderService` | 209 | Recordatorios de pago (email/WhatsApp): **un mensaje por cliente** con todas sus facturas pendientes |
 | `TrafficHistoryService` | 164 | Muestreo y agregación de tráfico WAN |
 | `VpnService` | 945 | Generación y verificación de scripts de túnel (WireGuard v7 · L2TP/IPSec v6) |
 | `RouterApiService` | 912 | Protocolo API nativo MikroTik (puerto 8728) |

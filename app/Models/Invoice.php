@@ -32,6 +32,8 @@ class Invoice extends Model
         'tax',
         'total',
         'balance_due',
+        'carried_in',
+        'carried_out',
         'status',
         'notes',
         'last_reminder_sent',
@@ -46,6 +48,8 @@ class Invoice extends Model
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
         'balance_due' => 'decimal:2',
+        'carried_in' => 'decimal:2',
+        'carried_out' => 'decimal:2',
         'last_reminder_sent' => 'datetime',
     ];
 
@@ -79,5 +83,27 @@ class Invoice extends Model
     public function installation()
     {
         return $this->belongsTo(CustomerInstallation::class, 'installation_id');
+    }
+
+    /** Arrastres que ESTA factura generó al cerrarse con un abono parcial. */
+    public function carryoversOut()
+    {
+        return $this->hasMany(InvoiceCarryover::class, 'from_invoice_id');
+    }
+
+    /** Arrastres de facturas anteriores que ESTA factura está cobrando. */
+    public function carryoversIn()
+    {
+        return $this->hasMany(InvoiceCarryover::class, 'to_invoice_id');
+    }
+
+    /**
+     * Tipo del catálogo. Se enlaza por slug (no por FK) porque invoice_type es
+     * texto libre histórico y los tipos del sistema son globales (tenant_id
+     * NULL): la relación tendría que mirar dos columnas.
+     */
+    public function type()
+    {
+        return $this->belongsTo(InvoiceType::class, 'invoice_type', 'slug');
     }
 }

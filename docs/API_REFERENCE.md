@@ -564,10 +564,14 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `issue_date`, `due_date`, `period_start`, `period_end` | **requeridos**, fecha |
 | `total` | numérico ≥ 0 |
 | `notes` | texto |
+| `invoice_type` | opcional, slug **activo** del catálogo del tenant (`GET /api/billing/invoice-types`). Por defecto `monthly` |
 
 El servidor fija `status = issued`, `subtotal = total = balance_due`, `currency = COP` y
 genera `number` con `BillingService::generateInvoiceNumber()` (seguro ante concurrencia).
 **Responde `201`** con la factura.
+
+> `invoice_type` se valida contra el catálogo: un slug inexistente, inactivo o de
+> **otro tenant** devuelve `422` con el error en `errors.invoice_type`.
 
 **`PUT /api/billing/invoices/{id}`** — campos `sometimes`: `status`
 (`issued`\|`pending`\|`paid`\|`overdue`\|`cancelled`), `issue_date`, `due_date`,
@@ -592,6 +596,32 @@ totales de la factura.
 | `GET` | `/api/billing/customers/{customerId}/balance` | Saldo del cliente |
 | `PATCH` | `/api/billing/customers/{customerId}/credit` | Ajusta el saldo a favor |
 
+**`GET /api/billing/payments`** — listado paginado (por defecto 15 por página,
+orden `payment_date` descendente). Todos los parámetros son opcionales y se
+combinan con `AND`:
+
+| Parámetro | Reglas | Filtra |
+|---|---|---|
+| `search` | texto | Búsqueda general: referencia **o** cliente |
+| `customer` | texto | Nombre, apellido, **nombre completo**, cédula, usuario o correo |
+| `customer_id` | entero | Un cliente exacto |
+| `reference` | texto | Referencia (coincidencia parcial) |
+| `method` | texto | Forma de pago exacta |
+| `registered_by` | texto | Quién lo registró. `sistema` \| `system` \| `automatico` = pagos sin `created_by` |
+| `invoice` | texto | Número de alguna factura cubierta por el recaudo (`allocations.invoice.number`) |
+| `date_from`, `date_to` | fecha | Rango de `payment_date`, inclusive |
+| `amount_min`, `amount_max` | numérico | Rango de `amount`, inclusive |
+| `sort_by` | `payment_date`\|`amount`\|`method`\|`reference`\|`created_at` | Columna de orden |
+| `sort_dir` | `asc`\|`desc` | Sentido (por defecto `desc`) |
+| `per_page` | entero 1–200 | Tamaño de página |
+| `page` | entero | Página |
+
+Las búsquedas de texto son insensibles a mayúsculas en PostgreSQL y en SQLite
+(macros `whereLike`/`orWhereLike`, ver `SearchMacrosServiceProvider`).
+
+> El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
+> query param se ignora: antes permitía leer los recaudos de otro tenant.
+
 **`POST /api/billing/payments`**
 
 | Campo | Reglas |
@@ -607,11 +637,46 @@ totales de la factura.
 **Efectos secundarios importantes:**
 1. El pago se **asigna automáticamente** a las facturas pendientes (más antigua primero).
 2. El excedente pasa a `customer_profile.credit_balance`.
-3. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **lo reconecta
-   automáticamente en el router** — sólo si el corte fue de facturación.
+3. **Un abono parcial cierra la factura**: si el pago no alcanza a cubrirla, la factura
+   queda en `paid` con `balance_due = 0` y el faltante se registra en
+   `invoice_carryovers` (`status = pending`) para cobrarse en la **siguiente factura
+   mensual**. Ver "Arrastre de saldo" más abajo.
+4. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **lo reconecta
+   automáticamente en el router** — sólo si el corte fue de facturación. Como el punto 3
+   deja la factura sin saldo vencido, **un abono parcial también reconecta**.
 
 **201** con el pago y sus `allocations`. **500** con
 `{"message":"No se pudo registrar el pago: ..."}` ante fallo del servicio.
+
+**`GET /api/billing/customers/{customerId}/balance`**
+
+```json
+{
+  "balance": 50000,            // suma de balance_due de sus facturas
+  "credit_balance": 0,         // saldo A FAVOR del cliente (pagos de más)
+  "net_balance": 50000,        // lo que debe hoy = balance − crédito
+  "carryover_balance": 20000   // deuda arrastrada: se cobra en la PRÓXIMA factura
+}
+```
+
+`carryover_balance` **no** se suma a `net_balance`: hoy el cliente no lo debe y no
+cuenta para la mora ni para el corte. Es informativo para el cajero.
+
+### Arrastre de saldo por abono parcial
+
+Regla de operación: *el cliente abona menos del total → la factura queda pagada y el
+faltante se suma a la próxima factura*.
+
+| Momento | Qué pasa |
+|---|---|
+| Se registra el abono | La factura pasa a `paid`, `carried_out = faltante`, y nace una fila `pending` en `invoice_carryovers` |
+| Corre la facturación mensual | La factura nueva suma un ítem `carryover` con todo lo pendiente, `carried_in = total arrastrado`, y las filas pasan a `applied` |
+| Se borra / edita el pago, o `mark-unpaid` | Los arrastres **`pending`** vuelven a la factura original y se borran. Los **`applied`** se quedan donde están: ya los cobra otra factura |
+| Se borra la factura que cobraba el arrastre | Las filas vuelven a `pending` para que la deuda no se pierda |
+
+Excepciones: los **cargos adicionales** y las **facturas manuales** no absorben
+arrastres, y un **mes de cortesía** (factura en cero) tampoco — el saldo espera a la
+siguiente factura cobrable.
 
 ### Operaciones del ciclo
 
@@ -624,6 +689,16 @@ totales de la factura.
 | `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración |
 | `POST` | `/api/billing/additional-charges` | Cargo adicional sin ticket |
 
+**`PUT /api/billing/configs/{id}`** — todos los campos son opcionales; sólo se actualiza lo
+que llega. Además de los días/horas del ciclo acepta `overdue_invoices` (≥1, umbral de corte)
+y `stop_invoicing_extra` (0–60, margen del **tope de facturación**; `null` = sin tope, se
+factura indefinidamente).
+
+**`POST /api/billing/additional-charges`** — `customer_id` e `items[]`
+(`description`, `quantity`, `unit_price`; opcionales `unit`, `type`) requeridos;
+`due_date`, `notes` e `invoice_type` opcionales. `invoice_type` acepta cualquier slug
+activo del catálogo (`equipos`, `tv`…); por defecto `additional`.
+
 ### Recordatorios y formas de pago
 
 | Método | Ruta | Descripción |
@@ -633,6 +708,32 @@ totales de la factura.
 | `GET` | `/api/billing/whatsapp-status` | Estado de la integración WhatsApp |
 | `GET/POST` | `/api/billing/payment-methods` | Lista / crea forma de pago |
 | `PUT/DELETE` | `/api/billing/payment-methods/{id}` | Actualiza / elimina |
+
+### Tipos de factura (catálogo)
+
+Mismo permiso que las formas de pago: **`view_billing`**.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/billing/invoice-types` | Tipos del sistema + los del tenant, ordenados |
+| `POST` | `/api/billing/invoice-types` | Crea un tipo propio |
+| `PUT` | `/api/billing/invoice-types/{id}` | Actualiza uno propio |
+| `DELETE` | `/api/billing/invoice-types/{id}` | Elimina uno propio |
+
+**`POST`** — `name` requerido (≤100); `color` opcional (`blue`, `emerald`, `purple`,
+`amber`, `rose`, `cyan`, `indigo`, `orange`, `teal`, `slate`); `description`,
+`is_active` opcionales. El `slug` se **deriva del nombre** ("Factura de Equipos" →
+`factura_de_equipos`) y no se puede renombrar después: es lo que queda grabado en las
+facturas emitidas.
+
+**`PUT`** cambia sólo la etiqueta (`name`, `color`, `description`, `is_active`).
+
+Errores propios:
+
+| Código | Cuándo |
+|---|---|
+| `403` | El tipo es del sistema (`monthly`, `installation`, `additional`, `service_charge`) o de otro tenant |
+| `422` | El nombre choca con un tipo existente, o se intenta borrar un tipo **ya usado en facturas** (hay que desactivarlo) |
 
 ---
 
@@ -794,6 +895,11 @@ ese contenido. Ausente si no hay huérfanos — el frontend sólo lo lee si el h
 [{ "token": "factura.tabla_items", "label": "Tabla de ítems de la factura…" }]
 ```
 
+Al ser un header no estándar, va declarado en `exposed_headers` de `config/cors.php`: sin eso
+el navegador lo oculta a JavaScript en cualquier llamada cross-origin (el servidor de Vite en
+`:5173` contra la API en `:8000`), y el aviso nunca se dispararía en desarrollo. En producción
+front y API comparten origen, donde la restricción no aplica.
+
 > Un placeholder **escalar** desconocido, con typo, o de **otro tipo de documento**
 > (ej. `{{factura.tabla_items}}` dentro de un contrato) no genera este header — se blanquea a
 > `''` en silencio, mismo criterio que cualquier token no reconocido. Ver
@@ -880,7 +986,7 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_support` | Tickets (CRUD), instalaciones, prospectos; lectura de fotos/notas/historial de sectorial |
 | `delete_installations` | `DELETE /api/customers/installations/{installation}` (por OR con `view_support`) |
 | `edit_discount` | `installations/{installation}/billing` |
-| `view_billing` | Todo `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago) |
+| `view_billing` | Todo `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago, **tipos de factura**) |
 | `delete_invoice` | `DELETE /api/billing/invoices/{id}` |
 | `execute_mass_actions` | `/api/billing/action-logs*`, `/api/billing/suspension-logs*`, `/api/import/*` |
 | `view_staff` | `/api/staff*` |

@@ -8,6 +8,7 @@ use App\Models\Billing;
 use App\Models\BillingActionLog;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
+use App\Models\InvoiceCarryover;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
@@ -75,8 +76,13 @@ class BillingService
      *
      * For each router that has a billing config (billing_router_id):
      *   1. Check if today's day-of-month >= the billing's create_invoice day
-     *   2. Find all active customers assigned to that router
+     *   2. Find all billable customers assigned to that router (activos, gratis
+     *      y cortados por mora; nunca retirados/cancelados ni "no facturar")
      *   3. Create an invoice for each customer with an active (non-gratis) service plan
+     *
+     * Tope de facturación: el cliente que ya acumula
+     * (billing.overdue_invoices + billing.stop_invoicing_extra) facturas
+     * pendientes deja de recibir mensualidades — la deuda se congela ahí.
      *
      * Idempotent: safe to run multiple times — duplicate invoices are skipped.
      *
@@ -181,19 +187,22 @@ class BillingService
                 $dueDate = $issueDate->copy()->addDays(5);
             }
 
-            // ── Get active customers assigned to this router ────────────────
-            // NOTE: customer_profile.status is a BOOLEAN column (true = active).
-            // Comparing it to the string 'active' throws on PostgreSQL
-            // (SQLSTATE 22P02) and silently matches nothing on SQLite.
+            // ── Tope de facturación del router (null = sin tope) ────────────
+            $stopAt = $billingConfig->invoiceStopThreshold();
+
+            // ── Get billable customers assigned to this router ──────────────
+            // Se factura a activos, gratis y CORTADOS por mora: el corte no
+            // congela la deuda, la frena el tope de más abajo. Sólo quedan
+            // fuera las bajas definitivas (retirado / cancelado).
             // exclude_from_billing = clientes marcados como "no facturar": quedan
             // fuera del ciclo automático (sin factura, recordatorio ni corte).
             $customerProfiles = CustomerProfile::where('router_id', $router->id)
-                ->where('status', true)
+                ->billableServiceStatus()
                 ->where('exclude_from_billing', false)
                 ->with('user:id,created_at')
                 ->get();
 
-            Log::info("Billing: Router {$router->id} ({$router->name}) — {$customerProfiles->count()} active customer(s) to check.");
+            Log::info("Billing: Router {$router->id} ({$router->name}) — {$customerProfiles->count()} billable customer(s) to check.");
 
             foreach ($customerProfiles as $profile) {
                 $customerId = $profile->user_id;
@@ -234,6 +243,17 @@ class BillingService
                 // NO se vuelve a crear. Sólo aplica a ese mes.
                 if ($this->isRegenerationSuppressed($tenantId, $customerId, $periodStart)) {
                     Log::info("Billing: Customer {$customerId} — factura de {$periodStart->format('Y-m')} eliminada por un administrador. No se regenera.");
+                    continue;
+                }
+
+                // Tope de facturación: al moroso que ya acumula (umbral de corte
+                // + margen) facturas pendientes se le deja de emitir la
+                // mensualidad. Evita que un cliente cortado siga sumando deuda
+                // mes tras mes — y que le sigan llegando avisos de facturas que
+                // nadie va a cobrar.
+                if ($stopAt !== null && $this->pendingInvoiceCount($tenantId, $customerId) >= $stopAt) {
+                    Log::info("Billing: Customer {$customerId} — {$stopAt} factura(s) pendientes o más "
+                        . "(tope del router {$router->id}). No se genera la mensualidad de {$periodStart->format('Y-m')}.");
                     continue;
                 }
 
@@ -291,7 +311,9 @@ class BillingService
      *
      * Per router it reports:
      *   - due         : whether today's day has reached the (clamped) create day
-     *   - expected    : active customers with an active, non-courtesy service
+     *   - expected    : billable customers with an active, non-courtesy service
+     *   - capped      : morosos que llegaron al tope de facturas pendientes
+     *                   (informativo: no se les factura y no son un problema)
      *   - actual      : monthly invoices that exist for the resolved period
      *   - failed_logs : FAILED/EXHAUSTED action-log rows for the period
      *   - status      : pending | ok | partial | no_show
@@ -349,16 +371,18 @@ class BillingService
                 $due = $today->gte($createMoment->copy()->addHour());
             }
 
-            // Expected: active customers on this router with an active, billable
-            // (non-courtesy) service — the same set generation would invoice.
+            // Expected: billable customers on this router with an active,
+            // billable (non-courtesy) service — the same set generation would
+            // invoice (incluidos los cortados por mora).
             // Excluded ("no facturar") customers are not expected to be invoiced,
             // so they must not count toward the no-show/partial audit either.
             // Tampoco cuentan los que la política de primera factura deja fuera
-            // (alta a mitad de mes) ni aquellos cuya factura borró el operador:
-            // si contaran, verify-monthly gritaría "partial" por facturas que
-            // NUNCA debieron existir.
+            // (alta a mitad de mes), aquellos cuya factura borró el operador ni
+            // los que llegaron al tope de facturas pendientes: si contaran,
+            // verify-monthly gritaría "partial" por facturas que NUNCA debieron
+            // existir.
             $profiles = CustomerProfile::where('router_id', $router->id)
-                ->where('status', true)
+                ->billableServiceStatus()
                 ->where('exclude_from_billing', false)
                 ->with('user:id,created_at')
                 ->get();
@@ -376,6 +400,9 @@ class BillingService
             $expected   = 0;
             $skippedNew = 0;   // altas a mitad de mes que la política deja sin cobro
             $suppressed = 0;   // facturas que el operador borró a propósito
+            $capped     = 0;   // morosos que llegaron al tope de facturas pendientes
+
+            $stopAt = $billingConfig->invoiceStopThreshold();
 
             foreach ($profiles as $profile) {
                 $userService = $services->get($profile->user_id);
@@ -388,6 +415,25 @@ class BillingService
                 if ($this->isRegenerationSuppressed($router->tenant_id, (int) $profile->user_id, $periodStart)) {
                     $suppressed++;
                     continue;
+                }
+
+                // Mismo tope que la generación. Se descuenta la factura del
+                // periodo auditado si ya existe: sin eso, el cliente que acaba
+                // de llegar al tope justo con ESTA factura se contaría como
+                // "no esperado" y el audit reportaría un falso 'partial'.
+                if ($stopAt !== null) {
+                    $pending = $this->pendingInvoiceCount($router->tenant_id, (int) $profile->user_id)
+                        - $this->monthlyInvoicesOfPeriod($periodStart, $periodEnd)
+                            ->where('tenant_id', $router->tenant_id)
+                            ->where('customer_id', $profile->user_id)
+                            ->where('balance_due', '>', 0)
+                            ->whereNotIn('status', ['paid', 'void', 'cancelled'])
+                            ->count();
+
+                    if ($pending >= $stopAt) {
+                        $capped++;
+                        continue;
+                    }
                 }
 
                 $charge = $this->resolveFirstInvoiceCharge(
@@ -440,11 +486,28 @@ class BillingService
                 // facturó a menos clientes de los que hay en el router.
                 'skipped_new' => $skippedNew,
                 'suppressed'  => $suppressed,
+                'capped'      => $capped,
                 'status'      => $status,
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * Facturas PENDIENTES del cliente: las que tienen saldo y no están pagadas,
+     * anuladas ni canceladas. Cuenta todos los tipos (mensual, instalación,
+     * cargos), igual que el corte por mora — es el "debe N facturas" que ve el
+     * operador. A diferencia del corte, aquí NO se filtra por vencimiento: la
+     * factura del mes en curso, aunque todavía no venza, ya cuenta para el tope.
+     */
+    protected function pendingInvoiceCount(int $tenantId, int $customerId): int
+    {
+        return Invoice::where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->where('balance_due', '>', 0)
+            ->whereNotIn('status', ['paid', 'void', 'cancelled'])
+            ->count();
     }
 
     /**
@@ -624,6 +687,16 @@ class BillingService
             'amount'     => $subtotal,
         ]);
 
+        // Arrastre: lo que quedó debiendo de abonos parciales anteriores se
+        // cobra aquí, como un ítem más de la factura del mes.
+        //
+        // En un mes de cortesía NO: esa factura nace en cero y ya saldada para
+        // quedar fuera de la mora y del corte; meterle deuda la sacaría de esa
+        // condición. El arrastre espera a la siguiente factura cobrable.
+        if (!$free) {
+            $this->applyPendingCarryoversTo($invoice);
+        }
+
         $profile->refresh();
         $this->applyCreditToInvoice($invoice, $profile);
 
@@ -632,11 +705,21 @@ class BillingService
 
         // Un mes de cortesía no se notifica: avisarle al cliente de una factura
         // de $0 que no tiene que pagar sólo genera confusión (y gasta mensajes).
+        //
+        // Tampoco se notifica la factura que NACE SALDADA porque el saldo a
+        // favor del cliente la cubrió entera (balance_due = 0, status = paid):
+        // el aviso "tienes una nueva factura" le llegaba a quien ya no debía
+        // nada, como si no la hubiera pagado.
         if (!$free) {
             // Notification failure must NOT roll back the invoice.
             try {
                 $invoice->refresh()->load('tenant');
-                $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+
+                if ((float) $invoice->balance_due > 0) {
+                    $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+                } else {
+                    Log::info("Billing: Invoice {$invoiceNumber} quedó saldada con el saldo a favor del cliente {$customerId}. No se notifica.");
+                }
             } catch (\Throwable $e) {
                 Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
             }
@@ -667,13 +750,16 @@ class BillingService
             return false;
         }
 
+        // Mismas reglas de audiencia que la corrida mensual: un cliente cortado
+        // por mora SÍ se factura (el tope de más abajo lo frena); sólo quedan
+        // fuera las bajas definitivas y los "no facturar".
         $profile = CustomerProfile::where('user_id', $log->customer_id)->first();
-        if (!$profile || !$profile->status || $profile->exclude_from_billing) {
+        if (!$profile || !$profile->hasBillableServiceStatus() || $profile->exclude_from_billing) {
             $log->update([
                 'status'     => BillingActionLog::STATUS_EXHAUSTED,
                 'last_error' => $profile && $profile->exclude_from_billing
                     ? 'Customer excluded from billing'
-                    : 'Customer profile inactive or missing',
+                    : 'Customer profile retired/cancelled or missing',
                 'attempts'   => $log->attempts + 1,
             ]);
             return false;
@@ -710,6 +796,20 @@ class BillingService
                 'last_error' => null,
             ]);
             return true;
+        }
+
+        // Tope de facturación del router: si entretanto el cliente llegó al
+        // límite de facturas pendientes, este reintento no debe crear una más.
+        // Va DESPUÉS de la idempotencia: si la factura ya existe, el log se
+        // cierra como éxito, no como agotado.
+        $stopAt = $router->billingConfig->invoiceStopThreshold();
+        if ($stopAt !== null && $this->pendingInvoiceCount((int) $log->tenant_id, (int) $log->customer_id) >= $stopAt) {
+            $log->update([
+                'status'     => BillingActionLog::STATUS_EXHAUSTED,
+                'last_error' => "Tope de facturación alcanzado ({$stopAt} facturas pendientes)",
+                'attempts'   => $log->attempts + 1,
+            ]);
+            return false;
         }
 
         // Misma política de "primera factura" que la corrida mensual: el
@@ -1037,6 +1137,11 @@ class BillingService
      * Allocate payment amount to invoices.
      * Any unallocated remainder is stored as credit_balance on the customer profile.
      *
+     * Un abono que no alcanza a cubrir la factura NO la deja a medias: la cierra
+     * como pagada y manda el faltante al arrastre (ver carryOverShortfall), que
+     * la siguiente factura mensual cobra. Es decisión de operación: el cliente
+     * que abona sale de mora y no se le corta hasta que venza esa factura nueva.
+     *
      * @param Payment $payment
      * @param array|null $allocations Manual allocations: [['invoice_id' => X, 'amount' => Y], ...]
      */
@@ -1065,6 +1170,7 @@ class BillingService
                 $invoice->balance_due -= $amountToApply;
                 $this->updateInvoiceStatus($invoice);
                 $invoice->save();
+                $this->carryOverShortfall($invoice, $payment);
 
                 $remainingAmount -= $amountToApply;
             }
@@ -1091,6 +1197,7 @@ class BillingService
                 $invoice->balance_due -= $amountToApply;
                 $this->updateInvoiceStatus($invoice);
                 $invoice->save();
+                $this->carryOverShortfall($invoice, $payment);
 
                 $remainingAmount -= $amountToApply;
             }
@@ -1105,6 +1212,125 @@ class BillingService
                 Log::info("Billing: Payment {$payment->id} — \${$remainingAmount} stored as credit for customer {$payment->customer_id}.");
             }
         }
+    }
+
+    // ─── Arrastre de saldo por pago parcial ──────────────────────────────────
+
+    /**
+     * Cierra una factura que recibió un abono parcial y manda el faltante al
+     * arrastre: la factura queda PAGADA (sale de la mora y del corte) y el saldo
+     * se cobrará en la siguiente factura mensual del cliente.
+     *
+     * No hace nada si la factura quedó saldada (pago exacto o en exceso).
+     */
+    protected function carryOverShortfall(Invoice $invoice, Payment $payment): void
+    {
+        $shortfall = round((float) $invoice->balance_due, 2);
+
+        if ($shortfall <= 0) {
+            return;
+        }
+
+        InvoiceCarryover::create([
+            'tenant_id'       => $invoice->tenant_id,
+            'customer_id'     => $invoice->customer_id,
+            'from_invoice_id' => $invoice->id,
+            'payment_id'      => $payment->id,
+            'amount'          => $shortfall,
+            'status'          => InvoiceCarryover::STATUS_PENDING,
+        ]);
+
+        $invoice->carried_out = (float) $invoice->carried_out + $shortfall;
+        $invoice->balance_due = 0;
+        $this->updateInvoiceStatus($invoice);
+        $invoice->save();
+
+        Log::info("Billing: abono parcial en factura {$invoice->id} (#{$invoice->number}) — "
+            . "se cierra como pagada y \${$shortfall} pasa como saldo pendiente "
+            . "del cliente {$invoice->customer_id} a la próxima factura.");
+    }
+
+    /**
+     * Cobra en $invoice todo el saldo arrastrado que el cliente tenga pendiente:
+     * lo agrega como un ítem más y marca los movimientos como aplicados.
+     *
+     * Sólo lo hace la facturación mensual: es "la próxima factura" del ciclo. Un
+     * cargo adicional o una factura manual no arrastran deuda ajena encima, que
+     * sorprendería al operador que la está emitiendo a mano.
+     */
+    protected function applyPendingCarryoversTo(Invoice $invoice): void
+    {
+        $pending = InvoiceCarryover::pending()
+            ->where('tenant_id', $invoice->tenant_id)
+            ->where('customer_id', $invoice->customer_id)
+            ->with('fromInvoice:id,number')
+            ->get();
+
+        $total = round((float) $pending->sum('amount'), 2);
+
+        if ($total <= 0) {
+            return;
+        }
+
+        $numbers = $pending->pluck('fromInvoice.number')->filter()->unique()->values();
+        $description = 'Saldo pendiente de facturas anteriores'
+            . ($numbers->isNotEmpty() ? ' (#' . $numbers->implode(', #') . ')' : '');
+
+        InvoiceItem::create([
+            'invoice_id'  => $invoice->id,
+            'type'        => 'carryover',
+            'description' => $description,
+            'quantity'    => 1,
+            'unit_price'  => $total,
+            'amount'      => $total,
+        ]);
+
+        $invoice->subtotal    = (float) $invoice->subtotal + $total;
+        $invoice->total       = (float) $invoice->total + $total;
+        $invoice->balance_due = (float) $invoice->balance_due + $total;
+        $invoice->carried_in  = (float) $invoice->carried_in + $total;
+        $this->updateInvoiceStatus($invoice);
+        $invoice->save();
+
+        InvoiceCarryover::whereIn('id', $pending->pluck('id')->all())->update([
+            'status'        => InvoiceCarryover::STATUS_APPLIED,
+            'to_invoice_id' => $invoice->id,
+            'applied_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+
+        Log::info("Billing: factura {$invoice->id} (#{$invoice->number}) cobra \${$total} "
+            . "de saldo arrastrado del cliente {$invoice->customer_id}.");
+    }
+
+    /**
+     * Deshace los arrastres que generó un pago y que TODAVÍA no ha cobrado
+     * ninguna factura: el monto vuelve a la factura original.
+     *
+     * Los que ya viajaron a otra factura (status applied) se quedan donde están:
+     * devolverlos cobraría dos veces el mismo dinero.
+     */
+    protected function revertPendingCarryoversOfPayment(Payment $payment): void
+    {
+        InvoiceCarryover::pending()
+            ->where('payment_id', $payment->id)
+            ->get()
+            ->each(fn (InvoiceCarryover $row) => $this->revertCarryover($row));
+    }
+
+    /** Devuelve un arrastre pendiente a su factura de origen y borra el movimiento. */
+    protected function revertCarryover(InvoiceCarryover $row): void
+    {
+        $invoice = $row->from_invoice_id ? Invoice::find($row->from_invoice_id) : null;
+
+        if ($invoice) {
+            $invoice->balance_due = (float) $invoice->balance_due + (float) $row->amount;
+            $invoice->carried_out = max(0, (float) $invoice->carried_out - (float) $row->amount);
+            $this->updateInvoiceStatus($invoice);
+            $invoice->save();
+        }
+
+        $row->delete();
     }
 
     /**
@@ -1153,6 +1379,11 @@ class BillingService
      */
     protected function reversePaymentAllocations(Payment $payment): void
     {
+        // PRIMERO el arrastre: devuelve saldo a las mismas facturas que se
+        // recargan abajo. Hacerlo después trabajaría sobre copias en memoria
+        // distintas de la misma factura y el último save() pisaría al otro.
+        $this->revertPendingCarryoversOfPayment($payment);
+
         $allocations = $payment->allocations()->with('invoice')->get();
 
         foreach ($allocations as $allocation) {
@@ -1232,6 +1463,23 @@ class BillingService
     {
         DB::transaction(function () use ($invoice) {
             $this->suppressRegeneration($invoice);
+
+            // Deuda arrastrada que ESTA factura estaba cobrando: vuelve a quedar
+            // pendiente para la siguiente. Si no, borrar la factura del mes le
+            // perdonaría al cliente un saldo que sí debe.
+            InvoiceCarryover::where('to_invoice_id', $invoice->id)
+                ->where('status', InvoiceCarryover::STATUS_APPLIED)
+                ->update([
+                    'status'        => InvoiceCarryover::STATUS_PENDING,
+                    'to_invoice_id' => null,
+                    'applied_at'    => null,
+                    'updated_at'    => now(),
+                ]);
+
+            // Arrastres que ESTA factura generó y que nadie ha cobrado todavía:
+            // mueren con ella (el abono que los originó se devuelve como crédito
+            // unas líneas más abajo).
+            InvoiceCarryover::pending()->where('from_invoice_id', $invoice->id)->delete();
 
             $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
 
@@ -1324,6 +1572,16 @@ class BillingService
             // Work from the persisted balance, not a possibly-stale in-memory one.
             $invoice->refresh();
 
+            // Saldo que esta factura había trasladado a la próxima y que aún no
+            // ha cobrado nadie: vuelve a deberse aquí. El que ya viajó a otra
+            // factura se queda allá — reclamarlo también aquí sería cobrarlo dos
+            // veces —, así que la factura queda debiendo sólo su parte.
+            foreach (InvoiceCarryover::pending()->where('from_invoice_id', $invoice->id)->get() as $row) {
+                $invoice->balance_due = (float) $invoice->balance_due + (float) $row->amount;
+                $invoice->carried_out = max(0, (float) $invoice->carried_out - (float) $row->amount);
+                $row->delete();
+            }
+
             $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
 
             foreach ($allocations as $allocation) {
@@ -1384,6 +1642,15 @@ class BillingService
             ? Carbon::parse($invoice->period_start)->locale('es')->isoFormat('MMMM YYYY')
             : null;
 
+        // Deuda TOTAL del cliente, esta factura incluida. Sin esto el aviso
+        // decía "$50.000" al que en realidad debía $100.000 (la del mes pasado
+        // seguía pendiente) y el cliente pagaba de menos.
+        $pending = Invoice::where('tenant_id', $invoice->tenant_id)
+            ->where('customer_id', $invoice->customer_id)
+            ->where('balance_due', '>', 0)
+            ->whereNotIn('status', ['paid', 'void', 'cancelled'])
+            ->get(['id', 'balance_due']);
+
         $data = [
             'customer_name'  => trim("{$profile->name} {$profile->last_name}") ?: ($customer->name ?? 'Cliente'),
             'invoice_number' => $invoice->number,
@@ -1392,6 +1659,10 @@ class BillingService
             'issue_date'     => $invoice->issue_date,
             'company_name'   => $invoice->tenant?->name ?? 'ISPWatch',
             'period_label'   => $periodLabel,
+            // Sólo se muestran si hay deuda anterior (pending_count > 1).
+            'pending_count'  => $pending->count(),
+            'pending_total'  => (float) $pending->sum('balance_due'),
+            'previous_due'   => (float) $pending->where('id', '!=', $invoice->id)->sum('balance_due'),
         ];
 
         $type = $billingConfig->notification_type ?: 'email';

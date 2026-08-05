@@ -333,6 +333,8 @@ const finanzasItems = computed(() => {
     if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Formas de Pago', to: '/billing/payment-methods', icon: 'ri-bank-card-line' });
     if (authStore.hasPermission('view_billing'))
+        items.push({ name: 'Tipos de Factura', to: '/billing/invoice-types', icon: 'bi-tags' });
+    if (authStore.hasPermission('view_billing'))
         items.push({ name: 'Servicios Adicionales', to: '/billing/additional-charges', icon: 'bi-plus-circle' });
     if (authStore.hasPermission('view_expenses'))
         items.push({ name: 'Gastos', to: '/expenses', icon: 'bi-cash-coin' });

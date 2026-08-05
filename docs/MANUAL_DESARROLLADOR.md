@@ -257,7 +257,7 @@ php artisan test --filter=FirstInvoice    # por nombre
 cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`
 (que no se versiona: parte de `.env.testing.example`).
 
-**Estado:** 309 tests, **0 fallos** (2026-08-01). Hasta 2026-07-30 había 34 fallos permanentes —
+**Estado:** 358 tests, **0 fallos** (2026-08-03). Hasta 2026-07-30 había 34 fallos permanentes —
 19 de andamiaje de Breeze que probaba rutas y componentes inexistentes, 10 de documentos que
 falseaban el disco `public` mientras el código escribe en `s3`, y el resto residuos del
 esqueleto de Laravel. Se eliminaron los muertos y se arreglaron los reales: una suite con
@@ -267,17 +267,35 @@ fallos crónicos no es una red de seguridad, porque nadie la mira.
 **PostgreSQL 16 + PostGIS**. Sólo el segundo puede detectar el booleano comparado con
 cadena, el `LIKE` sensible a mayúsculas y los índices parciales.
 
-### Cobertura actual (42 archivos, 309 tests)
+**La salvaguarda de `tests/TestCase.php`.** La suite usa `RefreshDatabase`, que ejecuta
+`migrate:fresh`: apuntarla por error a la base real la deja vacía, y el `.env` local
+apunta a Supabase. Por eso cada `setUp` comprueba la conexión **ya resuelta** (no la
+configuración escrita, que un `DB_URL` perdido puede reescribir sin cambiar el nombre de
+la conexión) y aborta salvo en dos casos:
+
+| Motor | Se admite si |
+|---|---|
+| `sqlite` | la base es `:memory:` — nunca un archivo del proyecto |
+| `pgsql` | es **desechable**: host local (`127.0.0.1`, `localhost`, `::1`, `postgres`) y base terminada en `_test` — o sea, el contenedor del CI |
+
+> Hasta el 2026-07-31 la salvaguarda exigía driver `sqlite` **y nada más**, así que el job
+> de PostgreSQL abortaba en todos los tests con base de datos y nunca llegó a ejecutar una
+> sola aserción. Si necesitas correrlo en local, levanta un Postgres desechable
+> (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
+> seguir haciéndolo.
+
+### Cobertura actual (46 archivos, 358 tests)
 
 | Suite | Archivos |
 |---|---|
-| `Feature/Billing` | `AutoCutoffTest`, `AutoReconnectOnPaymentTest`, `BillingEventTimeTest`, `BillingModuleTest`, `DeleteInvoiceTest`, `FirstInvoiceFreeMonthsTest`, `FirstInvoiceProrationTest`, `MarkInvoiceUnpaidTest`, `PaymentReminderTest`, `ReconcileSuspensionsTest`, `RouterMonthlyBillingTest`, `VerifyAutomaticCutsTest`, `VerifyMonthlyBillingTest` |
+| `Feature/Billing` | `AutoCutoffTest`, `AutoReconnectOnPaymentTest`, `BillingEventTimeTest`, `BillingModuleTest`, `DeleteInvoiceTest`, `FirstInvoiceFreeMonthsTest`, `FirstInvoiceProrationTest`, `MarkInvoiceUnpaidTest`, `PaymentReminderTest`, `PaymentsListFilterTest`, `ReconcileSuspensionsTest`, `RouterMonthlyBillingTest`, `VerifyAutomaticCutsTest`, `VerifyMonthlyBillingTest` |
 | `Feature/Documents` | `BillingPdfDownloadTest`, `CustomerContractSignTest`, `DocumentTemplateControllerTest`, `InstallationSheetSignTest` |
 | `Feature/Auth` | `ApiAuthorizationTest` (42: permiso por endpoint, OR, bypass admin, unión de permisos), `ApiLoginTest` (7: login real, verificación, rate limit), `RolePermissionsSyncTest` (7) |
 | `Feature/Router` | `RouterOutageTest` |
 | `Feature/Inventory` | `InventoryImportTest` |
 | `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
-| `Unit/Services` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest` |
+| `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest` |
+| `Unit/Services` | `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest` |
 | `Unit/Spikes` | `CssTidyExtractStyleBlocksSpikeTest` (prueba aislada de `Filter.ExtractStyleBlocks`, no forma parte del sanitizer de producción) |
 
 **Zona sin cobertura relevante:** la lógica de negocio de clientes, prospectos, sectoriales,
@@ -292,8 +310,15 @@ Diferencias que los tests **no** detectan y sí rompen en producción:
 | Comparar `boolean` con `'active'` | `SQLSTATE 22P02` | Coincide con cero filas, silenciosamente |
 | `LIKE` | **Sensible** a mayúsculas | Insensible |
 | Índices parciales | Soportados | No |
+| Ids tras el rollback de `RefreshDatabase` | La secuencia **no** se revierte: el siguiente test empieza donde quedó el anterior | El `AUTOINCREMENT` se recicla: cada test vuelve a empezar en 1 |
 
 Cuando el filtrado sea insensible a mayúsculas, usa `ilike` seleccionado por driver.
+
+**Nunca des por hecho un id concreto.** Un test daba por sentado que la primera fila de
+`role` recibía el id 1 —el que `CheckPermission` trata como superadministrador—, y en
+PostgreSQL el rol nacía con id 77 a partir del segundo test del proceso, así que el
+bypass "fallaba" con el código intacto. Si un test necesita un id fijo, fíjalo a mano
+(`$role->id = 1; $role->save();`, ver `ApiAuthorizationTest::crearRol()`).
 
 ---
 
@@ -567,10 +592,13 @@ todo lo demás, usa un placeholder escalar):
 | **No se generan facturas** | `php artisan billing:verify-monthly` | Si reporta `no_show`, el planificador no corre. Ver §7 |
 | **Un router concreto no factura** | Revisa `billing_router_id` y `create_invoice` | Asigna configuración de facturación al router |
 | **Un cliente no recibe factura** | ¿`user_services.status = 'active'`? ¿`exclude_from_billing`? ¿plan de cortesía? ¿lápida `suppressed` en `billing_action_logs`? | Según el caso |
+| **"El cliente abonó y no se le cortó"** | Por diseño: un abono parcial cierra la factura (`paid`, `carried_out > 0`) y saca al cliente de la mora | El faltante se cobra en la próxima factura. Ver `invoice_carryovers` (`status = pending`) |
+| **Una factura salió más cara de lo esperado** | ¿Tiene un ítem `carryover`? `invoices.carried_in > 0` | Es el arrastre de un abono parcial anterior; `invoice_carryovers.from_invoice_id` dice de cuál |
+| **El arrastre no volvió al anular el pago** | Ya estaba `applied`: otra factura lo cobró | Correcto: devolverlo lo cobraría dos veces. Si hay que deshacerlo, borrar la factura que lo cobró lo devuelve a `pending` |
 | **`SQLSTATE 22P02`** | Comparación de booleano con cadena | Corrige la consulta a `where('status', true)` |
 | **Falso `403 No role assigned`** | Desajuste de `tenant_id` entre usuario y rol | Carga el rol con `withoutGlobalScope('tenant')` |
 | **Pestaña ausente para un admin** | Permiso nuevo sin backfill | Migración de backfill, o marcar en `/roles` y re-loguear |
-| **`<connection failed> <ip>:22`** | IP obsoleta o puerto SSH distinto | `RouterEndpointResolver` + `router.puerto_ssh`. El CORE necesita `forwarding-enabled=both` |
+| **`<connection failed> <ip>:22`** | IP obsoleta o puerto SSH distinto | `RouterEndpointResolver` + `router.puerto_ssh`. El CORE necesita `forwarding-enabled=both`. Comprueba que el puerto llegue **hasta el `ssh-exec`**: si un método intermedio no lo recibe en su firma, el `port=` se pierde y todo cae al 22 |
 | **Aprovisionamiento con éxito pero sin efecto** | `ssh-exec` con `exit-code ≠ 0` | Revisar centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END` en el log |
 | **Cliente cortado sigue navegando** | Faltan reglas en el router o falta flush de conntrack | *Aplicar reglas de bloqueo* + `billing:reconcile-suspensions` |
 | **Toda la suite Feature falla** | SQL exclusivo de PostgreSQL en una migración | Protégelo por driver |

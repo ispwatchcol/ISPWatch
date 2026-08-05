@@ -704,6 +704,8 @@ const form = reactive({
     cut_day: null,
     cut_time: '00:00',
     overdue_invoices: "",
+    // Margen del tope de facturación (null = sin tope). Ver BillingPanel.
+    stop_invoicing_extra: 2,
     amount: null,
     comentarios: "",
     metodo: "",
@@ -832,6 +834,11 @@ const loadRouterData = async () => {
         form.billing.remember_time = sqlToTime(data.billing.payment_reminder_time)
         
         form.billing.overdue_invoices = data.billing.overdue_invoices
+        // null explícito = sin tope; ausente (config anterior a la columna) = 2,
+        // que es el default de la migración.
+        form.billing.stop_invoicing_extra = data.billing.stop_invoicing_extra === undefined
+          ? 2
+          : (data.billing.stop_invoicing_extra === null ? null : Number(data.billing.stop_invoicing_extra))
         form.billing.amount = data.billing.amount
         form.billing.metodo = data.billing.id_type
         form.billing.comentarios = data.billing.comments || ''
@@ -888,6 +895,10 @@ const buildBillingPayload = () => {
     payment_reminder_time: timeToSql(form.billing.remember_time),
     payment_reminder_enabled: form.billing.payment_reminder_enabled !== false,
     overdue_invoices: cleanInt(form.billing.overdue_invoices) ?? 0,
+    // null = sin tope; 0 es un valor válido (dejar de facturar al cortar).
+    stop_invoicing_extra: form.billing.stop_invoicing_extra === null || form.billing.stop_invoicing_extra === ''
+      ? null
+      : Number(form.billing.stop_invoicing_extra),
     amount: cleanInt(form.billing.amount),
     id_type: cleanInt(form.billing.metodo),
     status: 'pending',

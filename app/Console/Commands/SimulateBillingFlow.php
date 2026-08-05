@@ -178,6 +178,9 @@ class SimulateBillingFlow extends Command
                 ['Recordatorio',             'Día ' . (Billing::dayOf($b->payment_reminder) ?? '—') . ' @ ' . ($b->payment_reminder_time ?: '00:00:00') . ($b->payment_reminder_enabled ? ' (activo)' : ' (DESACTIVADO)')],
                 ['Día de corte',             'Día ' . (Billing::dayOf($b->cut_day) ?? '—') . ' @ ' . ($b->cut_time ?: '00:00:00')],
                 ['Suspender tras N vencidas', $b->overdue_invoices ?? 1],
+                ['Tope de facturación',      $b->invoiceStopThreshold() === null
+                    ? 'sin tope (se factura siempre)'
+                    : 'deja de facturar con ' . $b->invoiceStopThreshold() . ' pendientes'],
                 ['Tipo de notificación',     $b->notification_type ?: 'email'],
                 ['Modo de ejecución',        $apply ? '⚠️  APPLY (cambios reales)' : '🧪 DRY-RUN (rollback al final)'],
             ]

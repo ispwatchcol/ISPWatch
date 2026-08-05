@@ -11,6 +11,18 @@ class CustomerProfile extends Model
     public $incrementing = false;
     public $timestamps = false;
 
+    /**
+     * Estados de servicio que SIGUEN generando factura mensual.
+     *
+     * Un cliente cortado por mora ('suspendido') sigue facturando: el servicio
+     * se le puede restablecer pagando, así que la deuda debe reflejar los meses
+     * transcurridos. El freno lo pone el tope de facturación del router
+     * (Billing::invoiceStopThreshold), no el corte.
+     *
+     * 'retirado' y 'cancelado' son bajas definitivas: nunca vuelven a facturar.
+     */
+    public const BILLABLE_SERVICE_STATUSES = ['activo', 'gratis', 'suspendido'];
+
     protected $fillable = [
         'user_id',
         'name',
@@ -68,6 +80,26 @@ class CustomerProfile extends Model
         'pppoe_password'   => 'encrypted',
         'hotspot_password' => 'encrypted',
     ];
+
+    /**
+     * Clientes que el ciclo mensual debe considerar: activos, gratis y
+     * cortados por mora. Se incluyen las filas antiguas con service_status en
+     * NULL (anteriores a la migración que introdujo la columna), que en la
+     * práctica son clientes normales.
+     */
+    public function scopeBillableServiceStatus($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereIn('service_status', self::BILLABLE_SERVICE_STATUSES)
+                ->orWhereNull('service_status');
+        });
+    }
+
+    /** ¿Este cliente sigue dentro del ciclo de facturación? (espejo del scope) */
+    public function hasBillableServiceStatus(): bool
+    {
+        return in_array($this->service_status ?: 'activo', self::BILLABLE_SERVICE_STATUSES, true);
+    }
 
     public function user()
     {

@@ -29,7 +29,7 @@
 | ✅ **Resuelto en código** | 20 | Aplicado y verificado con tests |
 | 🔧 **Requiere ejecución** | 4 | El código está listo; falta correr migraciones o rotar credenciales |
 | ❌ **Falso positivo** | 2 | Corregidos en §2 |
-| 📋 **Pendiente** | 2 | Decisión de producto o trabajo de frontend |
+| 📋 **Pendiente** | 8 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-6, P-7 y P-8, del repaso del manual del 2026-08-03) |
 
 ### Resultado medible
 

@@ -44,6 +44,7 @@ class Billing extends Model
         'cut_day',
         'cut_time',
         'overdue_invoices',
+        'stop_invoicing_extra',
         'amount',
         'status',
         'billing_mode',
@@ -76,10 +77,40 @@ class Billing extends Model
         'payment_reminder_enabled' => 'boolean',
         'cut_day' => 'date',
         'overdue_invoices' => 'integer',
+        'stop_invoicing_extra' => 'integer',
         'first_invoice_free_months' => 'integer',
         'amount' => 'decimal:2',
         'notificar_wpp' => 'boolean',
     ];
+
+    /**
+     * Umbral de corte efectivo: cuántas facturas vencidas hacen falta para
+     * suspender. Nunca menor que 1 (un 0 en BD significaría "cortar sin deuda").
+     */
+    public function cutThreshold(): int
+    {
+        return max(1, (int) ($this->overdue_invoices ?? 1));
+    }
+
+    /**
+     * Tope de facturación: número de facturas PENDIENTES a partir del cual se
+     * deja de emitirle la mensualidad al cliente. Es el umbral de corte más el
+     * margen configurado, de modo que el moroso acumula unas pocas facturas
+     * después del corte y ahí la deuda se congela.
+     *
+     * Ejemplo (overdue_invoices=2, stop_invoicing_extra=2): se corta con 2
+     * vencidas y se deja de facturar cuando llega a 4 pendientes.
+     *
+     * null = sin tope (se factura indefinidamente).
+     */
+    public function invoiceStopThreshold(): ?int
+    {
+        if ($this->stop_invoicing_extra === null) {
+            return null;
+        }
+
+        return $this->cutThreshold() + max(0, (int) $this->stop_invoicing_extra);
+    }
 
     /**
      * Routers that use this billing config.

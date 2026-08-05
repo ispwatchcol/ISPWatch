@@ -27,12 +27,15 @@ class PaymentReminderService
 
     /**
      * @param int|null $routerId Limit processing to a specific router (null = all).
-     * @return array{reminded:int, errors:int, routers_processed:int, skipped_not_due:int}
+     * @return array{reminded:int, invoices_included:int, errors:int, routers_processed:int, skipped_not_due:int}
+     *         'reminded' cuenta CLIENTES avisados (un mensaje cada uno);
+     *         'invoices_included' cuenta las facturas que iban dentro.
      */
     public function sendDueReminders(?int $routerId = null): array
     {
         $stats = [
             'reminded'          => 0,
+            'invoices_included' => 0,
             'errors'            => 0,
             'routers_processed' => 0,
             'skipped_not_due'   => 0,
@@ -89,6 +92,10 @@ class PaymentReminderService
             $stats['routers_processed']++;
 
             // exclude_from_billing: clientes "no facturar" no reciben recordatorios.
+            // Sólo se avisa a los ACTIVOS: al que ya está cortado el recordatorio
+            // llega tarde (el corte es el aviso) y se le seguirían mandando
+            // mensajes cada ciclo. Sus facturas sí se siguen emitiendo hasta el
+            // tope — ver BillingService::generateMonthlyInvoices.
             $profiles = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
                 ->where('exclude_from_billing', false)
@@ -99,23 +106,35 @@ class PaymentReminderService
                 $invoices = Invoice::where('customer_id', $profile->user_id)
                     ->where('balance_due', '>', 0)
                     ->whereNotIn('status', ['paid', 'void', 'cancelled'])
+                    ->orderBy('due_date')
                     ->get()
                     ->filter(function (Invoice $inv) {
                         // Skip if a reminder already went out for this cycle.
                         return $inv->last_reminder_sent === null
                             || $inv->last_reminder_sent->lt($inv->period_start);
-                    });
+                    })
+                    ->values();
 
-                foreach ($invoices as $invoice) {
-                    try {
-                        $this->remind($invoice, $profile, $router, $config);
+                if ($invoices->isEmpty()) {
+                    continue;
+                }
+
+                // UN solo aviso por cliente con TODAS sus facturas pendientes.
+                // Antes salía un mensaje por factura: al que debía tres le
+                // llegaban tres correos/WhatsApps seguidos.
+                try {
+                    $this->remind($invoices, $profile, $router, $config);
+
+                    foreach ($invoices as $invoice) {
                         $invoice->last_reminder_sent = $now;
                         $invoice->save();
-                        $stats['reminded']++;
-                    } catch (\Throwable $e) {
-                        $stats['errors']++;
-                        Log::error("Reminders: failed for invoice {$invoice->id}: {$e->getMessage()}");
                     }
+
+                    $stats['reminded']++;
+                    $stats['invoices_included'] += $invoices->count();
+                } catch (\Throwable $e) {
+                    $stats['errors']++;
+                    Log::error("Reminders: failed for customer {$profile->user_id}: {$e->getMessage()}");
                 }
             }
         }
@@ -125,20 +144,53 @@ class PaymentReminderService
         return $stats;
     }
 
-    private function remind(Invoice $invoice, CustomerProfile $profile, Router $router, Billing $config): void
+    /**
+     * Envía UN aviso con todas las facturas pendientes del cliente.
+     *
+     * La plantilla de WhatsApp aprobada en Meta tiene parámetros fijos
+     * (nombre, factura, monto, vencimiento, empresa), así que el consolidado se
+     * resume ahí: número de la más antigua + "y N más", monto = total adeudado
+     * y vencimiento = el más antiguo. El correo sí lista factura por factura.
+     *
+     * @param \Illuminate\Support\Collection<int,Invoice> $invoices Ordenadas por vencimiento (la más antigua primero).
+     */
+    private function remind($invoices, CustomerProfile $profile, Router $router, Billing $config): void
     {
-        $customer = $invoice->customer; // User
+        /** @var Invoice $oldest */
+        $oldest   = $invoices->first();
+        $customer = $oldest->customer; // User
         if (!$customer) {
-            throw new \RuntimeException("Invoice {$invoice->id} has no customer.");
+            throw new \RuntimeException("Invoice {$oldest->id} has no customer.");
         }
+
+        $now       = Carbon::now();
+        $totalDue  = (float) $invoices->sum(fn (Invoice $inv) => (float) ($inv->balance_due ?? $inv->total));
+        $isOverdue = $invoices->contains(
+            fn (Invoice $inv) => $inv->status === 'overdue'
+                || ($inv->due_date && Carbon::parse($inv->due_date)->lt($now))
+        );
+
+        $label = $invoices->count() > 1
+            ? "{$oldest->number} y " . ($invoices->count() - 1) . ' más'
+            : $oldest->number;
 
         $data = [
             'customer_name'  => trim("{$profile->name} {$profile->last_name}") ?: ($customer->name ?? 'Cliente'),
-            'invoice_number' => $invoice->number,
-            'amount'         => $invoice->balance_due ?? $invoice->total,
-            'due_date'       => $invoice->due_date,
-            'company_name'   => $invoice->tenant?->name ?? 'ISPWatch',
-            'is_overdue'     => $invoice->status === 'overdue',
+            'invoice_number' => $label,
+            'amount'         => $totalDue,
+            'due_date'       => $oldest->due_date,
+            'company_name'   => $oldest->tenant?->name ?? 'ISPWatch',
+            'is_overdue'     => $isOverdue,
+            'invoice_count'  => $invoices->count(),
+            // Detalle para el correo: una fila por factura pendiente.
+            'invoices'       => $invoices->map(fn (Invoice $inv) => [
+                'number'      => $inv->number,
+                'amount'      => (float) ($inv->balance_due ?? $inv->total),
+                'due_date'    => $inv->due_date,
+                'period_start'=> $inv->period_start,
+                'is_overdue'  => $inv->status === 'overdue'
+                    || ($inv->due_date && Carbon::parse($inv->due_date)->lt($now)),
+            ])->all(),
         ];
 
         $type = $config->notification_type ?: 'email';

@@ -109,7 +109,7 @@ class InterfaceReader
 
             // ── Attempt 3: SSH via CORE as last resort ───────────────────────────
             Log::info('[InterfaceReader] Direct API unavailable, using CORE SSH fallback');
-            $sshResult = $this->getInterfacesViaCoreSsh($clientIp, $clientUser, $clientPass, $clientFirmwareVersion);
+            $sshResult = $this->getInterfacesViaCoreSsh($clientIp, $clientUser, $clientPass, $clientFirmwareVersion, $clientSshPort);
             $attempts[] = [
                 'method' => 'SSH vía CORE',
                 'port' => null,
@@ -351,12 +351,19 @@ class InterfaceReader
      *       (c) "Everything ok, here is the interface dump" (exit-code=0, output non-empty)
      *   - If the first attempt comes back empty (very old RouterOS or weirdness), retry with
      *     the legacy "auto-print" form that older v6 builds expect.
+     *
+     * $clientSshPort tiene que llegar hasta aquí: es el puerto con el que el CORE
+     * abre el ssh-exec contra el cliente. Faltaba en la firma y el cuerpo lo usaba
+     * igual, así que PHP lo resolvía como variable indefinida (null) y TODOS los
+     * routers con SSH fuera del 22 (CORE_TOCAIMA usa 2200) leían sus interfaces
+     * contra el puerto equivocado y fallaban con `<connection failed>`.
      */
     private function getInterfacesViaCoreSsh(
         string $clientIp,
         string $clientUser,
         string $clientPass,
-        ?string $clientFirmwareVersion = null
+        ?string $clientFirmwareVersion = null,
+        ?int $clientSshPort = null
     ): array {
         try {
             $variants = $this->buildCoreInterfaceCommandVariants($clientIp, $clientUser, $clientPass, $clientSshPort);

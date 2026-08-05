@@ -13,6 +13,7 @@ use App\Models\CustomerProfile;
 use App\Services\BillingService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 class BillingModuleTest extends TestCase
@@ -85,7 +86,7 @@ class BillingModuleTest extends TestCase
         return compact('tenant', 'plan', 'router', 'customer');
     }
 
-    /** @test */
+    #[Test]
     public function it_generates_monthly_invoices_idempotently()
     {
         // Arrange: a billing router with one assigned active customer
@@ -114,7 +115,7 @@ class BillingModuleTest extends TestCase
         $this->assertEquals(1, Invoice::count());
     }
 
-    /** @test */
+    #[Test]
     public function it_generates_tenant_scoped_sequential_invoice_numbers()
     {
         // Arrange
@@ -136,7 +137,7 @@ class BillingModuleTest extends TestCase
         $this->assertEquals(2, $tenant2->fresh()->next_invoice_number);
     }
 
-    /** @test */
+    #[Test]
     public function it_enforces_unique_invoice_numbers_per_tenant()
     {
         // Arrange
@@ -173,7 +174,7 @@ class BillingModuleTest extends TestCase
         ]);
     }
 
-    /** @test */
+    #[Test]
     public function it_allocates_full_payment_correctly()
     {
         // Arrange
@@ -210,7 +211,11 @@ class BillingModuleTest extends TestCase
         $this->assertEquals(25000, $payment->allocations->first()->amount);
     }
 
-    /** @test */
+    /**
+     * Un abono parcial ya NO deja la factura a medias: la cierra como pagada y
+     * manda el faltante al arrastre, que cobrará la siguiente factura mensual.
+     */
+    #[Test]
     public function it_allocates_partial_payment_correctly()
     {
         // Arrange
@@ -241,12 +246,15 @@ class BillingModuleTest extends TestCase
 
         // Assert
         $invoice->refresh();
-        $this->assertEquals(15000, $invoice->balance_due);
-        $this->assertEquals('partial', $invoice->status);
+        $this->assertEquals(0, $invoice->balance_due);
+        $this->assertEquals('paid', $invoice->status);
+        $this->assertEquals(15000, $invoice->carried_out);
         $this->assertEquals(10000, $payment->allocations->first()->amount);
+
+        $this->assertEquals(15000, \App\Models\InvoiceCarryover::pendingTotalFor($customer->id));
     }
 
-    /** @test */
+    #[Test]
     public function it_allocates_payment_to_oldest_invoices_first()
     {
         // Arrange
@@ -295,13 +303,17 @@ class BillingModuleTest extends TestCase
         $this->assertEquals(0, $oldInvoice->balance_due);
         $this->assertEquals('paid', $oldInvoice->status);
 
-        $this->assertEquals(15000, $newInvoice->balance_due);
-        $this->assertEquals('partial', $newInvoice->status);
+        // La segunda factura recibió un abono parcial: queda pagada y sus
+        // 15.000 restantes viajan como saldo pendiente a la próxima.
+        $this->assertEquals(0, $newInvoice->balance_due);
+        $this->assertEquals('paid', $newInvoice->status);
+        $this->assertEquals(15000, $newInvoice->carried_out);
+        $this->assertEquals(15000, \App\Models\InvoiceCarryover::pendingTotalFor($customer->id));
 
         $this->assertEquals(2, $payment->allocations->count());
     }
 
-    /** @test */
+    #[Test]
     public function it_marks_invoices_as_overdue_when_past_due_date()
     {
         // Arrange
@@ -330,7 +342,7 @@ class BillingModuleTest extends TestCase
         $this->assertEquals('overdue', $invoice->status);
     }
 
-    /** @test */
+    #[Test]
     public function it_skips_customers_on_a_billing_router_without_an_active_service()
     {
         // Arrange: a fully-configured billing router whose customer has NO

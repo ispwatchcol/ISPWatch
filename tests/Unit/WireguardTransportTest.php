@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Router;
 use App\Services\MikroTik\WireguardManager;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -17,7 +18,7 @@ use PHPUnit\Framework\TestCase;
  */
 class WireguardTransportTest extends TestCase
 {
-    /** @dataProvider firmwareVersions */
+    #[DataProvider('firmwareVersions')]
     public function test_firmware_support_detection(?string $version, bool $expected): void
     {
         $this->assertSame(

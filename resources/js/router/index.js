@@ -325,6 +325,12 @@ const routes = [
         meta: { title: 'Formas de Pago', permission: 'view_billing' },
       },
       {
+        path: 'invoice-types',
+        name: 'InvoiceTypes',
+        component: () => import('@/pages/Billing/InvoiceTypes.vue'),
+        meta: { title: 'Tipos de Factura', permission: 'view_billing' },
+      },
+      {
         path: 'additional-charges',
         name: 'AdditionalCharges',
         component: () => import('@/pages/Billing/AdditionalCharges.vue'),
