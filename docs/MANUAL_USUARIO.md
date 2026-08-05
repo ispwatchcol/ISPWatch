@@ -256,6 +256,16 @@ más unas pestañas adicionales:
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
 
+**Firmar el contrato.** En la pestaña **Documentos**, abajo, está el contrato de servicio:
+se arma solo con los datos del cliente, el cliente firma en pantalla y al guardar se genera
+el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejemplo `CTR-00042`);
+ese consecutivo va impreso dentro del documento y no se repite nunca. El prefijo lo
+configuras en **Configuración → Plantillas** (ver [17.4](#174-plantillas-de-documentos)).
+
+Los documentos se ven pulsando sobre ellos: se abren en una pestaña nueva. Si alguno no
+abre, avísale al soporte técnico — puede ser un archivo de antes de la migración al
+almacenamiento actual.
+
 ### 5.4 Estados del cliente: suspender, retirar, cancelar
 
 Desde la ficha del cliente, con los botones **Suspender** y **Activar**.
@@ -337,6 +347,18 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
 3. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
 4. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
+
+Al firmar, el sistema genera la **hoja de instalación en PDF** y la orden queda cerrada. El
+PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con un botón
+**Ver PDF**; además queda guardado en la pestaña **Documentos** del cliente.
+
+> Antes ese PDF no se mostraba en la pantalla de la instalación —sólo en la ficha del
+> cliente—, así que después de firmar parecía que no se había generado nada. Ya se ve donde
+> se firma.
+>
+> Si la instalación es de un **prospecto** que todavía no has convertido en cliente, el PDF
+> y las fotos se ven aquí, pero no en ninguna ficha de cliente: no existe todavía. Al
+> marcar el prospecto como convertido, todo se traslada solo a la ficha del cliente nuevo.
 
 Al completar la instalación se genera automáticamente la **factura de instalación**.
 
@@ -1138,6 +1160,24 @@ reconoce simplemente no muestra nada.
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
 > sí se respetan.
+
+**Número consecutivo de los contratos.** En el bloque de marca de esa misma pestaña hay un
+campo **Prefijo del consecutivo de contratos**. Cada contrato que se firma desde el sistema
+recibe un número irrepetible con ese prefijo: `CTR-00001`, `CTR-00002`, y así. Si escribes
+`FIBRAX`, los contratos quedarán `FIBRAX-00001` en adelante. Si lo dejas vacío se usa `CTR`.
+Solo admite letras, números y guion.
+
+Debajo del campo verás cuál es el **próximo número** que se va a asignar. Ese número:
+
+- Se imprime dentro del PDF, en el encabezado (*Contrato No. …*).
+- Da nombre al archivo (`contrato_CTR-00001.pdf`) y aparece en la pestaña **Documentos**
+  del cliente.
+- Es independiente para cada empresa y no se repite nunca.
+
+Cambiar el prefijo **no renumera los contratos ya firmados**: los anteriores conservan el
+número con el que se firmaron, y los nuevos siguen la cuenta desde donde iba. Los contratos
+que subes tú a mano (un PDF escaneado, por ejemplo) no reciben número, porque el sistema no
+puede escribir dentro de un archivo que no generó él.
 
 > Esta pestaña necesita el permiso *Gestionar Plantillas de Documentos*, que es distinto
 > del de configuración de empresa. Si no la ves, revisa tu rol.

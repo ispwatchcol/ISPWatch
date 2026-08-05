@@ -119,24 +119,26 @@ class TemplateRenderer
         Tenant $tenant,
         ?Plan $plan,
         string $signature,
-        string $date
+        string $date,
+        ?string $contractNumber = null
     ) {
         $template = $this->activeTemplate((int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         $legacyData = [
-            'customer'  => $customer,
-            'profile'   => $profile,
-            'tenant'    => $tenant,
-            'plan'      => $plan,
-            'signature' => $signature,
-            'date'      => $date,
+            'customer'       => $customer,
+            'profile'        => $profile,
+            'tenant'         => $tenant,
+            'plan'           => $plan,
+            'signature'      => $signature,
+            'date'           => $date,
+            'contractNumber' => $contractNumber,
         ];
 
         if (!$template) {
             return Pdf::loadView('documents.contract_pdf', $legacyData);
         }
 
-        $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date);
+        $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date, $contractNumber);
         $blockValues = $this->blockResolver->forContract($tenant, $signature);
 
         if ($template->is_advanced_mode) {
@@ -245,9 +247,10 @@ class TemplateRenderer
         string $signature,
         string $date,
         string $draftHtml,
-        bool $isAdvancedMode = false
+        bool $isAdvancedMode = false,
+        ?string $contractNumber = null
     ) {
-        $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date);
+        $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date, $contractNumber);
         $blockValues = $this->blockResolver->forContract($tenant, $signature);
 
         if ($isAdvancedMode) {
@@ -257,13 +260,14 @@ class TemplateRenderer
         $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         return Pdf::loadView('documents.shells.contract_shell', [
-            'customer'  => $customer,
-            'profile'   => $profile,
-            'tenant'    => $tenant,
-            'plan'      => $plan,
-            'signature' => $signature,
-            'date'      => $date,
-            'body'      => $body,
+            'customer'       => $customer,
+            'profile'        => $profile,
+            'tenant'         => $tenant,
+            'plan'           => $plan,
+            'signature'      => $signature,
+            'date'           => $date,
+            'contractNumber' => $contractNumber,
+            'body'           => $body,
         ]);
     }
 

@@ -11,6 +11,7 @@ use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\ContractNumberService;
 use App\Services\Templates\AdvancedTemplateSanitizer;
 use App\Services\Templates\TemplateRenderer;
 use App\Services\Templates\TemplateSanitizer;
@@ -192,7 +193,11 @@ class DocumentTemplateController extends Controller
                 '',
                 now()->format('d/m/Y'),
                 $draftHtml,
-                $isAdvancedMode
+                $isAdvancedMode,
+                // La vista previa muestra el consecutivo que le tocaría al
+                // próximo contrato, pero NO lo reserva: previsualizar no puede
+                // gastar números de la secuencia.
+                ContractNumberService::format($tenant->contract_prefix, (int) ($tenant->next_contract_number ?: 1))
             ),
             DocumentTemplate::TYPE_INSTALLATION => $this->templateRenderer->previewInstallationSheet(
                 $this->sampleInstallation($tenant),

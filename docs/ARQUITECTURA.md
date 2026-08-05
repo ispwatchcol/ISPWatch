@@ -242,7 +242,34 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `RouterApiService` | 912 | Protocolo API nativo MikroTik (puerto 8728) |
 | `MikroTikSshService` | 603 | SSH directo/vía CORE |
 | `WhatsAppService` | 162 | WhatsApp Cloud API (Meta Graph v18) |
+| `ContractNumberService` | 62 | Reserva el consecutivo de contratos por tenant (`lockForUpdate`) |
 | `Templates/*` | — | Render, saneado y resolución de placeholders de documentos |
+
+#### Consecutivo de contratos
+
+Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant,
+con el formato `PREFIJO-00001`. El prefijo lo configura cada ISP (`tenant.contract_prefix`,
+pestaña **Plantillas de documentos**); vacío equivale a `CTR`.
+
+El mecanismo es el mismo que el de facturas (`BillingService::generateInvoiceNumber`): el
+contador vive en la fila del tenant (`tenant.next_contract_number`) y se reserva dentro de
+una transacción con `lockForUpdate`, de modo que dos firmas simultáneas no puedan obtener
+el mismo número. La **UK** `(tenant_id, contract_number)` en `customer_documents` es la red
+de seguridad si alguna vez se saltara esa ruta.
+
+Dos consecuencias de diseño que conviene tener presentes:
+
+1. **El número se reserva antes de renderizar**, porque va impreso en el encabezado del PDF
+   (`Contrato No. …`) — no se puede asignar después de generar el archivo. Si el render
+   falla, ese número queda quemado: es preferible un hueco en la secuencia a dos contratos
+   con el mismo número.
+2. **La vista previa no consume secuencia.** Tanto `contract-data` como el preview de
+   plantillas muestran `ContractNumberService::format()` sobre el contador actual sin
+   incrementarlo; es orientativo, no una reserva.
+
+Los PDF que el ISP sube a mano (`type = contrato`, `signed = false`) **no** reciben número:
+no se puede sellar por dentro un archivo ajeno, y un consecutivo que no aparece en el papel
+prometería una trazabilidad que el documento no tiene.
 
 ### Plantillas de documentos (`app/Services/Templates`)
 

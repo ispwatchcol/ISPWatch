@@ -65,4 +65,33 @@ class TenantBrandingConfigTest extends TestCase
 
         $response->assertStatus(422);
     }
+
+    public function test_saves_the_contract_prefix(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->putJson('/api/tenant/config', [
+            'name'            => $this->tenant->name,
+            'contract_prefix' => 'FIBRAX',
+        ])->assertStatus(200);
+
+        $this->assertDatabaseHas('tenant', [
+            'id'              => $this->tenant->id,
+            'contract_prefix' => 'FIBRAX',
+        ]);
+    }
+
+    /**
+     * El prefijo acaba dentro del nombre del archivo y de la ruta en S3, así
+     * que se rechaza en la puerta en vez de saneado silenciosamente.
+     */
+    public function test_rejects_a_contract_prefix_with_unsafe_characters(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->putJson('/api/tenant/config', [
+            'name'            => $this->tenant->name,
+            'contract_prefix' => '../etc/passwd',
+        ])->assertStatus(422);
+    }
 }

@@ -416,6 +416,38 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 Los archivos residen en **S3 privado**. Cada documento expone un atributo `url` que es una
 **URL firmada válida 30 minutos** (`Storage::disk('s3')->temporaryUrl`).
 
+### Consecutivo de contratos
+
+`contract-sign` reserva un consecutivo por tenant **antes** de renderizar (el número va
+impreso dentro del PDF) y lo devuelve en `document.contract_number`; el archivo se llama
+`contrato_{numero}.pdf`. El prefijo sale de `tenant.contract_prefix` (`CTR` si está vacío)
+y el formato es `PREFIJO-00001`.
+
+```jsonc
+// GET /api/customers/{customer}/contract-data → 200
+{
+  "customer": { "...": "..." },
+  "plan": { "...": "..." },
+  "company": { "...": "..." },
+  "date": "04/08/2026",
+  "next_contract_number": "CTR-00042"  // orientativo: NO reserva el número
+}
+
+// POST /api/customers/{customer}/contract-sign → 201
+{
+  "message": "Contrato CTR-00042 firmado y guardado correctamente.",
+  "document": { "type": "contrato", "signed": true, "contract_number": "CTR-00042", "...": "..." }
+}
+```
+
+`next_contract_number` en `contract-data` es sólo informativo: si otro usuario firma antes,
+al contrato le tocará el siguiente. El número real se asigna al firmar, dentro de una
+transacción con `lockForUpdate`, y está respaldado por la **UK** `(tenant_id, contract_number)`.
+
+El prefijo se configura con `PUT /api/tenant/config` (`contract_prefix`, `manage_tenant`);
+sólo admite letras, números y guion — acaba dentro del nombre del archivo y de la ruta en S3,
+así que un valor inválido devuelve `422`.
+
 ---
 
 ## 8. Routers y red

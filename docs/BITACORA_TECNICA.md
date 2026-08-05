@@ -21,6 +21,7 @@
 9. [Trazabilidad módulo → código → datos](#9-trazabilidad-módulo--código--datos)
 10. [Registro de decisiones técnicas](#10-registro-de-decisiones-técnicas)
 11. [Auditoría del manual de usuario — 2026-08-03](#11-auditoría-del-manual-de-usuario--2026-08-03)
+12. [Consecutivo de contratos — 2026-08-04](#12-consecutivo-de-contratos--2026-08-04)
 
 ---
 
@@ -844,3 +845,150 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | `AdvancedTemplateSanitizer::fixDompdfPaginationQuirks()` retira `page-break-before` del primer elemento y las alturas fijas de la familia `<table>` (auditoría 2026-08-04) | Diagnóstico por variantes controladas sobre un contrato real (una sola variable a la vez): quitar los saltos de página, la tabla más ancha que la hoja o los `<div>` anidados **no cambiaba nada**; quitar sólo las alturas llevaba el PDF de 8 páginas con 3 en blanco a 7 con 1. Se limita a `<table>`/`<tr>`/`<td>`/`<th>`: en `<img>`/`<div>` la altura es legítima y no causa el problema. Ambas correcciones van en UNA pasada de DOM para no parsear dos veces |
 | **NO** se automatiza la conversión de celdas de tabla sobredimensionadas a `<div>`, pese a ser la causa de la última página en blanco | dompdf no parte un `<td>` entre páginas: lo empuja entero y **recorta lo que no cabe en silencio** (medido: 15.847 → 17.682 caracteres al convertir ese bloque a `<div>`, con el texto fuente verificado idéntico — se estaban perdiendo ~1.800 caracteres de texto legal). Saber si desbordará exige renderizar primero, y convertir tablas a divs a ciegas alteraría el diseño de plantillas que hoy funcionan. Se corrige en la plantilla y se documenta; ver `MEJORAS_RECOMENDADAS.md` P-8 |
 | Lección de método (2026-08-04): dos mediciones erróneas se colaron antes de llegar a la causa real | (1) Contar páginas vacías partiendo la salida de `pdftotext` por `\f` con `awk` daba un desfase — lo correcto es `pdftotext -f N -l N` página por página. (2) Un experimento de conversión con `str_replace` coincidió 3 veces en vez de 1 y destruyó el 34% del contenido, invalidando su resultado. Desde entonces, toda transformación estructural de prueba **verifica que el texto plano sea idéntico antes y después** antes de creerle al conteo de páginas |
+| El consecutivo del contrato se reserva **antes** de renderizar el PDF | El número va impreso en el encabezado del documento. Un render fallido quema el número, y un hueco en la secuencia es preferible a dos contratos con el mismo número (§12) |
+| Los contratos subidos a mano (`signed = false`) **no** reciben consecutivo | No se puede sellar por dentro un archivo que el sistema no generó; el número existiría sólo en la base y no en el papel (§12) |
+
+---
+
+## 11. Auditoría del manual de usuario — 2026-08-03
+
+Repaso completo de `MANUAL_USUARIO.md` contra el código, para eliminar información que había
+quedado desactualizada tras los cambios de julio. Se verificó afirmación por afirmación; lo que
+sigue es lo que **estaba mal** y por qué.
+
+| Afirmación del manual | Realidad verificada en código | Corregido en |
+|---|---|---|
+| «La búsqueda distingue mayúsculas» | Falso desde el 2026-07-30: `SearchMacrosServiceProvider` elige `ilike` en pgsql y `like` en sqlite; `BillingController::index` hace lo propio en línea | §5.1, §7.2, FAQ |
+| «Sube las fotos de instalación de una en una» | Falso desde el fix de compresión en navegador (#195, en producción): el usuario las selecciona todas y el front las comprime y envía de a una | §6.2, FAQ |
+| «Ingresos del mes = suma de las facturas pagadas este mes» | La respuesta devuelve `revenue.monthly => $monthlyPayments` — **pagos** recibidos en el mes. `$monthlyRevenue` se calcula y se descarta (ver `MEJORAS_RECOMENDADAS.md` P-11). Faltaban además `pending` y `collection_rate` | §4 |
+| «La carga al router tarda 17–34 s; si sale timeout, reaprovisiona» | Ya no aplica: el alta encola el push (`startAsyncProvision`). El cliente se guarda de inmediato y no hay timeout que ver | §5.2 |
+| Nada sobre `agregar_cliente_mkt` | Es la compuerta real del push y **por defecto viene en `false`**. Con ella apagada el alta se guarda y nunca llega al equipo, sin señal en pantalla. Causa raíz frecuente de "creé el cliente y no navega" | §5.2, §18.4, FAQ |
+| «Eliminar un cliente borra su perfil, facturas y documentos» | Cierto pero incompleto: `destroy()` no desaprovisiona nada en RouterOS. El cliente sigue navegando y deja de ser visible (`MEJORAS_RECOMENDADAS.md` P-10) | §5.5, FAQ |
+| «El aviso de falla masiva se difunde por WhatsApp» | `RouterOutageController` sólo registra el evento y marca `falla_general`; el envío depende de que el sistema de mensajería conectado consuma el registro. Si esa integración no está montada, no le llega nada al cliente | §11.6 |
+| Nada sobre estados de servicio | `BILLABLE_SERVICE_STATUSES = ['activo','gratis','suspendido']`: al **suspendido se le sigue facturando** a propósito, y sólo `retirado`/`cancelado` son bajas definitivas. Dejar suspendido a quien se fue genera cartera incobrable | §5.4 (nueva) |
+| Nada sobre la VPN como dependencia | Todo el control de red pasa por el túnel contra el CORE; con el túnel caído el sistema marca cortes que nunca llegan al equipo. `vpn:verify-tunnels` corre cada 30 min y sólo alerta | §9.4 y §11.7 (nuevas) |
+| Catálogo de permisos incompleto | Faltaban 8 permisos de `Permissions::getAllPermissions()` y no se documentaban los roles de fábrica | §16.2 |
+
+**Añadido además:** §9.4 (diagnóstico ordenado de "aparece cortado pero navega": VPN caída →
+reglas por debajo en la cadena → conntrack → *Reconciliar*), retención real del historial de
+tráfico (detalle 30 días, diario permanente), puertos de splitter derivados del `split_ratio`,
+y la nota de que sin `PORTAL_IP` las reglas de bloqueo ni siquiera se pueden aplicar.
+
+**Deuda detectada durante el repaso:** `MEJORAS_RECOMENDADAS.md` P-10 (borrado sin
+desaprovisionamiento) y P-11 (`$monthlyRevenue` muerto).
+
+### 11.1 El manual dentro de la app (Centro de Ayuda)
+
+`MANUAL_USUARIO.md` no es lo que lee el usuario final: lo que ve en la app es el **Centro de
+Ayuda** (`pages/Manual.vue`), que renderiza `help_categories` / `help_articles` sembrados por
+`HelpCenterSeeder`. Los dos venían divergiendo por separado, así que el seeder se reescribió
+para que sea el espejo del manual corregido.
+
+| | Antes | Después |
+|---|---:|---:|
+| Categorías | 9 | **11** |
+| Artículos | 30 | **41** |
+
+**Categorías nuevas:** *Corte y Reconexión* (el diagnóstico de "aparece cortado pero navega",
+qué ve el cliente cortado, y las bitácoras) y *Prospectos e Instalaciones*, que no existía en
+la app pese a ser un módulo completo.
+
+**Artículos nuevos:** estados del cliente, eliminar un cliente (con la advertencia de que no lo
+saca del router), abonos parciales, clientes que no se facturan, el método de control del
+router, herramientas de diagnóstico, la VPN, falla masiva, historial de tráfico, plantillas de
+documentos, y aprovisionamiento masivo.
+
+**Errores que tenía la versión en la app y que el `.md` ya no tenía** (además de todos los de
+la tabla anterior, que también estaban replicados aquí):
+
+| Decía el Centro de Ayuda | Realidad |
+|---|---|
+| «La suspensión automática corre una vez al día» | Corre **cada hora** (`billing:auto-cut`) |
+| «Días de gracia» como campo del router | No existe: son día de vencimiento, día de corte y N facturas vencidas |
+| «IP: déjala en blanco para asignación automática» | No hay asignación automática. El formulario carga los rangos del router y marca libres/ocupadas para que el operador **elija** |
+| Estados del cliente: activo / suspendido / **inactivo** | Son `activo`, `gratis`, `suspendido`, `retirado`, `cancelado` |
+| Estados de factura: pendiente / pagada / vencida | Faltaban **borrador**, **parcial** y **anulada** |
+| «Generar script VPN: configura el túnel L2TP/IPSec» | Transporte dual desde julio: WireGuard en v7, L2TP sólo en v6 |
+| Acciones del router: «Sincronizar colas», «Asignar IP libre» | No son botones reales; los de verdad son los 8 de diagnóstico |
+| «Recordatorios: indica los días antes del vencimiento» | Se configuran por **día y hora del mes** en el router, no por días de antelación |
+| «El nombre del plan debe coincidir con el perfil en MikroTik» | No es requisito del aprovisionamiento |
+| Google Maps en «Configuración → Tenant» | Es **Configuración → Mapas** |
+
+**Verificación:** estructura y HTML validados artículo por artículo, y el seeder se ejecutó
+contra `ispwatch_dev` (11 categorías / 41 artículos). **`public` no se tocó** — ver la nota de
+despliegue en `MEJORAS_RECOMENDADAS.md` P-12: `migrate:both --seed` omite `public` a propósito,
+así que publicar contenido del Centro de Ayuda no tiene hoy un camino sancionado.
+
+---
+
+## 12. Consecutivo de contratos — 2026-08-04
+
+### Qué se pidió
+
+Que **todo contrato firmado lleve un número consecutivo**. Hasta esta fecha no existía nada:
+`customer_documents` no tenía columna de número, el archivo se llamaba
+`contrato_firmado_{Ymd_His}.pdf` (marca de tiempo, no consecutivo), el PDF no lo imprimía en
+ninguna parte, y `config/document_placeholders.php` no exponía ningún token para insertarlo
+desde una plantilla editable. La única secuencia del sistema era la de facturas.
+
+### Qué se hizo
+
+| Pieza | Archivo |
+|---|---|
+| Columnas `tenant.contract_prefix` / `tenant.next_contract_number` y `customer_documents.contract_number` + **UK** `(tenant_id, contract_number)` | `2026_08_04_120000_add_contract_numbering.php` |
+| Numeración retroactiva de los contratos ya firmados | `2026_08_04_120100_backfill_contract_numbers.php` |
+| Reserva del número | `App\Services\ContractNumberService` |
+| Asignación al firmar + nombre del archivo | `CustomerDocumentController::signContract()` |
+| Placeholder `{{contrato.numero}}` | `config/document_placeholders.php`, `PlaceholderResolver::forContract()` |
+| Impresión en el PDF (ruta legacy y shell de plantilla) | `documents/contract_pdf.blade.php`, `documents/shells/contract_shell.blade.php` |
+| Prefijo configurable | `UpdateTenantRequest`, `DocumentTemplatesSection.vue` |
+| Número visible en la ficha y antes de firmar | `CustomerDocuments.vue` |
+
+El formato es `PREFIJO-00001`; el prefijo sale de `tenant.contract_prefix` y cae a `CTR` si
+está vacío.
+
+### Decisiones y su porqué
+
+| Decisión | Justificación |
+|---|---|
+| El número se reserva **antes** de renderizar | Va impreso en el encabezado del PDF; no se puede asignar después de generar el archivo. Un render fallido quema el número: un hueco en la secuencia es preferible a dos contratos con el mismo |
+| La vista previa (`contract-data` y el preview de plantillas) **no** consume secuencia | Previsualizar no es firmar. Ambas rutas usan el helper estático `format()` sobre el contador actual, nunca `allocate()` |
+| Los PDF **subidos a mano** (`signed = false`) no reciben número | No se puede sellar por dentro un archivo que el sistema no generó; un consecutivo que no aparece en el papel prometería una trazabilidad inexistente |
+| El backfill numera por **orden cronológico de firma**, por tenant | El consecutivo refleja el orden real en que se celebraron los contratos. El PDF viejo no se regenera —ya está firmado— así que en los históricos el número existe sólo en la ficha |
+| La lógica de formato está **duplicada** entre el servicio y la migración de backfill | Una migración tiene que poder re-ejecutarse aunque la clase de servicio cambie o desaparezca |
+| El prefijo se valida con `regex:/^[A-Za-z0-9\-]+$/` en el `FormRequest` **y** se sanea otra vez en `format()` | Acaba dentro del nombre del archivo y de la ruta en S3. Se rechaza en la puerta; el saneado es defensa en profundidad por si entrara por otra vía |
+
+### Efecto colateral corregido: la hoja de instalación firmada no se veía
+
+Mientras se revisaba el flujo de documentos apareció un síntoma reportado desde hacía tiempo
+—«al firmar, los documentos no quedan cargados»— que ya **no** era el bug de almacenamiento
+resuelto en `828865c` (paso del disco `public` efímero a S3), sino un filtro del frontend:
+`InstallationDetail.vue` construía la lista de `photos` con
+`documents.filter(d => /\.(jpe?g|png|webp)$/.test(d.file_name))`, así que la hoja de
+instalación en PDF —generada correctamente y guardada en S3— quedaba fuera de la única lista
+que esa pantalla pintaba. El PDF sólo era alcanzable desde la pestaña **Documentos** del
+cliente, y en una instalación de prospecto sin convertir (con `customer_id = NULL`) no era
+alcanzable desde ninguna parte hasta la conversión.
+
+Se añadió el bloque **Documentos de la orden**, que lista todo lo que no es imagen con enlace
+directo al PDF.
+
+### El manual dentro de la app
+
+`MANUAL_USUARIO.md` y el Centro de Ayuda son **dos fuentes distintas**: `Manual.vue` lee
+`help_categories`/`help_articles` vía `api.helpCenter`, no el markdown. Se actualizaron los
+tres artículos afectados en `HelpCenterSeeder` — *Editar y gestionar un cliente* (firma con
+consecutivo), *Agendar y ejecutar una instalación* (el PDF firmado ya visible en la orden) y
+*Plantillas de documentos* (campo de prefijo). Siguen siendo 41 artículos.
+
+Publicarlos en producción sigue topando con **P-12**: `migrate:both --seed` omite `public` a
+propósito y el seeder es un reemplazo total (`delete()` antes de sembrar), así que hay que
+correr `db:seed --class=HelpCenterSeeder` a mano contra `public` asumiendo que borra lo que
+alguien hubiera editado desde la UI.
+
+### Deuda que queda
+
+Los documentos subidos **antes** del paso a S3 (29-jul-2026) pueden estar perdidos: vivían en
+el disco efímero del contenedor y `documents:migrate-to-s3` sólo sirve ejecutado desde la
+misma instancia que los recibió. Las filas sobreviven y la interfaz las pinta con un enlace
+roto, sin distinguirlas de las buenas — anotado en `MEJORAS_RECOMENDADAS.md`.

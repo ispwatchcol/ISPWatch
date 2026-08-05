@@ -18,6 +18,7 @@
         .header { text-align: center; border-bottom: 2px solid {{ $tenant->brand_color ?: '#4f46e5' }}; padding-bottom: 12px; margin-bottom: 20px; }
         .header h1 { margin: 0; font-size: 20px; color: {{ $tenant->brand_color ?: '#4f46e5' }}; }
         .header p { margin: 4px 0 0; font-size: 11px; color: #6b7280; }
+        .header .contract-no { margin-top: 6px; font-size: 12px; font-weight: bold; color: #1f2937; letter-spacing: .5px; }
         .logo { max-height: 40px; margin-bottom: 8px; }
         h2 { font-size: 13px; color: {{ $tenant->brand_color ?: '#4f46e5' }}; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin: 18px 0 8px; }
         table.info { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
@@ -47,6 +48,9 @@
         @endif
         <h1>CONTRATO DE PRESTACIÓN DE SERVICIO DE INTERNET</h1>
         <p>{{ $companyName }}@if($tenant?->nit) — NIT {{ $tenant->nit }}@endif</p>
+        @if(!empty($contractNumber))
+            <p class="contract-no">Contrato No. {{ $contractNumber }}</p>
+        @endif
     </div>
 
     <p class="clause">

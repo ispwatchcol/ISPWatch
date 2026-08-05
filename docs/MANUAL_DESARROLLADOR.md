@@ -550,6 +550,33 @@ todo lo demás, usa un placeholder escalar):
 5. Si el frontend debe ofrecerlo en el selector de placeholders, ya llega solo:
    `DocumentTemplateController::show()` expone `block_placeholders` desde el mismo config.
 
+### Ejemplo: consecutivos (facturas y contratos)
+
+Hay dos secuencias en el sistema y ambas siguen el mismo patrón; si algún día hace falta una
+tercera (remisiones, órdenes…), cópialo tal cual en vez de inventar otro:
+
+| Secuencia | Contador | Reserva | Respaldo |
+|---|---|---|---|
+| Facturas | `tenant.next_invoice_number` | `BillingService::generateInvoiceNumber()` | **UK** `(tenant_id, number)` en `invoices` |
+| Contratos | `tenant.next_contract_number` + `tenant.contract_prefix` | `ContractNumberService::allocate()` | **UK** `(tenant_id, contract_number)` en `customer_documents` |
+
+Las tres reglas que hacen que funcione:
+
+1. **`DB::transaction` + `lockForUpdate` sobre la fila del tenant.** Sin el lock, dos
+   peticiones concurrentes leen el mismo contador y emiten el mismo número. En SQLite el
+   `for update` se ignora (la gramática lo compila a vacío), así que los tests pasan igual
+   pero **no** demuestran la exclusión: eso lo garantiza la UK.
+2. **Reserva antes de renderizar.** El número va impreso dentro del PDF, así que no puede
+   asignarse después. Un render fallido quema el número; un hueco en la secuencia es mucho
+   menos grave que un duplicado.
+3. **Previsualizar no consume.** Usa el helper estático de formato
+   (`ContractNumberService::format($prefix, $n)`) sobre el contador actual — nunca
+   `allocate()` — en cualquier ruta de preview.
+
+Si el consecutivo lleva prefijo configurable, valídalo en el `FormRequest` con
+`regex:/^[A-Za-z0-9\-]+$/`: acaba dentro del nombre del archivo y de la ruta en S3.
+`format()` vuelve a sanearlo de todos modos, por si el valor entró por otra vía.
+
 ---
 
 ## 11. Trampas conocidas

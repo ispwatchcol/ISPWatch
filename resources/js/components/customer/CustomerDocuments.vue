@@ -63,6 +63,10 @@
               <span :class="typeBadge(doc.type)" class="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase">{{ typeLabel(doc.type) }}</span>
               <span v-if="doc.signed" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">✓ Firmado</span>
             </div>
+            <p v-if="doc.contract_number"
+              class="text-[11px] font-mono font-semibold text-gray-800 dark:text-white mb-0.5">
+              {{ doc.contract_number }}
+            </p>
             <p class="text-xs text-gray-600 dark:text-gray-300 truncate" :title="doc.file_name">{{ doc.file_name }}</p>
             <button @click="removeDoc(doc)"
               class="mt-2 w-full text-[11px] text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded py-1 transition">
@@ -77,7 +81,14 @@
     <section class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
       <h3 class="text-base font-bold text-gray-800 dark:text-white mb-1">Contrato de servicio</h3>
       <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        El contrato se genera automáticamente con los datos del cliente. Firme abajo y guarde — se generará un PDF firmado.
+        El contrato se genera automáticamente con los datos del cliente. Firme abajo y guarde — se generará un PDF firmado
+        con su número consecutivo impreso.
+      </p>
+
+      <p v-if="contract?.next_contract_number" class="text-sm mb-4">
+        <span class="text-gray-500 dark:text-gray-400">Se numerará como</span>
+        <span class="ml-1 font-mono font-semibold text-gray-800 dark:text-white">{{ contract.next_contract_number }}</span>
+        <span class="text-gray-400 dark:text-gray-500"> (si otro usuario firma antes, tomará el siguiente).</span>
       </p>
 
       <div v-if="contract" class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4 text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -240,10 +251,18 @@ const signContract = async () => {
   signing.value = true
   try {
     const signature = canvas.value.toDataURL('image/png')
-    await api.customers.signContract(props.customerId, { signature })
+    const res = await api.customers.signContract(props.customerId, { signature })
     clearSignature()
-    emit('notify', { type: 'success', title: 'Contrato firmado', message: 'El contrato firmado fue generado y guardado.' })
-    await fetchDocuments()
+    const number = res?.data?.document?.contract_number
+    emit('notify', {
+      type: 'success',
+      title: 'Contrato firmado',
+      message: number
+        ? `Contrato ${number} generado y guardado.`
+        : 'El contrato firmado fue generado y guardado.',
+    })
+    // Recarga también el preview: el consecutivo siguiente ya cambió.
+    await Promise.all([fetchDocuments(), fetchContractData()])
   } catch (e) {
     emit('notify', { type: 'error', title: 'Error', message: e.response?.data?.message || 'No se pudo generar el contrato.' })
   } finally {
