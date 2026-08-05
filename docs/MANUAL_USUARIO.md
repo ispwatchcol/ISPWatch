@@ -712,11 +712,14 @@ que revisa bien el nombre exacto antes de guardar.
 
 **Bloques de contenido.** Además de los marcadores de texto, hay marcadores especiales que
 insertan contenido más complejo: la tabla de ítems de la factura, la galería de fotos de la
-instalación, y las imágenes de firma del cliente y del técnico. Se insertan con botones
-aparte (tarjetas más grandes, con ícono) — al hacer clic, el sistema los coloca automáticamente
-en su propio párrafo para que no queden a mitad de una frase. Si por alguna razón uno de estos
-bloques no se pudo insertar donde lo pusiste, la **Vista previa** te avisa con un mensaje
-explícito (a diferencia de los marcadores de texto simples, que se quedan callados).
+instalación, las imágenes de firma del cliente y del técnico, y el **logo de la empresa**
+(disponible en los tres documentos, incluido el contrato — usa el marcador de logo desde
+**Configuración → Marca**). Se insertan con botones aparte (tarjetas más grandes, con ícono) —
+al hacer clic, el sistema los coloca automáticamente en su propio párrafo para que no queden a
+mitad de una frase. Si por alguna razón uno de estos bloques no se pudo insertar donde lo
+pusiste, la **Vista previa** te avisa con un mensaje explícito (a diferencia de los marcadores
+de texto simples, que se quedan callados). Si no has subido un logo en **Configuración → Marca**,
+el marcador simplemente no muestra nada — no es un error.
 
 El botón **Vista previa** te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve
 a la plantilla original (tu borrador no se pierde, puedes reactivarlo guardando de nuevo).
@@ -728,6 +731,23 @@ control total sobre el diseño. El sistema sigue revisando el contenido por segu
 se guarda código que pueda ejecutar algo en el navegador de quien lo abra), así que no todo lo
 que escribas va a sobrevivir tal cual — usa **Vista previa** para confirmar antes de guardar.
 Si no sabes HTML/CSS, no actives este modo: no hay ayuda visual todavía, es edición de código.
+Admite estilo en línea (`style="..."`) e identificadores (`id="..."`, para selectores CSS del
+tipo `#nombre{...}`) en prácticamente cualquier elemento — útil si pegas HTML exportado de otro
+sistema. Si vienes de otra plataforma (ej. WispHub), revisa los nombres de marcador: los
+marcadores no son compatibles entre sistemas, tienes que reemplazarlos por los de ISPwatch
+(los ves en el panel de marcadores disponibles) — un marcador con un nombre que ISPwatch no
+reconoce simplemente no muestra nada.
+
+> ⚠️ **Importante si pegas HTML de otro sistema: no metas textos largos dentro de una celda de
+> tabla.** El generador de PDF no sabe partir una celda entre dos páginas: si el texto de una
+> celda no cabe en una hoja, **lo que sobra no se imprime** — sin ningún aviso. En un contrato
+> eso significa perder cláusulas. Para bloques largos (condiciones, tratamiento de datos,
+> cláusulas) usa `<div>` en lugar de `<table>`: el texto fluye solo de una página a la siguiente.
+> Las tablas están bien para lo que son: filas de datos cortas.
+>
+> Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
+> automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
+> sí se respetan.
 
 > Esta pestaña necesita el permiso *Gestionar Plantillas de Documentos*, que es distinto
 > del de configuración de empresa. Si no la ves, revisa tu rol.

@@ -14,9 +14,14 @@
 |
 | Alcance V1 (auditoría 2026-07-31): solo los 4 casos que de verdad
 | necesitan loop o <img>, que el allowlist del tenant (TemplateSanitizer) no
-| puede producir por sí solo. No incluye contrato (la firma la sigue
-| renderizando el shell fijo, fuera de body_html) ni un bloque de totales
-| (son placeholders escalares individuales, ya en document_placeholders.php).
+| puede producir por sí solo. No incluye un bloque de totales (son
+| placeholders escalares individuales, ya en document_placeholders.php).
+|
+| empresa.logo (auditoría 2026-08-03): agregado a los 3 tipos, incluido
+| contrato — rompe deliberadamente la invariante previa de "contrato sin
+| bloques" (la firma del cliente en contrato la sigue renderizando el shell
+| fijo, fuera de body_html; el logo es un caso nuevo e independiente). Ver
+| App\Services\Templates\BlockPlaceholderResolver::resolveLogo().
 |
 | NOTA: todavía no está conectada al selector de placeholders del frontend
 | (DocumentTemplatesSection.vue solo lee document_placeholders.php hoy) —
@@ -28,16 +33,19 @@ return [
 
     'invoice' => [
         'factura.tabla_items' => 'Tabla de ítems de la factura (descripción, cantidad, precio, total)',
+        'empresa.logo'        => 'Logo de la empresa',
     ],
 
     'contract' => [
-        // Sin bloques en V1.
+        'empresa.logo'           => 'Logo de la empresa',
+        'contrato.firma_cliente' => 'Imagen de la firma del cliente',
     ],
 
     'installation' => [
         'instalacion.fotos'          => 'Galería de fotos de la instalación',
         'instalacion.firma_cliente'  => 'Imagen de la firma del cliente',
         'instalacion.firma_tecnico'  => 'Imagen de la firma del técnico',
+        'empresa.logo'               => 'Logo de la empresa',
     ],
 
 ];

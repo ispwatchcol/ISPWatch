@@ -77,18 +77,36 @@ class AdvancedTemplateSanitizer
      * pasan por este allowlist de contenido.
      */
     private const HTML_ALLOWED = [
-        // 'class' en (casi) todos los tags: sin esto, un selector CSS por
-        // clase en <style> (ej. ".card { ... }") no tiene forma de
-        // aplicarse — el atributo class es lo que lo conecta al elemento.
-        'div[class]', 'p[class]', 'br',
-        'h1[class]', 'h2[class]', 'h3[class]', 'h4[class]', 'h5[class]', 'h6[class]',
-        'strong', 'b', 'em', 'i', 'u',
-        'ul[class]', 'ol[class]', 'li[class]',
-        'span[style|class]',
-        'a[href|class]',
-        'table[class]', 'thead', 'tbody', 'tr[class]',
-        'td[colspan|rowspan|style|class]', 'th[colspan|rowspan|style|class]',
-        'img[src|alt|width|height|class]',
+        // id/style/class en todos los tags (auditoría 2026-08-03): plantillas
+        // reales de clientes exportadas de WispHub dependen de style inline
+        // en <div> (ej. page-break-before) y de selectores CSS por id
+        // (ej. #clausulas en <style>) — sin esto, el sanitizer las rompe
+        // aunque el HTML/CSS en sí no tenga nada peligroso.
+        'div[id|style|class]', 'p[id|style|class]', 'br[id|style]',
+        'h1[id|style|class]', 'h2[id|style|class]', 'h3[id|style|class]',
+        'h4[id|style|class]', 'h5[id|style|class]', 'h6[id|style|class]',
+        'strong[id|style|class]', 'b[id|style|class]', 'em[id|style|class]',
+        'i[id|style|class]', 'u[id|style|class]',
+        'ul[id|style|class]', 'ol[id|style|class]', 'li[id|style|class]',
+        'span[id|style|class]',
+        'a[href|id|style|class]',
+        // `width` como ATRIBUTO HTML (no CSS) en table/td/th (auditoría
+        // 2026-08-04): plantillas reales de WispHub arman su layout de 2
+        // columnas con width="50%" como atributo, no style="width:50%" — sin
+        // esto, ambas <td> quedaban sin ancho explícito y dompdf las
+        // renderizaba con auto-layout, rompiendo la maquetación de columnas
+        // por completo. NO se declara en <tr>: verificado que HTMLPurifier lo
+        // descarta ahí de todos modos (no es válido en <tr> según su
+        // definición de HTML4).
+        //
+        // `height` NO se declara en ninguno a propósito: fixDompdfPagination-
+        // Quirks() lo retira después de toda la familia <table> porque genera
+        // páginas en blanco en dompdf (ver su docblock). Sí sigue permitido en
+        // <img>, donde es legítimo e inofensivo.
+        'table[width|id|style|class]', 'thead[id|style|class]', 'tbody[id|style|class]',
+        'tr[id|style|class]',
+        'td[width|colspan|rowspan|id|style|class]', 'th[width|colspan|rowspan|id|style|class]',
+        'img[src|alt|width|height|id|style|class]',
     ];
 
     private HTMLPurifier $purifier;
@@ -114,6 +132,17 @@ class AdvancedTemplateSanitizer
         $config->set('CSS.Trusted', false);
         // NUNCA true: habilitaría <script> y atributos on* directamente.
         $config->set('HTML.Trusted', false);
+        // Sin esto, el atributo id se descarta SIEMPRE aunque esté declarado
+        // en HTML.Allowed (verificado empíricamente 2026-08-03). Necesario
+        // para selectores CSS por id (#clausulas) en plantillas reales de
+        // clientes. Verificado que HTMLPurifier valida sintaxis del valor
+        // (rechaza ids inválidos como "javascript:alert(1)") y fuerza
+        // unicidad (un id duplicado se descarta en la 2ª aparición) — no es
+        // un bypass, es un atributo no ejecutable con validación real. El
+        // riesgo típico de este flag (colisión de id con la página que aloja
+        // el contenido) no aplica: el resultado es un PDF standalone vía
+        // Pdf::loadHTML(), nunca se embebe en otra página.
+        $config->set('Attr.EnableID', true);
 
         $config->set('Filter.ExtractStyleBlocks', true);
         // Sin Scope: en modo avanzado el tenant es dueño del documento
@@ -157,9 +186,118 @@ class AdvancedTemplateSanitizer
         $raw = (string) $html;
 
         $body = $this->purifier->purify($raw);
+        $body = $this->fixDompdfPaginationQuirks($body);
         $styleBlocks = $this->purifier->context->get('StyleBlocks') ?? [];
 
         return ['body' => $body, 'style' => implode("\n", $styleBlocks)];
+    }
+
+    /**
+     * Correcciones de paginación específicas de dompdf, aplicadas en UNA sola
+     * pasada de DOM sobre el body ya saneado. Ambas nacen del mismo caso real
+     * (auditoría 2026-08-04, diagnóstico sobre plantillas exportadas del
+     * editor WYSIWYG de WispHub que generaban PDFs con páginas en blanco):
+     *
+     *   1. page-break-before en el PRIMER elemento del documento. dompdf
+     *      inserta una página vacía porque no hay página anterior de la que
+     *      "romper" — un navegador simplemente lo ignora ahí. Sólo se retira
+     *      en el primer elemento; el resto de saltos del documento se
+     *      respetan tal cual los escribió el tenant.
+     *
+     *   2. Alturas fijas en tablas/celdas (`height` como atributo HTML o como
+     *      CSS). En un navegador, `height` en una tabla es un MÍNIMO que se
+     *      ignora cuando el contenido crece; dompdf lo trata rígidamente y,
+     *      con contenido que desborda, genera páginas en blanco. Medido sobre
+     *      un contrato real: quitando SÓLO las alturas, el PDF pasa de 8
+     *      páginas con 3 en blanco a 7 con 1 — ninguna otra variante (quitar
+     *      los saltos de página, la tabla más ancha que la hoja, o los <div>
+     *      anidados) cambiaba nada. Se limita a la familia de <table> a
+     *      propósito: en <img> la altura es legítima e inofensiva (una imagen
+     *      nunca se parte entre páginas).
+     */
+    private function fixDompdfPaginationQuirks(string $body): string
+    {
+        if (trim($body) === '') {
+            return $body;
+        }
+
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $body . '</body></html>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+
+        $bodyEl = $dom->getElementsByTagName('body')->item(0);
+        if (!$bodyEl) {
+            return $body;
+        }
+
+        $this->stripLeadingPageBreak($bodyEl);
+        $this->stripTableHeights($dom);
+
+        $inner = '';
+        foreach ($bodyEl->childNodes as $node) {
+            $inner .= $dom->saveHTML($node);
+        }
+
+        return $inner;
+    }
+
+    /** Quirk 1: ver fixDompdfPaginationQuirks(). */
+    private function stripLeadingPageBreak(\DOMElement $bodyEl): void
+    {
+        $first = null;
+        foreach ($bodyEl->childNodes as $child) {
+            if ($child instanceof \DOMElement) {
+                $first = $child;
+                break;
+            }
+        }
+
+        if (!$first || !$first->hasAttribute('style')) {
+            return;
+        }
+
+        $this->removeStyleProperty($first, 'page-break-before');
+    }
+
+    /** Quirk 2: ver fixDompdfPaginationQuirks(). */
+    private function stripTableHeights(\DOMDocument $dom): void
+    {
+        $xpath = new \DOMXPath($dom);
+        $nodes = $xpath->query('//table | //tr | //td | //th');
+
+        foreach ($nodes as $el) {
+            /** @var \DOMElement $el */
+            $el->removeAttribute('height');
+            $this->removeStyleProperty($el, 'height');
+        }
+    }
+
+    /**
+     * Retira una propiedad del atributo style de un elemento, quitando el
+     * atributo entero si era la única que tenía.
+     */
+    private function removeStyleProperty(\DOMElement $el, string $property): void
+    {
+        if (!$el->hasAttribute('style')) {
+            return;
+        }
+
+        $original = $el->getAttribute('style');
+        // El \b final evita que 'height' arrase también con 'min-height',
+        // 'max-height' o 'line-height', que no causan este problema.
+        $pattern = '/(?<![\w-])' . preg_quote($property, '/') . '\s*:\s*[^;]+;?/i';
+        $cleaned = trim((string) preg_replace($pattern, '', $original));
+
+        if ($cleaned === $original) {
+            return;
+        }
+
+        if ($cleaned === '') {
+            $el->removeAttribute('style');
+        } else {
+            $el->setAttribute('style', $cleaned);
+        }
     }
 
     private function cacheDir(): string

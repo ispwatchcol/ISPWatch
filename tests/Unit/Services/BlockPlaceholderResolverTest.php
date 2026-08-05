@@ -6,7 +6,9 @@ use App\Models\CustomerInstallation;
 use App\Models\Tenant;
 use App\Services\Templates\BlockPlaceholderResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class BlockPlaceholderResolverTest extends TestCase
@@ -34,6 +36,7 @@ class BlockPlaceholderResolverTest extends TestCase
 
         $values = $this->resolver->forInstallation(
             $installation,
+            $tenant,
             collect(),
             'data:image/png;base64,cliente',
             'data:image/png;base64,tecnico'
@@ -56,7 +59,7 @@ class BlockPlaceholderResolverTest extends TestCase
             'status'         => 'pendiente',
         ]);
 
-        $values = $this->resolver->forInstallation($installation, collect(), 'data:image/png;base64,cliente', null);
+        $values = $this->resolver->forInstallation($installation, $tenant, collect(), 'data:image/png;base64,cliente', null);
 
         $this->assertSame('', $values['instalacion.firma_tecnico']);
     }
@@ -88,8 +91,86 @@ class BlockPlaceholderResolverTest extends TestCase
         // es Countable|array — forzamos exactamente ese caso.
         $notCountable = new \stdClass();
 
-        $values = $this->resolver->forInstallation($installation, $notCountable, null, null);
+        $values = $this->resolver->forInstallation($installation, $tenant, $notCountable, null, null);
 
         $this->assertSame('', $values['instalacion.fotos']);
+    }
+
+    // ── empresa.logo (auditoría 2026-08-03) ─────────────────────────────
+
+    public function test_for_invoice_resolves_empresa_logo_to_empty_string_when_tenant_has_no_logo(): void
+    {
+        $tenant = Tenant::factory()->create(['logo' => null]);
+        $customer = \App\Models\User::factory()->create(['tenant_id' => $tenant->id]);
+        $invoice = \App\Models\Invoice::create([
+            'tenant_id'    => $tenant->id,
+            'customer_id'  => $customer->id,
+            'invoice_type' => \App\Models\Invoice::TYPE_MONTHLY,
+            'number'       => 'FAC-LOGO-1',
+            'issue_date'   => '2026-08-01',
+            'due_date'     => '2026-08-15',
+            'period_start' => '2026-08-01',
+            'period_end'   => '2026-08-31',
+            'currency'     => 'COP',
+            'subtotal'     => 1000,
+            'tax'          => 0,
+            'total'        => 1000,
+            'balance_due'  => 1000,
+            'status'       => 'issued',
+        ])->fresh(['tenant']);
+
+        $values = $this->resolver->forInvoice($invoice);
+
+        $this->assertSame('', $values['empresa.logo']);
+    }
+
+    public function test_for_contract_resolves_empresa_logo_to_the_local_file_path_when_present(): void
+    {
+        // NUNCA crear directorios a mano bajo public_path('storage/...'): si el
+        // symlink de storage:link todavía no existe en el entorno (dev fresco,
+        // CI), mkdir() lo reemplaza por un directorio real que storage:link ya
+        // no puede corregir después (el comando se salta la creación si el
+        // destino ya existe) — pasó exactamente esto en un dev Windows real y
+        // rompió el logo en toda la app hasta corregirlo a mano. En vez de eso,
+        // aseguramos el symlink real primero y escribimos vía Storage::disk().
+        $this->ensureStorageLinkExists();
+
+        $relativePath = 'test-logos/logo_' . uniqid() . '.png';
+        Storage::disk('public')->put($relativePath, 'fake-png-bytes');
+
+        try {
+            $tenant = Tenant::factory()->create(['logo' => $relativePath]);
+
+            $values = $this->resolver->forContract($tenant);
+
+            $expectedPath = str_replace('\\', '/', public_path('storage/' . $relativePath));
+            $this->assertStringContainsString($expectedPath, $values['empresa.logo']);
+            $this->assertStringContainsString('<img', $values['empresa.logo']);
+        } finally {
+            Storage::disk('public')->delete($relativePath);
+        }
+    }
+
+    /**
+     * No-op si el symlink ya existe (siempre debería, en un entorno correctamente
+     * provisto) — sólo lo crea si falta, nunca vía mkdir() manual.
+     */
+    private function ensureStorageLinkExists(): void
+    {
+        if (!is_link(public_path('storage'))) {
+            Artisan::call('storage:link');
+        }
+    }
+
+    public function test_for_contract_resolves_empresa_logo_to_empty_string_when_file_is_missing_on_disk(): void
+    {
+        // El tenant tiene un valor de logo guardado pero el archivo no existe
+        // en disco (ej. symlink storage:link ausente) — degrada a vacío,
+        // igual que el resto de bloques de imagen, nunca rompe el render.
+        $tenant = Tenant::factory()->create(['logo' => 'no-existe/logo.png']);
+
+        $values = $this->resolver->forContract($tenant);
+
+        $this->assertSame('', $values['empresa.logo']);
     }
 }

@@ -197,7 +197,16 @@ class BlockMarkerInjector
             }
 
             if (isset($markers[$segment])) {
-                $parent->insertBefore($this->buildFragmentNodes($dom, $markers[$segment]['fragment']), $textNode);
+                // Un fragmento vacío (ej. {{empresa.logo}} sin logo subido,
+                // {{contrato.firma_cliente}} antes de firmar) es un caso
+                // válido y frecuente, no un error — pero insertBefore() con
+                // un DocumentFragment sin hijos dispara un warning de PHP
+                // ("Document Fragment is empty"), descubierto end-to-end
+                // 2026-08-04. Saltarlo es equivalente a insertar "nada".
+                $fragmentHtml = $markers[$segment]['fragment'];
+                if ($fragmentHtml !== '') {
+                    $parent->insertBefore($this->buildFragmentNodes($dom, $fragmentHtml), $textNode);
+                }
             } else {
                 $parent->insertBefore(new DOMText($segment), $textNode);
             }

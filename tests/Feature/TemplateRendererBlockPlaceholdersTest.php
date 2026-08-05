@@ -266,4 +266,92 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
         // falló al insertarse.
         $this->assertSame([], $this->renderer->lastRenderWarnings());
     }
+
+    /**
+     * empresa.logo (auditoría 2026-08-03): contrato es la PRIMERA vez que
+     * tiene un block placeholder — se rompe deliberadamente la invariante
+     * anterior de "contrato sin bloques" (ver TemplateRendererAdvancedModeTest
+     * y config/document_placeholder_blocks.php). Ruta LOCAL, no URL.
+     */
+    public function test_contract_template_with_logo_block_renders_the_real_local_path(): void
+    {
+        $tenant = $this->makeTenant();
+        $customer = $this->makeCustomer($tenant);
+
+        // Ver BlockPlaceholderResolverTest::ensureStorageLinkExists() — nunca
+        // mkdir() manual bajo public_path('storage/...'), reemplazaría un
+        // symlink faltante por un directorio real que storage:link ya no
+        // puede corregir después.
+        if (!is_link(public_path('storage'))) {
+            \Illuminate\Support\Facades\Artisan::call('storage:link');
+        }
+
+        $relativePath = 'test-logos/logo_' . uniqid() . '.png';
+        \Illuminate\Support\Facades\Storage::disk('public')->put($relativePath, 'fake-png-bytes');
+        $tenant->update(['logo' => $relativePath]);
+        $expectedPath = str_replace('\\', '/', public_path('storage/' . $relativePath));
+
+        try {
+            DocumentTemplate::create([
+                'tenant_id' => $tenant->id,
+                'type'      => DocumentTemplate::TYPE_CONTRACT,
+                'body_html' => '<div>{{empresa.logo}}</div><p>Condiciones para {{cliente.nombre}}</p>',
+                'is_active' => true,
+            ]);
+
+            Pdf::shouldReceive('loadView')
+                ->once()
+                ->withArgs(function ($view, $data) use ($expectedPath) {
+                    $body = $data['body'];
+
+                    return $view === 'documents.shells.contract_shell'
+                        && str_contains($body, $expectedPath)
+                        && str_contains($body, '<img')
+                        && str_contains($body, 'Condiciones para Juan')
+                        && !str_contains($body, 'BLOCKMARK_');
+                })
+                ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+
+            $this->renderer->renderContract($customer, $customer->customerProfile, $tenant, null, '', now()->format('d/m/Y'));
+        } finally {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($relativePath);
+        }
+    }
+
+    /**
+     * auditoría 2026-08-04: en modo avanzado no hay shell fijo — sin este
+     * bloque, la firma real que CustomerDocumentController::signContract()
+     * captura y pasa a renderContract() se perdía en silencio porque nada en
+     * compileAdvanced() la insertaba en ningún lado.
+     */
+    public function test_contract_template_with_signature_block_renders_the_real_signature_in_advanced_mode(): void
+    {
+        $tenant = $this->makeTenant();
+        $customer = $this->makeCustomer($tenant);
+
+        DocumentTemplate::create([
+            'tenant_id'        => $tenant->id,
+            'type'             => DocumentTemplate::TYPE_CONTRACT,
+            'body_html'        => '<html><body><p>Firma: {{contrato.firma_cliente}}</p></body></html>',
+            'is_active'        => true,
+            'is_advanced_mode' => true,
+        ]);
+
+        Pdf::shouldReceive('loadHTML')
+            ->once()
+            ->withArgs(function ($html) {
+                return str_contains($html, 'data:image/png;base64,firma-real-del-cliente')
+                    && !str_contains($html, 'BLOCKMARK_');
+            })
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+
+        $this->renderer->renderContract(
+            $customer,
+            $customer->customerProfile,
+            $tenant,
+            null,
+            'data:image/png;base64,firma-real-del-cliente',
+            now()->format('d/m/Y')
+        );
+    }
 }

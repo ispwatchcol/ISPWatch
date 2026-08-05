@@ -137,20 +137,22 @@ class TemplateRenderer
         }
 
         $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date);
+        $blockValues = $this->blockResolver->forContract($tenant, $signature);
 
         if ($template->is_advanced_mode) {
             return Pdf::loadHTML($this->compileAdvanced(
                 $template->body_html,
                 $scalarValues,
-                [],
+                $blockValues,
                 (int) $tenant->id,
                 DocumentTemplate::TYPE_CONTRACT
             ));
         }
 
-        // No block placeholders para contrato en modo seguro: la firma la
-        // sigue renderizando el shell fijo, fuera de body_html.
-        $body = $this->compile($template->body_html, $scalarValues, [], (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
+        // Modo seguro: la firma la sigue imprimiendo el shell fijo (fuera de
+        // $body) — {{contrato.firma_cliente}} sólo importa en modo avanzado,
+        // pero se resuelve igual aquí por si el tenant lo usa también.
+        $body = $this->compile($template->body_html, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         return Pdf::loadView('documents.shells.contract_shell', $legacyData + ['body' => $body]);
     }
@@ -193,7 +195,7 @@ class TemplateRenderer
         }
 
         $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
-        $blockValues = $this->blockResolver->forInstallation($installation, $photos, $customerSignature, $technicianSignature);
+        $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $photos, $customerSignature, $technicianSignature);
 
         if ($template->is_advanced_mode) {
             return Pdf::loadHTML($this->compileAdvanced(
@@ -246,12 +248,13 @@ class TemplateRenderer
         bool $isAdvancedMode = false
     ) {
         $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date);
+        $blockValues = $this->blockResolver->forContract($tenant, $signature);
 
         if ($isAdvancedMode) {
-            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, [], (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT));
+            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT));
         }
 
-        $body = $this->compile($draftHtml, $scalarValues, [], (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
+        $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         return Pdf::loadView('documents.shells.contract_shell', [
             'customer'  => $customer,
@@ -282,7 +285,7 @@ class TemplateRenderer
         bool $isAdvancedMode = false
     ) {
         $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
-        $blockValues = $this->blockResolver->forInstallation($installation, $photos, $customerSignature, $technicianSignature);
+        $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $photos, $customerSignature, $technicianSignature);
 
         if ($isAdvancedMode) {
             return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION));
