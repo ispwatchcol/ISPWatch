@@ -958,6 +958,19 @@ alcanzable desde ninguna parte hasta la conversión.
 Se añadió el bloque **Documentos de la orden**, que lista todo lo que no es imagen con enlace
 directo al PDF.
 
+### El manual dentro de la app
+
+`MANUAL_USUARIO.md` y el Centro de Ayuda son **dos fuentes distintas**: `Manual.vue` lee
+`help_categories`/`help_articles` vía `api.helpCenter`, no el markdown. Se actualizaron los
+tres artículos afectados en `HelpCenterSeeder` — *Editar y gestionar un cliente* (firma con
+consecutivo), *Agendar y ejecutar una instalación* (el PDF firmado ya visible en la orden) y
+*Plantillas de documentos* (campo de prefijo). Siguen siendo 41 artículos.
+
+Publicarlos en producción sigue topando con **P-8**: `migrate:both --seed` omite `public` a
+propósito y el seeder es un reemplazo total (`delete()` antes de sembrar), así que hay que
+correr `db:seed --class=HelpCenterSeeder` a mano contra `public` asumiendo que borra lo que
+alguien hubiera editado desde la UI.
+
 ### Deuda que queda
 
 Los documentos subidos **antes** del paso a S3 (29-jul-2026) pueden estar perdidos: vivían en
