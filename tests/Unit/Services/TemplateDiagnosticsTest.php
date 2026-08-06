@@ -314,4 +314,53 @@ class TemplateDiagnosticsTest extends TestCase
             $this->assertSame([], $this->diagnostics->inspect($html, $type), "Falso positivo en {$type}");
         }
     }
+
+    // ── Fuentes (2026-08-06) ────────────────────────────────────────────
+    //
+    // dompdf no lee las fuentes del sistema: sólo conoce las 14 base del PDF y
+    // las DejaVu que trae. El navegador del editor SÍ tiene Calibri, así que
+    // ésta es de las diferencias editor↔PDF que no se pueden deducir mirando
+    // — el texto simplemente ocupa distinto y los saltos de página se mueven.
+
+    public function test_flags_a_font_family_that_dompdf_does_not_have(): void
+    {
+        $findings = $this->diagnostics->inspect(
+            '<style>body { font-family: Calibri; }</style><p>x</p>',
+            'contract'
+        );
+
+        $this->assertCount(1, $findings);
+        $this->assertSame(TemplateDiagnostics::KIND_UNSUPPORTED_FONT, $findings[0]['kind']);
+        $this->assertStringContainsString('Calibri', $findings[0]['token']);
+    }
+
+    /**
+     * Una pila que TERMINA en una familia conocida sí funciona: dompdf recorre
+     * la lista y se queda con la primera que reconoce. Avisar de ella sería
+     * ruido, y el ruido es lo que hace que se ignore el panel entero.
+     */
+    public function test_does_not_flag_a_font_stack_that_ends_in_a_known_family(): void
+    {
+        $html = '<style>body { font-family: Calibri, Arial, sans-serif; }</style>'
+            . '<p style="font-family: \'Times New Roman\', Times, serif;">x</p>'
+            . '<div style="font-family: DejaVu Sans;">y</div>';
+
+        $this->assertSame([], $this->diagnostics->inspect($html, 'contract'));
+    }
+
+    /**
+     * Las fuentes van al final del orden de severidad: no dejan nada en
+     * blanco, sólo cambian la letra. Con el tope de hallazgos lleno, lo que
+     * se pierde tiene que ser esto y no un marcador que sale vacío.
+     */
+    public function test_font_findings_rank_below_broken_placeholders(): void
+    {
+        $findings = $this->diagnostics->inspect(
+            '<style>body { font-family: Calibri; }</style><p>{{cliente.inventado}}</p>',
+            'contract'
+        );
+
+        $this->assertSame(TemplateDiagnostics::KIND_UNKNOWN_PLACEHOLDER, $findings[0]['kind']);
+        $this->assertSame(TemplateDiagnostics::KIND_UNSUPPORTED_FONT, $findings[1]['kind']);
+    }
 }

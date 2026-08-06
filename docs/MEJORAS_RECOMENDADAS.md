@@ -788,12 +788,20 @@ obligar a cada quien a redescubrir por qué el mensaje de error miente sobre dó
 
 ### 📋 P-15 · La vista previa del editor nunca va a ser idéntica al PDF mientras el motor sea dompdf
 
-Detectado 2026-08-06 (ver `BITACORA_TECNICA.md` § 18). El editor visual ya reproduce el **ancho
-imprimible real**, dibuja los cortes de página y marca las imágenes remotas, que eran las tres causas
-concretas del reporte "lo que veo no es lo que sale". Pero el editor es un navegador y el PDF lo
-genera **dompdf**, que implementa un subconjunto pobre de CSS 2.1: `float`, `position`, flexbox, grid
-y buena parte del box model se comportan distinto. Cualquier plantilla que se apoye en ellos va a
-seguir divergiendo, y no hay forma de arreglarlo desde el lado del editor.
+Detectado 2026-08-06 (ver `BITACORA_TECNICA.md` § 18 y § 21). El editor visual ya reproduce el **ancho
+imprimible real** (calculado por `PdfPageGeometry`, no copiado a ojo), imita los defaults de dompdf
+—margen del `body`, `font-size`, `line-height`—, dibuja los cortes de página, muestra el logo puesto
+en su sitio y marca las imágenes remotas. Y desde § 21 hay un panel con el **PDF real** al lado, que
+es lo que zanja cualquier duda concreta. Pero el editor sigue siendo un navegador y el PDF lo genera
+**dompdf**, que implementa un subconjunto pobre de CSS 2.1: `float`, `position`, flexbox, grid y buena
+parte del box model se comportan distinto. Cualquier plantilla que se apoye en ellos va a seguir
+divergiendo **dentro del editor**, y no hay forma de arreglarlo desde ese lado.
+
+Se suma una limitación que tampoco se puede tapar desde el editor: dompdf **no lee las fuentes del
+sistema**. Sólo tiene las 14 base del PDF y las tres DejaVu que trae empaquetadas, así que
+`font-family: Calibri` cae a Times y el texto ocupa distinto. Hoy se avisa
+(`TemplateDiagnostics`, `kind: unsupported_font`); resolverlo de verdad es o instalar fuentes en
+`storage/fonts` con `load_font`, o cambiar de motor.
 
 **Recomendación.** Sustituir dompdf por un renderizador basado en navegador — `spatie/browsershot`
 (Puppeteer) o **Gotenberg** (servicio HTTP con Chrome dentro). Con eso la paridad es exacta por
@@ -805,6 +813,27 @@ fijas que generan páginas en blanco, `enable_remote = false`).
 droplet de DigitalOcean (o levantar Gotenberg como componente aparte), con lo que eso implica en
 imagen, memoria y despliegue. `TemplateRenderer` ya concentra los 6 caminos de render, así que el
 cambio del lado del código está acotado; la decisión es de plataforma y de costo.
+
+### 📋 P-18 · Las plantillas guardadas antes del 2026-08-06 perdieron sus reglas `body`/`html`
+
+Detectado y arreglado el 2026-08-06 (ver `BITACORA_TECNICA.md` § 21.2). Hasta esa fecha,
+`AdvancedTemplateSanitizer` descartaba en silencio **toda** regla CSS cuyo selector fuera `body` o
+`html`, que es donde una plantilla exportada de Word o de otro panel pone su tipografía base
+(`font-family`, `font-size`, márgenes, ancho). El sanitizer ya no lo hace, pero **lo que se descartó
+entonces no está en ninguna parte**: `document_templates.body_html` guarda el resultado ya saneado,
+no el original.
+
+**Alcance.** Sólo plantillas en modo avanzado guardadas antes del 2026-08-06 y que traían reglas
+`body`/`html`. Síntoma: el PDF sale con la letra por defecto de dompdf (Times) aunque el editor
+muestre otra cosa.
+
+**Recomendación.** No hay migración posible; el arreglo es volver a pegar el HTML original y guardar.
+Está anotado en el manual de usuario. Si algún día importa auditarlo, se puede listar por SQL las
+filas con `is_advanced_mode = true` y `updated_at < '2026-08-06'` para avisar a esos tenants.
+
+**Aprendizaje aplicable.** Guardar únicamente el HTML saneado hace que cualquier bug del sanitizer sea
+**irreversible**. Conservar el original crudo junto al saneado (una columna más) permitiría re-sanear
+tras un arreglo, en vez de pedirle al usuario que rehaga su trabajo.
 
 ### ✅ P-16 · Borrar un cliente deja los archivos en S3, la configuración en el router y filas huérfanas
 
@@ -921,9 +950,10 @@ datos con una ampliación del contrato de la hoja.
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
 | **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
-| **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Pendiente (decisión de infraestructura) |
+| **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
+| **P-18** | Las plantillas guardadas antes del 2026-08-06 perdieron sus reglas `body`/`html` | El sanitizer las descartaba en silencio y sólo se guarda el HTML ya saneado: el original no existe | 🟡 Media | 📋 Pendiente (hay que repegar el HTML; sin migración posible) |
 
 ---
 

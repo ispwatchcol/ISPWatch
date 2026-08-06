@@ -629,16 +629,28 @@ Tres reglas para que el PDF no salga roto, todas aprendidas midiendo (ver `BITAC
   un diseño a dos columnas, usa una tabla con muchas filas cortas (una sección por celda), no
   dos columnas gigantes. La primera versión del contrato CRC ocupaba 6 páginas por esto; con la
   misma cantidad de texto repartida en filas cortas ocupa 2.
-- **Respeta el ancho imprimible.** No es el de la hoja: dompdf mete 1.27 cm de margen por
-  lado, o sea 96 px a 96 dpi. A4 vertical deja **698 px**, A4 horizontal **1027 px**, Carta
-  vertical **720 px**. Una tabla con ancho fijo mayor que eso no se encoge — se desborda sobre
-  lo que tenga al lado y el PDF sale con los textos montados. El editor visual ya edita dentro
-  de ese ancho exacto y avisa cuando no cabe (`HtmlDocumentEditor`, evento `@fit`); si cambias
-  el dpi o los márgenes de `config/dompdf.php`, hay que cambiar `MARGIN_PX` y `PAPER_MM` ahí o
-  el editor pasará a mentir sobre lo que cabe.
-- **Nada de alturas fijas ni imágenes remotas.** `height=` en tablas sólo produce páginas en
-  blanco, y dompdf corre con `enable_remote = false`: una `<img>` a `https://` sale rota
-  siempre. Usa `{{empresa.logo}}`.
+- **Respeta el ancho imprimible.** No es el de la hoja: dompdf mete **1,2 cm** de margen por
+  lado (`@page` de `dompdf/lib/res/html.css`), o sea 45 px a 96 dpi. A4 vertical deja
+  **703 px**, A4 horizontal **1032 px**, Carta vertical **726 px**. Una tabla con ancho fijo
+  mayor que eso no se encoge — se desborda sobre lo que tenga al lado y el PDF sale con los
+  textos montados. El editor visual ya edita dentro de ese ancho exacto y avisa cuando no cabe
+  (`HtmlDocumentEditor`, evento `@fit`).
+  > Estas cifras eran 698/1027/720 hasta el 2026-08-06: el editor tenía sus propias constantes
+  > y usaba 1,27 cm de margen, que dompdf nunca aplicó. Ahora salen de
+  > `App\Services\Templates\PdfPageGeometry` y **el frontend no calcula ninguna** — llegan por
+  > `GET /document-templates/{type}` (`page_metrics`). Si cambias el dpi o el margen, se cambia
+  > ahí y en un solo sitio.
+- **Nada de alturas fijas.** `height=` en tablas sólo produce páginas en blanco.
+- **Imágenes: `{{empresa.logo}}` o `data:`, nunca `https://`.** dompdf corre con
+  `enable_remote = false` y una `<img>` a internet sale rota siempre. Desde el 2026-08-06 el
+  sanitizer del modo avanzado acepta `data:` para `image/jpeg|gif|png` (valida los bytes
+  reales, no el mime declarado; SVG queda fuera porque puede llevar script), así que una imagen
+  embebida sí llega al PDF.
+- **Declara una fuente que dompdf tenga, o al final de la pila.** dompdf no lee las fuentes del
+  sistema: sólo conoce `serif`/`sans-serif`/`monospace`, `times`, `helvetica`, `courier`,
+  `symbol`, `zapfdingbats` y las tres DejaVu. `font-family: Calibri` cae a Times y el texto
+  ocupa distinto que en el editor; `font-family: Calibri, Arial, sans-serif` funciona, porque
+  dompdf recorre la pila. `TemplateDiagnostics` lo avisa (`unsupported_font`).
 - **Sólo marcadores del catálogo del tipo.** `DocumentStarterLibraryTest` corre
   `TemplateDiagnostics` sobre cada plantilla base y falla si aparece uno que el sistema no
   resuelve; `DocumentTemplateControllerTest` las renderiza todas y exige un PDF real sin avisos.
@@ -660,9 +672,36 @@ Vive en `document_templates.page_size` / `page_orientation` y lo aplica
 3. **`applyPaper()` revalida contra `DocumentTemplate::PAGE_SIZES`/`PAGE_ORIENTATIONS`**
    aunque el FormRequest ya validó. No es redundancia decorativa: ver la trampa 30 abajo.
 
-Para agregar un tamaño nuevo basta con añadirlo a `PAGE_SIZES` (la columna es texto, no
-enum, justamente para no necesitar una migración) y a los `<option>` de
-`DocumentTemplatesSection.vue`.
+Para agregar un tamaño nuevo hay que tocar **tres** sitios: `DocumentTemplate::PAGE_SIZES` (la
+columna es texto, no enum, justamente para no necesitar una migración), la tabla `PAPER_PT` de
+`PdfPageGeometry` (si no, el editor no sabe cuánto mide la hoja y cae al default) y los
+`<option>` de `DocumentTemplatesSection.vue`.
+
+### Ejemplo: que el editor y el PDF se vean igual
+
+Son dos motores distintos: el editor es el navegador, el PDF lo genera dompdf. La paridad se
+sostiene en tres piezas, y romper cualquiera devuelve el problema de "en pantalla se ve bien y
+el PDF sale horrible":
+
+1. **`PdfPageGeometry` es la única definición de los números.** Papel, margen, dpi, `font-size`
+   y `line-height` por defecto. El frontend los pide, no los calcula. `PdfPageGeometryTest` los
+   contrasta contra el dompdf instalado (`lib/res/html.css`, `CPDF::$PAPER_SIZES`,
+   `Css\Style::$default_line_height`) y contra el Blade de cada shell: si actualizas dompdf y
+   cambia un default, el test falla en vez de que se entere un tenant.
+2. **Dos CSS base, según lo que se edite.** Un documento completo (modo avanzado) hereda los
+   defaults de dompdf → `editorBaseCss()`. Un fragmento (modo seguro) va dentro de
+   `.custom-block` del shell y hereda la letra del shell → `editorFragmentCss($type)`. Ambos se
+   inyectan en el iframe **antes** del `<style>` del tenant, para que él siga ganando.
+3. **El panel "PDF real" es el árbitro.** Llama al mismo `POST .../preview` con *debounce*, así
+   que lo que muestra no es una imitación: es el PDF. Cuando algo no se puede imitar en el
+   editor (`float`, `position`, flexbox), es ahí donde se ve la verdad.
+
+**Trampa:** al leer el valor del editor (`readValue()`) hay que quitar todo lo que sólo existe
+mientras se edita — las dos hojas de estilo del editor, el `contenteditable` del body y las
+imágenes que sustituyen a un marcador. Se hace sobre una **copia** del documento. Si se te
+olvida algo ahí, se guarda dentro de la plantilla del tenant y sale impreso en el PDF (el fondo
+gris del editor, las guías de página, o la URL del logo congelada, que dejaría de actualizarse
+cuando el tenant cambie de logo).
 
 ### Ejemplo: consecutivos (facturas y contratos)
 

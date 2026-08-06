@@ -1352,11 +1352,23 @@ página): ese diseño necesita más ancho del que cabe en una hoja vertical, y s
 vertical el PDF sale con las columnas aplastadas y el texto descuadrado. Si el documento se
 te ve apretado o cortado por los lados, esto es casi siempre la causa.
 
-La **Vista previa** usa lo que tengas seleccionado en ese momento, aunque todavía no hayas
+La vista previa usa lo que tengas seleccionado en ese momento, aunque todavía no hayas
 guardado — así puedes probar vertical y horizontal antes de decidir.
 
-El botón **Vista previa** te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve
-a la plantilla original (tu borrador no se pierde, puedes reactivarlo guardando de nuevo).
+**El PDF de verdad, al lado del editor.** A la derecha del editor tienes un panel titulado
+**"PDF real"**. No es una aproximación: es el mismo PDF que se le va a enviar al cliente,
+generado con datos de ejemplo. Se actualiza solo un par de segundos después de que dejas de
+escribir, y también al cambiar el tamaño, la orientación o el modo. Mientras se regenera sigues
+viendo el anterior, así que puedes comparar el antes y el después de un cambio.
+
+Ésta es la respuesta definitiva a "en el editor se ve bien pero el PDF sale raro": si algo se ve
+distinto entre los dos paneles, **manda el de la derecha**. El editor es una ayuda para escribir
+cómodo; el PDF es lo que se imprime. Puedes ocultarlo con **"Ocultar el PDF"** si prefieres el
+editor a pantalla completa, y **"Actualizar ahora"** lo regenera sin esperar.
+
+El botón **Abrir el PDF aparte** lo abre en otra pestaña (útil para verlo en grande o
+descargarlo), y **Restaurar** vuelve a la plantilla original (tu borrador no se pierde, puedes
+reactivarlo guardando de nuevo).
 
 **Empezar desde una plantilla base.** Arriba del editor hay una fila de botones con plantillas
 ya armadas: el formato que el sistema usa por defecto para cada documento (factura, contrato,
@@ -1388,15 +1400,33 @@ control total sobre el diseño.
 **El editor te muestra la hoja de verdad.** Lo que ves en el editor es una hoja del tamaño y la
 orientación que elegiste arriba, sobre fondo gris, con **líneas rojas horizontales donde va a
 cortar cada página** del PDF. Si tu diseño es más ancho que la hoja, lo ves salirse ahí mismo y
-aparece un aviso en rojo con los números exactos ("necesita 950 px y A4 vertical sólo deja 698
+aparece un aviso en rojo con los números exactos ("necesita 950 px y A4 vertical sólo deja 703
 px") y un botón para cambiar a horizontal. Esa es la causa más común de que un PDF salga con
 los textos y las cajas montados unos sobre otros: el diseño no cabe a lo ancho y el generador
 de PDF, en vez de encogerlo, lo deja desbordarse sobre la columna de al lado.
 
+**El logo se ve puesto en su sitio, no como un marcador.** Si ya subiste un logo en
+**Configuración → Marca**, el marcador `{{empresa.logo}}` aparece en el editor como la imagen
+real, del mismo tamaño con el que va a salir impresa — así ves si queda demasiado grande, mal
+alineado o encima de otra cosa sin tener que abrir el PDF. La plantilla sigue guardando el
+marcador, no la imagen: el día que cambies de logo, los documentos salen con el nuevo
+automáticamente. Si todavía no has subido ninguno, se queda como texto, que es lo honesto —
+en el PDF tampoco saldría nada.
+
 **Las imágenes de internet salen marcadas en rojo.** Si tu plantilla tiene una imagen enlazada
 a una dirección `https://`, el editor la muestra semitransparente y con un borde rojo punteado:
 es un recordatorio de que **en el PDF no va a aparecer**. Sube el logo en "Marca en los
-documentos" y usa `{{empresa.logo}}`.
+documentos" y usa `{{empresa.logo}}`. Si necesitas otra imagen (un sello, una firma escaneada),
+pégala **incrustada** en el HTML (una imagen `data:` en formato PNG, JPG o GIF): ésas sí se
+imprimen.
+
+**Si usas una fuente que el PDF no tiene, te avisa.** El generador de PDF no tiene instaladas
+las fuentes de tu computador: sólo conoce unas pocas (Times, Helvetica, Courier, DejaVu Sans,
+DejaVu Serif y las genéricas `serif` / `sans-serif` / `monospace`). Una plantilla copiada de
+Word suele venir con Calibri o Arial, que en el editor se ven bien y en el PDF se reemplazan
+por Times — como es más angosta, el texto ocupa distinto y los cortes de página se mueven. El
+arreglo es de una línea: deja tu fuente pero agrega una de las conocidas al final, por ejemplo
+`font-family: Calibri, Arial, sans-serif`.
 
 **Si tu plantilla es un diseño propio, el modo avanzado no es opcional.** El editor visual es
 un navegador y te muestra tu documento perfecto, pero al generar el PDF el modo normal
@@ -1433,8 +1463,15 @@ y activar**, si tu plantilla trae marcadores que ISPwatch no entiende aparece un
 amarillo debajo del editor con la lista: cada marcador, por qué no funciona, y cuál es el
 equivalente aquí cuando lo hay. No bloquea nada — el documento se genera igual — pero es la
 forma rápida de saber por qué un dato sale en blanco. También detecta las imágenes enlazadas
-a una dirección de internet y los marcadores de otro tipo de documento (un `{{factura.…}}`
-pegado dentro de un contrato, por ejemplo).
+a una dirección de internet, las fuentes que el PDF no tiene y los marcadores de otro tipo de
+documento (un `{{factura.…}}` pegado dentro de un contrato, por ejemplo). Con el panel del
+**PDF real** abierto se refresca solo cada vez que se regenera, sin que tengas que pulsar nada.
+
+> **Si tu plantilla venía de antes del 6 de agosto de 2026 y se ve con otra letra o con otro
+> tamaño de texto:** hasta esa fecha, al guardar se descartaban en silencio las reglas de
+> estilo que aplicaban al documento entero (las que empiezan por `body` o `html`), que es donde
+> las plantillas exportadas de Word ponen su tipografía base. Ya no pasa, pero lo que se
+> descartó entonces no se puede recuperar: vuelve a pegar el HTML original y guarda de nuevo.
 
 **Si pegaste una plantilla de WispHub**, esta es la equivalencia de marcadores. Es el error
 más común al migrar: el HTML se ve bien pero los datos salen en blanco, porque los nombres

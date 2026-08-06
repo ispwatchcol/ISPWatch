@@ -25,8 +25,17 @@ use HTMLPurifier_Config;
  *   - expression()/behavior SIEMPRE bloqueados: 'behavior' no está en el
  *     allowlist (HTMLPurifier descarta cualquier propiedad no listada), y
  *     expression() no es un valor válido para ninguna propiedad permitida.
- *   - URI.AllowedSchemes = http/https únicamente (para <img src>, <a href> Y
- *     cualquier url() que se colara) — mismo criterio que TemplateSanitizer.
+ *   - URI.AllowedSchemes = http/https/data (para <img src>, <a href> Y
+ *     cualquier url() que se colara). `data` se agregó el 2026-08-06 y es el
+ *     ÚNICO esquema que produce una imagen que de verdad sale en el PDF:
+ *     http/https no se descargan nunca (enable_remote=false), así que una
+ *     imagen pegada quedaba rota sin alternativa. El manejador de
+ *     HTMLPurifier para `data:` no es un pase libre: sólo acepta
+ *     image/jpeg, image/gif y image/png, decodifica el payload, comprueba el
+ *     tipo REAL de los bytes (exif_imagetype/getimagesize, no el mime que
+ *     declara la URI) y reescribe la URI a partir de eso — cualquier cosa que
+ *     no sea una de esas tres imágenes se descarta entera. dompdf ya tiene
+ *     `data://` en allowed_protocols.
  *   - dompdf sigue con enable_remote=false (config/dompdf.php) — esta clase
  *     no cambia ni depende de esa config para su seguridad, es una capa
  *     adicional, no un reemplazo.
@@ -37,6 +46,22 @@ use HTMLPurifier_Config;
  * no está diseñado para eso) — se descartan y el documento final se reconstruye
  * con un esqueleto propio, inyectando ahí el bloque <style> ya limpiado por
  * Filter.ExtractStyleBlocks y el body ya purificado. Ver sanitize().
+ *
+ * SELECTORES html/body (auditoría 2026-08-06). Filter.ExtractStyleBlocks
+ * valida cada selector contra los elementos de HTML.Allowed y descarta la
+ * regla entera si no lo reconoce. Como `body` y `html` no son elementos que
+ * HTMLPurifier sepa modelar (declararlos en HTML.Allowed lanza "Element 'body'
+ * is not supported"), TODA regla `body { … }` desaparecía en silencio — y ahí
+ * es donde una plantilla exportada de Word o de otro panel pone su tipografía
+ * base: font-family, font-size, márgenes. El PDF salía con los defaults de
+ * dompdf (Times 16 px) mientras el editor mostraba la letra del tenant, así
+ * que el mismo documento se veía distinto en cada lado sin que nada fallara.
+ *
+ * La solución es un enmascarado de ida y vuelta: antes de purificar, los
+ * selectores `html`/`body` se reescriben como clases (que HTMLPurifier sí
+ * acepta) y después se devuelven a su nombre. Las DECLARACIONES pasan por el
+ * mismo allowlist de CSS que el resto — no se salta ninguna validación, sólo
+ * se esquiva una limitación del validador de selectores.
  */
 class AdvancedTemplateSanitizer
 {
@@ -148,7 +173,11 @@ class AdvancedTemplateSanitizer
         // Sin Scope: en modo avanzado el tenant es dueño del documento
         // completo, no hay shell fijo que proteger de selectores CSS ajenos.
 
-        $config->set('URI.AllowedSchemes', ['http' => true, 'https' => true]);
+        // `data` habilita la única imagen que sobrevive hasta el PDF (ver el
+        // docblock de la clase): las url http/https nunca se descargan porque
+        // dompdf corre con enable_remote=false. HTMLPurifier valida y
+        // re-codifica el payload, y sólo para image/jpeg|gif|png.
+        $config->set('URI.AllowedSchemes', ['http' => true, 'https' => true, 'data' => true]);
         $config->set('HTML.TargetBlank', true);
         $config->set('Cache.SerializerPath', $this->cacheDir());
 
@@ -183,13 +212,96 @@ class AdvancedTemplateSanitizer
      */
     public function sanitizeParts(?string $html): array
     {
-        $raw = (string) $html;
+        $raw = $this->maskDocumentSelectors((string) $html);
 
         $body = $this->purifier->purify($raw);
         $body = $this->fixDompdfPaginationQuirks($body);
         $styleBlocks = $this->purifier->context->get('StyleBlocks') ?? [];
 
-        return ['body' => $body, 'style' => implode("\n", $styleBlocks)];
+        $style = $this->unmaskDocumentSelectors(implode("\n", $styleBlocks));
+
+        return ['body' => $body, 'style' => $style];
+    }
+
+    /**
+     * Clases con las que se disfrazan `html` y `body` mientras HTMLPurifier
+     * valida el CSS. En minúsculas y con guiones a propósito: CSSTidy
+     * reformatea el bloque entero y no queremos depender de que respete
+     * mayúsculas. Sólo existen entre maskDocumentSelectors() y
+     * unmaskDocumentSelectors(); nunca se guardan ni llegan al PDF.
+     */
+    private const HTML_SELECTOR_MASK = 'ispwatch-doc-html';
+    private const BODY_SELECTOR_MASK = 'ispwatch-doc-body';
+
+    /**
+     * Reescribe los selectores `html`/`body` de cada bloque <style> como
+     * clases, para que el validador de selectores de
+     * Filter.ExtractStyleBlocks no tire la regla entera. Ver el docblock de
+     * la clase para el porqué.
+     *
+     * Sólo toca los <style>: un `body` en el contenido (texto, un atributo)
+     * no se ve afectado.
+     */
+    private function maskDocumentSelectors(string $html): string
+    {
+        return preg_replace_callback(
+            '/(<style\b[^>]*>)(.*?)(<\/style\s*>)/is',
+            fn (array $m) => $m[1] . $this->maskSelectorsInCss($m[2]) . $m[3],
+            $html
+        ) ?? $html;
+    }
+
+    /**
+     * Enmascara sólo la parte de SELECTOR de cada regla, nunca las
+     * declaraciones — si no, `font-family: body` (o cualquier valor que
+     * contenga esa palabra) se rompería.
+     *
+     * Se recorre carácter a carácter en vez de con una expresión regular
+     * porque hay que distinguir "texto antes de un {" (selector) de "texto
+     * antes de un }" (declaraciones), y eso incluye las reglas anidadas
+     * dentro de un @media, donde el selector viene después de un `{` y no
+     * después de un `}`.
+     */
+    private function maskSelectorsInCss(string $css): string
+    {
+        $out = '';
+        $buffer = '';
+
+        for ($i = 0, $length = strlen($css); $i < $length; $i++) {
+            $char = $css[$i];
+
+            if ($char === '{') {
+                $out .= $this->maskSelectorList($buffer) . '{';
+                $buffer = '';
+            } elseif ($char === '}') {
+                $out .= $buffer . '}';
+                $buffer = '';
+            } else {
+                $buffer .= $char;
+            }
+        }
+
+        return $out . $buffer;
+    }
+
+    private function maskSelectorList(string $selectors): string
+    {
+        // El lookbehind evita pisar `.body`, `#body`, `[class="body"]` o
+        // `bodycopy`: sólo se cambia el nombre de elemento suelto.
+        return preg_replace(
+            ['/(?<![\w.#\-"\'=])html(?![\w\-])/i', '/(?<![\w.#\-"\'=])body(?![\w\-])/i'],
+            ['.' . self::HTML_SELECTOR_MASK, '.' . self::BODY_SELECTOR_MASK],
+            $selectors
+        ) ?? $selectors;
+    }
+
+    private function unmaskDocumentSelectors(string $css): string
+    {
+        return str_replace(
+            ['.' . self::HTML_SELECTOR_MASK, '.' . self::BODY_SELECTOR_MASK],
+            ['html', 'body'],
+            $css
+        );
     }
 
     /**

@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\ContractNumberService;
 use App\Services\Templates\AdvancedTemplateSanitizer;
 use App\Services\Templates\DocumentStarterLibrary;
+use App\Services\Templates\PdfPageGeometry;
 use App\Services\Templates\TemplateDiagnostics;
 use App\Services\Templates\TemplateRenderer;
 use App\Services\Templates\TemplateSanitizer;
@@ -31,19 +32,22 @@ class DocumentTemplateController extends Controller
     protected TemplateRenderer $templateRenderer;
     protected TemplateDiagnostics $diagnostics;
     protected DocumentStarterLibrary $starters;
+    protected PdfPageGeometry $geometry;
 
     public function __construct(
         TemplateSanitizer $sanitizer,
         AdvancedTemplateSanitizer $advancedSanitizer,
         TemplateRenderer $templateRenderer,
         TemplateDiagnostics $diagnostics,
-        DocumentStarterLibrary $starters
+        DocumentStarterLibrary $starters,
+        PdfPageGeometry $geometry
     ) {
         $this->sanitizer = $sanitizer;
         $this->advancedSanitizer = $advancedSanitizer;
         $this->templateRenderer = $templateRenderer;
         $this->diagnostics = $diagnostics;
         $this->starters = $starters;
+        $this->geometry = $geometry;
     }
 
     /**
@@ -85,6 +89,7 @@ class DocumentTemplateController extends Controller
         $tenantId = $this->authTenant($request);
 
         $row = DocumentTemplate::where('tenant_id', $tenantId)->where('type', $type)->first();
+        $tenant = Tenant::find($tenantId);
 
         return response()->json([
             'type'               => $type,
@@ -99,6 +104,22 @@ class DocumentTemplateController extends Controller
             'block_placeholders' => config("document_placeholder_blocks.{$type}", []),
             'page_sizes'         => DocumentTemplate::PAGE_SIZES,
             'page_orientations'  => DocumentTemplate::PAGE_ORIENTATIONS,
+            // Geometría real de dompdf para las 6 combinaciones de hoja, y el
+            // CSS con el que el editor visual imita sus defaults. El frontend
+            // NO calcula ninguno de estos números: tenía sus propias
+            // constantes copiadas a ojo y por eso dibujaba los cortes de
+            // página fuera de sitio (ver App\Services\Templates\PdfPageGeometry).
+            'page_metrics'       => $this->geometry->allMetrics(),
+            'editor_base_css'    => $this->geometry->editorBaseCss(),
+            // En modo seguro el fragmento no manda: lo envuelve el shell fijo
+            // con SU tipografía. El editor tiene que mostrarlo con esa, no con
+            // la del documento completo.
+            'editor_fragment_css' => $this->geometry->editorFragmentCss($type),
+            // Para que {{empresa.logo}} se vea como imagen dentro del editor y
+            // no como texto: es el mismo archivo que BlockPlaceholderResolver
+            // inserta en el PDF. null si el tenant todavía no subió logo, que
+            // en el PDF significa exactamente "no sale nada".
+            'logo_url'           => $tenant?->logo ? asset('storage/' . $tenant->logo) : null,
             // Sólo metadatos: los cuerpos pesan varios KB cada uno y esto se
             // pide en cada carga del editor. El cuerpo se baja aparte, cuando
             // el tenant elige una.

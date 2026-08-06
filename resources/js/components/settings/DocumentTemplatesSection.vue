@@ -191,6 +191,11 @@
               <p class="text-xs text-gray-400 mt-1">
                 Usa <strong>Horizontal</strong> si tu diseño es a dos columnas (ancho
                 mayor a ~700&nbsp;px): en vertical no cabe y el PDF sale descuadrado.
+                <template v-if="activeMetrics.printable_width_px">
+                  Ahora mismo caben
+                  <strong>{{ activeMetrics.printable_width_px }}&nbsp;×&nbsp;{{ activeMetrics.printable_height_px }}&nbsp;px</strong>
+                  por página.
+                </template>
               </p>
             </div>
           </div>
@@ -297,29 +302,92 @@
             </template>
           </div>
 
-          <!-- Editor -->
-          <div class="flex-1 flex flex-col min-h-[280px]">
-            <label class="label">
-              {{ activeType === 'contract' ? 'Condiciones adicionales' : 'Contenido' }}
-            </label>
-            <textarea
-              v-if="current.is_advanced_mode"
-              v-model="draftHtml"
-              spellcheck="false"
-              class="flex-1 min-h-[280px] font-mono text-xs bg-white dark:bg-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-b-xl p-3 resize-y"
-              placeholder="<html><head><style>...</style></head><body>...</body></html>"
-            ></textarea>
-            <!-- Mismo draftHtml que el textarea: el interruptor de modo
-                 avanzado sólo cambia CÓMO se edita, nunca QUÉ se edita. -->
-            <HtmlDocumentEditor
-              v-else
-              ref="visualEditorRef"
-              v-model="draftHtml"
-              height="480px"
-              :page-size="current.page_size"
-              :page-orientation="current.page_orientation"
-              @fit="onEditorFit"
-            />
+          <!-- Editor + PDF real, lado a lado. El editor es un navegador
+               imitando a dompdf y siempre va a tener diferencias; el panel de
+               la derecha no imita nada: es el PDF que se va a imprimir. -->
+          <div class="grid grid-cols-1 gap-4" :class="showPdfPane ? 'xl:grid-cols-2' : ''">
+            <div class="flex flex-col min-h-[280px]">
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <label class="label !mb-0">
+                  {{ activeType === 'contract' ? 'Condiciones adicionales' : 'Contenido' }}
+                </label>
+                <button
+                  type="button"
+                  @click="togglePdfPane"
+                  class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                >
+                  {{ showPdfPane ? 'Ocultar el PDF' : 'Ver el PDF al lado' }}
+                </button>
+              </div>
+              <textarea
+                v-if="current.is_advanced_mode"
+                v-model="draftHtml"
+                spellcheck="false"
+                class="flex-1 min-h-[280px] font-mono text-xs bg-white dark:bg-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-xl p-3 resize-y"
+                placeholder="<html><head><style>...</style></head><body>...</body></html>"
+              ></textarea>
+              <!-- Mismo draftHtml que el textarea: el interruptor de modo
+                   avanzado sólo cambia CÓMO se edita, nunca QUÉ se edita. -->
+              <HtmlDocumentEditor
+                v-else
+                ref="visualEditorRef"
+                v-model="draftHtml"
+                height="560px"
+                :page-metrics="activeMetrics"
+                :base-css="current.editor_base_css"
+                :fragment-css="current.editor_fragment_css"
+                :token-previews="tokenPreviews"
+                @fit="onEditorFit"
+              />
+            </div>
+
+            <!-- ══ PDF REAL ══ -->
+            <div v-if="showPdfPane" class="flex flex-col min-h-[280px]">
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <label class="label !mb-0 flex items-center gap-1.5">
+                  PDF real
+                  <span class="text-xs font-normal text-gray-400">— esto es exactamente lo que se imprime</span>
+                </label>
+                <button
+                  type="button"
+                  :disabled="pdfLoading"
+                  @click="refreshPdf"
+                  class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 disabled:opacity-50 disabled:no-underline"
+                >
+                  {{ pdfLoading ? 'Generando…' : 'Actualizar ahora' }}
+                </button>
+              </div>
+
+              <div class="flex-1 border border-gray-300 dark:border-gray-600 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-900 relative" style="min-height: 560px">
+                <iframe
+                  v-if="pdfUrl"
+                  :src="`${pdfUrl}#view=FitH`"
+                  title="Vista previa del PDF"
+                  class="w-full h-full"
+                  style="min-height: 560px"
+                ></iframe>
+                <div v-else class="absolute inset-0 flex items-center justify-center text-center text-sm text-gray-400 p-6">
+                  <span v-if="pdfError" class="text-red-500 dark:text-red-400">{{ pdfError }}</span>
+                  <span v-else-if="pdfLoading">Generando el PDF…</span>
+                  <span v-else>Escribe algo en el editor y aquí aparecerá el PDF.</span>
+                </div>
+
+                <!-- Estado sobre el PDF, no en lugar de él: mientras se
+                     regenera se sigue viendo el anterior, que es lo que
+                     permite comparar antes/después de un cambio. -->
+                <div
+                  v-if="pdfUrl && (pdfLoading || pdfStale || pdfError)"
+                  class="absolute top-2 right-2 text-[11px] px-2 py-1 rounded-md shadow-sm"
+                  :class="pdfError
+                    ? 'bg-red-600 text-white'
+                    : 'bg-gray-900/80 text-white dark:bg-gray-100/90 dark:text-gray-900'"
+                >
+                  <span v-if="pdfError">No se pudo actualizar</span>
+                  <span v-else-if="pdfLoading">Actualizando…</span>
+                  <span v-else>Hay cambios sin reflejar</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Diagnóstico de la plantilla. Aparece al previsualizar o guardar
@@ -381,7 +449,7 @@
               class="text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg transition-all disabled:opacity-50 flex items-center gap-2"
             >
               <v-icon v-if="previewing" name="bi-arrow-repeat" class="w-4 h-4 animate-spin" />
-              {{ previewing ? 'Generando...' : 'Vista previa' }}
+              {{ previewing ? 'Generando...' : 'Abrir el PDF aparte' }}
             </button>
             <button
               type="button"
@@ -436,7 +504,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import HtmlDocumentEditor from '@/components/settings/HtmlDocumentEditor.vue'
@@ -481,7 +549,29 @@ const current = reactive({
   placeholders: {},
   block_placeholders: {},
   starters: [],
+  // Geometría real de dompdf y CSS de normalización del editor: los calcula
+  // el backend (App\Services\Templates\PdfPageGeometry). Aquí NO se calcula
+  // ni un milímetro — tener las medidas de la hoja en dos sitios es lo que
+  // hacía que el editor dibujara los cortes de página donde no eran.
+  page_metrics: {},
+  editor_base_css: '',
+  editor_fragment_css: '',
 })
+
+/** Medidas de la hoja que el tenant tiene seleccionada ahora mismo. */
+const activeMetrics = computed(
+  () => current.page_metrics?.[`${current.page_size}:${current.page_orientation}`] || {}
+)
+
+/**
+ * Marcadores que el editor visual debe dibujar como imagen en vez de como
+ * texto. Es el mismo archivo que el servidor inserta en el PDF
+ * (App\Services\Templates\BlockPlaceholderResolver::resolveLogo), así que lo
+ * que se ve colocado en el editor es lo que se imprime. Sin logo subido el
+ * mapa va vacío y el marcador se queda como texto, que es honesto: en el PDF
+ * tampoco saldría nada.
+ */
+const tokenPreviews = computed(() => (logoUrl.value ? { 'empresa.logo': logoUrl.value } : {}))
 
 const loadingStarter = ref(null)
 const starterToLoad = ref(null)
@@ -499,12 +589,11 @@ const PAGE_LABELS = { a4: 'A4', letter: 'Carta', legal: 'Oficio' }
 const pageLabel = computed(
   () => `${PAGE_LABELS[current.page_size] || current.page_size} ${current.page_orientation === 'landscape' ? 'horizontal' : 'vertical'}`
 )
-// Mismo cálculo que HtmlDocumentEditor (96 dpi, márgenes de dompdf de 48 px
-// por lado), sólo para poder decir cuánto ganaría al girar la hoja.
-const landscapeWidth = computed(() => {
-  const mm = { a4: 297, letter: 279, legal: 356 }[current.page_size] || 297
-  return Math.round((mm / 25.4) * 96) - 96
-})
+// Cuánto ancho ganaría girando la hoja. Sale de la misma tabla del servidor
+// que usa el editor, no de una fórmula repetida aquí.
+const landscapeWidth = computed(
+  () => current.page_metrics?.[`${current.page_size}:landscape`]?.printable_width_px || 0
+)
 
 // ── Branding ──
 const logoUrl = ref(null)
@@ -544,7 +633,20 @@ async function loadType(type) {
     current.placeholders = data.placeholders || {}
     current.block_placeholders = data.block_placeholders || {}
     current.starters = data.starters || []
+    current.page_metrics = data.page_metrics || {}
+    current.editor_base_css = data.editor_base_css || ''
+    current.editor_fragment_css = data.editor_fragment_css || ''
+    // El logo llega también por aquí (además de por loadTenantBranding) para
+    // que el editor pueda dibujar {{empresa.logo}} sin depender del orden en
+    // que terminen las dos peticiones.
+    if (data.logo_url) logoUrl.value = data.logo_url
     draftHtml.value = data.body_html || ''
+    // El PDF que estuviera en el panel es el del tipo ANTERIOR: se limpia ya
+    // y se pide el nuevo por el mismo camino con debounce, que además
+    // absorbe el disparo del watch de draftHtml en vez de renderizar dos veces.
+    setPdfUrl(null)
+    pdfError.value = null
+    schedulePdfRefresh()
   } catch (e) {
     toast.value?.error('No se pudo cargar', 'No se pudo cargar la plantilla. Intenta de nuevo.')
   } finally {
@@ -722,6 +824,96 @@ function warningToken(warning) {
   const literal = warning.kind === 'foreign_marker' || warning.kind === 'remote_image'
   return literal ? warning.token : placeholderToken(warning.token)
 }
+
+// ── Vista previa PDF en vivo ──
+//
+// Es el único punto de la pantalla donde "lo que ves" y "lo que se imprime"
+// no pueden separarse, porque no es una imitación: es el PDF, generado por el
+// mismo dompdf y el mismo pipeline que los documentos reales. El editor
+// visual, por bueno que sea, sigue siendo un navegador imitando a otro motor
+// de maquetación — y ahí siempre va a haber diferencias (fuentes que dompdf
+// no tiene, tablas que no encoge, saltos de página). Este panel es el que
+// zanja la duda.
+const showPdfPane = ref(true)
+const pdfUrl = ref(null)
+const pdfLoading = ref(false)
+const pdfError = ref(null)
+// Hay cambios en el editor que este PDF todavía no refleja.
+const pdfStale = ref(false)
+
+// Cada render cuesta una petición y un dompdf completo: se espera a que el
+// tenant deje de escribir en vez de pedir uno por tecla.
+const PDF_DEBOUNCE_MS = 1200
+let pdfDebounce = null
+// Las respuestas pueden llegar desordenadas (una plantilla grande tarda más
+// que la siguiente edición pequeña). Sólo se pinta la del último pedido.
+let pdfRequestId = 0
+
+function setPdfUrl(url) {
+  if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
+  pdfUrl.value = url
+}
+
+async function refreshPdf() {
+  if (!showPdfPane.value) return
+
+  clearTimeout(pdfDebounce)
+
+  // body_html es obligatorio en el endpoint: con el editor vacío no hay nada
+  // que previsualizar y pedirlo sólo daría un 422.
+  if (!(draftHtml.value || '').trim()) {
+    setPdfUrl(null)
+    pdfStale.value = false
+    pdfError.value = null
+    return
+  }
+
+  const requestId = ++pdfRequestId
+  pdfLoading.value = true
+  pdfError.value = null
+
+  try {
+    const response = await documentTemplatesApi.preview(
+      activeType.value,
+      draftHtml.value,
+      current.is_advanced_mode,
+      current.page_size,
+      current.page_orientation
+    )
+    if (requestId !== pdfRequestId) return
+
+    templateWarnings.value = readWarningsHeader(response)
+    setPdfUrl(URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' })))
+    pdfStale.value = false
+  } catch (e) {
+    if (requestId !== pdfRequestId) return
+    pdfError.value = 'No se pudo generar el PDF con este contenido. Revísalo e inténtalo de nuevo.'
+  } finally {
+    if (requestId === pdfRequestId) pdfLoading.value = false
+  }
+}
+
+function schedulePdfRefresh() {
+  if (!showPdfPane.value) return
+  pdfStale.value = true
+  clearTimeout(pdfDebounce)
+  pdfDebounce = setTimeout(refreshPdf, PDF_DEBOUNCE_MS)
+}
+
+function togglePdfPane() {
+  showPdfPane.value = !showPdfPane.value
+  if (showPdfPane.value) refreshPdf()
+}
+
+watch(
+  [draftHtml, () => current.is_advanced_mode, () => current.page_size, () => current.page_orientation],
+  schedulePdfRefresh
+)
+
+onBeforeUnmount(() => {
+  clearTimeout(pdfDebounce)
+  if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
+})
 
 async function preview() {
   // El editor visual es un navegador y entiende todo, pero el modo seguro

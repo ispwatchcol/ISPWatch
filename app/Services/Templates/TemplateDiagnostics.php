@@ -41,6 +41,9 @@ class TemplateDiagnostics
     /** <img> apuntando a internet: dompdf corre con enable_remote = false. */
     public const KIND_REMOTE_IMAGE = 'remote_image';
 
+    /** font-family que dompdf no tiene instalada: en el PDF sale con otra letra. */
+    public const KIND_UNSUPPORTED_FONT = 'unsupported_font';
+
     /** Bloque que no se pudo insertar (lo detecta BlockMarkerInjector, no esta clase). */
     public const KIND_ORPHANED_BLOCK = 'orphaned_block';
 
@@ -62,6 +65,22 @@ class TemplateDiagnostics
     /** Máximo de imágenes remotas reportadas: la causa y el arreglo son el mismo para todas. */
     private const MAX_REMOTE_IMAGES = 3;
 
+    /** Ídem para las fuentes: con 2 ejemplos ya se entiende el problema. */
+    private const MAX_UNSUPPORTED_FONTS = 2;
+
+    /**
+     * Familias que dompdf sí sabe resolver, en minúsculas. Es el listado
+     * literal de vendor/dompdf/dompdf/lib/fonts/installed-fonts.dist.json: no
+     * hay ninguna otra, dompdf no lee las fuentes del sistema operativo.
+     * Cualquier familia fuera de aquí cae al default_font de
+     * config/dompdf.php ('serif' → Times-Roman).
+     */
+    private const DOMPDF_FONT_FAMILIES = [
+        'sans-serif', 'times', 'times-roman', 'courier', 'helvetica',
+        'zapfdingbats', 'symbol', 'serif', 'monospace', 'fixed',
+        'dejavu sans', 'dejavu sans mono', 'dejavu serif',
+    ];
+
     /**
      * Orden de presentación. Primero lo que deja datos en blanco sin ninguna
      * pista visual, al final lo que el tenant ya nota a simple vista.
@@ -78,6 +97,9 @@ class TemplateDiagnostics
         self::KIND_UNKNOWN_PLACEHOLDER,
         self::KIND_ORPHANED_BLOCK,
         self::KIND_REMOTE_IMAGE,
+        // Al final: no deja nada en blanco ni rompe la maquetación, sólo
+        // cambia la letra. Es lo primero que se sacrifica si sobran hallazgos.
+        self::KIND_UNSUPPORTED_FONT,
     ];
 
     private const TYPE_LABELS = [
@@ -107,6 +129,7 @@ class TemplateDiagnostics
             $this->inspectMalformedPlaceholders($html),
             $this->inspectLiteralMarkers($html, $type),
             $this->inspectRemoteImages($html),
+            $this->inspectFonts($html),
         );
 
         return $this->prioritize($findings);
@@ -315,6 +338,76 @@ class TemplateDiagnostics
         }
 
         return $findings;
+    }
+
+    /**
+     * dompdf NO lee las fuentes del sistema operativo: sólo conoce las 14
+     * fuentes base del PDF y las DejaVu que trae empaquetadas
+     * (self::DOMPDF_FONT_FAMILIES). Una plantilla exportada de Word o de otro
+     * panel suele venir con `font-family: Calibri` o `Arial`, y ahí dompdf se
+     * cae al default (Times-Roman) — con otro ancho de letra, así que el texto
+     * ocupa distinto y los saltos de página caen en otro sitio. En el editor
+     * se ve con la fuente correcta porque el navegador sí la tiene: es la
+     * clase de diferencia editor↔PDF que no se puede deducir mirando.
+     *
+     * Sólo se reporta si NINGUNA familia de la lista es reconocible: una pila
+     * como `Calibri, Arial, sans-serif` sí funciona (dompdf recorre la lista y
+     * se queda con `sans-serif`), y avisar de ella sería ruido.
+     *
+     * @return array<int,array{kind:string,token:string,label:string,message:string}>
+     */
+    private function inspectFonts(string $html): array
+    {
+        if (!preg_match_all('/font-family\s*:\s*([^;{}"\']+)/i', $html, $matches)) {
+            return [];
+        }
+
+        $findings = [];
+
+        foreach (array_unique($matches[1]) as $declaration) {
+            $families = array_filter(array_map(
+                fn (string $family) => trim($family, " \t\n\r\0\x0B'\"" ),
+                explode(',', $declaration)
+            ));
+
+            if ($families === [] || $this->hasResolvableFont($families)) {
+                continue;
+            }
+
+            $findings[] = [
+                'kind'    => self::KIND_UNSUPPORTED_FONT,
+                'token'   => $this->shorten(implode(', ', $families), 40),
+                'label'   => 'Fuente que el PDF no tiene',
+                'message' => 'En el editor se ve con esa letra, pero el PDF no la tiene instalada y la '
+                    . 'reemplaza por Times, que es más angosta: el texto ocupa distinto y los saltos de '
+                    . 'página se mueven. Agrega al final una de las que sí existen '
+                    . '(serif, sans-serif, monospace, Times, Helvetica, Courier, DejaVu Sans, DejaVu Serif), '
+                    . 'por ejemplo «' . $families[array_key_first($families)] . ', sans-serif».',
+            ];
+
+            if (count($findings) >= self::MAX_UNSUPPORTED_FONTS) {
+                break;
+            }
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Espejo de Dompdf\FontMetrics::getFont(): compara en minúsculas y sin
+     * comillas contra el catálogo exacto, igual que hace dompdf.
+     *
+     * @param string[] $families
+     */
+    private function hasResolvableFont(array $families): bool
+    {
+        foreach ($families as $family) {
+            if (in_array(strtolower($family), self::DOMPDF_FONT_FAMILIES, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
