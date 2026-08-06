@@ -571,13 +571,9 @@ header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloqu
 Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
 Categorías de Gasto. Las **Fases 1** (debounce y guard anti-carrera en Facturación, índices
 compuestos, búsqueda de texto en Gastos), **2** (paginación y agregados server-side en Gastos) y
-**3** (totales en dinero en Facturación y Recaudos) y **4** (exportación a CSV de los tres
-listados) ya están implementadas. Queda pendiente, con plan aprobado:
-
-**Fase 5 — Unificación visual.** Hoy conviven tres lenguajes en el mismo submenú: Facturación y
-Recaudos (índigo, tabla), Formas de Pago y Tipos de Factura (esmeralda/índigo, grid de
-tarjetas), Gastos y Categorías (azul, tabla). Acordado: **esmeralda como acento único de
-Finanzas**, y Categorías de Gasto migra de tabla a grid de tarjetas como Formas de Pago.
+**3** (totales en dinero en Facturación y Recaudos), **4** (exportación a CSV de los tres
+listados) y **5** (unificación visual bajo el acento esmeralda) ya están implementadas. Queda
+pendiente, con plan aprobado:
 
 **Fase 6 — Servicios Adicionales.** No tiene listado ni historial: es un formulario de un solo
 uso, y para auditar qué cargos se generaron hay que ir a Facturación y filtrar por tipo a mano.
@@ -588,6 +584,11 @@ Decisión de producto pendiente (vista propia vs. atajo preconfigurado en Factur
 - La búsqueda por cliente en Facturación y Recaudos usa `whereHas` + `ILIKE`, que no aprovecha
   índice B-tree. Al volumen actual no duele; sería el próximo cuello de botella real y la salida
   sería `pg_trgm`/GIN.
+- Quedan otros componentes de `resources/js/components/ui/` sin usar en todo el proyecto
+  (`SearchBar`, `StatusBadge`, `LoadingSkeleton`), andamiaje de un intento anterior de sistema de
+  diseño. La Fase 5 reescribió y puso en uso `PageHeader` y añadió `StatCard`; los tres restantes
+  siguen siendo código muerto: o se adoptan, o conviene borrarlos para que nadie los tome por el
+  estándar vigente.
 - El patrón "crear un `<a>`, hacerle click y olvidarlo" para descargar blobs está repetido en
   **13 sitios** (PDFs de factura, plantillas, importadores…). Ninguna de esas copias quita el
   elemento del DOM ni llama a `URL.revokeObjectURL()`, así que el blob queda retenido en memoria

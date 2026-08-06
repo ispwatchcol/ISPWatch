@@ -1,52 +1,43 @@
 <template>
-    <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-        <main class="flex-1 p-4 md:p-8">
+    <div class="flex min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
+        <main class="flex-1 p-6">
 
             <!-- Header -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                        <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
-                            <v-icon name="bi-cash-coin" class="text-blue-600 dark:text-blue-400 w-6 h-6 md:w-7 md:h-7" />
-                        </div>
-                        Gastos
-                    </h1>
-                    <p class="text-sm md:text-base text-gray-600 dark:text-gray-300 mt-1">
-                        Registro de gastos de la empresa
-                    </p>
-                </div>
-
-                <div class="flex flex-wrap gap-3 w-full sm:w-auto">
+            <PageHeader
+                title="Gastos"
+                subtitle="Lo que sale de la caja, con su concepto y a nombre de quién quedó."
+                icon="bi-cash-coin"
+            >
+                <template #actions>
                     <button
                         @click="exportCsv"
                         :disabled="exporting"
                         title="Exporta todos los gastos del filtro actual, no sólo esta página"
-                        class="px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium justify-center
-                     border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200
-                     bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700
-                     transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-none"
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
+                               bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
+                               dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700
+                               disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <v-icon v-if="!exporting" name="md-download" class="w-5 h-5" />
                         <v-icon v-else name="ri-loader-4-line" animation="spin" class="w-5 h-5" />
-                        <span>{{ exporting ? 'Exportando...' : 'Exportar CSV' }}</span>
+                        <span>{{ exporting ? 'Exportando…' : 'Exportar CSV' }}</span>
                     </button>
 
                     <button
                         v-if="can('add_expense')"
                         @click="openAddModal"
-                        class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800
-                     text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
-                     transition-all transform hover:-translate-y-0.5
-                     font-medium justify-center flex-1 sm:flex-none"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-white transition-all
+                               bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 dark:shadow-none
+                               hover:scale-[1.02] active:scale-[0.98] motion-reduce:hover:scale-100"
                     >
                         <v-icon name="md-add" class="w-5 h-5 fill-current" />
-                        <span>Nuevo Gasto</span>
+                        <span>Nuevo gasto</span>
                     </button>
-                </div>
-            </div>
+                </template>
+            </PageHeader>
 
             <!-- Filters -->
-            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 mb-6">
+            <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 p-4 md:p-6 mb-6">
                 <div class="relative mb-4">
                     <v-icon name="md-search" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
@@ -55,30 +46,18 @@
                         placeholder="Buscar por descripción, observaciones o beneficiario..."
                         class="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                      bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-colors"
+                     focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-colors"
                     />
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Desde</label>
-                        <input
-                            v-model="filters.date_from"
-                            type="date"
-                            class="date-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                     bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-colors"
-                        />
+                        <DatePicker v-model="filters.date_from" accent="emerald" placeholder="Sin límite" />
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Hasta</label>
-                        <input
-                            v-model="filters.date_to"
-                            type="date"
-                            class="date-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                     bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-colors"
-                        />
+                        <DatePicker v-model="filters.date_to" accent="emerald" placeholder="Sin límite" />
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Categoría</label>
@@ -86,7 +65,7 @@
                             v-model="filters.expense_category_id"
                             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                      bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                     focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
                         >
                             <option value="">Todas</option>
                             <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
@@ -98,7 +77,7 @@
                             v-model="filters.status"
                             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                      bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                     focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
                         >
                             <option value="">Todos</option>
                             <option value="activo">Activo</option>
@@ -109,34 +88,43 @@
             </div>
 
             <!-- Summary -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-5">
-                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                        Total del período filtrado
-                    </p>
-                    <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatMoney(summary.total) }}</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">{{ summary.count }} gasto(s) activo(s)</p>
-                </div>
-                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-5">
-                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                        Por categoría
-                    </p>
-                    <div v-if="summary.by_category.length === 0" class="text-sm text-gray-400 dark:text-gray-500">
-                        Sin datos para el período seleccionado
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+                <StatCard
+                    label="Total del período filtrado"
+                    :value="formatMoney(summary.total)"
+                    :hint="`${summary.count} gasto(s) activo(s) · los anulados no se suman`"
+                    icon="bi-cash-coin"
+                    tone="emerald"
+                />
+
+                <div class="relative overflow-hidden bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-gray-700 group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 rounded-full bg-slate-100 dark:bg-gray-700/30 transition-transform duration-500 group-hover:scale-110 motion-reduce:transition-none motion-reduce:group-hover:scale-100"></div>
+                    <div class="relative">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="p-2.5 rounded-2xl bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-slate-300 shrink-0">
+                                <v-icon name="bi-tags" class="w-5 h-5" />
+                            </div>
+                            <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.14em]">
+                                Por categoría
+                            </span>
+                        </div>
+                        <p v-if="summary.by_category.length === 0" class="text-sm text-slate-400 dark:text-slate-500">
+                            Ningún gasto activo con este filtro.
+                        </p>
+                        <ul v-else class="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                            <li v-for="row in summary.by_category" :key="row.name" class="flex justify-between gap-4 text-sm">
+                                <span class="text-slate-600 dark:text-slate-300 truncate">{{ row.name }}</span>
+                                <span class="font-semibold tabular-nums text-slate-900 dark:text-white shrink-0">{{ formatMoney(row.total) }}</span>
+                            </li>
+                        </ul>
                     </div>
-                    <ul v-else class="space-y-1 max-h-24 overflow-y-auto">
-                        <li v-for="row in summary.by_category" :key="row.name" class="flex justify-between text-sm">
-                            <span class="text-gray-700 dark:text-gray-300">{{ row.name }}</span>
-                            <span class="font-medium text-gray-900 dark:text-white">{{ formatMoney(row.total) }}</span>
-                        </li>
-                    </ul>
                 </div>
             </div>
 
             <!-- Desktop Table View -->
-            <div class="hidden lg:block bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
+            <div class="hidden lg:block bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 overflow-hidden">
                 <div v-if="loading" class="flex items-center justify-center py-16">
-                    <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-blue-500" />
+                    <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-emerald-500" />
                     <span class="ml-3 text-gray-500 dark:text-gray-400">Cargando gastos...</span>
                 </div>
 
@@ -163,11 +151,11 @@
                         </thead>
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                             <tr v-for="item in items" :key="item.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{{ item.expense_date }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{{ formatDate(item.expense_date) }}</td>
                                 <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ item.category?.name || '—' }}</td>
                                 <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ item.description || '—' }}</td>
                                 <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ item.beneficiary?.name || '—' }}</td>
-                                <td class="px-6 py-4 text-sm text-right font-medium text-gray-900 dark:text-white">{{ formatMoney(item.amount) }}</td>
+                                <td class="px-6 py-4 text-sm text-right font-semibold tabular-nums text-gray-900 dark:text-white">{{ formatMoney(item.amount) }}</td>
                                 <td class="px-6 py-4">
                                     <span
                                         class="px-2.5 py-1 rounded-full text-xs font-medium"
@@ -183,7 +171,7 @@
                                         <button
                                             v-if="can('edit_expense')"
                                             @click="openEditModal(item)"
-                                            class="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-all hover:scale-110"
+                                            class="p-2 text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20 rounded-lg transition-all hover:scale-110"
                                             title="Editar"
                                         >
                                             <v-icon name="fa-edit" class="w-4 h-4" />
@@ -207,7 +195,7 @@
             <!-- Mobile Card View -->
             <div class="lg:hidden space-y-4">
                 <div v-if="loading" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 text-center">
-                    <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-blue-500 mx-auto" />
+                    <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-emerald-500 mx-auto" />
                     <span class="block mt-3 text-gray-500 dark:text-gray-400">Cargando gastos...</span>
                 </div>
 
@@ -216,7 +204,7 @@
                         <div class="flex items-start justify-between mb-3">
                             <div>
                                 <p class="text-sm font-medium text-gray-800 dark:text-white">{{ item.category?.name || 'Sin categoría' }}</p>
-                                <p class="text-xs text-gray-500 dark:text-gray-400">{{ item.expense_date }}</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(item.expense_date) }}</p>
                             </div>
                             <span
                                 class="px-2.5 py-1 rounded-full text-xs font-medium"
@@ -235,7 +223,7 @@
                             <button
                                 v-if="can('edit_expense')"
                                 @click="openEditModal(item)"
-                                class="py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
+                                class="py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg
                        transition-colors text-sm font-medium flex items-center justify-center gap-1"
                             >
                                 <v-icon name="fa-edit" class="w-4 h-4" />
@@ -261,7 +249,7 @@
 
             <!-- Paginación -->
             <div v-if="!loading && meta.total"
-                class="mt-4 bg-white dark:bg-gray-800 rounded-xl shadow-md px-4 md:px-6 py-4
+                class="mt-4 bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 px-4 md:px-6 py-4
                        flex flex-col sm:flex-row gap-3 justify-between items-center text-sm">
                 <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400">
                     <span>
@@ -270,7 +258,7 @@
                         de <span class="font-bold text-gray-900 dark:text-white">{{ meta.total }}</span> gastos
                     </span>
                     <select v-model.number="perPage" title="Gastos por página"
-                        class="bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        class="bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500">
                         <option :value="15">15 / pág.</option>
                         <option :value="25">25 / pág.</option>
                         <option :value="50">50 / pág.</option>
@@ -281,7 +269,7 @@
                 <Pagination
                     :current-page="meta.current_page || 1"
                     :total-pages="meta.last_page || 1"
-                    accent="blue"
+                    accent="emerald"
                     @change="goToPage"
                 />
             </div>
@@ -289,7 +277,7 @@
             <!-- Add/Edit Modal -->
             <div v-if="showFormModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="closeFormModal">
                 <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-                    <div class="bg-gradient-to-r from-blue-600 to-blue-700 p-5 text-white sticky top-0 z-10">
+                    <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 text-white sticky top-0 z-10">
                         <div class="flex items-center justify-between">
                             <h3 class="text-lg font-semibold">{{ isEditing ? 'Editar Gasto' : 'Nuevo Gasto' }}</h3>
                             <button @click="closeFormModal" class="p-1 hover:bg-white/20 rounded-lg transition-colors">
@@ -302,14 +290,7 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Fecha *</label>
-                                <input
-                                    v-model="form.expense_date"
-                                    type="date"
-                                    required
-                                    class="date-input w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
-                         bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-                                />
+                                <DatePicker v-model="form.expense_date" accent="emerald" placeholder="Elige la fecha" />
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Monto *</label>
@@ -322,7 +303,7 @@
                                     placeholder="0.00"
                                     class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                         focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                                 />
                             </div>
                             <div>
@@ -331,7 +312,7 @@
                                     v-model="form.expense_category_id"
                                     class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                         focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                                 >
                                     <option value="">Sin categoría</option>
                                     <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
@@ -343,7 +324,7 @@
                                     v-model="form.user_id"
                                     class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                         focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                                 >
                                     <option value="">Ninguno (gasto general)</option>
                                     <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
@@ -358,7 +339,7 @@
                                     placeholder="Descripción breve del gasto..."
                                     class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                         focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                                 />
                             </div>
                             <div class="sm:col-span-2">
@@ -369,7 +350,7 @@
                                     placeholder="Observaciones adicionales (opcional)..."
                                     class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                         focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                                 ></textarea>
                             </div>
                             <div v-if="isEditing">
@@ -378,7 +359,7 @@
                                     v-model="form.status"
                                     class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                         focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                                 >
                                     <option value="activo">Activo</option>
                                     <option value="anulado">Anulado</option>
@@ -399,8 +380,8 @@
                             </button>
                             <button
                                 type="submit"
-                                class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-blue-700
-                       hover:from-blue-700 hover:to-blue-800 text-white rounded-xl
+                                class="flex-1 py-2.5 px-4 bg-gradient-to-br from-emerald-500 to-teal-600
+                       hover:bg-emerald-700 text-white rounded-xl
                        transition-all font-medium shadow-lg disabled:opacity-50"
                                 :disabled="saving"
                             >
@@ -473,6 +454,9 @@ import expenseApi from '@/services/api/expense'
 import expenseCategoryApi from '@/services/api/expense-category'
 import catalogsApi from '@/services/api/catalogs'
 import NotificationToast from '@/components/NotificationToast.vue'
+import DatePicker from '@/components/DatePicker.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import StatCard from '@/components/ui/StatCard.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { usePermissions } from '@/composables/usePermissions'
@@ -518,6 +502,19 @@ const emptyForm = () => ({
 })
 
 const form = ref(emptyForm())
+
+// `expense_date` llega del API como ISO completo (2026-08-06T00:00:00.000000Z).
+// Se recorta la parte de fecha en lugar de pasarla por `new Date()`: en un huso
+// al oeste de UTC —como el de Colombia— convertir a hora local restaría un día y
+// el gasto aparecería fechado el 5 de agosto.
+const isoDate = (value) => (value ? String(value).slice(0, 10) : '')
+
+const formatDate = (value) => {
+    const iso = isoDate(value)
+    if (!iso) return '—'
+    const [y, m, d] = iso.split('-')
+    return `${d}/${m}/${y}`
+}
 
 const formatMoney = (value) => {
     const num = Number(value || 0)
@@ -605,7 +602,9 @@ const loadCategories = async () => {
 
 const loadUsers = async () => {
     try {
-        const { data } = await catalogsApi.getUsers()
+        // Sólo personal del ISP: un gasto va a nombre de un técnico o de un
+        // administrativo, nunca de un cliente.
+        const { data } = await catalogsApi.getUsers({ staff: 1 })
         users.value = data || []
     } catch (error) {
         console.error('Error loading users catalog:', error)
@@ -623,7 +622,7 @@ const openEditModal = (item) => {
     isEditing.value = true
     editingId.value = item.id
     form.value = {
-        expense_date: item.expense_date,
+        expense_date: isoDate(item.expense_date),
         amount: item.amount,
         expense_category_id: item.expense_category_id || '',
         user_id: item.user_id || '',
@@ -651,6 +650,13 @@ const closeVoidModal = () => {
 }
 
 const handleSave = async () => {
+    // El selector de fecha no es un <input required>, así que la obligatoriedad
+    // se comprueba aquí en vez de dejarla sólo al 422 del servidor.
+    if (!form.value.expense_date) {
+        toast.value?.error('Falta la fecha', 'Elige la fecha del gasto para poder guardarlo')
+        return
+    }
+
     saving.value = true
     try {
         const payload = {
@@ -686,7 +692,7 @@ const voidItem = async () => {
     saving.value = true
     try {
         await expenseApi.update(itemToVoid.value.id, {
-            expense_date: itemToVoid.value.expense_date,
+            expense_date: isoDate(itemToVoid.value.expense_date),
             amount: itemToVoid.value.amount,
             expense_category_id: itemToVoid.value.expense_category_id || null,
             user_id: itemToVoid.value.user_id || null,
@@ -731,26 +737,3 @@ onMounted(() => {
     loadUsers()
 })
 </script>
-
-<style scoped>
-/* Native <input type="date"> ignores Tailwind's dark: text color for its
-   internal fields/icon unless color-scheme is set explicitly, leaving a
-   washed-out light widget inside an otherwise dark card. */
-.date-input {
-    color-scheme: light;
-}
-
-.dark .date-input {
-    color-scheme: dark;
-}
-
-.date-input::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    border-radius: 0.25rem;
-    padding: 0.15rem;
-}
-
-.date-input::-webkit-calendar-picker-indicator:hover {
-    background-color: rgba(59, 130, 246, 0.15);
-}
-</style>

@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import billingService from '@/services/billing'
 import api, { apiClient } from '@/services/api'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import DatePicker from '@/components/DatePicker.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const user = ref({})
@@ -205,7 +206,7 @@ onMounted(() => {
                                             <v-icon name="la-dollar-sign-solid" class="h-5 w-5 text-emerald-500" />
                                         </div>
                                         <input v-model="form.amount" type="number" step="0.01"
-                                            class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all font-medium text-xl"
+                                            class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white transition-all font-medium text-xl"
                                             placeholder="0.00" required>
                                     </div>
                                     <!-- Payment type badge -->
@@ -235,7 +236,7 @@ onMounted(() => {
                                 <div>
                                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Fecha de Pago</label>
                                     <div class="relative">
-                                        <input v-model="form.payment_date" type="date" class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all" required>
+                                        <DatePicker v-model="form.payment_date" accent="emerald" />
                                     </div>
                                 </div>
                                 <div>
@@ -244,7 +245,7 @@ onMounted(() => {
                                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                                             <v-icon name="bi-list-task" class="h-5 w-5 text-slate-400" />
                                         </div>
-                                        <input v-model="form.reference" type="text" class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all" placeholder="ID de transacción">
+                                        <input v-model="form.reference" type="text" class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white transition-all" placeholder="ID de transacción">
                                     </div>
                                 </div>
                             </div>
@@ -252,7 +253,7 @@ onMounted(() => {
                             <!-- Notes -->
                             <div>
                                 <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Notas</label>
-                                <textarea v-model="form.notes" rows="3" class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all"></textarea>
+                                <textarea v-model="form.notes" rows="3" class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white transition-all"></textarea>
                             </div>
 
                             <!-- Error message -->
@@ -262,7 +263,7 @@ onMounted(() => {
                             </div>
 
                             <button type="submit" :disabled="loading"
-                                class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-lg rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none disabled:bg-slate-300 dark:disabled:bg-slate-800 flex items-center justify-center gap-2">
+                                class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-lg rounded-2xl transition-all shadow-lg shadow-emerald-500/25 dark:shadow-none disabled:bg-slate-300 dark:disabled:bg-slate-800 flex items-center justify-center gap-2">
                                 <v-icon v-if="loading" name="bi-arrow-repeat" class="w-6 h-6 animate-spin" />
                                 {{ loading ? 'Procesando...' : 'Confirmar Recaudo' }}
                             </button>
@@ -284,7 +285,7 @@ onMounted(() => {
                 <!-- Info Column -->
                 <div class="space-y-6">
                     <!-- Balance Card -->
-                    <div class="bg-indigo-600 p-8 rounded-3xl text-white shadow-2xl shadow-indigo-300 dark:shadow-none">
+                    <div class="bg-emerald-600 p-8 rounded-3xl text-white shadow-2xl shadow-emerald-500/30 dark:shadow-none">
                         <h4 class="text-xs font-medium uppercase tracking-widest opacity-80 mb-1">Saldo Pendiente</h4>
                         <div class="text-4xl font-medium mb-1">${{ Number(netBalance).toLocaleString('es-CO') }}</div>
                         <div v-if="creditBalance > 0" class="flex items-center gap-2 mb-2">
@@ -356,17 +357,17 @@ onMounted(() => {
                         <div>
                             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Nuevo Saldo a Favor</label>
                             <input v-model.number="creditForm.amount" type="number" step="0.01" min="0" required
-                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all" />
+                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all" />
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Razón del ajuste</label>
                             <input v-model="creditForm.reason" type="text" placeholder="Ej: corrección de pago duplicado"
-                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all" />
+                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all" />
                         </div>
                         <div v-if="creditError" class="text-sm text-red-600 dark:text-red-400">{{ creditError }}</div>
                         <div class="flex gap-3 pt-1">
                             <button type="submit" :disabled="creditSubmitting"
-                                class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition disabled:opacity-50">
+                                class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-2xl transition disabled:opacity-50">
                                 {{ creditSubmitting ? 'Guardando...' : 'Guardar' }}
                             </button>
                             <button type="button" @click="showCreditModal = false"

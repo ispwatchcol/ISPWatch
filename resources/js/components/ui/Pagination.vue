@@ -13,7 +13,7 @@ const props = defineProps({
     totalPages: { type: Number, required: true },
     siblingCount: { type: Number, default: 1 },
     boundaryCount: { type: Number, default: 1 },
-    accent: { type: String, default: 'blue' }, // 'blue' | 'indigo'
+    accent: { type: String, default: 'blue' }, // 'blue' | 'indigo' | 'emerald'
 })
 
 const emit = defineEmits(['change'])
@@ -53,10 +53,13 @@ const pages = computed(() => {
     ]
 })
 
-const accentClasses = computed(() => props.accent === 'indigo'
-    ? 'bg-indigo-600 text-white border-indigo-600'
-    : 'bg-blue-600 text-white border-blue-600'
-)
+const ACCENTS = {
+    indigo:  'bg-indigo-600 text-white border-indigo-600',
+    emerald: 'bg-emerald-600 text-white border-emerald-600',
+    blue:    'bg-blue-600 text-white border-blue-600',
+}
+
+const accentClasses = computed(() => ACCENTS[props.accent] ?? ACCENTS.blue)
 
 const goTo = (page) => {
     if (page < 1 || page > props.totalPages || page === props.currentPage) return

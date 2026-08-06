@@ -2,8 +2,11 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import billingService from '@/services/billing'
 import { apiClient } from '@/services/api'
+import DatePicker from '@/components/DatePicker.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import Pagination from '@/components/ui/Pagination.vue'
+import StatCard from '@/components/ui/StatCard.vue'
 import { customerDisplayName } from '@/utils/customerName'
 import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
@@ -48,8 +51,8 @@ const activeFilterCount = computed(
 
 // Estilo compartido por los minibuscadores de la cabecera y por su equivalente
 // en el panel de móvil.
-const columnInputClass = 'w-full text-xs font-normal normal-case bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-md border border-slate-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-400'
-const panelInputClass  = 'w-full bg-slate-50 dark:bg-gray-900 border-none rounded-xl px-3 py-2 text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500'
+const columnInputClass = 'w-full text-xs font-normal normal-case bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-md border border-slate-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-400'
+const panelInputClass  = 'w-full bg-slate-50 dark:bg-gray-900 border-none rounded-xl px-3 py-2 text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500'
 
 // ── Edit modal ────────────────────────────────────────────────────────────────
 const showEditModal  = ref(false)
@@ -284,26 +287,31 @@ const confirmDelete = async () => {
     <div class="p-6 min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300 min-w-0">
 
         <!-- Header -->
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-            <div>
-                <h1 class="text-3xl font-medium text-slate-900 dark:text-white tracking-tight">Recaudos</h1>
-                <p class="text-slate-500 dark:text-slate-400 mt-1">Historial de pagos recibidos de los clientes.</p>
-            </div>
-            <div class="flex flex-wrap gap-3">
+        <PageHeader
+            title="Recaudos"
+            subtitle="Pagos recibidos, con qué método entraron y qué facturas cubren."
+            icon="md-payments-outlined"
+        >
+            <template #actions>
                 <button @click="exportCsv" :disabled="exporting"
                     title="Exporta todos los recaudos del filtro actual, no sólo esta página"
-                    class="inline-flex items-center px-4 py-3 bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 font-medium rounded-2xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    class="inline-flex items-center px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
+                           bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
+                           dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700
+                           disabled:opacity-50 disabled:cursor-not-allowed">
                     <v-icon v-if="!exporting" name="md-download" class="w-5 h-5 mr-2" />
                     <v-icon v-else name="bi-arrow-repeat" class="w-5 h-5 mr-2 animate-spin" />
-                    {{ exporting ? 'Exportando...' : 'Exportar CSV' }}
+                    {{ exporting ? 'Exportando…' : 'Exportar CSV' }}
                 </button>
                 <button @click="$router.push('/billing/payments/new')"
-                    class="inline-flex items-center px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none">
-                    <v-icon name="md-add" class="w-6 h-6 mr-2" />
-                    Registrar Recaudo
+                    class="inline-flex items-center px-5 py-2.5 rounded-2xl font-semibold text-white transition-all
+                           bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 dark:shadow-none
+                           hover:scale-[1.02] active:scale-[0.98] motion-reduce:hover:scale-100">
+                    <v-icon name="md-add" class="w-5 h-5 mr-2" />
+                    Registrar recaudo
                 </button>
-            </div>
-        </div>
+            </template>
+        </PageHeader>
 
         <!-- Búsqueda general. Los filtros por columna viven bajo cada título de
              la tabla; en móvil, donde no hay tabla, se despliegan aquí. -->
@@ -312,18 +320,18 @@ const confirmDelete = async () => {
                 <div class="relative flex-1 min-w-[200px]">
                     <v-icon name="md-search" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input v-model="filters.search" type="text" placeholder="Buscar por cliente o referencia..."
-                        class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+                        class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all">
                 </div>
 
                 <button type="button" @click="showFilters = !showFilters"
                     class="md:hidden inline-flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all"
                     :class="showFilters || activeFilterCount
-                        ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
                         : 'bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-gray-900 dark:text-slate-300 dark:hover:bg-gray-700'">
                     <v-icon name="md-filterlist" class="w-5 h-5" />
                     Filtros
                     <span v-if="activeFilterCount"
-                        class="min-w-[1.25rem] h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-indigo-600 text-white text-[11px] font-semibold">
+                        class="min-w-[1.25rem] h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-emerald-600 text-white text-[11px] font-semibold">
                         {{ activeFilterCount }}
                     </span>
                 </button>
@@ -340,11 +348,11 @@ const confirmDelete = async () => {
                 class="md:hidden grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200 dark:border-gray-700">
                 <div>
                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Fecha desde</label>
-                    <input v-model="filters.date_from" type="date" :class="panelInputClass">
+                    <DatePicker v-model="filters.date_from" accent="emerald" placeholder="Sin límite" />
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Fecha hasta</label>
-                    <input v-model="filters.date_to" type="date" :class="panelInputClass">
+                    <DatePicker v-model="filters.date_to" accent="emerald" placeholder="Sin límite" />
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Cliente</label>
@@ -381,17 +389,15 @@ const confirmDelete = async () => {
         </div>
 
         <!-- Total del filtro completo (no de la página visible) -->
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-5 mb-6
-                    flex flex-wrap items-center justify-between gap-3">
-            <div>
-                <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    Total recaudado
-                </p>
-                <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">${{ fmt(summary.total) }}</p>
-            </div>
-            <p class="text-xs text-slate-400 dark:text-slate-500">
-                {{ summary.count }} recaudo(s) con los filtros actuales
-            </p>
+        <div class="mb-6">
+            <StatCard
+                label="Total recaudado"
+                :value="`$${fmt(summary.total)}`"
+                :hint="`${summary.count} recaudo(s) con los filtros actuales`"
+                icon="md-payments-outlined"
+                tone="emerald"
+                value-tone="emerald"
+            />
         </div>
 
         <!-- Table / Cards -->
@@ -400,8 +406,8 @@ const confirmDelete = async () => {
             <!-- Refresco: los datos anteriores siguen visibles, sólo atenuados.
                  Vaciar la tabla en cada tecla hacía que todo pareciera lento. -->
             <div v-if="refreshing && !loading"
-                class="absolute top-0 left-0 right-0 h-0.5 bg-indigo-500/30 overflow-hidden z-10">
-                <div class="h-full w-1/3 bg-indigo-500 loading-bar"></div>
+                class="absolute top-0 left-0 right-0 h-0.5 bg-emerald-500/30 overflow-hidden z-10">
+                <div class="h-full w-1/3 bg-emerald-500 loading-bar"></div>
             </div>
 
             <!-- Desktop Table -->
@@ -411,23 +417,23 @@ const confirmDelete = async () => {
                     <thead>
                         <tr class="bg-slate-50/50 dark:bg-gray-900/50">
                             <th class="px-4 pt-4 pb-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                <button type="button" @click="toggleSort('payment_date')" class="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                                <button type="button" @click="toggleSort('payment_date')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                     Fecha <span class="text-[10px]">{{ sortIndicator('payment_date') }}</span>
                                 </button>
                             </th>
                             <th class="px-4 pt-4 pb-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
                             <th class="px-4 pt-4 pb-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">
-                                <button type="button" @click="toggleSort('amount')" class="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                                <button type="button" @click="toggleSort('amount')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                     Monto <span class="text-[10px]">{{ sortIndicator('amount') }}</span>
                                 </button>
                             </th>
                             <th class="px-4 pt-4 pb-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">
-                                <button type="button" @click="toggleSort('method')" class="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                                <button type="button" @click="toggleSort('method')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                     Método <span class="text-[10px]">{{ sortIndicator('method') }}</span>
                                 </button>
                             </th>
                             <th class="px-4 pt-4 pb-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                <button type="button" @click="toggleSort('reference')" class="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                                <button type="button" @click="toggleSort('reference')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                     Referencia <span class="text-[10px]">{{ sortIndicator('reference') }}</span>
                                 </button>
                             </th>
@@ -482,7 +488,7 @@ const confirmDelete = async () => {
                             </th>
                             <th class="px-4 pb-3 pt-0 align-top text-center">
                                 <button v-if="activeFilterCount" type="button" @click="clearFilters"
-                                    class="text-xs font-normal normal-case text-indigo-600 dark:text-indigo-400 hover:underline">
+                                    class="text-xs font-normal normal-case text-emerald-600 dark:text-emerald-400 hover:underline">
                                     Limpiar
                                 </button>
                             </th>
@@ -508,7 +514,7 @@ const confirmDelete = async () => {
                                     {{ activeFilterCount ? 'Ningún recaudo coincide con los filtros aplicados.' : 'No hay registros de recaudos.' }}
                                 </p>
                                 <button v-if="activeFilterCount" type="button" @click="clearFilters"
-                                    class="mt-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                                    class="mt-3 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline">
                                     Limpiar filtros
                                 </button>
                             </td>
@@ -516,13 +522,13 @@ const confirmDelete = async () => {
 
                         <tr v-else v-for="payment in payments.data" :key="payment.id"
                             class="hover:bg-slate-50/80 dark:hover:bg-gray-700/50 transition-colors">
-                            <td class="px-4 py-4 text-slate-600 dark:text-slate-400 font-mono text-sm">
+                            <td class="px-4 py-4 text-slate-600 dark:text-slate-400 font-mono tabular-nums text-sm">
                                 {{ String(payment.payment_date).split('T')[0] }}
                             </td>
                             <td class="px-4 py-4">
                                 <div class="font-medium text-slate-900 dark:text-white">{{ customerName(payment) }}</div>
                             </td>
-                            <td class="px-4 py-4 text-right font-medium text-emerald-600 dark:text-emerald-400">
+                            <td class="px-4 py-4 text-right font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                                 ${{ fmt(payment.amount) }}
                             </td>
                             <td class="px-4 py-4 text-center">
@@ -555,7 +561,7 @@ const confirmDelete = async () => {
                             <td class="px-4 py-4">
                                 <div class="flex items-center justify-center gap-2">
                                     <button @click="openEdit(payment)"
-                                        class="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition"
+                                        class="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition"
                                         title="Editar">
                                         <v-icon name="md-edit" class="w-4 h-4" />
                                     </button>
@@ -588,7 +594,7 @@ const confirmDelete = async () => {
                         {{ activeFilterCount ? 'Ningún recaudo coincide con los filtros aplicados.' : 'No hay registros de recaudos.' }}
                     </p>
                     <button v-if="activeFilterCount" type="button" @click="clearFilters"
-                        class="mt-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                        class="mt-3 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline">
                         Limpiar filtros
                     </button>
                 </div>
@@ -623,7 +629,7 @@ const confirmDelete = async () => {
 
                     <div class="flex gap-2 pt-3 border-t border-slate-100 dark:border-gray-700">
                         <button @click="openEdit(payment)"
-                            class="flex-1 py-2 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/30 transition flex items-center justify-center gap-1.5">
+                            class="flex-1 py-2 rounded-lg text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/30 transition flex items-center justify-center gap-1.5">
                             <v-icon name="md-edit" class="w-3.5 h-3.5" /> Editar
                         </button>
                         <button @click="openDelete(payment)"
@@ -644,7 +650,7 @@ const confirmDelete = async () => {
                         de <span class="font-bold text-slate-900 dark:text-white">{{ payments.total }}</span> recaudos
                     </span>
                     <select v-model.number="perPage" title="Recaudos por página"
-                        class="bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 text-xs px-2 py-1.5 rounded-md border border-slate-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        class="bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 text-xs px-2 py-1.5 rounded-md border border-slate-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500">
                         <option :value="15">15 / pág.</option>
                         <option :value="25">25 / pág.</option>
                         <option :value="50">50 / pág.</option>
@@ -655,7 +661,7 @@ const confirmDelete = async () => {
                 <Pagination
                     :current-page="payments.current_page || 1"
                     :total-pages="payments.last_page || 1"
-                    accent="indigo"
+                    accent="emerald"
                     @change="goToPage"
                 />
             </div>
@@ -681,7 +687,7 @@ const confirmDelete = async () => {
                         <div>
                             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Monto</label>
                             <input v-model.number="editForm.amount" type="number" step="0.01" min="0.01" required
-                                class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                             <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">
                                 Cambiar el monto re-aplica el pago a las facturas automáticamente.
                             </p>
@@ -690,13 +696,12 @@ const confirmDelete = async () => {
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Fecha</label>
-                                <input v-model="editForm.payment_date" type="date" required
-                                    class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                <DatePicker v-model="editForm.payment_date" accent="emerald" />
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Método</label>
                                 <select v-model="editForm.method"
-                                    class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
                                     <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
                                 </select>
                             </div>
@@ -705,21 +710,21 @@ const confirmDelete = async () => {
                         <div>
                             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Referencia</label>
                             <input v-model="editForm.reference" type="text"
-                                class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 placeholder="No. comprobante / transacción" />
                         </div>
 
                         <div>
                             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Notas</label>
                             <textarea v-model="editForm.notes" rows="2"
-                                class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
                         </div>
 
                         <p v-if="editError" class="text-sm text-rose-600 dark:text-rose-400">{{ editError }}</p>
 
                         <div class="flex gap-3 pt-1">
                             <button type="submit" :disabled="editSaving"
-                                class="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white py-2.5 rounded-xl font-medium transition">
+                                class="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-2.5 rounded-xl font-medium transition">
                                 {{ editSaving ? 'Guardando...' : 'Guardar Cambios' }}
                             </button>
                             <button type="button" @click="showEditModal = false"

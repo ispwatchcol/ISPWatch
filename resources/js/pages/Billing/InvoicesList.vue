@@ -3,9 +3,13 @@ import { ref, onMounted, watch, computed } from 'vue'
 import billingService from '@/services/billing'
 import api from '@/services/api'
 import { useRouter } from 'vue-router'
+import DatePicker from '@/components/DatePicker.vue'
+import MonthPicker from '@/components/MonthPicker.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import Pagination from '@/components/ui/Pagination.vue'
+import StatCard from '@/components/ui/StatCard.vue'
 import { customerDisplayName } from '@/utils/customerName'
 import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { invoiceTypeLabel, invoiceTypeColor, activeInvoiceTypes, invoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
@@ -333,30 +337,38 @@ const sendBulkReminders = async () => {
 <template>
     <div class="p-6 min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
         <!-- Header Section -->
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-            <div>
-                <h1 class="text-3xl font-medium text-slate-900 dark:text-white tracking-tight">Facturación</h1>
-                <p class="text-slate-500 dark:text-slate-400 mt-1">Gestione sus facturas y cobros de manera eficiente.</p>
-            </div>
-            
-            <div class="flex gap-3">
+        <PageHeader
+            title="Facturación"
+            subtitle="Facturas emitidas, su estado de pago y el saldo por cobrar."
+            icon="la-money-bill-wave-solid"
+        >
+            <template #actions>
                 <button @click="exportCsv" :disabled="exporting"
                     title="Exporta todas las facturas del filtro actual, no sólo esta página"
-                    class="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 font-medium rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    class="inline-flex items-center px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
+                           bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
+                           dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700
+                           disabled:opacity-50 disabled:cursor-not-allowed">
                     <v-icon v-if="!exporting" name="md-download" class="w-5 h-5 mr-2" />
                     <v-icon v-else name="bi-arrow-repeat" class="w-5 h-5 mr-2 animate-spin" />
-                    {{ exporting ? 'Exportando...' : 'Exportar CSV' }}
+                    {{ exporting ? 'Exportando…' : 'Exportar CSV' }}
                 </button>
-                <button @click="showCreateModal = true" class="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 font-medium rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all shadow-sm">
+                <button @click="showCreateModal = true"
+                    class="inline-flex items-center px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
+                           bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
+                           dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700">
                     <v-icon name="md-add" class="w-5 h-5 mr-2" />
-                    Nueva Factura
+                    Nueva factura
                 </button>
-                <button @click="$router.push('/billing/payments/new')" class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg shadow-indigo-200 dark:shadow-none transform hover:-translate-y-0.5">
+                <button @click="$router.push('/billing/payments/new')"
+                    class="inline-flex items-center px-5 py-2.5 rounded-2xl font-semibold text-white transition-all
+                           bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 dark:shadow-none
+                           hover:scale-[1.02] active:scale-[0.98] motion-reduce:hover:scale-100">
                     <v-icon name="md-payments-outlined" class="w-5 h-5 mr-2" />
-                    Registrar Pago
+                    Registrar pago
                 </button>
-            </div>
-        </div>
+            </template>
+        </PageHeader>
 
         <!-- Filters Section -->
         <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-4 mb-6">
@@ -364,13 +376,13 @@ const sendBulkReminders = async () => {
                 <div class="relative flex-1 min-w-[200px]">
                     <v-icon name="md-search" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input v-model="filters.search" type="text" placeholder="Buscar por cliente o número..." 
-                        class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all">
+                        class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white transition-all">
                 </div>
                 
                 <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex items-center gap-2">
                         <v-icon name="bi-filter" class="w-5 h-5 text-slate-400" />
-                        <select v-model="filters.status" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
+                        <select v-model="filters.status" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white py-2 px-4 transition-all">
                             <option value="">Todos los Estados</option>
                             <option value="issued">Emitidas</option>
                             <option value="partial">Pago Parcial</option>
@@ -380,16 +392,20 @@ const sendBulkReminders = async () => {
                         </select>
                     </div>
 
-                    <select v-model="filters.invoice_type" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all">
+                    <select v-model="filters.invoice_type" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white py-2 px-4 transition-all">
                         <option value="">Todos los Tipos</option>
                         <!-- Incluye los inactivos: siguen existiendo facturas viejas con ese tipo. -->
                         <option v-for="t in allTypeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
                     </select>
 
-                    <input v-model="filters.period" type="month"
-                        :disabled="!!(filters.search && filters.search.trim())"
-                        :title="filters.search && filters.search.trim() ? 'Mientras buscas, se muestran facturas de todos los meses' : ''"
-                        class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white py-2 px-4 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                    <div class="w-52"
+                        :title="filters.search && filters.search.trim() ? 'Mientras buscas, se muestran facturas de todos los meses' : ''">
+                        <MonthPicker
+                            v-model="filters.period"
+                            :disabled="!!(filters.search && filters.search.trim())"
+                            placeholder="Todos los meses"
+                        />
+                    </div>
                     
                     <button @click="fetchInvoices" class="p-2 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 rounded-xl transition-colors">
                         <v-icon name="bi-filter" class="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -401,7 +417,7 @@ const sendBulkReminders = async () => {
                         :class="[
                             'inline-flex items-center px-4 py-2 rounded-xl font-medium transition-all',
                             selectedInvoices.length > 0 
-                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-200 dark:shadow-none' 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/50 dark:hover:bg-emerald-900/30'
                                 : 'bg-slate-200 dark:bg-gray-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                         ]">
                         <v-icon v-if="!sendingBulkReminder" name="md-notificationsactive-outlined" class="w-5 h-5 mr-2" />
@@ -414,30 +430,22 @@ const sendBulkReminders = async () => {
         </div>
 
         <!-- Totales del filtro completo (no de la página visible) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-5">
-                <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    Total facturado
-                </p>
-                <p class="text-2xl font-bold text-slate-900 dark:text-white">${{ fmtMoney(summary.total) }}</p>
-                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                    {{ summary.count }} factura(s) · anuladas excluidas
-                </p>
-            </div>
-            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 p-5">
-                <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                    Saldo pendiente
-                </p>
-                <p class="text-2xl font-bold"
-                    :class="Number(summary.balance_due) > 0
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : 'text-emerald-600 dark:text-emerald-400'">
-                    ${{ fmtMoney(summary.balance_due) }}
-                </p>
-                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                    Lo que falta por cobrar de estas facturas
-                </p>
-            </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+            <StatCard
+                label="Total facturado"
+                :value="`$${fmtMoney(summary.total)}`"
+                :hint="`${summary.count} factura(s) · las anuladas no se suman`"
+                icon="la-money-bill-wave-solid"
+                tone="emerald"
+            />
+            <StatCard
+                label="Saldo pendiente"
+                :value="`$${fmtMoney(summary.balance_due)}`"
+                hint="Lo que falta por cobrar de estas facturas"
+                icon="md-trendingdown"
+                :tone="Number(summary.balance_due) > 0 ? 'rose' : 'emerald'"
+                :value-tone="Number(summary.balance_due) > 0 ? 'rose' : 'emerald'"
+            />
         </div>
 
         <!-- Main Table Section -->
@@ -446,8 +454,8 @@ const sendBulkReminders = async () => {
             <!-- Refresco: los datos anteriores siguen visibles, sólo atenuados.
                  Vaciar la tabla en cada tecla hacía que todo pareciera lento. -->
             <div v-if="refreshing && !loading"
-                class="absolute top-0 left-0 right-0 h-0.5 bg-indigo-500/30 overflow-hidden z-10">
-                <div class="h-full w-1/3 bg-indigo-500 loading-bar"></div>
+                class="absolute top-0 left-0 right-0 h-0.5 bg-emerald-500/30 overflow-hidden z-10">
+                <div class="h-full w-1/3 bg-emerald-500 loading-bar"></div>
             </div>
 
             <div class="overflow-x-auto transition-opacity duration-150"
@@ -461,8 +469,8 @@ const sendBulkReminders = async () => {
                                     :class="[
                                         'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200',
                                         allSelected 
-                                            ? 'bg-indigo-600 border-indigo-600 text-white' 
-                                            : 'border-slate-400 dark:border-gray-500 hover:border-indigo-500 dark:hover:border-indigo-400'
+                                            ? 'bg-emerald-600 border-emerald-600 text-white' 
+                                            : 'border-slate-400 dark:border-gray-500 hover:border-emerald-500 dark:hover:border-emerald-400'
                                     ]">
                                     <v-icon v-if="allSelected" name="md-check" class="w-3 h-3" />
                                 </button>
@@ -481,7 +489,7 @@ const sendBulkReminders = async () => {
                         <tr v-if="loading">
                             <td colspan="9" class="px-6 py-20 text-center">
                                 <div class="flex flex-col items-center justify-center">
-                                    <v-icon name="bi-arrow-repeat" class="w-10 h-10 text-indigo-500 animate-spin mb-4" />
+                                    <v-icon name="bi-arrow-repeat" class="w-10 h-10 text-emerald-500 animate-spin mb-4" />
                                     <p class="text-slate-500 dark:text-slate-400 font-medium animate-pulse">Cargando facturas...</p>
                                 </div>
                             </td>
@@ -501,14 +509,14 @@ const sendBulkReminders = async () => {
                                     :class="[
                                         'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200',
                                         selectedInvoices.includes(invoice.id) 
-                                            ? 'bg-indigo-600 border-indigo-600 text-white' 
-                                            : 'border-slate-400 dark:border-gray-500 hover:border-indigo-500 dark:hover:border-indigo-400'
+                                            ? 'bg-emerald-600 border-emerald-600 text-white' 
+                                            : 'border-slate-400 dark:border-gray-500 hover:border-emerald-500 dark:hover:border-emerald-400'
                                     ]">
                                     <v-icon v-if="selectedInvoices.includes(invoice.id)" name="md-check" class="w-3 h-3" />
                                 </button>
                                 <span v-else class="w-5 h-5 flex items-center justify-center text-slate-300 dark:text-slate-600">—</span>
                             </td>
-                            <td class="px-6 py-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">#{{ invoice.number }}</td>
+                            <td class="px-6 py-4 font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">#{{ invoice.number }}</td>
                             <td class="px-6 py-4">
                                 <div class="font-semibold text-slate-900 dark:text-white">
                                     {{ customerDisplayName(invoice.customer) }}
@@ -520,11 +528,11 @@ const sendBulkReminders = async () => {
                                     {{ getInvoiceTypeLabel(invoice.invoice_type) }}
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
+                            <td class="px-6 py-4 text-right font-semibold tabular-nums text-slate-900 dark:text-white">
                                 ${{ Number(invoice.total).toLocaleString() }}
                             </td>
                             <td class="px-6 py-4 text-right">
-                                <span :class="Number(invoice.balance_due) > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'" class="dark:text-slate-300">
+                                <span :class="Number(invoice.balance_due) > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400 dark:text-slate-500'" class="tabular-nums">
                                     ${{ Number(invoice.balance_due).toLocaleString() }}
                                 </span>
                                 <!-- Arrastre por abono parcial: la factura está pagada, pero
@@ -532,7 +540,7 @@ const sendBulkReminders = async () => {
                                 <div v-if="Number(invoice.carried_out) > 0" class="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 whitespace-nowrap">
                                     ↷ ${{ Number(invoice.carried_out).toLocaleString() }} a la próxima
                                 </div>
-                                <div v-if="Number(invoice.carried_in) > 0" class="text-[11px] text-indigo-500 dark:text-indigo-400 mt-0.5 whitespace-nowrap">
+                                <div v-if="Number(invoice.carried_in) > 0" class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 whitespace-nowrap">
                                     incluye ${{ Number(invoice.carried_in).toLocaleString() }} de saldo anterior
                                 </div>
                             </td>
@@ -547,7 +555,7 @@ const sendBulkReminders = async () => {
                             <td class="px-6 py-4">
                                 <div class="flex justify-center gap-2">
                                     <button @click="$router.push(`/billing/invoices/${invoice.id}`)"
-                                        class="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors" title="Ver Detalle">
+                                        class="p-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors" title="Ver Detalle">
                                         <v-icon name="fa-eye" class="w-5 h-5" />
                                     </button>
                                     <button @click="$router.push(`/billing/invoices/${invoice.id}/edit`)"
@@ -582,7 +590,7 @@ const sendBulkReminders = async () => {
                 <Pagination
                     :current-page="invoices.current_page || 1"
                     :total-pages="invoices.last_page || 1"
-                    accent="indigo"
+                    accent="emerald"
                     @change="goToPage"
                 />
             </div>
@@ -618,12 +626,12 @@ const sendBulkReminders = async () => {
                         <div>
                             <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Tipo de Factura</label>
                             <select v-model="newInvoice.invoice_type" required
-                                class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white">
+                                class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-emerald-500 dark:text-white">
                                 <option v-for="t in typeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
                             </select>
                             <p class="text-[11px] text-slate-400 mt-1.5 px-2">
                                 ¿Falta un tipo (equipos, TV, reconexión…)?
-                                <button type="button" @click="router.push('/billing/invoice-types')" class="text-indigo-500 hover:underline">Administrar tipos</button>
+                                <button type="button" @click="router.push('/billing/invoice-types')" class="text-emerald-600 hover:underline">Administrar tipos</button>
                             </p>
                         </div>
 
@@ -635,7 +643,7 @@ const sendBulkReminders = async () => {
                                     <v-icon name="la-dollar-sign-solid" class="h-5 w-5 text-emerald-500" />
                                 </div>
                                 <input type="number" v-model.number="newInvoice.total" min="0" step="0.01" required
-                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 pl-11 pr-4 focus:ring-2 focus:ring-indigo-500 dark:text-white font-medium text-lg"
+                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 pl-11 pr-4 focus:ring-2 focus:ring-emerald-500 dark:text-white font-medium text-lg"
                                     placeholder="0">
                             </div>
                         </div>
@@ -643,32 +651,28 @@ const sendBulkReminders = async () => {
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">F. Emisión</label>
-                                <input type="date" v-model="newInvoice.issue_date" required
-                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white">
+                                <DatePicker v-model="newInvoice.issue_date" accent="emerald" />
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">F. Vencimiento</label>
-                                <input type="date" v-model="newInvoice.due_date" required
-                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white">
+                                <DatePicker v-model="newInvoice.due_date" accent="emerald" />
                             </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Inicio Periodo</label>
-                                <input type="date" v-model="newInvoice.period_start" required
-                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white">
+                                <DatePicker v-model="newInvoice.period_start" accent="emerald" />
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Fin Periodo</label>
-                                <input type="date" v-model="newInvoice.period_end" required
-                                    class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-indigo-500 dark:text-white">
+                                <DatePicker v-model="newInvoice.period_end" accent="emerald" />
                             </div>
                         </div>
 
                         <div class="pt-4">
                             <button type="submit" 
-                                class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none translate-y-0 active:translate-y-1">
+                                class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-emerald-500/25 dark:shadow-none translate-y-0 active:translate-y-1">
                                 Crear Factura y Abrir Detalle
                             </button>
                         </div>

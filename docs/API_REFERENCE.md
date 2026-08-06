@@ -861,7 +861,7 @@ cada hora.
 | Campo | Reglas |
 |---|---|
 | `expense_category_id` | existe en `expense_categories` |
-| `user_id` | existe en `users` (beneficiario; puede ser nulo: arriendo, servicios…) |
+| `user_id` | existe en `users` (beneficiario; puede ser nulo: arriendo, servicios…). El formulario lo llena desde `GET /api/catalogs/users?staff=1`, que excluye a los clientes |
 | `expense_date` | **requerido**, fecha |
 | `amount` | **requerido**, numérico ≥ 0 |
 | `description` | máx. 255 |
@@ -1012,6 +1012,15 @@ front y API comparten origen, donde la restricción no aplica.
 | `GET` | `/api/catalogs/users` |
 
 Reemplazan las lecturas directas del frontend a Supabase.
+
+**`GET /api/catalogs/users`** devuelve `id` + `name` de los usuarios del tenant.
+Con **`?staff=1`** excluye a los clientes y deja sólo al personal del ISP — es lo
+que usa el campo "A nombre de quién" de un gasto.
+
+> El filtro es *ausencia de `customer_profile`*, **no** presencia de
+> `staff_profile`: esa tabla está vacía en producción, así que filtrar por ella
+> devolvería una lista vacía. Sin el parámetro, la respuesta sigue incluyendo a
+> todos (el catálogo de inventario depende de ese comportamiento).
 
 ### Centro de ayuda
 

@@ -775,11 +775,16 @@ que ya estaban mal marcados siguen navegando aunque el router ya esté bien conf
 
 **Finanzas → Gastos.**
 
+> Las **categorías de gasto** ahora se ven como tarjetas en lugar de una tabla
+> (*Finanzas → Categorías de gasto*): cada tarjeta muestra el concepto con sus
+> botones de editar y eliminar. Es el mismo formato que *Formas de pago*.
+
 1. Pulsa **Nuevo gasto**.
 2. Elige la **categoría** (puedes crearlas en *Categorías de gasto*).
 3. Indica **fecha** y **monto**.
 4. Opcional: **beneficiario** (el empleado o técnico a cuyo nombre va el gasto; déjalo vacío
-   en gastos como arriendo o servicios públicos).
+   en gastos como arriendo o servicios públicos). La lista muestra **sólo personal del ISP**:
+   los clientes no aparecen ahí.
 5. Añade descripción y notas.
 
 > **Los gastos no se borran.** Si te equivocaste, edítalo y cámbialo a estado **anulado**.

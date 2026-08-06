@@ -12,7 +12,8 @@ export default {
     getTypeBillings() {
         return apiClient.get('/catalogs/type-billings')
     },
-    getUsers() {
-        return apiClient.get('/catalogs/users')
+    // `{ staff: 1 }` deja fuera a los clientes: sólo personas del ISP.
+    getUsers(params = {}) {
+        return apiClient.get('/catalogs/users', { params })
     },
 }

@@ -1,25 +1,30 @@
 <template>
-    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+    <div class="min-h-screen bg-slate-50 dark:bg-gray-900 p-6 transition-colors duration-300">
         <NotificationToast ref="toast" />
 
         <div class="max-w-4xl mx-auto">
             <!-- Header -->
-            <div class="mb-6 flex justify-between items-center">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">Servicios Adicionales</h1>
-                    <p class="text-gray-500 dark:text-gray-400 mt-1">Genera cargos adicionales para clientes fuera del ciclo de facturación regular.</p>
-                </div>
-                <button @click="router.push('/billing/invoices')" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition flex items-center gap-2">
-                    <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
-                    Volver
-                </button>
-            </div>
+            <PageHeader
+                title="Servicios adicionales"
+                subtitle="Cobra algo puntual a un cliente fuera de la factura del mes."
+                icon="bi-plus-circle"
+            >
+                <template #actions>
+                    <button @click="router.push('/billing/invoices')"
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
+                               bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
+                               dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700">
+                        <v-icon name="ri-arrow-go-back-line" class="w-4 h-4" />
+                        Volver a facturación
+                    </button>
+                </template>
+            </PageHeader>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Formulario -->
                 <div class="lg:col-span-2 space-y-6">
                     <!-- Cliente y tipo -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 space-y-5">
+                    <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 p-6 space-y-5">
                         <div>
                             <h2 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Cliente</h2>
                             <SearchableSelect
@@ -39,21 +44,21 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de factura</label>
                             <select v-model="form.invoice_type"
-                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
                                 <option v-for="t in typeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
                             </select>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                 ¿Falta un tipo?
-                                <button type="button" @click="router.push('/billing/invoice-types')" class="text-blue-600 dark:text-blue-400 hover:underline">Administrar tipos de factura</button>
+                                <button type="button" @click="router.push('/billing/invoice-types')" class="text-emerald-600 dark:text-emerald-400 hover:underline">Administrar tipos de factura</button>
                             </p>
                         </div>
                     </div>
 
                     <!-- Ítems -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                    <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 p-6">
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-lg font-bold text-gray-800 dark:text-white">Ítems del Cargo</h2>
-                            <button @click="addItem" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg flex items-center gap-1">
+                            <button @click="addItem" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg flex items-center gap-1">
                                 <v-icon name="md-add" class="w-4 h-4" />
                                 Agregar ítem
                             </button>
@@ -68,7 +73,7 @@
                                             v-model="item.description"
                                             type="text"
                                             placeholder="Ej: Mantenimiento de equipo"
-                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div>
@@ -78,7 +83,7 @@
                                             type="number"
                                             min="0.01"
                                             step="0.01"
-                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div>
@@ -89,7 +94,7 @@
                                             min="0"
                                             step="1"
                                             onwheel="this.blur()"
-                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">= {{ formatCurrency(item.unit_price) }}</p>
                                     </div>
@@ -99,12 +104,12 @@
                                             v-model="item.type"
                                             type="text"
                                             placeholder="Ej: servicio, equipo"
-                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div class="flex items-center justify-between">
                                         <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                            Subtotal: <span class="text-blue-600 dark:text-blue-400">{{ formatCurrency(item.quantity * item.unit_price) }}</span>
+                                            Subtotal: <span class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(item.quantity * item.unit_price) }}</span>
                                         </span>
                                         <button
                                             v-if="form.items.length > 1"
@@ -120,16 +125,12 @@
                     </div>
 
                     <!-- Detalles adicionales -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                    <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 p-6">
                         <h2 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Detalles</h2>
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fecha de vencimiento</label>
-                                <input
-                                    v-model="form.due_date"
-                                    type="date"
-                                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
+                                <DatePicker v-model="form.due_date" accent="emerald" />
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notas</label>
@@ -137,7 +138,7 @@
                                     v-model="form.notes"
                                     rows="3"
                                     placeholder="Descripción general del cargo..."
-                                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 ></textarea>
                             </div>
                         </div>
@@ -146,7 +147,7 @@
                     <button
                         @click="submitCharge"
                         :disabled="submitting || !isFormValid"
-                        class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition disabled:opacity-50"
+                        class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl transition-all shadow-lg shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <span v-if="!submitting">Generar Cargo Adicional</span>
                         <span v-else>Generando...</span>
@@ -155,10 +156,10 @@
 
                 <!-- Panel lateral: resumen -->
                 <div class="space-y-6">
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 sticky top-6">
+                    <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 p-6 sticky top-6">
                         <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Resumen</h3>
 
-                        <div v-if="form.customer_id" class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <div v-if="form.customer_id" class="mb-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Cliente seleccionado</p>
                             <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ selectedCustomerName }}</p>
                         </div>
@@ -172,7 +173,7 @@
 
                         <div class="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between font-bold">
                             <span class="text-gray-800 dark:text-white">Total</span>
-                            <span class="text-blue-600 dark:text-blue-400 text-lg">{{ formatCurrency(total) }}</span>
+                            <span class="text-emerald-600 dark:text-emerald-400 text-lg">{{ formatCurrency(total) }}</span>
                         </div>
 
                         <div v-if="form.due_date" class="mt-3 text-xs text-gray-500 dark:text-gray-400">
@@ -190,7 +191,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import billingService from '@/services/billing'
 import api from '@/services/api'
+import DatePicker from '@/components/DatePicker.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import { activeInvoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
 

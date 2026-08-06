@@ -135,7 +135,11 @@
       "Bash(node -e ' *)",
       "Bash(php -l app/Http/Controllers/ExpenseController.php)",
       "Bash(php -r \"require 'vendor/autoload.php'; var_dump\\(class_exists\\('csstidy'\\)\\);\")",
-      "Bash(php -l app/Http/Controllers/BillingController.php)"
+      "Bash(php -l app/Http/Controllers/BillingController.php)",
+      "Bash(sed -i -e s/focus:ring-blue-500/focus:ring-emerald-500/g -e 's|text-blue-600 dark:text-blue-400 hover:underline|text-emerald-600 dark:text-emerald-400 hover:underline|g' -e 's/bg-blue-600 hover:bg-blue-700/bg-emerald-600 hover:bg-emerald-700/g' -e 's|text-blue-600 dark:text-blue-400|text-emerald-600 dark:text-emerald-400|g' -e 's|bg-blue-50 dark:bg-blue-900/20|bg-emerald-50 dark:bg-emerald-900/20|g' resources/js/pages/Billing/AdditionalCharges.vue)",
+      "Bash(sed -i -e 's/from-indigo-500 to-violet-600/from-emerald-500 to-teal-600/g' -e 's|shadow-lg shadow-indigo-500/30|shadow-lg shadow-emerald-500/30|g' -e 's/bg-indigo-600 hover:bg-indigo-700/bg-emerald-600 hover:bg-emerald-700/g' -e 's|shadow-md shadow-indigo-500/20|shadow-md shadow-emerald-500/20|g' -e 's/border-indigo-500 border-t-transparent/border-emerald-500 border-t-transparent/g' -e 's|text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20|text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20|g' -e 's/text-indigo-600 dark:text-indigo-400 font-medium hover:underline/text-emerald-600 dark:text-emerald-400 font-medium hover:underline/g' -e s/focus:ring-indigo-500/focus:ring-emerald-500/g -e 's/'\\\\''bg-indigo-500'\\\\'' : '\\\\''bg-gray-300/'\\\\''bg-emerald-500'\\\\'' : '\\\\''bg-gray-300/g' resources/js/pages/Billing/InvoiceTypes.vue)",
+      "Bash(php -l app/Http/Controllers/UserController.php)",
+      "Bash(php -l app/Http/Controllers/CatalogController.php)"
     ]
   }
 }
