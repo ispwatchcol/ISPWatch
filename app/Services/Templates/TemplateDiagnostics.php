@@ -44,6 +44,12 @@ class TemplateDiagnostics
     /** Bloque que no se pudo insertar (lo detecta BlockMarkerInjector, no esta clase). */
     public const KIND_ORPHANED_BLOCK = 'orphaned_block';
 
+    /** Llaves desparejadas o basura dentro: no es un marcador, se imprime literal. */
+    public const KIND_MALFORMED_PLACEHOLDER = 'malformed_placeholder';
+
+    /** Documento completo editado en modo seguro: el shell fijo lo va a desarmar. */
+    public const KIND_NEEDS_ADVANCED_MODE = 'needs_advanced_mode';
+
     /**
      * Tope de hallazgos reportados. Los avisos viajan en una cabecera HTTP
      * (X-Template-Warnings) y una plantilla migrada entera puede tener
@@ -61,6 +67,11 @@ class TemplateDiagnostics
      * pista visual, al final lo que el tenant ya nota a simple vista.
      */
     private const SEVERITY = [
+        // Primero el que hace que el PDF no se parezca en nada a lo que el
+        // tenant ve en el editor: no es un marcador mal puesto, es el
+        // documento entero que no se va a usar.
+        self::KIND_NEEDS_ADVANCED_MODE,
+        self::KIND_MALFORMED_PLACEHOLDER,
         self::KIND_FOREIGN_MARKER,
         self::KIND_FOREIGN_PLACEHOLDER,
         self::KIND_WRONG_TYPE,
@@ -83,17 +94,101 @@ class TemplateDiagnostics
     private const TOKEN_PATTERN = '/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/';
 
     /**
+     * @param  bool|null $isAdvancedMode Modo con el que se va a renderizar.
+     *                   `null` = no comprobarlo (plantillas base, pruebas del
+     *                   catálogo), porque el modo lo decide quien las carga.
      * @return array<int,array{kind:string,token:string,label:string,message:string}>
      */
-    public function inspect(string $html, string $type): array
+    public function inspect(string $html, string $type, ?bool $isAdvancedMode = null): array
     {
         $findings = array_merge(
+            $this->inspectRenderMode($html, $isAdvancedMode),
             $this->inspectPlaceholders($html, $type),
+            $this->inspectMalformedPlaceholders($html),
             $this->inspectLiteralMarkers($html, $type),
             $this->inspectRemoteImages($html),
         );
 
         return $this->prioritize($findings);
+    }
+
+    /**
+     * El caso más caro de todos, y el más difícil de deducir desde la
+     * interfaz: el tenant edita un documento HTML completo con el modo
+     * avanzado APAGADO. El editor visual se lo muestra perfecto —es un
+     * navegador, entiende todo—, pero al renderizar, el modo seguro pasa el
+     * cuerpo por un allowlist estrecho que **borra anchos, estilos, colores e
+     * imágenes**, y lo incrusta dentro del shell fijo del sistema. El PDF que
+     * sale no se parece en nada al editor: sale la plantilla base con el
+     * contenido del tenant desmaquetado al final.
+     *
+     * Medido el 2026-08-06 sobre el contrato real de un tenant: en modo
+     * avanzado sobrevive el 95 % del documento, en modo seguro el 51 % — y de
+     * ese 51 % se pierden TODOS los anchos y colores, que es lo que sostiene
+     * un diseño a dos columnas.
+     *
+     * @return array<int,array{kind:string,token:string,label:string,message:string}>
+     */
+    private function inspectRenderMode(string $html, ?bool $isAdvancedMode): array
+    {
+        if ($isAdvancedMode !== false) {
+            return [];
+        }
+
+        // Un documento completo es la señal inequívoca; las tablas con ancho,
+        // los <img> y los <style> son las tres cosas que el modo seguro
+        // descarta y que sostienen una maquetación.
+        if (!preg_match('/<html[\s>]|<body[\s>]|<!doctype|<style[\s>]|<img[\s>]|<table[^>]*\bwidth\b/i', $html)) {
+            return [];
+        }
+
+        return [[
+            'kind'    => self::KIND_NEEDS_ADVANCED_MODE,
+            'token'   => 'Modo avanzado apagado',
+            'label'   => 'El PDF no se va a parecer al editor',
+            'message' => 'Tu plantilla usa anchos, imágenes o estilos propios, y el modo normal los '
+                . 'elimina y mete el resto dentro de la plantilla base del sistema. Activa el modo '
+                . 'avanzado para que el PDF salga como lo ves aquí.',
+        ]];
+    }
+
+    /**
+     * Llaves desparejadas (`{{token}`) o con algo que no es parte del nombre
+     * dentro (`{{ cliente.cedula&nbsp;}}`). PlaceholderResolver no los
+     * reconoce como marcador, así que **no los blanquea: los imprime tal
+     * cual** en el PDF. Es un síntoma distinto —"me sale un texto raro" en vez
+     * de "me sale vacío"— y por eso no lo veía el escaneo normal, que sólo
+     * mira los marcadores bien formados.
+     *
+     * @return array<int,array{kind:string,token:string,label:string,message:string}>
+     */
+    private function inspectMalformedPlaceholders(string $html): array
+    {
+        // Cualquier grupo que empiece por {{ y termine en } o }}, sin llaves
+        // por dentro. Los bien formados se descartan después comparándolos con
+        // el patrón real del resolver, para no reportar dos veces lo mismo.
+        if (!preg_match_all('/\{\{[^{}]*\}{1,2}/', $html, $matches)) {
+            return [];
+        }
+
+        $findings = [];
+
+        foreach (array_unique($matches[0]) as $candidate) {
+            if (preg_match(self::TOKEN_PATTERN, $candidate)) {
+                continue;
+            }
+
+            $findings[] = [
+                'kind'    => self::KIND_MALFORMED_PLACEHOLDER,
+                'token'   => $this->shorten($candidate, 40),
+                'label'   => 'Marcador mal escrito',
+                'message' => 'Le faltan llaves o tiene algo raro dentro, así que no se reconoce como '
+                    . 'marcador: se imprime tal cual en el PDF. Debe ser exactamente '
+                    . '{{nombre.campo}}, con dos llaves a cada lado.',
+            ];
+        }
+
+        return $findings;
     }
 
     /**
@@ -104,8 +199,12 @@ class TemplateDiagnostics
      * @param  string[] $orphanedBlockTokens
      * @return array<int,array{kind:string,token:string,label:string,message:string}>
      */
-    public function inspectWithOrphanedBlocks(string $html, string $type, array $orphanedBlockTokens): array
-    {
+    public function inspectWithOrphanedBlocks(
+        string $html,
+        string $type,
+        array $orphanedBlockTokens,
+        ?bool $isAdvancedMode = null
+    ): array {
         $blockLabels = config("document_placeholder_blocks.{$type}", []);
 
         $orphaned = collect($orphanedBlockTokens)
@@ -120,7 +219,7 @@ class TemplateDiagnostics
             ->all();
 
         return $this->prioritize(array_merge(
-            $this->inspect($html, $type),
+            $this->inspect($html, $type, $isAdvancedMode),
             $orphaned
         ));
     }

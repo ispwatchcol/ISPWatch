@@ -437,6 +437,19 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
 > **una foto por petición**.
 
+#### `PUT /api/installations/{installation}/sheet`
+
+Guarda la hoja como JSON (`sheet`). Además de la parte técnica (equipos, mediciones,
+materiales), lleva la configuración de red de la orden: `sectorial_id`, `router_id`,
+`plan_id`, `client_ip`, `vlan` y, en cores PPPoE, `pppoe_username` / `pppoe_password` /
+`pppoe_local_address` / `local_address_manual`.
+
+> `client_ip` se envía **siempre**, también en cores con PPPoE: es la IP que queda asignada
+> al abonado y la que consume el alta de cliente al convertir el prospecto. El frontend lo
+> descartaba en PPPoE, con lo que el dato se perdía sin ningún error
+> (`BITACORA_TECNICA.md` § 20). `pppoe_local_address` es otra cosa —el local-address del
+> secret, la punta del router— y sólo viaja si `local_address_manual` está activo.
+
 #### `POST /api/installations/{installation}/sheet-preview`
 
 Devuelve **el mismo PDF que genera `/sign`**, pero sin firmas, sin guardar
@@ -1232,6 +1245,8 @@ el frontend sólo lo lee si el header existe.
 
 | `kind` | Qué pasó |
 |---|---|
+| `needs_advanced_mode` | El borrador es un documento completo pero se va a renderizar en **modo seguro**: el shell fijo lo desarma y el PDF no se parecerá al editor |
+| `malformed_placeholder` | Llaves desparejadas (`{{token}`) o basura dentro (`{{ token&nbsp;}}`): no se reconoce, así que **se imprime literal** en vez de blanquearse |
 | `foreign_marker` | Marcador de otro sistema **sin llaves** (`NUMERO_CONTRATO_TAG`): aquí es texto y se imprime tal cual |
 | `foreign_placeholder` | `{{token}}` con el nombre de otro sistema; hay equivalente conocido (`config/document_placeholder_aliases.php`) |
 | `wrong_type` | El token existe, pero en el catálogo de **otro** tipo de documento |

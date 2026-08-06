@@ -208,6 +208,74 @@ class TemplateDiagnosticsTest extends TestCase
         ], $kinds);
     }
 
+    /**
+     * PlaceholderResolver no reconoce estos como marcador, así que **no los
+     * blanquea: los imprime tal cual** en el PDF. Es un síntoma distinto —"me
+     * sale un texto raro"— y por eso el escaneo normal no los veía. Los dos
+     * casos vienen de un contrato real (2026-08-06).
+     */
+    public function test_it_detects_placeholders_with_unbalanced_braces_or_junk_inside(): void
+    {
+        $findings = $this->inspectByToken(
+            '<p>{{plan.valor_mensual} y {{ cliente.cedula&nbsp;}}</p>',
+            'contract'
+        );
+
+        $this->assertArrayHasKey('{{plan.valor_mensual}', $findings);
+        $this->assertSame(
+            TemplateDiagnostics::KIND_MALFORMED_PLACEHOLDER,
+            $findings['{{plan.valor_mensual}']['kind']
+        );
+        $this->assertArrayHasKey('{{ cliente.cedula&nbsp;}}', $findings);
+    }
+
+    public function test_a_well_formed_placeholder_is_never_reported_as_malformed(): void
+    {
+        $kinds = array_column(
+            $this->diagnostics->inspect('<p>{{cliente.nombre}} {{ contrato.fecha }}</p>', 'contract'),
+            'kind'
+        );
+
+        $this->assertNotContains(TemplateDiagnostics::KIND_MALFORMED_PLACEHOLDER, $kinds);
+    }
+
+    /**
+     * El caso más caro: el editor visual muestra el documento perfecto porque
+     * es un navegador, pero el modo seguro lo desarma al renderizar y lo mete
+     * dentro del shell fijo. El PDF no se parece en nada al editor.
+     */
+    public function test_it_warns_when_a_full_document_is_going_to_render_in_safe_mode(): void
+    {
+        $html = '<!DOCTYPE html><html><body><table width="475"><tr><td>Hola</td></tr></table></body></html>';
+
+        $kinds = array_column($this->diagnostics->inspect($html, 'contract', false), 'kind');
+
+        $this->assertSame(TemplateDiagnostics::KIND_NEEDS_ADVANCED_MODE, $kinds[0], 'Debe ir primero: es lo más grave.');
+    }
+
+    public function test_the_same_document_in_advanced_mode_does_not_trigger_that_warning(): void
+    {
+        $html = '<!DOCTYPE html><html><body><table width="475"><tr><td>Hola</td></tr></table></body></html>';
+
+        $kinds = array_column($this->diagnostics->inspect($html, 'contract', true), 'kind');
+
+        $this->assertNotContains(TemplateDiagnostics::KIND_NEEDS_ADVANCED_MODE, $kinds);
+    }
+
+    /**
+     * Texto con formato básico es exactamente para lo que existe el modo
+     * seguro: avisar ahí sería ruido en el caso normal.
+     */
+    public function test_plain_formatted_text_in_safe_mode_is_not_warned_about(): void
+    {
+        $kinds = array_column(
+            $this->diagnostics->inspect('<p><strong>Hola</strong> {{cliente.nombre}}</p>', 'contract', false),
+            'kind'
+        );
+
+        $this->assertNotContains(TemplateDiagnostics::KIND_NEEDS_ADVANCED_MODE, $kinds);
+    }
+
     public function test_orphaned_blocks_are_merged_into_the_same_channel(): void
     {
         $findings = $this->diagnostics->inspectWithOrphanedBlocks(

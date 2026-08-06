@@ -857,6 +857,25 @@ Añadir las claves foráneas faltantes cierra el punto 3 pero **no** el 1 ni el 
 por PHP a propósito. Conviene decidir además si el borrado debe ser un archivado (`SoftDeletes`)
 en vez de un borrado real: un cliente con facturas pagadas es historia contable, y hoy se va entero.
 
+### 📋 P-17 · La hoja de instalación no captura el puerto NAP ni el modo fibra
+
+Detectado 2026-08-06 al hacer que la conversión de prospecto arrastre los datos técnicos de la
+orden (`BITACORA_TECNICA.md` § 20). La hoja (`customer_installations.sheet`) guarda
+`sectorial_id`, `router_id`, `plan_id` y `client_ip`, pero **no** el puerto de la caja NAP ni una
+marca explícita de fibra. Consecuencias:
+
+1. **El puerto NAP hay que digitarlo a mano en el alta** aunque todo lo demás venga prellenado —
+   justo el dato que el técnico tiene delante en la caja y el operador de oficina no.
+2. **El modo fibra se deduce**, no se lee: el alta mira si el elemento de red es de tipo `nap` y,
+   si lo es, sube por `parent_id` hasta encontrar la OLT. Funciona con el árbol bien armado; una
+   caja colgada directamente de un splitter sin OLT arriba deja `olt_id` vacío sin avisar.
+
+**Recomendación.** Agregar `nap_port` (y opcionalmente `olt_id`) a las reglas de
+`CustomerInstallationController::sheetValidationRules()` y a la tarjeta *Conexión / Red*, visibles
+sólo cuando el elemento elegido es una NAP — el mismo criterio que ya usa `CustomerAdd.vue`. Es
+media hora de trabajo; no se hizo en el mismo cambio para no mezclar el arreglo del arrastre de
+datos con una ampliación del contrato de la hoja.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -904,6 +923,7 @@ en vez de un borrado real: un cliente con facturas pagadas es historia contable,
 | **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Pendiente (decisión de infraestructura) |
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
+| **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
 
 ---
 

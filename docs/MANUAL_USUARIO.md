@@ -425,7 +425,18 @@ El prospecto queda en estado **agendado**.
 
 El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
 
-1. **Llena el acta**: equipos instalados, observaciones, mediciones.
+1. **Llena los datos técnicos**: en *Conexión / Red* elige sectorial, core, plan y la
+   **IP del cliente**; en *Hoja técnica de instalación* van equipos, mediciones y
+   observaciones. Al terminar pulsa **Guardar datos técnicos** (el botón guarda las dos
+   partes de una vez).
+   > **La IP del cliente no es la IP local del PPPoE.** La primera es la que queda
+   > asignada al abonado y es la que viaja al alta cuando conviertes el prospecto en
+   > cliente; la *IP local* es la punta del router dentro del secret PPPoE. Cada campo
+   > tiene su propio desplegable de **IPs libres** del core, con el título del analizador
+   > indicando a cuál de las dos pertenece.
+   >
+   > En cores con PPPoE la IP del cliente antes ni se pedía ni se guardaba, así que el
+   > técnico llenaba la IP local creyendo que era la del abonado y esa parte se perdía.
 2. **Sube fotos**. Puedes seleccionarlas **todas juntas**: el sistema las comprime en el
    teléfono y las va enviando **una por una** por su cuenta, para que no se caiga la subida.
    Verás el progreso mientras trabaja.
@@ -473,10 +484,23 @@ Al completar la instalación se genera automáticamente la **factura de instalac
 
 ### 6.3 Convertir el prospecto en cliente
 
-1. Crea el cliente normalmente (**Usuarios → Agregar usuario**).
-2. Vuelve al prospecto y pulsa **Marcar como convertido**, eligiendo el cliente creado.
+1. En la instalación **completada**, pulsa **Convertir prospecto en cliente** (o el botón
+   *Convertir a cliente* del listado de instalaciones).
+2. Se abre el alta de cliente **ya rellenada** con lo que hay en la orden:
+   - datos personales del prospecto (nombre, cédula, teléfono, dirección, estrato);
+   - la **fecha de instalación**, que decide el prorrateo de la primera factura;
+   - los **datos técnicos** de la orden: core, plan, sectorial (o caja NAP), **IP del
+     cliente**, credenciales PPPoE y MAC del módem. Si la caja es una NAP, el alta entra
+     sola en modo **fibra** y deduce la OLT.
+3. Revisa, completa lo que falte y guarda.
 
-El prospecto queda enlazado al cliente y su estado pasa a **convertido**.
+Al guardar, el prospecto queda enlazado al cliente, su estado pasa a **convertido** y sus
+instalaciones y documentos (fotos, hoja firmada) se trasladan a la ficha del cliente nuevo.
+
+> **Si algún dato técnico sale vacío**, es que no quedó guardado en la orden: vuelve a la
+> instalación, complétalo y pulsa **Guardar datos técnicos**. Antes esos campos no se
+> traían y había que digitarlos de nuevo a mano; ahora se cargan solos, y lo que escribas
+> tú manda sobre lo que traiga la orden.
 
 ---
 
@@ -1373,6 +1397,19 @@ de PDF, en vez de encogerlo, lo deja desbordarse sobre la columna de al lado.
 a una dirección `https://`, el editor la muestra semitransparente y con un borde rojo punteado:
 es un recordatorio de que **en el PDF no va a aparecer**. Sube el logo en "Marca en los
 documentos" y usa `{{empresa.logo}}`.
+
+**Si tu plantilla es un diseño propio, el modo avanzado no es opcional.** El editor visual es
+un navegador y te muestra tu documento perfecto, pero al generar el PDF el modo normal
+**elimina los anchos, los colores, los estilos y las imágenes** y mete lo que queda dentro de la
+plantilla base del sistema — sale un PDF con otro diseño. Medido sobre un contrato real: en modo
+avanzado sobrevive el 95 % del documento, en modo normal el 51 %, y de ese 51 % se pierde todo lo
+que sostiene la maquetación. Por eso, si intentas previsualizar un diseño propio con el modo
+avanzado apagado, el sistema te lo advierte y te ofrece activarlo.
+
+> **Cuidado con las llaves de los marcadores.** Tienen que ser exactamente dos a cada lado:
+> `{{plan.valor_mensual}}`. Si le falta una (`{{plan.valor_mensual}`) o tiene un espacio raro
+> dentro, el sistema no lo reconoce como marcador y **lo imprime tal cual en el PDF** — no sale
+> en blanco, sale el texto con las llaves. El editor te lo avisa.
 
 **El interruptor no borra lo que escribiste.** Es la misma plantilla vista de dos formas: en
 modo normal la ves como va a quedar en el PDF, en modo avanzado ves su código. Puedes ir y

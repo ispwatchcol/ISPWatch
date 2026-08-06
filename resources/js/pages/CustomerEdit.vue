@@ -368,11 +368,12 @@
             </div>
 
             <div :class="['grid gap-4', serviceGridClass]">
-                <!-- IP del Usuario -->
+                <!-- IP del cliente: escribible o elegible del desplegable de IPs libres
+                     del router. No es la "IP local" del secret PPPoE (ver más abajo). -->
                 <div>
                 <label class="label">
                     <v-icon name="bi-hdd-network" class="w-4 h-4 mr-1 inline" />
-                    IP del Usuario
+                    IP del cliente
                     <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400 animate-pulse">cargando...</span>
                     <span v-else-if="ipStats.free > 0 && form.service_status !== 'retirado'" class="ml-1 text-xs text-green-500">{{ ipStats.free }} libres</span>
                     <span v-if="form.service_status === 'retirado'" class="ml-1 text-xs text-slate-400">(liberada al retirar)</span>
@@ -381,6 +382,19 @@
                     :disabled="form.service_status === 'retirado'"
                     :class="form.service_status === 'retirado' ? 'opacity-40 cursor-not-allowed' : ''"
                     placeholder="192.168.1.100" />
+                <select v-if="freeIpOptions.length && form.service_status !== 'retirado'"
+                    :value="ipPickerValue"
+                    @change="pickFreeIp($event.target.value)"
+                    class="svc-input mt-2 text-xs">
+                    <option value="">Elegir IP libre del router...</option>
+                    <optgroup v-for="g in freeIpOptions" :key="g.cidr" :label="g.cidr">
+                        <option v-for="ip in g.ips" :key="ip" :value="ip">{{ ip }}</option>
+                    </optgroup>
+                </select>
+                <p class="hint">
+                    IP que se le asigna al abonado. No confundir con la <strong>IP local</strong>
+                    del PPPoE (esa va en la sección de credenciales).
+                </p>
                 </div>
 
                 <div>
@@ -702,10 +716,13 @@
                 </div>
 
                 <div class="md:col-span-2">
-                <label class="label">IP Local <span class="text-gray-400 font-normal text-xs">(opcional)</span></label>
+                <label class="label">IP local del secret PPPoE <span class="text-gray-400 font-normal text-xs">(opcional)</span></label>
                 <input v-model="form.pppoe_local_address" type="text" class="input"
                     placeholder="Ej: 10.0.0.1" />
-                <p class="hint">Es el local-address del secret PPPoE. Déjalo vacío para que lo defina el perfil/router.</p>
+                <p class="hint">
+                    Es el local-address del secret PPPoE (la punta del <strong>router</strong>),
+                    <strong>no</strong> la IP del cliente. Déjalo vacío para que lo defina el perfil/router.
+                </p>
                 </div>
             </div>
             </div>
@@ -1031,6 +1048,29 @@ const ipStats = computed(() => {
     const used  = total - free
     return { total, free, used, usagePercent: total > 0 ? Math.round((used / total) * 100) : 0 }
 })
+
+// ── Desplegable de IPs libres (junto al campo, no solo en el analizador) ─────
+// Mismo dato que el analizador, pero a la mano del campo "IP del cliente". El
+// tope por segmento evita un <select> con miles de opciones en rangos /20.
+// La IP actual del cliente figura como "ocupada" (es suya), así que se agrega
+// aparte para que el desplegable no aparezca en blanco al editar.
+const FREE_IP_OPTIONS_LIMIT = 512
+const freeIpOptions = computed(() => {
+    const groups = parsedRanges.value
+        .map(r => ({ cidr: r.cidr, ips: r.freeHosts.slice(0, FREE_IP_OPTIONS_LIMIT) }))
+        .filter(g => g.ips.length)
+    const current = form.value.ip_user
+    if (groups.length && current && !groups.some(g => g.ips.includes(current))) {
+        groups.unshift({ cidr: 'Asignada actualmente', ips: [current] })
+    }
+    return groups
+})
+const ipPickerValue = computed(() =>
+    freeIpOptions.value.some(g => g.ips.includes(form.value.ip_user)) ? form.value.ip_user : ''
+)
+const pickFreeIp = (ip) => {
+    if (ip) form.value.ip_user = ip
+}
 
 const loadFreeIps = async (routerId) => {
     rangosIpStr.value = ''
