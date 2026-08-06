@@ -10,7 +10,16 @@
                 icon="bi-plus-circle"
             >
                 <template #actions>
+                    <button @click="verCargosGenerados"
+                        title="Abre Facturación mostrando sólo las facturas de este tipo, de todos los meses"
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
+                               bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
+                               dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700">
+                        <v-icon name="md-list" class="w-4 h-4" />
+                        Ver cargos generados
+                    </button>
                     <button @click="router.push('/billing/invoices')"
+                        title="Vuelve al listado completo de facturación"
                         class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
                                bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
                                dark:bg-gray-800 dark:text-slate-200 dark:border-gray-700 dark:hover:bg-gray-700">
@@ -213,6 +222,23 @@ const form = ref({
     due_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     notes: '',
 })
+
+/**
+ * Historial de esta pantalla.
+ *
+ * Un cargo adicional es una factura con su `invoice_type`, así que el listado
+ * ya existe: Facturación. En vez de mantener aquí una tabla paralela —con sus
+ * propios filtros, totales y exportación, condenada a divergir— se abre esa
+ * pantalla acotada al tipo que está seleccionado en el formulario.
+ */
+const verCargosGenerados = () => {
+    router.push({
+        path: '/billing/invoices',
+        // `period: ''` deja ver los de todos los meses: con el mes actual por
+        // defecto, un cargo del mes pasado no aparecería y parecería que no hay.
+        query: { invoice_type: form.value.invoice_type || 'additional', period: '' },
+    })
+}
 
 const addItem = () => form.value.items.push(defaultItem())
 const removeItem = (i) => form.value.items.splice(i, 1)

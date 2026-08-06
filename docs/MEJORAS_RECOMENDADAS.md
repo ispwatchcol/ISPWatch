@@ -566,20 +566,18 @@ envuelvas texto largo en una celda de tabla, usa `<div>`* — ya reflejado en `M
 header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloques huérfanos. Es la
 única forma de que el tenant se entere sin tener que comparar el PDF carácter por carácter.
 
-### 📋 P-9 · Auditoría de Finanzas (2026-08-05): fases aprobadas pendientes de ejecutar
+### 📋 P-9 · Auditoría de Finanzas (2026-08-05): deuda restante tras ejecutar el plan
 
 Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
 Categorías de Gasto. Las **Fases 1** (debounce y guard anti-carrera en Facturación, índices
 compuestos, búsqueda de texto en Gastos), **2** (paginación y agregados server-side en Gastos) y
 **3** (totales en dinero en Facturación y Recaudos), **4** (exportación a CSV de los tres
-listados) y **5** (unificación visual bajo el acento esmeralda) ya están implementadas. Queda
-pendiente, con plan aprobado:
+listados), **5** (unificación visual bajo el acento esmeralda) y **6** (historial de Servicios
+Adicionales) están **todas implementadas**. La 6 se resolvió con un atajo a Facturación filtrada
+por tipo, no con un listado propio — el razonamiento está en el registro de decisiones de
+`BITACORA_TECNICA.md`.
 
-**Fase 6 — Servicios Adicionales.** No tiene listado ni historial: es un formulario de un solo
-uso, y para auditar qué cargos se generaron hay que ir a Facturación y filtrar por tipo a mano.
-Decisión de producto pendiente (vista propia vs. atajo preconfigurado en Facturación).
-
-**Deuda no bloqueante detectada en la misma auditoría.**
+**Lo que queda es deuda identificada, no plan pendiente:**
 
 - La búsqueda por cliente en Facturación y Recaudos usa `whereHas` + `ILIKE`, que no aprovecha
   índice B-tree. Al volumen actual no duele; sería el próximo cuello de botella real y la salida

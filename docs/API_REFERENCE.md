@@ -562,6 +562,13 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 con `AND`: `search` (número o cliente), `customer_id`, `status`, `invoice_type`,
 `period` (`YYYY-MM` sobre `period_start`), `page`.
 
+> La vista de Facturación acepta `invoice_type`, `status`, `search` y `period`
+> **también por la URL del frontend** (`/billing/invoices?invoice_type=…`). Es lo
+> que usa "Ver cargos generados" en Servicios Adicionales para servir de historial
+> sin mantener un listado paralelo. Al llegar con un filtro por URL sin `period`
+> explícito, el mes se limpia: si no, el mes actual escondería los cargos
+> anteriores y la pantalla parecería vacía.
+
 Además del paginador, la respuesta trae una clave **`summary`** con los agregados
 del **filtro completo** (no de la página):
 

@@ -453,6 +453,12 @@ el sistema.
 
 ### 7.5 Servicios adicionales
 
+> **¿Dónde veo los cargos que ya generé?** En la misma pantalla, el botón
+> **Ver cargos generados** abre Facturación mostrando sólo las facturas de ese
+> tipo, de todos los meses. Un cargo adicional es una factura como cualquier
+> otra, así que desde ahí puedes filtrarla, ver sus totales y exportarla igual
+> que el resto.
+
 **Finanzas → Servicios adicionales.** Para cobrar algo puntual que no viene de un ticket
 (traslado, cambio de equipo, reconexión). También eliges el **tipo de factura** que se va
 a emitir.

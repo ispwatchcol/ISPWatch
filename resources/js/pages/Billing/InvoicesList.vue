@@ -2,7 +2,7 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import billingService from '@/services/billing'
 import api from '@/services/api'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import DatePicker from '@/components/DatePicker.vue'
 import MonthPicker from '@/components/MonthPicker.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
@@ -16,6 +16,7 @@ import { invoiceTypeLabel, invoiceTypeColor, activeInvoiceTypes, invoiceTypes, l
 import { usePermissions } from '@/composables/usePermissions'
 
 const router = useRouter()
+const route = useRoute()
 const { can } = usePermissions()
 
 const invoices = ref({ data: [] })
@@ -31,12 +32,38 @@ const currentPage = ref(1)
 // `invoices.data`: eso sumaría sólo la página visible.
 const summary = ref({ total: 0, balance_due: 0, count: 0 })
 const user = ref({})
-const filters = ref({
-    status: '',
-    invoice_type: '',
-    period: new Date().toISOString().slice(0, 7), // Default to current month
-    search: ''
-})
+
+/**
+ * Filtros iniciales, admitiendo que lleguen por la URL
+ * (`?invoice_type=…&status=…&search=…&period=…`).
+ *
+ * Es lo que permite que "Ver cargos generados", en Servicios Adicionales, abra
+ * esta pantalla ya acotada en vez de mantener un listado paralelo por cada tipo
+ * de factura: un cargo adicional ES una factura, así que duplicar aquí tabla,
+ * filtros, totales y exportación para un subconjunto de los mismos datos sólo
+ * garantizaría que las dos copias acaben divergiendo.
+ *
+ * Se leen una sola vez, al construir la vista, para no disparar una segunda
+ * petición por el `watch` de filtros.
+ */
+const initialFilters = () => {
+    const q = route.query
+    const vieneFiltradoPorUrl = q.invoice_type || q.status || q.search
+
+    return {
+        status:       q.status ? String(q.status) : '',
+        invoice_type: q.invoice_type ? String(q.invoice_type) : '',
+        // El mes por defecto es el actual, pero si se entra filtrando por tipo
+        // hay que limpiarlo: escondería los cargos de meses anteriores y la
+        // tabla parecería vacía justo al llegar desde el enlace.
+        period: q.period !== undefined
+            ? String(q.period)
+            : (vieneFiltradoPorUrl ? '' : new Date().toISOString().slice(0, 7)),
+        search:       q.search ? String(q.search) : '',
+    }
+}
+
+const filters = ref(initialFilters())
 
 const showCreateModal = ref(false)
 const customers = ref([])
