@@ -1,31 +1,28 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-6 md:p-10">
+  <div class="min-h-screen bg-slate-50 dark:bg-gray-900 p-6 transition-colors duration-300">
 
     <!-- Header -->
-    <div class="mb-8 flex items-center justify-between">
-      <div class="flex items-center gap-4">
-        <div class="w-12 h-12 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
-          <v-icon name="bi-tags" class="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Tipos de Factura</h1>
-          <p class="text-sm text-gray-500 dark:text-gray-400">
-            Crea los tipos que uses al facturar: equipos, TV, reconexión, traslado…
-          </p>
-        </div>
-      </div>
-      <button
-        @click="openCreate"
-        class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition shadow-md shadow-indigo-500/20"
-      >
-        <v-icon name="md-add" class="w-5 h-5" />
-        Nuevo tipo
-      </button>
-    </div>
+    <PageHeader
+      title="Tipos de factura"
+      subtitle="Los tipos que usas al facturar: equipos, TV, reconexión, traslado…"
+      icon="bi-tags"
+    >
+      <template #actions>
+        <button
+          @click="openCreate"
+          class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-white transition-all
+                 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 dark:shadow-none
+                 hover:scale-[1.02] active:scale-[0.98] motion-reduce:hover:scale-100"
+        >
+          <v-icon name="md-add" class="w-5 h-5" />
+          Nuevo tipo
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-20">
-      <div class="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      <div class="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
     </div>
 
     <div v-else class="space-y-8">
@@ -58,7 +55,7 @@
           <div
             v-for="type in ownTypes"
             :key="type.id"
-            class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 flex flex-col gap-4 transition hover:shadow-md"
+            class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-3xl p-5 flex flex-col gap-4 transition hover:shadow-md"
             :class="{ 'opacity-60': !type.is_active }"
           >
             <div class="flex items-start justify-between gap-3">
@@ -82,7 +79,7 @@
             <div class="flex gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
               <button
                 @click="openEdit(type)"
-                class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 py-2 rounded-lg transition"
+                class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 py-2 rounded-lg transition"
               >
                 <v-icon name="md-edit" class="w-4 h-4" />
                 Editar
@@ -113,7 +110,7 @@
           >
             <v-icon name="bi-tags" class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
             <p class="text-gray-500 dark:text-gray-400 font-medium">Todavía no has creado tipos propios</p>
-            <button @click="openCreate" class="mt-4 text-sm text-indigo-600 dark:text-indigo-400 font-medium hover:underline">
+            <button @click="openCreate" class="mt-4 text-sm text-emerald-600 dark:text-emerald-400 font-medium hover:underline">
               + Crear el primero
             </button>
           </div>
@@ -142,7 +139,7 @@
               maxlength="100"
               required
               placeholder="Ej: Factura de Equipos"
-              class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <p v-if="!editingId" class="text-[11px] text-gray-400 mt-1">
               Identificador que se guardará: <span class="font-mono">{{ previewSlug || '—' }}</span>
@@ -158,7 +155,7 @@
               type="text"
               maxlength="255"
               placeholder="Opcional"
-              class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
 
@@ -184,7 +181,7 @@
             <button
               type="button"
               @click="form.is_active = !form.is_active"
-              :class="form.is_active ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-600'"
+              :class="form.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'"
               class="relative inline-flex h-6 w-11 rounded-full transition-colors duration-200"
             >
               <span
@@ -201,7 +198,7 @@
             <button
               type="submit"
               :disabled="saving"
-              class="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white py-2.5 rounded-xl font-medium transition"
+              class="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-2.5 rounded-xl font-medium transition"
             >
               {{ saving ? 'Guardando...' : (editingId ? 'Actualizar' : 'Crear') }}
             </button>
@@ -238,6 +235,7 @@
 import { ref, computed, onMounted } from 'vue'
 import billingService from '@/services/billing'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { INVOICE_TYPE_COLORS, paletteClasses, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const types    = ref([])

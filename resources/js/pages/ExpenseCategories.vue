@@ -1,96 +1,92 @@
 <template>
-    <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-        <main class="flex-1 p-4 md:p-8">
+    <div class="flex min-h-screen bg-slate-50 dark:bg-gray-900 transition-colors duration-300">
+        <main class="flex-1 p-6">
 
             <!-- Header -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                        <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
-                            <v-icon name="bi-tags" class="text-blue-600 dark:text-blue-400 w-6 h-6 md:w-7 md:h-7" />
-                        </div>
-                        Categorías de Gasto
-                    </h1>
-                    <p class="text-sm md:text-base text-gray-600 dark:text-gray-300 mt-1">
-                        Conceptos usados para clasificar los gastos de la empresa
-                    </p>
-                </div>
+            <PageHeader
+                title="Categorías de gasto"
+                subtitle="Los conceptos con los que clasificas cada gasto."
+                icon="bi-tags"
+            >
+                <template #actions>
+                    <button
+                        v-if="can('add_expense')"
+                        @click="openAddModal"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-white transition-all
+                               bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 dark:shadow-none
+                               hover:scale-[1.02] active:scale-[0.98] motion-reduce:hover:scale-100"
+                    >
+                        <v-icon name="md-add" class="w-5 h-5 fill-current" />
+                        <span>Nueva categoría</span>
+                    </button>
+                </template>
+            </PageHeader>
 
-                <button
-                    v-if="can('add_expense')"
-                    @click="openAddModal"
-                    class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800
-                 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
-                 transition-all transform hover:-translate-y-0.5
-                 font-medium w-full sm:w-auto justify-center"
-                >
-                    <v-icon name="md-add" class="w-5 h-5 fill-current" />
-                    <span>Nueva Categoría</span>
+            <!-- Cargando -->
+            <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div v-for="n in 6" :key="`sk-${n}`"
+                    class="h-28 rounded-3xl bg-white dark:bg-gray-800 border border-slate-100 dark:border-gray-700 animate-pulse"></div>
+            </div>
+
+            <!-- Vacío -->
+            <div v-else-if="items.length === 0"
+                class="text-center py-16 bg-white dark:bg-gray-800 rounded-3xl border border-dashed border-slate-300 dark:border-gray-600">
+                <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
+                    <v-icon name="bi-tags" class="w-8 h-8 text-emerald-500" />
+                </div>
+                <p class="text-slate-600 dark:text-slate-300 font-medium">Todavía no hay categorías</p>
+                <p class="text-sm text-slate-400 dark:text-slate-500 mt-1">
+                    Crea la primera para empezar a clasificar los gastos.
+                </p>
+                <button v-if="can('add_expense')" @click="openAddModal"
+                    class="mt-4 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline">
+                    Crear categoría
                 </button>
             </div>
 
-            <!-- List -->
-            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
-                <div v-if="loading" class="flex items-center justify-center py-16">
-                    <v-icon name="ri-loader-4-line" animation="spin" class="w-8 h-8 text-blue-500" />
-                    <span class="ml-3 text-gray-500 dark:text-gray-400">Cargando categorías...</span>
-                </div>
+            <!-- Grid de tarjetas -->
+            <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div
+                    v-for="item in items"
+                    :key="item.id"
+                    class="group relative overflow-hidden bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-3xl p-5 transition-all hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800/60"
+                >
+                    <div class="absolute -right-6 -top-6 w-20 h-20 rounded-full bg-emerald-50 dark:bg-emerald-900/20 transition-transform duration-500 group-hover:scale-110 motion-reduce:transition-none motion-reduce:group-hover:scale-100"></div>
 
-                <div v-else-if="items.length === 0" class="text-center py-16">
-                    <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                        <v-icon name="bi-tags" class="w-10 h-10 text-gray-400" />
+                    <div class="relative flex items-start justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-10 h-10 shrink-0 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                                <v-icon name="bi-tags" class="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <p class="font-semibold text-slate-800 dark:text-white truncate">{{ item.name }}</p>
+                        </div>
                     </div>
-                    <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">Sin categorías registradas</p>
-                    <p class="text-gray-400 dark:text-gray-500 text-sm mt-2">Agrega tu primera categoría de gasto</p>
-                </div>
 
-                <div v-else class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-100 dark:bg-gray-700">
-                            <tr>
-                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
-                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Nombre</th>
-                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                            <tr v-for="item in items" :key="item.id" class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="text-sm font-bold text-blue-600 dark:text-blue-400">#{{ item.id }}</span>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <span class="text-sm font-medium text-gray-900 dark:text-white">{{ item.name }}</span>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center gap-2">
-                                        <button
-                                            v-if="can('edit_expense')"
-                                            @click="openEditModal(item)"
-                                            class="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-all hover:scale-110"
-                                            title="Editar"
-                                        >
-                                            <v-icon name="fa-edit" class="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            v-if="can('edit_expense')"
-                                            @click="confirmDelete(item)"
-                                            class="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-all hover:scale-110"
-                                            title="Eliminar"
-                                        >
-                                            <v-icon name="md-delete" class="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <div v-if="can('edit_expense')" class="relative flex gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-gray-700">
+                        <button
+                            @click="openEditModal(item)"
+                            class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded-lg transition
+                                   text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
+                        >
+                            <v-icon name="md-edit" class="w-4 h-4" />
+                            Editar
+                        </button>
+                        <button
+                            @click="confirmDelete(item)"
+                            class="flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition
+                                   text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/20"
+                            title="Eliminar categoría"
+                        >
+                            <v-icon name="md-delete" class="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <!-- Add/Edit Modal -->
             <div v-if="showFormModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="closeFormModal">
                 <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-                    <div class="bg-gradient-to-r from-blue-600 to-blue-700 p-5 text-white">
+                    <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 text-white">
                         <div class="flex items-center justify-between">
                             <h3 class="text-lg font-semibold">{{ isEditing ? 'Editar Categoría' : 'Nueva Categoría' }}</h3>
                             <button @click="closeFormModal" class="p-1 hover:bg-white/20 rounded-lg transition-colors">
@@ -110,7 +106,7 @@
                                 placeholder="Ej. Arriendo, Servicios públicos, Combustible..."
                                 class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                       focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                       focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none"
                             />
                         </div>
 
@@ -127,9 +123,8 @@
                             </button>
                             <button
                                 type="submit"
-                                class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-blue-700
-                       hover:from-blue-700 hover:to-blue-800 text-white rounded-xl
-                       transition-all font-medium shadow-lg disabled:opacity-50"
+                                class="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl
+                       transition-all font-medium shadow-lg shadow-emerald-500/25 disabled:opacity-50"
                                 :disabled="saving"
                             >
                                 {{ saving ? 'Guardando...' : (isEditing ? 'Actualizar' : 'Crear') }}
@@ -199,6 +194,7 @@
 import { ref, onMounted } from 'vue'
 import expenseCategoryApi from '@/services/api/expense-category'
 import NotificationToast from '@/components/NotificationToast.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()

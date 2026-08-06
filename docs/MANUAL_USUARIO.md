@@ -219,6 +219,10 @@ Si no aplica, el bloque no aparece.
 - **No facturar a este cliente**: lo saca de **todo** el ciclo automático. No recibe factura,
   ni recordatorio, ni notificación, ni corte. Úsalo para casos especiales (cortesías
   institucionales, pruebas).
+- **No enviar notificaciones de factura**: a diferencia de la anterior, **no** afecta la
+  facturación — la factura se sigue generando cada mes y la mora/corte funcionan igual.
+  Sólo apaga el aviso de correo/WhatsApp de factura nueva y los recordatorios de pago.
+  Úsalo para clientes que piden explícitamente no recibir esos mensajes.
 
 **Guardar**
 
@@ -251,11 +255,83 @@ más unas pestañas adicionales:
 
 | Pestaña | Contenido |
 |---|---|
-| **Facturación** | Facturas del cliente, saldo y saldo a favor |
+| **Facturación** | Facturas del cliente, saldo, saldo a favor y sus **servicios adicionales** (ver 5.3.1) |
 | **Documentos** | Cédula, contrato y otros archivos |
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
 
+#### 5.3.1 Servicios adicionales del cliente
+
+Al final de la pestaña **Facturación** está lo que el cliente paga **además de su plan**:
+el alquiler de un router extra, un punto de TV, soporte premium… Arriba del listado ves
+**cuánto se le suma cada mes** a su factura.
+
+Los servicios salen del catálogo de **Finanzas → Servicios adicionales** ([7.5](#75-servicios-adicionales)).
+Para asignar uno pulsa **Asignar servicio** y elige:
+
+| Campo | Qué hace |
+|---|---|
+| **Precio para este cliente** | Déjalo **vacío** para usar el del catálogo — así, si algún día subes el precio de lista, a este cliente también le sube. Ponle un valor para **congelárselo** (aparece la etiqueta *Precio propio*) |
+| **Cantidad** | Para cobrar el mismo servicio más de una vez, por ejemplo dos routers extra |
+| **Desde** | A partir de qué fecha se cobra. Si es a mitad de mes, lo que pase depende del *cobro del primer mes* configurado en el catálogo |
+| **Hasta** | Opcional: baja programada |
+
+> **Dar de baja vs. eliminar.** *Dar de baja* deja de cobrarlo desde la próxima factura y
+> conserva todo el historial — es lo que quieres casi siempre. *Eliminar* sólo funciona si
+> el servicio **nunca llegó a cobrarse** (un alta por error); si ya salió en una factura, el
+> sistema no deja borrarlo.
+
+Un cliente no puede tener el mismo servicio activo dos veces: si lo intentas, el sistema te
+pide subir la **cantidad** en la asignación que ya existe. Así el cobro doble se ve en la
+factura en vez de esconderse en dos líneas iguales.
+
+##### Cómo aparece en la factura
+
+El servicio adicional **no genera una factura aparte**: sale como una línea más dentro de
+la mensualidad del cliente, junto al plan. Si el cliente paga $50.000 de plan y alquila un
+router de $20.000, recibe **una sola factura de $70.000** con las dos líneas.
+
+Se cobra en la factura del mes según el ciclo de su router — el mismo día en que se le
+factura todo lo demás.
+
+| Situación | Qué pasa con el adicional |
+|---|---|
+| El cliente está en un **mes de cortesía** por instalación | Se cobra o no según la casilla *Cobrar en meses de cortesía* del catálogo. Si se cobra, la factura deja de ser de $0 y el cliente **sí** recibe el aviso de pago, por el monto del adicional |
+| El servicio se **desactiva en el catálogo** | Los clientes que ya lo tienen **lo siguen pagando**. Desactivar sólo lo quita de la lista al asignar. Para dejar de cobrárselo a alguien, dale de baja *su* asignación |
+| Se **da de baja** la asignación | Deja de cobrarse desde la siguiente factura. Las facturas anteriores no cambian |
+| Se **borra la factura** del mes | Al regenerarla, el adicional se vuelve a cobrar. No se pierde |
+| La generación mensual corre **dos veces** | El adicional se cobra **una sola vez**. No hay riesgo de duplicar |
+
+##### ¿Y si el cliente no paga plan?
+
+Hay clientes que no reciben factura mensual porque no tienen un plan que cobrarles: un
+**empleado con plan de cortesía**, o alguien vigente a quien todavía no se le asignó plan. Si
+ese cliente tiene servicios adicionales, el sistema le emite **una factura sólo con ellos**,
+con el mismo vencimiento que el resto de facturas de su router.
+
+Tiene sentido: no paga internet, pero sí está alquilando el equipo.
+
+> **No confundir con "no facturar".** Si el cliente está marcado como *excluido de
+> facturación*, retirado, o **llegó al tope de facturas pendientes**, no se le emite nada —
+> tampoco de adicionales. En esos casos alguien ya decidió que a ese cliente no se le cobra, y
+> el sistema lo respeta. El tope es el más importante: existe para dejar de acumularle deuda a
+> quien ya no está pagando.
+
+##### El aviso de "sin cobrar este mes"
+
+Justo por lo anterior, un servicio puede quedarse **activo pero sin facturarse** durante meses
+sin que nadie lo note. Para evitarlo:
+
+- En **Finanzas → Servicios adicionales → Catálogo**, un aviso ámbar arriba te dice cuántos
+  servicios activos no se cobraron este mes, por cuánto dinero y a qué clientes.
+- En la ficha del cliente, la asignación afectada lleva la etiqueta **Sin cobrar este mes**.
+
+El aviso sólo aparece cuando el cliente **ya recibió su factura del mes** y el servicio no está
+en ella. Durante los primeros días, antes de que el router facture, no dice nada — no habría
+nada que reportar.
+
+Si aparece, revisa el estado del cliente: casi siempre está excluido de facturación, retirado,
+o llegó al tope de facturas pendientes.
 **Firmar el contrato.** En la pestaña **Documentos**, abajo, está el contrato de servicio:
 se arma solo con los datos del cliente, el cliente firma en pantalla y al guardar se genera
 el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejemplo `CTR-00042`);
@@ -469,6 +545,19 @@ Puedes filtrar por estado, cliente y fechas. Los estados son:
 El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido** y
 **correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
 
+Arriba de la tabla verás dos totales: **Total facturado** y **Saldo pendiente** (lo que falta
+por cobrar). Ambos suman **todas** las facturas que cumplen el filtro, no sólo las de la página
+que estás viendo, así que puedes filtrar por mes o por estado y leer la cifra directamente sin
+sumar a mano. Las facturas **anuladas** no se cuentan en esos totales.
+
+En **Finanzas → Pagos / Recaudos** hay un total equivalente: **Total recaudado** con los filtros
+que tengas puestos.
+
+**Exportar a Excel.** El botón **Exportar CSV** (en Facturación, Recaudos y Gastos) descarga
+**todo lo que cumple el filtro que tengas puesto**, no sólo la página que estás viendo. Es decir:
+filtra primero por mes, estado, cliente o lo que necesites, y luego exporta. El archivo se abre
+directamente en Excel con las tildes y los importes bien puestos.
+
 ### 7.3 Ver el detalle y descargar el PDF
 
 Pulsa sobre una factura. Verás los ítems, los pagos aplicados y el saldo.
@@ -482,9 +571,53 @@ el sistema.
 
 ### 7.5 Servicios adicionales
 
-**Finanzas → Servicios adicionales.** Para cobrar algo puntual que no viene de un ticket
-(traslado, cambio de equipo, reconexión). También eliges el **tipo de factura** que se va
-a emitir.
+**Finanzas → Servicios adicionales.** La pantalla tiene **dos pestañas**, porque hay dos
+cosas distintas que se cobran fuera del plan:
+
+| Pestaña | Para qué | Cómo se cobra |
+|---|---|---|
+| **Catálogo** | Algo que se cobra **todos los meses**: alquiler de un router extra, soporte técnico mensual, un punto de TV adicional | Se suma a la **factura mensual** del cliente. No genera factura aparte |
+| **Cargo puntual** | Algo que se cobra **una sola vez**: un traslado, un cambio de equipo, una reconexión | Genera **su propia factura**, con su tipo y su fecha de vencimiento |
+
+#### El catálogo
+
+Es la lista de servicios que puedes asignar a tus clientes. Se crea **una vez** y se le
+asigna a todos los que lo tengan, en vez de escribir la misma descripción cliente por
+cliente.
+
+Para crear uno pulsa **Nuevo servicio** y llena:
+
+1. **Nombre** y **descripción** (ej. *Alquiler de router extra*).
+2. **Precio mensual** — es el precio de lista. Al asignarlo a un cliente concreto puedes
+   dejarle otro precio sin afectar a los demás.
+3. **Cobro del primer mes** — qué pasa si el servicio se activa a mitad de mes:
+
+   | Opción | Qué hace |
+   |---|---|
+   | *Mes completo* | Si se activa el 20, se cobra el mes entero. Lo habitual cuando ya entregaste el equipo |
+   | *Proporcional a los días* | Si se activa el 20 de un mes de 30, se cobran los 10 días restantes |
+   | *No cobrar el primer mes* | Empieza a facturarse en el ciclo siguiente |
+
+4. **Cobrar en meses de cortesía** — si el cliente está en un mes de cortesía por
+   instalación, ¿este servicio se cobra igual? Viene activado: lo normal es que la
+   promoción cubra el internet, no el alquiler del equipo.
+
+Cada tarjeta muestra a **cuántos clientes** se le está cobrando.
+
+> **Desactivar en vez de eliminar.** Un servicio que ya está asignado a algún cliente no se
+> puede borrar — el sistema te pedirá desactivarlo. Es a propósito: las facturas que ya lo
+> cobraron tienen que poder seguir explicando qué se cobró. Desactivarlo lo saca de la
+> lista al asignar y conserva todo el historial.
+
+#### El cargo puntual
+
+Para cobrar algo que no viene de un ticket. Eliges cliente, **tipo de factura**, ítems y
+fecha de vencimiento.
+
+> **¿Dónde veo los cargos que ya generé?** El botón **Ver cargos generados** abre
+> Facturación mostrando sólo las facturas de ese tipo, de todos los meses. Un cargo
+> puntual es una factura como cualquier otra, así que desde ahí puedes filtrarla, ver sus
+> totales y exportarla igual que el resto.
 
 ### 7.5.1 Tipos de factura (equipos, TV, reconexión…)
 
@@ -553,6 +686,11 @@ Hay dos formas de dejar a un cliente fuera de la facturación:
 |---|---|
 | **Plan de cortesía** | Se le asigna un plan marcado como cortesía. Su servicio queda en "gratis" y no se factura |
 | **No facturar a este cliente** | Casilla en la ficha del cliente. Lo saca de todo: factura, recordatorio, notificación y corte |
+
+Si en cambio lo que quieres es que **la factura se siga generando y cobrando normalmente** pero
+el cliente deje de recibir los avisos por correo/WhatsApp, usa la casilla **"No enviar
+notificaciones de factura"** (misma ficha del cliente, pestaña **Datos del Cliente**). No afecta
+mora ni corte automático.
 
 ---
 
@@ -799,15 +937,29 @@ que ya estaban mal marcados siguen navegando aunque el router ya esté bien conf
 
 **Finanzas → Gastos.**
 
+> Las **categorías de gasto** ahora se ven como tarjetas en lugar de una tabla
+> (*Finanzas → Categorías de gasto*): cada tarjeta muestra el concepto con sus
+> botones de editar y eliminar. Es el mismo formato que *Formas de pago*.
+
 1. Pulsa **Nuevo gasto**.
 2. Elige la **categoría** (puedes crearlas en *Categorías de gasto*).
 3. Indica **fecha** y **monto**.
 4. Opcional: **beneficiario** (el empleado o técnico a cuyo nombre va el gasto; déjalo vacío
-   en gastos como arriendo o servicios públicos).
+   en gastos como arriendo o servicios públicos). La lista muestra **sólo personal del ISP**:
+   los clientes no aparecen ahí.
 5. Añade descripción y notas.
 
 > **Los gastos no se borran.** Si te equivocaste, edítalo y cámbialo a estado **anulado**.
 > Así queda el rastro de la corrección.
+
+**Para encontrar un gasto**, el buscador de arriba busca por **descripción, observaciones y
+beneficiario** — útil cuando no recuerdas la fecha exacta. Se combina con los filtros de fecha,
+categoría y estado: puedes buscar "energía" *y* acotar a un mes *y* a una categoría a la vez.
+
+La lista viene **paginada** (puedes cambiar cuántos gastos ves por página abajo a la izquierda).
+Las tarjetas de **Total del período filtrado** y **Por categoría** siempre suman **todos** los
+gastos que cumplen el filtro, no sólo los de la página que estás viendo. Los gastos **anulados**
+siguen apareciendo en la lista, pero no se suman en esos totales.
 
 ---
 

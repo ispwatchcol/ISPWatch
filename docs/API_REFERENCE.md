@@ -272,6 +272,7 @@ Validado por `App\Http\Requests\StoreCustomerRequest`.
 | `installation_date` | date | opcional. **Base del prorrateo** |
 | `estrato` | int | opcional, entre 1 y 6 |
 | `exclude_from_billing` | bool | opcional. Saca al cliente de todo el ciclo automático |
+| `notify_invoice` | bool | opcional, default `true`. Si es `false`, silencia el aviso de factura nueva y recordatorios de pago (email/WhatsApp); la factura se sigue generando y la mora/corte funcionan igual |
 | `first_invoice_mode` | string | opcional: `none` \| `prorated` \| `full`. `null` = hereda |
 | `first_invoice_free_months` | int | opcional, 0–24. `null` = hereda |
 | `comments` | string | opcional, máx. 2000 |
@@ -621,6 +622,54 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `DELETE` | `/api/billing/invoices/{id}` | **`delete_invoice`** | Elimina (deja lápida) |
 | `POST` | `/api/billing/invoices/{id}/items` | — | Añade ítem |
 | `GET` | `/api/billing/invoices/{id}/pdf` | — | Descarga el PDF |
+| `GET` | `/api/billing/invoices/export` | — | **CSV** de todas las facturas del filtro |
+
+**`GET /api/billing/invoices`** — listado paginado (20 por página, orden
+`issue_date` descendente con desempate por `id`). Filtros opcionales combinables
+con `AND`: `search` (número o cliente), `customer_id`, `status`, `invoice_type`,
+`period` (`YYYY-MM` sobre `period_start`), `page`.
+
+> La vista de Facturación acepta `invoice_type`, `status`, `search` y `period`
+> **también por la URL del frontend** (`/billing/invoices?invoice_type=…`). Es lo
+> que usa "Ver cargos generados" en Servicios Adicionales para servir de historial
+> sin mantener un listado paralelo. Al llegar con un filtro por URL sin `period`
+> explícito, el mes se limpia: si no, el mes actual escondería los cargos
+> anteriores y la pantalla parecería vacía.
+
+Además del paginador, la respuesta trae una clave **`summary`** con los agregados
+del **filtro completo** (no de la página):
+
+```json
+"summary": { "total": 250000, "balance_due": 50000, "count": 25 }
+```
+
+> **Las facturas `void` y `cancelled` quedan fuera de `summary`** aunque sí
+> aparezcan en `data`: una factura anulada no es dinero facturado. Misma regla que
+> los gastos anulados. `balance_due` es lo que falta por cobrar de las facturas
+> que cumplen el filtro.
+
+### Exportación a CSV
+
+| Ruta | Permiso | Contenido |
+|---|---|---|
+| `GET /api/billing/invoices/export` | `view_billing` | Número, cliente, correo, tipo, estado, emisión, vencimiento, período, total, saldo |
+| `GET /api/billing/payments/export` | `view_billing` | Fecha, cliente, monto, método, referencia, registrado por, facturas afectadas |
+| `GET /api/expenses/export` | `view_expenses` | Fecha, categoría, descripción, a nombre de, monto, estado, observaciones |
+
+Los tres aceptan **exactamente los mismos filtros que su listado** (comparten el
+constructor de consulta, no una copia) e **ignoran la paginación**: el archivo
+cubre todo el filtro, no la página visible. La respuesta es un
+`StreamedResponse` — se escribe fila a fila y la consulta se recorre en lotes de
+500, así que un filtro grande no carga el conjunto entero en memoria.
+
+**Formato**, pensado para Excel con configuración regional en español:
+separador `;`, BOM UTF-8 e importes con coma decimal (`50000,00`). Ver la
+trampa 28 en `MANUAL_DESARROLLADOR.md` antes de cambiar cualquiera de los tres.
+
+> El CSV de gastos **sí incluye los anulados**, con su estado en una columna: el
+> archivo es el registro completo de lo que pasó, y esconderlos ocultaría
+> justamente las correcciones. Para exportar sólo los vigentes se filtra por
+> estado antes de exportar.
 
 **`POST /api/billing/invoices`**
 
@@ -685,6 +734,17 @@ combinan con `AND`:
 
 Las búsquedas de texto son insensibles a mayúsculas en PostgreSQL y en SQLite
 (macros `whereLike`/`orWhereLike`, ver `SearchMacrosServiceProvider`).
+
+Además del paginador, la respuesta trae una clave **`summary`** con los agregados
+del **filtro completo** (no de la página):
+
+```json
+"summary": { "total": 25000, "count": 25 }
+```
+
+> A diferencia de facturas y gastos, aquí **no se excluye ningún estado**: un
+> recaudo no se anula, se elimina — y al eliminarlo se revierten sus asignaciones.
+> Lo que está en la tabla es dinero recibido.
 
 > El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
 > query param se ignora: antes permitía leer los recaudos de otro tenant.
@@ -802,6 +862,91 @@ Errores propios:
 | `403` | El tipo es del sistema (`monthly`, `installation`, `additional`, `service_charge`) o de otro tenant |
 | `422` | El nombre choca con un tipo existente, o se intenta borrar un tipo **ya usado en facturas** (hay que desactivarlo) |
 
+### Servicios adicionales (catálogo recurrente)
+
+Mismo permiso: **`view_billing`**. No confundir con `POST /api/billing/additional-charges`,
+que emite un **cargo puntual** en su propia factura. Esto es la **plantilla reutilizable**
+que se asigna a varios clientes y se cobra **dentro de la mensualidad** de cada uno.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/billing/additional-services/unbilled` | **Servicios activos que no se cobraron este mes** (ver abajo) |
+| `GET` | `/api/billing/additional-services` | Catálogo del tenant, con `active_assignments_count` |
+| `POST` | `/api/billing/additional-services` | Crea un servicio |
+| `PUT` | `/api/billing/additional-services/{id}` | Actualiza (parcial: sólo lo que llega) |
+| `DELETE` | `/api/billing/additional-services/{id}` | Elimina, si no tiene asignaciones |
+
+**`POST`** — `name` (≤120) y `price` (≥0) requeridos. Opcionales:
+
+| Campo | Valores | Por defecto |
+|---|---|---|
+| `description` | ≤255 | `null` |
+| `proration_mode` | `none` \| `prorated` \| `full` — **el mismo vocabulario** que la política de primera factura de los planes | `full` |
+| `charge_on_courtesy_month` | bool — si se cobra durante un mes de cortesía por instalación | `true` |
+| `is_active` | bool | `true` |
+| `sort_order` | ≥0 | `0` |
+
+**`PUT`** valida con `sometimes`: un payload parcial no reescribe lo que no viaja en él.
+
+**`GET /unbilled`** — detector de fuga silenciosa. Devuelve `{count, total, items[]}` con las
+asignaciones **activas y en ventana** que este mes no aparecen en ninguna factura, cada una
+con `customer_name`, `service_name` y `amount`.
+
+Reutiliza el **mismo filtro que el cobro** (`BillingService::chargeableAdditionalServices`),
+así que no puede reportar como pendiente algo que el cobro no iba a cobrar igualmente. Calla
+mientras el cliente no tenga factura vigente del periodo: eso significa que el ciclo de su
+router no ha corrido, que no es lo mismo que haberse saltado el cobro.
+
+> La ruta va declarada **antes** de las que llevan `{id}`, por la misma razón que las tres
+> `/export` de Finanzas (trampa #27 del manual del desarrollador).
+
+Errores propios:
+
+| Código | Cuándo |
+|---|---|
+| `404` | El id no existe **o es de otro tenant** (el scope global no lo distingue, a propósito) |
+| `422` | Nombre repetido en el tenant (sin distinguir mayúsculas), `proration_mode` inválido, o borrado de un servicio **con asignaciones** — incluidas las dadas de baja, porque ya cobraron en meses anteriores |
+
+### Asignación de servicios adicionales a un cliente
+
+Mismo permiso: **`view_billing`**. Las cuatro rutas van **anidadas bajo el cliente**,
+también `PUT` y `DELETE`: sin eso, un id de asignación válido serviría para editar la de
+cualquier otro cliente de la misma empresa (el scope de tenant no lo impediría, porque
+ambos son del mismo tenant).
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/billing/customers/{customer}/additional-services` | Asignaciones del cliente, vigentes primero |
+| `POST` | `/api/billing/customers/{customer}/additional-services` | Asigna un servicio del catálogo |
+| `PUT` | `/api/billing/customers/{customer}/additional-services/{id}` | Actualiza precio, cantidad, fechas, estado o notas |
+| `DELETE` | `/api/billing/customers/{customer}/additional-services/{id}` | Elimina, **sólo si nunca facturó** |
+
+**`POST`** — `additional_service_id` y `starts_at` requeridos. Opcionales: `price`
+(**`null` = usa el del catálogo y sigue sus cambios**; con valor queda congelado),
+`quantity` (≥1, por defecto 1), `ends_at` (≥ `starts_at`), `notes`.
+
+`assigned_at` y `assigned_by` los pone el servidor. **Reactivar** (`PUT` con
+`is_active: true` sobre una dada de baja) los refresca: es una nueva alta a efectos de
+historial.
+
+**`PUT`** no admite cambiar `additional_service_id` — sería otra asignación distinta con
+el historial de cobro de la anterior colgando de ella.
+
+Cada asignación incluye `effective_price` (el precio que realmente se le cobra, ya
+resuelta la cascada asignación → catálogo), `service`, `assigner` y **`pending_billing`**
+(`true` cuando el cliente ya recibió su factura del mes y este servicio no está en ella).
+
+> El campo de quien asignó viaja como **`assigner`** (objeto) y **`assigned_by`** (id).
+> La relación se llama `assigner` justamente para que no colisionen — ver trampa #30 del
+> manual del desarrollador.
+
+Errores propios:
+
+| Código | Cuándo |
+|---|---|
+| `404` | El cliente es de otro tenant, o la asignación no pertenece a ese cliente |
+| `422` | El servicio no existe / es de otro tenant, está desactivado, el cliente **ya lo tiene activo** (hay que subir la cantidad), `ends_at` anterior a `starts_at`, o borrado de una asignación **ya cobrada** |
+
 ---
 
 ## 13. Bitácoras de failover
@@ -837,12 +982,45 @@ cada hora.
 | `PUT` | `/api/expense-categories/{expenseCategory}` | `edit_expense` |
 | `DELETE` | `/api/expense-categories/{expenseCategory}` | `edit_expense` |
 
+**Filtros de `GET /api/expenses`** (todos combinables entre sí, en AND)
+
+| Parámetro | Efecto |
+|---|---|
+| `search` | Texto libre sobre `description`, `notes` y el nombre del beneficiario. Insensible a mayúsculas en los dos motores (macros `whereLike`/`orWhereLike`) |
+| `date_from` / `date_to` | Rango sobre `expense_date` |
+| `expense_category_id` | Categoría exacta |
+| `status` | `activo` \| `anulado` |
+| `page` / `per_page` | Paginación. `per_page` por defecto 15, acotado a 200 (no rechaza: recorta) |
+
+**Respuesta.** Paginador estándar de Laravel (`data`, `current_page`, `last_page`,
+`total`, `from`, `to`…) **más** una clave `summary` con los agregados del filtro:
+
+```json
+{
+  "data": [ … ],
+  "current_page": 1, "last_page": 3, "total": 25,
+  "summary": {
+    "total": 25000,
+    "count": 25,
+    "by_category": [ { "name": "Arriendo", "total": 900000 }, { "name": "Sin categoría", "total": 7000 } ]
+  }
+}
+```
+
+> **`summary` cubre el filtro completo, no la página.** Va en la misma respuesta
+> —y no en un endpoint aparte— justamente para que sea imposible que el total
+> corresponda a un filtro distinto del que produjo la lista.
+>
+> **Los gastos anulados quedan fuera de `summary`** aunque sí aparezcan en `data`:
+> el total representa dinero realmente gastado. Si se filtra `status=anulado`, el
+> resumen da 0.
+
 **Cuerpo de gasto**
 
 | Campo | Reglas |
 |---|---|
 | `expense_category_id` | existe en `expense_categories` |
-| `user_id` | existe en `users` (beneficiario; puede ser nulo: arriendo, servicios…) |
+| `user_id` | existe en `users` (beneficiario; puede ser nulo: arriendo, servicios…). El formulario lo llena desde `GET /api/catalogs/users?staff=1`, que excluye a los clientes |
 | `expense_date` | **requerido**, fecha |
 | `amount` | **requerido**, numérico ≥ 0 |
 | `description` | máx. 255 |
@@ -1013,6 +1191,15 @@ front y API comparten origen, donde la restricción no aplica.
 | `GET` | `/api/catalogs/users` |
 
 Reemplazan las lecturas directas del frontend a Supabase.
+
+**`GET /api/catalogs/users`** devuelve `id` + `name` de los usuarios del tenant.
+Con **`?staff=1`** excluye a los clientes y deja sólo al personal del ISP — es lo
+que usa el campo "A nombre de quién" de un gasto.
+
+> El filtro es *ausencia de `customer_profile`*, **no** presencia de
+> `staff_profile`: esa tabla está vacía en producción, así que filtrar por ella
+> devolvería una lista vacía. Sin el parámetro, la respuesta sigue incluyendo a
+> todos (el catálogo de inventario depende de ese comportamiento).
 
 ### Centro de ayuda
 

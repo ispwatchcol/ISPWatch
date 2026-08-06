@@ -6,6 +6,10 @@ export default {
     getAll(params = {}) {
         return apiClient.get('/expenses', { params })
     },
+    // Mismos filtros que el listado, sin paginar: el CSV cubre todo el filtro.
+    exportCsv(params = {}) {
+        return apiClient.get('/expenses/export', { params, responseType: 'blob' })
+    },
     create(data) {
         return apiClient.post('/expenses', data)
     },

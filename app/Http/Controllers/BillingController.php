@@ -10,11 +10,14 @@ use App\Models\User;
 use App\Services\BillingService;
 use App\Services\OverdueSuspensionService;
 use App\Services\Templates\TemplateRenderer;
+use App\Traits\ExportsCsv;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class BillingController extends Controller
 {
+    use ExportsCsv;
+
     protected $billingService;
     protected TemplateRenderer $templateRenderer;
 
@@ -24,8 +27,16 @@ class BillingController extends Controller
         $this->templateRenderer = $templateRenderer;
     }
 
-    // List Invoices
-    public function index(Request $request)
+    /**
+     * Consulta de facturas con los filtros del listado aplicados, SIN orden ni
+     * paginación.
+     *
+     * Vive aparte porque la usan el listado y la exportación: si cada uno
+     * armara sus propios filtros, acabarían divergiendo y el CSV dejaría de
+     * corresponder a lo que el usuario tenía en pantalla — que es justo lo que
+     * la exportación promete.
+     */
+    private function filteredInvoicesQuery(Request $request)
     {
         $query = Invoice::query()->with(['customer.customerProfile']);
 
@@ -73,7 +84,126 @@ class BillingController extends Controller
             $query->where('tenant_id', $tenantId);
         }
 
-        return response()->json($query->orderBy('issue_date', 'desc')->paginate(20));
+        return $query;
+    }
+
+    // List Invoices
+    public function index(Request $request)
+    {
+        $query = $this->filteredInvoicesQuery($request);
+
+        // Agregados del listado, misma convención que Gastos: clave `summary` en
+        // la MISMA respuesta, calculada en SQL sobre el filtro completo. En un
+        // endpoint aparte, la cifra y la lista podrían responder a filtros
+        // distintos sin que nada lo delatara.
+        //
+        // Las anuladas quedan fuera del dinero: una factura 'void'/'cancelled'
+        // no se facturó. Es la regla equivalente a la de los gastos anulados.
+        $summaryQuery = (clone $query)->whereNotIn('status', ['void', 'cancelled']);
+
+        // `issue_date` es una fecha sin hora y se repite (toda la facturación
+        // mensual comparte día): sin desempate estable, dos páginas pueden
+        // repetir u omitir la misma factura.
+        $paginator = $query->orderBy('issue_date', 'desc')->orderBy('id', 'desc')->paginate(20);
+
+        return response()->json($paginator->toArray() + [
+            'summary' => [
+                'total'       => (float) (clone $summaryQuery)->sum('total'),
+                'balance_due' => (float) (clone $summaryQuery)->sum('balance_due'),
+                'count'       => (clone $summaryQuery)->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Exporta a CSV las facturas del filtro aplicado — todas, no la página.
+     *
+     * Reutiliza `filteredInvoicesQuery()`, la misma consulta del listado: el
+     * archivo no puede contener un conjunto distinto del que se ve en pantalla.
+     */
+    public function exportInvoices(Request $request)
+    {
+        $query = $this->filteredInvoicesQuery($request)
+            ->orderBy('issue_date', 'desc')
+            ->orderBy('id', 'desc');
+
+        $columns = [
+            'Número', 'Cliente', 'Correo', 'Tipo', 'Estado',
+            'Emisión', 'Vencimiento', 'Período', 'Total', 'Saldo pendiente',
+        ];
+
+        return $this->streamCsv(
+            'facturas-' . now()->format('Y-m-d') . '.csv',
+            $columns,
+            $query,
+            function (Invoice $invoice) {
+                $profile = $invoice->customer?->customerProfile;
+                $nombre  = trim(($profile->name ?? '') . ' ' . ($profile->last_name ?? ''));
+
+                return [
+                    $invoice->number,
+                    $nombre !== '' ? $nombre : ($invoice->customer?->user_name ?? ''),
+                    $invoice->customer?->email ?? '',
+                    $invoice->invoice_type,
+                    $invoice->status,
+                    $this->csvDate($invoice->issue_date),
+                    $this->csvDate($invoice->due_date),
+                    $this->csvDate($invoice->period_start),
+                    $this->csvMoney($invoice->total),
+                    $this->csvMoney($invoice->balance_due),
+                ];
+            }
+        );
+    }
+
+    /**
+     * Exporta a CSV los recaudos del filtro aplicado — todos, no la página.
+     * Comparte `filteredPaymentsQuery()` con el listado por la misma razón.
+     */
+    public function exportPayments(Request $request)
+    {
+        $f = $this->validatedPaymentFilters($request);
+
+        $query = $this->filteredPaymentsQuery($request, $f)
+            ->orderBy($f['sort_by'] ?? 'payment_date', $f['sort_dir'] ?? 'desc')
+            ->orderBy('id', 'desc');
+
+        $columns = [
+            'Fecha', 'Cliente', 'Monto', 'Método', 'Referencia',
+            'Registrado por', 'Facturas afectadas',
+        ];
+
+        return $this->streamCsv(
+            'recaudos-' . now()->format('Y-m-d') . '.csv',
+            $columns,
+            $query,
+            function (Payment $payment) {
+                $profile = $payment->customer?->customerProfile;
+                $nombre  = trim(($profile->name ?? '') . ' ' . ($profile->last_name ?? ''));
+
+                $creator = $payment->creator;
+                $quien   = $creator
+                    ? (trim(($creator->user_name ?? '') . ' ' . ($creator->user_lastname ?? '')) ?: ($creator->name ?? ''))
+                    : 'sistema';
+
+                // Misma información que la columna "Facturas afectadas" de la
+                // tabla; sin asignaciones, el recaudo quedó como saldo a favor.
+                $facturas = $payment->allocations
+                    ->map(fn ($a) => $a->invoice?->number)
+                    ->filter()
+                    ->implode(', ');
+
+                return [
+                    $this->csvDate($payment->payment_date),
+                    $nombre !== '' ? $nombre : ($payment->customer?->user_name ?? ''),
+                    $this->csvMoney($payment->amount),
+                    $payment->method,
+                    $payment->reference ?? '',
+                    $quien,
+                    $facturas !== '' ? $facturas : 'Saldo a favor',
+                ];
+            }
+        );
     }
 
     // Show Invoice
@@ -400,7 +530,37 @@ class BillingController extends Controller
      */
     public function getPayments(Request $request)
     {
-        $f = $request->validate([
+        $f     = $this->validatedPaymentFilters($request);
+        $query = $this->filteredPaymentsQuery($request, $f);
+
+        $sortBy  = $f['sort_by'] ?? 'payment_date';
+        $sortDir = $f['sort_dir'] ?? 'desc';
+
+        // Agregados del listado, misma convención que Gastos y Facturación.
+        //
+        // Aquí NO se excluye ningún estado: a diferencia de facturas y gastos,
+        // un recaudo no se anula — se elimina, y al eliminarlo se revierten sus
+        // asignaciones (`deletePayment`). Lo que está en la tabla es dinero
+        // efectivamente recibido.
+        $summaryQuery = clone $query;
+
+        $paginator = $query->orderBy($sortBy, $sortDir)
+            ->orderBy('id', 'desc') // desempate estable entre páginas
+            ->paginate($f['per_page'] ?? 15)
+            ->withQueryString();
+
+        return response()->json($paginator->toArray() + [
+            'summary' => [
+                'total' => (float) (clone $summaryQuery)->sum('amount'),
+                'count' => (clone $summaryQuery)->count(),
+            ],
+        ]);
+    }
+
+    /** Reglas de los filtros de recaudos, compartidas por el listado y la exportación. */
+    private function validatedPaymentFilters(Request $request): array
+    {
+        return $request->validate([
             'search'        => 'nullable|string|max:255',
             'customer'      => 'nullable|string|max:255',
             'customer_id'   => 'nullable|integer',
@@ -416,7 +576,15 @@ class BillingController extends Controller
             'sort_dir'      => 'nullable|in:asc,desc',
             'per_page'      => 'nullable|integer|min:1|max:200',
         ]);
+    }
 
+    /**
+     * Consulta de recaudos con los filtros aplicados, SIN orden ni paginación.
+     * Compartida por el listado y la exportación para que el CSV no pueda
+     * divergir de lo que el usuario ve en pantalla.
+     */
+    private function filteredPaymentsQuery(Request $request, array $f)
+    {
         // Sólo las columnas que pinta la tabla: `users` y `customer_profile`
         // tienen decenas de campos y traerlos enteros multiplicaba el peso de la
         // respuesta, sobre todo con per_page alto.
@@ -504,15 +672,7 @@ class BillingController extends Controller
             $query->where('tenant_id', $tenantId);
         }
 
-        $sortBy  = $f['sort_by'] ?? 'payment_date';
-        $sortDir = $f['sort_dir'] ?? 'desc';
-
-        return response()->json(
-            $query->orderBy($sortBy, $sortDir)
-                ->orderBy('id', 'desc') // desempate estable entre páginas
-                ->paginate($f['per_page'] ?? 15)
-                ->withQueryString()
-        );
+        return $query;
     }
 
     /**
