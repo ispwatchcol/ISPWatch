@@ -220,7 +220,7 @@ sequenceDiagram
 | `permission` / `can_do` | `CheckPermission` | Exige uno o varios permisos con **semántica OR** (`permission:a,b`); **bypass si `role_id == 1`** |
 | `staff_profile` | `CheckStaffProfile` | Pese al nombre, comprueba `role.code ∈ {admin, staff}` o `role_id == 1`; **no** exige fila en `staff_profile` |
 | `throttle:<limitador>` | Laravel | Límite de peticiones: `api` (120/min), `router-ops` (10/min), `bulk-ops` (5/min) |
-| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`. **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`** |
+| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:` (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
 | *(api, prepend)* | `EnsureFrontendRequestsAreStateful` | Sanctum SPA |
 
 `trustProxies(at: '*')` está activo (necesario tras el balanceador de DigitalOcean).
@@ -242,6 +242,7 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `RouterApiService` | 912 | Protocolo API nativo MikroTik (puerto 8728) |
 | `MikroTikSshService` | 603 | SSH directo/vía CORE |
 | `WhatsAppService` | 162 | WhatsApp Cloud API (Meta Graph v18) |
+| `ContractNumberService` | 62 | Reserva el consecutivo de contratos por tenant (`lockForUpdate`) |
 | `Templates/*` | — | Render, saneado y resolución de placeholders de documentos |
 
 ### Composición de la factura mensual
@@ -297,6 +298,50 @@ acaba ignorando.
 el comando one-off `billing:generate-tenant` tiene la suya. Para que no facture de menos,
 llama a `BillingService::addRecurringExtrasTo()`, la única API pública de los adicionales.
 Esa duplicación es deuda conocida — ver **P-11** en `MEJORAS_RECOMENDADAS.md`.
+#### Consecutivo de contratos
+
+Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant, con
+el formato `PREFIJO` + consecutivo de 5 dígitos. El prefijo lo configura cada ISP
+(`tenant.contract_prefix`, pestaña **Plantillas de documentos**) y es **texto libre**: `CNO/`,
+`Contrato N° `, `FIBRA_2026.` son todos válidos; vacío equivale a `CTR`. El separador `-` se
+añade sólo cuando el prefijo termina en letra o dígito, para no duplicar el que ya puso el ISP.
+
+**El número que se imprime y el nombre del archivo son dos cosas distintas**, y esa separación
+es el punto de todo el diseño:
+
+| | Quién lo decide | Función |
+|---|---|---|
+| Número impreso en el PDF y guardado en `contract_number` | El ISP, tal cual lo escribió | `ContractNumberService::format()` |
+| Nombre del archivo en S3 | El sistema, saneado a ASCII seguro | `ContractNumberService::fileName()` |
+
+`fileName()` usa `Str::ascii()` (mapa propio de Laravel, sin depender de `intl` ni de `iconv`,
+así el resultado es idéntico en Windows y en el contenedor Linux), reemplaza lo que no sea
+`[A-Za-z0-9._-]` por `-` y cae a `contrato` si no queda nada. La parte numérica siempre
+sobrevive, así que dos contratos del mismo cliente nunca colisionan aunque sus prefijos se
+saneen al mismo texto: `CNO/00001` → `contrato_CNO-00001.pdf`.
+
+Como el espacio final del prefijo es significativo (`Contrato N° `), el campo está exceptuado
+del middleware `TrimStrings` en `bootstrap/app.php`.
+
+El mecanismo es el mismo que el de facturas (`BillingService::generateInvoiceNumber`): el
+contador vive en la fila del tenant (`tenant.next_contract_number`) y se reserva dentro de
+una transacción con `lockForUpdate`, de modo que dos firmas simultáneas no puedan obtener
+el mismo número. La **UK** `(tenant_id, contract_number)` en `customer_documents` es la red
+de seguridad si alguna vez se saltara esa ruta.
+
+Dos consecuencias de diseño que conviene tener presentes:
+
+1. **El número se reserva antes de renderizar**, porque va impreso en el encabezado del PDF
+   (`Contrato No. …`) — no se puede asignar después de generar el archivo. Si el render
+   falla, ese número queda quemado: es preferible un hueco en la secuencia a dos contratos
+   con el mismo número.
+2. **La vista previa no consume secuencia.** Tanto `contract-data` como el preview de
+   plantillas muestran `ContractNumberService::format()` sobre el contador actual sin
+   incrementarlo; es orientativo, no una reserva.
+
+Los PDF que el ISP sube a mano (`type = contrato`, `signed = false`) **no** reciben número:
+no se puede sellar por dentro un archivo ajeno, y un consecutivo que no aparece en el papel
+prometería una trazabilidad que el documento no tiene.
 
 ### Plantillas de documentos (`app/Services/Templates`)
 
@@ -316,6 +361,48 @@ zero-regression: personalizar es opt-in.
 | Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…), `id`/`style` en todos los tags (`Attr.EnableID=true`, auditoría 2026-08-03) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
 | Render | `Pdf::loadView('documents.shells.*_shell', ['body' => $html, …])` | `Pdf::loadHTML($html)` directo, sin shell |
 
+**Tamaño y orientación de página** (2026-08-05) — cada plantilla lleva su propio
+`page_size` / `page_orientation` y `TemplateRenderer::applyPaper()` los aplica con
+`setPaper()` en los 6 caminos (3 `render*` + 3 `preview*`), en ambos modos. La ruta legacy
+(sin fila en `document_templates`) **no** se toca: sigue con el default de
+`config/dompdf.php`, que es lo que hacían todas antes.
+
+El motivo es concreto y no cosmético: un contrato a dos columnas — el formato CRC estándar
+en Colombia, y el que exportan sistemas como WispHub — necesita ~950 px de ancho. A4
+vertical da ~698 px útiles a 96 dpi, así que dompdf aprieta el diseño y descuadra la
+maquetación entera; A4 horizontal da ~1027 px y cabe intacto. Sin esta opción, la única
+salida era rediseñar el contrato, que es un formato regulado.
+
+`applyPaper()` **revalida** contra `DocumentTemplate::PAGE_SIZES`/`PAGE_ORIENTATIONS`
+aunque `UpdateDocumentTemplateRequest` ya validó en la entrada: `setPaper()` con un tamaño
+desconocido no lanza excepción, se queda en silencio con un canvas raro, y eso es peor que
+ignorar el valor. Una fila con basura (escritura directa a la BD, migración desde otro
+sistema) cae al default.
+
+**Dos vistas previas distintas, ninguna con su propio renderizador:**
+
+| | Qué previsualiza | Punto de entrada |
+|---|---|---|
+| **De plantilla** (Configuración → Plantillas) | Un `body_html` en borrador, con datos de muestra | `TemplateRenderer::preview*` |
+| **De documento real** (detalle de instalación) | La hoja **de esa orden**, sin firmas, para que el cliente o el prospecto lea lo que va a firmar | `CustomerInstallationController::buildSheetPdf()`, el mismo que usa `/sign` antes de guardar el `CustomerDocument` |
+
+La segunda no persiste nada (ni documento, ni firma, ni cambio de estado) y acepta la hoja
+en borrador para reflejar lo que el técnico tiene en pantalla sin haberla guardado. Que
+comparta `buildSheetPdf()` con la firma es el punto: lo que el cliente lee y lo que se
+archiva no pueden divergir.
+
+**Un documento firmado por tipo** (2026-08-05): `sign()` y `signContract()` devuelven `409`
+si ya existe la hoja de esa orden / el contrato de ese cliente, en vez de acumular PDF casi
+idénticos sin saber cuál vale. El contrato se comprueba **antes** de `ContractNumberService::allocate()`
+para no gastar un consecutivo en un documento que no se genera. El bloqueo mira los
+`customer_documents` con `signed = true` (las fotos van con `signed = false`), así que borrar
+el anterior habilita volver a firmar.
+
+**Las fotos de la instalación no van dentro del PDF** (2026-08-05): se retiró la galería de
+la vista legacy, del shell y el bloque `{{instalacion.fotos}}`. Se consultan en los documentos
+del cliente; dentro del PDF nunca llegaron a verse porque se resolvían con `public_path()`
+mientras se almacenan en S3. Reponerlas exigiría incrustarlas como data URI leyéndolas de S3.
+
 **Placeholders** — dos tipos, mismo motor de sustitución (`PlaceholderResolver::apply()`,
 `BlockMarkerInjector`), reutilizado sin cambios entre ambos modos:
 
@@ -323,7 +410,7 @@ zero-regression: personalizar es opt-in.
   al sustituir. Un token desconocido (typo, o de otro tipo de documento — ej. `{{factura.*}}`
   dentro de un contrato) se blanquea a `''` en silencio; es una decisión consciente, no un bug
   (ver `docs/MEJORAS_RECOMENDADAS.md`).
-- **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.fotos}}`, `{{instalacion.firma_cliente}}`,
+- **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.firma_cliente}}`,
   `{{instalacion.firma_tecnico}}`, `{{empresa.logo}}`) — HTML de confianza pre-renderizado por el
   servidor (tabla de ítems, galería de fotos, imagen de firma/logo), **nunca** sanitizado (necesita
   `<img>`/`colspan`, prohibidos en el allowlist del tenant). Se insertan vía `BlockMarkerInjector`:

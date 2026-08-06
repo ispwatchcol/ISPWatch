@@ -284,7 +284,7 @@ la conexión) y aborta salvo en dos casos:
 > (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
 > seguir haciéndolo.
 
-### Cobertura actual (46 archivos, 358 tests)
+### Cobertura actual (51 archivos, 413 tests)
 
 | Suite | Archivos |
 |---|---|
@@ -293,7 +293,7 @@ la conexión) y aborta salvo en dos casos:
 | `Feature/Auth` | `ApiAuthorizationTest` (42: permiso por endpoint, OR, bypass admin, unión de permisos), `ApiLoginTest` (7: login real, verificación, rate limit), `RolePermissionsSyncTest` (7) |
 | `Feature/Router` | `RouterOutageTest` |
 | `Feature/Inventory` | `InventoryImportTest` |
-| `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
+| `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `SecurityHeadersTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TemplateRendererPageSetupTest` (papel por plantilla, verificado sobre el `/MediaBox` del PDF real), `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
 | `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest` |
 | `Unit/Services` | `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest` |
 | `Unit/Spikes` | `CssTidyExtractStyleBlocksSpikeTest` (prueba aislada de `Filter.ExtractStyleBlocks`, no forma parte del sanitizer de producción) |
@@ -550,6 +550,79 @@ todo lo demás, usa un placeholder escalar):
 5. Si el frontend debe ofrecerlo en el selector de placeholders, ya llega solo:
    `DocumentTemplateController::show()` expone `block_placeholders` desde el mismo config.
 
+> **Un placeholder desconocido se blanquea en silencio.** `PlaceholderResolver::apply()`
+> reemplaza por `''` cualquier `{{…}}` que no esté en el array resuelto — deliberado, para
+> que un typo nunca rompa el render. El efecto secundario es que "marcador mal escrito" y
+> "sistema roto" se ven idénticos desde la interfaz; es la causa raíz del reporte de
+> 2026-08-05 con una plantilla migrada de WispHub (`docs/BITACORA_TECNICA.md` § 15). Si
+> agregas un marcador con nombre distinto al de otro sistema del que la gente migra, deja
+> la equivalencia escrita en `MANUAL_USUARIO.md`.
+
+### Ejemplo: cambiar el tamaño o la orientación del PDF
+
+Vive en `document_templates.page_size` / `page_orientation` y lo aplica
+`TemplateRenderer::applyPaper()` con `setPaper()`. Tres cosas que no son evidentes:
+
+1. **Hay 6 caminos, no 3.** `renderInvoice`/`renderContract`/`renderInstallationSheet` leen
+   el papel de la fila; los tres `preview*` lo reciben **por parámetro**, porque la vista
+   previa debe reflejar lo que el tenant tiene seleccionado en el editor sin haber guardado.
+   Si agregas un camino nuevo de render, tiene que pasar por `applyPaper()` o saldrá con el
+   default sin que nada avise.
+2. **La ruta legacy (sin fila en `document_templates`) no lleva `setPaper()`** a propósito:
+   se queda con el default de `config/dompdf.php`, que es lo que hacían todas antes de que
+   existieran estas columnas.
+3. **`applyPaper()` revalida contra `DocumentTemplate::PAGE_SIZES`/`PAGE_ORIENTATIONS`**
+   aunque el FormRequest ya validó. No es redundancia decorativa: ver la trampa 30 abajo.
+
+Para agregar un tamaño nuevo basta con añadirlo a `PAGE_SIZES` (la columna es texto, no
+enum, justamente para no necesitar una migración) y a los `<option>` de
+`DocumentTemplatesSection.vue`.
+
+### Ejemplo: consecutivos (facturas y contratos)
+
+Hay dos secuencias en el sistema y ambas siguen el mismo patrón; si algún día hace falta una
+tercera (remisiones, órdenes…), cópialo tal cual en vez de inventar otro:
+
+| Secuencia | Contador | Reserva | Respaldo |
+|---|---|---|---|
+| Facturas | `tenant.next_invoice_number` | `BillingService::generateInvoiceNumber()` | **UK** `(tenant_id, number)` en `invoices` |
+| Contratos | `tenant.next_contract_number` + `tenant.contract_prefix` | `ContractNumberService::allocate()` | **UK** `(tenant_id, contract_number)` en `customer_documents` |
+
+Las tres reglas que hacen que funcione:
+
+1. **`DB::transaction` + `lockForUpdate` sobre la fila del tenant.** Sin el lock, dos
+   peticiones concurrentes leen el mismo contador y emiten el mismo número. En SQLite el
+   `for update` se ignora (la gramática lo compila a vacío), así que los tests pasan igual
+   pero **no** demuestran la exclusión: eso lo garantiza la UK.
+2. **Reserva antes de renderizar.** El número va impreso dentro del PDF, así que no puede
+   asignarse después. Un render fallido quema el número; un hueco en la secuencia es mucho
+   menos grave que un duplicado.
+3. **Previsualizar no consume.** Usa el helper estático de formato
+   (`ContractNumberService::format($prefix, $n)`) sobre el contador actual — nunca
+   `allocate()` — en cualquier ruta de preview.
+
+4. **Si el prefijo es configurable, no lo restrinjas para proteger el sistema de archivos.**
+   Es el error que tuvo la primera versión: `regex:/^[A-Za-z0-9\-]+$/` en el `FormRequest`,
+   porque el prefijo acababa dentro de la clave de S3. Eso le quitaba al ISP formatos
+   perfectamente legítimos (`CNO/`, `Contrato N° `). Lo correcto es separar las dos cosas:
+
+   | Cosa | Quién manda | Dónde |
+   |---|---|---|
+   | El número que se **imprime y se guarda** | El ISP, texto libre | `format()` |
+   | El nombre del **archivo** en S3 | El sistema, saneado a ASCII | `fileName()` |
+
+   `fileName()` translitera (`Nº` → `No`), reemplaza lo que no sea `[A-Za-z0-9._-]` por `-` y
+   cae a `contrato` si no queda nada. La parte numérica siempre sobrevive, así que dos
+   contratos del mismo cliente no colisionan aunque sus prefijos se saneen igual.
+
+   Dos detalles que se aprendieron por las malas:
+
+   - El separador se decide con `preg_match('/[\p{L}\p{N}]$/u', $prefix)` — sólo se añade `-`
+     si el prefijo termina en letra o dígito. Si no, el ISP ya puso el suyo.
+   - **El espacio final es significativo** (`Contrato N° `) y `TrimStrings` se lo comía. El
+     campo está exceptuado en `bootstrap/app.php`. Si añades otro campo donde el espacio
+     final signifique algo, tiene que ir en esa misma lista o nunca llegará a la base.
+
 ---
 
 ## 11. Trampas conocidas
@@ -586,6 +659,12 @@ todo lo demás, usa un placeholder escalar):
 | 28 | **Un CSV para Excel en español necesita `;`, BOM y coma decimal** | Con configuración regional es-CO: separado por comas, Excel apelmaza todas las columnas en una; sin BOM UTF-8, las tildes salen como `Ã³`/`Ã±`; y un importe escrito `50000.00` se lee como **texto** (no suma) porque el separador decimal esperado es `,`. El trait `ExportsCsv` resuelve los tres (`;`, `\xEF\xBB\xBF`, `number_format(..., ',', '')`) — no "corrijas" el separador a coma sin probarlo en un Excel es-CO real |
 | 29 | **Un `default` en la migración NO le da valor al objeto recién creado** | `CustomerAdditionalService::create([...])` sin `is_active` ni `quantity` devuelve una instancia con **ambos en `null`**: el default de PostgreSQL protege a la *fila*, no al *objeto* que quedó en memoria. La fila en base sale bien; el modelo que tienes en la mano, no — hasta que lo relees. Lo detectó un test de la fase 1 de servicios adicionales (`coversPeriod()` daba la asignación por inactiva), pero el daño real habría llegado al cobrar: `unit_price * null` deja el cargo en **cero**, sin error y sin que nadie lo note. Repite los defaults en `protected $attributes` de todo modelo cuyos valores se lean antes de releer la fila |
 | 30 | **Una relación cuyo snake_case coincide con una columna FK la PISA en el JSON** | La relación `assignedBy()` se serializa como `assigned_by` — exactamente el nombre de la columna FK. Con la relación cargada, `assigned_by` deja de ser un id y pasa a ser un objeto; sin cargar, vuelve a ser un id. La misma clave significa dos cosas según el `->with()` del controlador, y quien consume la API no tiene forma de saber cuál le va a llegar. Detectado por un test de la fase 3 de servicios adicionales (`assertJsonPath('assigned_by', $id)` recibía un array). Se renombró a `assigner()`, conservando `'assigned_by'` como FK. **Nunca nombres una relación igual que su propia columna FK** — pasa con todo par `xxxBy()`/`xxx_by` y `xxxTo()`/`xxx_to` |
+| 27 | **Cachear el contexto 2D de un `<canvas>` en una variable de `<script setup>`** | El canvas de firma de `InstallationDetail.vue` vive dentro de un `v-if="loading"`/`v-else`: **cada recarga de la orden lo desmonta y monta otro**. Un `let ctx = canvas.getContext('2d')` guardado aparte sigue apuntando al canvas viejo, ya fuera del DOM → el trazo se dibuja donde nadie lo ve y `toDataURL()` del canvas nuevo devuelve un PNG transparente que el backend acepta como firma válida (era exactamente el bug de "la firma no se ve ni se guarda", 2026-08-05). Cachea el contexto en un `WeakMap` **por elemento**, refresca sin desmontar (`loadInstallation({ silent: true })`) y comprueba que haya trazo real barriendo el canal alfa (`canvasHasInk()`), nunca con una bandera reactiva |
+| 28 | **`frame-src` no se hereda gratis de `default-src`** | Mostrar un PDF generado en el navegador (`<iframe src="blob:…">`) exige `frame-src 'self' blob:` explícito en `SecurityHeaders`; sin él la CSP cae en `default-src 'self'` y el navegador rechaza el frame — recuadro gris con icono de documento roto, **cero rastro en los logs del servidor**. Cualquier cambio de CSP se despliega con el **backend**: subir sólo el frontend no arregla nada. Fijado en `SecurityHeadersTest` |
+| 29 | **Un `<img>` a `public_path('storage/…')` en un PDF NO funciona: los archivos están en S3** | La hoja de instalación pintaba recuadros de imagen rota durante meses sin que nadie lo notara (dompdf no lanza error: dibuja el hueco). Para meter un archivo de S3 en un PDF hay que **leerlo e incrustarlo como data URI**; `enable_remote = false` además impide cualquier fetch por URL. El logo del tenant sí funciona porque vive en el disco `public` local, no en S3 |
+| 30 | **`setPaper()` con un tamaño desconocido no falla: se queda callado** | dompdf no lanza excepción ni loguea si le pasas `'papiro'`; produce un canvas raro y sigue. Por eso `TemplateRenderer::applyPaper()` revalida contra `DocumentTemplate::PAGE_SIZES`/`PAGE_ORIENTATIONS` y cae al default aunque `UpdateDocumentTemplateRequest` ya haya validado en la entrada — la fila puede venir de un `UPDATE` a mano o de una migración desde otro sistema |
+| 31 | **`Barryvdh\DomPDF\PDF` resuelve casi toda su API por `__call()`** | `setPaper()`, `setWarnings()` y compañía **no están declarados** en la clase: se reenvían al `Dompdf` interno. Mockery valida contra los métodos reales, así que un `Mockery::mock(PDF::class)` revienta con `BadMethodCallException: Method … does not exist on this mock object` **señalando el código de producción, no el test**. Los mocks de PDF llevan `->shouldIgnoreMissing(\Mockery::self())` por esto; cualquier método nuevo del wrapper que llames los va a romper igual (`docs/MEJORAS_RECOMENDADAS.md` P-14) |
+| 32 | **Un diseño a dos columnas no cabe en A4 vertical** | A 96 dpi, A4 vertical deja ~698 px útiles y horizontal ~1027 px. Un contrato CRC a dos columnas necesita ~950 px: en vertical dompdf lo aprieta y descuadra la maquetación entera, **sin error alguno**. Se resuelve con `page_orientation = 'landscape'` en la plantilla, no rediseñando un formato regulado |
 
 | 31 | **El `$periodStart` de `createMonthlyInvoiceFor()` NO siempre es el día 1** | Llega como `$charge['period_start']`, y en una primera factura prorrateada eso es el **día de instalación** (`2026-07-11`), no el inicio del mes. Cualquier cálculo que necesite el mes natural —la ventana de vigencia de un servicio adicional, su prorrateo— debe derivarlo de `$periodEnd->copy()->startOfMonth()`, que sí es siempre fin de mes en ese método. Usar el `$periodStart` recibido prorratea por error asignaciones antiguas, y el error sólo aparece en clientes instalados a mitad de mes |
 ---

@@ -82,7 +82,7 @@ class BillingPdfDownloadTest extends TestCase
     {
         Sanctum::actingAs($this->user);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('download')
             ->once()
             ->with('Invoice-' . $this->invoice->number . '.pdf')
@@ -129,7 +129,7 @@ class BillingPdfDownloadTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('download')->once()->andReturn(response('%PDF-fake', 200, ['Content-Type' => 'application/pdf']));
 
         Pdf::shouldReceive('loadView')
@@ -182,7 +182,7 @@ class BillingPdfDownloadTest extends TestCase
             'is_active' => false,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('download')->once()->andReturn(response('%PDF-fake', 200, ['Content-Type' => 'application/pdf']));
 
         Pdf::shouldReceive('loadView')

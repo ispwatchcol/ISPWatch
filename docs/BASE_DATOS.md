@@ -344,6 +344,8 @@ usada en los documentos, la marca y el contador de numeración de facturas.
 | `status` | varchar(255) | NN | `trial` | Estado comercial de la cuenta |
 | `max_customers` | integer | NN | `30` | Límite de clientes; se valida al crear cliente |
 | `next_invoice_number` | integer | NN | `1` | Contador secuencial de facturación |
+| `contract_prefix` | varchar(20) | | | Prefijo del consecutivo de contratos (`CTR` si está vacío) |
+| `next_contract_number` | integer | NN | `1` | Contador secuencial de contratos firmados |
 | `logo` | varchar(255) | | | Ruta del logo |
 | `brand_color` | varchar(7) | | | Color de marca en HEX |
 | `document_footer_text` | text | | | Pie de página de los documentos |
@@ -746,7 +748,7 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 
 | Grupo | Columnas |
 |---|---|
-| Vínculo | `customer_id`, `prospect_id`, `created_by`, `technician_id`, `technician` |
+| Vínculo | `customer_id` (**nullable**: la orden puede colgar sólo de un prospecto), `prospect_id`, `created_by`, `technician_id`, `technician` |
 | Agenda | `scheduled_date`, `status` (CHECK `pendiente`\|`completada`\|`cancelada`), `completed_at` |
 | Contenido | `address`, `equipment`, `notes`, `sheet` (json: acta) |
 | Firma | `customer_signature_path`, `technician_signature_path`, `signed_at` |
@@ -761,13 +763,33 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 `installation_id`, `uploaded_by`. El accessor `url` genera una **URL firmada de 30 minutos**
 — el bucket es privado.
 
+`contract_number` (varchar(40), nullable) guarda el **consecutivo del contrato**, con
+**UK** `(tenant_id, contract_number)`. Sólo lo llevan los contratos generados y firmados
+por el sistema; en todo lo demás es `NULL` (en PostgreSQL y SQLite los `NULL` no chocan
+entre sí dentro de un índice único). El contador vive en `tenant.next_contract_number` y
+se reserva con `lockForUpdate`, igual que el de facturas — migraciones
+`2026_08_04_120000` (esquema) y `2026_08_04_120100` (numeración retroactiva de los
+contratos ya firmados, por orden cronológico y por tenant).
+
 **`document_templates`** — plantilla HTML por tenant y tipo (**UK** `(tenant_id, type)`),
 `type` ∈ {`invoice`, `contract`, `installation`}, `body_html`, `is_active`,
 `is_advanced_mode` (boolean, default `false` — `false` = fragmento insertado en el shell
 Blade fijo con allowlist acotado; `true` = documento HTML completo del tenant, saneado por
 `AdvancedTemplateSanitizer` y renderizado con `Pdf::loadHTML()` directo, sin shell —
-migración `2026_08_01_120000`), `updated_by`. Ver `docs/ARQUITECTURA.md` § Plantillas de
-documentos para el pipeline completo de saneado y sustitución de placeholders.
+migración `2026_08_01_120000`), `page_size` / `page_orientation` (`varchar(10)`, defaults
+`'a4'` / `'portrait'` — migración `2026_08_05_120000`), `updated_by`. Ver
+`docs/ARQUITECTURA.md` § Plantillas de documentos para el pipeline completo de saneado y
+sustitución de placeholders.
+
+`page_size` ∈ {`a4`, `letter`, `legal`} y `page_orientation` ∈ {`portrait`, `landscape`}
+son **columnas de texto, no enums**, a propósito: agregar un tamaño nuevo no debe requerir
+una migración de tipo, y un enum de PostgreSQL no existe en el SQLite donde corre la suite
+de tests. La whitelist real vive en `DocumentTemplate::PAGE_SIZES` / `PAGE_ORIENTATIONS`,
+se valida en `UpdateDocumentTemplateRequest` y se vuelve a comprobar en
+`TemplateRenderer::applyPaper()` antes de llegar a dompdf (una fila con basura cae al
+default en vez de producir un canvas silenciosamente raro). Los defaults reproducen
+exactamente el comportamiento previo a la migración, así que las plantillas ya guardadas
+siguen saliendo idénticas.
 
 ### 4.15 `support_ticket` y derivadas
 
@@ -954,7 +976,7 @@ Agregado permanente.
 | `audit_logs` | `action`, `created_at`, `model_type` |
 | `billing_action_logs` | `action`, `status`, `next_retry_at`, `(tenant_id, status, period_start)` |
 | `bulk_provision_runs` | `tenant_id`, `(customer_id, status)` |
-| `customer_documents` | `(customer_id, type)`, `installation_id`, `tenant_id` |
+| `customer_documents` | `(customer_id, type)`, `installation_id`, `tenant_id`, **UK** `(tenant_id, contract_number)` |
 | `customer_installations` | `prospect_id`, `(tenant_id, customer_id)` |
 | `customer_profile` | `olt_id` |
 | `expenses` | `expense_date`, `status`, `tenant_id`, `(tenant_id, expense_date)` |

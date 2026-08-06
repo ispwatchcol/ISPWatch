@@ -508,8 +508,24 @@ class CustomerInstallationController extends Controller
     {
         $installation = $this->resolveInstallation($request, $installationId);
 
-        $data = $request->validate([
-            'sheet'                  => 'required|array',
+        $data = $request->validate($this->sheetValidationRules('required'));
+
+        $installation->update(['sheet' => $data['sheet']]);
+
+        return response()->json([
+            'message'      => 'Hoja de instalación guardada.',
+            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+        ]);
+    }
+
+    /**
+     * Reglas de la hoja técnica, compartidas por guardar y previsualizar:
+     * la vista previa acepta exactamente los mismos campos que se guardan.
+     */
+    private function sheetValidationRules(string $presence): array
+    {
+        return [
+            'sheet'                  => $presence . '|array',
             'sheet.cable_meters'     => 'nullable|numeric',
             'sheet.modem_brand'      => 'nullable|string|max:80',
             'sheet.modem_model'      => 'nullable|string|max:80',
@@ -530,14 +546,35 @@ class CustomerInstallationController extends Controller
             'sheet.pppoe_local_address'  => 'nullable|string|max:64',
             'sheet.local_address_manual' => 'nullable|boolean',
             'sheet.vlan'                 => 'nullable|string|max:20',
-        ]);
+        ];
+    }
 
-        $installation->update(['sheet' => $data['sheet']]);
+    /**
+     * Vista previa de la hoja de instalación: mismo PDF que se genera al
+     * firmar, pero sin firmas, sin guardar el documento y sin cerrar la
+     * orden. Sirve para que el cliente —o el prospecto, que todavía no
+     * existe como cliente— lea lo que va a firmar antes de firmarlo.
+     *
+     * Acepta la hoja tal como está en pantalla para que la vista previa
+     * refleje lo que el técnico acaba de escribir aunque no haya pulsado
+     * "Guardar hoja"; ese merge vive solo en memoria.
+     */
+    public function previewSheet(Request $request, $installationId)
+    {
+        $installation = $this->resolveInstallation($request, $installationId);
 
-        return response()->json([
-            'message'      => 'Hoja de instalación guardada.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
-        ]);
+        $data = $request->validate($this->sheetValidationRules('nullable'));
+
+        $installation->load(['customer.customerProfile', 'prospect', 'technicianUser']);
+
+        if (!empty($data['sheet'])) {
+            $draft = array_filter($data['sheet'], fn ($v) => $v !== null && $v !== '');
+            $installation->sheet = array_merge($installation->sheet ?? [], $draft);
+        }
+
+        $pdf = $this->buildSheetPdf($installation, '', null);
+
+        return $pdf->stream('hoja-instalacion-' . $installation->id . '-vista-previa.pdf');
     }
 
     /**
@@ -603,6 +640,22 @@ class CustomerInstallationController extends Controller
             'technician_signature' => ['nullable', 'string', 'regex:/^data:image\/png;base64,/'],
         ]);
 
+        // Una orden = UNA hoja firmada. Firmar dos veces dejaba dos PDF casi
+        // idénticos en los documentos del cliente sin forma de saber cuál vale.
+        // Se comprueba ANTES de tocar nada: si se rechaza, la orden queda
+        // exactamente como estaba.
+        $existingSheet = CustomerDocument::where('installation_id', $installation->id)
+            ->where('signed', true)
+            ->first();
+
+        if ($existingSheet) {
+            return response()->json([
+                'message' => "Esta orden ya tiene una hoja de instalación firmada ({$existingSheet->file_name}). "
+                    . 'Elimínala en «Documentos de la orden» antes de generar otra.',
+                'existing_document_id' => $existingSheet->id,
+            ], 409);
+        }
+
         $custPath = $this->storeSignature($data['customer_signature'], $installation, 'cliente');
         $techPath = !empty($data['technician_signature'])
             ? $this->storeSignature($data['technician_signature'], $installation, 'tecnico')
@@ -641,17 +694,17 @@ class CustomerInstallationController extends Controller
         return $path;
     }
 
-    private function renderSheetPdf(CustomerInstallation $installation, string $custSig, ?string $techSig): CustomerDocument
+    /**
+     * Arma el PDF de la hoja de instalación (sin persistir nada). Lo usan
+     * tanto la firma —que después lo guarda— como la vista previa.
+     */
+    private function buildSheetPdf(CustomerInstallation $installation, string $custSig, ?string $techSig)
     {
         $customer = $installation->customer;
         $profile  = $customer?->customerProfile;
         $prospect = $installation->prospect;
         $tenant   = Tenant::find($installation->tenant_id);
         $tech     = $installation->technicianUser;
-
-        $photos = CustomerDocument::where('installation_id', $installation->id)
-            ->where('type', 'instalacion')
-            ->get();
 
         $sheet = $installation->sheet ?? [];
         $sectorial = !empty($sheet['sectorial_id']) ? \App\Models\Sectorial::find($sheet['sectorial_id']) : null;
@@ -660,14 +713,13 @@ class CustomerInstallationController extends Controller
 
         $date = now()->format('d/m/Y H:i');
 
-        $pdf = $this->templateRenderer->renderInstallationSheet(
+        return $this->templateRenderer->renderInstallationSheet(
             $installation,
             $customer,
             $profile,
             $prospect,
             $tenant,
             $tech,
-            $photos,
             $sectorial,
             $router,
             $plan,
@@ -675,6 +727,11 @@ class CustomerInstallationController extends Controller
             $techSig,
             $date
         );
+    }
+
+    private function renderSheetPdf(CustomerInstallation $installation, string $custSig, ?string $techSig): CustomerDocument
+    {
+        $pdf = $this->buildSheetPdf($installation, $custSig, $techSig);
 
         $folder = $this->storageFolder($installation);
         $fileName = 'hoja_instalacion_' . $installation->id . '_' . now()->format('Ymd_His') . '.pdf';

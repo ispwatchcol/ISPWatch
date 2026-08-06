@@ -272,6 +272,35 @@
         </button>
       </div>
 
+      <!-- Documentos generados (hoja de instalación firmada) -->
+      <div v-if="generatedDocs.length"
+        class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
+        <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Documentos de la orden</h2>
+        <ul class="space-y-2">
+          <li v-for="d in generatedDocs" :key="d.id"
+            class="flex items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div class="min-w-0">
+              <p class="text-sm text-gray-800 dark:text-white truncate" :title="d.file_name">{{ d.file_name }}</p>
+              <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                {{ d.signed ? 'Generado y firmado por el sistema' : 'Archivo adjunto' }}
+              </p>
+            </div>
+            <div class="shrink-0 flex items-center gap-2">
+              <a :href="d.url" target="_blank" rel="noopener"
+                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition">
+                Ver PDF
+              </a>
+              <!-- Sin este botón no habría forma de rehacer una hoja mal
+                   firmada: sólo se puede volver a firmar si se borra la anterior. -->
+              <button @click="deleteGeneratedDoc(d)" type="button"
+                class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-3 py-1.5 rounded-lg transition">
+                Eliminar
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
+
       <!-- Fotos de la instalación -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Fotos de la instalación</h2>
@@ -525,9 +554,25 @@
       <!-- Firmas y completar -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-2">Firmas y cierre de orden</h2>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           Al firmar se genera la hoja de instalación en PDF, se marca como completada y se almacena entre los documentos del cliente.
         </p>
+
+        <!-- Antes de firmar: el cliente (o el prospecto, que aún no existe
+             como cliente) debe poder leer el documento que va a firmar. -->
+        <div class="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+          <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+            <p class="text-xs text-blue-800 dark:text-blue-300">
+              <span class="font-semibold">Antes de firmar:</span>
+              muéstrale la hoja al {{ installation.is_prospect ? 'prospecto' : 'cliente' }} para que lea lo que está firmando.
+              Incluye los datos que tengas escritos aunque todavía no hayas guardado la hoja.
+            </p>
+            <button @click="previewSheet" :disabled="previewing" type="button"
+              class="shrink-0 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+              {{ previewing ? 'Generando...' : 'Ver hoja antes de firmar' }}
+            </button>
+          </div>
+        </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
@@ -564,8 +609,16 @@
           </div>
         </div>
 
+        <!-- Una orden = UNA hoja firmada: mientras exista, no se ofrece firmar
+             otra (el backend también lo rechaza). -->
+        <div v-if="signedSheet"
+          class="mt-5 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300">
+          Esta orden ya tiene su hoja firmada (<strong>{{ signedSheet.file_name }}</strong>).
+          Para rehacerla, elimínala en <strong>Documentos de la orden</strong> y vuelve a firmar.
+        </div>
+
         <div class="flex flex-wrap gap-3 mt-5">
-          <button @click="sign" :disabled="signing || !hasCustSig"
+          <button v-if="!signedSheet" @click="sign" :disabled="signing || !hasCustSig"
             class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
             {{ signing ? 'Generando hoja...' : 'Firmar y completar' }}
           </button>
@@ -584,11 +637,44 @@
         </p>
       </div>
     </div>
+
+    <!-- Vista previa de la hoja de instalación (sin firmar, no se guarda) -->
+    <div v-if="previewUrl" class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-2 sm:p-6"
+      @click.self="closePreview">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-4xl h-full sm:h-[90vh] flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-gray-800 dark:text-white">Hoja de instalación — vista previa</h3>
+            <p class="text-[11px] text-gray-500 dark:text-gray-400">
+              Documento sin firmar. Es exactamente el que se genera al firmar.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <!-- Alternativas si el visor incrustado no puede pintar el PDF
+                 (algunos navegadores móviles no lo soportan dentro de un iframe). -->
+            <a :href="previewUrl" target="_blank" rel="noopener"
+              class="text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white px-3 py-1.5 rounded-lg">
+              Abrir en pestaña
+            </a>
+            <a :href="previewUrl" :download="`hoja-instalacion-${installationId}.pdf`"
+              class="text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white px-3 py-1.5 rounded-lg">
+              Descargar
+            </a>
+            <button @click="closePreview" type="button"
+              class="text-xs bg-gray-800 hover:bg-gray-900 text-white px-3 py-1.5 rounded-lg">
+              Cerrar
+            </button>
+          </div>
+        </div>
+        <iframe :src="previewUrl" title="Vista previa de la hoja de instalación"
+          class="flex-1 w-full bg-gray-100 dark:bg-gray-900"></iframe>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api, { apiClient } from '@/services/api'
 import { compressImage } from '@/utils/image'
@@ -754,6 +840,10 @@ const showBillingSection  = computed(() => installation.value?.can_edit_billing 
 const discountIsPositive  = computed(() => Number(billing.value.discount) > 0)
 
 const photos = ref([])
+const generatedDocs = ref([])
+// La hoja firmada de esta orden, si ya se generó. Es lo que bloquea firmar
+// dos veces y dejar dos PDF casi idénticos entre los documentos del cliente.
+const signedSheet = computed(() => generatedDocs.value.find(d => d.signed))
 const fileInput = ref(null)
 const pendingFiles = ref([])
 const uploading = ref(false)
@@ -763,12 +853,18 @@ const canvasTech     = ref(null)
 const hasCustSig = ref(false)
 const hasTechSig = ref(false)
 const signing = ref(false)
-let ctxCust = null
-let ctxTech = null
+const previewing = ref(false)
+const previewUrl = ref('')
 let drawing = null
 
-const loadInstallation = async () => {
-  loading.value = true
+/**
+ * `silent` refresca los datos SIN volver a mostrar el spinner de pantalla
+ * completa. Importante: el spinner desmonta todo el bloque —incluidos los
+ * canvas de firma—, así que una recarga normal después de subir fotos
+ * borraba la firma que el cliente ya había trazado.
+ */
+const loadInstallation = async ({ silent = false } = {}) => {
+  if (!silent) loading.value = true
   try {
     const { data } = await api.customers.getInstallation(installationId.value)
     installation.value = data
@@ -810,12 +906,19 @@ const loadInstallation = async () => {
       }
     }
 
-    photos.value = (data.documents || []).filter(d => d.type === 'instalacion' && /\.(jpe?g|png|webp)$/i.test(d.file_name))
+    const docs = data.documents || []
+    photos.value = docs.filter(d => d.type === 'instalacion' && /\.(jpe?g|png|webp)$/i.test(d.file_name))
+    // Todo lo que no es foto (la hoja de instalación firmada, en PDF) tenía
+    // que verse en algún lado: antes se filtraba fuera de `photos` y no se
+    // mostraba aquí, así que tras firmar parecía que no se había generado nada.
+    generatedDocs.value = docs.filter(d => !/\.(jpe?g|png|webp|gif)$/i.test(d.file_name || ''))
   } catch {
-    installation.value = null
+    // En refrescos silenciosos se conserva lo que ya está en pantalla: vaciar
+    // `installation` desmontaría el formulario (y la firma en curso).
+    if (!silent) installation.value = null
     toast.value?.error('Error', 'No se pudo cargar la orden.')
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -858,27 +961,38 @@ const loadNetworkResources = async () => {
   }
 }
 
+/**
+ * Normaliza la hoja tal como la espera el backend. La comparten "Guardar
+ * hoja" y la vista previa, así el PDF que ve el cliente sale de exactamente
+ * los mismos datos que se van a guardar.
+ */
+const buildSheetPayload = () => {
+  const payload = { ...sheet.value }
+  if (payload.cable_meters === '') delete payload.cable_meters
+  else payload.cable_meters = Number(payload.cable_meters)
+
+  for (const k of ['sectorial_id', 'router_id', 'plan_id', 'inventory_device_id']) {
+    if (payload[k] == null || payload[k] === '') delete payload[k]
+    else payload[k] = Number(payload[k])
+  }
+
+  if (isPppoeRouter.value) {
+    delete payload.client_ip
+    if (!payload.local_address_manual) delete payload.pppoe_local_address
+  } else {
+    delete payload.pppoe_username
+    delete payload.pppoe_password
+    delete payload.pppoe_local_address
+    delete payload.local_address_manual
+  }
+
+  return payload
+}
+
 const saveSheet = async () => {
   savingSheet.value = true
   try {
-    const payload = { ...sheet.value }
-    if (payload.cable_meters === '') delete payload.cable_meters
-    else payload.cable_meters = Number(payload.cable_meters)
-
-    for (const k of ['sectorial_id', 'router_id', 'plan_id', 'inventory_device_id']) {
-      if (payload[k] == null || payload[k] === '') delete payload[k]
-      else payload[k] = Number(payload[k])
-    }
-
-    if (isPppoeRouter.value) {
-      delete payload.client_ip
-      if (!payload.local_address_manual) delete payload.pppoe_local_address
-    } else {
-      delete payload.pppoe_username
-      delete payload.pppoe_password
-      delete payload.pppoe_local_address
-      delete payload.local_address_manual
-    }
+    const payload = buildSheetPayload()
 
     await api.customers.saveInstallationSheet(installationId.value, payload)
     toast.value?.success('Guardado', 'Hoja de instalación actualizada.')
@@ -976,7 +1090,7 @@ const uploadFiles = async () => {
 
     pendingFiles.value = []
     if (fileInput.value) fileInput.value.value = ''
-    await loadInstallation()
+    await loadInstallation({ silent: true })
 
     if (!failed.length) {
       toast.value?.success('Listo', `${ok} foto(s) subida(s).`)
@@ -987,6 +1101,17 @@ const uploadFiles = async () => {
     }
   } finally {
     uploading.value = false
+  }
+}
+
+const deleteGeneratedDoc = async (d) => {
+  if (!confirm(`¿Eliminar "${d.file_name}"? Esta acción no se puede deshacer.`)) return
+  try {
+    await api.customers.deleteDocument(d.id)
+    generatedDocs.value = generatedDocs.value.filter(x => x.id !== d.id)
+    toast.value?.success('Eliminado', 'Documento eliminado. Ya puedes volver a firmar la orden.')
+  } catch {
+    toast.value?.error('Error', 'No se pudo eliminar el documento.')
   }
 }
 
@@ -1001,25 +1126,48 @@ const deletePhoto = async (p) => {
   }
 }
 
-// El contexto se obtiene de forma perezosa: si se pide antes de que el canvas
-// exista en el DOM (carga asíncrona, re-render), se reintenta en el siguiente
-// trazo en lugar de quedar null para siempre (causa del "no se ve el trazo").
+// El contexto se cachea POR ELEMENTO, no en una variable suelta: cada vez que
+// la orden se recarga, el bloque completo se desmonta y Vue monta un canvas
+// nuevo. Con la caché anterior el contexto seguía apuntando al canvas viejo
+// (ya desconectado del DOM), así que el trazo se dibujaba en la nada y el
+// toDataURL del canvas nuevo salía en blanco: "no se ve la firma ni se guarda".
+const ctxByCanvas = new WeakMap()
+
 const getCanvas = (who) => (who === 'cust' ? canvasCustomer.value : canvasTech.value)
 
 const getCtx = (who) => {
   const canvas = getCanvas(who)
   if (!canvas) return null
-  let ctx = who === 'cust' ? ctxCust : ctxTech
+  let ctx = ctxByCanvas.get(canvas)
   if (!ctx) {
     ctx = canvas.getContext('2d')
     ctx.lineWidth = 2.5
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.strokeStyle = '#111827'
-    if (who === 'cust') ctxCust = ctx
-    else ctxTech = ctx
+    ctxByCanvas.set(canvas, ctx)
   }
   return ctx
+}
+
+/**
+ * ¿Hay tinta real en el canvas? Se comprueba el canal alfa píxel a píxel.
+ * Las banderas reactivas por sí solas mienten cuando el canvas se re-montó
+ * (queda vacío pero la bandera seguía en true) y se acababa enviando un PNG
+ * transparente como firma del cliente.
+ */
+const canvasHasInk = (canvas) => {
+  if (!canvas) return false
+  try {
+    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return true
+    }
+  } catch {
+    // Canvas "tainted" (no debería pasar: solo dibujamos trazos) — no bloquear.
+    return true
+  }
+  return false
 }
 
 const pointerPos = (canvas, e) => {
@@ -1071,8 +1219,12 @@ const clearSig = (who) => {
 }
 
 const sign = async () => {
-  if (!hasCustSig.value) {
-    toast.value?.error('Falta firma', 'La firma del cliente es obligatoria.')
+  // La comprobación real es la tinta del canvas, no la bandera: si el canvas
+  // se re-montó (quedó en blanco) la bandera podría seguir en true y se
+  // enviaría una firma vacía.
+  if (!canvasHasInk(canvasCustomer.value)) {
+    hasCustSig.value = false
+    toast.value?.error('Falta firma', 'La firma del cliente es obligatoria — traza la firma en el recuadro.')
     return
   }
   signing.value = true
@@ -1080,7 +1232,7 @@ const sign = async () => {
     const payload = {
       customer_signature: canvasCustomer.value.toDataURL('image/png'),
     }
-    if (hasTechSig.value) payload.technician_signature = canvasTech.value.toDataURL('image/png')
+    if (canvasHasInk(canvasTech.value)) payload.technician_signature = canvasTech.value.toDataURL('image/png')
 
     await api.customers.signInstallation(installationId.value, payload)
     toast.value?.success('Completada', 'Instalación firmada y orden cerrada.')
@@ -1090,6 +1242,44 @@ const sign = async () => {
     toast.value?.error('Error', e.response?.data?.message || 'No se pudo firmar.')
   } finally {
     signing.value = false
+  }
+}
+
+/**
+ * Abre la hoja de instalación tal cual quedará firmada (sin firmas todavía)
+ * para que el cliente o el prospecto lea lo que va a firmar. No guarda nada
+ * en el servidor: es el mismo PDF, generado al vuelo.
+ */
+const previewSheet = async () => {
+  previewing.value = true
+  try {
+    const { data } = await api.customers.previewInstallationSheet(installationId.value, buildSheetPayload())
+
+    // El gateway puede responder 200 con HTML (una página de error suya) en
+    // vez del PDF. Sin comprobarlo, el visor sale en gris con el icono de
+    // documento roto y no hay forma de saber qué pasó: se comprueba la firma
+    // del archivo antes de abrir el modal.
+    const head = await data.slice(0, 5).text()
+    if (!head.startsWith('%PDF-')) {
+      throw new Error('La respuesta no es un PDF')
+    }
+
+    closePreview()
+    previewUrl.value = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }))
+  } catch (e) {
+    toast.value?.error(
+      'No se pudo generar la vista previa',
+      'El servidor no devolvió el PDF de la hoja. Vuelve a intentarlo; si sigue igual, avisa a soporte.'
+    )
+  } finally {
+    previewing.value = false
+  }
+}
+
+const closePreview = () => {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = ''
   }
 }
 
@@ -1127,4 +1317,6 @@ onMounted(async () => {
   getCtx('cust')
   getCtx('tech')
 })
+
+onBeforeUnmount(closePreview)
 </script>

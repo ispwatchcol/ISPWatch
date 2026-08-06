@@ -107,6 +107,18 @@ export default {
             headers: { 'Content-Type': 'multipart/form-data' },
         })
     },
+    /**
+     * Vista previa (blob PDF) de la hoja de instalación sin firmar. Se manda
+     * la hoja en curso para que el PDF muestre lo que hay en pantalla aunque
+     * todavía no se haya guardado.
+     */
+    previewInstallationSheet(installationId, sheet) {
+        return apiClient.post(
+            `/installations/${installationId}/sheet-preview`,
+            { sheet },
+            { responseType: 'blob' },
+        )
+    },
     signInstallation(installationId, payload) {
         return apiClient.post(`/installations/${installationId}/sign`, payload)
     },

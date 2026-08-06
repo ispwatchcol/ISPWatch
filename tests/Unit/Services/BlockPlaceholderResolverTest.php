@@ -37,15 +37,15 @@ class BlockPlaceholderResolverTest extends TestCase
         $values = $this->resolver->forInstallation(
             $installation,
             $tenant,
-            collect(),
             'data:image/png;base64,cliente',
             'data:image/png;base64,tecnico'
         );
 
         $this->assertStringContainsString('data:image/png;base64,cliente', $values['instalacion.firma_cliente']);
         $this->assertStringContainsString('data:image/png;base64,tecnico', $values['instalacion.firma_tecnico']);
-        // Sin fotos: el bloque existe pero resuelve a vacío, no a un error.
-        $this->assertSame('', $values['instalacion.fotos']);
+        // instalacion.fotos se retiró el 2026-08-05: las fotos se consultan en
+        // los documentos del cliente, no dentro del PDF de la hoja.
+        $this->assertArrayNotHasKey('instalacion.fotos', $values);
     }
 
     public function test_for_installation_resolves_missing_technician_signature_to_empty_string(): void
@@ -59,41 +59,40 @@ class BlockPlaceholderResolverTest extends TestCase
             'status'         => 'pendiente',
         ]);
 
-        $values = $this->resolver->forInstallation($installation, $tenant, collect(), 'data:image/png;base64,cliente', null);
+        $values = $this->resolver->forInstallation($installation, $tenant, 'data:image/png;base64,cliente', null);
 
         $this->assertSame('', $values['instalacion.firma_tecnico']);
     }
 
     /**
-     * Un bloque que falla al renderizar (ej. $photos no es iterable) nunca
-     * debe tumbar el documento completo — degrada a vacío y queda logueado,
-     * como acordamos en el punto 4 de la revisión del diseño.
+     * Un bloque que falla al renderizar nunca debe tumbar el documento
+     * completo — degrada a vacío y queda logueado, como acordamos en el punto
+     * 4 de la revisión del diseño. (Antes se forzaba con `$photos` no
+     * iterable; retirado ese bloque el 2026-08-05, se fuerza con la tabla de
+     * ítems, que recorre `$invoice->items` con @foreach.)
      */
     public function test_a_block_that_throws_while_rendering_degrades_to_empty_and_is_logged(): void
     {
         Log::shouldReceive('error')
             ->once()
             ->withArgs(fn ($message, $context) =>
-                str_contains($message, 'instalacion.fotos')
-                && $context['token'] === 'instalacion.fotos'
+                str_contains($message, 'factura.tabla_items')
+                && $context['token'] === 'factura.tabla_items'
             );
 
         $tenant = Tenant::factory()->create();
-        $customer = \App\Models\User::factory()->create(['tenant_id' => $tenant->id]);
-        $installation = CustomerInstallation::create([
-            'tenant_id'      => $tenant->id,
-            'customer_id'    => $customer->id,
-            'scheduled_date' => '2026-07-25',
-            'status'         => 'pendiente',
-        ]);
 
-        // `count($photos)` en el partial revienta con TypeError si $photos no
-        // es Countable|array — forzamos exactamente ese caso.
-        $notCountable = new \stdClass();
+        // Sin persistir: el bloque sólo lee tenant_id e items.
+        $invoice = new \App\Models\Invoice(['tenant_id' => $tenant->id]);
+        $invoice->tenant_id = $tenant->id;
 
-        $values = $this->resolver->forInstallation($installation, $tenant, $notCountable, null, null);
+        // `@foreach($invoice->items ...)` sobre algo que no es iterable dispara
+        // un error de PHP que Laravel convierte en ErrorException.
+        $invoice->setRelation('items', 42);
 
-        $this->assertSame('', $values['instalacion.fotos']);
+        $values = $this->resolver->forInvoice($invoice);
+
+        $this->assertSame('', $values['factura.tabla_items']);
     }
 
     // ── empresa.logo (auditoría 2026-08-03) ─────────────────────────────

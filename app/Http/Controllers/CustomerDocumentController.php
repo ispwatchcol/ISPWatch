@@ -7,6 +7,7 @@ use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\ContractNumberService;
 use App\Services\Templates\TemplateRenderer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -14,10 +15,12 @@ use Illuminate\Support\Facades\Storage;
 class CustomerDocumentController extends Controller
 {
     protected TemplateRenderer $templateRenderer;
+    protected ContractNumberService $contractNumbers;
 
-    public function __construct(TemplateRenderer $templateRenderer)
+    public function __construct(TemplateRenderer $templateRenderer, ContractNumberService $contractNumbers)
     {
         $this->templateRenderer = $templateRenderer;
+        $this->contractNumbers = $contractNumbers;
     }
 
     /**
@@ -142,6 +145,12 @@ class CustomerDocumentController extends Controller
                 'city'        => $tenant?->city,
             ],
             'date' => now()->format('d/m/Y'),
+            // Orientativo: es el número que se reservará al firmar. Si otro
+            // usuario firma antes, al contrato le tocará el siguiente.
+            'next_contract_number' => ContractNumberService::format(
+                $tenant?->contract_prefix,
+                (int) ($tenant?->next_contract_number ?: 1)
+            ),
         ]);
     }
 
@@ -157,14 +166,38 @@ class CustomerDocumentController extends Controller
             'signature' => ['required', 'string', 'regex:/^data:image\/png;base64,/'],
         ]);
 
+        // Un cliente = UN contrato firmado vigente. Se comprueba antes de
+        // reservar el consecutivo: rechazar después gastaría un número de la
+        // secuencia en un contrato que nunca se genera.
+        $existingContract = CustomerDocument::where('customer_id', $customer->id)
+            ->where('type', 'contrato')
+            ->where('signed', true)
+            ->first();
+
+        if ($existingContract) {
+            $label = $existingContract->contract_number ?: $existingContract->file_name;
+
+            return response()->json([
+                'message' => "Este cliente ya tiene un contrato firmado ({$label}). "
+                    . 'Elimínalo en «Documentos del cliente» antes de generar uno nuevo.',
+                'existing_document_id' => $existingContract->id,
+            ], 409);
+        }
+
         $profile = CustomerProfile::where('user_id', $customer->id)->first();
         $tenant  = Tenant::find($customer->tenant_id);
         $plan    = $profile?->service_id ? Plan::find($profile->service_id) : null;
         $date    = now()->format('d/m/Y');
 
-        $pdf = $this->templateRenderer->renderContract($customer, $profile, $tenant, $plan, $data['signature'], $date);
+        // El consecutivo se reserva ANTES de renderizar: va impreso dentro del
+        // PDF, así que no puede asignarse después de generarlo.
+        $contractNumber = $this->contractNumbers->allocate((int) $customer->tenant_id);
 
-        $fileName = 'contrato_firmado_' . now()->format('Ymd_His') . '.pdf';
+        $pdf = $this->templateRenderer->renderContract($customer, $profile, $tenant, $plan, $data['signature'], $date, $contractNumber);
+
+        // El consecutivo es texto libre elegido por el ISP; el nombre del
+        // archivo se deriva saneado de él (ver ContractNumberService::fileName).
+        $fileName = ContractNumberService::fileName($contractNumber);
         $path = "customer_documents/{$customer->id}/{$fileName}";
 
         Storage::disk('s3')->put($path, $pdf->output());
@@ -176,13 +209,14 @@ class CustomerDocumentController extends Controller
             'file_name'   => $fileName,
             'file_path'   => $path,
             'file_size'   => Storage::disk('s3')->size($path),
-            'mime_type'   => 'application/pdf',
-            'signed'      => true,
-            'uploaded_by' => $request->user()?->id,
+            'mime_type'       => 'application/pdf',
+            'signed'          => true,
+            'contract_number' => $contractNumber,
+            'uploaded_by'     => $request->user()?->id,
         ]);
 
         return response()->json([
-            'message'  => 'Contrato firmado y guardado correctamente.',
+            'message'  => "Contrato {$contractNumber} firmado y guardado correctamente.",
             'document' => $document,
         ], 201);
     }

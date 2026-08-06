@@ -36,6 +36,14 @@ class UpdateTenantRequest extends FormRequest
             'currency' => ['sometimes', 'nullable', 'string', 'max:10'],
             'next_invoice_number' => ['sometimes', 'nullable', 'integer', 'min:1'],
 
+            // Prefijo del consecutivo de contratos: texto LIBRE, el ISP escribe
+            // lo que quiera («CNO/», «Contrato N° »). Sólo se rechazan los
+            // caracteres de control, que nunca son intencionales y romperían
+            // el PDF. El nombre del archivo en S3 se sanea aparte, en
+            // ContractNumberService::fileName().
+            'contract_prefix' => ['sometimes', 'nullable', 'string', 'max:20', 'regex:/^[^\p{C}]*$/u'],
+            'next_contract_number' => ['sometimes', 'nullable', 'integer', 'min:1'],
+
             // ── Contact / Legacy ────────────────────────────────────────────────
             'email_tenant' => ['sometimes', 'nullable', 'email', 'max:255'],
             'tel_tenant' => ['sometimes', 'nullable', 'string', 'max:50'],
@@ -99,6 +107,7 @@ class UpdateTenantRequest extends FormRequest
             'google_maps_api_key' => 'clave de API de Google Maps',
             'brand_color' => 'color de marca',
             'document_footer_text' => 'texto de pie de página',
+            'contract_prefix' => 'prefijo de contratos',
         ];
     }
 
@@ -113,6 +122,7 @@ class UpdateTenantRequest extends FormRequest
             'nit.regex' => 'El NIT debe contener solo dígitos con guion opcional (ej: 900123456 o 900123456-7).',
             'country.size' => 'El código de país debe tener exactamente 2 caracteres (ISO 3166-1 alpha-2).',
             'brand_color.regex' => 'El color de marca debe ser un hex válido (ej: #1e5fa8).',
+            'contract_prefix.regex' => 'El prefijo de contratos no puede contener saltos de línea ni caracteres de control.',
         ];
     }
 }

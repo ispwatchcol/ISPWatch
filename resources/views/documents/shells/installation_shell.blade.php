@@ -155,19 +155,7 @@
         </table>
     @endif
 
-    @if($photos && count($photos))
-        <h2>Fotos de la Instalación</h2>
-        <div class="photos">
-            @foreach($photos as $p)
-                @if(in_array(strtolower(pathinfo($p->file_name, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'webp']))
-                    <div class="photo">
-                        <img src="{{ public_path('storage/' . $p->file_path) }}" alt="">
-                        <div class="cap">{{ $p->file_name }}</div>
-                    </div>
-                @endif
-            @endforeach
-        </div>
-    @endif
+    {{-- Sin galería de fotos: ver la nota en installation_sheet_pdf.blade.php --}}
 
     @if(trim($body) !== '')
         <h2>Observaciones del Proveedor</h2>

@@ -56,6 +56,26 @@
             <label class="label">Texto de pie de página</label>
             <textarea v-model="branding.document_footer_text" rows="2" class="input resize-none" placeholder="Ej: Empresa vigilada por la Superintendencia..."></textarea>
           </div>
+
+          <div>
+            <label class="label">Prefijo del consecutivo de contratos</label>
+            <input
+              type="text"
+              v-model="branding.contract_prefix"
+              placeholder="CTR"
+              maxlength="20"
+              class="input"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              Cada contrato firmado recibe un número consecutivo irrepetible.
+              Próximo:
+              <span class="font-mono text-gray-500 dark:text-gray-300">{{ nextContractNumberPreview }}</span>.
+              Escribe el prefijo que quieras (<span class="font-mono">CNO/</span>,
+              <span class="font-mono">Contrato N°&nbsp;</span>, <span class="font-mono">FIBRA_2026-</span>).
+              El guion se agrega solo si terminas en letra o número; si lo dejas vacío se usa
+              <span class="font-mono">CTR</span>.
+            </p>
+          </div>
         </div>
 
         <div class="mt-4 flex justify-end">
@@ -116,6 +136,31 @@
           <div v-if="activeType === 'contract'" class="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded-lg p-3">
             Las cláusulas 1 a 3.5 del contrato (datos del cliente, plan, condiciones generales) son fijas y no se editan aquí.
             Lo que escribas abajo se agrega como <strong>"4. Condiciones Adicionales del Proveedor"</strong>, después de esas cláusulas.
+          </div>
+
+          <!-- Tamaño y orientación de página. Un contrato a dos columnas
+               (formato CRC) necesita ~950px de ancho: A4 vertical solo da
+               ~698px útiles y dompdf lo aprieta, A4 horizontal da ~1027px. -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="label">Tamaño de página</label>
+              <select v-model="current.page_size" class="input">
+                <option value="a4">A4 (210 × 297 mm)</option>
+                <option value="letter">Carta (216 × 279 mm)</option>
+                <option value="legal">Oficio (216 × 356 mm)</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Orientación</label>
+              <select v-model="current.page_orientation" class="input">
+                <option value="portrait">Vertical</option>
+                <option value="landscape">Horizontal</option>
+              </select>
+              <p class="text-xs text-gray-400 mt-1">
+                Usa <strong>Horizontal</strong> si tu diseño es a dos columnas (ancho
+                mayor a ~700&nbsp;px): en vertical no cabe y el PDF sale descuadrado.
+              </p>
+            </div>
           </div>
 
           <!-- Placeholders escalares -->
@@ -291,6 +336,8 @@ const draftHtml = ref('')
 const current = reactive({
   is_active: false,
   is_advanced_mode: false,
+  page_size: 'a4',
+  page_orientation: 'portrait',
   has_draft: false,
   placeholders: {},
   block_placeholders: {},
@@ -300,7 +347,19 @@ const current = reactive({
 const logoUrl = ref(null)
 const uploadingLogo = ref(false)
 const savingBranding = ref(false)
-const branding = reactive({ brand_color: '', document_footer_text: '' })
+const branding = reactive({ brand_color: '', document_footer_text: '', contract_prefix: '' })
+// Espejo de App\Services\ContractNumberService::format(): solo para mostrar
+// cómo quedará el número mientras se escribe el prefijo. El número real lo
+// reserva el backend al firmar.
+// El prefijo es libre; el guion se añade solo si termina en letra o dígito,
+// para no estropear un separador propio como "CNO/" o "Contrato N° ".
+const nextContractNumber = ref(1)
+const nextContractNumberPreview = computed(() => {
+  const raw = (branding.contract_prefix || '').replace(/^\s+/, '')
+  const prefix = raw.trim() === '' ? 'CTR' : raw
+  const separator = /[\p{L}\p{N}]$/u.test(prefix) ? '-' : ''
+  return `${prefix}${separator}${String(nextContractNumber.value).padStart(5, '0')}`
+})
 // <input type="color"> rejects an empty string ("" does not conform to
 // #rrggbb"); the text field next to it can still be genuinely empty to mean
 // "no custom color set", so the native swatch gets its own fallback view.
@@ -315,6 +374,8 @@ async function loadType(type) {
     const { data } = await documentTemplatesApi.show(type)
     current.is_active = data.is_active
     current.is_advanced_mode = data.is_advanced_mode || false
+    current.page_size = data.page_size || 'a4'
+    current.page_orientation = data.page_orientation || 'portrait'
     current.has_draft = data.has_draft
     current.placeholders = data.placeholders || {}
     current.block_placeholders = data.block_placeholders || {}
@@ -386,9 +447,17 @@ function insertBlockPlaceholder(token) {
 async function save() {
   saving.value = true
   try {
-    const { data } = await documentTemplatesApi.update(activeType.value, draftHtml.value, current.is_advanced_mode)
+    const { data } = await documentTemplatesApi.update(
+      activeType.value,
+      draftHtml.value,
+      current.is_advanced_mode,
+      current.page_size,
+      current.page_orientation
+    )
     current.is_active = data.data.is_active
     current.is_advanced_mode = data.data.is_advanced_mode
+    current.page_size = data.data.page_size
+    current.page_orientation = data.data.page_orientation
     current.has_draft = data.data.has_draft
     toast.value?.success('Plantilla guardada', 'Se guardó y activó correctamente.')
   } catch (e) {
@@ -441,7 +510,13 @@ function warnOnOrphanedBlocks(response) {
 async function preview() {
   previewing.value = true
   try {
-    const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value, current.is_advanced_mode)
+    const response = await documentTemplatesApi.preview(
+      activeType.value,
+      draftHtml.value,
+      current.is_advanced_mode,
+      current.page_size,
+      current.page_orientation
+    )
     warnOnOrphanedBlocks(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')
@@ -478,6 +553,7 @@ async function saveBranding() {
     await tenantApi.updateConfig({
       brand_color: branding.brand_color || null,
       document_footer_text: branding.document_footer_text || null,
+      contract_prefix: branding.contract_prefix || null,
     })
     toast.value?.success('Marca guardada', 'Los cambios se aplicarán en los próximos documentos.')
   } catch (e) {
@@ -498,6 +574,8 @@ async function loadTenantBranding() {
     const tenant = data.data || data
     branding.brand_color = tenant.brand_color || ''
     branding.document_footer_text = tenant.document_footer_text || ''
+    branding.contract_prefix = tenant.contract_prefix || ''
+    nextContractNumber.value = Number(tenant.next_contract_number) || 1
     logoUrl.value = tenant.logo ? `/storage/${tenant.logo}` : null
   } catch (e) {
     // Antes este catch no dejaba ningún rastro: una falla de red/permiso al

@@ -85,7 +85,7 @@ class InstallationSheetSignTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -155,7 +155,7 @@ class InstallationSheetSignTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -215,7 +215,7 @@ class InstallationSheetSignTest extends TestCase
             'is_active' => false,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -239,6 +239,175 @@ class InstallationSheetSignTest extends TestCase
         ]);
 
         $response->assertStatus(422);
+    }
+
+    /**
+     * La vista previa devuelve el PDF pero NO guarda documento, NO firma y
+     * NO cierra la orden: el cliente solo está leyendo lo que va a firmar.
+     */
+    public function test_sheet_preview_returns_a_pdf_without_storing_or_signing(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $response = $this->post("/api/installations/{$this->installation->id}/sheet-preview");
+
+        $response->assertOk();
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+
+        $this->assertDatabaseMissing('customer_documents', [
+            'installation_id' => $this->installation->id,
+        ]);
+        $this->assertDatabaseHas('customer_installations', [
+            'id'        => $this->installation->id,
+            'status'    => 'pendiente',
+            'signed_at' => null,
+        ]);
+    }
+
+    /**
+     * El técnico previsualiza con lo que tiene escrito en pantalla aunque no
+     * haya pulsado "Guardar hoja" — y esa hoja en borrador no se persiste.
+     */
+    public function test_sheet_preview_uses_the_draft_sheet_without_persisting_it(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf->shouldReceive('stream')->once()->andReturn(response('%PDF-fake'));
+
+        Pdf::shouldReceive('loadView')
+            ->once()
+            ->withArgs(function ($view, $data) {
+                return $view === 'documents.installation_sheet_pdf'
+                    && ($data['installation']->sheet['modem_brand'] ?? null) === 'TP-Link'
+                    && $data['customer_signature'] === '';
+            })
+            ->andReturn($fakePdf);
+
+        $response = $this->postJson("/api/installations/{$this->installation->id}/sheet-preview", [
+            'sheet' => ['modem_brand' => 'TP-Link'],
+        ]);
+
+        $response->assertOk();
+        $this->assertNull($this->installation->fresh()->sheet);
+    }
+
+    /**
+     * Caso que motivó la vista previa: una orden de PROSPECTO (todavía sin
+     * cliente) también tiene que poder previsualizarse.
+     */
+    public function test_sheet_preview_works_for_a_prospect_only_installation(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $prospect = \App\Models\Prospect::create([
+            'tenant_id' => $this->tenant->id,
+            'name'      => 'Ana',
+            'last_name' => 'Gómez',
+            'cedula'    => '987654321',
+            'address'   => 'Carrera 9 #1-2',
+            'status'    => 'agendado',
+        ]);
+
+        $installation = CustomerInstallation::create([
+            'tenant_id'      => $this->tenant->id,
+            'customer_id'    => null,
+            'prospect_id'    => $prospect->id,
+            'scheduled_date' => '2026-07-25',
+            'address'        => 'Carrera 9 #1-2',
+            'status'         => 'pendiente',
+        ]);
+
+        $response = $this->post("/api/installations/{$installation->id}/sheet-preview");
+
+        $response->assertOk();
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+    }
+
+    /**
+     * Una orden = UNA hoja firmada. Firmar dos veces dejaba dos PDF casi
+     * idénticos en los documentos del cliente sin forma de saber cuál vale.
+     */
+    public function test_refuses_to_sign_twice_and_says_to_delete_the_previous_sheet(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $this->postJson("/api/installations/{$this->installation->id}/sign", [
+            'customer_signature' => self::SAMPLE_PNG,
+        ])->assertOk();
+
+        $second = $this->postJson("/api/installations/{$this->installation->id}/sign", [
+            'customer_signature' => self::SAMPLE_PNG,
+        ]);
+
+        $second->assertStatus(409);
+        $this->assertStringContainsString('Elimínala', $second->json('message'));
+
+        $this->assertSame(
+            1,
+            \App\Models\CustomerDocument::where('installation_id', $this->installation->id)
+                ->where('signed', true)
+                ->count()
+        );
+    }
+
+    /**
+     * Tras borrar la hoja anterior se puede volver a firmar: el bloqueo mira
+     * los documentos, no una marca en la orden.
+     */
+    public function test_can_sign_again_after_deleting_the_previous_sheet(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $this->postJson("/api/installations/{$this->installation->id}/sign", [
+            'customer_signature' => self::SAMPLE_PNG,
+        ])->assertOk();
+
+        \App\Models\CustomerDocument::where('installation_id', $this->installation->id)
+            ->where('signed', true)
+            ->delete();
+
+        $this->postJson("/api/installations/{$this->installation->id}/sign", [
+            'customer_signature' => self::SAMPLE_PNG,
+        ])->assertOk();
+    }
+
+    /** Las fotos subidas no cuentan como hoja firmada y no bloquean la firma. */
+    public function test_uploaded_photos_do_not_block_signing(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        \App\Models\CustomerDocument::create([
+            'tenant_id'       => $this->tenant->id,
+            'customer_id'     => $this->customer->id,
+            'installation_id' => $this->installation->id,
+            'type'            => 'instalacion',
+            'file_name'       => 'fachada.jpg',
+            'file_path'       => "customer_documents/{$this->customer->id}/fachada.jpg",
+            'file_size'       => 1024,
+            'mime_type'       => 'image/jpeg',
+            'signed'          => false,
+        ]);
+
+        $this->postJson("/api/installations/{$this->installation->id}/sign", [
+            'customer_signature' => self::SAMPLE_PNG,
+        ])->assertOk();
+    }
+
+    public function test_cannot_preview_the_sheet_of_another_tenant(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $otherTenant = Tenant::factory()->create();
+        $otherInstallation = CustomerInstallation::create([
+            'tenant_id'      => $otherTenant->id,
+            'customer_id'    => User::factory()->create(['tenant_id' => $otherTenant->id])->id,
+            'scheduled_date' => '2026-07-25',
+            'status'         => 'pendiente',
+        ]);
+
+        $this->post("/api/installations/{$otherInstallation->id}/sheet-preview")
+            ->assertStatus(404);
     }
 
     public function test_cannot_sign_an_installation_of_another_tenant(): void

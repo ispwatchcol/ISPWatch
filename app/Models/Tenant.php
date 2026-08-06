@@ -46,6 +46,8 @@ class Tenant extends Model
         'timezone',
         'currency',
         'next_invoice_number',
+        'contract_prefix',
+        'next_contract_number',
         'legal_name',
         'trade_name',
         'nit',

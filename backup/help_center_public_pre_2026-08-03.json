@@ -1,0 +1,449 @@
+[
+    {
+        "category": {
+            "id": 16,
+            "name": "Primeros Pasos",
+            "icon": "md-dashboard-outlined",
+            "description": null,
+            "display_order": 1,
+            "created_at": "2026-05-22T18:25:55.000000Z",
+            "updated_at": "2026-05-22T18:25:55.000000Z"
+        },
+        "articles": [
+            {
+                "id": 48,
+                "category_id": 16,
+                "title": "¿Qué es ISPWatch?",
+                "content": "<h2>Bienvenido a ISPWatch</h2>\n<p>ISPWatch es una plataforma de gestión integral para Proveedores de Servicios de Internet (ISP). Centraliza en un solo lugar todo lo necesario para administrar tu negocio:</p>\n<ul>\n  <li><strong>Clientes</strong>: registro, mapa geográfico, suspensión y reactivación automática.</li>\n  <li><strong>Facturación</strong>: generación automática de facturas, registro de pagos y recordatorios.</li>\n  <li><strong>Routers MikroTik</strong>: integración directa vía API y SSH para aprovisionar y cortar servicios.</li>\n  <li><strong>Soporte</strong>: sistema de tickets con mensajes, archivos adjuntos y estadísticas.</li>\n  <li><strong>Inventario</strong>: control de equipos, stock, proveedores y sucursales.</li>\n  <li><strong>Roles y permisos</strong>: control granular de acceso para cada miembro del equipo.</li>\n</ul>\n<h3>Arquitectura multi-tenant</h3>\n<p>Cada empresa registrada opera en un entorno completamente aislado. Tus datos nunca son visibles para otras empresas.</p>\n<h3>Acceso desde cualquier lugar</h3>\n<p>ISPWatch es una aplicación web moderna. Puedes acceder desde cualquier navegador actualizado (Chrome, Firefox, Edge) en computadora, tablet o móvil.</p>",
+                "tips": "ISPWatch está diseñado para ISPs pequeños y medianos. Cada empresa tiene su propio espacio (tenant) completamente aislado del resto.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:25:55.000000Z",
+                "updated_at": "2026-05-22T18:25:55.000000Z"
+            },
+            {
+                "id": 49,
+                "category_id": 16,
+                "title": "Cómo iniciar sesión",
+                "content": "<h2>Inicio de sesión</h2>\n<p>Para acceder a ISPWatch necesitas las credenciales que te proporcionó tu administrador.</p>\n<h3>Pasos para ingresar</h3>\n<ol>\n  <li>Abre tu navegador y dirígete a la URL de tu instancia de ISPWatch.</li>\n  <li>Ingresa tu <strong>correo electrónico</strong> y <strong>contraseña</strong>.</li>\n  <li>Haz clic en <strong>Iniciar Sesión</strong>.</li>\n  <li>Si es la primera vez, verifica tu correo electrónico antes de ingresar.</li>\n</ol>\n<h3>Verificación de correo</h3>\n<p>Al registrarte recibirás un correo de verificación. Debes hacer clic en el enlace para activar tu cuenta. Si no lo recibiste, usa la opción <em>\"Reenviar verificación\"</em> en la pantalla de login.</p>\n<h3>Recordar sesión</h3>\n<p>Marca <strong>\"Recordarme\"</strong> si accedes desde un equipo de confianza para mantener tu sesión activa por más tiempo.</p>",
+                "tips": "Si olvidaste tu contraseña, contacta a tu administrador para que te restablezca el acceso.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:25:55.000000Z",
+                "updated_at": "2026-05-22T18:25:55.000000Z"
+            },
+            {
+                "id": 50,
+                "category_id": 16,
+                "title": "Entendiendo el Dashboard",
+                "content": "<h2>El Dashboard principal</h2>\n<p>Al ingresar verás el <strong>Dashboard</strong> — tu panel de control con un resumen visual de los indicadores más importantes.</p><svg width=\"660\" height=\"320\" viewBox=\"0 0 660 320\" xmlns=\"http://www.w3.org/2000/svg\" style=\"display:block;margin:16px auto;max-width:100%;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)\"><defs><clipPath id=\"dc\"><rect width=\"660\" height=\"320\" rx=\"12\"/></clipPath></defs><g clip-path=\"url(#dc)\"><rect width=\"660\" height=\"320\" fill=\"#111827\"/><rect width=\"148\" height=\"320\" fill=\"#1f2937\"/><rect width=\"660\" height=\"40\" fill=\"#1f2937\"/><line x1=\"148\" y1=\"40\" x2=\"660\" y2=\"40\" stroke=\"#374151\" stroke-width=\"1\"/><line x1=\"148\" y1=\"0\" x2=\"148\" y2=\"320\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"16\" y=\"26\" fill=\"#6366f1\" font-size=\"13\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">ISPWatch</text><text x=\"530\" y=\"26\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Axel Cano  ▾   ☀</text><rect x=\"8\" y=\"40\" width=\"132\" height=\"24\" fill=\"#312e81\" rx=\"5\"/><text x=\"20\" y=\"54\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Dashboard</text><text x=\"20\" y=\"82\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Clientes</text><text x=\"20\" y=\"110\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Facturación</text><text x=\"20\" y=\"138\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Routers</text><text x=\"20\" y=\"166\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Soporte</text><text x=\"20\" y=\"194\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Inventario</text><text x=\"20\" y=\"222\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Usuarios</text><text x=\"20\" y=\"250\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Config.</text><text x=\"20\" y=\"278\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Manual</text><rect x=\"160\" y=\"52\" width=\"158\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"170\" y=\"72\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Clientes Activos</text><text x=\"170\" y=\"100\" fill=\"#4ade80\" font-size=\"22\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">142</text><rect x=\"326\" y=\"52\" width=\"158\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"336\" y=\"72\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Suspendidos</text><text x=\"336\" y=\"100\" fill=\"#f87171\" font-size=\"22\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">12</text><rect x=\"492\" y=\"52\" width=\"158\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"502\" y=\"72\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Fact. Pendientes</text><text x=\"502\" y=\"100\" fill=\"#fbbf24\" font-size=\"22\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">$1,840</text><rect x=\"160\" y=\"136\" width=\"158\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"170\" y=\"156\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Ingresos del Mes</text><text x=\"170\" y=\"184\" fill=\"#818cf8\" font-size=\"22\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">$3,250</text><rect x=\"326\" y=\"136\" width=\"158\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"336\" y=\"156\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Routers Online</text><text x=\"336\" y=\"184\" fill=\"#4ade80\" font-size=\"22\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">5 / 5</text><rect x=\"492\" y=\"136\" width=\"158\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"502\" y=\"156\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Tickets Abiertos</text><text x=\"502\" y=\"184\" fill=\"#f59e0b\" font-size=\"22\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">7</text><rect x=\"160\" y=\"222\" width=\"490\" height=\"86\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"172\" y=\"240\" fill=\"#f3f4f6\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">Facturas Recientes</text><line x1=\"160\" y1=\"248\" x2=\"650\" y2=\"248\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"172\" y=\"263\" fill=\"#6b7280\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Cliente</text><text x=\"330\" y=\"263\" fill=\"#6b7280\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Monto</text><text x=\"430\" y=\"263\" fill=\"#6b7280\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Vence</text><text x=\"530\" y=\"263\" fill=\"#6b7280\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Estado</text><text x=\"172\" y=\"278\" fill=\"#d1d5db\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Juan Pérez</text><text x=\"330\" y=\"278\" fill=\"#d1d5db\" font-size=\"9\" font-family=\"system-ui,sans-serif\">$25.00</text><text x=\"430\" y=\"278\" fill=\"#d1d5db\" font-size=\"9\" font-family=\"system-ui,sans-serif\">31/05</text><rect x=\"525\" y=\"266\" width=\"60\" height=\"15\" fill=\"#fef3c7\" rx=\"4\"/><text x=\"555\" y=\"277\" fill=\"#92400e\" font-size=\"8\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Pendiente</text><text x=\"172\" y=\"298\" fill=\"#d1d5db\" font-size=\"9\" font-family=\"system-ui,sans-serif\">María López</text><text x=\"330\" y=\"298\" fill=\"#d1d5db\" font-size=\"9\" font-family=\"system-ui,sans-serif\">$30.00</text><text x=\"430\" y=\"298\" fill=\"#d1d5db\" font-size=\"9\" font-family=\"system-ui,sans-serif\">28/05</text><rect x=\"525\" y=\"286\" width=\"60\" height=\"15\" fill=\"#d1fae5\" rx=\"4\"/><text x=\"555\" y=\"297\" fill=\"#065f46\" font-size=\"8\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Pagada</text><circle cx=\"239\" cy=\"52\" r=\"11\" fill=\"#6366f1\"/><text x=\"239\" y=\"56\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">1</text><circle cx=\"74\" cy=\"150\" r=\"11\" fill=\"#6366f1\"/><text x=\"74\" y=\"154\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">2</text><circle cx=\"405\" cy=\"222\" r=\"11\" fill=\"#6366f1\"/><text x=\"405\" y=\"226\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">3</text></g></svg><div style=\"background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;margin:4px auto 24px;max-width:660px;font-family:system-ui,sans-serif;font-size:12px;color:#cbd5e1;display:flex;flex-wrap:wrap;gap:12px\"><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">1</span>Tarjetas de resumen: clientes, morosos, ingresos y tickets</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">2</span>Menú lateral — accede a cualquier módulo</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">3</span>Tabla de actividad reciente</span></div><h3>Tarjetas de resumen <span style=\"color:#6366f1\">①</span></h3>\n<ul>\n  <li><strong>Clientes Activos</strong>: total con servicio vigente.</li>\n  <li><strong>Suspendidos</strong>: clientes con servicio cortado por mora.</li>\n  <li><strong>Facturas Pendientes</strong>: monto total adeudado.</li>\n  <li><strong>Ingresos del Mes</strong>: pagos registrados en el mes actual.</li>\n  <li><strong>Routers Online</strong>: estado de conectividad de tus routers.</li>\n  <li><strong>Tickets Abiertos</strong>: tickets de soporte sin resolver.</li>\n</ul>\n<h3>Menú lateral <span style=\"color:#6366f1\">②</span></h3>\n<p>Accede a todos los módulos desde la barra izquierda. El ítem resaltado indica la sección activa.</p>\n<h3>Actividad reciente <span style=\"color:#6366f1\">③</span></h3>\n<p>La tabla inferior muestra las últimas facturas generadas con su estado (Pendiente, Pagada, Vencida).</p>",
+                "tips": "El dashboard se actualiza cada vez que lo visitas. Úsalo como punto de partida para revisar el estado general de tu empresa.",
+                "is_published": true,
+                "display_order": 3,
+                "created_at": "2026-05-22T18:25:56.000000Z",
+                "updated_at": "2026-05-22T18:25:56.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 17,
+            "name": "Clientes",
+            "icon": "bi-people-fill",
+            "description": null,
+            "display_order": 2,
+            "created_at": "2026-05-22T18:25:56.000000Z",
+            "updated_at": "2026-05-22T18:25:56.000000Z"
+        },
+        "articles": [
+            {
+                "id": 51,
+                "category_id": 17,
+                "title": "Crear un nuevo cliente",
+                "content": "<h2>Registrar un cliente</h2>\n<p>Ve a <strong>Gestión → Clientes</strong> y haz clic en <strong>Nuevo Cliente</strong>.</p><svg width=\"660\" height=\"350\" viewBox=\"0 0 660 350\" xmlns=\"http://www.w3.org/2000/svg\" style=\"display:block;margin:16px auto;max-width:100%;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)\"><defs><clipPath id=\"cf\"><rect width=\"660\" height=\"350\" rx=\"12\"/></clipPath></defs><g clip-path=\"url(#cf)\"><rect width=\"660\" height=\"350\" fill=\"#111827\"/><rect width=\"660\" height=\"44\" fill=\"#1f2937\"/><text x=\"20\" y=\"28\" fill=\"#f3f4f6\" font-size=\"14\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">Nuevo Cliente</text><rect x=\"590\" y=\"10\" width=\"60\" height=\"24\" fill=\"#6366f1\" rx=\"6\"/><text x=\"620\" y=\"26\" fill=\"#fff\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Guardar</text><rect x=\"10\" y=\"54\" width=\"310\" height=\"200\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"22\" y=\"73\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">DATOS PERSONALES</text><text x=\"22\" y=\"90\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Nombre completo</text><rect x=\"22\" y=\"94\" width=\"280\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"122\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Cédula / DNI</text><rect x=\"22\" y=\"126\" width=\"280\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"154\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Correo electrónico</text><rect x=\"22\" y=\"158\" width=\"280\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"186\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Teléfono / WhatsApp</text><rect x=\"22\" y=\"190\" width=\"280\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"218\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Dirección</text><rect x=\"22\" y=\"222\" width=\"280\" height=\"18\" fill=\"#374151\" rx=\"4\"/><rect x=\"330\" y=\"54\" width=\"320\" height=\"130\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"342\" y=\"73\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">SERVICIO Y RED</text><text x=\"342\" y=\"90\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Plan de servicio</text><rect x=\"342\" y=\"93\" width=\"294\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"342\" y=\"116\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Router asignado</text><rect x=\"342\" y=\"119\" width=\"294\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"342\" y=\"142\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">IP asignada</text><rect x=\"342\" y=\"145\" width=\"294\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"342\" y=\"168\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Sectorial</text><rect x=\"342\" y=\"171\" width=\"294\" height=\"16\" fill=\"#374151\" rx=\"4\"/><rect x=\"330\" y=\"194\" width=\"320\" height=\"108\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"342\" y=\"212\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">UBICACIÓN GPS</text><rect x=\"342\" y=\"218\" width=\"296\" height=\"74\" fill=\"#0f172a\" rx=\"6\"/><text x=\"490\" y=\"259\" fill=\"#374151\" font-size=\"20\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">🗺</text><text x=\"490\" y=\"280\" fill=\"#4b5563\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Haz clic para marcar la ubicación</text><rect x=\"10\" y=\"264\" width=\"310\" height=\"50\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"22\" y=\"283\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">ESTADO DEL CLIENTE</text><rect x=\"22\" y=\"290\" width=\"100\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"72\" y=\"301\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Activo ▾</text><circle cx=\"166\" cy=\"54\" r=\"11\" fill=\"#6366f1\"/><text x=\"166\" y=\"58\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">1</text><circle cx=\"490\" cy=\"54\" r=\"11\" fill=\"#6366f1\"/><text x=\"490\" y=\"58\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">2</text><circle cx=\"490\" cy=\"194\" r=\"11\" fill=\"#6366f1\"/><text x=\"490\" y=\"198\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">3</text><circle cx=\"620\" cy=\"10\" r=\"11\" fill=\"#6366f1\"/><text x=\"620\" y=\"14\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">4</text></g></svg><div style=\"background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;margin:4px auto 24px;max-width:660px;font-family:system-ui,sans-serif;font-size:12px;color:#cbd5e1;display:flex;flex-wrap:wrap;gap:12px\"><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">1</span>Datos personales del titular</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">2</span>Configuración del servicio y red</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">3</span>Mapa para marcar coordenadas GPS</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">4</span>Botón guardar — crea el cliente y aprovisiona en MikroTik</span></div><h3>Datos personales <span style=\"color:#6366f1\">①</span></h3>\n<ul>\n  <li><strong>Nombre completo</strong>: nombre y apellidos del titular.</li>\n  <li><strong>Cédula / DNI</strong>: documento de identidad.</li>\n  <li><strong>Correo electrónico</strong>: para facturas y notificaciones.</li>\n  <li><strong>Teléfono / WhatsApp</strong>: para recordatorios de pago.</li>\n  <li><strong>Dirección</strong>: dirección física del cliente.</li>\n</ul>\n<h3>Servicio y red <span style=\"color:#6366f1\">②</span></h3>\n<ul>\n  <li><strong>Plan</strong>: el plan contratado (velocidad y precio).</li>\n  <li><strong>Router</strong>: el MikroTik que dará servicio al cliente.</li>\n  <li><strong>IP</strong>: déjala en blanco para asignación automática.</li>\n  <li><strong>Sectorial</strong>: zona geográfica del cliente.</li>\n</ul>\n<h3>Ubicación GPS <span style=\"color:#6366f1\">③</span></h3>\n<p>Haz clic en el mapa para marcar la ubicación exacta. Las coordenadas se guardan y aparecerán en el mapa de clientes.</p>\n<h3>Guardar <span style=\"color:#6366f1\">④</span></h3>\n<p>Al guardar, el sistema crea el perfil y aprovisiona automáticamente la cola o perfil PPPoE en MikroTik.</p>",
+                "tips": "Completa siempre el campo de router asignado. Sin él, el sistema no puede aprovisionar ni cortar el servicio automáticamente.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:25:56.000000Z",
+                "updated_at": "2026-05-22T18:25:56.000000Z"
+            },
+            {
+                "id": 52,
+                "category_id": 17,
+                "title": "Editar y gestionar un cliente",
+                "content": "<h2>Editar un cliente existente</h2>\n<p>Desde <strong>Gestión → Clientes</strong>, haz clic en el ícono de edición junto al cliente.</p>\n<h3>Estado del cliente</h3>\n<ul>\n  <li><strong>Activo</strong>: servicio vigente.</li>\n  <li><strong>Suspendido</strong>: cortado por mora, IP bloqueada en el firewall.</li>\n  <li><strong>Inactivo</strong>: dado de baja definitiva.</li>\n</ul>\n<h3>Documentos</h3>\n<p>Sube contratos firmados, identificaciones y otros archivos desde la pestaña de documentos del cliente.</p>\n<h3>Instalaciones</h3>\n<p>Registra visitas técnicas al domicilio: fecha, técnico asignado, descripción y estado.</p>",
+                "tips": "Puedes cambiar el plan de un cliente en cualquier momento. El sistema actualizará la cola en MikroTik automáticamente.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:25:57.000000Z",
+                "updated_at": "2026-05-22T18:25:57.000000Z"
+            },
+            {
+                "id": 53,
+                "category_id": 17,
+                "title": "Suspender y reactivar clientes",
+                "content": "<h2>Suspensión y reactivación</h2>\n<p>ISPWatch corta el servicio de clientes morosos bloqueando su IP en MikroTik.</p><svg width=\"660\" height=\"190\" viewBox=\"0 0 660 190\" xmlns=\"http://www.w3.org/2000/svg\" style=\"display:block;margin:16px auto;max-width:100%;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)\"><defs><clipPath id=\"sf\"><rect width=\"660\" height=\"190\" rx=\"12\"/></clipPath></defs><g clip-path=\"url(#sf)\"><rect width=\"660\" height=\"190\" fill=\"#111827\"/><text x=\"330\" y=\"24\" fill=\"#9ca3af\" font-size=\"11\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">FLUJO DE SUSPENSIÓN Y REACTIVACIÓN</text><rect x=\"20\" y=\"38\" width=\"130\" height=\"44\" fill=\"#374151\" rx=\"8\"/><text x=\"85\" y=\"56\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Scheduler</text><text x=\"85\" y=\"70\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">diario</text><rect x=\"180\" y=\"38\" width=\"130\" height=\"44\" fill=\"#7f1d1d\" rx=\"8\"/><text x=\"245\" y=\"56\" fill=\"#fca5a5\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Factura</text><text x=\"245\" y=\"70\" fill=\"#fca5a5\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">vencida</text><rect x=\"340\" y=\"38\" width=\"130\" height=\"44\" fill=\"#7c3aed\" rx=\"8\"/><text x=\"405\" y=\"56\" fill=\"#c4b5fd\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Corte enviado</text><text x=\"405\" y=\"70\" fill=\"#c4b5fd\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">a MikroTik</text><rect x=\"500\" y=\"38\" width=\"130\" height=\"44\" fill=\"#991b1b\" rx=\"8\"/><text x=\"565\" y=\"56\" fill=\"#f87171\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">IP</text><text x=\"565\" y=\"70\" fill=\"#f87171\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Bloqueada</text><line x1=\"150\" y1=\"60\" x2=\"178\" y2=\"60\" stroke=\"#4b5563\" stroke-width=\"2\" marker-end=\"url(#arr)\"/><line x1=\"310\" y1=\"60\" x2=\"338\" y2=\"60\" stroke=\"#4b5563\" stroke-width=\"2\" marker-end=\"url(#arr)\"/><line x1=\"470\" y1=\"60\" x2=\"498\" y2=\"60\" stroke=\"#4b5563\" stroke-width=\"2\" marker-end=\"url(#arr)\"/><defs><marker id=\"arr\" markerWidth=\"8\" markerHeight=\"8\" refX=\"6\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L8,3 Z\" fill=\"#4b5563\"/></marker></defs><rect x=\"500\" y=\"118\" width=\"130\" height=\"44\" fill=\"#14532d\" rx=\"8\"/><text x=\"565\" y=\"136\" fill=\"#86efac\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Cliente</text><text x=\"565\" y=\"150\" fill=\"#86efac\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">paga</text><rect x=\"340\" y=\"118\" width=\"130\" height=\"44\" fill=\"#7c3aed\" rx=\"8\"/><text x=\"405\" y=\"136\" fill=\"#c4b5fd\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Pago</text><text x=\"405\" y=\"150\" fill=\"#c4b5fd\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">registrado</text><rect x=\"180\" y=\"118\" width=\"130\" height=\"44\" fill=\"#1e3a5f\" rx=\"8\"/><text x=\"245\" y=\"136\" fill=\"#93c5fd\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Reactivación</text><text x=\"245\" y=\"150\" fill=\"#93c5fd\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">a MikroTik</text><rect x=\"20\" y=\"118\" width=\"130\" height=\"44\" fill=\"#14532d\" rx=\"8\"/><text x=\"85\" y=\"136\" fill=\"#4ade80\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">IP</text><text x=\"85\" y=\"150\" fill=\"#4ade80\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Desbloqueada</text><line x1=\"472\" y1=\"140\" x2=\"442\" y2=\"140\" stroke=\"#4b5563\" stroke-width=\"2\" marker-end=\"url(#arr)\"/><line x1=\"312\" y1=\"140\" x2=\"282\" y2=\"140\" stroke=\"#4b5563\" stroke-width=\"2\" marker-end=\"url(#arr)\"/><line x1=\"152\" y1=\"140\" x2=\"122\" y2=\"140\" stroke=\"#4b5563\" stroke-width=\"2\" marker-end=\"url(#arr)\"/><line x1=\"565\" y1=\"82\" x2=\"565\" y2=\"118\" stroke=\"#4b5563\" stroke-width=\"2\" stroke-dasharray=\"4\"/><text x=\"330\" y=\"108\" fill=\"#4b5563\" font-size=\"8\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">← Flujo de reactivación (automático al registrar pago)</text></g></svg><h3>Suspensión manual</h3>\n<ol>\n  <li>Ve a <strong>Gestión → Clientes</strong>.</li>\n  <li>Localiza al cliente y haz clic en el ícono de corte.</li>\n  <li>Confirma la acción.</li>\n</ol>\n<h3>Suspensión automática</h3>\n<p>El scheduler diario busca facturas vencidas y envía el comando de bloqueo al router de cada cliente moroso, registrando la acción en el log.</p>\n<h3>Reactivación</h3>\n<p>Al registrar el pago, el sistema envía automáticamente el comando de desbloqueo y actualiza el estado del cliente a <strong>Activo</strong>.</p>",
+                "tips": "La suspensión automática corre una vez al día. Al registrar el pago de un cliente suspendido, la reactivación ocurre en segundos.",
+                "is_published": true,
+                "display_order": 3,
+                "created_at": "2026-05-22T18:25:57.000000Z",
+                "updated_at": "2026-05-22T18:25:57.000000Z"
+            },
+            {
+                "id": 54,
+                "category_id": 17,
+                "title": "Mapa de clientes",
+                "content": "<h2>Mapa geográfico de clientes</h2>\n<p>Accede desde <strong>Gestión → Clientes → Mapa</strong> para visualizar todos tus clientes en un mapa interactivo.</p>\n<h3>Funcionalidades</h3>\n<ul>\n  <li><strong>Marcadores por estado</strong>: verde = activo, rojo = suspendido.</li>\n  <li><strong>Popup informativo</strong>: clic en un marcador muestra nombre, plan, router y estado.</li>\n  <li><strong>Filtros</strong>: filtra por sectorial, router o estado.</li>\n  <li><strong>Capas</strong>: alterna entre vista de calle y satelital.</li>\n</ul>\n<h3>Agregar coordenadas</h3>\n<p>Al crear o editar un cliente, haz clic en el mapa del formulario para guardar su ubicación GPS automáticamente.</p>",
+                "tips": "Para el mapa satelital necesitas configurar tu clave de Google Maps en Configuración → Tenant.",
+                "is_published": true,
+                "display_order": 4,
+                "created_at": "2026-05-22T18:25:57.000000Z",
+                "updated_at": "2026-05-22T18:25:57.000000Z"
+            },
+            {
+                "id": 55,
+                "category_id": 17,
+                "title": "Importar clientes desde Excel",
+                "content": "<h2>Importación masiva de clientes</h2>\n<p>Carga grandes bases de datos desde Excel en <strong>Acciones Masivas</strong>.</p>\n<h3>Pasos</h3>\n<ol>\n  <li>Haz clic en <strong>Descargar Plantilla</strong>.</li>\n  <li>Llena el archivo con los datos de tus clientes.</li>\n  <li>Arrastra el archivo al área de carga.</li>\n  <li>Haz clic en <strong>Importar</strong>.</li>\n</ol>\n<h3>Resultado</h3>\n<p>El sistema muestra registros importados y errores. Descarga el archivo de errores para corregirlos y reimportar solo los fallidos.</p>",
+                "tips": "Descarga siempre la plantilla oficial antes de importar. No modifiques los encabezados de columna.",
+                "is_published": true,
+                "display_order": 5,
+                "created_at": "2026-05-22T18:25:57.000000Z",
+                "updated_at": "2026-05-22T18:25:57.000000Z"
+            },
+            {
+                "id": 56,
+                "category_id": 17,
+                "title": "Estadísticas de clientes",
+                "content": "<h2>Estadísticas de clientes</h2>\n<p>Accede desde <strong>Gestión → Clientes → Estadísticas</strong>.</p>\n<h3>Métricas disponibles</h3>\n<ul>\n  <li><strong>Distribución por estado</strong>: activos, suspendidos, inactivos.</li>\n  <li><strong>Clientes por plan</strong>: cuántos clientes tiene cada plan.</li>\n  <li><strong>Clientes por sectorial</strong>: distribución geográfica.</li>\n  <li><strong>Clientes por router</strong>: carga en cada MikroTik.</li>\n  <li><strong>Crecimiento mensual</strong>: nuevos clientes mes a mes.</li>\n</ul>",
+                "tips": "Usa las estadísticas para identificar qué sectoriales o planes tienen más morosos.",
+                "is_published": true,
+                "display_order": 6,
+                "created_at": "2026-05-22T18:25:58.000000Z",
+                "updated_at": "2026-05-22T18:25:58.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 18,
+            "name": "Facturación",
+            "icon": "fa-file-invoice-dollar",
+            "description": null,
+            "display_order": 3,
+            "created_at": "2026-05-22T18:25:58.000000Z",
+            "updated_at": "2026-05-22T18:25:58.000000Z"
+        },
+        "articles": [
+            {
+                "id": 57,
+                "category_id": 18,
+                "title": "Cómo funciona la facturación automática",
+                "content": "<h2>Facturación automática mensual</h2>\n<p>Cada router tiene un <strong>día de facturación</strong> configurado. Ese día el sistema genera automáticamente una factura para cada cliente activo del router.</p>\n<h3>Configurar el día de facturación</h3>\n<ol>\n  <li>Ve a <strong>Gestión → Routers → Editar Router</strong>.</li>\n  <li>Ingresa el número del día del mes en <strong>Día de facturación</strong>.</li>\n</ol>\n<h3>¿Qué incluye cada factura?</h3>\n<ul>\n  <li>Datos del cliente y del ISP.</li>\n  <li>Plan de servicio y precio.</li>\n  <li>Número correlativo único.</li>\n  <li>Fecha de emisión y vencimiento.</li>\n  <li>Cargos adicionales si los hubiera.</li>\n</ul>\n<h3>Planes cortesía</h3>\n<p>Los clientes con planes marcados como <strong>Cortesía</strong> se excluyen automáticamente del proceso de facturación.</p>",
+                "tips": "Las facturas se generan una sola vez por mes por cliente (proceso idempotente). Puedes ejecutar el proceso dos veces sin generar duplicados.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:25:58.000000Z",
+                "updated_at": "2026-05-22T18:25:58.000000Z"
+            },
+            {
+                "id": 58,
+                "category_id": 18,
+                "title": "Registrar un pago",
+                "content": "<h2>Registro de pagos</h2>\n<p>Ve a <strong>Finanzas → Pagos → Nuevo Pago</strong>.</p><svg width=\"660\" height=\"280\" viewBox=\"0 0 660 280\" xmlns=\"http://www.w3.org/2000/svg\" style=\"display:block;margin:16px auto;max-width:100%;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)\"><defs><clipPath id=\"pf\"><rect width=\"660\" height=\"280\" rx=\"12\"/></clipPath></defs><g clip-path=\"url(#pf)\"><rect width=\"660\" height=\"280\" fill=\"#111827\"/><rect width=\"660\" height=\"44\" fill=\"#1f2937\"/><text x=\"20\" y=\"28\" fill=\"#f3f4f6\" font-size=\"14\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">Registrar Pago</text><rect x=\"16\" y=\"58\" width=\"628\" height=\"42\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"28\" y=\"74\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Cliente</text><rect x=\"28\" y=\"78\" width=\"600\" height=\"14\" fill=\"#374151\" rx=\"4\"/><text x=\"38\" y=\"89\" fill=\"#6b7280\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Buscar cliente por nombre o cédula...</text><rect x=\"16\" y=\"110\" width=\"305\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"28\" y=\"128\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Monto recibido</text><rect x=\"28\" y=\"133\" width=\"280\" height=\"28\" fill=\"#374151\" rx=\"6\"/><text x=\"44\" y=\"152\" fill=\"#f3f4f6\" font-size=\"15\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">$  _____</text><rect x=\"339\" y=\"110\" width=\"305\" height=\"72\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"351\" y=\"128\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Método de pago</text><rect x=\"351\" y=\"133\" width=\"280\" height=\"28\" fill=\"#374151\" rx=\"6\"/><text x=\"368\" y=\"152\" fill=\"#9ca3af\" font-size=\"10\" font-family=\"system-ui,sans-serif\">Efectivo  ▾</text><rect x=\"16\" y=\"192\" width=\"528\" height=\"60\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"28\" y=\"210\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Facturas pendientes del cliente</text><rect x=\"28\" y=\"216\" width=\"260\" height=\"14\" fill=\"#374151\" rx=\"4\"/><text x=\"38\" y=\"227\" fill=\"#6b7280\" font-size=\"8\" font-family=\"system-ui,sans-serif\">INV-0045  Mayo 2026  $25.00  Vence 31/05</text><rect x=\"28\" y=\"234\" width=\"260\" height=\"12\" fill=\"#374151\" rx=\"4\" opacity=\"0.6\"/><rect x=\"556\" y=\"196\" width=\"100\" height=\"52\" fill=\"#6366f1\" rx=\"8\"/><text x=\"606\" y=\"226\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">Registrar</text><text x=\"606\" y=\"240\" fill=\"#c7d2fe\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Pago</text><circle cx=\"330\" cy=\"58\" r=\"11\" fill=\"#6366f1\"/><text x=\"330\" y=\"62\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">1</text><circle cx=\"168\" cy=\"110\" r=\"11\" fill=\"#6366f1\"/><text x=\"168\" y=\"114\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">2</text><circle cx=\"491\" cy=\"110\" r=\"11\" fill=\"#6366f1\"/><text x=\"491\" y=\"114\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">3</text><circle cx=\"272\" cy=\"192\" r=\"11\" fill=\"#6366f1\"/><text x=\"272\" y=\"196\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">4</text><circle cx=\"606\" cy=\"192\" r=\"11\" fill=\"#6366f1\"/><text x=\"606\" y=\"196\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">5</text></g></svg><div style=\"background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;margin:4px auto 24px;max-width:660px;font-family:system-ui,sans-serif;font-size:12px;color:#cbd5e1;display:flex;flex-wrap:wrap;gap:12px\"><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">1</span>Buscar cliente por nombre o cédula</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">2</span>Monto recibido</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">3</span>Método de pago (efectivo, transferencia, etc.)</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">4</span>Facturas pendientes que se cubrirán automáticamente</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">5</span>Botón registrar — aplica el pago y reactiva si estaba suspendido</span></div><h3>Buscar cliente <span style=\"color:#6366f1\">①</span></h3>\n<p>Escribe el nombre o cédula del cliente. El sistema cargará sus facturas pendientes automáticamente.</p>\n<h3>Monto <span style=\"color:#6366f1\">②</span></h3>\n<p>Ingresa el valor exacto recibido. Puede ser parcial o cubrir varias facturas.</p>\n<h3>Método de pago <span style=\"color:#6366f1\">③</span></h3>\n<p>Selecciona la forma de pago (efectivo, transferencia, Nequi, etc.).</p>\n<h3>Facturas a cubrir <span style=\"color:#6366f1\">④</span></h3>\n<p>El sistema asigna el pago a las facturas más antiguas primero. Si el monto cubre todas, quedan marcadas como pagadas.</p>\n<h3>Registrar <span style=\"color:#6366f1\">⑤</span></h3>\n<p>Al confirmar, si el cliente estaba suspendido se envía el comando de reactivación al router MikroTik.</p>",
+                "tips": "Si el cliente paga más de lo adeudado, el excedente se guarda como saldo a favor y se aplica en la siguiente factura.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:25:58.000000Z",
+                "updated_at": "2026-05-22T18:25:58.000000Z"
+            },
+            {
+                "id": 59,
+                "category_id": 18,
+                "title": "Ver y descargar facturas",
+                "content": "<h2>Listado y detalle de facturas</h2>\n<p>Accede desde <strong>Finanzas → Facturas</strong>.</p>\n<h3>Estados de factura</h3>\n<ul>\n  <li><strong>Pendiente</strong>: generada pero no pagada, dentro del plazo.</li>\n  <li><strong>Pagada</strong>: cubierta total o parcialmente.</li>\n  <li><strong>Vencida</strong>: no pagada y fuera del plazo de vencimiento.</li>\n</ul>\n<h3>Desde el detalle de la factura puedes</h3>\n<ul>\n  <li><strong>Descargar PDF</strong>: genera el comprobante oficial para enviar al cliente.</li>\n  <li><strong>Ver pagos aplicados</strong>: qué pagos han cubierto esta factura.</li>\n  <li><strong>Agregar cargo adicional</strong>: instalación, equipo, otros cobros.</li>\n</ul>",
+                "tips": "Filtra las facturas por estado, cliente o rango de fechas para encontrar lo que buscas rápidamente.",
+                "is_published": true,
+                "display_order": 3,
+                "created_at": "2026-05-22T18:25:59.000000Z",
+                "updated_at": "2026-05-22T18:25:59.000000Z"
+            },
+            {
+                "id": 60,
+                "category_id": 18,
+                "title": "Recordatorios de pago",
+                "content": "<h2>Recordatorios de pago automáticos</h2>\n<h3>Configurar</h3>\n<ol>\n  <li>Ve a <strong>Finanzas → Facturación</strong>.</li>\n  <li>Activa <strong>Recordatorios de pago</strong>.</li>\n  <li>Indica los días antes del vencimiento.</li>\n  <li>Elige el canal: <strong>Email</strong>, <strong>WhatsApp</strong> o ambos.</li>\n</ol>\n<h3>Canales</h3>\n<ul>\n  <li><strong>Email</strong>: correo al cliente con el detalle de la factura.</li>\n  <li><strong>WhatsApp</strong>: mensaje al número registrado vía API.</li>\n</ul>\n<h3>Envío manual</h3>\n<p>Desde el detalle de cualquier factura haz clic en <strong>Enviar Recordatorio</strong> para notificar al cliente en ese momento.</p>",
+                "tips": "Activa los recordatorios en la configuración de facturación. Se envían X días antes del vencimiento por email y/o WhatsApp.",
+                "is_published": true,
+                "display_order": 4,
+                "created_at": "2026-05-22T18:25:59.000000Z",
+                "updated_at": "2026-05-22T18:25:59.000000Z"
+            },
+            {
+                "id": 61,
+                "category_id": 18,
+                "title": "Cargos adicionales",
+                "content": "<h2>Cargos adicionales en facturas</h2>\n<p>Agrega cobros extra a facturas: instalaciones, reparaciones, equipos u otros servicios.</p>\n<h3>Agregar un cargo</h3>\n<ol>\n  <li>Abre el detalle de la factura (<strong>Finanzas → Facturas → [Factura]</strong>).</li>\n  <li>Clic en <strong>Agregar Cargo Adicional</strong>.</li>\n  <li>Escribe la descripción y el monto.</li>\n  <li>Guarda — el cargo se suma al total.</li>\n</ol>\n<h3>Desde un ticket de soporte</h3>\n<p>Al cerrar el ticket, el técnico puede registrar materiales usados. El sistema genera automáticamente el cargo adicional en la factura activa del cliente.</p>",
+                "tips": "Los cargos también pueden generarse desde un ticket de soporte cuando el técnico registra materiales o mano de obra.",
+                "is_published": true,
+                "display_order": 5,
+                "created_at": "2026-05-22T18:25:59.000000Z",
+                "updated_at": "2026-05-22T18:25:59.000000Z"
+            },
+            {
+                "id": 62,
+                "category_id": 18,
+                "title": "Métodos de pago",
+                "content": "<h2>Métodos de pago</h2>\n<p>Administra las formas de pago aceptadas desde <strong>Finanzas → Métodos de Pago</strong>.</p>\n<h3>Crear un método</h3>\n<ol>\n  <li>Clic en <strong>Nuevo Método de Pago</strong>.</li>\n  <li>Ingresa el nombre y descripción opcional.</li>\n  <li>Guarda — quedará disponible al registrar pagos.</li>\n</ol>",
+                "tips": "Configura todos los métodos antes de empezar a registrar pagos: efectivo, transferencia, Nequi, PSE, etc.",
+                "is_published": true,
+                "display_order": 6,
+                "created_at": "2026-05-22T18:26:00.000000Z",
+                "updated_at": "2026-05-22T18:26:00.000000Z"
+            },
+            {
+                "id": 63,
+                "category_id": 18,
+                "title": "Dashboard de facturación",
+                "content": "<h2>Dashboard de facturación</h2>\n<p>Accede desde <strong>Finanzas → Facturación</strong>.</p>\n<h3>Indicadores</h3>\n<ul>\n  <li><strong>Ingresos del mes</strong>: total cobrado en el mes actual.</li>\n  <li><strong>Facturas pendientes</strong>: monto total adeudado.</li>\n  <li><strong>Facturas vencidas</strong>: cuya fecha de pago ya pasó.</li>\n  <li><strong>Tasa de cobranza</strong>: % de facturas pagadas vs. emitidas.</li>\n  <li><strong>Gráfica mensual</strong>: evolución de ingresos mes a mes.</li>\n</ul>",
+                "tips": "Revisa el dashboard de facturación antes de hacer pagos a proveedores para tener claridad del flujo de caja.",
+                "is_published": true,
+                "display_order": 7,
+                "created_at": "2026-05-22T18:26:00.000000Z",
+                "updated_at": "2026-05-22T18:26:00.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 19,
+            "name": "Routers y Red",
+            "icon": "bi-router",
+            "description": null,
+            "display_order": 4,
+            "created_at": "2026-05-22T18:26:00.000000Z",
+            "updated_at": "2026-05-22T18:26:00.000000Z"
+        },
+        "articles": [
+            {
+                "id": 64,
+                "category_id": 19,
+                "title": "Agregar un router MikroTik",
+                "content": "<h2>Conectar un router MikroTik</h2>\n<p>Ve a <strong>Gestión → Routers → Agregar Router</strong>.</p><svg width=\"660\" height=\"310\" viewBox=\"0 0 660 310\" xmlns=\"http://www.w3.org/2000/svg\" style=\"display:block;margin:16px auto;max-width:100%;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)\"><defs><clipPath id=\"rf\"><rect width=\"660\" height=\"310\" rx=\"12\"/></clipPath></defs><g clip-path=\"url(#rf)\"><rect width=\"660\" height=\"310\" fill=\"#111827\"/><rect width=\"660\" height=\"44\" fill=\"#1f2937\"/><text x=\"20\" y=\"28\" fill=\"#f3f4f6\" font-size=\"14\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">Agregar Router MikroTik</text><rect x=\"10\" y=\"54\" width=\"318\" height=\"200\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"22\" y=\"73\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">CONEXIÓN</text><text x=\"22\" y=\"88\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Nombre del router</text><rect x=\"22\" y=\"91\" width=\"290\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"116\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">IP / Hostname</text><rect x=\"22\" y=\"119\" width=\"290\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"144\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Puerto API (8728)</text><rect x=\"22\" y=\"147\" width=\"290\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"172\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Puerto SSH (22)</text><rect x=\"22\" y=\"175\" width=\"290\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"200\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Usuario API</text><rect x=\"22\" y=\"203\" width=\"290\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"22\" y=\"228\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Contraseña API</text><rect x=\"22\" y=\"231\" width=\"290\" height=\"16\" fill=\"#374151\" rx=\"4\"/><rect x=\"336\" y=\"54\" width=\"314\" height=\"130\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"348\" y=\"73\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">FACTURACIÓN</text><text x=\"348\" y=\"90\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Día de facturación (1-31)</text><rect x=\"348\" y=\"93\" width=\"288\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"348\" y=\"124\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Días de gracia</text><rect x=\"348\" y=\"127\" width=\"288\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"348\" y=\"158\" fill=\"#9ca3af\" font-size=\"8\" font-family=\"system-ui,sans-serif\">WAN Interface</text><rect x=\"348\" y=\"161\" width=\"288\" height=\"18\" fill=\"#374151\" rx=\"4\"/><rect x=\"336\" y=\"194\" width=\"314\" height=\"60\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"348\" y=\"213\" fill=\"#a5b4fc\" font-size=\"10\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">ESTADO DE CONEXIÓN</text><rect x=\"348\" y=\"220\" width=\"140\" height=\"24\" fill=\"#374151\" rx=\"6\"/><text x=\"418\" y=\"236\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">● Verificar conexión</text><rect x=\"500\" y=\"220\" width=\"136\" height=\"24\" fill=\"#6366f1\" rx=\"6\"/><text x=\"568\" y=\"236\" fill=\"#fff\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Guardar Router</text><rect x=\"10\" y=\"264\" width=\"640\" height=\"36\" fill=\"#0f172a\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"330\" y=\"287\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Tras guardar, usa \"Verificar conexión\" para confirmar que ISPWatch puede comunicarse con el router.</text><circle cx=\"164\" cy=\"54\" r=\"11\" fill=\"#6366f1\"/><text x=\"164\" y=\"58\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">1</text><circle cx=\"493\" cy=\"54\" r=\"11\" fill=\"#6366f1\"/><text x=\"493\" y=\"58\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">2</text><circle cx=\"493\" cy=\"194\" r=\"11\" fill=\"#6366f1\"/><text x=\"493\" y=\"198\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">3</text><circle cx=\"568\" cy=\"220\" r=\"11\" fill=\"#6366f1\"/><text x=\"568\" y=\"224\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">4</text></g></svg><div style=\"background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;margin:4px auto 24px;max-width:660px;font-family:system-ui,sans-serif;font-size:12px;color:#cbd5e1;display:flex;flex-wrap:wrap;gap:12px\"><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">1</span>Datos de conexión: IP, puertos API y SSH, credenciales</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">2</span>Configuración de facturación: día de cobro y días de gracia</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">3</span>Botón para verificar la conexión en tiempo real</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">4</span>Guardar el router en el sistema</span></div><h3>Datos de conexión <span style=\"color:#6366f1\">①</span></h3>\n<ul>\n  <li><strong>IP / Hostname</strong>: dirección accesible desde el servidor.</li>\n  <li><strong>Puerto API</strong>: 8728 (sin SSL) o 8729 (con SSL).</li>\n  <li><strong>Puerto SSH</strong>: 22 por defecto.</li>\n  <li><strong>Usuario y contraseña</strong>: credenciales del usuario API de MikroTik.</li>\n</ul>\n<h3>Facturación <span style=\"color:#6366f1\">②</span></h3>\n<ul>\n  <li><strong>Día de facturación</strong>: día del mes en que se generan las facturas.</li>\n  <li><strong>Días de gracia</strong>: días adicionales antes del corte automático.</li>\n</ul>\n<h3>Verificar conexión <span style=\"color:#6366f1\">③</span></h3>\n<p>Después de guardar, usa este botón para confirmar que ISPWatch puede comunicarse con el router por API y SSH.</p>",
+                "tips": "El router debe tener habilitada la API (puerto 8728) y SSH (puerto 22). El usuario debe tener permisos de lectura y escritura en MikroTik.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:26:00.000000Z",
+                "updated_at": "2026-05-22T18:26:00.000000Z"
+            },
+            {
+                "id": 65,
+                "category_id": 19,
+                "title": "Verificar y gestionar routers",
+                "content": "<h2>Gestión de routers</h2>\n<p>Desde <strong>Gestión → Routers</strong> ves todos tus routers con su estado de conectividad.</p>\n<h3>Estados</h3>\n<ul>\n  <li><strong>Conectado</strong> (verde): ISPWatch se comunica correctamente.</li>\n  <li><strong>Desconectado</strong> (rojo): sin comunicación. Verifica IP, credenciales y firewall.</li>\n</ul>\n<h3>Acciones disponibles</h3>\n<ul>\n  <li><strong>Verificar conexión</strong>: prueba en tiempo real.</li>\n  <li><strong>Sincronizar colas</strong>: compara colas en MikroTik vs. ISPWatch.</li>\n  <li><strong>Asignar IP libre</strong>: consulta IPs disponibles en el pool.</li>\n  <li><strong>Generar script VPN</strong>: configura el túnel L2TP/IPSec.</li>\n</ul>",
+                "tips": "Si un router aparece desconectado, verifica que la IP sea accesible y que el firewall no bloquee los puertos 8728 y 22.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:26:01.000000Z",
+                "updated_at": "2026-05-22T18:26:01.000000Z"
+            },
+            {
+                "id": 66,
+                "category_id": 19,
+                "title": "Planes de servicio",
+                "content": "<h2>Planes de servicio</h2>\n<p>Define las velocidades y precios desde <strong>Gestión → Planes → Nuevo Plan</strong>.</p>\n<h3>Campos principales</h3>\n<ul>\n  <li><strong>Nombre</strong>: debe coincidir con el perfil en MikroTik.</li>\n  <li><strong>Velocidad bajada / subida</strong>.</li>\n  <li><strong>Precio mensual</strong>.</li>\n  <li><strong>Tipo</strong>: Queue, PPPoE, Hotspot o PCQ.</li>\n  <li><strong>Plan Cortesía</strong>: actívalo para planes gratuitos (no generan facturas).</li>\n</ul>",
+                "tips": "El nombre del plan debe coincidir exactamente con el perfil en MikroTik para que el aprovisionamiento automático funcione.",
+                "is_published": true,
+                "display_order": 3,
+                "created_at": "2026-05-22T18:26:01.000000Z",
+                "updated_at": "2026-05-22T18:26:01.000000Z"
+            },
+            {
+                "id": 67,
+                "category_id": 19,
+                "title": "Sectoriales",
+                "content": "<h2>Sectoriales — zonas geográficas</h2>\n<p>Organiza tus clientes por área geográfica desde <strong>Gestión → Sectoriales</strong>.</p>\n<h3>Crear una sectorial</h3>\n<ol>\n  <li>Clic en <strong>Nueva Sectorial</strong>.</li>\n  <li>Ingresa el nombre (ej. \"Barrio Norte\", \"Zona Industrial\").</li>\n  <li>Asigna un técnico responsable si aplica.</li>\n  <li>Guarda.</li>\n</ol>\n<h3>Uso</h3>\n<p>Las sectoriales se usan en el formulario de clientes, el mapa, las estadísticas y la importación masiva.</p>",
+                "tips": "Organiza tus sectoriales antes de registrar clientes. Cambiar el sectorial de muchos clientes después es más laborioso.",
+                "is_published": true,
+                "display_order": 4,
+                "created_at": "2026-05-22T18:26:01.000000Z",
+                "updated_at": "2026-05-22T18:26:01.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 20,
+            "name": "Soporte",
+            "icon": "bi-headset",
+            "description": null,
+            "display_order": 5,
+            "created_at": "2026-05-22T18:26:02.000000Z",
+            "updated_at": "2026-05-22T18:26:02.000000Z"
+        },
+        "articles": [
+            {
+                "id": 68,
+                "category_id": 20,
+                "title": "Crear un ticket de soporte",
+                "content": "<h2>Crear un ticket de soporte</h2>\n<p>Ve a <strong>Soporte → Nuevo Ticket</strong>.</p><svg width=\"660\" height=\"290\" viewBox=\"0 0 660 290\" xmlns=\"http://www.w3.org/2000/svg\" style=\"display:block;margin:16px auto;max-width:100%;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)\"><defs><clipPath id=\"tf\"><rect width=\"660\" height=\"290\" rx=\"12\"/></clipPath></defs><g clip-path=\"url(#tf)\"><rect width=\"660\" height=\"290\" fill=\"#111827\"/><rect width=\"660\" height=\"44\" fill=\"#1f2937\"/><text x=\"20\" y=\"28\" fill=\"#f3f4f6\" font-size=\"14\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\">Nuevo Ticket de Soporte</text><rect x=\"10\" y=\"54\" width=\"310\" height=\"52\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"22\" y=\"70\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Cliente</text><rect x=\"22\" y=\"74\" width=\"285\" height=\"20\" fill=\"#374151\" rx=\"5\"/><text x=\"34\" y=\"88\" fill=\"#6b7280\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Buscar cliente...</text><rect x=\"330\" y=\"54\" width=\"320\" height=\"52\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"342\" y=\"70\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Prioridad</text><rect x=\"342\" y=\"74\" width=\"68\" height=\"20\" fill=\"#374151\" rx=\"5\"/><text x=\"376\" y=\"88\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Baja</text><rect x=\"416\" y=\"74\" width=\"68\" height=\"20\" fill=\"#374151\" rx=\"5\"/><text x=\"450\" y=\"88\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Media</text><rect x=\"490\" y=\"74\" width=\"68\" height=\"20\" fill=\"#374151\" rx=\"5\"/><text x=\"524\" y=\"88\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Alta</text><rect x=\"564\" y=\"74\" width=\"68\" height=\"20\" fill=\"#7f1d1d\" rx=\"5\"/><text x=\"598\" y=\"88\" fill=\"#fca5a5\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Urgente</text><rect x=\"10\" y=\"116\" width=\"640\" height=\"44\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"22\" y=\"132\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Título del ticket</text><rect x=\"22\" y=\"136\" width=\"614\" height=\"16\" fill=\"#374151\" rx=\"4\"/><text x=\"34\" y=\"148\" fill=\"#6b7280\" font-size=\"8\" font-family=\"system-ui,sans-serif\">Describe el problema brevemente...</text><rect x=\"10\" y=\"170\" width=\"460\" height=\"80\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"22\" y=\"186\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Descripción detallada</text><rect x=\"22\" y=\"190\" width=\"436\" height=\"50\" fill=\"#374151\" rx=\"4\"/><rect x=\"480\" y=\"170\" width=\"170\" height=\"80\" fill=\"#1f2937\" rx=\"8\" stroke=\"#374151\" stroke-width=\"1\"/><text x=\"492\" y=\"186\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\">Técnico asignado</text><rect x=\"492\" y=\"190\" width=\"146\" height=\"18\" fill=\"#374151\" rx=\"4\"/><text x=\"565\" y=\"201\" fill=\"#9ca3af\" font-size=\"9\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\">Sin asignar  ▾</text><rect x=\"492\" y=\"218\" width=\"146\" height=\"24\" fill=\"#6366f1\" rx=\"6\"/><text x=\"565\" y=\"234\" fill=\"#fff\" font-size=\"10\" font-family=\"system-ui,sans-serif\" text-anchor=\"middle\" font-weight=\"bold\">Crear Ticket</text><circle cx=\"165\" cy=\"54\" r=\"11\" fill=\"#6366f1\"/><text x=\"165\" y=\"58\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">1</text><circle cx=\"490\" cy=\"54\" r=\"11\" fill=\"#6366f1\"/><text x=\"490\" y=\"58\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">2</text><circle cx=\"330\" cy=\"116\" r=\"11\" fill=\"#6366f1\"/><text x=\"330\" y=\"120\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">3</text><circle cx=\"240\" cy=\"170\" r=\"11\" fill=\"#6366f1\"/><text x=\"240\" y=\"174\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">4</text><circle cx=\"565\" cy=\"218\" r=\"11\" fill=\"#6366f1\"/><text x=\"565\" y=\"222\" fill=\"#fff\" font-size=\"11\" font-family=\"system-ui,sans-serif\" font-weight=\"bold\" text-anchor=\"middle\">5</text></g></svg><div style=\"background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;margin:4px auto 24px;max-width:660px;font-family:system-ui,sans-serif;font-size:12px;color:#cbd5e1;display:flex;flex-wrap:wrap;gap:12px\"><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">1</span>Seleccionar el cliente que reporta el problema</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">2</span>Prioridad: Baja, Media, Alta o Urgente</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">3</span>Título breve del problema</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">4</span>Descripción detallada para el técnico</span><span style=\"display:flex;align-items:center;gap:5px\"><span style=\"background:#6366f1;color:#fff;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:10px;font-weight:700\">5</span>Crear ticket y notificar al técnico asignado</span></div><h3>Cliente <span style=\"color:#6366f1\">①</span></h3>\n<p>Selecciona el cliente que reporta el problema buscando por nombre o cédula.</p>\n<h3>Prioridad <span style=\"color:#6366f1\">②</span></h3>\n<ul>\n  <li><strong>Baja</strong>: problema menor, sin urgencia.</li>\n  <li><strong>Media</strong>: afecta al cliente pero tiene alternativa.</li>\n  <li><strong>Alta</strong>: sin servicio, requiere atención pronto.</li>\n  <li><strong>Urgente</strong>: impacto crítico, atención inmediata.</li>\n</ul>\n<h3>Título <span style=\"color:#6366f1\">③</span></h3>\n<p>Breve descripción del problema (ej. \"Sin internet desde las 8am\").</p>\n<h3>Descripción <span style=\"color:#6366f1\">④</span></h3>\n<p>Detalla el problema, síntomas, intentos de solución y cualquier información relevante para el técnico.</p>\n<h3>Crear <span style=\"color:#6366f1\">⑤</span></h3>\n<p>El técnico asignado recibirá una notificación y el ticket quedará en estado <strong>Abierto</strong>.</p>",
+                "tips": "Cuanto más detallada sea la descripción, más rápido podrá resolverlo el técnico. Adjunta fotos cuando sea posible.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:26:02.000000Z",
+                "updated_at": "2026-05-22T18:26:02.000000Z"
+            },
+            {
+                "id": 69,
+                "category_id": 20,
+                "title": "Gestionar y responder tickets",
+                "content": "<h2>Gestión de tickets</h2>\n<p>Desde <strong>Soporte</strong> haz clic en cualquier ticket para ver su detalle.</p>\n<h3>Responder</h3>\n<ol>\n  <li>Escribe tu respuesta en el área de mensajes.</li>\n  <li>Marca <strong>Mensaje Interno</strong> si es solo para el equipo técnico.</li>\n  <li>Clic en <strong>Enviar</strong>.</li>\n</ol>\n<h3>Cambiar estado</h3>\n<ul>\n  <li><strong>Abierto</strong> → <strong>En Progreso</strong> → <strong>Resuelto</strong> → <strong>Cerrado</strong>.</li>\n</ul>\n<h3>Cargo por ticket</h3>\n<p>Al cerrar, puedes generar un cargo adicional en la factura del cliente por materiales o mano de obra.</p>",
+                "tips": "Usa los mensajes internos para comunicarte con otros técnicos sin que el cliente vea la conversación.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:26:02.000000Z",
+                "updated_at": "2026-05-22T18:26:02.000000Z"
+            },
+            {
+                "id": 70,
+                "category_id": 20,
+                "title": "Estadísticas de soporte",
+                "content": "<h2>Estadísticas de soporte</h2>\n<p>Accede desde <strong>Soporte → Estadísticas</strong>.</p>\n<h3>Métricas</h3>\n<ul>\n  <li>Tickets por estado y prioridad.</li>\n  <li>Tiempo promedio de resolución.</li>\n  <li>Tickets por técnico (carga de trabajo).</li>\n  <li>Categorías más frecuentes.</li>\n  <li>Evolución mensual: abiertos vs. resueltos.</li>\n</ul>",
+                "tips": "Revisa las estadísticas semanalmente para identificar problemas recurrentes y tomar medidas preventivas.",
+                "is_published": true,
+                "display_order": 3,
+                "created_at": "2026-05-22T18:26:02.000000Z",
+                "updated_at": "2026-05-22T18:26:02.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 21,
+            "name": "Inventario",
+            "icon": "bi-box-seam",
+            "description": null,
+            "display_order": 6,
+            "created_at": "2026-05-22T18:26:03.000000Z",
+            "updated_at": "2026-05-22T18:26:03.000000Z"
+        },
+        "articles": [
+            {
+                "id": 71,
+                "category_id": 21,
+                "title": "Gestionar dispositivos e inventario",
+                "content": "<h2>Módulo de inventario</h2>\n<p>Controla equipos y materiales desde <strong>Inventarios → Dispositivos</strong>.</p>\n<h3>Registrar un dispositivo</h3>\n<ol>\n  <li>Clic en <strong>Nuevo Dispositivo</strong>.</li>\n  <li>Ingresa nombre, modelo, número de serie y categoría.</li>\n  <li>Selecciona proveedor y sucursal.</li>\n  <li>Indica precio de compra y stock inicial.</li>\n</ol>\n<h3>Control de stock</h3>\n<p>En <strong>Inventarios → Stock</strong> registra entradas (compras) y salidas (instalaciones) y consulta el historial de movimientos.</p>",
+                "tips": "Registra cada equipo con su número de serie para facilitar el control de garantías y su ubicación en caso de daño.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:26:03.000000Z",
+                "updated_at": "2026-05-22T18:26:03.000000Z"
+            },
+            {
+                "id": 72,
+                "category_id": 21,
+                "title": "Proveedores y sucursales",
+                "content": "<h2>Proveedores y sucursales</h2>\n<h3>Proveedores — <em>Inventarios → Proveedores</em></h3>\n<p>Empresas o personas de quienes adquieres equipos. Datos: nombre, RUC/NIT, contacto, teléfono y correo.</p>\n<h3>Sucursales — <em>Inventarios → Sucursales</em></h3>\n<p>Bodegas o puntos de almacenamiento. Datos: nombre, dirección y ciudad.</p>\n<p>Al registrar dispositivos especifica de qué proveedor se adquirió y en qué sucursal se almacena.</p>",
+                "tips": "Crea primero proveedores y sucursales antes de registrar dispositivos, ya que el formulario los requiere.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:26:03.000000Z",
+                "updated_at": "2026-05-22T18:26:03.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 22,
+            "name": "Usuarios y Roles",
+            "icon": "md-adminpanelsettings-round",
+            "description": null,
+            "display_order": 7,
+            "created_at": "2026-05-22T18:26:04.000000Z",
+            "updated_at": "2026-05-22T18:26:04.000000Z"
+        },
+        "articles": [
+            {
+                "id": 73,
+                "category_id": 22,
+                "title": "Gestión de staff",
+                "content": "<h2>Gestión de staff</h2>\n<p>Usuarios internos que acceden a ISPWatch. Accede desde <strong>Usuarios → Staff</strong>.</p>\n<h3>Agregar un usuario</h3>\n<ol>\n  <li>Ve a <strong>Usuarios → Staff → Nuevo Staff</strong>.</li>\n  <li>Ingresa nombre, apellido y correo.</li>\n  <li>Asigna un <strong>rol</strong> que define sus permisos.</li>\n  <li>Guarda — el usuario recibirá su acceso por correo.</li>\n</ol>\n<h3>Desactivar un usuario</h3>\n<p>Si un empleado deja la empresa, desactiva su cuenta para revocar el acceso inmediatamente.</p>",
+                "tips": "Crea un usuario individual para cada miembro del equipo. Nunca compartas credenciales: perderías trazabilidad de las acciones.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:26:04.000000Z",
+                "updated_at": "2026-05-22T18:26:04.000000Z"
+            },
+            {
+                "id": 74,
+                "category_id": 22,
+                "title": "Roles y permisos",
+                "content": "<h2>Roles y permisos</h2>\n<p>Un rol es un conjunto de permisos. Se crea una vez y se asigna a múltiples usuarios. Accede desde <strong>Usuarios → Roles</strong>.</p>\n<h3>Crear un rol</h3>\n<ol>\n  <li>Clic en <strong>Nuevo Rol</strong>.</li>\n  <li>Ingresa el nombre (ej. \"Técnico de campo\").</li>\n  <li>Marca los permisos necesarios.</li>\n  <li>Guarda.</li>\n</ol>\n<h3>Permisos por módulo</h3>\n<ul>\n  <li><strong>Clientes</strong>: ver, crear, editar, suspender.</li>\n  <li><strong>Facturación</strong>: ver facturas, registrar pagos.</li>\n  <li><strong>Soporte</strong>: ver, crear, responder, cerrar tickets.</li>\n  <li><strong>Inventario</strong>: ver, crear y editar dispositivos.</li>\n  <li><strong>Routers</strong>: ver, agregar, editar y ejecutar acciones.</li>\n  <li><strong>Usuarios</strong>: gestionar staff y roles.</li>\n  <li><strong>Configuración</strong>: acceso a ajustes del tenant.</li>\n</ul>",
+                "tips": "Crea roles específicos por cargo: \"Técnico\", \"Cobrador\", \"Administrador\". Asigna solo los permisos que cada rol realmente necesita.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:26:04.000000Z",
+                "updated_at": "2026-05-22T18:26:04.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 23,
+            "name": "Configuración",
+            "icon": "ri-settings-4-line",
+            "description": null,
+            "display_order": 8,
+            "created_at": "2026-05-22T18:26:04.000000Z",
+            "updated_at": "2026-05-22T18:26:04.000000Z"
+        },
+        "articles": [
+            {
+                "id": 75,
+                "category_id": 23,
+                "title": "Configuración general del sistema",
+                "content": "<h2>Configuración general</h2>\n<p>Accede desde <strong>Configuración</strong>. Solo usuarios con permiso <strong>manage_tenant</strong> pueden modificar estas opciones.</p>\n<h3>Datos de la empresa</h3>\n<ul>\n  <li><strong>Nombre</strong>, <strong>RUC/NIT</strong>, <strong>Dirección</strong>, <strong>Teléfono</strong>, <strong>Correo</strong>: aparecen en facturas y correos.</li>\n  <li><strong>Logo</strong>: imagen en el encabezado de facturas PDF.</li>\n</ul>\n<h3>Google Maps</h3>\n<ol>\n  <li>Obtén tu clave en <em>console.cloud.google.com</em>.</li>\n  <li>Pégala en <strong>Clave de Google Maps</strong>.</li>\n  <li>Guarda — el mapa de clientes quedará habilitado.</li>\n</ol>\n<h3>Limpiar caché</h3>\n<p>Si los cambios no se reflejan de inmediato, usa <strong>Limpiar Caché</strong> para forzar la actualización.</p>",
+                "tips": "Configura el nombre y logo de tu empresa para que aparezcan en las facturas PDF y en los correos enviados a tus clientes.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:26:05.000000Z",
+                "updated_at": "2026-05-22T18:26:05.000000Z"
+            }
+        ]
+    },
+    {
+        "category": {
+            "id": 24,
+            "name": "Acciones Masivas",
+            "icon": "vi-file-type-excel",
+            "description": null,
+            "display_order": 9,
+            "created_at": "2026-05-22T18:26:05.000000Z",
+            "updated_at": "2026-05-22T18:26:05.000000Z"
+        },
+        "articles": [
+            {
+                "id": 76,
+                "category_id": 24,
+                "title": "Importación masiva desde Excel",
+                "content": "<h2>Importación masiva</h2>\n<p>Carga grandes volúmenes de datos desde Excel. Accede desde <strong>Acciones Masivas</strong>.</p>\n<h3>Pasos</h3>\n<ol>\n  <li>Clic en <strong>Descargar Plantilla</strong> — contiene hojas para Clientes, Planes, Routers y Sectoriales.</li>\n  <li>Completa el archivo sin modificar los encabezados.</li>\n  <li>Arrastra el archivo o haz clic en <strong>Seleccionar Archivo</strong>.</li>\n  <li>Clic en <strong>Importar</strong>.</li>\n  <li>Revisa el resumen — si hay errores descarga el archivo de errores, corrígelos y vuelve a importar solo los fallidos.</li>\n</ol>\n<h3>Reglas importantes</h3>\n<ul>\n  <li>No modifiques los nombres de columnas ni las hojas.</li>\n  <li>Valores como \"Plan\" o \"Router\" deben coincidir exactamente con los registros en el sistema.</li>\n  <li>Fechas en formato <strong>YYYY-MM-DD</strong>.</li>\n</ul>",
+                "tips": "La plantilla unificada acepta clientes, planes, routers y sectoriales en hojas separadas. Llena solo las que necesites.",
+                "is_published": true,
+                "display_order": 1,
+                "created_at": "2026-05-22T18:26:05.000000Z",
+                "updated_at": "2026-05-22T18:26:05.000000Z"
+            },
+            {
+                "id": 77,
+                "category_id": 24,
+                "title": "Actualización masiva de clientes",
+                "content": "<h2>Actualización masiva de clientes</h2>\n<p>Modifica datos de muchos clientes a la vez descargando la plantilla de actualización desde <strong>Acciones Masivas</strong>.</p>\n<h3>Pasos</h3>\n<ol>\n  <li>Descarga la plantilla de <strong>Actualización de Clientes</strong> — tendrá los datos actuales de todos tus clientes.</li>\n  <li>Modifica solo los campos que necesitas cambiar.</li>\n  <li>Sube el archivo y clic en <strong>Actualizar</strong>.</li>\n</ol>\n<h3>Campos actualizables</h3>\n<p>Plan, router, sectorial, IP, estado, datos de contacto.</p>",
+                "tips": "Usa esta función para cambiar el plan o router de muchos clientes a la vez. Mucho más eficiente que editar uno por uno.",
+                "is_published": true,
+                "display_order": 2,
+                "created_at": "2026-05-22T18:26:06.000000Z",
+                "updated_at": "2026-05-22T18:26:06.000000Z"
+            }
+        ]
+    }
+]

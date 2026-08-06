@@ -3,24 +3,39 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use App\Models\HelpCategory;
 use App\Models\HelpArticle;
 
 class HelpCenterSeeder extends Seeder
 {
+    /**
+     * Reemplaza por completo el contenido del Centro de Ayuda.
+     *
+     * Va en una transacción porque el primer paso es BORRARLO TODO: si el
+     * seeder se cortara a mitad (timeout, error de conexión), los usuarios
+     * verían un Centro de Ayuda vacío o a medias. Con la transacción es todo
+     * o nada — ante cualquier fallo queda el contenido anterior intacto.
+     *
+     * OJO: sigue siendo un reemplazo total, no un upsert. Cualquier artículo
+     * escrito desde el editor de superadmin se pierde al re-sembrar
+     * (ver MEJORAS_RECOMENDADAS.md P-8).
+     */
     public function run(): void
     {
-        HelpArticle::query()->delete();
-        HelpCategory::query()->delete();
+        DB::transaction(function () {
+            HelpArticle::query()->delete();
+            HelpCategory::query()->delete();
 
-        foreach ($this->getCategories() as $catData) {
-            $articles = $catData['articles'];
-            unset($catData['articles']);
-            $category = HelpCategory::create($catData);
-            foreach ($articles as $article) {
-                HelpArticle::create(array_merge($article, ['category_id' => $category->id]));
+            foreach ($this->getCategories() as $catData) {
+                $articles = $catData['articles'];
+                unset($catData['articles']);
+                $category = HelpCategory::create($catData);
+                foreach ($articles as $article) {
+                    HelpArticle::create(array_merge($article, ['category_id' => $category->id]));
+                }
             }
-        }
+        });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -539,6 +554,11 @@ class HelpCenterSeeder extends Seeder
   <li><strong>Instalaciones</strong>: historial de instalaciones.</li>
   <li><strong>Tickets</strong>: tickets de soporte del cliente.</li>
 </ul>
+<h3>Firmar el contrato</h3>
+<p>En la pestaña <strong>Documentos</strong>, abajo, está el contrato de servicio. Se arma solo con los datos del cliente, el cliente firma en pantalla y al guardar se genera el PDF firmado.</p>
+<p>Cada contrato firmado recibe un <strong>número consecutivo</strong> que no se repite nunca: <code>CTR-00001</code>, <code>CTR-00002</code>, y así. Antes de firmar verás con qué número va a quedar. Ese número se imprime <strong>dentro del PDF</strong>, en el encabezado, da nombre al archivo y aparece en la tarjeta del documento.</p>
+<p>El prefijo (<code>CTR</code> por defecto) lo cambias en <strong>Configuración → Plantillas</strong>. Si pones <code>FIBRAX</code>, los contratos siguientes quedarán <code>FIBRAX-00001</code> en adelante.</p>
+<p>⚠️ Los contratos que subes tú a mano —un PDF escaneado, por ejemplo— <strong>no</strong> reciben número: el sistema no puede escribir dentro de un archivo que no generó él.</p>
 <h3>No facturar a este cliente</h3>
 <p>Es una casilla en la ficha que lo saca de <strong>todo</strong> el ciclo automático: no recibe factura, ni recordatorio, ni notificación, ni corte. Sirve para casos especiales como cortesías institucionales o pruebas.</p>
 <h3>Buscar un cliente</h3>
@@ -1125,6 +1145,9 @@ class HelpCenterSeeder extends Seeder
   <li><strong>Registra el cobro</strong>: costo de instalación, cargos adicionales, descuento con motivo, forma de pago y cuánto recibió.</li>
   <li><strong>Recoge las firmas</strong>: la del cliente y la del técnico, dibujadas en pantalla.</li>
 </ol>
+<p>Al firmar, el sistema genera la <strong>hoja de instalación en PDF</strong> y cierra la orden. El PDF aparece en el bloque <strong>Documentos de la orden</strong>, en esa misma pantalla, con un botón <strong>Ver PDF</strong>; además queda guardado en la pestaña <strong>Documentos</strong> del cliente.</p>
+<p>Antes ese PDF no se mostraba en la pantalla de la instalación —sólo en la ficha del cliente— así que después de firmar parecía que no se había generado nada. Ya se ve donde se firma.</p>
+<p>⚠️ Si la instalación es de un <strong>prospecto</strong> que todavía no has convertido en cliente, el PDF y las fotos se ven aquí, pero no en ninguna ficha de cliente: no existe todavía. Al marcar el prospecto como convertido, todo se traslada solo a la ficha del cliente nuevo.</p>
 <p>Al completar la instalación se genera automáticamente la <strong>factura de instalación</strong>.</p>
 <h3>Convertir el prospecto en cliente</h3>
 <ol>
@@ -1341,8 +1364,22 @@ class HelpCenterSeeder extends Seeder
 <h3>Bloques de contenido</h3>
 <p>Además de los marcadores de texto hay marcadores especiales que insertan contenido más complejo: la tabla de ítems de la factura, la galería de fotos de la instalación, y las firmas del cliente y del técnico. Se insertan con botones aparte y el sistema los coloca en su propio párrafo.</p>
 <p>Si uno de estos bloques no se pudo insertar donde lo pusiste, la <strong>Vista previa</strong> te avisa con un mensaje explícito — a diferencia de los marcadores de texto simples, que se quedan callados.</p>
+<h3>Número consecutivo de los contratos</h3>
+<p>En el bloque de marca de esta misma pestaña hay un campo <strong>Prefijo del consecutivo de contratos</strong>. Cada contrato que se firma desde el sistema recibe un número irrepetible con ese prefijo: <code>CTR-00001</code>, <code>CTR-00002</code>, y así. Vacío equivale a <code>CTR</code>.</p>
+<p><strong>Escribe el prefijo que quieras</strong>: letras, números, acentos, barras, puntos o espacios.</p>
+<ul>
+  <li><code>CTR</code> → <code>CTR-00001</code></li>
+  <li><code>FIBRAX</code> → <code>FIBRAX-00001</code></li>
+  <li><code>CNO/</code> → <code>CNO/00001</code></li>
+  <li><code>Contrato N° </code> → <code>Contrato N° 00001</code></li>
+  <li><code>FIBRA_2026.</code> → <code>FIBRA_2026.00001</code></li>
+</ul>
+<p>El guion lo pone el sistema <strong>solo si tu prefijo termina en letra o número</strong>. Si terminas en <code>/</code>, <code>.</code>, <code>_</code> o un espacio, se respeta tu separador y no se agrega nada más.</p>
+<p>Lo único que no se admite son los saltos de línea. El <strong>nombre del archivo</strong> descargable sí se simplifica (<code>Contrato N° 00001</code> se guarda como <code>contrato_Contrato-N-00001.pdf</code>) porque algunos símbolos no valen en un nombre de archivo; lo que ve el cliente dentro del documento es tu formato completo.</p>
+<p>Debajo del campo ves cuál es el <strong>próximo número</strong> que se asignará. Ese número se imprime dentro del PDF (<em>Contrato No. …</em>), da nombre al archivo y aparece en la pestaña <strong>Documentos</strong> del cliente. Es independiente para cada empresa.</p>
+<p>Cambiar el prefijo <strong>no renumera los contratos ya firmados</strong>: los anteriores conservan su número y los nuevos siguen la cuenta desde donde iba.</p>
 <h3>Vista previa y restaurar</h3>
-<p><strong>Vista previa</strong> muestra cómo queda con datos de ejemplo. <strong>Restaurar</strong> vuelve a la plantilla original sin perder tu borrador.</p>
+<p><strong>Vista previa</strong> muestra cómo queda con datos de ejemplo. <strong>Restaurar</strong> vuelve a la plantilla original sin perder tu borrador. Previsualizar <strong>no gasta</strong> números del consecutivo.</p>
 <h3>Modo avanzado</h3>
 <p>Un interruptor cambia a un modo donde editas el documento HTML completo (diseño y colores, no sólo el texto) en un cuadro de texto plano. El sistema sigue revisando el contenido por seguridad, así que no todo lo que escribas va a sobrevivir tal cual: usa <strong>Vista previa</strong> antes de guardar.</p>
 <p><strong>Si no sabes HTML/CSS, no actives este modo</strong>: no hay ayuda visual, es edición de código.</p>

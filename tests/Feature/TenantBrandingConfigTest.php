@@ -65,4 +65,51 @@ class TenantBrandingConfigTest extends TestCase
 
         $response->assertStatus(422);
     }
+
+    public function test_saves_the_contract_prefix(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->putJson('/api/tenant/config', [
+            'name'            => $this->tenant->name,
+            'contract_prefix' => 'FIBRAX',
+        ])->assertStatus(200);
+
+        $this->assertDatabaseHas('tenant', [
+            'id'              => $this->tenant->id,
+            'contract_prefix' => 'FIBRAX',
+        ]);
+    }
+
+    /**
+     * El prefijo es libre: acentos, barras, espacios y símbolos se guardan tal
+     * cual. Lo que se sanea es el nombre del archivo, no el número.
+     */
+    public function test_accepts_any_free_form_contract_prefix(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        foreach (['CNO/', 'Contrato N° ', 'FIBRA_2026.', 'CÓRDOBA-'] as $prefix) {
+            $this->putJson('/api/tenant/config', [
+                'name'            => $this->tenant->name,
+                'contract_prefix' => $prefix,
+            ])->assertStatus(200);
+
+            $this->assertSame($prefix, $this->tenant->fresh()->contract_prefix);
+        }
+    }
+
+    /**
+     * Único límite: los caracteres de control nunca son intencionales y
+     * romperían el PDF y el nombre del archivo.
+     */
+    public function test_rejects_a_contract_prefix_with_control_characters(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->putJson('/api/tenant/config', [
+            'name'            => $this->tenant->name,
+            'contract_prefix' => "CTR\nFALSO",
+        ])->assertStatus(422);
+    }
 }

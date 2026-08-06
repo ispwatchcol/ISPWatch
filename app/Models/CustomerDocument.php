@@ -21,6 +21,7 @@ class CustomerDocument extends Model
         'file_size',
         'mime_type',
         'signed',
+        'contract_number',
         'uploaded_by',
     ];
 

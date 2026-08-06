@@ -116,7 +116,7 @@ class TemplateRendererAdvancedModeTest extends TestCase
                     && str_contains($html, 'Plan Hogar 100MB')
                     && str_contains($html, '<table');
             })
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderInvoice($invoice);
     }
@@ -159,7 +159,7 @@ class TemplateRendererAdvancedModeTest extends TestCase
                     && !str_contains($html, 'javascript:')
                     && str_contains($html, 'Hola Juan');
             })
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderInvoice($invoice);
     }
@@ -188,7 +188,7 @@ class TemplateRendererAdvancedModeTest extends TestCase
         Pdf::shouldReceive('loadHTML')
             ->once()
             ->withArgs(fn ($html) => str_contains($html, 'Condiciones para Juan'))
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderContract($customer, $customer->customerProfile, $tenant, null, '', now()->format('d/m/Y'));
     }
@@ -216,7 +216,7 @@ class TemplateRendererAdvancedModeTest extends TestCase
         Pdf::shouldReceive('loadHTML')
             ->once()
             ->withArgs(fn ($html) => str_contains($html, 'Instalación de Juan'))
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderInstallationSheet(
             $installation,
@@ -225,7 +225,6 @@ class TemplateRendererAdvancedModeTest extends TestCase
             null,
             $tenant,
             null,
-            collect(),
             null,
             null,
             null,
@@ -245,7 +244,7 @@ class TemplateRendererAdvancedModeTest extends TestCase
         Pdf::shouldReceive('loadHTML')
             ->once()
             ->withArgs(fn ($html) => str_contains($html, 'Borrador sin guardar') && str_contains($html, 'Juan'))
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->previewInvoice(
             $invoice,

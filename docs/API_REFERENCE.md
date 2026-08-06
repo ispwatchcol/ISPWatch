@@ -392,6 +392,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
+| `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
 | `POST` | `/api/installations/{installation}/sign` | auth | Firma del cliente y del técnico |
 | `GET` | `/api/customers/{customer}/installations` | auth | Instalaciones del cliente |
 | `POST` | `/api/customers/{customer}/installations` | auth | Agenda instalación |
@@ -401,6 +402,28 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
 > **una foto por petición**.
+
+#### `POST /api/installations/{installation}/sheet-preview`
+
+Devuelve **el mismo PDF que genera `/sign`**, pero sin firmas, sin guardar
+`customer_documents` y sin cerrar la orden. Existe para que el cliente —o el
+prospecto, que todavía no es cliente— lea lo que va a firmar.
+
+- **Body (opcional):** `sheet` con los mismos campos que `PUT .../sheet`. Se
+  mezcla **en memoria** sobre la hoja guardada, así la vista previa refleja lo
+  que el técnico tiene escrito aunque no haya pulsado "Guardar hoja". Nunca se
+  persiste.
+- **Respuesta:** `application/pdf` en línea (`Content-Disposition: inline`).
+  El frontend lo pide con `responseType: 'blob'`.
+- Respeta el tenant: una orden de otro tenant devuelve `404`.
+
+#### `409` al firmar por segunda vez
+
+`POST /api/installations/{installation}/sign` y `POST /api/customers/{customer}/contract-sign`
+devuelven **`409 Conflict`** —con `message` y `existing_document_id`— si ya existe el
+documento firmado (la hoja de esa orden, o el contrato de ese cliente). No se acumulan
+varios PDF del mismo documento: hay que **eliminar el anterior** y volver a firmar. El
+contrato lo comprueba antes de reservar el consecutivo, así que un `409` no gasta número.
 
 ---
 
@@ -416,6 +439,50 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 
 Los archivos residen en **S3 privado**. Cada documento expone un atributo `url` que es una
 **URL firmada válida 30 minutos** (`Storage::disk('s3')->temporaryUrl`).
+
+### Consecutivo de contratos
+
+`contract-sign` reserva un consecutivo por tenant **antes** de renderizar (el número va
+impreso dentro del PDF) y lo devuelve en `document.contract_number`; el archivo se llama
+`contrato_{numero}.pdf`. El prefijo sale de `tenant.contract_prefix` (`CTR` si está vacío)
+y el formato es `PREFIJO-00001`.
+
+```jsonc
+// GET /api/customers/{customer}/contract-data → 200
+{
+  "customer": { "...": "..." },
+  "plan": { "...": "..." },
+  "company": { "...": "..." },
+  "date": "04/08/2026",
+  "next_contract_number": "CTR-00042"  // orientativo: NO reserva el número
+}
+
+// POST /api/customers/{customer}/contract-sign → 201
+{
+  "message": "Contrato CTR-00042 firmado y guardado correctamente.",
+  "document": { "type": "contrato", "signed": true, "contract_number": "CTR-00042", "...": "..." }
+}
+```
+
+`next_contract_number` en `contract-data` es sólo informativo: si otro usuario firma antes,
+al contrato le tocará el siguiente. El número real se asigna al firmar, dentro de una
+transacción con `lockForUpdate`, y está respaldado por la **UK** `(tenant_id, contract_number)`.
+
+El prefijo se configura con `PUT /api/tenant/config` (`contract_prefix`, `manage_tenant`) y es
+**texto libre** (máx. 20 caracteres): `CNO/`, `Contrato N° `, `FIBRA_2026.` son todos válidos.
+Lo único que devuelve `422` son los caracteres de control (`\n`, `\t`…), que romperían el PDF.
+
+Dos comportamientos que conviene conocer:
+
+- **El separador `-` se añade sólo si el prefijo termina en letra o dígito.** `CTR` → `CTR-00001`;
+  `CNO/` → `CNO/00001`. Quien escribe su propio separador no recibe uno duplicado.
+- **El espacio final es significativo** y por eso `contract_prefix` está exceptuado del
+  middleware `TrimStrings` (`bootstrap/app.php`): en `Contrato N° ` ese espacio es el separador
+  que eligió el ISP.
+
+El nombre del archivo **no** es el número: se deriva de él saneado a ASCII seguro
+(`ContractNumberService::fileName()`), porque una `/` en la clave de S3 crearía una carpeta
+fantasma. `CNO/00001` se guarda como `contrato_CNO-00001.pdf`.
 
 ---
 
@@ -1049,13 +1116,20 @@ ruta a propósito**: un valor inválido debe llegar al controlador para que
 **`GET /api/document-templates/{type}`** — además de `body_html`/`is_active`/`has_draft`,
 devuelve:
 - `is_advanced_mode` (bool) — si la plantilla usa el shell fijo o el documento HTML completo.
+- `page_size` / `page_orientation` (string) — tamaño y orientación del PDF. Nunca vienen vacíos: si la fila no existe o los tiene en `NULL`, la respuesta trae los defaults (`"a4"` / `"portrait"`).
+- `page_sizes` / `page_orientations` — valores aceptados, para poblar los selectores del editor sin duplicar la lista en el frontend.
 - `placeholders` — whitelist de placeholders **escalares** para el tipo (`config/document_placeholders.php`), `{token: etiqueta}`.
 - `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Los 3 tipos incluyen `empresa.logo` (auditoría 2026-08-03) — `contract` ya no está vacío. `contract` también incluye `contrato.firma_cliente` (auditoría 2026-08-04) — necesario en modo avanzado, donde no hay shell fijo que la imprima por su cuenta (ver `docs/ARQUITECTURA.md`).
 
 **`PUT /api/document-templates/{type}`** y **`POST .../preview`** — cuerpo:
 
 ```json
-{ "body_html": "<p>…</p>", "is_advanced_mode": false }
+{
+  "body_html": "<p>…</p>",
+  "is_advanced_mode": false,
+  "page_size": "a4",
+  "page_orientation": "portrait"
+}
 ```
 
 `is_advanced_mode` es `sometimes|boolean` (default `false`). Determina **qué sanitizer** se
@@ -1063,6 +1137,19 @@ usa para sanear `body_html` — `TemplateSanitizer` (acotado) o `AdvancedTemplat
 (amplio, documento completo). En `preview`, refleja el modo que el tenant tiene seleccionado
 *en ese momento* en el editor, no necesariamente lo persistido (puede estar probando antes de
 guardar).
+
+`page_size` (`a4`|`letter`|`legal`) y `page_orientation` (`portrait`|`landscape`) son
+`sometimes|nullable|in:…` — omitirlos o mandarlos `null` significa "usa el default", que es
+el comportamiento previo a que existieran (a4 vertical). Igual que `is_advanced_mode`, en
+`preview` reflejan lo seleccionado *en ese momento* en el editor y no lo guardado: si la
+vista previa usara la fila persistida, cambiar a horizontal y previsualizar seguiría
+mostrando el diseño roto en vertical. Un valor fuera de la whitelist se rechaza con `422`;
+una fila ya guardada con basura cae al default en `TemplateRenderer::applyPaper()` en vez de
+llegar a dompdf.
+
+> **Cuándo hace falta horizontal:** un contrato a dos columnas (formato CRC colombiano, el
+> que exportan sistemas como WispHub) necesita ~950 px de ancho. A4 vertical da ~698 px
+> útiles a 96 dpi y dompdf aprieta el diseño; A4 horizontal da ~1027 px y cabe intacto.
 
 **Header `X-Template-Warnings`** (sólo en la respuesta de `preview`, sólo si aplica) — JSON
 array de `{token, label}` con los placeholders **de bloque** que no se pudieron insertar en el

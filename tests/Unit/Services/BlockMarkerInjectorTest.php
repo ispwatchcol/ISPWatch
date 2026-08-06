@@ -119,8 +119,8 @@ class BlockMarkerInjectorTest extends TestCase
     public function test_reuses_one_marker_per_token_and_expands_every_content_occurrence(): void
     {
         $result = $this->injector->inject(
-            '<div>{{instalacion.fotos}}</div><div>{{instalacion.fotos}}</div>',
-            ['instalacion.fotos' => '<img src="foto.jpg">'],
+            '<div>{{instalacion.firma_cliente}}</div><div>{{instalacion.firma_cliente}}</div>',
+            ['instalacion.firma_cliente' => '<img src="foto.jpg">'],
             1,
             'installation'
         );

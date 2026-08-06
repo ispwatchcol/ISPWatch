@@ -332,6 +332,20 @@ nada que reportar.
 
 Si aparece, revisa el estado del cliente: casi siempre está excluido de facturación, retirado,
 o llegó al tope de facturas pendientes.
+**Firmar el contrato.** En la pestaña **Documentos**, abajo, está el contrato de servicio:
+se arma solo con los datos del cliente, el cliente firma en pantalla y al guardar se genera
+el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejemplo `CTR-00042`);
+ese consecutivo va impreso dentro del documento y no se repite nunca. El prefijo lo
+configuras en **Configuración → Plantillas** (ver [17.4](#174-plantillas-de-documentos)).
+
+**Un solo contrato firmado por cliente.** Si el cliente ya tiene contrato, la zona de firma
+se reemplaza por un aviso: para generar uno nuevo hay que **eliminar primero el anterior**
+en *Documentos del cliente*. Es a propósito — así no se acumulan dos contratos casi iguales
+sin saber cuál es el que vale. Lo mismo aplica a la hoja de instalación de cada orden.
+
+Los documentos se ven pulsando sobre ellos: se abren en una pestaña nueva. Si alguno no
+abre, avísale al soporte técnico — puede ser un archivo de antes de la migración al
+almacenamiento actual.
 
 ### 5.4 Estados del cliente: suspender, retirar, cancelar
 
@@ -413,7 +427,38 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > el sistema la rechaza y te lo dice.
 3. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
-4. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
+4. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
+   **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
+   para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
+   hayas pulsado *Guardar hoja*, y **no guarda ni cierra nada**: puedes abrirlo las veces que
+   necesites.
+   > Esto importa sobre todo con un **prospecto**, que aún no es cliente y no tiene ficha
+   > donde consultar el documento después.
+   >
+   > Si tu teléfono no muestra el PDF dentro de la ventana, usa **Abrir en pestaña** o
+   > **Descargar**, en la misma barra.
+5. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
+   > El trazo se ve a medida que se firma. Si al firmar el recuadro se quedara en blanco,
+   > vuelve a trazar la firma: el sistema **no deja cerrar la orden con una firma vacía**.
+
+Al firmar, el sistema genera la **hoja de instalación en PDF** y la orden queda cerrada. El
+PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con los botones
+**Ver PDF** y **Eliminar**; además queda guardado en la pestaña **Documentos** del cliente.
+
+> **Una orden, una hoja firmada.** Una vez firmada, el botón de firmar desaparece. Si la
+> hoja quedó mal, **elimínala** en *Documentos de la orden* y vuelve a firmar — así no
+> quedan dos hojas casi iguales sin saber cuál vale.
+>
+> La hoja **no incluye las fotos** de la instalación: esas se consultan en los documentos,
+> que es donde se guardan.
+
+> Antes ese PDF no se mostraba en la pantalla de la instalación —sólo en la ficha del
+> cliente—, así que después de firmar parecía que no se había generado nada. Ya se ve donde
+> se firma.
+>
+> Si la instalación es de un **prospecto** que todavía no has convertido en cliente, el PDF
+> y las fotos se ven aquí, pero no en ninguna ficha de cliente: no existe todavía. Al
+> marcar el prospecto como convertido, todo se traslada solo a la ficha del cliente nuevo.
 
 Al completar la instalación se genera automáticamente la **factura de instalación**.
 
@@ -1264,6 +1309,19 @@ pusiste, la **Vista previa** te avisa con un mensaje explícito (a diferencia de
 de texto simples, que se quedan callados). Si no has subido un logo en **Configuración → Marca**,
 el marcador simplemente no muestra nada — no es un error.
 
+**Tamaño y orientación de página.** Arriba del editor eliges el tamaño del papel (A4, Carta
+u Oficio) y si el documento sale **Vertical** u **Horizontal**. Cada documento tiene su
+propia configuración: puedes dejar la factura en vertical y el contrato en horizontal.
+
+Usa **Horizontal** si tu diseño es a dos columnas. Es el caso típico del contrato de
+servicio en Colombia (el formato de la CRC, con las cláusulas repartidas en dos columnas por
+página): ese diseño necesita más ancho del que cabe en una hoja vertical, y si lo dejas en
+vertical el PDF sale con las columnas aplastadas y el texto descuadrado. Si el documento se
+te ve apretado o cortado por los lados, esto es casi siempre la causa.
+
+La **Vista previa** usa lo que tengas seleccionado en ese momento, aunque todavía no hayas
+guardado — así puedes probar vertical y horizontal antes de decidir.
+
 El botón **Vista previa** te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve
 a la plantilla original (tu borrador no se pierde, puedes reactivarlo guardando de nuevo).
 
@@ -1281,6 +1339,36 @@ marcadores no son compatibles entre sistemas, tienes que reemplazarlos por los d
 (los ves en el panel de marcadores disponibles) — un marcador con un nombre que ISPwatch no
 reconoce simplemente no muestra nada.
 
+**Si pegaste una plantilla de WispHub**, esta es la equivalencia de marcadores. Es el error
+más común al migrar: el HTML se ve bien pero los datos salen en blanco, porque los nombres
+no coinciden.
+
+| WispHub | ISPwatch |
+|---|---|
+| `{{ cliente_nombre }}` | `{{cliente.nombre}}` |
+| `{{ cliente_apellidos }}` | `{{cliente.apellido}}` |
+| `{{ cliente.user.email }}` | `{{cliente.email}}` |
+| `{{ plan_internet.nombre }}` | `{{plan.nombre}}` |
+| `{{ plan_internet.precio }}` | `{{plan.valor_mensual}}` |
+| `{{ fecha_instalacion }}` | `{{contrato.fecha}}` |
+| `{{cliente.localidad}}` | `{{cliente.departamento}}` |
+| `{{cliente.ciudad}}` | `{{cliente.ciudad}}` (igual) |
+| `CO-NUMERO_CONTRATO_TAG` | `{{contrato.numero}}` |
+| `<img src="FIRMA_CLIENTE_NO_BORRAR">` | `{{contrato.firma_cliente}}` |
+| Logo con una dirección de internet (`https://…`) | `{{empresa.logo}}` |
+
+Tres detalles que no son evidentes:
+
+- **El número de contrato ya trae el prefijo.** `{{contrato.numero}}` incluye el prefijo que
+  configuraste en **Configuración → Marca**. Si escribes `CO-{{contrato.numero}}` te va a
+  salir el prefijo dos veces.
+- **El logo tiene que ser el marcador, no una imagen de internet.** Una imagen enlazada a
+  una dirección externa (`https://…`) nunca se descarga al generar el PDF: sale rota. Sube
+  el logo en **Configuración → Marca** y usa `{{empresa.logo}}`.
+- **Los bloques (logo y firma) van sin espacios por dentro.** `{{contrato.firma_cliente}}`
+  funciona; `{{ contrato.firma_cliente }}` con espacios **no** se reconoce y desaparece. Los
+  marcadores de texto normales sí toleran espacios, pero conviene escribirlos todos igual.
+
 > ⚠️ **Importante si pegas HTML de otro sistema: no metas textos largos dentro de una celda de
 > tabla.** El generador de PDF no sabe partir una celda entre dos páginas: si el texto de una
 > celda no cabe en una hoja, **lo que sobra no se imprime** — sin ningún aviso. En un contrato
@@ -1291,6 +1379,43 @@ reconoce simplemente no muestra nada.
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
 > sí se respetan.
+
+**Número consecutivo de los contratos.** En el bloque de marca de esa misma pestaña hay un
+campo **Prefijo del consecutivo de contratos**. Cada contrato que se firma desde el sistema
+recibe un número irrepetible con ese prefijo. Si lo dejas vacío se usa `CTR`.
+
+**Escribe el prefijo que quieras**: letras, números, acentos, barras, puntos, espacios. Estos
+son todos válidos:
+
+| Si escribes | Los contratos quedan |
+|---|---|
+| `CTR` | `CTR-00001` |
+| `FIBRAX` | `FIBRAX-00001` |
+| `CNO/` | `CNO/00001` |
+| `Contrato N° ` | `Contrato N° 00001` |
+| `FIBRA_2026.` | `FIBRA_2026.00001` |
+
+El guion lo pone el sistema **solo si tu prefijo termina en letra o número**. Si terminas en
+`/`, `.`, `_` o un espacio, se respeta ese separador tuyo y no se agrega nada más. Así puedes
+dejar el formato exactamente como lo usas en papel.
+
+Lo único que no se admite son saltos de línea. Y ojo: el **nombre del archivo** que se descarga
+sí se simplifica, porque algunos símbolos no son válidos en un nombre de archivo — un contrato
+`Contrato N° 00001` se guarda como `contrato_Contrato-N-00001.pdf`, y `CNO/00001` como
+`contrato_CNO-00001.pdf`. Lo que ve el cliente **dentro** del documento es tu formato completo,
+sin tocar.
+
+Debajo del campo verás cuál es el **próximo número** que se va a asignar. Ese número:
+
+- Se imprime dentro del PDF, en el encabezado (*Contrato No. …*).
+- Da nombre al archivo (`contrato_CTR-00001.pdf`) y aparece en la pestaña **Documentos**
+  del cliente.
+- Es independiente para cada empresa y no se repite nunca.
+
+Cambiar el prefijo **no renumera los contratos ya firmados**: los anteriores conservan el
+número con el que se firmaron, y los nuevos siguen la cuenta desde donde iba. Los contratos
+que subes tú a mano (un PDF escaneado, por ejemplo) no reciben número, porque el sistema no
+puede escribir dentro de un archivo que no generó él.
 
 > Esta pestaña necesita el permiso *Gestionar Plantillas de Documentos*, que es distinto
 > del de configuración de empresa. Si no la ves, revisa tu rol.
