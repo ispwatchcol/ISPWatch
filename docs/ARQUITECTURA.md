@@ -243,7 +243,43 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `MikroTikSshService` | 603 | SSH directo/vía CORE |
 | `WhatsAppService` | 162 | WhatsApp Cloud API (Meta Graph v18) |
 | `ContractNumberService` | 62 | Reserva el consecutivo de contratos por tenant (`lockForUpdate`) |
+| `Inventory/InventoryLedger` | 420 | **Único** punto que mueve existencias: custodia, saldos, kardex |
 | `Templates/*` | — | Render, saneado y resolución de placeholders de documentos |
+
+### Custodia de inventario y kardex (`app/Services/Inventory`)
+
+El inventario dejó de ser una lista de equipos para pasar a responder dos preguntas: **quién
+tiene qué** y **cómo llegó ahí**. El diseño se apoya en tres reglas.
+
+**1. El catálogo declara cómo se cuenta.** `inventory_stock.is_serialized` separa los equipos
+con serial (una fila por aparato en `inventory_device`) de los consumibles (un saldo por
+custodio en `inventory_balances`). Sin esa división, un RJ45 obligaría a crear 500 filas y por
+eso los materiales acababan escritos a mano en un campo de texto, fuera de todo control.
+
+**2. Existencia y kardex se escriben juntos o no se escriben.** `InventoryLedger` es el único
+que toca `inventory_device.status`, `inventory_balances` e `inventory_movements`, siempre dentro
+de una transacción. Si eso se hiciera desde los controladores, tarde o temprano alguno movería
+existencias sin registrar el movimiento y el historial dejaría de explicar el saldo. Los saldos
+se leen con `lockForUpdate()` (salvo en SQLite, donde corre la suite y no hay concurrencia real)
+para que dos técnicos descargando material a la vez no lo dejen en negativo.
+
+**3. Cada quien descarga lo suyo.** `canTakeFrom()` decide qué puede tomar un usuario:
+
+| Origen | Quién puede tomarlo |
+|---|---|
+| Sus propios equipos | Siempre |
+| Los del **técnico asignado a la orden** | Cualquiera que llene esa hoja |
+| Una bodega / sucursal | Sólo con `view_inventory` |
+| La mochila de otro técnico | Nadie — hay que traspasar primero |
+
+La excepción del técnico asignado no es un agujero: es lo que permite que la secretaria capture
+en oficina una visita que hizo Juan sin tener que mentir en el kardex traspasándose antes los
+equipos a su nombre.
+
+Las pantallas de **Entregas y traspasos** (`/inventory/transfers`) sí pueden mover equipos de
+cualquier custodio —recoger lo que un técnico no usó es su función— porque exigen
+`view_inventory` y el movimiento queda escrito. Lo que nunca se permite es *consumir* existencias
+ajenas en silencio.
 
 ### Composición de la factura mensual
 

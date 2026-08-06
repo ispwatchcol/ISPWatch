@@ -905,6 +905,28 @@ sólo cuando el elemento elegido es una NAP — el mismo criterio que ya usa `Cu
 media hora de trabajo; no se hizo en el mismo cambio para no mezclar el arreglo del arrastre de
 datos con una ampliación del contrato de la hoja.
 
+### 📋 P-19 · El inventario con custodia deja tres cabos sueltos conocidos
+
+Detectado 2026-08-06 al implementar custodia, consumibles y kardex (`BITACORA_TECNICA.md` § 23).
+Nada de esto bloquea el uso, pero conviene tenerlo escrito antes de que aparezca como sorpresa:
+
+1. **Cambiar `is_serialized` de un modelo con existencias no está bloqueado en el backend.** El
+   formulario lo ofrece siempre. Si alguien pasa a "por cantidad" un modelo que ya tiene 40 filas
+   en `inventory_device`, esas 40 filas quedan sin forma de contarse desde los saldos (y al revés,
+   un saldo de un modelo que pasa a serializado queda huérfano). Falta una validación en
+   `InventoryStockController::rules()` que rechace el cambio cuando existan `devices` o `balances`
+   asociados. La UI ya lo advierte en el comentario, pero un comentario no es una restricción.
+2. **Los saldos huérfanos no tienen pantalla.** Borrar una sucursal o un usuario deja su fila en
+   `inventory_balances` sin custodio visible (decisión consciente: perder existencias en silencio
+   sería peor). Hoy sólo se ven consultando la tabla; faltaría listarlos en Movimientos para
+   poder traspasarlos.
+3. **La importación masiva registra la entrada por rango de `id`.** `InventoryImport::recordEntries()`
+   identifica las filas recién insertadas con `id > max(id) previo AND tenant_id = propio`. Es
+   correcto frente a importaciones de otros tenants en paralelo, pero **dos importaciones
+   simultáneas del mismo tenant** podrían atribuirse filas entre sí. Ese escenario ya estaba roto
+   antes por otro motivo (la deduplicación de seriales se cachea en memoria por instancia), así
+   que no se agrava nada; se documenta para que quien arregle lo uno arregle lo otro.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -994,6 +1016,16 @@ Son cinco, en este orden:
 
 > ⚠️ **Orden crítico entre C-1 y A-3.** Si se rota `APP_KEY` **después** de cifrar, habrá que
 > descifrar y re-cifrar también estos valores. Rotar primero, migrar después.
+
+Y las cinco del inventario con custodia (2026-08-06), que van juntas y en este orden:
+
+| Migración | Qué hace | Nota |
+|---|---|---|
+| `..._130000_add_serialization_to_inventory_stock_table` | `is_serialized` + `unit` | Default `true` = comportamiento actual |
+| `..._130100_add_custody_to_inventory_device_table` | `status` + `customer_id` + índices | Hace backfill: lo asignado pasa a `assigned` |
+| `..._130200_create_inventory_balances_table` | Saldos de consumibles | — |
+| `..._130300_create_inventory_movements_table` | Kardex append-only | — |
+| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` **único** |
 
 ### 4. Sincronizar permisos tras cada despliegue
 

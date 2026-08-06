@@ -16,4 +16,19 @@ export default {
     delete(id) {
         return apiClient.delete(`/inventory/${id}`)
     },
+    // Kardex: historial de movimientos, paginado y filtrable.
+    movements(params = {}) {
+        return apiClient.get('/inventory/movements', { params })
+    },
+    // Qué tiene encima un custodio (holder_type: branch|user).
+    holdings(params = {}) {
+        return apiClient.get('/inventory/holdings', { params })
+    },
+    // Entrega/traspaso de equipos y materiales a un custodio.
+    transfer(payload) {
+        return apiClient.post('/inventory/transfers', payload)
+    },
+    retire(id, payload = {}) {
+        return apiClient.post(`/inventory/${id}/retire`, payload)
+    },
 }

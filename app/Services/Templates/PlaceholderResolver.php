@@ -113,6 +113,10 @@ class PlaceholderResolver
             'instalacion.fecha'         => $date,
             'instalacion.tecnico'       => (string) ($technician?->name ?: $installation->technician ?: ''),
             'instalacion.equipo'        => (string) ($installation->equipment ?? ''),
+            // El equipo REALMENTE descargado del inventario, con serial. Es
+            // distinto de `instalacion.equipo`, que es el texto previsto al
+            // agendar y suele no coincidir con lo que el técnico acabó usando.
+            'instalacion.equipos'       => $this->equipmentList($installation),
             'instalacion.observaciones' => (string) ($installation->notes ?? ''),
             'servicio.plan'             => (string) ($plan?->name ?: ''),
             'servicio.velocidad_bajada' => (string) ($plan?->speed_down ?: ''),
@@ -123,6 +127,27 @@ class PlaceholderResolver
             'servicio.dia_pago'         => $billing ? (string) (Billing::dayOf($billing->payment_day) ?? '') : '',
             'servicio.dia_corte'        => $billing ? (string) ($billing->cut_day_of_month ?? '') : '',
         ];
+    }
+
+    /**
+     * "MIKROTIK LDF · S/N ABC123; 4 unidad RJ45 CAT5E" — una sola línea porque
+     * los marcadores escalares se escapan como texto: un <ul> saldría literal.
+     */
+    private function equipmentList(CustomerInstallation $installation): string
+    {
+        $installation->loadMissing(['equipmentItems.stock', 'equipmentItems.device.stock']);
+
+        return $installation->equipmentItems
+            ->map(function ($item) {
+                if ($item->device_id) {
+                    return $item->label();
+                }
+
+                $qty = rtrim(rtrim(number_format((float) $item->quantity, 2, ',', '.'), '0'), ',');
+
+                return trim("{$qty} " . ($item->stock?->unit ?? '') . ' ' . $item->label());
+            })
+            ->implode('; ');
     }
 
     /**

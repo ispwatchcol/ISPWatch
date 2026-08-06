@@ -700,6 +700,10 @@ class CustomerInstallationController extends Controller
      */
     private function buildSheetPdf(CustomerInstallation $installation, string $custSig, ?string $techSig)
     {
+        // La hoja imprime los equipos descargados; sin este eager load la vista
+        // haría una consulta por línea (o ninguna, si la relación no se tocó).
+        $installation->loadMissing(['equipmentItems.stock', 'equipmentItems.device.stock']);
+
         $customer = $installation->customer;
         $profile  = $customer?->customerProfile;
         $prospect = $installation->prospect;

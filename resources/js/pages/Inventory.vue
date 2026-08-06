@@ -455,6 +455,7 @@ import { ref, computed, onMounted } from 'vue'
 import inventoryApi from '@/services/api/inventory'
 import inventoryProviderApi from '@/services/api/inventory-provider'
 import inventoryBranchApi from '@/services/api/inventory-branch'
+import inventoryStockApi from '@/services/api/inventory-stock'
 import StatCard from '@/components/StatCard.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import Pagination from '@/components/ui/Pagination.vue'
@@ -466,6 +467,7 @@ const { can } = usePermissions()
 const devices = ref([])
 const providers = ref([])
 const branches = ref([])
+const stocks = ref([])
 const loading = ref(false)
 const toast = ref(null)
 
@@ -496,13 +498,15 @@ const filters = ref({
 const currentPage = ref(1)
 const itemsPerPage = ref(10)
 
-// Stats
-const stats = ref({
-  totalDevices: 0,
-  totalStock: 0,
-  totalProviders: 0,
-  totalBranches: 0
-})
+// Stats — cada tarjeta cuenta su propio catálogo, no lo que referencien
+// los dispositivos: proveedores/sucursales/stock existen aunque el
+// inventario esté vacío.
+const stats = computed(() => ({
+  totalDevices: devices.value.length,
+  totalStock: stocks.value.length,
+  totalProviders: providers.value.length,
+  totalBranches: branches.value.length
+}))
 
 // Computed
 const filteredDevices = computed(() => {
@@ -555,8 +559,6 @@ const loadDevices = async () => {
       provider_name: device.provider?.name || null,
       branch_name: device.branch?.name || null
     }))
-
-    calculateStats()
   } catch (error) {
     console.error('Error loading devices:', error)
     toast.value?.error('Error', 'Error al cargar los dispositivos')
@@ -583,11 +585,13 @@ const loadBranches = async () => {
   }
 }
 
-const calculateStats = () => {
-  stats.value.totalDevices = devices.value.length
-  stats.value.totalStock = devices.value.filter(d => d.stock_id).length
-  stats.value.totalProviders = new Set(devices.value.map(d => d.provider_id).filter(Boolean)).size
-  stats.value.totalBranches = new Set(devices.value.map(d => d.branch_id).filter(Boolean)).size
+const loadStocks = async () => {
+  try {
+    const { data } = await inventoryStockApi.getAll()
+    stocks.value = data || []
+  } catch (error) {
+    console.error('Error loading stocks:', error)
+  }
 }
 
 const formatCurrency = (value) => {
@@ -646,7 +650,8 @@ onMounted(async () => {
   await Promise.all([
     loadDevices(),
     loadProviders(),
-    loadBranches()
+    loadBranches(),
+    loadStocks()
   ])
 })
 </script>

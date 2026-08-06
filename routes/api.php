@@ -36,6 +36,8 @@ use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
 use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
+use App\Http\Controllers\InventoryMovementController;
+use App\Http\Controllers\InstallationEquipmentController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
@@ -136,6 +138,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/installations/{installation}/sheet-preview', [CustomerInstallationController::class, 'previewSheet'])
         ->middleware('permission:view_support');
     Route::post('/installations/{installation}/sign', [CustomerInstallationController::class, 'sign'])
+        ->middleware('permission:view_support');
+
+    // Equipos y materiales de la orden. Viajan con view_support como el resto
+    // de la hoja: quien puede llenar la hoja es quien descarga el inventario.
+    Route::get('/installations/{installation}/equipment', [InstallationEquipmentController::class, 'index'])
+        ->middleware('permission:view_support,view_clients');
+    Route::get('/installations/{installation}/equipment/available', [InstallationEquipmentController::class, 'available'])
+        ->middleware('permission:view_support');
+    Route::post('/installations/{installation}/equipment', [InstallationEquipmentController::class, 'store'])
+        ->middleware('permission:view_support');
+    Route::delete('/installations/{installation}/equipment/{item}', [InstallationEquipmentController::class, 'destroy'])
         ->middleware('permission:view_support');
 
     // ─── PROSPECTS ───
@@ -404,11 +417,21 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Instalaciones lista equipos para asignarlos en la visita.
     Route::middleware('permission:view_inventory,view_support')->group(function () {
         Route::get('/inventory', [InventoryDeviceController::class, 'index']);
-        Route::get('/inventory/{inventory}', [InventoryDeviceController::class, 'show']);
         Route::get('/inventory-stock', [InventoryStockController::class, 'index']);
         Route::get('/inventory-providers', [InventoryProviderController::class, 'index']);
         Route::get('/inventory-branches', [InventoryBranchController::class, 'index']);
     });
+    // El kardex y las entregas son gestión de inventario, no consulta de campo.
+    Route::middleware('permission:view_inventory')->group(function () {
+        Route::get('/inventory/movements', [InventoryMovementController::class, 'index']);
+        Route::get('/inventory/holdings', [InventoryMovementController::class, 'holdings']);
+        Route::post('/inventory/transfers', [InventoryMovementController::class, 'store']);
+        Route::post('/inventory/{inventory}/retire', [InventoryMovementController::class, 'retire']);
+    });
+    // Va DESPUÉS de las rutas literales de arriba: registrada antes, /inventory/{inventory}
+    // se tragaría /inventory/movements y /inventory/holdings como si fueran ids.
+    Route::get('/inventory/{inventory}', [InventoryDeviceController::class, 'show'])
+        ->middleware('permission:view_inventory,view_support');
     Route::middleware('permission:view_inventory')->group(function () {
         Route::post('/inventory', [InventoryDeviceController::class, 'store']);
         Route::match(['put', 'patch'], '/inventory/{inventory}', [InventoryDeviceController::class, 'update']);

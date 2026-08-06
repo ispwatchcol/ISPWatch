@@ -1094,6 +1094,52 @@ cada hora.
 Todos con alcance de tenant vía `BelongsToTenant`. Sustituyeron al acceso directo a Supabase.
 `tenant_id` **no es asignable en masa**: se establece desde el usuario autenticado.
 
+### 15.1 Custodia, entregas y kardex
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `GET` | `/api/inventory/holdings?holder_type=&holder_id=` | `view_inventory` | Qué tiene encima una sucursal o una persona: equipos con serial + saldos de material |
+| `POST` | `/api/inventory/transfers` | `view_inventory` | Entrega/traspaso. Sin `source_type` en un material, el movimiento se registra como **entrada** desde el proveedor |
+| `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
+| `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto) |
+
+> **Orden de rutas:** las tres rutas literales (`/movements`, `/holdings`, `/transfers`) se
+> registran **antes** de `/api/inventory/{inventory}`; al revés, el parámetro las capturaría y
+> `movements` llegaría como si fuera un id.
+
+Cuerpo de `POST /api/inventory/transfers`:
+
+```json
+{
+  "to_type": "user",            // user | branch
+  "to_id": 12,
+  "device_ids": [4, 7],          // equipos con serial
+  "materials": [                 // consumibles por cantidad
+    { "stock_id": 3, "quantity": 50, "source_type": "branch", "source_id": 1 }
+  ],
+  "notes": "Entrega semanal"
+}
+```
+
+Filtrar el kardex por custodio devuelve **las dos direcciones**: lo que entró y lo que salió de
+esa persona o bodega. Es lo que hace que "todo lo de Juan" signifique algo.
+
+### 15.2 Equipos de una orden de instalación
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `GET` | `/api/installations/{id}/equipment` | `view_support,view_clients` | Líneas ya descargadas en la orden |
+| `GET` | `/api/installations/{id}/equipment/available` | `view_support` | Qué puede tomar **este** usuario en **esta** orden |
+| `POST` | `/api/installations/{id}/equipment` | `view_support` | Descarga un equipo (`device_id`) o un material (`stock_id` + `quantity` + `source_*`) |
+| `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Devuelve la existencia a quien la aportó |
+
+`available` responde `{ sources, devices, materials }`, ya filtrado por custodia: lo del propio
+usuario, lo del técnico asignado a la orden, y las bodegas sólo si tiene `view_inventory`. Cada
+equipo trae `source_type`/`source_id`/`source_label` para que la UI agrupe por custodio.
+
+Todas las escrituras pasan por `InventoryLedger`, así que **no existe forma de mover existencias
+sin dejar la línea de kardex**: el saldo y el historial se escriben en la misma transacción.
+
 ---
 
 ## 16. Soporte
@@ -1397,8 +1443,8 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_client_traffic` | `routers/{router}/traffic` (por OR con `manage_routers`) |
 | `view_plans` | Escritura de planes y sincronización al router; lectura por OR |
 | `view_sectorials` | Escritura de sectoriales, fotos y notas; lectura por OR |
-| `view_inventory` | Escritura de inventario, stock, proveedores y sucursales; lectura por OR con `view_support` |
-| `view_support` | Tickets (CRUD), instalaciones, prospectos; lectura de fotos/notas/historial de sectorial |
+| `view_inventory` | Escritura de inventario, stock, proveedores y sucursales; **entregas, kardex, holdings y bajas**; lectura por OR con `view_support`. También es lo que habilita tomar equipos de una **bodega** al llenar una hoja de instalación |
+| `view_support` | Tickets (CRUD), instalaciones, prospectos, **equipos de la orden**; lectura de fotos/notas/historial de sectorial |
 | `delete_installations` | `DELETE /api/customers/installations/{installation}` (por OR con `view_support`) |
 | `edit_discount` | `installations/{installation}/billing` |
 | `view_billing` | Todo `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago, **tipos de factura**) |

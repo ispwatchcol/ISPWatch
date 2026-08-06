@@ -89,4 +89,17 @@ class CustomerInstallation extends Model
     {
         return $this->hasOne(Invoice::class, 'installation_id');
     }
+
+    /**
+     * Equipos y materiales descargados del inventario en esta visita.
+     *
+     * NO se puede llamar `equipment()`: la tabla ya tiene una columna
+     * `equipment` (el texto libre "equipo previsto"), y Eloquent resuelve
+     * primero el atributo, así que la relación quedaría inalcanzable desde
+     * `$installation->equipment` y las vistas leerían el string de siempre.
+     */
+    public function equipmentItems()
+    {
+        return $this->hasMany(InstallationEquipment::class, 'installation_id');
+    }
 }
