@@ -119,7 +119,14 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
         $this->renderer->renderInvoice($invoice);
     }
 
-    public function test_installation_template_with_photo_and_signature_blocks_renders_real_images(): void
+    /**
+     * Las firmas siguen siendo bloques; `instalacion.fotos` se RETIRÓ el
+     * 2026-08-05 (las fotos se consultan en los documentos del cliente, y
+     * dentro del PDF nunca llegaron a verse: ruta local vs. S3). Una plantilla
+     * que todavía lo use se blanquea, como cualquier token desconocido —
+     * nunca deja el marcador ni el texto crudo a la vista.
+     */
+    public function test_installation_template_renders_signature_blocks_and_blanks_the_retired_photo_block(): void
     {
         $tenant = $this->makeTenant();
         $customer = $this->makeCustomer($tenant);
@@ -157,9 +164,11 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
                 $body = $data['body'];
 
                 return $view === 'documents.shells.installation_shell'
-                    && str_contains($body, $photo->file_path)
                     && str_contains($body, 'data:image/png;base64,firma-cliente')
                     && str_contains($body, 'data:image/png;base64,firma-tecnico')
+                    // El bloque retirado no deja ni la foto, ni el token, ni el marcador.
+                    && !str_contains($body, $photo->file_path)
+                    && !str_contains($body, 'instalacion.fotos')
                     && !str_contains($body, 'BLOCKMARK_');
             })
             ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
@@ -171,7 +180,6 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
             null,
             $tenant,
             null,
-            collect([$photo]),
             null,
             null,
             null,

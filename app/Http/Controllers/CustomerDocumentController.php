@@ -166,6 +166,24 @@ class CustomerDocumentController extends Controller
             'signature' => ['required', 'string', 'regex:/^data:image\/png;base64,/'],
         ]);
 
+        // Un cliente = UN contrato firmado vigente. Se comprueba antes de
+        // reservar el consecutivo: rechazar después gastaría un número de la
+        // secuencia en un contrato que nunca se genera.
+        $existingContract = CustomerDocument::where('customer_id', $customer->id)
+            ->where('type', 'contrato')
+            ->where('signed', true)
+            ->first();
+
+        if ($existingContract) {
+            $label = $existingContract->contract_number ?: $existingContract->file_name;
+
+            return response()->json([
+                'message' => "Este cliente ya tiene un contrato firmado ({$label}). "
+                    . 'Elimínalo en «Documentos del cliente» antes de generar uno nuevo.',
+                'existing_document_id' => $existingContract->id,
+            ], 409);
+        }
+
         $profile = CustomerProfile::where('user_id', $customer->id)->first();
         $tenant  = Tenant::find($customer->tenant_id);
         $plan    = $profile?->service_id ? Plan::find($profile->service_id) : null;

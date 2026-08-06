@@ -85,6 +85,17 @@
         con su número consecutivo impreso.
       </p>
 
+      <!-- Un cliente = UN contrato firmado vigente: si ya existe, no se ofrece
+           firmar otro (el backend también lo rechaza). -->
+      <div v-if="signedContract"
+        class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-300">
+        Este cliente ya tiene un contrato firmado
+        <strong>{{ signedContract.contract_number || signedContract.file_name }}</strong>.
+        Para generar uno nuevo, elimina primero el anterior en <strong>Documentos del cliente</strong>, arriba.
+      </div>
+
+      <template v-else>
+
       <p v-if="contract?.next_contract_number" class="text-sm mb-4">
         <span class="text-gray-500 dark:text-gray-400">Se numerará como</span>
         <span class="ml-1 font-mono font-semibold text-gray-800 dark:text-white">{{ contract.next_contract_number }}</span>
@@ -121,12 +132,14 @@
           {{ signing ? 'Generando contrato...' : 'Firmar y guardar contrato' }}
         </button>
       </div>
+
+      </template>
     </section>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import api from '@/services/api'
 
 const props = defineProps({
@@ -142,10 +155,12 @@ const uploading = ref(false)
 const fileInput = ref(null)
 
 const contract = ref(null)
+// Sólo puede haber un contrato firmado vigente por cliente: mientras exista,
+// la sección de firma se sustituye por el aviso de eliminar el anterior.
+const signedContract = computed(() => documents.value.find(d => d.type === 'contrato' && d.signed))
 const canvas = ref(null)
 const signing = ref(false)
 const hasSignature = ref(false)
-let ctx = null
 let drawing = false
 
 const typeLabel = (t) => ({
@@ -208,13 +223,42 @@ const removeDoc = async (doc) => {
 }
 
 // ── Firma (canvas) ──
-const setupCanvas = () => {
+// El contexto se cachea POR ELEMENTO y se obtiene de forma perezosa: el
+// bloque de firma se monta y desmonta (al eliminar el contrato anterior
+// vuelve a aparecer), y un contexto guardado aparte quedaría apuntando a un
+// canvas ya desconectado — el trazo se dibujaría donde nadie lo ve y
+// toDataURL() devolvería un PNG transparente. Mismo criterio que
+// InstallationDetail.vue.
+const ctxByCanvas = new WeakMap()
+
+const getCtx = () => {
   const c = canvas.value
-  if (!c) return
-  ctx = c.getContext('2d')
-  ctx.lineWidth = 2.5
-  ctx.lineCap = 'round'
-  ctx.strokeStyle = '#111827'
+  if (!c) return null
+  let context = ctxByCanvas.get(c)
+  if (!context) {
+    context = c.getContext('2d')
+    context.lineWidth = 2.5
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.strokeStyle = '#111827'
+    ctxByCanvas.set(c, context)
+  }
+  return context
+}
+
+/** ¿Hay tinta real? Se barre el canal alfa: la bandera reactiva miente si el canvas se re-montó. */
+const canvasHasInk = () => {
+  const c = canvas.value
+  if (!c) return false
+  try {
+    const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return true
+    }
+  } catch {
+    return true
+  }
+  return false
 }
 
 const pointerPos = (e) => {
@@ -226,13 +270,21 @@ const pointerPos = (e) => {
 }
 
 const startDraw = (e) => {
+  const ctx = getCtx()
+  if (!ctx) return
   drawing = true
   const { x, y } = pointerPos(e)
   ctx.beginPath()
   ctx.moveTo(x, y)
+  // Punto visible también en un toque sin arrastre.
+  ctx.lineTo(x + 0.1, y + 0.1)
+  ctx.stroke()
+  hasSignature.value = true
 }
 const draw = (e) => {
   if (!drawing) return
+  const ctx = getCtx()
+  if (!ctx) return
   const { x, y } = pointerPos(e)
   ctx.lineTo(x, y)
   ctx.stroke()
@@ -241,13 +293,18 @@ const draw = (e) => {
 const endDraw = () => { drawing = false }
 
 const clearSignature = () => {
+  const ctx = getCtx()
   if (!ctx) return
   ctx.clearRect(0, 0, canvas.value.width, canvas.value.height)
   hasSignature.value = false
 }
 
 const signContract = async () => {
-  if (!hasSignature.value) return
+  if (!canvasHasInk()) {
+    hasSignature.value = false
+    emit('notify', { type: 'error', title: 'Falta firma', message: 'Traza la firma del cliente en el recuadro.' })
+    return
+  }
   signing.value = true
   try {
     const signature = canvas.value.toDataURL('image/png')
@@ -283,6 +340,8 @@ onMounted(async () => {
   await fetchDocuments()
   await fetchContractData()
   await nextTick()
-  setupCanvas()
+  // Pre-inicializa el contexto si el canvas ya está montado; si aparece más
+  // tarde (al eliminar el contrato anterior), getCtx() lo hace en el 1er trazo.
+  getCtx()
 })
 </script>

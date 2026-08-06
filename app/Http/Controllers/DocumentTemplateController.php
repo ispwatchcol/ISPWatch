@@ -206,7 +206,6 @@ class DocumentTemplateController extends Controller
                 null,
                 $tenant,
                 null,
-                collect(),
                 null,
                 null,
                 $this->samplePlan($tenant),

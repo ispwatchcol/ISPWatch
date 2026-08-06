@@ -284,7 +284,7 @@ la conexión) y aborta salvo en dos casos:
 > (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
 > seguir haciéndolo.
 
-### Cobertura actual (49 archivos, 398 tests)
+### Cobertura actual (50 archivos, 406 tests)
 
 | Suite | Archivos |
 |---|---|
@@ -293,7 +293,7 @@ la conexión) y aborta salvo en dos casos:
 | `Feature/Auth` | `ApiAuthorizationTest` (42: permiso por endpoint, OR, bypass admin, unión de permisos), `ApiLoginTest` (7: login real, verificación, rate limit), `RolePermissionsSyncTest` (7) |
 | `Feature/Router` | `RouterOutageTest` |
 | `Feature/Inventory` | `InventoryImportTest` |
-| `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
+| `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `SecurityHeadersTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
 | `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest` |
 | `Unit/Services` | `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest` |
 | `Unit/Spikes` | `CssTidyExtractStyleBlocksSpikeTest` (prueba aislada de `Filter.ExtractStyleBlocks`, no forma parte del sanitizer de producción) |
@@ -628,6 +628,8 @@ Las tres reglas que hacen que funcione:
 | 25 | **dompdf y las alturas fijas en tablas: páginas en blanco** | `height` en `<table>`/`<td>` (atributo o CSS) es un MÍNIMO en un navegador, que se ignora cuando el contenido crece; dompdf lo trata rígidamente y genera páginas EN BLANCO. `AdvancedTemplateSanitizer::fixDompdfPaginationQuirks()` lo retira de toda la familia `<table>` (no de `<img>`/`<div>`, donde es legítimo). Medido sobre un contrato real: sólo quitando las alturas, 8 páginas con 3 en blanco → 7 con 1 |
 | 26 | **dompdf no parte una celda de tabla entre páginas — y RECORTA lo que no cabe** | Un `<td>` cuyo contenido excede el alto de una página se empuja entero a la siguiente (dejando la anterior en blanco) y el excedente **se pierde**, sin ningún error. Medido sobre un contrato real: el mismo bloque como tabla daba 7 páginas / 1 en blanco / 15.847 caracteres; convertido a `<div>` (texto plano idéntico), 6 páginas / 0 en blanco / **17.682** caracteres. **Nunca envuelvas contenido que pueda superar una página en una celda de tabla**; usa `<div>`, que fluye entre páginas. No se corrige en el sanitizer a propósito: saber si el contenido desbordará exige renderizar, y convertir tablas a divs a ciegas alteraría el diseño del tenant |
 | 27 | **Cachear el contexto 2D de un `<canvas>` en una variable de `<script setup>`** | El canvas de firma de `InstallationDetail.vue` vive dentro de un `v-if="loading"`/`v-else`: **cada recarga de la orden lo desmonta y monta otro**. Un `let ctx = canvas.getContext('2d')` guardado aparte sigue apuntando al canvas viejo, ya fuera del DOM → el trazo se dibuja donde nadie lo ve y `toDataURL()` del canvas nuevo devuelve un PNG transparente que el backend acepta como firma válida (era exactamente el bug de "la firma no se ve ni se guarda", 2026-08-05). Cachea el contexto en un `WeakMap` **por elemento**, refresca sin desmontar (`loadInstallation({ silent: true })`) y comprueba que haya trazo real barriendo el canal alfa (`canvasHasInk()`), nunca con una bandera reactiva |
+| 28 | **`frame-src` no se hereda gratis de `default-src`** | Mostrar un PDF generado en el navegador (`<iframe src="blob:…">`) exige `frame-src 'self' blob:` explícito en `SecurityHeaders`; sin él la CSP cae en `default-src 'self'` y el navegador rechaza el frame — recuadro gris con icono de documento roto, **cero rastro en los logs del servidor**. Cualquier cambio de CSP se despliega con el **backend**: subir sólo el frontend no arregla nada. Fijado en `SecurityHeadersTest` |
+| 29 | **Un `<img>` a `public_path('storage/…')` en un PDF NO funciona: los archivos están en S3** | La hoja de instalación pintaba recuadros de imagen rota durante meses sin que nadie lo notara (dompdf no lanza error: dibuja el hueco). Para meter un archivo de S3 en un PDF hay que **leerlo e incrustarlo como data URI**; `enable_remote = false` además impide cualquier fetch por URL. El logo del tenant sí funciona porque vive en el disco `public` local, no en S3 |
 
 ---
 

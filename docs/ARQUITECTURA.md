@@ -220,7 +220,7 @@ sequenceDiagram
 | `permission` / `can_do` | `CheckPermission` | Exige uno o varios permisos con **semántica OR** (`permission:a,b`); **bypass si `role_id == 1`** |
 | `staff_profile` | `CheckStaffProfile` | Pese al nombre, comprueba `role.code ∈ {admin, staff}` o `role_id == 1`; **no** exige fila en `staff_profile` |
 | `throttle:<limitador>` | Laravel | Límite de peticiones: `api` (120/min), `router-ops` (10/min), `bulk-ops` (5/min) |
-| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`. **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`** |
+| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:` (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
 | *(api, prepend)* | `EnsureFrontendRequestsAreStateful` | Sanctum SPA |
 
 `trustProxies(at: '*')` está activo (necesario tras el balanceador de DigitalOcean).
@@ -320,6 +320,18 @@ en borrador para reflejar lo que el técnico tiene en pantalla sin haberla guard
 comparta `buildSheetPdf()` con la firma es el punto: lo que el cliente lee y lo que se
 archiva no pueden divergir.
 
+**Un documento firmado por tipo** (2026-08-05): `sign()` y `signContract()` devuelven `409`
+si ya existe la hoja de esa orden / el contrato de ese cliente, en vez de acumular PDF casi
+idénticos sin saber cuál vale. El contrato se comprueba **antes** de `ContractNumberService::allocate()`
+para no gastar un consecutivo en un documento que no se genera. El bloqueo mira los
+`customer_documents` con `signed = true` (las fotos van con `signed = false`), así que borrar
+el anterior habilita volver a firmar.
+
+**Las fotos de la instalación no van dentro del PDF** (2026-08-05): se retiró la galería de
+la vista legacy, del shell y el bloque `{{instalacion.fotos}}`. Se consultan en los documentos
+del cliente; dentro del PDF nunca llegaron a verse porque se resolvían con `public_path()`
+mientras se almacenan en S3. Reponerlas exigiría incrustarlas como data URI leyéndolas de S3.
+
 **Placeholders** — dos tipos, mismo motor de sustitución (`PlaceholderResolver::apply()`,
 `BlockMarkerInjector`), reutilizado sin cambios entre ambos modos:
 
@@ -327,7 +339,7 @@ archiva no pueden divergir.
   al sustituir. Un token desconocido (typo, o de otro tipo de documento — ej. `{{factura.*}}`
   dentro de un contrato) se blanquea a `''` en silencio; es una decisión consciente, no un bug
   (ver `docs/MEJORAS_RECOMENDADAS.md`).
-- **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.fotos}}`, `{{instalacion.firma_cliente}}`,
+- **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.firma_cliente}}`,
   `{{instalacion.firma_tecnico}}`, `{{empresa.logo}}`) — HTML de confianza pre-renderizado por el
   servidor (tabla de ítems, galería de fotos, imagen de firma/logo), **nunca** sanitizado (necesita
   `<img>`/`colspan`, prohibidos en el allowlist del tenant). Se insertan vía `BlockMarkerInjector`:

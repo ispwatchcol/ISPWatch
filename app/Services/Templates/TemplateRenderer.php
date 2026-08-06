@@ -166,7 +166,6 @@ class TemplateRenderer
         ?Prospect $prospect,
         Tenant $tenant,
         ?User $technician,
-        $photos,
         $sectorial,
         $router,
         ?Plan $plan,
@@ -183,7 +182,6 @@ class TemplateRenderer
             'prospect'             => $prospect,
             'tenant'               => $tenant,
             'technician'           => $technician,
-            'photos'               => $photos,
             'sectorial'            => $sectorial,
             'router'               => $router,
             'plan'                 => $plan,
@@ -197,7 +195,7 @@ class TemplateRenderer
         }
 
         $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
-        $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $photos, $customerSignature, $technicianSignature);
+        $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $customerSignature, $technicianSignature);
 
         if ($template->is_advanced_mode) {
             return Pdf::loadHTML($this->compileAdvanced(
@@ -278,7 +276,6 @@ class TemplateRenderer
         ?Prospect $prospect,
         Tenant $tenant,
         ?User $technician,
-        $photos,
         $sectorial,
         $router,
         ?Plan $plan,
@@ -289,7 +286,7 @@ class TemplateRenderer
         bool $isAdvancedMode = false
     ) {
         $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
-        $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $photos, $customerSignature, $technicianSignature);
+        $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $customerSignature, $technicianSignature);
 
         if ($isAdvancedMode) {
             return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION));
@@ -304,7 +301,6 @@ class TemplateRenderer
             'prospect'             => $prospect,
             'tenant'               => $tenant,
             'technician'           => $technician,
-            'photos'               => $photos,
             'sectorial'            => $sectorial,
             'router'               => $router,
             'plan'                 => $plan,

@@ -226,7 +226,7 @@ class TemplateRendererFallbackTest extends TestCase
 
         $result = $this->renderer->renderInstallationSheet(
             $installation, $customer, $customer->customerProfile, null, $tenant, null,
-            collect(), null, null, null, self::SAMPLE_PNG, self::SAMPLE_PNG, '25/07/2026'
+            null, null, null, self::SAMPLE_PNG, self::SAMPLE_PNG, '25/07/2026'
         );
 
         $this->assertSame($sentinel, $result);
@@ -267,7 +267,6 @@ class TemplateRendererFallbackTest extends TestCase
             null,
             $tenant,
             null,
-            collect(),
             null,
             null,
             $plan,

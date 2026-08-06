@@ -262,6 +262,11 @@ el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejempl
 ese consecutivo va impreso dentro del documento y no se repite nunca. El prefijo lo
 configuras en **Configuración → Plantillas** (ver [17.4](#174-plantillas-de-documentos)).
 
+**Un solo contrato firmado por cliente.** Si el cliente ya tiene contrato, la zona de firma
+se reemplaza por un aviso: para generar uno nuevo hay que **eliminar primero el anterior**
+en *Documentos del cliente*. Es a propósito — así no se acumulan dos contratos casi iguales
+sin saber cuál es el que vale. Lo mismo aplica a la hoja de instalación de cada orden.
+
 Los documentos se ven pulsando sobre ellos: se abren en una pestaña nueva. Si alguno no
 abre, avísale al soporte técnico — puede ser un archivo de antes de la migración al
 almacenamiento actual.
@@ -353,13 +358,23 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    necesites.
    > Esto importa sobre todo con un **prospecto**, que aún no es cliente y no tiene ficha
    > donde consultar el documento después.
+   >
+   > Si tu teléfono no muestra el PDF dentro de la ventana, usa **Abrir en pestaña** o
+   > **Descargar**, en la misma barra.
 5. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
    > El trazo se ve a medida que se firma. Si al firmar el recuadro se quedara en blanco,
    > vuelve a trazar la firma: el sistema **no deja cerrar la orden con una firma vacía**.
 
 Al firmar, el sistema genera la **hoja de instalación en PDF** y la orden queda cerrada. El
-PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con un botón
-**Ver PDF**; además queda guardado en la pestaña **Documentos** del cliente.
+PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con los botones
+**Ver PDF** y **Eliminar**; además queda guardado en la pestaña **Documentos** del cliente.
+
+> **Una orden, una hoja firmada.** Una vez firmada, el botón de firmar desaparece. Si la
+> hoja quedó mal, **elimínala** en *Documentos de la orden* y vuelve a firmar — así no
+> quedan dos hojas casi iguales sin saber cuál vale.
+>
+> La hoja **no incluye las fotos** de la instalación: esas se consultan en los documentos,
+> que es donde se guardan.
 
 > Antes ese PDF no se mostraba en la pantalla de la instalación —sólo en la ficha del
 > cliente—, así que después de firmar parecía que no se había generado nada. Ya se ve donde

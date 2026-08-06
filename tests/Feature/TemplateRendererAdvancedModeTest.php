@@ -225,7 +225,6 @@ class TemplateRendererAdvancedModeTest extends TestCase
             null,
             $tenant,
             null,
-            collect(),
             null,
             null,
             null,

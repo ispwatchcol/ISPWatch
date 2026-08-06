@@ -416,6 +416,14 @@ prospecto, que todavía no es cliente— lea lo que va a firmar.
   El frontend lo pide con `responseType: 'blob'`.
 - Respeta el tenant: una orden de otro tenant devuelve `404`.
 
+#### `409` al firmar por segunda vez
+
+`POST /api/installations/{installation}/sign` y `POST /api/customers/{customer}/contract-sign`
+devuelven **`409 Conflict`** —con `message` y `existing_document_id`— si ya existe el
+documento firmado (la hoja de esa orden, o el contrato de ese cliente). No se acumulan
+varios PDF del mismo documento: hay que **eliminar el anterior** y volver a firmar. El
+contrato lo comprueba antes de reservar el consecutivo, así que un `409` no gasta número.
+
 ---
 
 ## 7. Documentos de cliente
