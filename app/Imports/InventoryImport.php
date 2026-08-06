@@ -182,9 +182,11 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
         $rows = array_map(fn($p) => $p + ['created_at' => $now, 'updated_at' => $now], $pending);
 
         try {
-            DB::transaction(function () use ($rows) {
+            DB::transaction(function () use ($rows, $now) {
                 foreach (array_chunk($rows, self::CHUNK) as $chunk) {
+                    $highWaterMark = (int) DB::table('inventory_device')->max('id');
                     InventoryDevice::insert($chunk);
+                    $this->recordEntries($highWaterMark, $now);
                 }
             });
             $this->imported += count($pending);
@@ -192,6 +194,45 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
             $this->errors[] = $this->err('-', '-',
                 'No se pudo guardar el lote de equipos: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Deja en el kardex la entrada de los equipos recién insertados: sin ella,
+     * un inventario cargado por Excel tendría historial sólo a partir de su
+     * primer traspaso y nadie podría decir cuándo entró a la empresa.
+     *
+     * Los identifica por id > el máximo previo Y tenant propio, en vez de
+     * releerlos por serial: hay filas legítimas sin serial, y una consulta por
+     * fila es justo lo que esta importación evita.
+     */
+    protected function recordEntries(int $highWaterMark, $now): void
+    {
+        $devices = DB::table('inventory_device')
+            ->where('tenant_id', $this->tenantId)
+            ->where('id', '>', $highWaterMark)
+            ->get(['id', 'stock_id', 'provider_id', 'branch_id', 'serial']);
+
+        if ($devices->isEmpty()) {
+            return;
+        }
+
+        DB::table('inventory_movements')->insert(
+            $devices->map(fn($device) => [
+                'tenant_id'     => $this->tenantId,
+                'stock_id'      => $device->stock_id,
+                'device_id'     => $device->id,
+                'device_serial' => $device->serial,
+                'type'          => 'entrada',
+                'quantity'      => 1,
+                'from_type'     => 'supplier',
+                'from_id'       => $device->provider_id,
+                'to_type'       => 'branch',
+                'to_id'         => $device->branch_id,
+                'notes'         => 'Carga masiva de inventario',
+                'created_by'    => auth()->id(),
+                'created_at'    => $now,
+            ])->all()
+        );
     }
 
     /** Find-or-create a stock (brand+model) entry; caches by brand|model. */

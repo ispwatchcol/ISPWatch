@@ -155,6 +155,23 @@
         </table>
     @endif
 
+    {{-- Lo que el cliente firma que recibió, con serial. Ver la nota gemela en
+         installation_sheet_pdf.blade.php --}}
+    @php($equipment = $installation->equipmentItems ?? collect())
+    @if($equipment->count())
+        <h2>Equipos y materiales instalados</h2>
+        <table class="info">
+            @foreach($equipment as $item)
+                <tr>
+                    <td class="label">
+                        @if(!$item->device_id){{ rtrim(rtrim(number_format((float) $item->quantity, 2, ',', '.'), '0'), ',') }}@if($item->stock?->unit) {{ $item->stock->unit }}@endif @else 1 @endif
+                    </td>
+                    <td>{{ $item->label() }}</td>
+                </tr>
+            @endforeach
+        </table>
+    @endif
+
     {{-- Sin galería de fotos: ver la nota en installation_sheet_pdf.blade.php --}}
 
     @if(trim($body) !== '')

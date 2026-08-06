@@ -395,6 +395,18 @@ const routes = [
         component: () => import('@/pages/BranchList.vue'),
         meta: { title: 'Sucursales', permission: 'view_inventory' },
       },
+      {
+        path: 'transfers',
+        name: 'InventoryTransfers',
+        component: () => import('@/pages/InventoryTransfers.vue'),
+        meta: { title: 'Entregas y traspasos', permission: 'view_inventory' },
+      },
+      {
+        path: 'movements',
+        name: 'InventoryMovements',
+        component: () => import('@/pages/InventoryMovements.vue'),
+        meta: { title: 'Movimientos', permission: 'view_inventory' },
+      },
     ],
   },
 

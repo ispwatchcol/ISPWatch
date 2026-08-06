@@ -83,6 +83,7 @@
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">ID</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Marca</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Modelo</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Control</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Precio</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
@@ -101,6 +102,20 @@
                 </td>
                 <td class="px-6 py-4">
                   <span class="text-sm text-gray-700 dark:text-gray-300">{{ item.model || 'N/A' }}</span>
+                </td>
+                <td class="px-6 py-4">
+                  <span
+                    v-if="item.is_serialized !== false"
+                    class="text-[11px] font-medium px-2 py-1 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                  >
+                    Por serial
+                  </span>
+                  <span
+                    v-else
+                    class="text-[11px] font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                  >
+                    Por cantidad{{ item.unit ? ` (${item.unit})` : '' }}
+                  </span>
                 </td>
                 <td class="px-6 py-4">
                   <span class="text-sm font-semibold text-green-600 dark:text-green-400">{{ formatCurrency(item.price) }}</span>
@@ -270,6 +285,44 @@
               />
             </div>
 
+            <!-- Cómo se cuenta: por serial o por cantidad -->
+            <div class="rounded-xl border border-gray-200 dark:border-gray-600 p-4 space-y-3">
+              <p class="text-sm font-medium text-gray-700 dark:text-gray-300">¿Cómo se controla este producto?</p>
+
+              <label class="flex items-start gap-3 cursor-pointer">
+                <input type="radio" :value="true" v-model="form.is_serialized" class="mt-1 accent-purple-600" />
+                <span class="text-sm">
+                  <span class="font-medium text-gray-800 dark:text-gray-200">Por serial</span>
+                  <span class="block text-xs text-gray-500 dark:text-gray-400">
+                    Cada unidad se registra aparte con su serial y MAC. Antenas, routers, ONU.
+                  </span>
+                </span>
+              </label>
+
+              <label class="flex items-start gap-3 cursor-pointer">
+                <input type="radio" :value="false" v-model="form.is_serialized" class="mt-1 accent-purple-600" />
+                <span class="text-sm">
+                  <span class="font-medium text-gray-800 dark:text-gray-200">Por cantidad</span>
+                  <span class="block text-xs text-gray-500 dark:text-gray-400">
+                    Se lleva un saldo por bodega y por técnico. Conectores RJ45, cable, platos, cinta.
+                  </span>
+                </span>
+              </label>
+
+              <div v-if="form.is_serialized === false">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Unidad de medida</label>
+                <input
+                  v-model="form.unit"
+                  type="text"
+                  maxlength="20"
+                  placeholder="unidad, metro, rollo..."
+                  class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                         bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                         focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
+                />
+              </div>
+            </div>
+
             <!-- Actions -->
             <div class="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
@@ -398,7 +451,9 @@ const itemToDelete = ref(null)
 const form = ref({
   brand: '',
   model: '',
-  price: 0
+  price: 0,
+  is_serialized: true,
+  unit: ''
 })
 
 // Computed
@@ -429,7 +484,7 @@ const loadItems = async () => {
 const openAddModal = () => {
   isEditing.value = false
   editingId.value = null
-  form.value = { brand: '', model: '', price: 0 }
+  form.value = { brand: '', model: '', price: 0, is_serialized: true, unit: '' }
   showFormModal.value = true
 }
 
@@ -439,7 +494,11 @@ const openEditModal = (item) => {
   form.value = {
     brand: item.brand || '',
     model: item.model || '',
-    price: item.price || 0
+    price: item.price || 0,
+    // Lo que ya existía es serializado: es como se comportaba el inventario
+    // antes de que el catálogo pudiera declarar consumibles.
+    is_serialized: item.is_serialized !== false,
+    unit: item.unit || ''
   }
   showFormModal.value = true
 }
@@ -468,6 +527,8 @@ const handleSave = async () => {
       brand: form.value.brand,
       model: form.value.model,
       price: form.value.price || 0,
+      is_serialized: form.value.is_serialized !== false,
+      unit: form.value.is_serialized === false ? (form.value.unit || 'unidad') : null,
     }
 
     if (isEditing.value) {

@@ -219,26 +219,78 @@
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4">Hoja técnica de instalación</h2>
 
-        <!-- Tomar equipo del inventario: autollenado de marca/modelo/MAC/serial -->
-        <div v-if="inventoryLoaded"
-          class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
-          <label class="block text-xs font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">
-            Tomar equipo del inventario
-          </label>
-          <template v-if="availableDevices.length">
-            <select v-model.number="selectedInventoryDeviceId" @change="applyInventoryDevice"
-              class="w-full bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
-              <option :value="null">— Seleccionar equipo (llena marca, modelo, MAC y serial) —</option>
-              <option v-for="d in availableDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+        <!-- Equipos y materiales: descuentan del inventario de quien los aporta -->
+        <div class="mb-5 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+          <div class="flex items-center justify-between gap-3 mb-2">
+            <label class="block text-xs font-medium text-blue-700 dark:text-blue-300 uppercase">
+              Equipos y materiales usados
+            </label>
+            <span v-if="equipmentItems.length" class="text-[11px] text-blue-600 dark:text-blue-400">
+              {{ equipmentItems.length }} línea(s) · {{ fmtMoney(equipmentTotal) }}
+            </span>
+          </div>
+
+          <!-- Lo ya descargado -->
+          <ul v-if="equipmentItems.length" class="space-y-2 mb-3">
+            <li v-for="item in equipmentItems" :key="item.id"
+              class="flex items-center justify-between gap-3 bg-white dark:bg-gray-800 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2">
+              <div class="min-w-0">
+                <p class="text-sm text-gray-800 dark:text-white truncate">
+                  <span v-if="!item.is_device" class="font-semibold">{{ fmtQty(item.quantity) }}{{ item.unit ? ` ${item.unit}` : '' }} ·</span>
+                  {{ item.label }}
+                </p>
+                <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                  {{ item.is_device ? 'Equipo con serial' : 'Material' }}
+                  <span v-if="item.unit_price"> · {{ fmtMoney(item.unit_price * item.quantity) }}</span>
+                </p>
+              </div>
+              <button @click="removeEquipment(item)" :disabled="equipmentBusy" type="button" title="Devolver al inventario"
+                class="shrink-0 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
+                Devolver
+              </button>
+            </li>
+          </ul>
+          <p v-else class="text-xs text-blue-600 dark:text-blue-400 mb-3">
+            Todavía no has cargado equipos a esta instalación.
+          </p>
+
+          <!-- Agregar equipo con serial -->
+          <div class="space-y-2">
+            <select v-if="availableDevices.length" v-model.number="devicePick" @change="addDevice"
+              :disabled="equipmentBusy"
+              class="w-full bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
+              <option :value="null">+ Agregar equipo con serial…</option>
+              <optgroup v-for="group in devicesBySource" :key="group.key" :label="group.label">
+                <option v-for="d in group.items" :key="d.id" :value="d.id">{{ availableDeviceLabel(d) }}</option>
+              </optgroup>
             </select>
-            <p class="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
-              Al elegir un equipo se llenan los campos de abajo automáticamente; puedes ajustarlos si hace falta.
+            <p v-else-if="equipmentLoaded" class="text-xs text-blue-600 dark:text-blue-400">
+              No tienes equipos con serial disponibles. Pide que te los entreguen en
+              <RouterLink to="/inventory/transfers" class="underline font-medium">Inventario → Entregas</RouterLink>.
             </p>
-          </template>
-          <p v-else class="text-xs text-blue-600 dark:text-blue-400">
-            No hay equipos disponibles en el inventario. Regístralos en
-            <RouterLink to="/inventory" class="underline font-medium">Inventario</RouterLink>
-            para seleccionarlos aquí sin digitar seriales.
+
+            <!-- Agregar material por cantidad -->
+            <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
+              <select v-model="materialPick" :disabled="equipmentBusy"
+                class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
+                <option :value="null">+ Agregar material por cantidad…</option>
+                <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
+                  {{ materialLabel(m) }}
+                </option>
+              </select>
+              <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
+                :disabled="equipmentBusy"
+                class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
+              <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
+                Agregar
+              </button>
+            </div>
+          </div>
+
+          <p class="mt-2 text-[11px] text-blue-600 dark:text-blue-400">
+            Sólo aparece lo que tienes asignado{{ technicianSourceName ? ` y lo de ${technicianSourceName}` : '' }}.
+            Cada línea se descuenta del inventario y queda registrada en el historial del equipo.
           </p>
         </div>
 
@@ -274,13 +326,11 @@
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
           </div>
           <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Modelo de antena (si aplica)</label>
-            <input v-model="sheet.antenna_model" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Materiales utilizados</label>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+              Materiales adicionales (texto libre)
+            </label>
             <textarea v-model="sheet.materials" rows="2"
+              placeholder="Sólo lo que no esté en el inventario: amarres, silicona…"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
           </div>
           <div class="sm:col-span-2">
@@ -444,11 +494,11 @@
                 class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 px-3 py-1.5 rounded-lg transition">
                 + Agregar adicional
               </button>
-              <select v-if="availableDevices.length" v-model.number="chargePick" @change="addChargeFromInventory"
+              <select v-if="equipmentItems.length" v-model.number="chargePick" @change="addChargeFromInventory"
                 class="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
-                <option :value="null">+ Desde inventario (con su precio)</option>
-                <option v-for="d in availableDevices" :key="d.id" :value="d.id">
-                  {{ deviceLabel(d) }}{{ d.stock?.price != null ? ` — ${fmtMoney(d.stock.price)}` : '' }}
+                <option :value="null">+ Cobrar equipo de la instalación</option>
+                <option v-for="it in equipmentItems" :key="it.id" :value="it.id">
+                  {{ it.label }}{{ it.unit_price != null ? ` — ${fmtMoney(it.unit_price * it.quantity)}` : '' }}
                 </option>
               </select>
             </div>
@@ -700,6 +750,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api, { apiClient } from '@/services/api'
+import installationEquipmentApi from '@/services/api/installation-equipment'
 import { compressImage } from '@/utils/image'
 import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
@@ -724,15 +775,15 @@ const sheet = ref({
   pppoe_password: '',
   pppoe_local_address: '',
   local_address_manual: false,
-  // Hoja técnica
-  inventory_device_id: null,
+  // Hoja técnica. Los equipos ya NO viven aquí: son filas de
+  // installation_equipment, porque una visita lleva varios y hay que
+  // descontarlos del inventario.
   cable_meters: '',
   signal_level: '',
   modem_brand: '',
   modem_model: '',
   modem_mac: '',
   onu_serial: '',
-  antenna_model: '',
   materials: '',
   observations: '',
 })
@@ -754,30 +805,160 @@ const billing = ref({
 const savingBilling = ref(false)
 const billingErrors = ref({})
 
-// ─── Equipos del inventario (autollenado de la hoja técnica) ───
-const inventoryDevices = ref([])
-const inventoryLoaded = ref(false)
-const selectedInventoryDeviceId = ref(null)
+// ─── Equipos y materiales de la instalación ───
+// Lo que se puede tomar depende de la CUSTODIA: cada quien descarga lo que
+// tiene asignado, más lo del técnico de la orden. Eso lo decide el backend
+// (/equipment/available); aquí sólo se pinta lo que responde.
+const equipmentItems = ref([])
+const availableDevices = ref([])
+const availableMaterials = ref([])
+const equipmentSources = ref([])
+const equipmentLoaded = ref(false)
+const equipmentBusy = ref(false)
+const devicePick = ref(null)
+const materialPick = ref(null)
+const materialQty = ref(1)
 const chargePick = ref(null)
 
-const availableDevices = computed(() =>
-  inventoryDevices.value.filter(d => !d.user_id || d.user_id === installation.value?.customer_id)
+const equipmentTotal = computed(() =>
+  equipmentItems.value.reduce((sum, it) => sum + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0), 0)
 )
 
-const deviceLabel = (d) => {
-  const name = `${d.stock?.brand ?? ''} ${d.stock?.model ?? ''}`.trim() || 'Equipo'
-  const parts = [name]
+const technicianSourceName = computed(() => {
+  const tech = equipmentSources.value.find(s => s.type === 'user' && s.label !== 'Mis equipos')
+  return tech?.label ?? ''
+})
+
+// Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
+// está tomando de su mochila o de la bodega.
+const devicesBySource = computed(() => {
+  const groups = new Map()
+  for (const d of availableDevices.value) {
+    const key = `${d.source_type}:${d.source_id}`
+    if (!groups.has(key)) groups.set(key, { key, label: d.source_label || 'Inventario', items: [] })
+    groups.get(key).items.push(d)
+  }
+  return [...groups.values()]
+})
+
+const availableDeviceLabel = (d) => {
+  const parts = [`${d.brand ?? ''} ${d.model ?? ''}`.trim() || 'Equipo']
   if (d.serial) parts.push(`S/N ${d.serial}`)
   if (d.mac)    parts.push(`MAC ${d.mac}`)
   return parts.join(' · ')
 }
 
-const loadInventoryDevices = async () => {
+const materialLabel = (m) => {
+  const name = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
+  return `${name} — ${fmtQty(m.quantity)}${m.unit ? ` ${m.unit}` : ''} en ${m.source_label}`
+}
+
+const fmtQty = (n) => {
+  const value = Number(n) || 0
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace('.', ',')
+}
+
+const loadEquipment = async () => {
   try {
-    const { data } = await api.inventory.getAll()
-    inventoryDevices.value = Array.isArray(data) ? data : []
-    inventoryLoaded.value = true
+    const { data } = await installationEquipmentApi.list(installationId.value)
+    equipmentItems.value = Array.isArray(data) ? data : []
+  } catch { /* non-blocking: sin permiso se ve la hoja sin equipos */ }
+}
+
+const loadAvailableEquipment = async () => {
+  try {
+    const { data } = await installationEquipmentApi.available(installationId.value)
+    availableDevices.value   = data?.devices   ?? []
+    availableMaterials.value = data?.materials ?? []
+    equipmentSources.value   = data?.sources   ?? []
+    equipmentLoaded.value = true
   } catch { /* non-blocking: sin permiso de inventario se digita manual */ }
+}
+
+/**
+ * Al cargar el primer equipo con serial se rellenan marca/modelo/MAC/serial de
+ * la hoja: son los mismos datos y volver a digitarlos sólo genera diferencias
+ * entre el inventario y el acta. Si el técnico ya escribió algo, no se pisa.
+ */
+const applyDeviceToSheet = (device) => {
+  if (!device) return
+  if (!sheet.value.modem_brand && device.brand)  sheet.value.modem_brand = device.brand
+  if (!sheet.value.modem_model && device.model)  sheet.value.modem_model = device.model
+  if (!sheet.value.modem_mac   && device.mac)    sheet.value.modem_mac   = device.mac
+  if (!sheet.value.onu_serial  && device.serial) sheet.value.onu_serial  = device.serial
+}
+
+const addDevice = async () => {
+  const device = availableDevices.value.find(d => d.id === devicePick.value)
+  devicePick.value = null
+  if (!device) return
+
+  equipmentBusy.value = true
+  try {
+    const { data } = await installationEquipmentApi.add(installationId.value, { device_id: device.id })
+    equipmentItems.value = data.equipment ?? equipmentItems.value
+    applyDeviceToSheet(device)
+    await loadAvailableEquipment()
+    toast.value?.success('Equipo cargado', 'Descontado del inventario y registrado en el historial.')
+  } catch (e) {
+    toast.value?.error('Error', firstError(e) || 'No se pudo cargar el equipo.')
+  } finally {
+    equipmentBusy.value = false
+  }
+}
+
+const addMaterial = async () => {
+  const material = materialPick.value
+  if (!material) return
+
+  const quantity = Number(materialQty.value) || 0
+  if (quantity <= 0) {
+    toast.value?.error('Cantidad inválida', 'Indica cuánto material se usó.')
+    return
+  }
+
+  equipmentBusy.value = true
+  try {
+    const { data } = await installationEquipmentApi.add(installationId.value, {
+      stock_id:    material.stock_id,
+      quantity,
+      source_type: material.source_type,
+      source_id:   material.source_id,
+    })
+    equipmentItems.value = data.equipment ?? equipmentItems.value
+    materialPick.value = null
+    materialQty.value = 1
+    await loadAvailableEquipment()
+    toast.value?.success('Material cargado', 'Descontado del saldo de quien lo aportó.')
+  } catch (e) {
+    toast.value?.error('Error', firstError(e) || 'No se pudo cargar el material.')
+  } finally {
+    equipmentBusy.value = false
+  }
+}
+
+const removeEquipment = async (item) => {
+  equipmentBusy.value = true
+  try {
+    const { data } = await installationEquipmentApi.remove(installationId.value, item.id)
+    equipmentItems.value = data.equipment ?? []
+    await loadAvailableEquipment()
+    toast.value?.success('Devuelto', 'La existencia volvió a quien la aportó.')
+  } catch (e) {
+    toast.value?.error('Error', firstError(e) || 'No se pudo devolver el equipo.')
+  } finally {
+    equipmentBusy.value = false
+  }
+}
+
+/** Primer mensaje de validación del backend, que es el que explica el motivo. */
+const firstError = (e) => {
+  const errors = e.response?.data?.errors
+  if (errors) {
+    const first = Object.values(errors)[0]
+    if (Array.isArray(first) && first.length) return first[0]
+  }
+  return e.response?.data?.message
 }
 
 // ─── Formas de pago del tenant (catálogo de Facturación) ───
@@ -798,17 +979,6 @@ const paymentMethodOptions = computed(() => {
   return names
 })
 
-const applyInventoryDevice = () => {
-  const d = inventoryDevices.value.find(x => x.id === selectedInventoryDeviceId.value)
-  if (!d) return
-  sheet.value.inventory_device_id = d.id
-  if (d.stock?.brand) sheet.value.modem_brand = d.stock.brand
-  if (d.stock?.model) sheet.value.modem_model = d.stock.model
-  if (d.mac)          sheet.value.modem_mac   = d.mac
-  if (d.serial)       sheet.value.onu_serial  = d.serial
-  toast.value?.success('Equipo cargado', 'Marca, modelo, MAC y serial tomados del inventario.')
-}
-
 // ─── Adicionales itemizados (cartera) ───
 const addChargeRow = () => {
   billing.value.additional_items.push({ description: '', amount: null })
@@ -818,13 +988,20 @@ const removeChargeRow = (idx) => {
   billing.value.additional_items.splice(idx, 1)
 }
 
+/**
+ * Cobra lo que YA se descargó en la instalación, no cualquier cosa del
+ * inventario: el cobro y el equipo que se llevó el cliente tienen que ser el
+ * mismo hecho, o la factura acaba diciendo algo distinto que el acta.
+ */
 const addChargeFromInventory = () => {
-  const d = inventoryDevices.value.find(x => x.id === chargePick.value)
+  const item = equipmentItems.value.find(x => x.id === chargePick.value)
   chargePick.value = null
-  if (!d) return
+  if (!item) return
   billing.value.additional_items.push({
-    description: deviceLabel(d),
-    amount: d.stock?.price != null ? Number(d.stock.price) : null,
+    description: item.is_device
+      ? item.label
+      : `${fmtQty(item.quantity)}${item.unit ? ` ${item.unit}` : ''} · ${item.label}`,
+    amount: item.unit_price != null ? Number(item.unit_price) * Number(item.quantity) : null,
   })
 }
 
@@ -994,7 +1171,7 @@ const buildSheetPayload = () => {
   if (payload.cable_meters === '') delete payload.cable_meters
   else payload.cable_meters = Number(payload.cable_meters)
 
-  for (const k of ['sectorial_id', 'router_id', 'plan_id', 'inventory_device_id']) {
+  for (const k of ['sectorial_id', 'router_id', 'plan_id']) {
     if (payload[k] == null || payload[k] === '') delete payload[k]
     else payload[k] = Number(payload[k])
   }
@@ -1335,7 +1512,13 @@ const formatDate = (d) => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadInstallation(), loadNetworkResources(), loadInventoryDevices(), loadPaymentMethods()])
+  await Promise.all([
+    loadInstallation(),
+    loadNetworkResources(),
+    loadEquipment(),
+    loadAvailableEquipment(),
+    loadPaymentMethods(),
+  ])
   await nextTick()
   // Pre-inicializa los contextos si los canvas ya existen; si no, getCtx()
   // los inicializa en el primer trazo.

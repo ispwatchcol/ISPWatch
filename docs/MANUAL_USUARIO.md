@@ -437,7 +437,19 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    >
    > En cores con PPPoE la IP del cliente antes ni se pedía ni se guardaba, así que el
    > técnico llenaba la IP local creyendo que era la del abonado y esa parte se perdía.
-2. **Sube fotos**. Puedes seleccionarlas **todas juntas**: el sistema las comprime en el
+2. **Carga los equipos y materiales** que usó, en *Equipos y materiales usados*. Los equipos con
+   serial se eligen de una lista —agrupada por quién los tiene— y los materiales se agregan con
+   su cantidad ("4 RJ45"). Puedes cargar **todos los que hagan falta**: la antena, el router, el
+   plato y los conectores.
+   > Sólo aparece lo que **tú** tienes asignado, más lo del técnico de esa orden. Si no ves nada,
+   > pide que te entreguen equipos en *Inventarios → Entregas y traspasos*.
+   >
+   > Cada línea **se descuenta del inventario** y queda en el historial del equipo. El botón
+   > **Devolver** deshace la carga y regresa la existencia a su dueño.
+   >
+   > El primer equipo que cargues rellena solo marca, modelo, MAC y serial de la hoja. Ya no hay
+   > campo *Modelo de antena*: ese dato sale del equipo que cargaste.
+3. **Sube fotos**. Puedes seleccionarlas **todas juntas**: el sistema las comprime en el
    teléfono y las va enviando **una por una** por su cuenta, para que no se caiga la subida.
    Verás el progreso mientras trabaja.
    > Antes había que subirlas de a una a mano porque varias juntas hacían fallar la subida.
@@ -445,9 +457,12 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    >
    > Cada foto puede pesar hasta **10 MB** y ser **JPG, PNG o WEBP**. Si una foto no cumple,
    > el sistema la rechaza y te lo dice.
-3. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
+4. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
-4. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
+   > El desplegable **Cobrar equipo de la instalación** trae los equipos que ya cargaste, con su
+   > precio. Sólo ofrece lo que de verdad se descargó, para que la factura y el acta no digan
+   > cosas distintas.
+5. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
    **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
    para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
    hayas pulsado *Guardar hoja*, y **no guarda ni cierra nada**: puedes abrirlo las veces que
@@ -457,7 +472,10 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    >
    > Si tu teléfono no muestra el PDF dentro de la ventana, usa **Abrir en pestaña** o
    > **Descargar**, en la misma barra.
-5. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
+   >
+   > La hoja incluye la lista de **equipos y materiales instalados con su serial**: es lo que el
+   > cliente firma que recibió, y lo que sirve para reclamar un equipo que no vuelva.
+6. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
    > El trazo se ve a medida que se firma. Si al firmar el recuadro se quedara en blanco,
    > vuelve a trazar la firma: el sistema **no deja cerrar la orden con una firma vacía**.
 
@@ -1228,7 +1246,7 @@ Dentro del ticket puedes:
 
 ## 15. Inventario
 
-**Inventarios.** Se organiza en cuatro niveles:
+**Inventarios.** Se organiza en seis secciones:
 
 | Sección | Qué guarda |
 |---|---|
@@ -1236,8 +1254,49 @@ Dentro del ticket puedes:
 | **Proveedores** | A quién le compras, con datos del asesor comercial |
 | **Sucursales** | Dónde están físicamente los equipos |
 | **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC |
+| **Entregas y traspasos** | Pasar equipos de la bodega a un técnico y recibirlos de vuelta |
+| **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
 
-Un equipo se puede asignar a un cliente.
+### 15.1 Por serial o por cantidad
+
+Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
+
+- **Por serial** — antenas, routers, ONU. Cada unidad se registra aparte con su serial y su MAC,
+  y el sistema sabe en todo momento quién la tiene.
+- **Por cantidad** — RJ45, cable, platos, cinta. No se registra uno por uno: se lleva un saldo
+  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida: unidad, metro, rollo.
+
+Esto no se puede cambiar a la ligera una vez el modelo tiene existencias, porque las dos formas
+de contar no se mezclan.
+
+### 15.2 Entregar equipos a un técnico
+
+**Inventarios → Entregas y traspasos.** Eliges de dónde sale (una bodega o una persona), marcas
+los equipos y escribes las cantidades de material, eliges a quién entra y registras.
+
+Sirve en los dos sentidos: entregar a un técnico el lunes y recibirle los sobrantes el viernes es
+el mismo formulario, cambiando origen por destino. Abajo hay además una **Entrada de material**
+para dar de alta consumibles comprados.
+
+**Nada se borra nunca.** Un movimiento equivocado se corrige con el movimiento contrario, y los
+dos quedan en el historial.
+
+### 15.3 Qué equipos puede usar cada quien
+
+Al llenar la hoja de una instalación, el técnico **sólo ve lo que tiene asignado**. No puede usar
+un equipo que carga otro técnico: primero se lo tienen que traspasar. Quien administre inventario
+ve además las bodegas, y en una orden concreta cualquiera puede descargar lo que lleva el técnico
+asignado a esa orden — así la secretaria puede capturar en oficina una visita ya hecha.
+
+Cada equipo o material que se carga a una instalación **se descuenta de quien lo aportó** y queda
+en el historial. Si te equivocaste, el botón **Devolver** lo regresa a su dueño.
+
+Un equipo instalado queda ligado al cliente y ya no aparece como disponible para nadie.
+
+Las cuatro tarjetas de arriba en **Lista de equipos** cuentan cada catálogo por separado:
+*Total dispositivos* son los equipos registrados, y *En stock*, *Proveedores* y *Sucursales*
+son cuántos modelos, proveedores y sucursales tienes creados — se ven aunque todavía no hayas
+registrado ningún equipo.
 
 Para cargar muchos equipos de golpe, ve a **Acciones masivas → Importar inventario**.
 

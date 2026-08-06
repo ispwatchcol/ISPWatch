@@ -6,8 +6,11 @@
 
 **Última actualización:** 2026-08-06 · Rama: `feat/document-templates-and-customer-purge`
 
-Últimos dos bloques de trabajo, unificados en esta rama:
+Últimos bloques de trabajo, unificados en esta rama:
 
+- **Inventario con custodia, consumibles y kardex (2026-08-06, § 23):** un equipo sabe quién lo
+  tiene, los consumibles se llevan por saldo, una instalación puede descargar varios equipos, y
+  todo movimiento queda escrito en una tabla append-only.
 - **Plantillas de documentos y borrado de cliente (2026-08-06, §§ 16-19):** diagnóstico de
   marcadores migrados de otros sistemas, editor visual que no pierde el documento y muestra la
   hoja real, plantillas base reguladas de 6 países, y borrado de cliente sin residuos (archivos
@@ -43,6 +46,9 @@
 18. [El PDF salía con los textos montados: el editor mentía sobre el ancho — 2026-08-06](#18-el-pdf-salía-con-los-textos-montados-el-editor-mentía-sobre-el-ancho--2026-08-06)
 19. [Borrar un cliente pasa a ser un borrado real, sin residuos — 2026-08-06](#19-borrar-un-cliente-pasa-a-ser-un-borrado-real-sin-residuos--2026-08-06)
 20. [El PDF no se parecía al editor porque el modo avanzado estaba apagado — 2026-08-06](#20-el-pdf-no-se-parecía-al-editor-porque-el-modo-avanzado-estaba-apagado--2026-08-06)
+21. [El PDF no se parecía al editor: cuatro causas medidas — 2026-08-06](#21-el-pdf-no-se-parecía-al-editor-cuatro-causas-medidas--2026-08-06)
+22. [Las tarjetas de Inventario contaban dispositivos, no catálogos — 2026-08-06](#22-las-tarjetas-de-inventario-contaban-dispositivos-no-catálogos--2026-08-06)
+23. [Custodia de inventario, consumibles y kardex — 2026-08-06](#23-custodia-de-inventario-consumibles-y-kardex--2026-08-06)
 
 ---
 
@@ -2005,3 +2011,132 @@ entero.
 Suite completa: **599 pruebas en verde** (593 antes de empezar; +9 de `PdfPageGeometryTest`,
 +6 de `AdvancedTemplateSanitizerTest`, +3 de `TemplateDiagnosticsTest`, +2 de
 `DocumentTemplateControllerTest`).
+
+---
+
+## 22. Las tarjetas de Inventario contaban dispositivos, no catálogos — 2026-08-06
+
+**Síntoma.** Con proveedores y sucursales ya creados, las cuatro tarjetas de
+`resources/js/pages/Inventory.vue` mostraban **0**. Sólo empezaban a subir después de registrar
+un dispositivo.
+
+**Causa.** `calculateStats()` derivaba las cuatro cifras del array `devices`: los proveedores
+eran `new Set(devices.map(d => d.provider_id))`, las sucursales lo mismo con `branch_id`, y "En
+stock" era `devices.filter(d => d.stock_id).length`. Es decir, no contaba los catálogos sino
+**cuántos catálogos distintos referenciaba el inventario** — con el inventario vacío, cero por
+definición. La página ya cargaba `providers` y `branches` para los filtros; nadie los usaba para
+las tarjetas.
+
+**Arreglo.** `stats` pasa de `ref` recalculado a la mano a `computed` sobre los cuatro
+catálogos, y se añade `loadStocks()` (`GET /inventory-stock`, mismo permiso
+`view_inventory,view_support` que ya usaban los otros dos) porque el catálogo de modelos no se
+cargaba en esta pantalla. Al ser `computed` desaparece la otra mitad del problema: `stats` sólo
+se refrescaba desde `loadDevices()`, así que aunque los catálogos llegaran después no movían las
+tarjetas.
+
+**Efecto de contrato.** "En stock" cambia de significado: antes era *dispositivos con modelo
+asignado*, ahora es *modelos en el catálogo*. Es lo que el nombre de la tarjeta y las otras tres
+ya prometían — cada tarjeta cuenta su propia sección del menú de Inventarios.
+
+---
+
+## 23. Custodia de inventario, consumibles y kardex — 2026-08-06
+
+**Lo que se pidió.** Que un técnico sólo pueda instalar los equipos que tiene él; que quede
+registro de los movimientos; que una instalación pueda llevar varios equipos y no uno solo
+(«agregué una LDF pero no me deja un router, el plato, los RJ»); y que *Modelo de antena*
+desaparezca porque ese dato ya viene del equipo cargado.
+
+### 23.1 De dónde partía
+
+Tres limitaciones encadenadas, todas en el mismo sitio:
+
+1. La hoja guardaba **un** `sheet.inventory_device_id` dentro de su JSON. Una visita = un equipo.
+2. El filtro de "equipos disponibles" del frontend comparaba el custodio contra el **id del
+   cliente**: `d.user_id === installation.customer_id`. Como esos dos identificadores nunca
+   coinciden, la condición se resolvía por el `!d.user_id` de la izquierda y **salía cualquier
+   equipo sin asignar, sin importar quién lo tuviera**.
+3. No existía ninguna tabla de movimientos, y `inventory_device` no sabía decir "instalado".
+
+Los consumibles directamente no existían: los RJ45 y el cable se escribían a mano en el campo de
+texto *Materiales utilizados*.
+
+### 23.2 El catálogo decide cómo se cuenta
+
+`inventory_stock.is_serialized` parte el inventario en dos mundos que no se mezclan. Con serial:
+una fila por aparato, como siempre. Por cantidad: **ninguna** fila por unidad y un saldo por
+custodio en `inventory_balances`. Registrar 500 RJ45 uno por uno no lo iba a hacer nadie, y sin
+esa alternativa el material seguiría fuera de todo control.
+
+El custodio de un saldo es polimórfico (`holder_type` + `holder_id`, NOT NULL, sin FK) y no dos
+columnas nulables `branch_id`/`user_id`. El motivo es el índice único
+`(tenant_id, stock_id, holder_type, holder_id)`: PostgreSQL considera **distintos** dos NULL, así
+que con columnas nulables el índice dejaría entrar saldos duplicados del mismo material — el bug
+clásico que hace que un inventario deje de cuadrar sin que nadie sepa cuándo empezó. Se acepta a
+cambio que borrar una sucursal deje saldos huérfanos: un saldo huérfano se ve y se traspasa, uno
+borrado en cascada no se recupera.
+
+### 23.3 `status` como árbitro de la custodia
+
+`inventory_device` ya tenía `user_id` y `branch_id`, pero nada decía cuál de los dos mandaba. Un
+equipo con las dos llenas podía estar en la bodega o en la mochila del técnico. Ahora `status`
+(`stock` / `assigned` / `installed` / `retired`) decide qué columna es el custodio real, y la
+migración hace el backfill respetando lo que la tabla ya significaba: lo que tenía "asignado a"
+queda en `assigned`, el resto en `stock`. Ningún equipo existente cambia de dueño.
+
+### 23.4 Todo pasa por `InventoryLedger`
+
+Cada operación hace dos cosas que tienen que ocurrir juntas o no ocurrir: mover la existencia y
+escribir la línea del kardex. Si eso viviera en los controladores, tarde o temprano alguno movería
+existencias sin registrar el movimiento y el historial dejaría de explicar el saldo —que es
+exactamente el problema que el módulo vino a resolver. Por eso el servicio es el único que toca
+`inventory_device.status`, `inventory_balances` e `inventory_movements`, siempre en transacción, y
+los saldos se leen con `lockForUpdate()` salvo en SQLite (donde corre la suite y no hay
+concurrencia real).
+
+`inventory_movements` es **append-only**: un movimiento equivocado se corrige con el contrario,
+como en contabilidad. `device_serial` duplica el serial a propósito para que la traza sobreviva
+al borrado del equipo.
+
+### 23.5 La regla de quién puede tomar qué
+
+Lo suyo siempre; la bodega sólo con `view_inventory`; la mochila de otro técnico, nadie.
+
+Con una excepción que el trabajo real exige: en una orden también se puede descargar lo que carga
+el **técnico asignado a esa orden**, aunque quien llene la hoja sea la secretaria. Sin ella,
+cualquier hoja capturada en oficina obligaría a traspasar antes los equipos a nombre de quien
+digita, y el kardex acabaría diciendo una mentira para poder registrar una verdad.
+
+La pantalla de **Entregas** sí mueve equipos de cualquier custodio —recoger lo que un técnico no
+usó es su función—, pero exige `view_inventory` y deja el traspaso escrito. La distinción es
+entre *mover* con rastro y *consumir* en silencio.
+
+### 23.6 Dos trampas que costaron encontrar
+
+**La relación no podía llamarse `equipment()`.** `customer_installations` ya tiene una **columna**
+`equipment` (el texto libre "equipo previsto" que se escribe al agendar). Eloquent resuelve
+primero el atributo, así que `$installation->equipment` habría seguido devolviendo el string
+incluso después de un `loadMissing()`, y la vista del PDF habría hecho `->count()` sobre un
+texto. Se llama `equipmentItems()`.
+
+**`/inventory/movements` se registra antes que `/inventory/{inventory}`.** Al revés, el parámetro
+se traga la ruta literal y `movements` llega al controlador como si fuera un id.
+
+### 23.7 Qué cambió de cara al usuario
+
+- La hoja tiene un bloque **Equipos y materiales usados** con varias líneas, agrupadas por
+  custodio, y un botón **Devolver** por línea.
+- **Modelo de antena** desaparece: el primer equipo cargado rellena marca, modelo, MAC y serial.
+  *Materiales utilizados* sigue existiendo pero pasa a ser explícitamente para lo que no está en
+  el inventario.
+- El PDF de la hoja imprime la lista de equipos **con serial** — es lo que el cliente firma que
+  recibió.
+- Dos pantallas nuevas: **Entregas y traspasos** y **Movimientos**.
+- El cobro de adicionales ya sólo ofrece los equipos **realmente descargados** en esa
+  instalación, para que factura y acta no puedan decir cosas distintas.
+
+### 23.8 Estado
+
+611 pruebas en verde (599 antes; +12 de `InventoryCustodyTest`, que cubre el filtro por custodia,
+el rechazo de equipo ajeno, el descuento por cantidad, el saldo insuficiente, la devolución, el
+traspaso, la entrada sin origen y el kardex por custodio).

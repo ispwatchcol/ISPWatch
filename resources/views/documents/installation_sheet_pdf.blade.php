@@ -138,6 +138,26 @@
     @endif
 
     {{--
+        Equipos y materiales descargados del inventario. Es lo que el cliente
+        firma que recibió, así que se imprime con serial: sin serial, un acta
+        firmada no sirve para reclamar un equipo que no volvió.
+    --}}
+    @php($equipment = $installation->equipmentItems ?? collect())
+    @if($equipment->count())
+        <h2>Equipos y materiales instalados</h2>
+        <table class="info">
+            @foreach($equipment as $item)
+                <tr>
+                    <td class="label">
+                        @if(!$item->device_id){{ rtrim(rtrim(number_format((float) $item->quantity, 2, ',', '.'), '0'), ',') }}@if($item->stock?->unit) {{ $item->stock->unit }}@endif @else 1 @endif
+                    </td>
+                    <td>{{ $item->label() }}</td>
+                </tr>
+            @endforeach
+        </table>
+    @endif
+
+    {{--
         Las fotos de la instalación NO van en la hoja: viven en los documentos
         del cliente, que es donde se consultan. Además nunca llegaron a verse
         aquí — se referenciaban con public_path('storage/...') mientras que se

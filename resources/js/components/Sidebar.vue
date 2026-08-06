@@ -318,6 +318,10 @@ const inventariosItems = computed(() => {
         items.push({ name: 'Proveedores', to: '/inventory/providers', icon: 'bi-building' });
     if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Sucursales', to: '/inventory/branches', icon: 'md-storemalldirectory' });
+    if (authStore.hasPermission('view_inventory'))
+        items.push({ name: 'Entregas y traspasos', to: '/inventory/transfers', icon: 'bi-arrow-left-right' });
+    if (authStore.hasPermission('view_inventory'))
+        items.push({ name: 'Movimientos', to: '/inventory/movements', icon: 'bi-clock-history' });
     return items;
 });
 

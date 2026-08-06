@@ -318,7 +318,12 @@ erDiagram
     inventory_stock ||--o{ inventory_device : "modelo"
     inventory_provider ||--o{ inventory_device : "proveedor"
     inventory_branch ||--o{ inventory_device : "sucursal"
-    users ||--o{ inventory_device : "asignado a"
+    users ||--o{ inventory_device : "custodio / cliente"
+    inventory_stock ||--o{ inventory_balances : "saldo por custodio"
+    inventory_stock ||--o{ inventory_movements : "kardex"
+    inventory_device ||--o{ inventory_movements : "kardex"
+    customer_installations ||--o{ installation_equipment : "equipos usados"
+    inventory_device ||--o| installation_equipment : "instalado en"
 
     expense_categories ||--o{ expenses : ""
     users ||--o{ expenses : "beneficiario / creador"
@@ -808,10 +813,30 @@ Un ticket puede generar facturas de tipo `service_charge` mediante `invoices.tic
 
 | Tabla | Columnas |
 |---|---|
-| `inventory_stock` | `brand`, `model`, `desc` ⚠️(**tipo `date`**, ver §8), `price` numeric(10,2), `tenant_id` |
+| `inventory_stock` | `brand`, `model`, `desc` ⚠️(**tipo `date`**, ver §8), `price` numeric(10,2), `is_serialized`, `unit`, `tenant_id` |
 | `inventory_provider` | `name`, `email`, `phone`, `addr`, `city`, `identification`, `advisor_*` |
 | `inventory_branch` | `name`, `dir`, `numero` |
-| `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `serial`, `mac` |
+| `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `customer_id`, `status`, `serial`, `mac` |
+| `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
+| `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `customer_id`, `notes`, `created_by`, `created_at` |
+| `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+
+**Cómo se cuenta cada cosa.** `inventory_stock.is_serialized` divide el catálogo en dos
+mundos que no se mezclan:
+
+- **Serializado** (LDF, router, ONU): una fila de `inventory_device` por aparato. Dónde está lo
+  dice `status` — `stock` (en `branch_id`), `assigned` (lo tiene `user_id`), `installed` (en casa
+  de `customer_id`), `retired` (baja). Antes de esta columna, un equipo con `user_id` y
+  `branch_id` llenos era ambiguo y no existía forma de decir "ya está instalado".
+- **Por cantidad** (RJ45, cable, platos): sin filas por unidad; un saldo por custodio en
+  `inventory_balances`. El custodio es polimórfico (`holder_type` + `holder_id`, NOT NULL, sin FK)
+  porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos
+  duplicados — con columnas nulables PostgreSQL considera distintos dos NULL y el índice no
+  serviría.
+
+`inventory_movements` es el **kardex append-only**: nunca se actualiza ni se borra una fila; un
+movimiento equivocado se corrige con el contrario. `device_serial` duplica el serial a propósito
+para que la traza sobreviva al borrado del equipo. Todo lo escribe `InventoryLedger` y sólo él.
 
 ### 4.17 Tráfico y falla masiva
 
@@ -884,6 +909,16 @@ Agregado permanente.
 | `inventory_device.stock_id` | `inventory_stock.id` | SET NULL |
 | `inventory_device.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_device.user_id` | `users.id` | SET NULL |
+| `inventory_device.customer_id` | `users.id` | SET NULL |
+| `inventory_balances.stock_id` | `inventory_stock.id` | CASCADE |
+| `inventory_balances.tenant_id` | `tenant.id` | CASCADE |
+| `inventory_movements.device_id` | `inventory_device.id` | SET NULL |
+| `inventory_movements.stock_id` | `inventory_stock.id` | SET NULL |
+| `inventory_movements.installation_id` | `customer_installations.id` | SET NULL |
+| `inventory_movements.customer_id` / `created_by` | `users.id` | SET NULL |
+| `installation_equipment.installation_id` | `customer_installations.id` | CASCADE |
+| `installation_equipment.device_id` | `inventory_device.id` | SET NULL (**único**) |
+| `installation_equipment.stock_id` | `inventory_stock.id` | SET NULL |
 | `inventory_provider.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_stock.tenant_id` | `tenant.id` | SET NULL |
 | `invoice_carryovers.customer_id` | `users.id` | CASCADE |

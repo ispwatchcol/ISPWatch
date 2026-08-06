@@ -513,6 +513,33 @@ Route::middleware(['permission:view_reports'])->group(function () {
 **7. Documentación** — actualiza `API_REFERENCE.md`, `BITACORA_TECNICA.md`,
 `MANUAL_USUARIO.md` y `BASE_DATOS.md` según corresponda.
 
+### Ejemplo: mover existencias de inventario
+
+**Nunca escribas `inventory_device.status`, `inventory_balances` ni `inventory_movements` a
+mano.** Todo pasa por `App\Services\Inventory\InventoryLedger`, que mueve la existencia y escribe
+el kardex dentro de la misma transacción. Un controlador que actualice el estado por su cuenta
+deja el historial sin explicar el saldo, y no hay forma de reconstruirlo después.
+
+```php
+public function __construct(private InventoryLedger $ledger) {}
+
+// Entregar un equipo a un técnico
+$this->ledger->transferDevice($device, InventoryMovement::HOLDER_USER, $tech->id, $actor, 'Entrega');
+
+// Descargar un equipo en una instalación (valida custodia y lanza ValidationException)
+$this->ledger->assignDeviceToInstallation($installation, $device, $actor);
+
+// Material por cantidad (descuenta saldo; falla si no alcanza)
+$this->ledger->assignMaterialToInstallation($installation, $stock, 4.0, 'user', $tech->id, $actor);
+
+// Deshacer: devuelve la existencia a quien la aportó (source_type/source_id de la línea)
+$this->ledger->releaseFromInstallation($item, $actor);
+```
+
+Para añadir un tipo de movimiento nuevo: constante en `InventoryMovement`, método público en el
+ledger que llame a `record()` dentro de su `DB::transaction`, y una entrada en el `match` de
+`InventoryMovementController::holderLabel()` si estrena un extremo (`from_type`/`to_type`).
+
 ### Ejemplo: nuevo comando RouterOS
 
 Crea el manager en `app/Services/MikroTik/`, usa los traits
@@ -794,6 +821,8 @@ Las tres reglas que hacen que funcione:
 | 33 | **Un `delete payload.campo` en el frontend es indistinguible de "no se guardó"** | `InstallationDetail.vue::buildSheetPayload()` borraba `client_ip` del payload cuando el core tenía PPPoE: el técnico escribía la IP del cliente, el POST salía sin ella y el backend guardaba bien lo que le llegó. Ni error, ni log, ni validación que se queje — sólo un campo vacío la próxima vez que se abre la orden. Si un campo se muestra, se guarda; si no se debe guardar, no se debe mostrar. Ver `BITACORA_TECNICA.md` § 20 |
 | 34 | **Un formulario largo con un solo botón de guardar al final** | La tarjeta *Conexión / Red* de `InstallationDetail.vue` no tenía botón propio: el único `Guardar hoja` vivía en la tarjeta siguiente y guardaba las dos, pero nada lo decía en pantalla. Llenar la primera y salir perdía el trabajo en silencio. Cada bloque visualmente independiente necesita su acción de guardado (aunque llame al mismo handler) |
 | 31 | **El `$periodStart` de `createMonthlyInvoiceFor()` NO siempre es el día 1** | Llega como `$charge['period_start']`, y en una primera factura prorrateada eso es el **día de instalación** (`2026-07-11`), no el inicio del mes. Cualquier cálculo que necesite el mes natural —la ventana de vigencia de un servicio adicional, su prorrateo— debe derivarlo de `$periodEnd->copy()->startOfMonth()`, que sí es siempre fin de mes en ese método. Usar el `$periodStart` recibido prorratea por error asignaciones antiguas, y el error sólo aparece en clientes instalados a mitad de mes |
+| 35 | **Una relación NO puede llamarse igual que una columna del mismo modelo** | `customer_installations` tiene una columna `equipment` (texto libre "equipo previsto"). Al añadir la relación `equipment()` hacia `installation_equipment`, `$installation->equipment` seguía devolviendo **el string**: Eloquent resuelve primero `$attributes` y sólo cae a las relaciones si no hay atributo con ese nombre — ni siquiera un `loadMissing('equipment')` previo cambia eso, porque la relación queda cargada pero inalcanzable por la propiedad. La vista del PDF habría hecho `->count()` sobre un texto. Se llama `equipmentItems()`. Es la trampa gemela de la #30 (relación que pisa una FK), pero al revés: aquí la **columna** gana |
+| 36 | **Un `whereIn` polimórfico con NULL no filtra: usa un índice único sin nulos** | En `inventory_balances` el custodio es `holder_type` + `holder_id` **NOT NULL** en vez de `branch_id`/`user_id` nulables, porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos duplicados — y en PostgreSQL **dos NULL son distintos entre sí**, así que un único sobre columnas nulables deja pasar duplicados en silencio. Si necesitas unicidad sobre "una de dos referencias", conviértelo en par tipo+id antes que en dos columnas nulables |
 ---
 
 ## 12. Solución de problemas
