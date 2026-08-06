@@ -6,6 +6,7 @@ use App\Billing\FirstInvoicePolicy;
 use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
 use App\Models\BillingActionLog;
+use App\Models\CustomerAdditionalService;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\InvoiceCarryover;
@@ -674,8 +675,12 @@ class BillingService
             'subtotal'     => $subtotal,
             'tax'          => $tax,
             'total'        => $total,
-            'balance_due'  => $free ? 0 : $total,
-            'status'       => $free ? 'paid' : 'issued',
+            // El saldo sale del total, sin atajos: un mes de cortesía nace en
+            // cero porque su subtotal ES cero, no porque se le fuerce. Si más
+            // abajo los servicios adicionales le suman algo, la factura sube de
+            // 'paid' a 'issued' sola y vuelve al circuito normal de cobro.
+            'balance_due'  => $total,
+            'status'       => $total > 0 ? 'issued' : 'paid',
         ]);
 
         InvoiceItem::create([
@@ -697,32 +702,46 @@ class BillingService
             $this->applyPendingCarryoversTo($invoice);
         }
 
+        // Servicios adicionales recurrentes del cliente (alquiler de equipos,
+        // soporte mensual...). Van DESPUÉS del arrastre y ANTES del saldo a
+        // favor: aplicar el crédito contra un total al que todavía le faltan
+        // ítems dejaría balance_due mal y el aviso al cliente con otra cifra.
+        //
+        // OJO con $periodStart: en una primera factura prorrateada es el día de
+        // instalación, no el 1º. Los adicionales razonan sobre el MES natural,
+        // que se deriva de $periodEnd (siempre fin de mes en este método).
+        $this->applyAdditionalServicesTo($invoice, $periodEnd->copy()->startOfMonth(), $periodEnd, $free);
+
         $profile->refresh();
         $this->applyCreditToInvoice($invoice, $profile);
 
         Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id})"
-            . ($free ? ' — mes de cortesía, emitida en cero.' : '.'));
+            . ($free ? ' — mes de cortesía (plan en cero).' : '.'));
 
-        // Un mes de cortesía no se notifica: avisarle al cliente de una factura
-        // de $0 que no tiene que pagar sólo genera confusión (y gasta mensajes).
+        // Se notifica lo que hay que pagar, y sólo eso. Manda el saldo, no el
+        // motivo:
         //
-        // Tampoco se notifica la factura que NACE SALDADA porque el saldo a
-        // favor del cliente la cubrió entera (balance_due = 0, status = paid):
-        // el aviso "tienes una nueva factura" le llegaba a quien ya no debía
-        // nada, como si no la hubiera pagado.
-        if (!$free) {
-            // Notification failure must NOT roll back the invoice.
-            try {
-                $invoice->refresh()->load('tenant');
+        //  - Mes de cortesía sin adicionales → $0: no se avisa. Avisar de una
+        //    factura que no hay que pagar confunde (y gasta mensajes).
+        //  - Factura que nace SALDADA porque el saldo a favor la cubrió entera
+        //    → tampoco: el aviso "tienes una nueva factura" le llegaba a quien
+        //    ya no debía nada, como si no la hubiera pagado.
+        //  - Mes de cortesía CON adicionales → sí se avisa: el plan va gratis
+        //    pero el alquiler del equipo se cobra, y el cliente tiene que
+        //    enterarse de que debe pagarlo. Antes esta rama estaba dentro de un
+        //    `if (!$free)` que la habría dejado muda.
+        //
+        // Notification failure must NOT roll back the invoice.
+        try {
+            $invoice->refresh()->load('tenant');
 
-                if ((float) $invoice->balance_due > 0) {
-                    $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
-                } else {
-                    Log::info("Billing: Invoice {$invoiceNumber} quedó saldada con el saldo a favor del cliente {$customerId}. No se notifica.");
-                }
-            } catch (\Throwable $e) {
-                Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+            if ((float) $invoice->balance_due > 0) {
+                $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+            } else {
+                Log::info("Billing: Invoice {$invoiceNumber} no tiene saldo por cobrar (cortesía o saldo a favor del cliente {$customerId}). No se notifica.");
             }
+        } catch (\Throwable $e) {
+            Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
         }
 
         return $invoice;
@@ -1258,6 +1277,160 @@ class BillingService
      * cargo adicional o una factura manual no arrastran deuda ajena encima, que
      * sorprendería al operador que la está emitiendo a mano.
      */
+    /**
+     * Suma a la factura del mes los servicios adicionales recurrentes del
+     * cliente (alquiler de router extra, soporte mensual, un punto de TV...).
+     *
+     * NO emiten factura propia: son ítems más de la mensualidad, igual que el
+     * arrastre. La mecánica de totales es la misma que applyPendingCarryoversTo.
+     *
+     * Cuatro filtros, en este orden:
+     *
+     *  1. Ventana de vigencia de la asignación (starts_at / ends_at / is_active).
+     *  2. Cortesía: si el mes es de cortesía por instalación, sólo entran los
+     *     servicios marcados `charge_on_courtesy_month`.
+     *  3. Idempotencia: si esta asignación YA tiene un ítem en una factura del
+     *     cliente que cubre este mes, no se vuelve a cobrar.
+     *  4. Prorrateo: si la asignación arrancó dentro de este mes, manda el
+     *     `proration_mode` del catálogo (none / prorated / full).
+     *
+     * La idempotencia se DERIVA de los ítems existentes y no de un contador en
+     * la asignación: si un administrador borra la factura del mes, los ítems se
+     * van con ella (FK en cascada) y el periodo queda libre para volver a
+     * cobrarse. Un contador habría quedado adelantado y ese mes no se cobraría
+     * nunca.
+     *
+     * @param bool $courtesyMonth Mes de cortesía por instalación (plan en cero).
+     */
+    protected function applyAdditionalServicesTo(
+        Invoice $invoice,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        bool $courtesyMonth = false,
+    ): void {
+        // withoutTenantScope + tenant_id explícito: el scope global deriva el
+        // tenant del usuario autenticado y esto corre en el scheduler (sin
+        // sesión) y también desde la UI (donde el usuario podría pertenecer a
+        // un tenant distinto del de la factura que se está generando). Fijarlo
+        // a mano es la única forma de que dé lo mismo quién dispare la corrida.
+        $assignments = CustomerAdditionalService::withoutTenantScope()
+            ->where('tenant_id', $invoice->tenant_id)
+            ->where('customer_id', $invoice->customer_id)
+            ->where('is_active', true)
+            ->with(['service' => fn ($q) => $q->withoutGlobalScope('tenant')])
+            ->get();
+
+        if ($assignments->isEmpty()) {
+            return;
+        }
+
+        $added = 0.0;
+
+        foreach ($assignments as $assignment) {
+            $service = $assignment->service;
+
+            if (!$service) {
+                Log::warning("Billing: asignación {$assignment->id} sin servicio en el catálogo. Se omite.");
+                continue;
+            }
+
+            if (!$assignment->coversPeriod($periodStart, $periodEnd)) {
+                continue;
+            }
+
+            // Un servicio DESACTIVADO en el catálogo se sigue cobrando a quien
+            // ya lo tiene: desactivar significa "no ofrecerlo más al asignar",
+            // no "dejar de cobrárselo a 50 clientes en silencio". Para eso está
+            // dar de baja la asignación, que es explícito y por cliente.
+
+            if ($courtesyMonth && !$service->charge_on_courtesy_month) {
+                continue;
+            }
+
+            if ($this->additionalServiceAlreadyBilled($assignment->id, $invoice, $periodStart, $periodEnd)) {
+                continue;
+            }
+
+            $unitPrice   = $assignment->effective_price;
+            $description = $service->name;
+
+            if ($assignment->startsInsidePeriod($periodStart, $periodEnd)) {
+                $mode = $service->proration_mode;
+
+                // 'none': su primer cobro sale en el ciclo siguiente.
+                if ($mode === Billing::FIRST_INVOICE_NONE) {
+                    continue;
+                }
+
+                if ($mode === Billing::FIRST_INVOICE_PRORATED) {
+                    $unitPrice = FirstInvoicePolicy::prorate($unitPrice, $assignment->starts_at, $periodStart);
+                    $description .= " (proporcional desde el {$assignment->starts_at->format('d/m/Y')})";
+                }
+            }
+
+            // Se redondea el PRECIO UNITARIO y después se multiplica por la
+            // cantidad, no al revés: así unit_price × quantity = amount cuadra
+            // exacto en la factura, que es lo que el cliente ve.
+            $quantity = max(1, (int) $assignment->quantity);
+            $amount   = round($unitPrice * $quantity, 2);
+
+            if ($amount <= 0) {
+                continue;
+            }
+
+            InvoiceItem::create([
+                'invoice_id'                     => $invoice->id,
+                'customer_additional_service_id' => $assignment->id,
+                'type'                           => 'additional_service',
+                'description'                    => $description,
+                'quantity'                       => $quantity,
+                'unit_price'                     => $unitPrice,
+                'amount'                         => $amount,
+            ]);
+
+            $added += $amount;
+        }
+
+        if ($added <= 0) {
+            return;
+        }
+
+        $invoice->subtotal    = (float) $invoice->subtotal + $added;
+        $invoice->total       = (float) $invoice->total + $added;
+        $invoice->balance_due = (float) $invoice->balance_due + $added;
+        $this->updateInvoiceStatus($invoice);
+        $invoice->save();
+
+        Log::info("Billing: factura {$invoice->id} (#{$invoice->number}) suma \${$added} "
+            . "en servicios adicionales del cliente {$invoice->customer_id}.");
+    }
+
+    /**
+     * ¿Esta asignación ya se cobró en una factura que cubre este mes?
+     *
+     * Se compara por SOLAPE de periodos y no por igualdad de `period_start`:
+     * una primera factura prorrateada arranca el día de la instalación, no el
+     * 1º, así que una comparación exacta la dejaría fuera y cobraría dos veces.
+     *
+     * Sin filtrar por estado a propósito: que el ítem exista significa que ya se
+     * cobró. Si la factura se borra, sus ítems se van con ella y el mes vuelve a
+     * quedar libre — que es justo el comportamiento buscado.
+     */
+    protected function additionalServiceAlreadyBilled(
+        int $assignmentId,
+        Invoice $invoice,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+    ): bool {
+        return InvoiceItem::where('customer_additional_service_id', $assignmentId)
+            ->whereHas('invoice', function ($q) use ($invoice, $periodStart, $periodEnd) {
+                $q->where('customer_id', $invoice->customer_id)
+                    ->where('period_start', '<=', $periodEnd->toDateString())
+                    ->where('period_end', '>=', $periodStart->toDateString());
+            })
+            ->exists();
+    }
+
     protected function applyPendingCarryoversTo(Invoice $invoice): void
     {
         $pending = InvoiceCarryover::pending()

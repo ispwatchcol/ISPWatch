@@ -230,7 +230,7 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 
 | Servicio | Líneas | Responsabilidad |
 |---|---|---|
-| `BillingService` | 1432 | Generación mensual, numeración, pagos, asignación, anulación, notificación |
+| `BillingService` | 1883 | Generación mensual, numeración, pagos, asignación, anulación, notificación, **servicios adicionales recurrentes** |
 | `OverdueSuspensionService` | 412 | Corte automático por mora según config del router |
 | `CustomerProvisioningService` | 338 | Aprovisionar un cliente según el **método de control** del router |
 | `RouterProvisioningService` | 218 | Suspender/reactivar en el router |
@@ -243,6 +243,36 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `MikroTikSshService` | 603 | SSH directo/vía CORE |
 | `WhatsAppService` | 162 | WhatsApp Cloud API (Meta Graph v18) |
 | `Templates/*` | — | Render, saneado y resolución de placeholders de documentos |
+
+### Composición de la factura mensual
+
+Todo lo que entra en la mensualidad de un cliente se arma en un único método,
+`BillingService::createMonthlyInvoiceFor()`, por el que pasan **tanto la corrida mensual
+como los reintentos del failover** (`retryFailedInvoice`). El orden no es casual:
+
+| # | Paso | Por qué va ahí |
+|---|---|---|
+| 1 | `Invoice::create` con el cargo del plan | `balance_due` sale del total, **sin atajos**: un mes de cortesía nace en cero porque su subtotal *es* cero |
+| 2 | Ítem del plan (`type = plan`) | Prorrateo y cortesía ya resueltos por `FirstInvoicePolicy` |
+| 3 | `applyPendingCarryoversTo()` — arrastre de abonos parciales | Se salta en meses de cortesía, a propósito: espera a la siguiente factura cobrable |
+| 4 | **`applyAdditionalServicesTo()`** — servicios adicionales recurrentes | Después del arrastre y **antes** del crédito |
+| 5 | `applyCreditToInvoice()` — saldo a favor | Aplicarlo antes del paso 4 lo calcularía contra un total incompleto y dejaría `balance_due` mal |
+| 6 | Notificación | Decide por `balance_due > 0`, no por el motivo: una cortesía con adicionales **sí** se avisa |
+
+**Servicios adicionales.** Un servicio del catálogo (`additional_services`) asignado a un
+cliente (`customer_additional_services`) **no emite factura propia**: entra como un ítem
+más (`type = additional_service`) con FK a la asignación. Cuatro filtros, en orden:
+ventana de vigencia → cortesía (`charge_on_courtesy_month`) → idempotencia → prorrateo
+(`proration_mode`, el mismo vocabulario que `FirstInvoicePolicy`).
+
+Dos detalles que el código señala y conviene no perder:
+
+- **La idempotencia se deriva de los ítems existentes**, no de un contador en la
+  asignación: borrar la factura del mes se lleva sus ítems (FK en cascada) y libera el
+  periodo. Un contador habría quedado adelantado y ese mes no se cobraría nunca.
+- **El `$periodStart` que recibe el método puede no ser el 1º**: en una primera factura
+  prorrateada es el día de instalación. Los adicionales razonan sobre el mes natural, que
+  se deriva de `$periodEnd->startOfMonth()`.
 
 ### Plantillas de documentos (`app/Services/Templates`)
 

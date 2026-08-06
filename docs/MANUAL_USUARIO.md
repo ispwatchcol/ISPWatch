@@ -285,6 +285,23 @@ Un cliente no puede tener el mismo servicio activo dos veces: si lo intentas, el
 pide subir la **cantidad** en la asignación que ya existe. Así el cobro doble se ve en la
 factura en vez de esconderse en dos líneas iguales.
 
+##### Cómo aparece en la factura
+
+El servicio adicional **no genera una factura aparte**: sale como una línea más dentro de
+la mensualidad del cliente, junto al plan. Si el cliente paga $50.000 de plan y alquila un
+router de $20.000, recibe **una sola factura de $70.000** con las dos líneas.
+
+Se cobra en la factura del mes según el ciclo de su router — el mismo día en que se le
+factura todo lo demás.
+
+| Situación | Qué pasa con el adicional |
+|---|---|
+| El cliente está en un **mes de cortesía** por instalación | Se cobra o no según la casilla *Cobrar en meses de cortesía* del catálogo. Si se cobra, la factura deja de ser de $0 y el cliente **sí** recibe el aviso de pago, por el monto del adicional |
+| El servicio se **desactiva en el catálogo** | Los clientes que ya lo tienen **lo siguen pagando**. Desactivar sólo lo quita de la lista al asignar. Para dejar de cobrárselo a alguien, dale de baja *su* asignación |
+| Se **da de baja** la asignación | Deja de cobrarse desde la siguiente factura. Las facturas anteriores no cambian |
+| Se **borra la factura** del mes | Al regenerarla, el adicional se vuelve a cobrar. No se pierde |
+| La generación mensual corre **dos veces** | El adicional se cobra **una sola vez**. No hay riesgo de duplicar |
+
 ### 5.4 Estados del cliente: suspender, retirar, cancelar
 
 Desde la ficha del cliente, con los botones **Suspender** y **Activar**.

@@ -197,21 +197,50 @@ final class FirstInvoicePolicy
 
         $daysInMonth  = $periodStart->daysInMonth;
         $billableDays = $daysInMonth - $serviceStart->day;
+        $amount       = self::prorate($fullAmount, $serviceStart, $periodStart);
 
-        if ($billableDays <= 0 || $fullAmount <= 0) {
+        if ($amount <= 0) {
             return null; // instalado el último día del mes / plan sin costo
         }
 
         return [
             'period_start' => $serviceStart->copy(),
-            // A pesos enteros: la moneda es COP (sin centavos en la práctica) y
-            // así el monto coincide exacto con el que la vista previa le muestra
-            // al operador antes de crear el cliente.
-            'amount'       => (float) round($fullAmount * $billableDays / $daysInMonth),
+            'amount'       => $amount,
             'description'  => "Servicio proporcional: {$planName} "
                 . "({$billableDays} de {$daysInMonth} días — desde el {$serviceStart->format('d/m/Y')})",
             'free'         => false,
         ];
+    }
+
+    /**
+     * Cobro proporcional a los días que quedan del mes.
+     *
+     * Es LA fórmula de prorrateo del sistema: la usa la primera factura del plan
+     * y también los servicios adicionales recurrentes que arrancan a mitad de
+     * mes. Vive aquí, pública y en un solo sitio, para que ajustarla (el
+     * redondeo, o si el día de alta se cobra o no) siga siendo un cambio de una
+     * línea y no una cacería por el código.
+     *
+     * Aritmética heredada de lo que el operador ya hacía a mano: alta el día 20
+     * de un mes de 30 ⇒ 10 días (30 − 20), es decir el día de alta no se cobra.
+     *
+     * Devuelve 0.0 cuando no hay nada que cobrar (alta el último día del mes, o
+     * importe base en cero); el llamante decide si eso significa "sin factura",
+     * "sin ítem" o cualquier otra cosa.
+     */
+    public static function prorate(float $fullAmount, Carbon $start, Carbon $periodStart): float
+    {
+        $daysInMonth  = $periodStart->daysInMonth;
+        $billableDays = $daysInMonth - $start->day;
+
+        if ($billableDays <= 0 || $fullAmount <= 0) {
+            return 0.0;
+        }
+
+        // A pesos enteros: la moneda es COP (sin centavos en la práctica) y así
+        // el monto coincide exacto con el que la vista previa le muestra al
+        // operador antes de crear el cliente.
+        return (float) round($fullAmount * $billableDays / $daysInMonth);
     }
 
     /**
