@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
+import DatePicker from '@/components/DatePicker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -75,7 +76,7 @@ const handleSubmit = async () => {
             <!-- Header -->
             <div class="flex items-center justify-between mb-8">
                 <button @click="router.push(`/billing/invoices/${route.params.id}`)"
-                    class="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium hover:text-indigo-600 transition-colors">
+                    class="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium hover:text-emerald-600 transition-colors">
                     <v-icon name="md-arrowback" class="w-5 h-5" />
                     Volver a Detalle
                 </button>
@@ -83,13 +84,13 @@ const handleSubmit = async () => {
 
             <!-- Loading -->
             <div v-if="loading" class="flex justify-center items-center py-24">
-                <v-icon name="bi-arrow-repeat" class="w-8 h-8 animate-spin text-indigo-500" />
+                <v-icon name="bi-arrow-repeat" class="w-8 h-8 animate-spin text-emerald-500" />
             </div>
 
             <!-- Form -->
             <div v-else-if="invoice" class="bg-white dark:bg-gray-800 shadow-xl shadow-slate-200/50 dark:shadow-none rounded-3xl border border-slate-200 dark:border-gray-700 overflow-hidden">
                 <!-- Title bar -->
-                <div class="bg-indigo-600 px-8 py-6 text-white">
+                <div class="bg-emerald-600 px-8 py-6 text-white">
                     <p class="text-xs font-medium uppercase tracking-widest opacity-70 mb-1">Editando</p>
                     <h1 class="text-2xl font-medium">Factura No. {{ invoice.number }}</h1>
                 </div>
@@ -99,7 +100,7 @@ const handleSubmit = async () => {
                     <div>
                         <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Estado</label>
                         <select v-model="form.status" required
-                            class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+                            class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all">
                             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                         </select>
                     </div>
@@ -113,7 +114,7 @@ const handleSubmit = async () => {
                                     <v-icon name="la-dollar-sign-solid" class="h-5 w-5 text-emerald-500" />
                                 </div>
                                 <input v-model.number="form.total" type="number" min="0" step="0.01" required
-                                    class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all font-medium text-lg"
+                                    class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all font-medium text-lg"
                                     placeholder="0">
                             </div>
                         </div>
@@ -124,7 +125,7 @@ const handleSubmit = async () => {
                                     <v-icon name="la-dollar-sign-solid" class="h-5 w-5 text-rose-500" />
                                 </div>
                                 <input v-model.number="form.balance_due" type="number" min="0" step="0.01" required
-                                    class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all font-medium text-lg"
+                                    class="block w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all font-medium text-lg"
                                     placeholder="0">
                             </div>
                         </div>
@@ -134,23 +135,19 @@ const handleSubmit = async () => {
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div>
                             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Fecha de Emisión</label>
-                            <input v-model="form.issue_date" type="date" required
-                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+                            <DatePicker v-model="form.issue_date" accent="emerald" />
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Fecha de Vencimiento</label>
-                            <input v-model="form.due_date" type="date" required
-                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+                            <DatePicker v-model="form.due_date" accent="emerald" />
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Inicio del Período</label>
-                            <input v-model="form.period_start" type="date"
-                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+                            <DatePicker v-model="form.period_start" accent="emerald" />
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Fin del Período</label>
-                            <input v-model="form.period_end" type="date"
-                                class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+                            <DatePicker v-model="form.period_end" accent="emerald" />
                         </div>
                     </div>
 
@@ -158,7 +155,7 @@ const handleSubmit = async () => {
                     <div>
                         <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Notas</label>
                         <textarea v-model="form.notes" rows="3"
-                            class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all"
+                            class="block w-full px-4 py-3 bg-slate-50 dark:bg-gray-900 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition-all"
                             placeholder="Observaciones opcionales..."></textarea>
                     </div>
 
@@ -175,7 +172,7 @@ const handleSubmit = async () => {
                             Cancelar
                         </button>
                         <button type="submit" :disabled="saving"
-                            class="flex-1 py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-2xl transition-all shadow-xl shadow-indigo-200 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2">
+                            class="flex-1 py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-2xl transition-all shadow-lg shadow-emerald-500/25 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2">
                             <v-icon v-if="saving" name="bi-arrow-repeat" class="w-5 h-5 animate-spin" />
                             {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
                         </button>

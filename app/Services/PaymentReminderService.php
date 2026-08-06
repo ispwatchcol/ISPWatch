@@ -96,9 +96,12 @@ class PaymentReminderService
             // llega tarde (el corte es el aviso) y se le seguirían mandando
             // mensajes cada ciclo. Sus facturas sí se siguen emitiendo hasta el
             // tope — ver BillingService::generateMonthlyInvoices.
+            // notify_invoice=false: cliente con notificaciones silenciadas; sus
+            // facturas y recordatorios se calculan igual, sólo no se le avisa.
             $profiles = CustomerProfile::where('router_id', $router->id)
                 ->where('status', true)
                 ->where('exclude_from_billing', false)
+                ->where('notify_invoice', true)
                 ->get();
 
             foreach ($profiles as $profile) {

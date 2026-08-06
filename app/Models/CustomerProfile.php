@@ -37,6 +37,7 @@ class CustomerProfile extends Model
         'installation_date',
         'estrato',
         'exclude_from_billing',
+        'notify_invoice',
         // null = hereda del plan y, si el plan tampoco define, del router
         'first_invoice_mode',
         'first_invoice_free_months',
@@ -71,6 +72,7 @@ class CustomerProfile extends Model
         'is_company'           => 'boolean',
         'is_fiber'             => 'boolean',
         'exclude_from_billing' => 'boolean',
+        'notify_invoice'       => 'boolean',
         'first_invoice_free_months' => 'integer',
         'retired_at'           => 'datetime',
 

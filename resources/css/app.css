@@ -21,3 +21,54 @@ html.compact-mode {
 select:focus~.select-arrow {
     transform: rotate(180deg);
 }
+
+/* ─── Campos de fecha nativos ──────────────────────────────────────────────
+   La mayoría de los formularios usa el componente `DatePicker`/`MonthPicker`,
+   que se estila por completo. Quedan algunos `<input type="date">` nativos
+   donde un desplegable propio se recortaría (por ejemplo, los minifiltros
+   dentro de la cabecera de una tabla con scroll horizontal). Estas reglas
+   hacen que al menos se vean bien en los dos temas.
+
+   `color-scheme` es la única forma de que el navegador dibuje su calendario
+   interno en oscuro: sin ella, el widget sale con fondo blanco y los números
+   casi ilegibles sobre una tarjeta oscura. */
+input[type="date"],
+input[type="month"],
+input[type="datetime-local"],
+input[type="time"] {
+    color-scheme: light;
+}
+
+.dark input[type="date"],
+.dark input[type="month"],
+.dark input[type="datetime-local"],
+.dark input[type="time"] {
+    color-scheme: dark;
+}
+
+/* Icono del calendario: sin esto queda pegado al borde y sin zona de clic clara. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    padding: 0.15rem;
+    border-radius: 0.25rem;
+    opacity: 0.6;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+    background-color: rgb(16 185 129 / 0.15);
+}
+
+/* Firefox y Chrome pintan la selección de los campos internos con el acento
+   del sistema; se alinea con el de Finanzas. */
+input[type="date"],
+input[type="month"] {
+    accent-color: rgb(16 185 129);
+}

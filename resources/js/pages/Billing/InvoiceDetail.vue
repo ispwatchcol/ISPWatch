@@ -102,7 +102,7 @@ const getStatusColor = (status) => {
         case 'partial':   return 'text-amber-700 bg-amber-100'
         case 'pending':   return 'text-amber-700 bg-amber-100'
         case 'overdue':   return 'text-rose-700 bg-rose-100'
-        case 'issued':    return 'text-indigo-700 bg-white'
+        case 'issued':    return 'text-emerald-700 bg-white'
         case 'cancelled': return 'text-slate-700 bg-slate-200'
         default:          return 'text-slate-700 bg-slate-200'
     }
@@ -137,7 +137,7 @@ onMounted(() => {
             <!-- Top Controls -->
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                 <button @click="$router.push('/billing/invoices')" 
-                    class="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium hover:text-indigo-600 transition-colors">
+                    class="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium hover:text-emerald-600 transition-colors">
                     <v-icon name="md-arrowback" class="w-5 h-5" />
                     Volver a Listado
                 </button>
@@ -170,7 +170,7 @@ onMounted(() => {
             <!-- Main Paper -->
             <div v-if="!loading && invoice" class="bg-white dark:bg-gray-800 shadow-2xl shadow-slate-200/50 dark:shadow-none rounded-[2.5rem] border border-slate-100 dark:border-gray-700 overflow-hidden">
                 <!-- Header Ribbon -->
-                <div class="bg-indigo-600 p-10 text-white relative overflow-hidden">
+                <div class="bg-emerald-600 p-10 text-white relative overflow-hidden">
                      <div class="absolute right-0 top-0 opacity-10"><v-icon name="la-money-bill-wave-solid" class="w-64 h-64 -mr-10 -mt-10" /></div>
                      <div class="relative flex justify-between items-start">
                          <div>
@@ -186,7 +186,7 @@ onMounted(() => {
                                  </div>
                                  <div class="flex flex-col">
                                      <span class="text-[10px] font-medium uppercase opacity-60">Vencimiento</span>
-                                     <span class="font-medium text-indigo-200">{{ formatDate(invoice.due_date) }}</span>
+                                     <span class="font-medium text-emerald-100">{{ formatDate(invoice.due_date) }}</span>
                                  </div>
                              </div>
                          </div>
@@ -207,7 +207,7 @@ onMounted(() => {
                     <!-- Billing Info -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
                         <div class="space-y-4">
-                            <h3 class="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+                            <h3 class="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
                                 <v-icon name="bi-person" class="w-4 h-4" /> Facturado a:
                             </h3>
                             <div class="p-6 bg-slate-50 dark:bg-gray-900 rounded-[2rem]">
@@ -219,7 +219,7 @@ onMounted(() => {
                             </div>
                         </div>
                         <div class="space-y-4">
-                            <h3 class="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+                            <h3 class="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
                                 <v-icon name="la-dollar-sign-solid" class="w-4 h-4" /> Estado de Cuenta:
                             </h3>
                             <div class="p-6 border-2 border-dashed border-slate-200 dark:border-gray-700 rounded-[2rem]">
@@ -246,7 +246,7 @@ onMounted(() => {
                                 </div>
                                 <div v-if="Number(invoice.carried_in) > 0"
                                     class="mt-4 pt-4 border-t border-slate-200 dark:border-gray-700 text-sm">
-                                    <div class="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-medium">
+                                    <div class="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-medium">
                                         <span>Incluye saldo de facturas anteriores:</span>
                                         <span>${{ Number(invoice.carried_in).toLocaleString() }}</span>
                                     </div>
@@ -272,7 +272,7 @@ onMounted(() => {
                             <tbody class="divide-y divide-slate-50 dark:divide-gray-700">
                                 <tr v-for="item in invoice.items" :key="item.id" class="group">
                                     <td class="py-6">
-                                        <p class="font-medium text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">{{ item.description }}</p>
+                                        <p class="font-medium text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors">{{ item.description }}</p>
                                         <span class="text-[10px] font-medium uppercase text-slate-400 bg-slate-100 dark:bg-gray-900 px-2 py-0.5 rounded">{{ item.type }}</span>
                                     </td>
                                     <td class="py-6 text-right text-slate-600 dark:text-slate-400">{{ Number(item.quantity) }}<span v-if="item.unit" class="text-slate-400 ml-1">{{ item.unit }}</span></td>
@@ -287,13 +287,13 @@ onMounted(() => {
                     <div v-if="invoice.status !== 'paid'" class="mb-12 p-6 bg-slate-50 dark:bg-gray-900 rounded-3xl flex flex-wrap gap-4 items-end">
                         <div class="flex-1 min-w-[300px]">
                             <label class="block text-[10px] font-medium uppercase text-slate-400 mb-2 px-2">Ajuste manual / Adicional</label>
-                            <input v-model="newItem.description" placeholder="Escriba la descripción..." class="w-full bg-white dark:bg-gray-800 border-none rounded-2xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white">
+                            <input v-model="newItem.description" placeholder="Escriba la descripción..." class="w-full bg-white dark:bg-gray-800 border-none rounded-2xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white">
                         </div>
                         <div class="w-32">
                             <label class="block text-[10px] font-medium uppercase text-slate-400 mb-2 px-2">Monto</label>
-                            <input v-model="newItem.amount" type="number" class="w-full bg-white dark:bg-gray-800 border-none rounded-2xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white font-medium [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none appearance-none">
+                            <input v-model="newItem.amount" type="number" class="w-full bg-white dark:bg-gray-800 border-none rounded-2xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white font-medium [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none appearance-none">
                         </div>
-                        <button @click="addItem" class="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-2xl transition-all shadow-lg shadow-indigo-200 dark:shadow-none">
+                        <button @click="addItem" class="bg-emerald-600 hover:bg-emerald-700 text-white p-3 rounded-2xl transition-all shadow-lg shadow-emerald-500/25 dark:shadow-none">
                             <v-icon name="md-add" class="w-6 h-6" />
                         </button>
                     </div>

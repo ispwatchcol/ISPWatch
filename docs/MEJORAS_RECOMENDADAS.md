@@ -588,6 +588,70 @@ envuelvas texto largo en una celda de tabla, usa `<div>`* — ya reflejado en `M
 header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloques huérfanos. Es la
 única forma de que el tenant se entere sin tener que comparar el PDF carácter por carácter.
 
+### 📋 P-9 · Auditoría de Finanzas (2026-08-05): deuda restante tras ejecutar el plan
+
+Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
+Categorías de Gasto. Las **Fases 1** (debounce y guard anti-carrera en Facturación, índices
+compuestos, búsqueda de texto en Gastos), **2** (paginación y agregados server-side en Gastos) y
+**3** (totales en dinero en Facturación y Recaudos), **4** (exportación a CSV de los tres
+listados), **5** (unificación visual bajo el acento esmeralda) y **6** (historial de Servicios
+Adicionales) están **todas implementadas**. La 6 se resolvió con un atajo a Facturación filtrada
+por tipo, no con un listado propio — el razonamiento está en el registro de decisiones de
+`BITACORA_TECNICA.md`.
+
+**Lo que queda es deuda identificada, no plan pendiente:**
+
+- La búsqueda por cliente en Facturación y Recaudos usa `whereHas` + `ILIKE`, que no aprovecha
+  índice B-tree. Al volumen actual no duele; sería el próximo cuello de botella real y la salida
+  sería `pg_trgm`/GIN.
+- Quedan otros componentes de `resources/js/components/ui/` sin usar en todo el proyecto
+  (`SearchBar`, `StatusBadge`, `LoadingSkeleton`), andamiaje de un intento anterior de sistema de
+  diseño. La Fase 5 reescribió y puso en uso `PageHeader` y añadió `StatCard`; los tres restantes
+  siguen siendo código muerto: o se adoptan, o conviene borrarlos para que nadie los tome por el
+  estándar vigente.
+- El patrón "crear un `<a>`, hacerle click y olvidarlo" para descargar blobs está repetido en
+  **13 sitios** (PDFs de factura, plantillas, importadores…). Ninguna de esas copias quita el
+  elemento del DOM ni llama a `URL.revokeObjectURL()`, así que el blob queda retenido en memoria
+  hasta recargar la página. La Fase 4 introdujo `resources/js/utils/download.js`, que sí limpia;
+  migrar las 13 llamadas restantes es un cambio mecánico pero toca flujos ajenos a Finanzas
+  (PDFs, importación), así que se dejó fuera del alcance de la fase.
+
+### 📋 P-10 · La factura de excepción no cobra el arrastre pendiente
+
+**Contexto.** Un cliente sin plan que cobrar (sin `user_services` activo, o con plan de cortesía
+permanente) pero con servicios adicionales recibe una factura sólo con ellos —
+`BillingService::issueAdditionalOnlyInvoice()`. Esa factura aplica el saldo a favor del cliente,
+pero **no** llama a `applyPendingCarryoversTo()`.
+
+**Consecuencia.** Si ese cliente abonó parcialmente una factura anterior, el saldo arrastrado queda
+en `invoice_carryovers` con estado `pending` **para siempre**: el arrastre se cobra en la siguiente
+factura mensual, y este cliente nunca recibe una. Es plata que se deja de cobrar sin que nadie se
+entere.
+
+**Por qué se dejó así.** La factura de excepción se diseñó para cobrar una cosa concreta e
+identificable — el alquiler del equipo —, y mezclarle deuda de un abono viejo sorprendería al
+cliente que la recibe. Añadirlo es una línea (`$this->applyPendingCarryoversTo($invoice)`), pero
+cambia lo que esa factura significa, y el caso es la intersección de tres situaciones poco
+frecuentes: cliente sin plan **y** con adicionales **y** con un abono parcial previo.
+
+**Recomendación.** Decidirlo explícitamente cuando aparezca el primer caso real. Si se opta por
+cobrarlo, el aviso al cliente debería desglosar las dos cosas para que no parezca un cobro doble.
+
+### 📋 P-11 · `billing:generate-tenant` sigue siendo una segunda ruta de facturación
+
+`GenerateTenantInvoicesOneOff` crea mensualidades **sin pasar por**
+`BillingService::createMonthlyInvoiceFor()`: duplica la creación de la factura, el ítem del plan
+y la aplicación del saldo a favor. Su propio encabezado dice *"ONE-OFF ops command (safe to delete
+after use)"*.
+
+Ya mordió una vez: al añadir los servicios adicionales recurrentes, este comando habría facturado
+de menos y en silencio. Se parcheó llamando a `addRecurringExtrasTo()`, pero el problema de fondo
+sigue: **cualquier cosa nueva que entre en la factura mensual hay que acordarse de replicarla
+aquí**, y el día que alguien no se acuerde, el error no dará ninguna señal.
+
+**Recomendación.** Borrarlo si ya cumplió su propósito (es la opción limpia), o reescribirlo para
+que delegue en `createMonthlyInvoiceFor()` con un flag que suprima las notificaciones — que es lo
+único que justificaba tener una copia.
 ### 📋 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue
 
 Hasta el 29-jul-2026 (`828865c`) los documentos de cliente se escribían en el disco `public`

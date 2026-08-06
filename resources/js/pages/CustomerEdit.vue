@@ -254,6 +254,26 @@
                 </div>
                 </div>
 
+                <!-- No notificar: silencia avisos de factura/recordatorio sin afectar la facturación -->
+                <div class="md:col-span-2 flex items-start gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700">
+                <button type="button" role="switch" :aria-checked="!form.notify_invoice"
+                    @click="form.notify_invoice = !form.notify_invoice"
+                    :class="form.notify_invoice ? 'bg-gray-300 dark:bg-gray-600' : 'bg-amber-600'"
+                    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors mt-0.5">
+                    <span :class="form.notify_invoice ? 'translate-x-1' : 'translate-x-6'"
+                        class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
+                </button>
+                <div>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                        <v-icon name="md-notificationsoff-outlined" class="w-4 h-4" /> No enviar notificaciones de factura
+                    </span>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        La factura se sigue generando cada mes y la mora/corte automático funcionan igual;
+                        sólo se apaga el aviso por correo/WhatsApp de factura nueva y recordatorios de pago.
+                    </p>
+                </div>
+                </div>
+
                 <!-- Primera factura: cliente que entra a mitad del mes ya facturado -->
                 <div class="md:col-span-2">
                 <label class="label">
@@ -792,8 +812,16 @@
         </div>
 
         <!-- Pestaña: Facturación -->
-        <div v-if="activeTab === 'facturacion'" class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8 max-w-5xl mx-auto">
-          <CustomerBilling :customer-id="route.params.id" @notify="onNotify" />
+        <div v-if="activeTab === 'facturacion'" class="max-w-5xl mx-auto space-y-6">
+          <div class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8">
+            <CustomerBilling :customer-id="route.params.id" @notify="onNotify" />
+          </div>
+          <!-- Lo que se le cobra cada mes ADEMÁS del plan. Va aquí y no en una
+               pestaña propia: es parte de lo que el cliente paga, y separarlo
+               obligaría a mirar en dos sitios para saber cuánto factura. -->
+          <div class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8">
+            <CustomerAdditionalServices :customer-id="route.params.id" @notify="onNotify" />
+          </div>
         </div>
 
         <!-- Pestaña: Documentos -->
@@ -817,6 +845,7 @@ import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import CustomerBilling from '@/components/customer/CustomerBilling.vue'
+import CustomerAdditionalServices from '@/components/customer/CustomerAdditionalServices.vue'
 import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 import CustomerTickets from '@/components/customer/CustomerTickets.vue'
 import DatePicker from '@/components/DatePicker.vue'
@@ -855,6 +884,7 @@ const form = ref({
     installation_date: '',
     estrato: null,
     exclude_from_billing: false,
+    notify_invoice: true,
     // '' = hereda la política de primera factura del plan y, si no, del router
     first_invoice_mode: '',
     first_invoice_free_months: '',
@@ -1167,6 +1197,7 @@ const loadCustomer = async () => {
             installation_date: (d.installation_date || '').slice(0, 10),
             estrato:      d.estrato ?? null,
             exclude_from_billing: !!d.exclude_from_billing,
+            notify_invoice: d.notify_invoice ?? true,
             first_invoice_mode: d.first_invoice_mode || '',
             // 0 es un valor legítimo, así que sólo null/undefined significan "heredar".
             first_invoice_free_months: d.first_invoice_free_months ?? '',

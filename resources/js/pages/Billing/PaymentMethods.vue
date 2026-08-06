@@ -1,25 +1,24 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-6 md:p-10">
+  <div class="min-h-screen bg-slate-50 dark:bg-gray-900 p-6 transition-colors duration-300">
 
     <!-- Header -->
-    <div class="mb-8 flex items-center justify-between">
-      <div class="flex items-center gap-4">
-        <div class="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
-          <v-icon name="md-payments-outlined" class="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Formas de Pago</h1>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Administra los métodos de pago disponibles para tus clientes</p>
-        </div>
-      </div>
-      <button
-        @click="openCreate"
-        class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition shadow-md shadow-emerald-500/20"
-      >
-        <v-icon name="md-add" class="w-5 h-5" />
-        Nueva forma de pago
-      </button>
-    </div>
+    <PageHeader
+      title="Formas de pago"
+      subtitle="Con qué medios puede pagarte un cliente."
+      icon="md-payments-outlined"
+    >
+      <template #actions>
+        <button
+          @click="openCreate"
+          class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-white transition-all
+                 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 dark:shadow-none
+                 hover:scale-[1.02] active:scale-[0.98] motion-reduce:hover:scale-100"
+        >
+          <v-icon name="md-add" class="w-5 h-5" />
+          Nueva forma de pago
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-20">
@@ -31,7 +30,7 @@
       <div
         v-for="method in methods"
         :key="method.id"
-        class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 flex flex-col gap-4 transition hover:shadow-md"
+        class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-3xl p-5 flex flex-col gap-4 transition hover:shadow-md"
         :class="{ 'opacity-60': !method.is_active }"
       >
         <div class="flex items-start justify-between gap-3">
@@ -62,7 +61,7 @@
         <div class="flex gap-2 pt-1 border-t border-gray-100 dark:border-gray-700">
           <button
             @click="openEdit(method)"
-            class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 py-2 rounded-lg transition"
+            class="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 py-2 rounded-lg transition"
           >
             <v-icon name="md-edit" class="w-4 h-4" />
             Editar
@@ -210,6 +209,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { apiClient } from '@/services/api'
+import PageHeader from '@/components/ui/PageHeader.vue'
 
 const methods  = ref([])
 const loading  = ref(true)

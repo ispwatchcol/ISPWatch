@@ -29,6 +29,8 @@ use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\InvoiceTypeController;
+use App\Http\Controllers\AdditionalServiceController;
+use App\Http\Controllers\CustomerAdditionalServiceController;
 use App\Http\Controllers\HelpCenterController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
@@ -216,6 +218,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['permission:view_billing'])->group(function () {
         Route::get('/billing/stats', [BillingController::class, 'getStats']);
         Route::get('/billing/invoices', [BillingController::class, 'index']);
+        // OJO: antes de `/billing/invoices/{id}`, o "export" se interpreta como un id.
+        Route::get('/billing/invoices/export', [BillingController::class, 'exportInvoices']);
         Route::get('/billing/invoices/{id}', [BillingController::class, 'show']);
         Route::post('/billing/invoices', [BillingController::class, 'store']);
         Route::put('/billing/invoices/{id}', [BillingController::class, 'update']);
@@ -225,6 +229,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
         Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
         Route::get('/billing/payments', [BillingController::class, 'getPayments']);
+        Route::get('/billing/payments/export', [BillingController::class, 'exportPayments']);
         Route::post('/billing/payments', [BillingController::class, 'registerPayment']);
         Route::put('/billing/payments/{id}', [BillingController::class, 'updatePayment']);
         Route::delete('/billing/payments/{id}', [BillingController::class, 'deletePayment']);
@@ -257,6 +262,24 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/invoice-types', [InvoiceTypeController::class, 'store']);
         Route::put('/billing/invoice-types/{id}', [InvoiceTypeController::class, 'update']);
         Route::delete('/billing/invoice-types/{id}', [InvoiceTypeController::class, 'destroy']);
+
+        // Catálogo de servicios adicionales recurrentes. Mismo permiso que las
+        // dos listas de arriba y por la misma razón.
+        // OJO: antes de `/billing/additional-services/{id}`, o 'unbilled' se
+        // interpretaría como un id si algún día se añade un GET show.
+        Route::get('/billing/additional-services/unbilled', [AdditionalServiceController::class, 'unbilled']);
+        Route::get('/billing/additional-services', [AdditionalServiceController::class, 'index']);
+        Route::post('/billing/additional-services', [AdditionalServiceController::class, 'store']);
+        Route::put('/billing/additional-services/{id}', [AdditionalServiceController::class, 'update']);
+        Route::delete('/billing/additional-services/{id}', [AdditionalServiceController::class, 'destroy']);
+
+        // Asignaciones por cliente. Anidadas bajo el cliente en las cuatro:
+        // así el ámbito viaja siempre en la URL y no hay forma de tocar la
+        // asignación de otro cliente pasando sólo su id.
+        Route::get('/billing/customers/{customer}/additional-services', [CustomerAdditionalServiceController::class, 'index']);
+        Route::post('/billing/customers/{customer}/additional-services', [CustomerAdditionalServiceController::class, 'store']);
+        Route::put('/billing/customers/{customer}/additional-services/{id}', [CustomerAdditionalServiceController::class, 'update']);
+        Route::delete('/billing/customers/{customer}/additional-services/{id}', [CustomerAdditionalServiceController::class, 'destroy']);
     });
 
     // ─── BILLING ACTION LOGS (failover de facturación) ───
@@ -408,6 +431,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // delete on expenses: they are voided (status=anulado) via update.
     Route::middleware(['permission:view_expenses'])->group(function () {
         Route::get('/expenses', [ExpenseController::class, 'index']);
+        Route::get('/expenses/export', [ExpenseController::class, 'exportExpenses']);
         Route::get('/expense-categories', [ExpenseCategoryController::class, 'index']);
     });
     Route::middleware(['permission:add_expense'])->group(function () {

@@ -497,6 +497,7 @@ class CustomerProfileController extends Controller
                 'installation_date' => $data['installation_date'] ?? null,
                 'estrato'     => $data['estrato'] ?? null,
                 'exclude_from_billing' => $data['exclude_from_billing'] ?? false,
+                'notify_invoice' => $data['notify_invoice'] ?? true,
                 // null = hereda la política de primera factura del plan/router
                 'first_invoice_mode' => ($data['first_invoice_mode'] ?? null) ?: null,
                 'first_invoice_free_months' => isset($data['first_invoice_free_months']) && $data['first_invoice_free_months'] !== ''
@@ -634,6 +635,7 @@ class CustomerProfileController extends Controller
             'installation_date' => $customer->installation_date,
             'estrato'      => $customer->estrato,
             'exclude_from_billing' => (bool) $customer->exclude_from_billing,
+            'notify_invoice' => (bool) $customer->notify_invoice,
             'first_invoice_mode' => $customer->first_invoice_mode,
             'first_invoice_free_months' => $customer->first_invoice_free_months,
             'comments'     => $customer->comments,
@@ -987,6 +989,7 @@ class CustomerProfileController extends Controller
             'installation_date' => 'nullable|date',
             'estrato'   => 'nullable|integer|between:1,6',
             'exclude_from_billing' => 'nullable|boolean',
+            'notify_invoice' => 'nullable|boolean',
             'first_invoice_mode' => 'nullable|in:' . implode(',', \App\Models\Billing::FIRST_INVOICE_MODES),
             'first_invoice_free_months' => 'nullable|integer|min:0|max:' . \App\Billing\FirstInvoicePolicy::MAX_FREE_MONTHS,
             'comments'  => 'nullable|string|max:2000',
@@ -1121,6 +1124,7 @@ class CustomerProfileController extends Controller
                 'installation_date' => array_key_exists('installation_date', $data) ? $data['installation_date'] : $customer->installation_date,
                 'estrato'     => array_key_exists('estrato', $data) ? ($data['estrato'] !== '' ? $data['estrato'] : null) : $customer->estrato,
                 'exclude_from_billing' => array_key_exists('exclude_from_billing', $data) ? (bool) $data['exclude_from_billing'] : $customer->exclude_from_billing,
+                'notify_invoice' => array_key_exists('notify_invoice', $data) ? (bool) $data['notify_invoice'] : $customer->notify_invoice,
                 'first_invoice_mode' => array_key_exists('first_invoice_mode', $data) ? ($data['first_invoice_mode'] ?: null) : $customer->first_invoice_mode,
                 'first_invoice_free_months' => array_key_exists('first_invoice_free_months', $data)
                     ? ($data['first_invoice_free_months'] !== '' && $data['first_invoice_free_months'] !== null

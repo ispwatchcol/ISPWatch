@@ -120,6 +120,8 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `payments` | 1 086 | Pagos recibidos |
 | `payment_allocations` | 1 061 | Asignación pago → factura (N:M con importe) |
 | `payment_methods` | 16 | Formas de pago por tenant |
+| `additional_services` | 0 | **Catálogo de servicios adicionales** reutilizables (alquiler de router, soporte…) |
+| `customer_additional_services` | 0 | **Asignación** servicio adicional → cliente (desde cuándo, a qué precio) |
 | `billing_action_logs` | 0 | Failover de generación + lápidas `suppressed` |
 | `suspension_action_logs` | 31 | Failover de cortes/reconexiones |
 | `expenses` / `expense_categories` | 4 / 15 | Gastos operativos |
@@ -201,6 +203,7 @@ erDiagram
         varchar service_status
         boolean is_fiber
         boolean exclude_from_billing
+        boolean notify_invoice
         varchar first_invoice_mode
         numeric credit_balance
         date installation_date
@@ -424,6 +427,7 @@ Contiene **todos** los actores: clientes, técnicos, staff y administradores. El
 | `mac_address` | varchar(17) | | | Para DHCP lease / amarre IP-MAC |
 | `credit_balance` | numeric(12,2) | NN | `0` | Saldo a favor |
 | `exclude_from_billing` | boolean | NN | `false` | **Excluye de TODO el ciclo automático** |
+| `notify_invoice` | boolean | NN | `true` | Si es `false`, silencia el aviso de factura/recordatorio (email/WhatsApp); **no afecta** generación de factura ni mora/corte |
 | `first_invoice_mode` | varchar(16) | | | `none`\|`prorated`\|`full`. `NULL` = hereda del plan/router |
 | `retired_at` / `retired_reason` | timestamp / varchar(500) | | | Retiro del cliente |
 | `comments` | text | | | Observaciones |
@@ -616,9 +620,13 @@ Ciclo de vida:
 ### 4.9 `invoice_items`, `payments`, `payment_allocations`, `payment_methods`
 
 **`invoice_items`** — `invoice_id` (FK CASCADE), `type` (`plan` por defecto;
-`carryover` para la línea de saldo arrastrado, `service`, `adjustment`…),
-`description`, `quantity` numeric(10,2), `unit` varchar(30), `unit_price` y `amount`
-numeric(15,2).
+`carryover` para la línea de saldo arrastrado, `additional_service` para un servicio
+adicional recurrente, `service`, `adjustment`…), `description`, `quantity` numeric(10,2),
+`unit` varchar(30), `unit_price` y `amount` numeric(15,2), y
+`customer_additional_service_id` (FK SET NULL, nullable — ver 4.9.1).
+
+> `type` es **sólo una etiqueta**: se muestra tal cual en la vista de detalle y en el
+> PDF, y ninguna lógica ramifica sobre su valor. Agregar tipos nuevos es seguro.
 
 **`payments`** — `tenant_id`, `customer_id` (FK CASCADE), `amount` numeric(15,2),
 `payment_date` date, `method` (default `cash`), `reference`, `notes`,
@@ -630,6 +638,51 @@ que una factura reciba varios pagos.
 
 **`payment_methods`** — formas de pago por tenant (`name`, `description`, `is_active`).
 Semilla: Efectivo, Tarjeta, Corresponsal, Transacción.
+
+### 4.9.1 `additional_services` y `customer_additional_services` — Servicios adicionales recurrentes
+
+Antes, un "servicio adicional" no era una entidad: la pantalla de Finanzas emitía una
+factura suelta con ítems escritos a mano, así que el mismo concepto cobrado a veinte
+clientes eran veinte textos sin relación entre sí. Estas dos tablas lo convierten en un
+**catálogo reutilizable** que se **asigna** a varios clientes y se cobra **dentro de la
+mensualidad de cada uno**, no en factura aparte.
+
+**`additional_services`** (catálogo, uno por tenant)
+
+| Columna | Tipo | Nota |
+|---|---|---|
+| `tenant_id` | FK CASCADE | |
+| `name`, `description` | varchar(120) / varchar(255) | |
+| `price` | numeric(15,2) | Precio de lista. **15,2 como `invoices`**, no 10,2 como `expenses`: estos montos terminan siendo ítems de factura |
+| `charge_on_courtesy_month` | bool, **default `true`** | Si se cobra igual durante un mes de cortesía por instalación. Por defecto sí: la promoción vendida fue "internet gratis", no "equipos gratis" |
+| `proration_mode` | varchar(20), **default `full`** | `none` \| `prorated` \| `full` — **el mismo vocabulario** que la política de primera factura de los planes. Default `full` (los planes usan `none`) porque un adicional suele ser algo ya entregado |
+| `is_active`, `sort_order` | bool / int | Retirar sin borrar |
+
+**`customer_additional_services`** (asignación — no es un pivote puro: tiene atributos e historia)
+
+| Columna | Tipo | Nota |
+|---|---|---|
+| `tenant_id`, `customer_id`, `additional_service_id` | FK CASCADE | `customer_id` → **`users.id`**, la misma llave que `invoices.customer_id` |
+| `price` | numeric(15,2) **nullable** | `null` = sigue el catálogo (y sus cambios); con valor = **congelado** para este cliente |
+| `quantity` | int, default 1 | "Dos routers extra" sin duplicar la asignación |
+| `starts_at` / `ends_at` | date / date null | Ventana de vigencia; `ends_at` programa la baja sin borrar |
+| `is_active` | bool, default true | Interruptor inmediato |
+| `assigned_at` | timestamp | **Fecha y hora en que se activó.** Aparte de `created_at`: al dar de baja y reactivar, `created_at` deja de decir la verdad |
+| `assigned_by` | FK SET NULL | Quién lo activó |
+
+Las asignaciones **no se borran** al darlas de baja: las facturas emitidas apuntan aquí y
+el historial de cobro tiene que poder explicarse.
+
+**`invoice_items.customer_additional_service_id`** cierra el círculo: da trazabilidad
+("¿en qué facturas se cobró este servicio?"), el reporte de ingresos por servicio y —lo
+más importante— **la idempotencia del cobro mensual**, que se *deriva* de estos ítems en
+vez de guardarse como un "último periodo cobrado" en la asignación. Con un contador, si un
+administrador borrara la factura del mes, quedaría adelantado y ese periodo no se cobraría
+nunca; derivándolo, borrar la factura libera el periodo solo.
+
+> **SQLite:** la FK de `invoice_items` sólo se crea en PostgreSQL — SQLite no admite
+> agregar una `FOREIGN KEY` a una tabla existente. La columna sí existe en ambos, que es
+> lo que el código y los tests necesitan.
 
 ### 4.10 `billing_action_logs` — Failover de facturación
 
@@ -799,6 +852,7 @@ Agregado permanente.
 |---|---|---|
 | `activity_log.tenant_id` | `tenant.id` | SET NULL |
 | `activity_log.user_id` | `users.id` | SET NULL |
+| `additional_services.tenant_id` | `tenant.id` | CASCADE |
 | `audit_logs.user_id` | `users.id` | SET NULL |
 | `billing.id_type` | `type_billing.id` | SET NULL |
 | `billing.tenant_id` | `tenant.id` | SET NULL |
@@ -806,6 +860,10 @@ Agregado permanente.
 | `billing_action_logs.invoice_id` | `invoices.id` | SET NULL |
 | `billing_action_logs.router_id` | `router.id` | SET NULL |
 | `billing_action_logs.tenant_id` | `tenant.id` | CASCADE |
+| `customer_additional_services.additional_service_id` | `additional_services.id` | CASCADE |
+| `customer_additional_services.assigned_by` | `users.id` | SET NULL |
+| `customer_additional_services.customer_id` | `users.id` | CASCADE |
+| `customer_additional_services.tenant_id` | `tenant.id` | CASCADE |
 | `customer_documents.customer_id` | `users.id` | CASCADE |
 | `customer_profile.olt_id` | `sectorial.id` | SET NULL |
 | `customer_profile.router_id` | `router.id` | SET NULL |
@@ -833,6 +891,7 @@ Agregado permanente.
 | `invoice_carryovers.payment_id` | `payments.id` | SET NULL |
 | `invoice_carryovers.tenant_id` | `tenant.id` | CASCADE |
 | `invoice_carryovers.to_invoice_id` | `invoices.id` | SET NULL |
+| `invoice_items.customer_additional_service_id` | `customer_additional_services.id` | SET NULL *(sólo en PostgreSQL)* |
 | `invoice_items.invoice_id` | `invoices.id` | CASCADE |
 | `invoice_types.tenant_id` | `tenant.id` | CASCADE |
 | `invoices.customer_id` | `users.id` | CASCADE |
@@ -928,13 +987,16 @@ Agregado permanente.
 | `customer_documents` | `(customer_id, type)`, `installation_id`, `tenant_id`, **UK** `(tenant_id, contract_number)` |
 | `customer_installations` | `prospect_id`, `(tenant_id, customer_id)` |
 | `customer_profile` | `olt_id` |
-| `expenses` | `expense_date`, `status`, `tenant_id` |
-| `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, **parcial** `due_date WHERE balance_due > 0` |
+| `expenses` | `expense_date`, `status`, `tenant_id`, `(tenant_id, expense_date)` |
+| `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, `(tenant_id, issue_date)`, **parcial** `due_date WHERE balance_due > 0` |
 | `payment_allocations` | `payment_id`, `invoice_id` |
 | `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)` |
 | `user_services` | `(user_id, status)` |
 | `invoice_carryovers` | `(customer_id, status)`, `(tenant_id, status)`, `from_invoice_id`, `to_invoice_id` |
 | `invoice_types` | `tenant_id` |
+| `additional_services` | `(tenant_id, is_active)` |
+| `customer_additional_services` | `(customer_id, is_active)` *(la consulta del ciclo mensual)*, `tenant_id` |
+| `invoice_items` | `customer_additional_service_id` |
 | `prospects` | `converted_user_id`, `(tenant_id, status)` |
 | `router` | `tenant_id` |
 | `router_outage_events` | `(router_id, id)`, `(tenant_id, id)` |

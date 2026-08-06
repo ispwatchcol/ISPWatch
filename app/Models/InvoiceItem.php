@@ -11,6 +11,7 @@ class InvoiceItem extends Model
 
     protected $fillable = [
         'invoice_id',
+        'customer_additional_service_id',
         'type',
         'description',
         'quantity',
@@ -28,5 +29,15 @@ class InvoiceItem extends Model
     public function invoice()
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    /**
+     * Asignación de la que salió este ítem, si vino de un servicio adicional
+     * recurrente. Null en todos los demás: plan mensual, instalación, arrastre
+     * y cargos puntuales no tienen una asignación detrás.
+     */
+    public function additionalService()
+    {
+        return $this->belongsTo(CustomerAdditionalService::class, 'customer_additional_service_id');
     }
 }

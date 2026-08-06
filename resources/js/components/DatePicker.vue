@@ -5,10 +5,10 @@
       class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600
              text-gray-900 dark:text-gray-100 px-4 py-3 rounded-xl cursor-pointer
              flex justify-between items-center transition-all"
-      :class="open ? 'ring-2 ring-blue-500 border-transparent' : 'hover:border-blue-400 dark:hover:border-blue-500'"
+      :class="open ? a.ring : a.hover"
     >
       <div class="flex items-center gap-2">
-        <svg class="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg :class="a.icon" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
@@ -72,9 +72,9 @@
             :class="[
               'h-9 w-full rounded-lg flex items-center justify-center text-sm transition-all',
               isSelected(day)
-                ? 'bg-blue-600 text-white font-bold shadow-md ring-2 ring-blue-300 dark:ring-blue-700'
+                ? a.selected
                 : isToday(day)
-                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/40'
+                  ? a.today
                   : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
             ]"
           >
@@ -85,7 +85,7 @@
         <!-- Footer -->
         <div class="mt-3 flex items-center justify-between">
           <button type="button" @click.stop="goToToday"
-            class="text-xs text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-2 py-1 rounded-lg transition-colors">
+            :class="a.link" class="text-xs px-2 py-1 rounded-lg transition-colors">
             Hoy
           </button>
           <button
@@ -110,10 +110,36 @@ const props = defineProps({
   placeholder: {
     type: String,
     default: 'Selecciona una fecha...'
+  },
+  /** Color de la sección: 'blue' (por defecto) | 'emerald' (Finanzas). */
+  accent: {
+    type: String,
+    default: 'blue'
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const ACCENTS = {
+  blue: {
+    ring:     'ring-2 ring-blue-500 border-transparent',
+    hover:    'hover:border-blue-400 dark:hover:border-blue-500',
+    icon:     'text-blue-500 dark:text-blue-400',
+    selected: 'bg-blue-600 text-white font-bold shadow-md ring-2 ring-blue-300 dark:ring-blue-700',
+    today:    'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/40',
+    link:     'text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20',
+  },
+  emerald: {
+    ring:     'ring-2 ring-emerald-500 border-transparent',
+    hover:    'hover:border-emerald-400 dark:hover:border-emerald-500',
+    icon:     'text-emerald-500 dark:text-emerald-400',
+    selected: 'bg-emerald-600 text-white font-bold shadow-md ring-2 ring-emerald-300 dark:ring-emerald-700',
+    today:    'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-200 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900/40',
+    link:     'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20',
+  },
+}
+
+const a = computed(() => ACCENTS[props.accent] ?? ACCENTS.blue)
 
 const now = new Date()
 const open = ref(false)
