@@ -26,8 +26,13 @@ return new class extends Migration
         } elseif ($driver === 'mysql') {
             DB::statement('ALTER TABLE customer_installations MODIFY customer_id BIGINT UNSIGNED NULL');
         } elseif ($driver === 'sqlite') {
-            // sqlite doesn't enforce NOT NULL after the fact in older versions and
-            // doctrine-free change() isn't possible; leaving as-is for tests is fine.
+            // change() ya no necesita doctrine/dbal (Laravel 11+), así que la
+            // base de pruebas puede representar lo mismo que producción: sin
+            // esto customer_id seguía siendo NOT NULL en sqlite y no se podía
+            // crear una orden de PROSPECTO (sin cliente) en los tests.
+            Schema::table('customer_installations', function (Blueprint $table) {
+                $table->unsignedBigInteger('customer_id')->nullable()->change();
+            });
         }
     }
 

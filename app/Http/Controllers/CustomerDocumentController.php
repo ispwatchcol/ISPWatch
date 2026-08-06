@@ -177,7 +177,9 @@ class CustomerDocumentController extends Controller
 
         $pdf = $this->templateRenderer->renderContract($customer, $profile, $tenant, $plan, $data['signature'], $date, $contractNumber);
 
-        $fileName = 'contrato_' . $contractNumber . '.pdf';
+        // El consecutivo es texto libre elegido por el ISP; el nombre del
+        // archivo se deriva saneado de él (ver ContractNumberService::fileName).
+        $fileName = ContractNumberService::fileName($contractNumber);
         $path = "customer_documents/{$customer->id}/{$fileName}";
 
         Storage::disk('s3')->put($path, $pdf->output());

@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-03 (logo en bloques + `id`/`style` en modo avanzado) · Rama: `david-editable-templates`
+**Última actualización:** 2026-08-05 (vista previa de la hoja de instalación + firma que no se dibujaba) · Rama: `feat/contract-prefix-freeform`
 
 ---
 
@@ -22,6 +22,8 @@
 10. [Registro de decisiones técnicas](#10-registro-de-decisiones-técnicas)
 11. [Auditoría del manual de usuario — 2026-08-03](#11-auditoría-del-manual-de-usuario--2026-08-03)
 12. [Consecutivo de contratos — 2026-08-04](#12-consecutivo-de-contratos--2026-08-04)
+13. [El prefijo del consecutivo pasa a ser texto libre — 2026-08-05](#13-el-prefijo-del-consecutivo-pasa-a-ser-texto-libre--2026-08-05)
+14. [Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05](#14-vista-previa-de-la-hoja-de-instalación-y-firma-que-no-se-dibujaba--2026-08-05)
 
 ---
 
@@ -956,7 +958,7 @@ está vacío.
 | Los PDF **subidos a mano** (`signed = false`) no reciben número | No se puede sellar por dentro un archivo que el sistema no generó; un consecutivo que no aparece en el papel prometería una trazabilidad inexistente |
 | El backfill numera por **orden cronológico de firma**, por tenant | El consecutivo refleja el orden real en que se celebraron los contratos. El PDF viejo no se regenera —ya está firmado— así que en los históricos el número existe sólo en la ficha |
 | La lógica de formato está **duplicada** entre el servicio y la migración de backfill | Una migración tiene que poder re-ejecutarse aunque la clase de servicio cambie o desaparezca |
-| El prefijo se valida con `regex:/^[A-Za-z0-9\-]+$/` en el `FormRequest` **y** se sanea otra vez en `format()` | Acaba dentro del nombre del archivo y de la ruta en S3. Se rechaza en la puerta; el saneado es defensa en profundidad por si entrara por otra vía |
+| ~~El prefijo se valida con `regex:/^[A-Za-z0-9\-]+$/`~~ · **Revertido el 2026-08-05**: el prefijo es texto libre | La restricción existía para proteger la clave de S3, pero le quitaba al ISP formatos legítimos (`CNO/`, `Contrato N° `). Se separaron las responsabilidades: `format()` respeta lo que el ISP escribió, `fileName()` sanea aparte lo que va al bucket. Ver §13 |
 
 ### Efecto colateral corregido: la hoja de instalación firmada no se veía
 
@@ -992,3 +994,100 @@ Los documentos subidos **antes** del paso a S3 (29-jul-2026) pueden estar perdid
 el disco efímero del contenedor y `documents:migrate-to-s3` sólo sirve ejecutado desde la
 misma instancia que los recibió. Las filas sobreviven y la interfaz las pinta con un enlace
 roto, sin distinguirlas de las buenas — anotado en `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 13. El prefijo del consecutivo pasa a ser texto libre — 2026-08-05
+
+### Qué estaba mal
+
+La primera versión validaba el prefijo con `regex:/^[A-Za-z0-9\-]+$/` y volvía a saltear
+cualquier otro carácter en `format()`. La justificación era real —el prefijo acababa dentro
+del nombre del archivo y de la clave de S3, donde una `/` crea una carpeta fantasma— pero la
+solución era la equivocada: **se le quitó al ISP el control sobre su propio documento para
+resolver un problema del sistema de archivos.** Formatos perfectamente legítimos y de uso
+corriente en Colombia (`CNO/`, `Contrato N° `, `FIBRA_2026.`) quedaban prohibidos.
+
+### Qué se hizo
+
+Separar las dos responsabilidades que estaban mezcladas en un solo valor:
+
+| | Quién manda | Función |
+|---|---|---|
+| Número impreso y guardado en `contract_number` | El ISP, tal cual lo escribió | `format()` |
+| Nombre del archivo en S3 | El sistema, saneado | `fileName()` |
+
+La validación ahora sólo rechaza caracteres de control (`regex:/^[^\p{C}]*$/u`), que nunca son
+intencionales y romperían el PDF.
+
+### Decisiones y su porqué
+
+| Decisión | Justificación |
+|---|---|
+| El separador `-` se añade sólo si el prefijo termina en letra o dígito (`preg_match('/[\p{L}\p{N}]$/u')`) | Quien escribe `CNO/` ya eligió su separador; `CNO/-00001` sería un error del sistema, no del usuario |
+| `contract_prefix` exceptuado de `TrimStrings` en `bootstrap/app.php` | El espacio final de `Contrato N° ` **es** el separador. El middleware global se lo comía y el número salía `Contrato N°00012`. Se detectó porque el test de extremo a extremo del prefijo libre falló con exactamente esa diferencia |
+| `fileName()` usa `Str::ascii()`, no `transliterator_transliterate()` ni `iconv` | Con `iconv` (única vía disponible en este entorno, sin `intl`) `CÓRDOBA` salía `C-ORDOBA`: transliteraba a `'O` y la comilla se volvía guion. Peor aún, el resultado **dependía del entorno**, así que el mismo contrato tendría distinto nombre en el Windows del desarrollador que en el Linux del contenedor. `Str::ascii()` lleva su propio mapa de caracteres y es determinista |
+| El nombre del archivo conserva siempre la parte numérica | Dos prefijos distintos pueden sanearse al mismo texto; el consecutivo es lo que garantiza que no colisionen dentro de la carpeta del cliente |
+| Ningún cambio de esquema ni migración | `contract_prefix` ya era `varchar(20)`; sólo cambia qué se acepta dentro. Los contratos ya numerados no se tocan |
+
+### Lo que no cambia
+
+Los contratos ya firmados conservan su número. Cambiar el prefijo no renumera nada: la
+secuencia sigue desde donde iba y sólo los contratos nuevos salen con el formato nuevo.
+
+---
+
+## 14. Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05
+
+Dos problemas reportados juntos desde el detalle de instalación: no había forma de mostrarle
+al cliente qué estaba firmando, y la firma **no se veía al trazarla ni quedaba guardada**.
+
+### 14.1 Vista previa antes de firmar
+
+`POST /api/installations/{installation}/sheet-preview` devuelve **el mismo PDF que genera
+`/sign`**, con las firmas vacías, sin crear `customer_documents` y sin cerrar la orden.
+
+`CustomerInstallationController::renderSheetPdf()` se partió en dos: `buildSheetPdf()` arma el
+PDF (sin persistir) y `renderSheetPdf()` lo guarda como documento. La vista previa usa la
+primera; la firma sigue usando la segunda. Así el documento que lee el cliente y el que se
+archiva salen literalmente del mismo código, incluida la plantilla del tenant si la tiene.
+
+| Decisión | Justificación |
+|---|---|
+| El body acepta `sheet` (los mismos campos que `PUT .../sheet`) y se mezcla **en memoria** | El técnico previsualiza con lo que acaba de escribir aunque no haya pulsado *Guardar hoja*. Una vista previa que muestre datos viejos no sirve para el propósito: que el cliente lea lo que firma |
+| Las reglas de validación se extrajeron a `sheetValidationRules($presence)` | Guardar y previsualizar deben aceptar exactamente lo mismo; duplicarlas garantizaba que se separaran con el tiempo |
+| Sin marca de agua "VISTA PREVIA" | Habría que atravesar todo el pipeline de plantillas con un flag. El PDF sale sin firmas —se distingue solo— y nunca se guarda |
+| Permiso `view_support`, igual que `/sign` | Quien puede firmar la orden puede verla antes |
+
+En el frontend el PDF se abre en un modal con `<iframe>` sobre un blob URL, con enlace
+*Abrir en pestaña* como alternativa (los iframes con PDF no siempre renderizan en móviles).
+El blob se revoca al cerrar y en `onBeforeUnmount`.
+
+### 14.2 La firma no se veía ni se guardaba — causa raíz
+
+El contexto 2D de cada canvas se cacheaba en dos variables sueltas del `<script setup>`
+(`ctxCust` / `ctxTech`). El bloque completo de la orden vive dentro de un `v-if="loading"` /
+`v-else`, así que **cada recarga desmonta y vuelve a montar los canvas**. Tras cualquier
+recarga —subir fotos era el caso típico— la variable seguía apuntando al canvas viejo, ya
+desconectado del DOM:
+
+1. El trazo se dibujaba en un canvas fuera de pantalla → *no se ve la firma*.
+2. `canvasCustomer.value.toDataURL()` leía el canvas nuevo, en blanco → *se guardaba un PNG
+   transparente*, y el backend lo aceptaba porque es un PNG base64 válido.
+
+Los tres arreglos, en orden de importancia:
+
+| Arreglo | Qué resuelve |
+|---|---|
+| El contexto se cachea en un `WeakMap` **por elemento canvas** | Un canvas nuevo obtiene un contexto nuevo. La caché no puede volverse obsoleta |
+| `loadInstallation({ silent: true })` en los refrescos (subida de fotos) | El spinner de pantalla completa ya no desmonta el bloque, así que una firma en curso sobrevive al refresco. En modo silencioso un error tampoco vacía `installation` |
+| `canvasHasInk(canvas)` (barrido del canal alfa) decide si hay firma, en vez de la bandera reactiva | La bandera mentía cuando el canvas se re-montaba. Ahora es imposible cerrar una orden con una firma en blanco |
+
+### 14.3 Efecto colateral en las pruebas
+
+La migración `2026_05_27_223001_link_installations_to_prospects` dejaba `customer_id` como
+`NOT NULL` en sqlite (sólo pgsql/mysql aplicaban el `DROP NOT NULL`), con un comentario que
+lo daba por aceptable. No lo era: hacía **imposible representar una orden de prospecto en los
+tests**, justo el caso que motivó la vista previa. Con Laravel 11+ `change()` ya no necesita
+doctrine/dbal, así que la rama sqlite ahora hace lo mismo que las demás. La suite completa
+(398 pruebas) sigue en verde.

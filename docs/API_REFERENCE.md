@@ -391,6 +391,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
+| `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
 | `POST` | `/api/installations/{installation}/sign` | auth | Firma del cliente y del técnico |
 | `GET` | `/api/customers/{customer}/installations` | auth | Instalaciones del cliente |
 | `POST` | `/api/customers/{customer}/installations` | auth | Agenda instalación |
@@ -400,6 +401,20 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
 > **una foto por petición**.
+
+#### `POST /api/installations/{installation}/sheet-preview`
+
+Devuelve **el mismo PDF que genera `/sign`**, pero sin firmas, sin guardar
+`customer_documents` y sin cerrar la orden. Existe para que el cliente —o el
+prospecto, que todavía no es cliente— lea lo que va a firmar.
+
+- **Body (opcional):** `sheet` con los mismos campos que `PUT .../sheet`. Se
+  mezcla **en memoria** sobre la hoja guardada, así la vista previa refleja lo
+  que el técnico tiene escrito aunque no haya pulsado "Guardar hoja". Nunca se
+  persiste.
+- **Respuesta:** `application/pdf` en línea (`Content-Disposition: inline`).
+  El frontend lo pide con `responseType: 'blob'`.
+- Respeta el tenant: una orden de otro tenant devuelve `404`.
 
 ---
 
@@ -444,9 +459,21 @@ y el formato es `PREFIJO-00001`.
 al contrato le tocará el siguiente. El número real se asigna al firmar, dentro de una
 transacción con `lockForUpdate`, y está respaldado por la **UK** `(tenant_id, contract_number)`.
 
-El prefijo se configura con `PUT /api/tenant/config` (`contract_prefix`, `manage_tenant`);
-sólo admite letras, números y guion — acaba dentro del nombre del archivo y de la ruta en S3,
-así que un valor inválido devuelve `422`.
+El prefijo se configura con `PUT /api/tenant/config` (`contract_prefix`, `manage_tenant`) y es
+**texto libre** (máx. 20 caracteres): `CNO/`, `Contrato N° `, `FIBRA_2026.` son todos válidos.
+Lo único que devuelve `422` son los caracteres de control (`\n`, `\t`…), que romperían el PDF.
+
+Dos comportamientos que conviene conocer:
+
+- **El separador `-` se añade sólo si el prefijo termina en letra o dígito.** `CTR` → `CTR-00001`;
+  `CNO/` → `CNO/00001`. Quien escribe su propio separador no recibe uno duplicado.
+- **El espacio final es significativo** y por eso `contract_prefix` está exceptuado del
+  middleware `TrimStrings` (`bootstrap/app.php`): en `Contrato N° ` ese espacio es el separador
+  que eligió el ISP.
+
+El nombre del archivo **no** es el número: se deriva de él saneado a ASCII seguro
+(`ContractNumberService::fileName()`), porque una `/` en la clave de S3 crearía una carpeta
+fantasma. `CNO/00001` se guarda como `contrato_CNO-00001.pdf`.
 
 ---
 

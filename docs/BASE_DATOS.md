@@ -695,7 +695,7 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 
 | Grupo | Columnas |
 |---|---|
-| Vínculo | `customer_id`, `prospect_id`, `created_by`, `technician_id`, `technician` |
+| Vínculo | `customer_id` (**nullable**: la orden puede colgar sólo de un prospecto), `prospect_id`, `created_by`, `technician_id`, `technician` |
 | Agenda | `scheduled_date`, `status` (CHECK `pendiente`\|`completada`\|`cancelada`), `completed_at` |
 | Contenido | `address`, `equipment`, `notes`, `sheet` (json: acta) |
 | Firma | `customer_signature_path`, `technician_signature_path`, `signed_at` |

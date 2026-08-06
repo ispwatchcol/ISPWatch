@@ -247,9 +247,28 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 
 #### Consecutivo de contratos
 
-Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant,
-con el formato `PREFIJO-00001`. El prefijo lo configura cada ISP (`tenant.contract_prefix`,
-pestaña **Plantillas de documentos**); vacío equivale a `CTR`.
+Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant, con
+el formato `PREFIJO` + consecutivo de 5 dígitos. El prefijo lo configura cada ISP
+(`tenant.contract_prefix`, pestaña **Plantillas de documentos**) y es **texto libre**: `CNO/`,
+`Contrato N° `, `FIBRA_2026.` son todos válidos; vacío equivale a `CTR`. El separador `-` se
+añade sólo cuando el prefijo termina en letra o dígito, para no duplicar el que ya puso el ISP.
+
+**El número que se imprime y el nombre del archivo son dos cosas distintas**, y esa separación
+es el punto de todo el diseño:
+
+| | Quién lo decide | Función |
+|---|---|---|
+| Número impreso en el PDF y guardado en `contract_number` | El ISP, tal cual lo escribió | `ContractNumberService::format()` |
+| Nombre del archivo en S3 | El sistema, saneado a ASCII seguro | `ContractNumberService::fileName()` |
+
+`fileName()` usa `Str::ascii()` (mapa propio de Laravel, sin depender de `intl` ni de `iconv`,
+así el resultado es idéntico en Windows y en el contenedor Linux), reemplaza lo que no sea
+`[A-Za-z0-9._-]` por `-` y cae a `contrato` si no queda nada. La parte numérica siempre
+sobrevive, así que dos contratos del mismo cliente nunca colisionan aunque sus prefijos se
+saneen al mismo texto: `CNO/00001` → `contrato_CNO-00001.pdf`.
+
+Como el espacio final del prefijo es significativo (`Contrato N° `), el campo está exceptuado
+del middleware `TrimStrings` en `bootstrap/app.php`.
 
 El mecanismo es el mismo que el de facturas (`BillingService::generateInvoiceNumber`): el
 contador vive en la fila del tenant (`tenant.next_contract_number`) y se reserva dentro de
@@ -288,6 +307,18 @@ zero-regression: personalizar es opt-in.
 | Qué edita el tenant | Un fragmento de body, insertado en un shell Blade fijo (`documents/shells/*_shell.blade.php`) | El documento HTML completo (`<html><head><style>…</style></head><body>…</body></html>`) |
 | Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…), `id`/`style` en todos los tags (`Attr.EnableID=true`, auditoría 2026-08-03) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
 | Render | `Pdf::loadView('documents.shells.*_shell', ['body' => $html, …])` | `Pdf::loadHTML($html)` directo, sin shell |
+
+**Dos vistas previas distintas, ninguna con su propio renderizador:**
+
+| | Qué previsualiza | Punto de entrada |
+|---|---|---|
+| **De plantilla** (Configuración → Plantillas) | Un `body_html` en borrador, con datos de muestra | `TemplateRenderer::preview*` |
+| **De documento real** (detalle de instalación) | La hoja **de esa orden**, sin firmas, para que el cliente o el prospecto lea lo que va a firmar | `CustomerInstallationController::buildSheetPdf()`, el mismo que usa `/sign` antes de guardar el `CustomerDocument` |
+
+La segunda no persiste nada (ni documento, ni firma, ni cambio de estado) y acepta la hoja
+en borrador para reflejar lo que el técnico tiene en pantalla sin haberla guardado. Que
+comparta `buildSheetPdf()` con la firma es el punto: lo que el cliente lee y lo que se
+archiva no pueden divergir.
 
 **Placeholders** — dos tipos, mismo motor de sustitución (`PlaceholderResolver::apply()`,
 `BlockMarkerInjector`), reutilizado sin cambios entre ambos modos:

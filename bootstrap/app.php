@@ -30,6 +30,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // Add global security headers to all responses
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
 
+        // El prefijo del consecutivo de contratos es texto libre y su espacio
+        // final es significativo: en «Contrato N° » es el separador que eligió
+        // el ISP. TrimStrings se lo comía y el número salía «Contrato N°00012».
+        \Illuminate\Foundation\Http\Middleware\TrimStrings::except([
+            'contract_prefix',
+        ]);
+
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);

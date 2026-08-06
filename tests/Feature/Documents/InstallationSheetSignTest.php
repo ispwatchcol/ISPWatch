@@ -241,6 +241,105 @@ class InstallationSheetSignTest extends TestCase
         $response->assertStatus(422);
     }
 
+    /**
+     * La vista previa devuelve el PDF pero NO guarda documento, NO firma y
+     * NO cierra la orden: el cliente solo está leyendo lo que va a firmar.
+     */
+    public function test_sheet_preview_returns_a_pdf_without_storing_or_signing(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $response = $this->post("/api/installations/{$this->installation->id}/sheet-preview");
+
+        $response->assertOk();
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+
+        $this->assertDatabaseMissing('customer_documents', [
+            'installation_id' => $this->installation->id,
+        ]);
+        $this->assertDatabaseHas('customer_installations', [
+            'id'        => $this->installation->id,
+            'status'    => 'pendiente',
+            'signed_at' => null,
+        ]);
+    }
+
+    /**
+     * El técnico previsualiza con lo que tiene escrito en pantalla aunque no
+     * haya pulsado "Guardar hoja" — y esa hoja en borrador no se persiste.
+     */
+    public function test_sheet_preview_uses_the_draft_sheet_without_persisting_it(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf->shouldReceive('stream')->once()->andReturn(response('%PDF-fake'));
+
+        Pdf::shouldReceive('loadView')
+            ->once()
+            ->withArgs(function ($view, $data) {
+                return $view === 'documents.installation_sheet_pdf'
+                    && ($data['installation']->sheet['modem_brand'] ?? null) === 'TP-Link'
+                    && $data['customer_signature'] === '';
+            })
+            ->andReturn($fakePdf);
+
+        $response = $this->postJson("/api/installations/{$this->installation->id}/sheet-preview", [
+            'sheet' => ['modem_brand' => 'TP-Link'],
+        ]);
+
+        $response->assertOk();
+        $this->assertNull($this->installation->fresh()->sheet);
+    }
+
+    /**
+     * Caso que motivó la vista previa: una orden de PROSPECTO (todavía sin
+     * cliente) también tiene que poder previsualizarse.
+     */
+    public function test_sheet_preview_works_for_a_prospect_only_installation(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $prospect = \App\Models\Prospect::create([
+            'tenant_id' => $this->tenant->id,
+            'name'      => 'Ana',
+            'last_name' => 'Gómez',
+            'cedula'    => '987654321',
+            'address'   => 'Carrera 9 #1-2',
+            'status'    => 'agendado',
+        ]);
+
+        $installation = CustomerInstallation::create([
+            'tenant_id'      => $this->tenant->id,
+            'customer_id'    => null,
+            'prospect_id'    => $prospect->id,
+            'scheduled_date' => '2026-07-25',
+            'address'        => 'Carrera 9 #1-2',
+            'status'         => 'pendiente',
+        ]);
+
+        $response = $this->post("/api/installations/{$installation->id}/sheet-preview");
+
+        $response->assertOk();
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+    }
+
+    public function test_cannot_preview_the_sheet_of_another_tenant(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $otherTenant = Tenant::factory()->create();
+        $otherInstallation = CustomerInstallation::create([
+            'tenant_id'      => $otherTenant->id,
+            'customer_id'    => User::factory()->create(['tenant_id' => $otherTenant->id])->id,
+            'scheduled_date' => '2026-07-25',
+            'status'         => 'pendiente',
+        ]);
+
+        $this->post("/api/installations/{$otherInstallation->id}/sheet-preview")
+            ->assertStatus(404);
+    }
+
     public function test_cannot_sign_an_installation_of_another_tenant(): void
     {
         Sanctum::actingAs($this->staff);

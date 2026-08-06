@@ -284,7 +284,7 @@ la conexión) y aborta salvo en dos casos:
 > (`ispwatch_test` en `127.0.0.1`); apuntar la suite a Supabase seguirá abortando, y debe
 > seguir haciéndolo.
 
-### Cobertura actual (46 archivos, 358 tests)
+### Cobertura actual (49 archivos, 398 tests)
 
 | Suite | Archivos |
 |---|---|
@@ -573,9 +573,27 @@ Las tres reglas que hacen que funcione:
    (`ContractNumberService::format($prefix, $n)`) sobre el contador actual — nunca
    `allocate()` — en cualquier ruta de preview.
 
-Si el consecutivo lleva prefijo configurable, valídalo en el `FormRequest` con
-`regex:/^[A-Za-z0-9\-]+$/`: acaba dentro del nombre del archivo y de la ruta en S3.
-`format()` vuelve a sanearlo de todos modos, por si el valor entró por otra vía.
+4. **Si el prefijo es configurable, no lo restrinjas para proteger el sistema de archivos.**
+   Es el error que tuvo la primera versión: `regex:/^[A-Za-z0-9\-]+$/` en el `FormRequest`,
+   porque el prefijo acababa dentro de la clave de S3. Eso le quitaba al ISP formatos
+   perfectamente legítimos (`CNO/`, `Contrato N° `). Lo correcto es separar las dos cosas:
+
+   | Cosa | Quién manda | Dónde |
+   |---|---|---|
+   | El número que se **imprime y se guarda** | El ISP, texto libre | `format()` |
+   | El nombre del **archivo** en S3 | El sistema, saneado a ASCII | `fileName()` |
+
+   `fileName()` translitera (`Nº` → `No`), reemplaza lo que no sea `[A-Za-z0-9._-]` por `-` y
+   cae a `contrato` si no queda nada. La parte numérica siempre sobrevive, así que dos
+   contratos del mismo cliente no colisionan aunque sus prefijos se saneen igual.
+
+   Dos detalles que se aprendieron por las malas:
+
+   - El separador se decide con `preg_match('/[\p{L}\p{N}]$/u', $prefix)` — sólo se añade `-`
+     si el prefijo termina en letra o dígito. Si no, el ISP ya puso el suyo.
+   - **El espacio final es significativo** (`Contrato N° `) y `TrimStrings` se lo comía. El
+     campo está exceptuado en `bootstrap/app.php`. Si añades otro campo donde el espacio
+     final signifique algo, tiene que ir en esa misma lista o nunca llegará a la base.
 
 ---
 
@@ -609,6 +627,7 @@ Si el consecutivo lleva prefijo configurable, valídalo en el `FormRequest` con
 | 24 | **`insertBefore()` con un `DocumentFragment` vacío dispara un warning de PHP** | `BlockMarkerInjector::replaceMarkersInTextNode()` construía el fragmento a insertar sin comprobar si el valor del bloque era `''` (caso normal y frecuente: `{{empresa.logo}}` sin logo subido, `{{contrato.firma_cliente}}` antes de firmar) — `insertBefore($fragmentoVacio, $textNode)` dispara "Document Fragment is empty", detectado sólo al probar end-to-end con un HTML real (2026-08-04), ningún test unitario aislado lo cubría. Saltar el `insertBefore()` cuando el fragmento es `''` es equivalente a insertar "nada" — mismo resultado, sin el warning |
 | 25 | **dompdf y las alturas fijas en tablas: páginas en blanco** | `height` en `<table>`/`<td>` (atributo o CSS) es un MÍNIMO en un navegador, que se ignora cuando el contenido crece; dompdf lo trata rígidamente y genera páginas EN BLANCO. `AdvancedTemplateSanitizer::fixDompdfPaginationQuirks()` lo retira de toda la familia `<table>` (no de `<img>`/`<div>`, donde es legítimo). Medido sobre un contrato real: sólo quitando las alturas, 8 páginas con 3 en blanco → 7 con 1 |
 | 26 | **dompdf no parte una celda de tabla entre páginas — y RECORTA lo que no cabe** | Un `<td>` cuyo contenido excede el alto de una página se empuja entero a la siguiente (dejando la anterior en blanco) y el excedente **se pierde**, sin ningún error. Medido sobre un contrato real: el mismo bloque como tabla daba 7 páginas / 1 en blanco / 15.847 caracteres; convertido a `<div>` (texto plano idéntico), 6 páginas / 0 en blanco / **17.682** caracteres. **Nunca envuelvas contenido que pueda superar una página en una celda de tabla**; usa `<div>`, que fluye entre páginas. No se corrige en el sanitizer a propósito: saber si el contenido desbordará exige renderizar, y convertir tablas a divs a ciegas alteraría el diseño del tenant |
+| 27 | **Cachear el contexto 2D de un `<canvas>` en una variable de `<script setup>`** | El canvas de firma de `InstallationDetail.vue` vive dentro de un `v-if="loading"`/`v-else`: **cada recarga de la orden lo desmonta y monta otro**. Un `let ctx = canvas.getContext('2d')` guardado aparte sigue apuntando al canvas viejo, ya fuera del DOM → el trazo se dibuja donde nadie lo ve y `toDataURL()` del canvas nuevo devuelve un PNG transparente que el backend acepta como firma válida (era exactamente el bug de "la firma no se ve ni se guarda", 2026-08-05). Cachea el contexto en un `WeakMap` **por elemento**, refresca sin desmontar (`loadInstallation({ silent: true })`) y comprueba que haya trazo real barriendo el canal alfa (`canvasHasInk()`), nunca con una bandera reactiva |
 
 ---
 
