@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-03 (logo en bloques + `id`/`style` en modo avanzado) · Rama: `david-editable-templates`
+**Última actualización:** 2026-08-05 (vista previa de la hoja de instalación + firma que no se dibujaba) · Rama: `feat/contract-prefix-freeform`
 
 ---
 
@@ -23,6 +23,7 @@
 11. [Auditoría del manual de usuario — 2026-08-03](#11-auditoría-del-manual-de-usuario--2026-08-03)
 12. [Consecutivo de contratos — 2026-08-04](#12-consecutivo-de-contratos--2026-08-04)
 13. [El prefijo del consecutivo pasa a ser texto libre — 2026-08-05](#13-el-prefijo-del-consecutivo-pasa-a-ser-texto-libre--2026-08-05)
+14. [Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05](#14-vista-previa-de-la-hoja-de-instalación-y-firma-que-no-se-dibujaba--2026-08-05)
 
 ---
 
@@ -1033,3 +1034,60 @@ intencionales y romperían el PDF.
 
 Los contratos ya firmados conservan su número. Cambiar el prefijo no renumera nada: la
 secuencia sigue desde donde iba y sólo los contratos nuevos salen con el formato nuevo.
+
+---
+
+## 14. Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05
+
+Dos problemas reportados juntos desde el detalle de instalación: no había forma de mostrarle
+al cliente qué estaba firmando, y la firma **no se veía al trazarla ni quedaba guardada**.
+
+### 14.1 Vista previa antes de firmar
+
+`POST /api/installations/{installation}/sheet-preview` devuelve **el mismo PDF que genera
+`/sign`**, con las firmas vacías, sin crear `customer_documents` y sin cerrar la orden.
+
+`CustomerInstallationController::renderSheetPdf()` se partió en dos: `buildSheetPdf()` arma el
+PDF (sin persistir) y `renderSheetPdf()` lo guarda como documento. La vista previa usa la
+primera; la firma sigue usando la segunda. Así el documento que lee el cliente y el que se
+archiva salen literalmente del mismo código, incluida la plantilla del tenant si la tiene.
+
+| Decisión | Justificación |
+|---|---|
+| El body acepta `sheet` (los mismos campos que `PUT .../sheet`) y se mezcla **en memoria** | El técnico previsualiza con lo que acaba de escribir aunque no haya pulsado *Guardar hoja*. Una vista previa que muestre datos viejos no sirve para el propósito: que el cliente lea lo que firma |
+| Las reglas de validación se extrajeron a `sheetValidationRules($presence)` | Guardar y previsualizar deben aceptar exactamente lo mismo; duplicarlas garantizaba que se separaran con el tiempo |
+| Sin marca de agua "VISTA PREVIA" | Habría que atravesar todo el pipeline de plantillas con un flag. El PDF sale sin firmas —se distingue solo— y nunca se guarda |
+| Permiso `view_support`, igual que `/sign` | Quien puede firmar la orden puede verla antes |
+
+En el frontend el PDF se abre en un modal con `<iframe>` sobre un blob URL, con enlace
+*Abrir en pestaña* como alternativa (los iframes con PDF no siempre renderizan en móviles).
+El blob se revoca al cerrar y en `onBeforeUnmount`.
+
+### 14.2 La firma no se veía ni se guardaba — causa raíz
+
+El contexto 2D de cada canvas se cacheaba en dos variables sueltas del `<script setup>`
+(`ctxCust` / `ctxTech`). El bloque completo de la orden vive dentro de un `v-if="loading"` /
+`v-else`, así que **cada recarga desmonta y vuelve a montar los canvas**. Tras cualquier
+recarga —subir fotos era el caso típico— la variable seguía apuntando al canvas viejo, ya
+desconectado del DOM:
+
+1. El trazo se dibujaba en un canvas fuera de pantalla → *no se ve la firma*.
+2. `canvasCustomer.value.toDataURL()` leía el canvas nuevo, en blanco → *se guardaba un PNG
+   transparente*, y el backend lo aceptaba porque es un PNG base64 válido.
+
+Los tres arreglos, en orden de importancia:
+
+| Arreglo | Qué resuelve |
+|---|---|
+| El contexto se cachea en un `WeakMap` **por elemento canvas** | Un canvas nuevo obtiene un contexto nuevo. La caché no puede volverse obsoleta |
+| `loadInstallation({ silent: true })` en los refrescos (subida de fotos) | El spinner de pantalla completa ya no desmonta el bloque, así que una firma en curso sobrevive al refresco. En modo silencioso un error tampoco vacía `installation` |
+| `canvasHasInk(canvas)` (barrido del canal alfa) decide si hay firma, en vez de la bandera reactiva | La bandera mentía cuando el canvas se re-montaba. Ahora es imposible cerrar una orden con una firma en blanco |
+
+### 14.3 Efecto colateral en las pruebas
+
+La migración `2026_05_27_223001_link_installations_to_prospects` dejaba `customer_id` como
+`NOT NULL` en sqlite (sólo pgsql/mysql aplicaban el `DROP NOT NULL`), con un comentario que
+lo daba por aceptable. No lo era: hacía **imposible representar una orden de prospecto en los
+tests**, justo el caso que motivó la vista previa. Con Laravel 11+ `change()` ya no necesita
+doctrine/dbal, así que la rama sqlite ahora hace lo mismo que las demás. La suite completa
+(398 pruebas) sigue en verde.

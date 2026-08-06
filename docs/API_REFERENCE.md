@@ -391,6 +391,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
+| `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
 | `POST` | `/api/installations/{installation}/sign` | auth | Firma del cliente y del técnico |
 | `GET` | `/api/customers/{customer}/installations` | auth | Instalaciones del cliente |
 | `POST` | `/api/customers/{customer}/installations` | auth | Agenda instalación |
@@ -400,6 +401,20 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
 > **una foto por petición**.
+
+#### `POST /api/installations/{installation}/sheet-preview`
+
+Devuelve **el mismo PDF que genera `/sign`**, pero sin firmas, sin guardar
+`customer_documents` y sin cerrar la orden. Existe para que el cliente —o el
+prospecto, que todavía no es cliente— lea lo que va a firmar.
+
+- **Body (opcional):** `sheet` con los mismos campos que `PUT .../sheet`. Se
+  mezcla **en memoria** sobre la hoja guardada, así la vista previa refleja lo
+  que el técnico tiene escrito aunque no haya pulsado "Guardar hoja". Nunca se
+  persiste.
+- **Respuesta:** `application/pdf` en línea (`Content-Disposition: inline`).
+  El frontend lo pide con `responseType: 'blob'`.
+- Respeta el tenant: una orden de otro tenant devuelve `404`.
 
 ---
 

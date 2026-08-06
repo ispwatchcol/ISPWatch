@@ -308,6 +308,18 @@ zero-regression: personalizar es opt-in.
 | Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…), `id`/`style` en todos los tags (`Attr.EnableID=true`, auditoría 2026-08-03) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
 | Render | `Pdf::loadView('documents.shells.*_shell', ['body' => $html, …])` | `Pdf::loadHTML($html)` directo, sin shell |
 
+**Dos vistas previas distintas, ninguna con su propio renderizador:**
+
+| | Qué previsualiza | Punto de entrada |
+|---|---|---|
+| **De plantilla** (Configuración → Plantillas) | Un `body_html` en borrador, con datos de muestra | `TemplateRenderer::preview*` |
+| **De documento real** (detalle de instalación) | La hoja **de esa orden**, sin firmas, para que el cliente o el prospecto lea lo que va a firmar | `CustomerInstallationController::buildSheetPdf()`, el mismo que usa `/sign` antes de guardar el `CustomerDocument` |
+
+La segunda no persiste nada (ni documento, ni firma, ni cambio de estado) y acepta la hoja
+en borrador para reflejar lo que el técnico tiene en pantalla sin haberla guardado. Que
+comparta `buildSheetPdf()` con la firma es el punto: lo que el cliente lee y lo que se
+archiva no pueden divergir.
+
 **Placeholders** — dos tipos, mismo motor de sustitución (`PlaceholderResolver::apply()`,
 `BlockMarkerInjector`), reutilizado sin cambios entre ambos modos:
 

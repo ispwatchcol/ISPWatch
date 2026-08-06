@@ -346,7 +346,16 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > el sistema la rechaza y te lo dice.
 3. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
-4. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
+4. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
+   **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
+   para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
+   hayas pulsado *Guardar hoja*, y **no guarda ni cierra nada**: puedes abrirlo las veces que
+   necesites.
+   > Esto importa sobre todo con un **prospecto**, que aún no es cliente y no tiene ficha
+   > donde consultar el documento después.
+5. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
+   > El trazo se ve a medida que se firma. Si al firmar el recuadro se quedara en blanco,
+   > vuelve a trazar la firma: el sistema **no deja cerrar la orden con una firma vacía**.
 
 Al firmar, el sistema genera la **hoja de instalación en PDF** y la orden queda cerrada. El
 PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con un botón

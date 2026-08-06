@@ -131,6 +131,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middleware('permission:view_support');
     Route::post('/installations/{installation}/photos', [CustomerInstallationController::class, 'uploadPhotos'])
         ->middleware('permission:view_support');
+    Route::post('/installations/{installation}/sheet-preview', [CustomerInstallationController::class, 'previewSheet'])
+        ->middleware('permission:view_support');
     Route::post('/installations/{installation}/sign', [CustomerInstallationController::class, 'sign'])
         ->middleware('permission:view_support');
 
