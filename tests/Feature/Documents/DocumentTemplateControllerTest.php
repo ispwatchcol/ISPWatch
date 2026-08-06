@@ -6,6 +6,7 @@ use App\Models\DocumentTemplate;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Templates\TemplateDiagnostics;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -231,9 +232,9 @@ class DocumentTemplateControllerTest extends TestCase
      * Contrato implícito con el frontend (DocumentTemplatesSection.vue):
      * cuando TemplateRenderer::lastRenderWarnings() reporta un token
      * huérfano, el header X-Template-Warnings debe ser un JSON array de
-     * objetos {token, label} — exactamente esa forma, sin envoltorio extra
-     * ni renombrar claves. Este test debe fallar si esa forma cambia sin
-     * querer en un refactor futuro.
+     * objetos {kind, token, label, message} — exactamente esa forma, sin
+     * envoltorio extra ni renombrar claves. Este test debe fallar si esa
+     * forma cambia sin querer en un refactor futuro.
      *
      * Nota: reproducir un huérfano real de punta a punta (a través del
      * TemplateSanitizer real) resultó más difícil de lo esperado — todos los
@@ -270,16 +271,168 @@ class DocumentTemplateControllerTest extends TestCase
 
         $decoded = json_decode($response->headers->get('X-Template-Warnings'), true);
 
+        $this->assertCount(1, $decoded);
         // OJO: 'factura.tabla_items' es una sola clave de array que contiene
         // un punto — NO dos niveles anidados. config('...invoice.factura.tabla_items')
         // rompería (Laravel interpretaría cada punto como un nivel), por eso
         // se busca el array del tipo primero y se indexa con la clave literal.
-        $this->assertSame([
-            [
-                'token' => 'factura.tabla_items',
-                'label' => config('document_placeholder_blocks.invoice')['factura.tabla_items'],
-            ],
-        ], $decoded);
+        $this->assertSame(TemplateDiagnostics::KIND_ORPHANED_BLOCK, $decoded[0]['kind']);
+        $this->assertSame('factura.tabla_items', $decoded[0]['token']);
+        $this->assertSame(
+            config('document_placeholder_blocks.invoice')['factura.tabla_items'],
+            $decoded[0]['label']
+        );
+        $this->assertNotEmpty($decoded[0]['message']);
+        $this->assertSame(['kind', 'token', 'label', 'message'], array_keys($decoded[0]));
+    }
+
+    /**
+     * P-13: el caso que originó todo esto — un contrato exportado de WispHub
+     * pegado tal cual. Ninguno de estos marcadores existe en ISPwatch, así
+     * que hasta el 2026-08-06 el PDF salía con los datos en blanco y sin
+     * ninguna señal de por qué.
+     */
+    public function test_preview_warns_about_placeholders_migrated_from_another_system(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->postJson('/api/document-templates/contract/preview', [
+            'body_html' => '<p>Precio: {{ plan_internet.precio }} — Fecha: {{ fecha_instalacion }}</p>'
+                . '<p>Contrato No. CO-NUMERO_CONTRATO_TAG</p>'
+                . '<p><img src="https://wisphub.app/media/logo.jpg" /></p>',
+            'is_advanced_mode' => true,
+        ]);
+
+        $response->assertStatus(200);
+        $warnings = json_decode($response->headers->get('X-Template-Warnings'), true);
+        $byToken = collect($warnings)->keyBy('token');
+
+        $this->assertSame(
+            TemplateDiagnostics::KIND_FOREIGN_PLACEHOLDER,
+            $byToken['plan_internet.precio']['kind']
+        );
+        $this->assertStringContainsString('{{plan.valor_mensual}}', $byToken['plan_internet.precio']['message']);
+        $this->assertStringContainsString('{{contrato.fecha}}', $byToken['fecha_instalacion']['message']);
+
+        $this->assertSame(
+            TemplateDiagnostics::KIND_FOREIGN_MARKER,
+            $byToken['NUMERO_CONTRATO_TAG']['kind']
+        );
+        $this->assertStringContainsString('{{contrato.numero}}', $byToken['NUMERO_CONTRATO_TAG']['message']);
+
+        $this->assertSame(
+            TemplateDiagnostics::KIND_REMOTE_IMAGE,
+            $byToken['https://wisphub.app/media/logo.jpg']['kind']
+        );
+    }
+
+    /**
+     * Guardar activa la plantilla de inmediato, así que el aviso no puede
+     * vivir sólo en la vista previa: quien pega el HTML y le da directo a
+     * "Guardar y activar" es exactamente quien más lo necesita.
+     */
+    public function test_update_returns_the_same_warnings_in_the_json_response(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->putJson('/api/document-templates/contract', [
+            'body_html' => '<p>Hola {{ cliente_nombre }}</p>',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.is_active', true)
+            ->assertJsonPath('warnings.0.token', 'cliente_nombre')
+            ->assertJsonPath('warnings.0.kind', TemplateDiagnostics::KIND_FOREIGN_PLACEHOLDER);
+    }
+
+    public function test_update_returns_an_empty_warnings_array_for_a_clean_template(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->putJson('/api/document-templates/contract', [
+            'body_html' => '<p>Hola {{cliente.nombre}}, tu plan es {{plan.nombre}}.</p>',
+        ])->assertStatus(200)->assertJsonPath('warnings', []);
+    }
+
+    public function test_show_lists_the_starter_templates_without_their_bodies(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->getJson('/api/document-templates/contract');
+
+        $response->assertStatus(200);
+        $starters = $response->json('starters');
+
+        $this->assertNotEmpty($starters);
+        $this->assertContains('crc-colombia', array_column($starters, 'slug'));
+        foreach ($starters as $starter) {
+            $this->assertArrayNotHasKey('body_html', $starter);
+        }
+    }
+
+    public function test_the_starter_endpoint_returns_the_body_and_persists_nothing(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->getJson('/api/document-templates/contract/starters/crc-colombia');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.slug', 'crc-colombia')
+            ->assertJsonPath('data.advanced', true)
+            ->assertJsonPath('data.page_orientation', 'landscape');
+
+        $this->assertStringContainsString('{{contrato.numero}}', $response->json('data.body_html'));
+        $this->assertDatabaseCount('document_templates', 0);
+    }
+
+    public function test_an_unknown_starter_slug_is_a_404(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->getJson('/api/document-templates/contract/starters/no-existe')->assertStatus(404);
+        $this->getJson('/api/document-templates/not-a-type/starters/crc-colombia')->assertStatus(404);
+    }
+
+    public function test_the_starter_endpoint_requires_the_document_templates_permission(): void
+    {
+        $role = Role::create(['name' => 'Soporte2', 'permissions' => ['view_support']]);
+        $user = User::factory()->create(['tenant_id' => $this->tenant->id, 'role_id' => $role->id]);
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/document-templates/contract/starters/crc-colombia')->assertStatus(403);
+    }
+
+    /**
+     * Una plantilla base que no llega a producir un PDF sería peor que no
+     * ofrecerla: el tenant la carga confiando en que funciona y descubre el
+     * problema con un cliente delante. Se renderizan todas de verdad, con el
+     * pipeline real, y se exige que ninguna dispare avisos.
+     */
+    public function test_every_starter_renders_a_real_pdf_without_warnings(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        foreach (DocumentTemplate::TYPES as $type) {
+            foreach (config("document_template_starters.{$type}", []) as $meta) {
+                $starter = $this->getJson("/api/document-templates/{$type}/starters/{$meta['slug']}")
+                    ->json('data');
+
+                $response = $this->postJson("/api/document-templates/{$type}/preview", [
+                    'body_html'        => $starter['body_html'],
+                    'is_advanced_mode' => $starter['advanced'],
+                    'page_size'        => $starter['page_size'],
+                    'page_orientation' => $starter['page_orientation'],
+                ]);
+
+                $response->assertStatus(200);
+                $this->assertStringStartsWith('%PDF-', $response->getContent(), "{$type}/{$meta['slug']}");
+                $this->assertFalse(
+                    $response->headers->has('X-Template-Warnings'),
+                    "La plantilla base {$type}/{$meta['slug']} genera avisos: "
+                        . $response->headers->get('X-Template-Warnings')
+                );
+            }
+        }
     }
 
     public function test_a_user_without_manage_document_templates_permission_is_forbidden(): void

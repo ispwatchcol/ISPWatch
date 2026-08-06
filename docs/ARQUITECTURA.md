@@ -355,8 +355,9 @@ mientras se almacenan en S3. Reponerlas exigiría incrustarlas como data URI ley
 
 - **Escalares** (`{{cliente.nombre}}`, `{{factura.total}}`…) — texto plano, `htmlspecialchars()`
   al sustituir. Un token desconocido (typo, o de otro tipo de documento — ej. `{{factura.*}}`
-  dentro de un contrato) se blanquea a `''` en silencio; es una decisión consciente, no un bug
-  (ver `docs/MEJORAS_RECOMENDADAS.md`).
+  dentro de un contrato) se blanquea a `''`; es una decisión consciente, no un bug: un typo
+  nunca debe romper el render. Desde el 2026-08-06 ya **no** es silencioso —
+  `TemplateDiagnostics` lo reporta por `X-Template-Warnings` (ver más abajo).
 - **De bloque** (`{{factura.tabla_items}}`, `{{instalacion.firma_cliente}}`,
   `{{instalacion.firma_tecnico}}`, `{{empresa.logo}}`) — HTML de confianza pre-renderizado por el
   servidor (tabla de ítems, galería de fotos, imagen de firma/logo), **nunca** sanitizado (necesita
@@ -382,6 +383,77 @@ mientras se almacenan en S3. Reponerlas exigiría incrustarlas como data URI ley
   no tenía NINGÚN lugar donde insertarse — se perdía en silencio en cualquier contrato de modo
   avanzado. Descubierto al preparar un HTML real de prueba para validar contra producción, no en
   el diseño original del modo avanzado (2026-08-01).
+
+**Plantillas base** (`DocumentStarterLibrary`, auditoría 2026-08-06) — el editor abría en
+blanco. El sistema siempre tuvo un formato base (`resources/views/documents/*.blade.php`, el
+que usa cuando no hay plantilla personalizada), pero vivía en Blade con acceso a objetos
+(`$invoice->total`), así que no era ni editable ni mostrable en el editor: el tenant tenía que
+escribir un documento entero desde cero o pegar el de otro sistema — que es justamente de
+donde venían los reportes de plantillas migradas. Los cuerpos viven en
+`resources/document-starters/{tipo}/{slug}.html` como **HTML plano, no vistas Blade**: Blade
+interpretaría `{{marcador}}` como una expresión PHP y reventaría al compilar. El catálogo
+(`config/document_template_starters.php`) fija además el modo y el papel con los que cada
+plantilla tiene sentido — el contrato CRC es a dos columnas y sólo cabe en horizontal; el
+contrato mexicano se abre en Carta y no en A4. Hay 9: factura y acta de instalación genéricas,
+y 7 contratos (genérico + los formatos regulados de Colombia, México, Argentina, Perú, Chile y
+Bolivia). El
+`slug` llega por URL: sólo se convierte en ruta de disco después de existir en el catálogo,
+nunca por concatenación. Dos pruebas cierran el ciclo: ninguna plantilla base puede usar un
+marcador que el sistema no resuelva, y todas tienen que producir un PDF real sin avisos.
+
+**El editor visual es un iframe, no un editor de texto enriquecido** (auditoría 2026-08-06).
+Hasta esa fecha el modo seguro usaba Quill, que normaliza cualquier HTML a su propio modelo
+interno: tablas, `<div>`, `<style>` y documentos completos no existen para él. Como el
+interruptor de modo avanzado sólo cambiaba qué componente se monta sobre el mismo `draftHtml`,
+salir de modo avanzado hacía que Quill parseara el documento del tenant, se quedara con lo que
+entendía —casi nada— y **reescribiera el resultado vacío en el modelo**. No era que "no
+renderizara": borraba. `HtmlDocumentEditor.vue` edita dentro de un `<iframe>` con el body en
+`contentEditable`, lo que resuelve las dos cosas a la vez: preserva el HTML tal cual (el
+navegador no lo normaliza a ningún modelo) y aísla el `<style>` del tenant, que en la misma
+página se aplicaría al panel de configuración entero. El componente recuerda si el valor que
+recibió era un documento completo o un fragmento, para devolver lo mismo que le dieron — el
+modo seguro guarda un fragmento que va dentro del shell fijo, el avanzado un documento entero,
+y confundirlos rompe el render.
+
+**El editor edita dentro de la hoja real, no dentro de la pantalla** (auditoría 2026-08-06,
+segunda pasada). El iframe fija el ancho del body al **área imprimible de verdad**: tamaño de
+papel a 96 dpi (el `dpi` de `config/dompdf.php`) menos 96 px de margen — los 1.27 cm por lado
+que mete dompdf. Eso da 698 px en A4 vertical y 1027 px en horizontal, exactamente las cifras
+medidas el 2026-08-05. Sin esa restricción el editor era tan ancho como el panel, así que un
+diseño de 950 px se veía perfecto ahí y en el PDF se salía de su columna y se montaba sobre la
+de al lado. Encima se dibujan los cortes de página con `html::before` — un pseudo-elemento, que
+no existe en el DOM y por tanto es imposible que acabe dentro del HTML guardado. La misma hoja
+de estilos marca las `<img>` remotas en rojo translúcido: el navegador las descarga y dompdf no
+(`enable_remote = false`), así que sin marcarlas el editor prometía una imagen que el PDF nunca
+iba a mostrar. Todo eso vive en un `<style>` con id conocido que `readValue()` quita de una
+copia del documento antes de serializar, junto con el `contenteditable` del body.
+
+`HtmlDocumentEditor` emite además una medición (`@fit`) con el ancho que pide el contenido
+frente al que deja la hoja, y la pantalla la convierte en un aviso accionable con el número
+exacto y un botón para girar la hoja. Es la causa nº 1 de los PDF con los textos montados.
+
+> **Límite conocido:** el editor es un navegador y el PDF lo genera dompdf, que implementa un
+> subconjunto pobre de CSS. El ancho de hoja, los cortes de página y las imágenes remotas ya
+> están cubiertos, pero `float`, `position` y flexbox seguirán comportándose distinto. La
+> paridad exacta exige cambiar el motor por un navegador headless — ver `MEJORAS_RECOMENDADAS.md`.
+
+**Diagnóstico de la plantilla** (`TemplateDiagnostics`, auditoría 2026-08-06) — capa aparte
+del render, que **no** cambia lo que se sustituye: inspecciona el `body_html` **crudo** (antes
+de sanear, que es lo que el tenant ve en el editor) y devuelve hallazgos con un mensaje ya
+armado. Existe porque "token desconocido → blanco" y "el sistema no funciona" son
+indistinguibles desde la interfaz: el usuario ve su HTML correcto y los datos vacíos, sin
+ninguna pista. Detecta seis cosas: marcador de otro sistema con llaves (`{{plan_internet.precio}}`)
+y sin llaves (`NUMERO_CONTRATO_TAG`, que aquí es texto y se imprime literal), token válido pero
+de **otro tipo** de documento, typo genuino (sugerencia por distancia de Levenshtein, con
+umbral corto a propósito: una sugerencia equivocada manda a cambiar el marcador que sí estaba
+bien), `<img>` remota (dompdf con `enable_remote = false` nunca la descarga) y los bloques
+huérfanos que ya reportaba `BlockMarkerInjector`. Las equivalencias viven en
+`config/document_placeholder_aliases.php` — catálogo **de diagnóstico**, no de resolución: la
+traducción no es automática porque una equivalencia puede no aplicar al caso concreto
+(`fecha_instalacion` es la fecha de firma en un contrato y la de la orden en una hoja de
+instalación) y porque traducir en silencio dejaría la plantilla guardada diciendo una cosa y
+el PDF imprimiendo otra. Se expone por `X-Template-Warnings` en la vista previa y por la clave
+`warnings` al guardar (guardar **activa** la plantilla: es el momento en que más importa).
 
 **Reglas de seguridad no negociables** (ambos sanitizers, verificadas con test dedicado —
 `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest`): `<script>` y atributos `on-*` siempre

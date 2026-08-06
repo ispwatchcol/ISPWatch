@@ -785,6 +785,14 @@ Agregado permanente.
 
 ---
 
+> ### Qué se borra al eliminar un cliente
+>
+> Las claves foráneas en cascada **no bastan**: no alcanzan a los objetos de S3 (la cascada
+> ocurre dentro de PostgreSQL y nunca pasa por PHP), ni a la configuración del router, ni a las
+> tres tablas que tienen columna de cliente pero no clave foránea. Por eso el borrado se
+> orquesta en `App\Services\CustomerDeletionService` y no se delega al motor.
+> Ver `BITACORA_TECNICA.md` § 19.
+
 ## 5. Llaves foráneas completas
 
 | Tabla.columna | → Referencia | ON DELETE |
@@ -981,3 +989,5 @@ prioridad e impacto está en [`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md
 | 7 | **Contraseñas de servicio en texto plano**: `customer_profile.pppoe_password`, `hotspot_password`, `sectorial.pass_rb`, `router.password_rb`. | `information_schema` | ✅ Resuelto: cast `encrypted` en los tres modelos |
 | 8 | ~~Migración pendiente en producción~~ | `migrate:status` | ❌ Falso positivo: `2026_07_30_000000` figura aplicada (batch 68) |
 | 9 | `customer_documents.installation_id` y `prospects.converted_user_id` sin FK declarada. | `information_schema` | 📋 Pendiente |
+| 10 | **`customer_installations.customer_id` y `bulk_provision_runs.customer_id` tampoco tienen FK**, sólo un índice. Al borrar un cliente la cascada de PostgreSQL no las toca y quedan apuntando a un `users.id` inexistente. | `information_schema` (2026-08-06) | ✅ Mitigado en código: `CustomerDeletionService` las borra explícitamente antes del cliente. La FK sigue sin declararse |
+| 11 | **`customer_documents.customer_id` era nullable en producción pero `NOT NULL` en SQLite.** La migración `2026_05_27_223002` sólo escribió las ramas de pgsql y mysql, así que la suite no podía reproducir el caso real de una foto de instalación que cuelga de un prospecto. | `migrate` en sqlite vs `information_schema` | ✅ Resuelto: migración `2026_08_06_120000`, limitada a sqlite |

@@ -13,6 +13,8 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Services\ContractNumberService;
 use App\Services\Templates\AdvancedTemplateSanitizer;
+use App\Services\Templates\DocumentStarterLibrary;
+use App\Services\Templates\TemplateDiagnostics;
 use App\Services\Templates\TemplateRenderer;
 use App\Services\Templates\TemplateSanitizer;
 use Illuminate\Http\Request;
@@ -27,15 +29,21 @@ class DocumentTemplateController extends Controller
     protected TemplateSanitizer $sanitizer;
     protected AdvancedTemplateSanitizer $advancedSanitizer;
     protected TemplateRenderer $templateRenderer;
+    protected TemplateDiagnostics $diagnostics;
+    protected DocumentStarterLibrary $starters;
 
     public function __construct(
         TemplateSanitizer $sanitizer,
         AdvancedTemplateSanitizer $advancedSanitizer,
-        TemplateRenderer $templateRenderer
+        TemplateRenderer $templateRenderer,
+        TemplateDiagnostics $diagnostics,
+        DocumentStarterLibrary $starters
     ) {
         $this->sanitizer = $sanitizer;
         $this->advancedSanitizer = $advancedSanitizer;
         $this->templateRenderer = $templateRenderer;
+        $this->diagnostics = $diagnostics;
+        $this->starters = $starters;
     }
 
     /**
@@ -91,7 +99,26 @@ class DocumentTemplateController extends Controller
             'block_placeholders' => config("document_placeholder_blocks.{$type}", []),
             'page_sizes'         => DocumentTemplate::PAGE_SIZES,
             'page_orientations'  => DocumentTemplate::PAGE_ORIENTATIONS,
+            // Sólo metadatos: los cuerpos pesan varios KB cada uno y esto se
+            // pide en cada carga del editor. El cuerpo se baja aparte, cuando
+            // el tenant elige una.
+            'starters'           => $this->starters->listFor($type),
         ]);
+    }
+
+    /**
+     * Cuerpo de una plantilla base, para cargarla en el editor. No persiste
+     * nada: el tenant la recibe como borrador y decide si la guarda.
+     */
+    public function starter(Request $request, string $type, string $slug)
+    {
+        $this->assertValidType($type);
+        $this->authTenant($request);
+
+        $starter = $this->starters->find($type, $slug);
+        abort_if($starter === null, 404, 'Plantilla base no encontrada.');
+
+        return response()->json(['data' => $starter]);
     }
 
     /**
@@ -142,6 +169,12 @@ class DocumentTemplateController extends Controller
                 'has_draft'        => true,
                 'updated_at'       => $row->updated_at,
             ],
+            // Mismo diagnóstico que la vista previa, sobre el HTML tal como
+            // lo escribió el tenant (antes de sanear). Va aquí además de en
+            // preview() porque guardar sin previsualizar es un camino real:
+            // sin esto, la plantilla queda ACTIVA y generando documentos con
+            // los datos en blanco sin que nadie se entere.
+            'warnings' => $this->diagnostics->inspect($validated['body_html'], $type),
         ]);
     }
 
@@ -175,13 +208,14 @@ class DocumentTemplateController extends Controller
      * and it works identically for a brand new tenant with zero records.
      * Always uses the custom shell, regardless of is_active.
      *
-     * If any block placeholder (config/document_placeholder_blocks.php)
-     * couldn't be inserted — e.g. the tenant pasted it inside an HTML
-     * attribute — TemplateRenderer::lastRenderWarnings() reports it here, and
-     * it's surfaced as an X-Template-Warnings response header alongside the
-     * PDF stream (informational only: the PDF still renders, without that
-     * block's content, matching the "never break the render" rule already in
-     * place for every other placeholder failure mode).
+     * Todo lo que pudo salir mal sin romper el render se devuelve en la
+     * cabecera X-Template-Warnings junto al PDF (nunca como error: el PDF se
+     * entrega igual, que es la regla de siempre). Dos fuentes, un solo canal:
+     *   - bloques que no se pudieron insertar en su posición, que sólo se
+     *     saben DESPUÉS de renderizar (TemplateRenderer::lastRenderWarnings()).
+     *   - marcadores de otro sistema, de otro tipo de documento, con typos, e
+     *     imágenes remotas — App\Services\Templates\TemplateDiagnostics, que
+     *     inspecciona el borrador CRUDO.
      */
     public function preview(UpdateDocumentTemplateRequest $request, string $type)
     {
@@ -244,29 +278,22 @@ class DocumentTemplateController extends Controller
 
         $response = $pdf->stream('vista-previa.pdf');
 
-        $warnings = $this->buildTemplateWarnings($type);
+        $warnings = $this->diagnostics->inspectWithOrphanedBlocks(
+            $draftHtml,
+            $type,
+            $this->templateRenderer->lastRenderWarnings()
+        );
+
         if (!empty($warnings)) {
+            // json_encode SIN JSON_UNESCAPED_UNICODE a propósito: los mensajes
+            // llevan tildes y comillas angulares, y una cabecera HTTP no es
+            // UTF-8 (RFC 9110: ISO-8859-1 histórico). El escapado \uXXXX por
+            // defecto deja la cabecera en ASCII puro y JSON.parse la devuelve
+            // intacta en el navegador.
             $response->headers->set('X-Template-Warnings', json_encode($warnings));
         }
 
         return $response;
-    }
-
-    /**
-     * @return array<int,array{token:string,label:string}>
-     */
-    private function buildTemplateWarnings(string $type): array
-    {
-        $labels = config("document_placeholder_blocks.{$type}", []);
-
-        return collect($this->templateRenderer->lastRenderWarnings())
-            ->unique()
-            ->map(fn (string $token) => [
-                'token' => $token,
-                'label' => $labels[$token] ?? $token,
-            ])
-            ->values()
-            ->all();
     }
 
     private function authTenant(Request $request): int

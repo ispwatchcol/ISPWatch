@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1f2937; line-height: 1.45; }
+  .cab { text-align: center; border-bottom: 2px solid #007934; padding-bottom: 8px; margin-bottom: 12px; }
+  .cab h1 { margin: 0; font-size: 15px; color: #007934; }
+  .cab p { margin: 2px 0 0; font-size: 10px; color: #6b7280; }
+  h2 { font-size: 11px; color: #ffffff; background: #007934; padding: 3px 6px; margin: 12px 0 5px; }
+  p { margin: 4px 0; text-align: justify; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 3px 5px; border: 1px solid #d1d5db; }
+  table.datos td.et { width: 32%; color: #4b5563; font-weight: bold; }
+  .destacado { border: 2px solid #007934; padding: 6px; margin: 8px 0; }
+  .firma { margin-top: 26px; }
+  .sign-box { width: 45%; display: inline-block; text-align: center; }
+  .sign-line { border-top: 1px solid #111827; margin-top: 6px; padding-top: 5px; font-size: 10px; }
+  .pie { margin-top: 18px; font-size: 9px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="cab">
+  {{empresa.logo}}
+  <h1>CONTRATO DE PRESTACIÓN DEL SERVICIO DE ACCESO A INTERNET</h1>
+  <p>{{empresa.nombre}} · NIT {{empresa.nit}}</p>
+  <p>Contrato N° <strong>{{contrato.numero}}</strong> · Fecha: {{contrato.fecha}}</p>
+</div>
+
+<p>Entre <strong>{{empresa.nombre}}</strong>, en adelante <strong>EL OPERADOR</strong>, y
+<strong>{{cliente.nombre}} {{cliente.apellido}}</strong>, en adelante <strong>EL USUARIO</strong>, se
+suscribe el presente contrato conforme a la Ley N° 164 General de Telecomunicaciones, su reglamento y
+la normativa de la <strong>ATT</strong> (Autoridad de Regulación y Fiscalización de Telecomunicaciones
+y Transportes).</p>
+
+<h2>1. DATOS DEL USUARIO</h2>
+<table class="datos">
+  <tr><td class="et">Nombre o razón social</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+  <tr><td class="et">CI / NIT</td><td>{{cliente.cedula}}</td></tr>
+  <tr><td class="et">Dirección de instalación</td><td>{{cliente.direccion}}</td></tr>
+  <tr><td class="et">Ciudad / Municipio</td><td>{{cliente.ciudad}}</td></tr>
+  <tr><td class="et">Departamento</td><td>{{cliente.departamento}}</td></tr>
+  <tr><td class="et">Correo electrónico</td><td>{{cliente.email}}</td></tr>
+  <tr><td class="et">Teléfono</td><td>{{cliente.telefono}}</td></tr>
+</table>
+
+<h2>2. SERVICIO CONTRATADO</h2>
+<table class="datos">
+  <tr><td class="et">Plan</td><td>{{plan.nombre}}</td></tr>
+  <tr><td class="et">Velocidad de bajada</td><td>{{plan.velocidad_bajada}}</td></tr>
+  <tr><td class="et">Velocidad de subida</td><td>{{plan.velocidad_subida}}</td></tr>
+  <tr><td class="et">Tarifa mensual</td><td>Bs {{plan.valor_mensual}}</td></tr>
+  <tr><td class="et">Cargo de instalación</td><td><em>escribe aquí el cargo</em></td></tr>
+  <tr><td class="et">Inicio del servicio</td><td>{{contrato.fecha}}</td></tr>
+</table>
+
+<div class="destacado">
+  <p><strong>Derechos del usuario.</strong> EL USUARIO tiene derecho a recibir el servicio en las
+  condiciones contratadas, a ser informado de forma clara sobre tarifas y condiciones, a la
+  confidencialidad de sus comunicaciones, a presentar reclamaciones y a recibir compensación por
+  interrupciones imputables a EL OPERADOR.</p>
+</div>
+
+<h2>3. FACTURACIÓN Y PAGO</h2>
+<p>EL OPERADOR emitirá factura mensual y la pondrá a disposición de EL USUARIO con anticipación
+suficiente a la fecha de vencimiento. La falta de pago faculta la suspensión del servicio previo aviso.
+Acreditado el pago, el servicio se restablecerá en el plazo establecido por la normativa.</p>
+
+<h2>4. CALIDAD Y COMPENSACIÓN</h2>
+<p>EL OPERADOR se obliga a cumplir los indicadores de calidad fijados por la ATT. Ante interrupciones
+imputables a EL OPERADOR, EL USUARIO tiene derecho al descuento proporcional de la tarifa por el tiempo
+de indisponibilidad, aplicado en la factura del período siguiente.</p>
+
+<h2>5. TERMINACIÓN</h2>
+<p>EL USUARIO puede solicitar la terminación del contrato en cualquier momento por cualquiera de los
+medios de atención, sin necesidad de expresar causa, salvo que exista un compromiso de permanencia
+vigente informado y aceptado expresamente.</p>
+
+<h2>6. EQUIPOS</h2>
+<p>Los equipos entregados en calidad de préstamo de uso son propiedad de EL OPERADOR y deberán
+devolverse al término del contrato. EL USUARIO responde por su pérdida o deterioro imputable.</p>
+
+<h2>7. RECLAMACIONES</h2>
+<p>Atención al usuario: <em>escribe aquí tu línea, tu correo y tu página web</em>. Toda reclamación
+recibe un código de registro. Si la respuesta no resulta satisfactoria, EL USUARIO puede acudir a la
+<strong>ATT</strong> (www.att.gob.bo, línea gratuita 800-10-1000).</p>
+
+<h2>8. PROTECCIÓN DE DATOS</h2>
+<p>EL OPERADOR tratará los datos de EL USUARIO exclusivamente para la prestación, facturación y soporte
+del servicio, garantizando la inviolabilidad y el secreto de las comunicaciones conforme a la Ley
+N° 164.</p>
+
+<div class="firma">
+  <div class="sign-box">
+    {{contrato.firma_cliente}}
+    <div class="sign-line">
+      <strong>{{cliente.nombre}} {{cliente.apellido}}</strong><br>
+      CI {{cliente.cedula}}<br>
+      EL USUARIO
+    </div>
+  </div>
+  <div class="sign-box" style="float:right;">
+    <div style="height:80px;"></div>
+    <div class="sign-line">
+      <strong>{{empresa.nombre}}</strong><br>
+      NIT {{empresa.nit}}<br>
+      EL OPERADOR
+    </div>
+  </div>
+</div>
+
+<div class="pie">Contrato {{contrato.numero}} — {{contrato.fecha}}</div>
+
+</body>
+</html>

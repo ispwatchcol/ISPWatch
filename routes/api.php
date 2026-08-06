@@ -465,6 +465,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // through to the SPA catch-all route.
     Route::middleware(['permission:manage_document_templates'])->group(function () {
         Route::get('/document-templates', [DocumentTemplateController::class, 'index']);
+        // El listado de plantillas base va dentro de show(); esto sólo baja el
+        // cuerpo de la que el tenant elija (varios KB por plantilla).
+        Route::get('/document-templates/{type}/starters/{slug}', [DocumentTemplateController::class, 'starter']);
         Route::get('/document-templates/{type}', [DocumentTemplateController::class, 'show']);
         Route::put('/document-templates/{type}', [DocumentTemplateController::class, 'update']);
         Route::post('/document-templates/{type}/reset', [DocumentTemplateController::class, 'reset']);

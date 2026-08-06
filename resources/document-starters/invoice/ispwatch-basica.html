@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: DejaVu Sans, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
+  .top { border-bottom: 2px solid #1e5fa8; padding-bottom: 10px; margin-bottom: 16px; }
+  .empresa { font-size: 16px; font-weight: bold; color: #1e5fa8; margin: 0; }
+  .empresa-datos { font-size: 10px; color: #6b7280; }
+  .titulo { text-align: right; }
+  .titulo h1 { margin: 0; font-size: 18px; color: #1e5fa8; }
+  .titulo .num { font-size: 13px; font-weight: bold; }
+  h2 { font-size: 12px; color: #1e5fa8; border-bottom: 1px solid #e5e7eb; padding-bottom: 3px; margin: 16px 0 6px; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 3px 5px; vertical-align: top; }
+  table.datos td.et { width: 28%; color: #6b7280; font-weight: bold; }
+  table.totales { width: 45%; border-collapse: collapse; margin-left: auto; margin-top: 10px; }
+  table.totales td { padding: 4px 6px; border-top: 1px solid #e5e7eb; }
+  table.totales td.val { text-align: right; }
+  table.totales tr.total td { font-weight: bold; font-size: 13px; color: #1e5fa8; border-top: 2px solid #1e5fa8; }
+  .notas { margin-top: 18px; font-size: 11px; color: #4b5563; }
+  .footer { margin-top: 26px; font-size: 10px; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<table width="100%" class="top">
+<tr>
+  <td width="55%">
+    {{empresa.logo}}
+    <p class="empresa">{{empresa.nombre}}</p>
+    <p class="empresa-datos">
+      NIT {{empresa.nit}}<br>
+      {{empresa.direccion}} — {{empresa.ciudad}}<br>
+      {{empresa.telefono}} · {{empresa.email}}
+    </p>
+  </td>
+  <td width="45%" class="titulo">
+    <h1>FACTURA DE VENTA</h1>
+    <p class="num">No. {{factura.numero}}</p>
+    <p class="empresa-datos">
+      Emisión: {{factura.fecha_emision}}<br>
+      Vencimiento: {{factura.fecha_vencimiento}}<br>
+      Estado: {{factura.estado}}
+    </p>
+  </td>
+</tr>
+</table>
+
+<h2>Cliente</h2>
+<table class="datos">
+  <tr><td class="et">Nombre</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+  <tr><td class="et">Cédula / NIT</td><td>{{cliente.cedula}}</td></tr>
+  <tr><td class="et">Dirección</td><td>{{cliente.direccion}}</td></tr>
+  <tr><td class="et">Teléfono</td><td>{{cliente.telefono}}</td></tr>
+  <tr><td class="et">Correo</td><td>{{cliente.email}}</td></tr>
+  <tr><td class="et">Período facturado</td><td>{{factura.periodo}}</td></tr>
+</table>
+
+<h2>Detalle</h2>
+{{factura.tabla_items}}
+
+<table class="totales">
+  <tr><td>Subtotal</td><td class="val">$ {{factura.subtotal}}</td></tr>
+  <tr><td>Impuestos</td><td class="val">$ {{factura.impuestos}}</td></tr>
+  <tr class="total"><td>Total a pagar</td><td class="val">$ {{factura.total}}</td></tr>
+  <tr><td>Saldo pendiente</td><td class="val">$ {{factura.saldo}}</td></tr>
+</table>
+
+<div class="notas">
+  <strong>Observaciones:</strong> {{factura.notas}}
+</div>
+
+<div class="footer">
+  Documento generado electrónicamente por {{empresa.nombre}}.
+</div>
+
+</body>
+</html>

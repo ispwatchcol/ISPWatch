@@ -295,7 +295,7 @@ la conexión) y aborta salvo en dos casos:
 | `Feature/Inventory` | `InventoryImportTest` |
 | `Feature` (raíz) | `BillingTest`, `StaffDeletionTest`, `SecurityHeadersTest`, `TemplateRendererFallbackTest`, `TemplateRendererBlockPlaceholdersTest`, `TemplateRendererAdvancedModeTest`, `TemplateRendererPageSetupTest` (papel por plantilla, verificado sobre el `/MediaBox` del PDF real), `TenantBrandingConfigTest`, `TenantLogoUploadTest` |
 | `Unit` | `CoreSshExecTest`, `FirewallRulesManagerTest`, `InterfaceReaderTest`, `NormalizesRouterCommentTest`, `PppProfileManagerTest`, `WireguardTransportTest` |
-| `Unit/Services` | `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest` |
+| `Unit/Services` | `PlaceholderResolverTest`, `BlockPlaceholderResolverTest`, `BlockMarkerInjectorTest`, `TemplateSanitizerTest`, `AdvancedTemplateSanitizerTest`, `TemplateDiagnosticsTest` |
 | `Unit/Spikes` | `CssTidyExtractStyleBlocksSpikeTest` (prueba aislada de `Filter.ExtractStyleBlocks`, no forma parte del sanitizer de producción) |
 
 **Zona sin cobertura relevante:** la lógica de negocio de clientes, prospectos, sectoriales,
@@ -521,6 +521,24 @@ caso en `CustomerProvisioningService::provisionByControlMode()` si aplica al alt
 Cubre el manager con un test unitario que verifique **la cadena de comando generada**
 (patrón de `CoreSshExecTest` y `FirewallRulesManagerTest`).
 
+> **Si el recurso se crea, alguien tiene que poder borrarlo.** Durante dos años todos los
+> managers tuvieron sólo métodos `ensure*` y ninguno de borrado; el resultado fue que eliminar
+> un cliente le dejaba el servicio funcionando (ver `BITACORA_TECNICA.md` § 19). Cuando añadas
+> un recurso nuevo, añádelo también al barrido de
+> `App\Services\MikroTik\CustomerDeprovisionManager` o quedará como residuo permanente en el
+> equipo.
+
+Tres reglas del barrido de borrado que no son evidentes y ya costaron un bug:
+
+1. **En RouterOS un `remove [find ...]` que no encuentra nada es un ERROR**, no un no-op:
+   aborta el script. Cada sentencia va envuelta en su propio `:do { } on-error={}` o el primer
+   recurso ausente impide borrar los demás.
+2. **Nunca emitas un `find` sin criterio.** Sin una clave por la que buscar borrarías recursos
+   de otros clientes; si no hay identidad, no se manda nada.
+3. **La IP y la MAC se interpolan sin comillas**, así que se validan con `FILTER_VALIDATE_IP` y
+   una expresión regular canónica antes de entrar al script. Los nombres van entre comillas y
+   se escapan con `addcslashes($v, "\\\"\$")`, igual que en el resto de managers.
+
 ### Ejemplo: nuevo placeholder de documento
 
 **Escalar** (texto plano, ej. `{{cliente.telefono}}`):
@@ -550,13 +568,81 @@ todo lo demás, usa un placeholder escalar):
 5. Si el frontend debe ofrecerlo en el selector de placeholders, ya llega solo:
    `DocumentTemplateController::show()` expone `block_placeholders` desde el mismo config.
 
-> **Un placeholder desconocido se blanquea en silencio.** `PlaceholderResolver::apply()`
-> reemplaza por `''` cualquier `{{…}}` que no esté en el array resuelto — deliberado, para
-> que un typo nunca rompa el render. El efecto secundario es que "marcador mal escrito" y
-> "sistema roto" se ven idénticos desde la interfaz; es la causa raíz del reporte de
-> 2026-08-05 con una plantilla migrada de WispHub (`docs/BITACORA_TECNICA.md` § 15). Si
-> agregas un marcador con nombre distinto al de otro sistema del que la gente migra, deja
-> la equivalencia escrita en `MANUAL_USUARIO.md`.
+> **Un placeholder desconocido se blanquea, pero ya no en silencio.**
+> `PlaceholderResolver::apply()` reemplaza por `''` cualquier `{{…}}` que no esté en el array
+> resuelto — deliberado, para que un typo nunca rompa el render. Eso no cambió; lo que cambió
+> el 2026-08-06 es que `TemplateDiagnostics` avisa por qué (ver abajo). El silencio era la
+> causa raíz del reporte del 2026-08-05 con una plantilla migrada de WispHub
+> (`docs/BITACORA_TECNICA.md` § 15 y § 16).
+
+### Ejemplo: enseñarle al sistema un marcador de otro sistema
+
+Cuando un tenant migra desde otra plataforma, sus marcadores no coinciden con los de ISPwatch
+y el documento sale con los datos en blanco. Para que la app lo explique en vez de dejarlo
+adivinar, agrega la equivalencia a `config/document_placeholder_aliases.php`:
+
+```php
+'scalar' => [
+    'common'   => ['cliente_nombre' => 'cliente.nombre'],   // aplica a los 3 tipos
+    'contract' => ['fecha_instalacion' => 'contrato.fecha'], // el tipo gana sobre 'common'
+],
+'literal' => [   // marcadores SIN llaves: aquí son texto y se imprimen tal cual
+    'contract' => ['NUMERO_CONTRATO_TAG' => 'contrato.numero'],
+],
+```
+
+Cuatro cosas que no son evidentes:
+
+1. **Es un catálogo de diagnóstico, no de resolución.** `PlaceholderResolver` sigue sin
+   conocer estos nombres: el alias sólo alimenta el mensaje de aviso. Traducir automáticamente
+   dejaría la plantilla guardada diciendo una cosa y el PDF imprimiendo otra, y el tenant
+   nunca aprendería el vocabulario real.
+2. **La misma etiqueta puede significar cosas distintas según el tipo.** `fecha_instalacion`
+   es la fecha de firma en un contrato y la fecha de la orden en una hoja de instalación; por
+   eso la tabla está partida por tipo y no es una lista plana.
+3. **`literal` es para marcadores sin llaves.** No los ve el escaneo de `{{…}}` porque para
+   ISPwatch son texto normal — se imprimen tal cual en el PDF, que es un síntoma distinto
+   ("me sale un texto raro") al de un marcador que se blanquea.
+4. **No toques el frontend.** El mensaje se arma en PHP y viaja ya escrito en
+   `X-Template-Warnings`; el editor sólo lo lista. Así se verifica en
+   `TemplateDiagnosticsTest` junto con la detección que lo origina.
+
+`TemplateDiagnosticsTest::test_no_token_from_the_official_catalogue_is_ever_flagged` recorre
+el catálogo completo de los 3 tipos: si agregas un placeholder nuevo y el diagnóstico lo
+marcara como desconocido, ese test falla antes de que un tenant vea un aviso que miente.
+
+### Ejemplo: agregar una plantilla base al editor
+
+1. Escribe el documento en `resources/document-starters/{tipo}/{slug}.html` como **HTML plano**.
+   No es una vista Blade y no debe serlo: Blade interpretaría cada `{{marcador}}` como una
+   expresión PHP y reventaría al compilar. Se lee con `file_get_contents`, nunca se compila.
+2. Regístrala en `config/document_template_starters.php` con `advanced`, `page_size` y
+   `page_orientation` — son los que la plantilla **necesita** para verse bien, no sugerencias:
+   el frontend los aplica al cargarla.
+3. Ya aparece en el editor: `DocumentTemplateController::show()` expone el catálogo del tipo.
+
+Tres reglas para que el PDF no salga roto, todas aprendidas midiendo (ver `BITACORA_TECNICA.md`
+§ 15 y § 17):
+
+- **Nunca metas texto largo en una celda de tabla.** dompdf parte una tabla entre filas, pero
+  **no** parte una celda: si una celda no cabe en la hoja, recorta el excedente sin avisar. Para
+  un diseño a dos columnas, usa una tabla con muchas filas cortas (una sección por celda), no
+  dos columnas gigantes. La primera versión del contrato CRC ocupaba 6 páginas por esto; con la
+  misma cantidad de texto repartida en filas cortas ocupa 2.
+- **Respeta el ancho imprimible.** No es el de la hoja: dompdf mete 1.27 cm de margen por
+  lado, o sea 96 px a 96 dpi. A4 vertical deja **698 px**, A4 horizontal **1027 px**, Carta
+  vertical **720 px**. Una tabla con ancho fijo mayor que eso no se encoge — se desborda sobre
+  lo que tenga al lado y el PDF sale con los textos montados. El editor visual ya edita dentro
+  de ese ancho exacto y avisa cuando no cabe (`HtmlDocumentEditor`, evento `@fit`); si cambias
+  el dpi o los márgenes de `config/dompdf.php`, hay que cambiar `MARGIN_PX` y `PAPER_MM` ahí o
+  el editor pasará a mentir sobre lo que cabe.
+- **Nada de alturas fijas ni imágenes remotas.** `height=` en tablas sólo produce páginas en
+  blanco, y dompdf corre con `enable_remote = false`: una `<img>` a `https://` sale rota
+  siempre. Usa `{{empresa.logo}}`.
+- **Sólo marcadores del catálogo del tipo.** `DocumentStarterLibraryTest` corre
+  `TemplateDiagnostics` sobre cada plantilla base y falla si aparece uno que el sistema no
+  resuelve; `DocumentTemplateControllerTest` las renderiza todas y exige un PDF real sin avisos.
+  Entre las dos, una plantilla base rota no llega a producción.
 
 ### Ejemplo: cambiar el tamaño o la orientación del PDF
 

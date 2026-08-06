@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-05 (vista previa de la hoja de instalación + firma que no se dibujaba) · Rama: `feat/contract-prefix-freeform`
+**Última actualización:** 2026-08-06 (borrado de cliente sin residuos) · Rama: `feat/contract-prefix-freeform`
 
 ---
 
@@ -25,6 +25,10 @@
 13. [El prefijo del consecutivo pasa a ser texto libre — 2026-08-05](#13-el-prefijo-del-consecutivo-pasa-a-ser-texto-libre--2026-08-05)
 14. [Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05](#14-vista-previa-de-la-hoja-de-instalación-y-firma-que-no-se-dibujaba--2026-08-05)
 15. [Tamaño/orientación de página y plantillas migradas de WispHub — 2026-08-05](#15-tamañoorientación-de-página-y-plantillas-migradas-de-wisphub--2026-08-05)
+16. [La app explica por qué un marcador sale en blanco — 2026-08-06](#16-la-app-explica-por-qué-un-marcador-sale-en-blanco--2026-08-06)
+17. [El editor perdía el documento al cambiar de modo, y abría en blanco — 2026-08-06](#17-el-editor-perdía-el-documento-al-cambiar-de-modo-y-abría-en-blanco--2026-08-06)
+18. [El PDF salía con los textos montados: el editor mentía sobre el ancho — 2026-08-06](#18-el-pdf-salía-con-los-textos-montados-el-editor-mentía-sobre-el-ancho--2026-08-06)
+19. [Borrar un cliente pasa a ser un borrado real, sin residuos — 2026-08-06](#19-borrar-un-cliente-pasa-a-ser-un-borrado-real-sin-residuos--2026-08-06)
 
 ---
 
@@ -233,9 +237,12 @@ ISPWatch/
 | `WhatsAppService.php` | 162 | WhatsApp Cloud API (Graph v18) |
 | `PaymentReminderService.php` | 209 | Recordatorios (uno por cliente, con todas sus facturas pendientes) |
 | `RouterPolicyInstallerService.php` | 151 | Instalación de reglas de bloqueo |
+| `CustomerDeletionService.php` | — | **Borrado completo del cliente**: filas, archivos de S3 y configuración del router. El orden de las operaciones no es arbitrario — ver § 19 |
 | `Templates/TemplateRenderer.php` | — | Render de plantillas |
 | `Templates/TemplateSanitizer.php` | — | Saneado con HTMLPurifier |
 | `Templates/PlaceholderResolver.php` | — | Resolución de placeholders |
+| `Templates/TemplateDiagnostics.php` | — | Explica por qué un marcador sale en blanco (§ 16) |
+| `Templates/DocumentStarterLibrary.php` | — | Catálogo de plantillas base editables (§ 17) |
 
 ### 3.5 `app/Services/MikroTik`
 
@@ -254,6 +261,7 @@ ISPWatch/
 | `PcqManager.php` | 320 | `/queue type` + address-list |
 | `DhcpLeaseManager.php` | 234 | `/ip dhcp-server lease` |
 | `IpMacBindingManager.php` | 233 | ARP estático + drop por par IP/MAC |
+| `CustomerDeprovisionManager.php` | — | **Contrapartida de borrado**: barre secret y sesión PPPoE, queue, HotSpot, lease, address-lists, ARP y amarre. Era el único manager de borrado; el resto sólo tenía `ensure*` |
 | `SshTunnel.php` | 207 | Conexión SSH individual |
 | `RouterEndpointResolver.php` | 157 | Resuelve la IP real desde `/ppp active` del CORE y la reescribe en BD |
 | `Concerns/BuildsCoreSshExec.php` | — | Construye la línea `/system ssh-exec` (puerto + escapado) |
@@ -417,10 +425,12 @@ y reflejarla en el equipo de red.
 
 **Funcionalidades.** Alta individual y masiva; edición con detección automática de fibra;
 mapa georreferenciado; documentos y contrato; exclusión de facturación; suspensión y
-activación manual; aprovisionamiento individual y masivo.
+activación manual; aprovisionamiento individual y masivo; **borrado completo sin residuos**
+(filas, archivos de S3 y configuración del router — ver § 19).
 
 **Dependencias.** `service_plan` (plan), `router` (equipo), `sectorial` (elemento de red /
-OLT-NAP), `user_services` (contrato de facturación), `CustomerProvisioningService`.
+OLT-NAP), `user_services` (contrato de facturación), `CustomerProvisioningService`,
+`CustomerDeletionService` (borrado).
 
 **Flujo interno.**
 
@@ -826,8 +836,10 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | Los placeholders de bloque se sustituyen vía marcador opaco + `DOMDocument`, nunca `str_replace` directo | Un tenant podría poner el token dentro de un atributo HTML (`title="{{factura.tabla_items}}"`); insertar HTML real ahí corrompería el atributo. El marcador sólo se expande si un recorrido de nodos de texto lo encuentra — un atributo no es un nodo de texto navegable, así que es estructuralmente imposible que se expanda ahí |
 | Un marcador de bloque repetido reutiliza el **mismo** marcador (no uno por ocurrencia) | Consistencia con cómo ya se comportaban los placeholders escalares (mismo token = mismo valor en todas sus apariciones) |
 | `PlaceholderResolver::apply()` escapa con `htmlspecialchars()` en vez de depender de una pasada de sanitización posterior | Una segunda pasada de sanitización después de insertar bloques destruiría el HTML de confianza (`<img>` de fotos/firmas). Escapar en el momento de sustituir da la misma garantía sin ese conflicto |
-| Un placeholder desconocido, con typo, o de **otro tipo de documento** se blanquea a `''`, no queda visible | Regla ya establecida desde la Fase 1 (`{{no.existe}} → ''`); mantenerla también cubre el caso de un tenant que pega `{{factura.*}}` en un contrato — deuda reconocida, ver `MEJORAS_RECOMENDADAS.md` |
-| `X-Template-Warnings` sólo cubre bloques que **sí correspondían** al tipo de documento pero no se pudieron insertar | No cubre placeholders de otro tipo de documento ni typos — esos ni siquiera llegan a generar un marcador, así que `BlockMarkerInjector` nunca los ve |
+| Un placeholder desconocido, con typo, o de **otro tipo de documento** se blanquea a `''`, no queda visible | Regla ya establecida desde la Fase 1 (`{{no.existe}} → ''`): un typo nunca debe romper el render. Sigue vigente — lo que cambió el 2026-08-06 es que además se **avisa** (`TemplateDiagnostics`), no que se deje de blanquear |
+| `X-Template-Warnings` cubre **dos** fuentes distintas: bloques huérfanos (post-render) y diagnóstico del borrador crudo (pre-render) | Un bloque huérfano sólo se sabe después de renderizar (`BlockMarkerInjector`); un marcador ajeno o de otro tipo ni siquiera llega a generar un marcador, así que hay que detectarlo inspeccionando el HTML antes. Se unifican en un solo canal para que el editor tenga un único lugar donde mirar |
+| Las equivalencias con marcadores de otros sistemas **no** se traducen automáticamente | La plantilla guardada diría una cosa y el PDF imprimiría otra; y una equivalencia puede no aplicar (`fecha_instalacion` = fecha de firma en contrato, fecha de la orden en instalación). Se avisa y se sugiere; el reemplazo lo hace el humano |
+| El diagnóstico se topa en 12 hallazgos y va ordenado por severidad | Viaja en una cabecera HTTP: una plantilla migrada entera pasa del límite del proxy (8 KB en nginx) y el navegador se queda sin el PDF. Ordenar antes de topar garantiza que lo que se pierde sea lo cosmético |
 | `cerdic/css-tidy` es dependencia de **producción**, no `--dev` | El modo avanzado lo necesita en tiempo de ejecución (`Filter.ExtractStyleBlocks`), no sólo para el spike de prueba que lo introdujo originalmente |
 | El modo avanzado nunca activa `CSS.Trusted` ni `HTML.Trusted`, aunque el CSS permitido sea "amplio" | `CSS.Trusted` habilitaría `position`/`top`/`left`/`right`/`bottom`/`z-index` (overlays que ocultan/falsifican contenido en un documento fiscal); `HTML.Trusted` habilitaría `<script>`. Ninguno de los dos es necesario para lo que se pidió ("CSS amplio, excepto url()") |
 | Ninguna propiedad CSS que sólo tenga sentido con `url()` está en el allowlist del modo avanzado (`background-image`, `background` shorthand, `list-style-image`) | Así `url()` queda excluido por diseño del allowlist, no sólo por el filtro de esquema de `URI.AllowedSchemes` — defensa en profundidad, no una sola capa |
@@ -1244,3 +1256,380 @@ de producción, no a la causa.
 llamado a `setPaper()`. Un mock probaría que el código invoca el método; sólo el PDF
 generado prueba que dompdf de verdad produce la página en la orientación pedida, que es lo
 único que le importa al usuario. Suite completa: **413 pruebas en verde**.
+
+---
+
+## 16. La app explica por qué un marcador sale en blanco — 2026-08-06
+
+### 16.1 De dónde viene
+
+El 2026-08-05 (§ 15) se diagnosticó el reporte "el contrato no toma bien la plantilla" y
+resultaron ser tres causas, de las cuales **sólo una** requirió código (la orientación de
+página). Las otras dos —marcadores con nombres de WispHub y logo enlazado a una URL remota—
+se cerraron escribiendo una tabla de equivalencias en `MANUAL_USUARIO.md`.
+
+Eso dejó el problema real sin resolver, y así quedó anotado como **P-13**: la tabla vive en
+la documentación, y nadie va a leer la documentación en el momento exacto en que pega el
+HTML. Desde la interfaz, "marcador que ISPwatch no conoce" y "el sistema no funciona" se ven
+idénticos: HTML correcto, datos en blanco, cero pistas.
+
+### 16.2 Qué se hizo
+
+`App\Services\Templates\TemplateDiagnostics` — capa de inspección **separada del render**,
+que no cambia una sola sustitución. Recibe el `body_html` crudo (antes de sanear: es lo que
+el tenant ve en el editor) y devuelve hallazgos con el mensaje ya redactado. Seis tipos:
+
+| `kind` | Detecta |
+|---|---|
+| `foreign_marker` | `NUMERO_CONTRATO_TAG`, `FIRMA_CLIENTE_NO_BORRAR` — sin llaves, aquí son texto y se imprimen literales |
+| `foreign_placeholder` | `{{plan_internet.precio}}` y compañía, con equivalente conocido |
+| `wrong_type` | Token válido pero del catálogo de otro tipo de documento (cierra **P-3**) |
+| `unknown_placeholder` | Typo genuino; sugiere el más cercano por Levenshtein si lo hay |
+| `remote_image` | `<img src="https://…">`, que dompdf nunca descarga |
+| `orphaned_block` | Lo que ya reportaba `BlockMarkerInjector`, ahora por el mismo canal |
+
+Se expone por `X-Template-Warnings` en la vista previa y por la clave `warnings` del JSON al
+guardar. El frontend lo muestra en un panel debajo del editor.
+
+Corrido contra el HTML real del contrato que originó el reporte: **10 hallazgos**, que son
+exactamente las 3 causas del § 15 (7 marcadores de WispHub, 2 marcadores literales, 1 imagen
+remota), y ni un falso positivo sobre los 4 marcadores que sí coincidían por casualidad
+(`cedula`, `telefono`, `direccion`, `ciudad`). Cabecera resultante: 2123 bytes.
+
+### 16.3 Decisiones y su porqué
+
+**No se traduce automáticamente.** Sería trivial reescribir `plan_internet.precio` →
+`plan.valor_mensual` al guardar, y se descartó por dos razones. La primera es que la
+plantilla guardada diría una cosa y el PDF imprimiría otra, con el tenant sin forma de
+entender qué se está renderizando de verdad. La segunda es que la equivalencia **no siempre
+aplica**: `fecha_instalacion` es la fecha de firma en un contrato y la fecha de la orden en
+una hoja de instalación. Por eso `config/document_placeholder_aliases.php` está partido por
+tipo, y por eso es un catálogo de *diagnóstico*, no de *resolución* — `PlaceholderResolver`
+sigue sin conocer ninguno de esos nombres.
+
+**El mensaje se arma en PHP, no en el frontend.** Viaja ya escrito en la cabecera. Así se
+verifica en `TemplateDiagnosticsTest` junto con la detección que lo origina, y el editor no
+duplica el catálogo de equivalencias. El costo es el tamaño de la cabecera, que se paga con
+el tope.
+
+**Panel y no toast.** La vista previa abre el PDF en otra pestaña: un toast se dispara
+mientras el usuario está mirando el PDF y se pierde. Un panel debajo del editor sigue ahí
+cuando vuelve. Al guardar sí hay toast además, porque ahí no se cambia de pestaña.
+
+**El aviso también va en `update()`, no sólo en `preview()`.** Guardar **activa** la
+plantilla en el mismo request: sin esto, quien pega el HTML y le da directo a "Guardar y
+activar" —que es el camino más probable— se queda con una plantilla activa generando
+documentos con los datos en blanco y sin haber visto nunca el aviso.
+
+**Umbral corto en la sugerencia por Levenshtein** (≤ 3 y ≤ 34 % de la longitud). Una
+sugerencia equivocada es peor que ninguna: manda al tenant a cambiar el marcador que sí
+estaba bien.
+
+**Tope de 12 hallazgos, aplicado después de ordenar por severidad.** Los avisos viajan en una
+cabecera HTTP y una plantilla migrada entera puede tener decenas de marcadores ajenos; pasarse
+del límite del proxy dejaría al navegador sin el PDF, que es peor que un aviso incompleto.
+Ordenar antes de topar garantiza que lo que se pierde sea lo cosmético (imagen remota) y no lo
+que deja el documento sin datos. Por la misma razón el `json_encode` va **sin**
+`JSON_UNESCAPED_UNICODE`: el escapado `\uXXXX` deja la cabecera en ASCII puro, que es lo único
+que una cabecera HTTP garantiza transportar (los mensajes llevan tildes y comillas angulares).
+
+### 16.4 Un bug encontrado de paso: los bloques no toleraban espacios
+
+`BlockMarkerInjector::markify()` buscaba la forma exacta `{{token}}` con `str_contains`,
+mientras que `PlaceholderResolver::apply()` siempre aceptó `{{ token }}` con espacios. Como
+`apply()` corre **después** de `markify()` y blanquea todo `{{…}}` que no reconozca, un
+bloque escrito con espacios —`{{ empresa.logo }}`— desaparecía sin dejar rastro: el mismo
+síntoma que un token inventado, pero con el nombre perfectamente bien escrito.
+
+Estaba documentado en `MANUAL_USUARIO.md` como si fuera una regla del sistema ("los bloques
+van sin espacios por dentro"). No era una regla, era una inconsistencia entre dos capas que
+corren una detrás de otra. `markify()` ahora usa el mismo patrón con `\s*` que `apply()`.
+
+### 16.5 Estado
+
+Suite completa: **434 pruebas en verde** (413 antes, +21 nuevas: 17 de
+`TemplateDiagnosticsTest`, 3 de `DocumentTemplateControllerTest`, 1 de
+`BlockMarkerInjectorTest`). Cierra **P-13** y **P-3** de `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 17. El editor perdía el documento al cambiar de modo, y abría en blanco — 2026-08-06
+
+### 17.1 Los dos reportes
+
+Al probar el diagnóstico del § 16 con el contrato real, salieron dos problemas que no tenían
+nada que ver con los marcadores:
+
+1. **El editor abre en blanco.** No hay forma de partir del formato base ni de un formato
+   regulado: o escribes un documento entero desde cero, o pegas el de otro sistema — que es
+   exactamente de donde venían todos los reportes de plantillas migradas.
+2. **Apagar el modo avanzado dejaba el editor vacío.** Con el HTML del contrato cargado en modo
+   avanzado, al quitar el interruptor el editor visual aparecía sin nada.
+
+### 17.2 El segundo no era un fallo de renderizado: era pérdida de datos
+
+La lectura natural del reporte es "el editor visual no sabe mostrar ese HTML". El
+comportamiento real era peor. El interruptor sólo decidía qué componente se monta sobre el
+**mismo** `draftHtml`:
+
+```
+<textarea v-if="is_advanced_mode" v-model="draftHtml">
+<QuillEditor v-else v-model:content="draftHtml" contentType="html">
+```
+
+Quill no guarda HTML: guarda un modelo propio (Delta) y **regenera** el HTML a partir de él.
+Todo lo que su configuración no contempla —tablas, `<div>`, `<style>`, atributos de ancho, un
+documento completo con `<head>`— no es que se muestre mal: no existe. Al montarse parseaba el
+contrato, se quedaba con casi nada, y por el `v-model` **escribía ese casi nada de vuelta en
+`draftHtml`**. El documento del tenant quedaba destruido en memoria; bastaba con guardar
+después para destruirlo también en la base.
+
+### 17.3 Qué se hizo: el editor visual pasa a ser un iframe
+
+`resources/js/components/settings/HtmlDocumentEditor.vue` reemplaza a Quill en el modo seguro.
+El contenido se edita dentro de un `<iframe>` con el `body` en `contentEditable`, y la barra de
+herramientas actúa sobre el documento del iframe.
+
+Un `contenteditable` normal en la misma página no servía, por dos razones independientes:
+
+- **Preservación.** El navegador conserva el HTML que le das, sin normalizarlo a ningún modelo
+  intermedio. Eso es justo lo que Quill no podía hacer y lo que el usuario pedía: el interruptor
+  cambia **cómo** se edita, nunca **qué** se edita.
+- **Aislamiento.** Las plantillas del tenant son documentos completos con su propio `<style>`.
+  En la misma página, un `body { font-size: 11px }` o un `table { ... }` del tenant se aplicaría
+  al panel de configuración entero y lo desmaquetaría. El iframe tiene su propio documento.
+
+El componente recuerda si lo que recibió era un documento completo o un fragmento, y devuelve lo
+mismo que le dieron: el modo seguro guarda un fragmento que va dentro del shell fijo y el
+avanzado un documento entero — confundirlos rompe el render. Antes de escribir en el iframe se
+quitan `<script>`, atributos `on-*` y `javascript:`; no sustituye al saneado del servidor (que
+sigue corriendo al guardar), es la capa de esta pantalla, porque un borrador escrito en modo
+avanzado todavía no pasó por ninguna.
+
+**Lo que el interruptor sí sigue cambiando es cómo se GUARDA**, y eso no se tocó: el modo seguro
+sanea con un allowlist estrecho que descarta tablas, `<img>` y `<style>`. Ahora se avisa en rojo
+cuando el contenido los usa, con un botón para activar el modo avanzado. La diferencia entre
+"lo decides tú" y "se borró y no sé por qué".
+
+Quill sigue instalado: `Manual.vue` lo usa y ahí sí es la herramienta correcta (texto con
+formato, no documentos).
+
+### 17.4 Plantillas base seleccionables
+
+`DocumentStarterLibrary` + `config/document_template_starters.php` +
+`resources/document-starters/{tipo}/{slug}.html`. Cuatro plantillas: la base del sistema para
+cada uno de los 3 tipos, ya editables, y el **Contrato único CRC** a dos columnas.
+
+Los cuerpos son **HTML plano y no vistas Blade**, a propósito: Blade interpretaría cada
+`{{marcador}}` como una expresión PHP y reventaría al compilar. El catálogo lleva además el modo
+y el papel con los que cada plantilla tiene sentido, y el frontend los aplica al cargarla — el
+CRC en A4 vertical sale descuadrado, y en modo seguro el sanitizer le quitaría las tablas.
+
+El `slug` llega por URL y es entrada del usuario: sólo se convierte en ruta de disco **después**
+de existir en el catálogo. Concatenarlo directamente sería un salto de directorio
+(`../../../.env`), y hay una prueba dedicada.
+
+### 17.5 El contrato CRC pasó de 6 páginas a 2 midiendo, no razonando
+
+La primera versión copiaba la estructura del original: una tabla de dos columnas donde cada celda
+contenía media hoja de texto. Renderizada de verdad daba **6 páginas** en horizontal para un
+documento diseñado como 2.
+
+La causa es la limitación de dompdf ya registrada en § 15: parte una tabla **entre filas**, pero
+no parte una **celda**. Con dos celdas gigantes no tiene dónde cortar y lo empuja todo. La
+solución fue invertir la estructura: una sola tabla con siete filas cortas, una sección por
+celda, de modo que ninguna celda llegue a ser más alta que la página. Mismo texto, mismo diseño
+a dos columnas, **2 páginas**.
+
+Vale como regla para cualquier plantilla futura: en dompdf, el layout a dos columnas se hace con
+muchas filas cortas, nunca con dos columnas largas.
+
+### 17.6 Estado
+
+Suite completa: **445 pruebas en verde** (434 antes, +11: 6 de `DocumentStarterLibraryTest`,
+5 de `DocumentTemplateControllerTest`). Dos de ellas son las que impiden que una plantilla base
+rota llegue a producción: ninguna puede usar un marcador que el sistema no resuelva, y todas
+tienen que renderizar un PDF real sin disparar avisos.
+
+---
+
+## 18. El PDF salía con los textos montados: el editor mentía sobre el ancho — 2026-08-06
+
+### 18.1 El reporte
+
+Con el editor visual ya funcionando (§ 17), el tenant reportó que **lo que ve en el editor no es
+lo que sale en la vista previa**: el PDF traía los textos y las cajas superpuestos, las imágenes
+mal, y lo mismo al firmar un contrato real. Además pidió los formatos regulados de más países.
+
+### 18.2 No era dompdf portándose raro: era aritmética
+
+La causa se calcula, no se adivina. A 96 dpi (el `dpi` de `config/dompdf.php`) un A4 vertical
+mide 794 px, y dompdf mete 1.27 cm de margen por lado = 96 px en total, así que deja **698 px
+imprimibles**. El contrato del tenant es a dos columnas con las cajas internas declaradas a
+475 px cada una: pide **~950 px**.
+
+dompdf encoge la tabla exterior a 698 px, pero **no encoge una tabla interna con ancho fijo**:
+la deja desbordarse. Las cajas de la columna izquierda se salen sobre la derecha y el resultado
+es exactamente lo que muestra el reporte — la caja "INFORMACIÓN DEL SUSCRIPTOR" invadiendo
+"CESIÓN", y 8 páginas donde el original tiene 3.
+
+Las cifras coinciden con las medidas el 2026-08-05 (§ 15.3: ~698 px vertical, ~1027 px
+horizontal), lo que confirma el modelo: **ancho imprimible = papel a 96 dpi − 96 px**.
+
+**Por qué el editor no lo mostraba.** El iframe era tan ancho como el panel de configuración,
+o sea 1300-1600 px. Un diseño de 950 px cabía de sobra ahí. El editor no estaba mintiendo sobre
+el HTML: estaba mintiendo sobre **el papel**.
+
+### 18.3 Qué se hizo
+
+`HtmlDocumentEditor` fija el ancho del body al área imprimible real y pinta la hoja sobre fondo
+gris. Encima dibuja los cortes de página con `html::before` — un pseudo-elemento, que no existe
+en el DOM y por tanto no puede acabar dentro del HTML guardado. La misma hoja de estilos marca
+las `<img>` remotas en rojo translúcido, porque el navegador sí las descarga y dompdf no
+(`enable_remote = false`): sin marcarlas, el editor prometía una imagen que el PDF nunca iba a
+mostrar. Todo eso vive en un `<style>` con id conocido que `readValue()` elimina de una copia
+del documento antes de serializar, junto con el `contenteditable` del body.
+
+El componente emite además una medición (`@fit`) y la pantalla la convierte en un aviso con los
+números exactos y un botón para girar la hoja.
+
+**Un bug propio, encontrado al revisar:** la primera versión de la medición usaba
+`Math.max(body.scrollWidth, documentElement.scrollWidth)`. `documentElement.scrollWidth` es el
+ancho del **iframe**, no del contenido — siempre mayor que la hoja — así que habría dado "no
+cabe" en el 100 % de los documentos, incluidos los que caben de sobra. Sólo sirve
+`body.scrollWidth`, porque el ancho del body está fijado al de la hoja.
+
+### 18.4 Lo que NO se resolvió, y por qué se deja escrito
+
+El editor es un navegador; el PDF lo genera dompdf, que implementa un subconjunto pobre de
+CSS 2.1. Las tres causas reportadas (ancho de hoja, cortes de página, imágenes remotas) ya
+están cubiertas, pero `float`, `position` y flexbox seguirán comportándose distinto entre los
+dos. **La paridad exacta exige cambiar el motor de PDF por un navegador headless** (Browsershot
+o Gotenberg), lo que significa meter Chrome en el droplet: es una decisión de infraestructura,
+no un refactor. Anotado como **P-15**.
+
+### 18.5 Plantillas base de seis países
+
+Se sumaron cinco formatos regulados a los dos que ya había: México (IFT, en tamaño **Carta**),
+Argentina (ENACOM), Perú (OSIPTEL), Chile (SUBTEL) y Bolivia (ATT). Cada uno lleva las secciones
+propias de su regulador — velocidad mínima garantizada del 40 % en Perú, baja por el mismo medio
+de contratación en Argentina, Carta de Derechos del IFT en México, descuento de oficio por
+indisponibilidad en Chile.
+
+Todos usan una sola columna en vertical, a diferencia del colombiano: el formato a dos columnas
+es una particularidad del "contrato único" de la CRC, y una columna es además mucho más seguro
+en dompdf. Verificado renderizando los 9: **1 o 2 páginas cada uno**, con el papel correcto y
+sin marcadores inválidos.
+
+Los formatos son la **estructura** que exige cada regulador, no asesoría jurídica ni
+cumplimiento certificado; llevan huecos marcados en cursiva para completar y así está dicho en
+la propia pantalla y en el manual.
+
+### 18.6 Estado
+
+Suite completa: **445 pruebas en verde**. Las dos pruebas que blindan las plantillas base
+(marcadores válidos + PDF real sin avisos) recorren el catálogo, así que cubrieron las cinco
+nuevas sin tocar el código de prueba.
+
+---
+
+## 19. Borrar un cliente pasa a ser un borrado real, sin residuos — 2026-08-06
+
+### 19.1 Qué estaba mal
+
+`CustomerProfileController::destroy()` hacía sólo `$profile->delete()` + `$user->delete()` y
+confiaba en las claves foráneas en cascada. Eso limpia bien las tablas que **sí** tienen la
+clave (facturas, pagos, documentos, servicios, arrastres, bitácoras de facturación y de cortes,
+mensajes y adjuntos de tickets), pero dejaba tres clases de basura que ya nadie iba a poder
+limpiar:
+
+1. **Los archivos en S3.** `Storage::disk('s3')->delete()` sólo se ejecutaba en
+   `CustomerDocumentController::destroy()`, o sea al borrar **un** documento a mano. La cascada
+   ocurre dentro de PostgreSQL, que jamás pasa por PHP: desaparecían las filas de
+   `customer_documents` y los objetos —contratos firmados, fotos de instalación— se quedaban en
+   el bucket para siempre, sin nada que apuntara a ellos. Datos personales, pagando
+   almacenamiento y sin forma de localizarlos.
+2. **La configuración en el router.** No se llamaba a ningún manager de MikroTik. El cliente
+   borrado **seguía navegando**, y sin ficha en ISPWatch ya no quedaba de dónde sacar la IP para
+   ir a limpiarlo a mano. Fuga de ingreso silenciosa.
+3. **Filas huérfanas** en las tres tablas que tienen columna de cliente pero **no** clave
+   foránea, sólo un índice: `customer_installations`, `bulk_provision_runs` y
+   `prospects.converted_user_id`.
+
+Verificado contra `information_schema` del esquema real, no supuesto. `User` **no** usa
+`SoftDeletes` pese a tener `deleted_at` en `$casts`: el borrado siempre fue real.
+
+### 19.2 Qué se hizo
+
+Dos piezas nuevas:
+
+- **`App\Services\MikroTik\CustomerDeprovisionManager`** — la contrapartida de borrado que no
+  existía. Todos los managers tenían sólo métodos `ensure*` (crear/actualizar). Barre secret y
+  sesión PPPoE, simple queue, usuario y sesión de HotSpot, lease DHCP, entradas de address-list
+  (PCQ y suspendidos), ARP estático y la regla de amarre.
+- **`App\Services\CustomerDeletionService`** — orquesta el borrado completo.
+
+### 19.3 El orden de las operaciones, que no es arbitrario
+
+1. **Tomar la identidad de red antes de tocar nada.** Una vez borrado el cliente no hay de dónde
+   sacar IP, usuario PPPoE ni MAC.
+2. **Limpiar el router PRIMERO.** Si fallara después del borrado quedaría un cliente navegando
+   sin ningún registro de quién era: irrecuperable. Al revés —router limpio, borrado fallido— el
+   cliente sigue en ISPWatch y se re-aprovisiona con un clic.
+3. **Borrar en base de datos** dentro de una transacción, con las tres tablas huérfanas
+   explícitas antes del cliente.
+4. **Borrar los archivos de S3 después del commit.** S3 no es transaccional: hacerlo antes
+   significaría borrar los archivos de un cliente que sigue existiendo si la transacción se
+   revierte.
+
+**Un fallo al limpiar el router NO aborta el borrado** — un router caído dejaría clientes
+imposibles de eliminar — pero se reporta explícitamente en el mensaje de la respuesta y en el
+log, y el frontend lo muestra como aviso y no como éxito.
+
+### 19.4 Detalles que no son evidentes
+
+**Las fotos de instalación se recogen por `installation_id`, no por `customer_id`.** Esa columna
+es nullable desde que las instalaciones pueden colgar de un prospecto, así que filtrar sólo por
+cliente habría dejado fuera justamente el residuo más numeroso.
+
+**El prospecto se desliga, no se borra.** Es un registro comercial propio que sobrevive al
+cliente; lo único que quedaría colgando es el vínculo, y eso es lo que se pone a `NULL`.
+
+**Todo el barrido del router va en un solo `ssh-exec`.** Cada viaje al CORE cuesta ~15 s, y no se
+sabe de antemano por qué método estaba controlado el cliente: el método del router pudo cambiar
+después del alta, dejando restos del anterior. Barrer todos los recursos por sus claves es más
+barato y además limpia esos restos.
+
+**Cada sentencia va envuelta en `:do { } on-error={}`.** En RouterOS un `remove [find ...]` que no
+encuentra nada es un **error**, no un no-op: sin el envoltorio, el primer recurso ausente
+abortaría el resto del barrido.
+
+**Sin ninguna clave por la que buscar, no se manda nada.** Un `find` sin criterio borraría
+recursos de otros clientes — el peor error posible en esta clase. Hay una prueba dedicada.
+
+**La IP y la MAC se interpolan sin comillas**, así que se validan con `FILTER_VALIDATE_IP` y una
+expresión regular canónica antes de entrar al script; un valor con formato inválido se descarta
+en vez de llegar al router. Los nombres van entre comillas y se escapan con la misma regla que el
+resto de managers.
+
+### 19.5 Una divergencia dev/prod encontrada de paso
+
+`customer_documents.customer_id` era **nullable en producción pero NOT NULL en sqlite**: la
+migración `2026_05_27_223002` sólo escribió las ramas de pgsql y mysql. Como la suite corre en
+sqlite, era imposible probar el caso real de una foto de instalación sin cliente — que es
+exactamente la fila que ninguna clave foránea arrastra. Se corrigió con
+`2026_08_06_120000`, limitada a sqlite: en pgsql la columna ya es nullable y relanzar un
+`change()` allí arriesgaría la clave foránea con ON DELETE CASCADE sin ganar nada.
+
+Es el mismo patrón ya registrado en la bitácora: las migraciones con SQL específico de un motor
+tienen que cubrir **todos** los que se usan, o el entorno de pruebas deja de representar a
+producción justo en el caso que importa.
+
+### 19.6 Estado
+
+Suite completa: **458 pruebas en verde** (445 antes, +13: 7 de `CustomerDeletionCleanupTest`,
+6 de `CustomerDeprovisionManagerTest`). Cierra **P-16**.
+
+**Queda una decisión de producto abierta:** un cliente con facturas pagadas es historia contable
+y hoy se va entero. Si se quiere conservar, el camino es archivar (`SoftDeletes`) en vez de
+borrar, y no se hizo porque cambia la semántica del módulo entero, no sólo este método.

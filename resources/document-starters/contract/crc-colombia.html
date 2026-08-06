@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<!--
+  Estructura a propósito: UNA tabla con muchas filas cortas, no dos columnas
+  gigantes. dompdf sí sabe partir una tabla ENTRE filas, pero no sabe partir
+  una celda: si una celda no cabe en la hoja, recorta el excedente sin avisar.
+  Con una sección por celda ninguna celda llega a ser más alta que la página.
+-->
+<style>
+  body { font-family: 'Times New Roman', Times, serif; font-size: 10px; color: #1f2937; line-height: 1.3; }
+  h3 { background-color: #636161; color: #ffffff; font-size: 10px; margin: 0 0 3px; padding: 2px 5px; }
+  p { margin: 2px 0; text-align: justify; }
+  table.layout { width: 100%; border-collapse: collapse; }
+  table.layout > tr > td, table.layout td.col { width: 50%; vertical-align: top; padding: 0 5px 8px 0; }
+  .destacado { background-color: #636161; color: #ffffff; padding: 5px; }
+  .numero { text-align: right; font-weight: bold; font-size: 11px; margin-bottom: 4px; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 2px 4px; border: 1px solid #cccccc; }
+  table.datos td.et { width: 42%; color: #444444; }
+  .firma { border: 1px solid #636161; padding: 6px; }
+  .aviso { font-size: 9px; color: #666666; }
+</style>
+</head>
+<body>
+
+<table class="layout">
+
+  <tr>
+    <td class="col">
+      <div style="text-align:center;">{{empresa.logo}}</div>
+      <div class="destacado">
+        <p>Este contrato explica las condiciones para la prestación de los servicios entre usted y
+        <strong>{{empresa.nombre}}</strong>, por el que pagará mensualmente
+        <strong>$ {{plan.valor_mensual}}</strong>. Tendrá vigencia a partir del
+        <strong>{{contrato.fecha}}</strong>. El plazo máximo de instalación es de 15 días hábiles.</p>
+      </div>
+    </td>
+    <td class="col">
+      <p class="numero">Contrato No. {{contrato.numero}}</p>
+      <h3>EL SERVICIO</h3>
+      <p>Con este contrato nos comprometemos a prestarle los servicios que usted elija:</p>
+      <p>Telefonía fija ☐&nbsp;&nbsp;Internet fijo ☒&nbsp;&nbsp;Televisión ☐</p>
+      <p>Usted se compromete a pagar oportunamente el precio acordado.</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="col">
+      <h3>INFORMACIÓN DEL SUSCRIPTOR</h3>
+      <table class="datos">
+        <tr><td class="et">Nombre / Razón Social</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+        <tr><td class="et">Identificación</td><td>{{cliente.cedula}}</td></tr>
+        <tr><td class="et">Correo electrónico</td><td>{{cliente.email}}</td></tr>
+        <tr><td class="et">Teléfono de contacto</td><td>{{cliente.telefono}}</td></tr>
+        <tr><td class="et">Dirección del servicio</td><td>{{cliente.direccion}}</td></tr>
+        <tr><td class="et">Municipio</td><td>{{cliente.ciudad}}</td></tr>
+        <tr><td class="et">Departamento</td><td>{{cliente.departamento}}</td></tr>
+      </table>
+    </td>
+    <td class="col">
+      <h3>CONDICIONES COMERCIALES Y CARACTERÍSTICAS DEL PLAN</h3>
+      <table class="datos">
+        <tr><td class="et">Tipo de plan</td><td>{{plan.nombre}}</td></tr>
+        <tr><td class="et">Velocidad de bajada</td><td>{{plan.velocidad_bajada}}</td></tr>
+        <tr><td class="et">Velocidad de subida</td><td>{{plan.velocidad_subida}}</td></tr>
+        <tr><td class="et">Valor mensual</td><td>$ {{plan.valor_mensual}}</td></tr>
+      </table>
+      <p>1. Valores en pesos colombianos. 2. Sujeto a los impuestos aplicables según la legislación
+      vigente al momento de la facturación. 3. La provisión del servicio está sujeta a la cobertura de
+      la red y a la viabilidad técnica en el sitio. 4. Los equipos se entregan en comodato.</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="col">
+      <h3>PRINCIPALES OBLIGACIONES DEL USUARIO</h3>
+      <p>1) Pagar oportunamente los servicios prestados, incluyendo los intereses de mora cuando haya
+      incumplimiento. 2) Suministrar información verdadera. 3) Hacer uso adecuado de los equipos y los
+      servicios. 4) No divulgar ni acceder a pornografía infantil. 5) Avisar a las autoridades cualquier
+      robo o hurto de elementos de la red. 6) No participar en actividades de fraude. 7) Hacer uso
+      adecuado de su derecho a presentar PQR. 8) Actuar de buena fe. El operador podrá terminar el
+      contrato ante incumplimiento de estas obligaciones.</p>
+    </td>
+    <td class="col">
+      <h3>CALIDAD Y COMPENSACIÓN</h3>
+      <p>Cuando se presente indisponibilidad del servicio, o este se suspenda a pesar de su pago
+      oportuno, lo compensaremos en su próxima factura. Debemos cumplir con las condiciones de calidad
+      definidas por la CRC.</p>
+      <h3>CESIÓN</h3>
+      <p>Si quiere ceder este contrato a otra persona, presente una solicitud por escrito a través de
+      nuestros Medios de Atención, con la aceptación por escrito de quien recibe la cesión. Dentro de
+      los 15 días hábiles siguientes le daremos respuesta.</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="col">
+      <h3>MODIFICACIÓN</h3>
+      <p><strong>{{empresa.nombre}}</strong> no podrá modificar el contrato sin su autorización, lo que
+      incluye no cobrarle servicios que no haya aceptado expresamente. Usted puede modificar los
+      servicios contratados en cualquier momento; el cambio se hace efectivo en el siguiente período de
+      facturación.</p>
+      <h3>SUSPENSIÓN</h3>
+      <p>Usted puede solicitar la suspensión del servicio por un máximo de 2 meses al año, presentando
+      la solicitud antes del inicio del ciclo de facturación que desea suspender.</p>
+    </td>
+    <td class="col">
+      <h3>TERMINACIÓN</h3>
+      <p>Usted puede terminar el contrato en cualquier momento sin penalidades, con una solicitud a
+      través de cualquiera de nuestros Medios de Atención presentada mínimo 3 días hábiles antes del
+      corte de facturación. Si la presenta con menor anticipación, la terminación se dará en el
+      siguiente período.</p>
+      <h3>CAMBIO DE DOMICILIO</h3>
+      <p>Puede cambiar de domicilio y continuar con el servicio siempre que sea técnicamente posible.
+      Si no lo es, puede ceder su contrato a un tercero o terminarlo.</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="col">
+      <h3>PAGO Y FACTURACIÓN</h3>
+      <p>La factura le debe llegar como mínimo 5 días hábiles antes de la fecha de pago. Si no llega,
+      puede solicitarla por nuestros Medios de Atención y debe pagarla oportunamente.</p>
+      <p>Si no paga a tiempo, previo aviso, suspenderemos su servicio hasta que pague sus saldos
+      pendientes. Contamos con 3 días hábiles luego de su pago para reconectarle el servicio.</p>
+      <p>Si tiene un reclamo sobre su factura, preséntelo antes de la fecha de pago; no debe pagar las
+      sumas reclamadas hasta que resolvamos su solicitud.</p>
+    </td>
+    <td class="col">
+      <h3>CÓMO COMUNICARSE CON NOSOTROS (MEDIOS DE ATENCIÓN)</h3>
+      <p>Correo: <em>escribe aquí tu correo de atención</em> · Página web:
+      <em>tu página web</em> · Línea de atención: <em>tus teléfonos</em>.</p>
+      <p>Presente cualquier queja, petición, reclamo o recurso por estos medios y le responderemos en
+      máximo 15 días hábiles. Si no respondemos, se entiende que aceptamos su petición (silencio
+      administrativo positivo).</p>
+      <p>Si no está de acuerdo con la respuesta puede insistir dentro de los 10 días hábiles siguientes
+      y pedir que su reclamo se envíe a la SIC, que resolverá de manera definitiva.</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="col">
+      <h3>COBRO POR RECONEXIÓN</h3>
+      <p>En caso de suspensión por mora podremos cobrarle un valor de reconexión correspondiente
+      estrictamente a los costos de esa operación. Costo de reconexión:
+      <em>escribe aquí el valor</em>.</p>
+      <h3>CLÁUSULA DE PERMANENCIA MÍNIMA</h3>
+      <p>Marque si aplica ☐. Sólo procede cuando se otorga un descuento o se difiere el cargo por
+      conexión. Indique aquí el valor total del cargo por conexión, la suma descontada o diferida, y el
+      valor a pagar si termina el contrato anticipadamente.</p>
+    </td>
+    <td class="col">
+      <h3>EQUIPOS, CARGOS ADICIONALES Y VELOCIDAD</h3>
+      <p><strong>1. Equipos.</strong> Los equipos que el operador ponga a disposición son de su
+      propiedad y se entregan en comodato o alquiler. Deben devolverse a la terminación del contrato y
+      serán facturados al cliente en caso de daño, pérdida o hurto, conforme a su valor comercial.</p>
+      <p><strong>2. Cargos adicionales.</strong> Podrán incluirse cargos por traslado de equipos,
+      visitas técnicas cuando la falla sea imputable al cliente, y excedente de cable adicional al
+      autorizado. Escribe aquí tus tarifas.</p>
+      <p><strong>3. Velocidad.</strong> No se garantiza la velocidad contratada por wifi: depende de
+      equipos, configuración, tarjetas de red y obstáculos físicos, entre otros factores.</p>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="col">
+      <h3>TRATAMIENTO DE DATOS PERSONALES</h3>
+      <p>Con la firma de este contrato el usuario autoriza de manera expresa e informada a
+      <strong>{{empresa.nombre}}</strong> a recolectar y tratar sus datos personales para el registro
+      del usuario, la gestión de la relación contractual (instalación, configuración, modificación,
+      suspensión, reconexión y retiro), la atención de PQR, la facturación y cartera, la prevención del
+      fraude y el cumplimiento de obligaciones legales.</p>
+      <p>El usuario declara conocer sus derechos como titular: conocer, actualizar y rectificar sus
+      datos, solicitar prueba de la autorización, ser informado del uso dado a sus datos, presentar
+      quejas ante la autoridad competente y solicitar la supresión de sus datos cuando proceda.</p>
+    </td>
+    <td class="col">
+      <div class="destacado">
+        <p>El usuario es el único responsable por el contenido y la información que curse a través de
+        la red y por el uso que se haga de los equipos o de los servicios.</p>
+      </div>
+      <div class="firma">
+        {{contrato.firma_cliente}}
+        <p>Aceptación del contrato mediante firma o cualquier otro medio válido.</p>
+        <p><strong>{{cliente.nombre}} {{cliente.apellido}}</strong> — C.C. {{cliente.cedula}}<br>
+        Fecha: {{contrato.fecha}}</p>
+      </div>
+      <p class="aviso">Consulte el régimen de protección de usuarios en www.crcom.gov.co</p>
+    </td>
+  </tr>
+
+</table>
+
+</body>
+</html>

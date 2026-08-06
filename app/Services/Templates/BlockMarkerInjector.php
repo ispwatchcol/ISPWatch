@@ -67,6 +67,14 @@ class BlockMarkerInjector
      * block token is a marker, it no longer looks like {{...}} to apply(),
      * so scalar substitution can safely run around it untouched.
      *
+     * Tolera espacios dentro de las llaves ({{ empresa.logo }}) igual que
+     * PlaceholderResolver::apply(). Hasta el 2026-08-06 exigía la forma
+     * exacta sin espacios, y como apply() corre después y blanquea todo
+     * {{...}} que no reconozca, un bloque escrito con espacios desaparecía
+     * sin dejar rastro — el mismo síntoma que un token inventado, pero con
+     * el nombre bien escrito. La documentación lo describía como una regla
+     * ("los bloques van sin espacios por dentro"); era una inconsistencia.
+     *
      * @param array<string,string> $blockValues token => trusted HTML fragment
      * @return array{0:string,1:array<string,array{token:string,fragment:string}>}
      */
@@ -74,13 +82,21 @@ class BlockMarkerInjector
     {
         $markers = [];
         foreach ($blockValues as $token => $fragment) {
-            if (!str_contains($html, '{{' . $token . '}}')) {
+            $pattern = '/\{\{\s*' . preg_quote($token, '/') . '\s*\}\}/';
+            if (!preg_match($pattern, $html)) {
                 continue;
             }
 
+            // Str::random() es alfanumérico, así que el marcador nunca puede
+            // contener $ ni \ y es seguro como reemplazo literal.
             $marker = 'BLOCKMARK_' . Str::random(32);
+            $replaced = preg_replace($pattern, $marker, $html);
+            if ($replaced === null) {
+                continue;
+            }
+
             $markers[$marker] = ['token' => $token, 'fragment' => $fragment];
-            $html = str_replace('{{' . $token . '}}', $marker, $html);
+            $html = $replaced;
         }
 
         return [$html, $markers];

@@ -303,16 +303,25 @@ del manual, no (ver [8.2](#82-qué-pasa-automáticamente-al-guardar)).
 
 ### 5.5 Eliminar un cliente
 
-En la lista, icono de **eliminar**. El sistema pedirá confirmación.
-Se borran también su perfil, sus facturas y sus documentos.
+En la lista, icono de **eliminar**. El sistema pedirá confirmación escribiendo `ELIMINAR`.
 
-> ⚠️ **Eliminar al cliente NO lo saca del router.** El sistema lo borra de la base de datos,
-> pero su configuración se queda en el equipo y **el cliente sigue navegando** — sólo que ya
-> no aparece en ninguna pantalla, así que nadie se entera. Si de verdad quieres cortarle el
-> servicio: **suspéndelo primero** (5.4), comprueba que quedó cortado, y **después** bórralo.
+**Se borra todo, sin dejar rastro** (desde el 2026-08-06):
+
+- Su perfil, facturas, pagos, servicios, tickets e instalaciones.
+- Sus **archivos**: contrato firmado, actas y fotos de instalación, documentos subidos. Se
+  borran del almacenamiento, no sólo de la pantalla.
+- Su **configuración en el router**: usuario PPPoE (cortándole la sesión activa en el momento),
+  cola de velocidad, usuario de HotSpot, reserva DHCP, listas de acceso y amarre de IP/MAC.
+
+> ⚠️ **Si el router no responde, el cliente se borra igual pero te avisa.** Verás un mensaje
+> naranja diciendo que no se pudo limpiar el equipo. En ese caso **la configuración sigue en el
+> router y el cliente sigue navegando**: hay que quitarla a mano. No se hace de otra forma
+> porque, si un router caído bloqueara el borrado, tendrías clientes imposibles de eliminar.
 
 > **Piénsalo dos veces.** Si el cliente sólo se retiró, es mejor desactivarlo que borrarlo:
-> así conservas su historial de pagos y el sistema deja de facturarle igual.
+> así conservas su historial de pagos y el sistema deja de facturarle igual. **El borrado es
+> definitivo y no se puede deshacer** — incluidas las facturas pagadas, que son historia
+> contable.
 
 ### 5.6 Ver el mapa y las estadísticas
 
@@ -1173,10 +1182,53 @@ guardado — así puedes probar vertical y horizontal antes de decidir.
 El botón **Vista previa** te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve
 a la plantilla original (tu borrador no se pierde, puedes reactivarlo guardando de nuevo).
 
+**Empezar desde una plantilla base.** Arriba del editor hay una fila de botones con plantillas
+ya armadas: el formato que el sistema usa por defecto para cada documento (factura, contrato,
+acta de instalación) y los **formatos regulados de cada país** para el contrato:
+
+| País | Plantilla | Qué trae |
+|---|---|---|
+| — | Genérico · Contrato básico | Sin formato regulado de ningún país |
+| Colombia | Contrato único CRC | Dos columnas, se abre en horizontal |
+| México | Contrato de adhesión (IFT) | Carta de Derechos del IFT, velocidad mínima garantizada. Se abre en tamaño Carta |
+| Argentina | Servicios TIC (ENACOM) | Baja por el mismo medio de contratación, bonificación automática, aviso de 30 días |
+| Perú | Contrato de abonado (OSIPTEL) | Velocidad mínima garantizada del 40 %, apelación ante el TRASU |
+| Chile | Suministro de internet (SUBTEL) | Velocidad promedio garantizada, descuento de oficio por indisponibilidad |
+| Bolivia | Prestación de internet (ATT) | Derechos del usuario Ley 164, compensación por interrupciones |
+
+Al hacer clic se cargan en el editor con su tamaño y orientación de página correctos,
+listas para que las edites. **No se guardan solas**: quedan como borrador hasta que le des a
+"Guardar y activar", y si ya tenías contenido escrito te pregunta antes de reemplazarlo.
+
+> Son un punto de partida con la **estructura** del formato, no asesoría jurídica ni una
+> certificación de cumplimiento. Revísalas y complétalas con las condiciones de tu empresa
+> (tarifas de reconexión, medios de atención, permanencia) antes de usarlas con clientes reales.
+
 **Modo avanzado.** Un interruptor arriba del editor cambia a un modo donde editas el
 documento HTML completo (incluyendo el diseño y los colores, no sólo el texto) en un cuadro
-de texto plano en vez del editor enriquecido — pensado para quien sabe HTML/CSS y quiere
-control total sobre el diseño. El sistema sigue revisando el contenido por seguridad (nunca
+de texto plano en vez del editor visual — pensado para quien sabe HTML/CSS y quiere
+control total sobre el diseño.
+
+**El editor te muestra la hoja de verdad.** Lo que ves en el editor es una hoja del tamaño y la
+orientación que elegiste arriba, sobre fondo gris, con **líneas rojas horizontales donde va a
+cortar cada página** del PDF. Si tu diseño es más ancho que la hoja, lo ves salirse ahí mismo y
+aparece un aviso en rojo con los números exactos ("necesita 950 px y A4 vertical sólo deja 698
+px") y un botón para cambiar a horizontal. Esa es la causa más común de que un PDF salga con
+los textos y las cajas montados unos sobre otros: el diseño no cabe a lo ancho y el generador
+de PDF, en vez de encogerlo, lo deja desbordarse sobre la columna de al lado.
+
+**Las imágenes de internet salen marcadas en rojo.** Si tu plantilla tiene una imagen enlazada
+a una dirección `https://`, el editor la muestra semitransparente y con un borde rojo punteado:
+es un recordatorio de que **en el PDF no va a aparecer**. Sube el logo en "Marca en los
+documentos" y usa `{{empresa.logo}}`.
+
+**El interruptor no borra lo que escribiste.** Es la misma plantilla vista de dos formas: en
+modo normal la ves como va a quedar en el PDF, en modo avanzado ves su código. Puedes ir y
+volver las veces que quieras. Lo que sí cambia es **cómo se guarda**: el modo normal sólo
+admite texto con formato básico (negritas, listas, colores, enlaces), porque lo que escribes se
+inserta dentro de la plantilla base del sistema; las tablas, imágenes y estilos propios los
+elimina al guardar. Si tu contenido los usa, el editor te lo avisa en rojo y te ofrece activar
+el modo avanzado para conservarlo tal cual. El sistema sigue revisando el contenido por seguridad (nunca
 se guarda código que pueda ejecutar algo en el navegador de quien lo abra), así que no todo lo
 que escribas va a sobrevivir tal cual — usa **Vista previa** para confirmar antes de guardar.
 Si no sabes HTML/CSS, no actives este modo: no hay ayuda visual todavía, es edición de código.
@@ -1186,6 +1238,14 @@ sistema. Si vienes de otra plataforma (ej. WispHub), revisa los nombres de marca
 marcadores no son compatibles entre sistemas, tienes que reemplazarlos por los de ISPwatch
 (los ves en el panel de marcadores disponibles) — un marcador con un nombre que ISPwatch no
 reconoce simplemente no muestra nada.
+
+**El sistema te avisa qué marcadores no reconoce.** Al darle a **Vista previa** o a **Guardar
+y activar**, si tu plantilla trae marcadores que ISPwatch no entiende aparece un recuadro
+amarillo debajo del editor con la lista: cada marcador, por qué no funciona, y cuál es el
+equivalente aquí cuando lo hay. No bloquea nada — el documento se genera igual — pero es la
+forma rápida de saber por qué un dato sale en blanco. También detecta las imágenes enlazadas
+a una dirección de internet y los marcadores de otro tipo de documento (un `{{factura.…}}`
+pegado dentro de un contrato, por ejemplo).
 
 **Si pegaste una plantilla de WispHub**, esta es la equivalencia de marcadores. Es el error
 más común al migrar: el HTML se ve bien pero los datos salen en blanco, porque los nombres
@@ -1205,7 +1265,7 @@ no coinciden.
 | `<img src="FIRMA_CLIENTE_NO_BORRAR">` | `{{contrato.firma_cliente}}` |
 | Logo con una dirección de internet (`https://…`) | `{{empresa.logo}}` |
 
-Tres detalles que no son evidentes:
+Dos detalles que no son evidentes:
 
 - **El número de contrato ya trae el prefijo.** `{{contrato.numero}}` incluye el prefijo que
   configuraste en **Configuración → Marca**. Si escribes `CO-{{contrato.numero}}` te va a
@@ -1213,9 +1273,11 @@ Tres detalles que no son evidentes:
 - **El logo tiene que ser el marcador, no una imagen de internet.** Una imagen enlazada a
   una dirección externa (`https://…`) nunca se descarga al generar el PDF: sale rota. Sube
   el logo en **Configuración → Marca** y usa `{{empresa.logo}}`.
-- **Los bloques (logo y firma) van sin espacios por dentro.** `{{contrato.firma_cliente}}`
-  funciona; `{{ contrato.firma_cliente }}` con espacios **no** se reconoce y desaparece. Los
-  marcadores de texto normales sí toleran espacios, pero conviene escribirlos todos igual.
+
+Los espacios dentro de las llaves dan igual en todos los marcadores:
+`{{contrato.firma_cliente}}` y `{{ contrato.firma_cliente }}` funcionan igual. (Hasta el
+2026-08-06 los bloques —logo y firma— exigían escribirse sin espacios y desaparecían sin
+avisar si los tenían; ya no.)
 
 > ⚠️ **Importante si pegas HTML de otro sistema: no metas textos largos dentro de una celda de
 > tabla.** El generador de PDF no sabe partir una celda entre dos páginas: si el texto de una

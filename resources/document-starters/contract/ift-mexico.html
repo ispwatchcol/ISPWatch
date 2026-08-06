@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1f2937; line-height: 1.45; }
+  .cab { text-align: center; border-bottom: 2px solid #006847; padding-bottom: 8px; margin-bottom: 12px; }
+  .cab h1 { margin: 0; font-size: 15px; color: #006847; }
+  .cab p { margin: 2px 0 0; font-size: 10px; color: #6b7280; }
+  h2 { font-size: 11px; color: #ffffff; background: #006847; padding: 3px 6px; margin: 12px 0 5px; }
+  p { margin: 4px 0; text-align: justify; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 3px 5px; border: 1px solid #d1d5db; }
+  table.datos td.et { width: 32%; color: #4b5563; font-weight: bold; }
+  .destacado { border: 2px solid #006847; padding: 6px; margin: 8px 0; }
+  .firma { margin-top: 26px; }
+  .sign-box { width: 45%; display: inline-block; text-align: center; }
+  .sign-line { border-top: 1px solid #111827; margin-top: 6px; padding-top: 5px; font-size: 10px; }
+  .pie { margin-top: 18px; font-size: 9px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="cab">
+  {{empresa.logo}}
+  <h1>CONTRATO DE ADHESIÓN — SERVICIO DE ACCESO A INTERNET FIJO</h1>
+  <p>{{empresa.nombre}} · RFC {{empresa.nit}}</p>
+  <p>Número de contrato: <strong>{{contrato.numero}}</strong> · Fecha: {{contrato.fecha}}</p>
+</div>
+
+<p>Contrato celebrado entre <strong>{{empresa.nombre}}</strong>, en lo sucesivo <strong>EL
+PROVEEDOR</strong>, y <strong>{{cliente.nombre}} {{cliente.apellido}}</strong>, en lo sucesivo
+<strong>EL SUSCRIPTOR</strong>, conforme a la Ley Federal de Telecomunicaciones y Radiodifusión y
+a los Lineamientos del Instituto Federal de Telecomunicaciones (IFT).</p>
+
+<div class="destacado">
+  <p><strong>Registro ante PROFECO:</strong> <em>escribe aquí el número de registro de tu contrato
+  de adhesión</em>. Todo contrato de adhesión debe estar registrado ante la Procuraduría Federal
+  del Consumidor antes de utilizarse con usuarios.</p>
+</div>
+
+<h2>1. DATOS DEL SUSCRIPTOR</h2>
+<table class="datos">
+  <tr><td class="et">Nombre o razón social</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+  <tr><td class="et">Identificación / RFC</td><td>{{cliente.cedula}}</td></tr>
+  <tr><td class="et">Domicilio del servicio</td><td>{{cliente.direccion}}</td></tr>
+  <tr><td class="et">Municipio / Alcaldía</td><td>{{cliente.ciudad}}</td></tr>
+  <tr><td class="et">Estado</td><td>{{cliente.departamento}}</td></tr>
+  <tr><td class="et">Correo electrónico</td><td>{{cliente.email}}</td></tr>
+  <tr><td class="et">Teléfono</td><td>{{cliente.telefono}}</td></tr>
+</table>
+
+<h2>2. CARACTERÍSTICAS DEL SERVICIO CONTRATADO</h2>
+<table class="datos">
+  <tr><td class="et">Paquete contratado</td><td>{{plan.nombre}}</td></tr>
+  <tr><td class="et">Velocidad máxima de descarga</td><td>{{plan.velocidad_bajada}}</td></tr>
+  <tr><td class="et">Velocidad máxima de carga</td><td>{{plan.velocidad_subida}}</td></tr>
+  <tr><td class="et">Velocidad mínima garantizada</td><td><em>indica aquí el porcentaje comprometido</em></td></tr>
+  <tr><td class="et">Contraprestación mensual</td><td>$ {{plan.valor_mensual}} MXN, IVA incluido</td></tr>
+  <tr><td class="et">Cargo por instalación</td><td><em>escribe aquí el cargo</em></td></tr>
+  <tr><td class="et">Vigencia</td><td><em>forzosa o sin plazo forzoso — indícalo</em></td></tr>
+  <tr><td class="et">Inicio del servicio</td><td>{{contrato.fecha}}</td></tr>
+</table>
+
+<h2>3. DERECHOS DEL SUSCRIPTOR</h2>
+<p>Conforme a la Carta de Derechos Mínimos de los Usuarios del IFT, EL SUSCRIPTOR tiene derecho a:
+conocer de forma clara el precio y las condiciones antes de contratar; recibir el servicio en los
+términos contratados; cancelar el servicio en cualquier momento sin penalización cuando no exista
+plazo forzoso; solicitar la portabilidad cuando aplique; recibir bonificación o descuento por
+fallas imputables a EL PROVEEDOR; que sus datos personales sean protegidos; y presentar quejas
+ante la PROFECO o el IFT.</p>
+
+<h2>4. FACTURACIÓN Y PAGO</h2>
+<p>EL PROVEEDOR emitirá factura por período mensual, disponible al menos 5 días naturales antes de
+la fecha límite de pago. La falta de pago faculta a EL PROVEEDOR para suspender el servicio previo
+aviso; el servicio se restablecerá dentro de las 24 horas siguientes a la acreditación del pago.
+No se cobrará el período durante el cual el servicio permanezca suspendido por causa imputable a
+EL PROVEEDOR.</p>
+
+<h2>5. TERMINACIÓN</h2>
+<p>EL SUSCRIPTOR podrá dar por terminado el contrato en cualquier momento, sin penalización cuando
+no exista plazo forzoso vigente, mediante solicitud por cualquiera de los medios de atención. EL
+PROVEEDOR podrá terminarlo por falta de pago reiterada o por uso indebido del servicio, previo
+aviso.</p>
+
+<h2>6. EQUIPOS</h2>
+<p>Los equipos entregados en comodato son propiedad de EL PROVEEDOR y deberán devolverse en buen
+estado al término del contrato. EL SUSCRIPTOR responderá por su pérdida o daño conforme al valor
+comercial señalado en el anexo correspondiente.</p>
+
+<h2>7. ATENCIÓN A USUARIOS</h2>
+<p>Teléfono: <em>escribe aquí tu línea de atención</em> · Correo: <em>tu correo</em> · Portal:
+<em>tu página web</em>. Quejas ante PROFECO: 55 5568 8722 · Ante el IFT: 800 2000 120.</p>
+
+<h2>8. AVISO DE PRIVACIDAD</h2>
+<p>EL PROVEEDOR tratará los datos personales de EL SUSCRIPTOR conforme a la Ley Federal de
+Protección de Datos Personales en Posesión de los Particulares, únicamente para la prestación,
+facturación y soporte del servicio. El aviso de privacidad integral está disponible en
+<em>tu página web</em>.</p>
+
+<div class="firma">
+  <div class="sign-box">
+    {{contrato.firma_cliente}}
+    <div class="sign-line">
+      <strong>{{cliente.nombre}} {{cliente.apellido}}</strong><br>
+      ID {{cliente.cedula}}<br>
+      EL SUSCRIPTOR
+    </div>
+  </div>
+  <div class="sign-box" style="float:right;">
+    <div style="height:80px;"></div>
+    <div class="sign-line">
+      <strong>{{empresa.nombre}}</strong><br>
+      RFC {{empresa.nit}}<br>
+      EL PROVEEDOR
+    </div>
+  </div>
+</div>
+
+<div class="pie">Contrato {{contrato.numero}} — {{contrato.fecha}}</div>
+
+</body>
+</html>

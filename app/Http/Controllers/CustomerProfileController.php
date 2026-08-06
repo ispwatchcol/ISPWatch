@@ -8,6 +8,7 @@ use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Router;
 use App\Models\Sectorial;
+use App\Services\CustomerDeletionService;
 use App\Services\CustomerProvisioningService;
 use App\Services\MikroTikSshService;
 use App\Services\RouterProvisioningService;
@@ -1239,31 +1240,54 @@ class CustomerProfileController extends Controller
     /**
      * Remove the specified customer from storage.
      */
-    public function destroy($id)
+    /**
+     * Borra el cliente y TODO lo que cuelga de él: filas, archivos en S3 y su
+     * configuración en el router. La orquestación vive en
+     * App\Services\CustomerDeletionService — ver ahí por qué el orden de las
+     * operaciones no es arbitrario.
+     *
+     * Confiar sólo en las claves foráneas en cascada (lo que hacía este método
+     * hasta el 2026-08-06) dejaba tres clases de basura imposibles de limpiar
+     * después: los objetos de S3, la configuración del router —con el cliente
+     * borrado SIGUIENDO NAVEGANDO— y las filas de las tres tablas que tienen
+     * columna de cliente pero no clave foránea.
+     */
+    public function destroy($id, CustomerDeletionService $deletion)
     {
         $tenantId = $this->authTenantId();
         // Tenant-scoped lookups: a cross-tenant id resolves to 404, never deletes.
         $user = User::where('tenant_id', $tenantId)->findOrFail($id);
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
 
-        DB::beginTransaction();
-
         try {
-            $customer->delete();
-            $user->delete();
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Cliente eliminado correctamente. ✅'
+            $result = $deletion->delete($user, $customer);
+        } catch (\Throwable $e) {
+            \Log::error('[CustomerProfile] Error eliminando cliente', [
+                'customer_id' => $id,
+                'error'       => $e->getMessage(),
             ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
+
             return response()->json([
                 'message' => 'Error al eliminar el cliente.',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
+
+        // El cliente YA está borrado. Un fallo al limpiar el router no lo
+        // revierte (un router caído dejaría clientes imposibles de eliminar),
+        // pero tiene que decirse: la configuración sigue en el equipo y hay
+        // que quitarla a mano o el servicio sigue activo.
+        $routerOk = (bool) ($result['router']['success'] ?? false);
+        $message  = $routerOk
+            ? 'Cliente eliminado correctamente. ✅'
+            : 'Cliente eliminado, pero NO se pudo limpiar su configuración en el router: '
+                . ($result['router']['message'] ?? 'error desconocido')
+                . ' Revísalo a mano o el servicio seguirá activo.';
+
+        return response()->json([
+            'message' => $message,
+            'cleanup' => $result,
+        ]);
     }
 
     /**

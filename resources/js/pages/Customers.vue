@@ -962,15 +962,23 @@ const deleteCustomer = async (customer) => {
         type: 'danger',
         icon: 'md-deleteforever',
         title: 'Eliminar cliente',
-        message: `Estás a punto de eliminar a ${customer.name} ${customer.last_name} junto con todas sus facturas y pagos. Esta acción no se puede deshacer.`,
+        message: `Estás a punto de eliminar a ${customer.name} ${customer.last_name} junto con todas sus facturas, pagos, documentos y fotos, y se le quitará la configuración de su router. Esta acción no se puede deshacer.`,
         confirmLabel: 'Eliminar',
         requireText: 'ELIMINAR',
     })
     if (!confirmed) return
 
     try {
-        await api.customers.delete(customer.user_id)
-        toast.value?.success('Cliente eliminado', `${customer.name} ${customer.last_name} fue eliminado correctamente.`)
+        const { data } = await api.customers.delete(customer.user_id)
+        // El borrado NO se revierte si falla la limpieza del router (un router
+        // caído dejaría clientes imposibles de eliminar), pero el operador
+        // tiene que enterarse: la configuración sigue en el equipo y el
+        // servicio seguiría activo hasta que alguien la quite a mano.
+        if (data?.cleanup?.router?.success === false) {
+            toast.value?.warning('Cliente eliminado, revisa el router', data.message)
+        } else {
+            toast.value?.success('Cliente eliminado', `${customer.name} ${customer.last_name} fue eliminado correctamente.`)
+        }
         loadCustomers()
     } catch (err) {
         console.error('Error al eliminar cliente:', err)

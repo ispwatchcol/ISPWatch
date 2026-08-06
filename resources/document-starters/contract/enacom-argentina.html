@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1f2937; line-height: 1.45; }
+  .cab { text-align: center; border-bottom: 2px solid #74acdf; padding-bottom: 8px; margin-bottom: 12px; }
+  .cab h1 { margin: 0; font-size: 15px; color: #1a5fb4; }
+  .cab p { margin: 2px 0 0; font-size: 10px; color: #6b7280; }
+  h2 { font-size: 11px; color: #ffffff; background: #1a5fb4; padding: 3px 6px; margin: 12px 0 5px; }
+  p { margin: 4px 0; text-align: justify; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 3px 5px; border: 1px solid #d1d5db; }
+  table.datos td.et { width: 32%; color: #4b5563; font-weight: bold; }
+  .destacado { border: 2px solid #1a5fb4; padding: 6px; margin: 8px 0; }
+  .firma { margin-top: 26px; }
+  .sign-box { width: 45%; display: inline-block; text-align: center; }
+  .sign-line { border-top: 1px solid #111827; margin-top: 6px; padding-top: 5px; font-size: 10px; }
+  .pie { margin-top: 18px; font-size: 9px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="cab">
+  {{empresa.logo}}
+  <h1>CONTRATO DE PRESTACIÓN DE SERVICIOS TIC — ACCESO A INTERNET FIJO</h1>
+  <p>{{empresa.nombre}} · CUIT {{empresa.nit}}</p>
+  <p>Contrato N° <strong>{{contrato.numero}}</strong> · Fecha: {{contrato.fecha}}</p>
+</div>
+
+<p>Entre <strong>{{empresa.nombre}}</strong>, en adelante <strong>EL PRESTADOR</strong>, licenciatario
+de Servicios TIC, y <strong>{{cliente.nombre}} {{cliente.apellido}}</strong>, en adelante <strong>EL
+USUARIO</strong>, se celebra el presente contrato conforme a la Ley 27.078 (Argentina Digital), al
+Reglamento de Calidad de los Servicios TIC y a la normativa del ENACOM.</p>
+
+<h2>1. DATOS DEL USUARIO</h2>
+<table class="datos">
+  <tr><td class="et">Nombre o razón social</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+  <tr><td class="et">DNI / CUIT</td><td>{{cliente.cedula}}</td></tr>
+  <tr><td class="et">Domicilio de instalación</td><td>{{cliente.direccion}}</td></tr>
+  <tr><td class="et">Localidad</td><td>{{cliente.ciudad}}</td></tr>
+  <tr><td class="et">Provincia</td><td>{{cliente.departamento}}</td></tr>
+  <tr><td class="et">Correo electrónico</td><td>{{cliente.email}}</td></tr>
+  <tr><td class="et">Teléfono</td><td>{{cliente.telefono}}</td></tr>
+</table>
+
+<h2>2. SERVICIO CONTRATADO</h2>
+<table class="datos">
+  <tr><td class="et">Plan</td><td>{{plan.nombre}}</td></tr>
+  <tr><td class="et">Velocidad de bajada</td><td>{{plan.velocidad_bajada}}</td></tr>
+  <tr><td class="et">Velocidad de subida</td><td>{{plan.velocidad_subida}}</td></tr>
+  <tr><td class="et">Abono mensual</td><td>$ {{plan.valor_mensual}} ARS, impuestos incluidos</td></tr>
+  <tr><td class="et">Cargo por instalación</td><td><em>escribe aquí el cargo</em></td></tr>
+  <tr><td class="et">Inicio de la prestación</td><td>{{contrato.fecha}}</td></tr>
+</table>
+
+<div class="destacado">
+  <p><strong>Baja del servicio.</strong> EL USUARIO puede solicitar la baja por el mismo medio por el
+  que contrató, y también por teléfono, correo electrónico o página web, sin necesidad de concurrir a
+  una oficina. La baja se hace efectiva dentro de las 72 horas de solicitada y no puede condicionarse
+  a la devolución previa de equipos ni a la cancelación de deudas.</p>
+</div>
+
+<h2>3. CALIDAD Y BONIFICACIONES</h2>
+<p>EL PRESTADOR se obliga a cumplir los parámetros de calidad establecidos por el ENACOM. Ante
+interrupciones del servicio imputables a EL PRESTADOR, EL USUARIO tiene derecho a la bonificación
+proporcional del abono por el tiempo de indisponibilidad, la cual se aplicará automáticamente en la
+factura del período siguiente, sin necesidad de reclamo.</p>
+
+<h2>4. FACTURACIÓN Y PAGO</h2>
+<p>La factura se emitirá mensualmente y estará disponible con una antelación no menor a 5 días
+hábiles respecto del vencimiento. La falta de pago habilita la suspensión del servicio previo aviso
+fehaciente. Acreditado el pago, el servicio se restablecerá dentro de las 24 horas.</p>
+
+<h2>5. MODIFICACIONES</h2>
+<p>Toda modificación de las condiciones contratadas, incluido el precio, será informada a EL USUARIO
+con una antelación mínima de 30 días corridos. EL USUARIO podrá rescindir el contrato sin cargo si no
+acepta la modificación.</p>
+
+<h2>6. EQUIPOS</h2>
+<p>Los equipos entregados en comodato son propiedad de EL PRESTADOR y deberán restituirse al finalizar
+el contrato. EL USUARIO responderá por su pérdida o deterioro por causas que le sean imputables.</p>
+
+<h2>7. RECLAMOS</h2>
+<p>Atención al usuario: <em>escribe aquí tu línea, tu correo y tu página web</em>. Todo reclamo recibe
+un número de registro. Si la respuesta no resulta satisfactoria, EL USUARIO puede presentar su reclamo
+ante el <strong>ENACOM</strong> (0800-333-3344, www.enacom.gob.ar) y ante la autoridad de Defensa del
+Consumidor.</p>
+
+<h2>8. PROTECCIÓN DE DATOS PERSONALES</h2>
+<p>EL PRESTADOR tratará los datos personales de EL USUARIO conforme a la Ley 25.326, exclusivamente
+para la prestación, facturación y soporte del servicio. EL USUARIO puede ejercer sus derechos de
+acceso, rectificación y supresión por los medios de atención indicados.</p>
+
+<div class="firma">
+  <div class="sign-box">
+    {{contrato.firma_cliente}}
+    <div class="sign-line">
+      <strong>{{cliente.nombre}} {{cliente.apellido}}</strong><br>
+      DNI {{cliente.cedula}}<br>
+      EL USUARIO
+    </div>
+  </div>
+  <div class="sign-box" style="float:right;">
+    <div style="height:80px;"></div>
+    <div class="sign-line">
+      <strong>{{empresa.nombre}}</strong><br>
+      CUIT {{empresa.nit}}<br>
+      EL PRESTADOR
+    </div>
+  </div>
+</div>
+
+<div class="pie">Contrato {{contrato.numero}} — {{contrato.fecha}}</div>
+
+</body>
+</html>

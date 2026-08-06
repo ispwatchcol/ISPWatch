@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: DejaVu Sans, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.5; }
+  .header { text-align: center; border-bottom: 2px solid #059669; padding-bottom: 10px; margin-bottom: 16px; }
+  .header h1 { margin: 0; font-size: 18px; color: #059669; }
+  .header p { margin: 3px 0 0; font-size: 11px; color: #6b7280; }
+  h2 { font-size: 12px; color: #059669; border-bottom: 1px solid #e5e7eb; padding-bottom: 3px; margin: 16px 0 6px; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 3px 5px; vertical-align: top; }
+  table.datos td.et { width: 30%; color: #6b7280; font-weight: bold; }
+  .obs { border: 1px solid #e5e7eb; padding: 8px; margin-top: 6px; min-height: 50px; }
+  .sign-box { width: 45%; display: inline-block; text-align: center; }
+  .sign-line { border-top: 1px solid #111827; margin-top: 6px; padding-top: 6px; font-size: 11px; }
+  .footer { margin-top: 26px; font-size: 10px; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  {{empresa.logo}}
+  <h1>ACTA DE INSTALACIÓN</h1>
+  <p>{{empresa.nombre}}</p>
+  <p><strong>Orden No. {{instalacion.numero}}</strong> — {{instalacion.fecha}}</p>
+</div>
+
+<h2>Cliente</h2>
+<table class="datos">
+  <tr><td class="et">Nombre</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+  <tr><td class="et">Cédula</td><td>{{cliente.cedula}}</td></tr>
+  <tr><td class="et">Dirección de instalación</td><td>{{cliente.direccion}}</td></tr>
+</table>
+
+<h2>Servicio instalado</h2>
+<table class="datos">
+  <tr><td class="et">Plan</td><td>{{servicio.plan}}</td></tr>
+  <tr><td class="et">Velocidad</td><td>{{servicio.velocidad_bajada}} / {{servicio.velocidad_subida}}</td></tr>
+  <tr><td class="et">IP asignada</td><td>{{servicio.ip}}</td></tr>
+  <tr><td class="et">Usuario PPPoE</td><td>{{servicio.usuario_pppoe}}</td></tr>
+  <tr><td class="et">Punto de acceso</td><td>{{servicio.punto_acceso}}</td></tr>
+  <tr><td class="et">Día de pago</td><td>{{servicio.dia_pago}}</td></tr>
+  <tr><td class="et">Día de corte por mora</td><td>{{servicio.dia_corte}}</td></tr>
+</table>
+
+<h2>Equipos y materiales</h2>
+<div class="obs">{{instalacion.equipo}}</div>
+
+<h2>Observaciones</h2>
+<div class="obs">{{instalacion.observaciones}}</div>
+
+<p style="margin-top:14px; text-align: justify;">
+  El cliente declara que el servicio fue instalado y quedó funcionando correctamente, y que recibió los
+  equipos relacionados en calidad de comodato, comprometiéndose a devolverlos en buen estado a la
+  terminación del servicio.
+</p>
+
+<div style="margin-top:36px;">
+  <div class="sign-box">
+    {{instalacion.firma_cliente}}
+    <div class="sign-line">
+      <strong>{{cliente.nombre}} {{cliente.apellido}}</strong><br>
+      C.C. {{cliente.cedula}}<br>
+      EL CLIENTE
+    </div>
+  </div>
+  <div class="sign-box" style="float:right;">
+    {{instalacion.firma_tecnico}}
+    <div class="sign-line">
+      <strong>{{instalacion.tecnico}}</strong><br>
+      TÉCNICO INSTALADOR
+    </div>
+  </div>
+</div>
+
+<div class="footer">Documento generado electrónicamente — {{instalacion.fecha}}</div>
+
+</body>
+</html>
