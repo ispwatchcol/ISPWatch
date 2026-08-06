@@ -827,6 +827,45 @@ Errores propios:
 | `404` | El id no existe **o es de otro tenant** (el scope global no lo distingue, a propósito) |
 | `422` | Nombre repetido en el tenant (sin distinguir mayúsculas), `proration_mode` inválido, o borrado de un servicio **con asignaciones** — incluidas las dadas de baja, porque ya cobraron en meses anteriores |
 
+### Asignación de servicios adicionales a un cliente
+
+Mismo permiso: **`view_billing`**. Las cuatro rutas van **anidadas bajo el cliente**,
+también `PUT` y `DELETE`: sin eso, un id de asignación válido serviría para editar la de
+cualquier otro cliente de la misma empresa (el scope de tenant no lo impediría, porque
+ambos son del mismo tenant).
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/billing/customers/{customer}/additional-services` | Asignaciones del cliente, vigentes primero |
+| `POST` | `/api/billing/customers/{customer}/additional-services` | Asigna un servicio del catálogo |
+| `PUT` | `/api/billing/customers/{customer}/additional-services/{id}` | Actualiza precio, cantidad, fechas, estado o notas |
+| `DELETE` | `/api/billing/customers/{customer}/additional-services/{id}` | Elimina, **sólo si nunca facturó** |
+
+**`POST`** — `additional_service_id` y `starts_at` requeridos. Opcionales: `price`
+(**`null` = usa el del catálogo y sigue sus cambios**; con valor queda congelado),
+`quantity` (≥1, por defecto 1), `ends_at` (≥ `starts_at`), `notes`.
+
+`assigned_at` y `assigned_by` los pone el servidor. **Reactivar** (`PUT` con
+`is_active: true` sobre una dada de baja) los refresca: es una nueva alta a efectos de
+historial.
+
+**`PUT`** no admite cambiar `additional_service_id` — sería otra asignación distinta con
+el historial de cobro de la anterior colgando de ella.
+
+Cada asignación incluye `effective_price` (el precio que realmente se le cobra, ya
+resuelta la cascada asignación → catálogo), `service` y `assigner`.
+
+> El campo de quien asignó viaja como **`assigner`** (objeto) y **`assigned_by`** (id).
+> La relación se llama `assigner` justamente para que no colisionen — ver trampa #30 del
+> manual del desarrollador.
+
+Errores propios:
+
+| Código | Cuándo |
+|---|---|
+| `404` | El cliente es de otro tenant, o la asignación no pertenece a ese cliente |
+| `422` | El servicio no existe / es de otro tenant, está desactivado, el cliente **ya lo tiene activo** (hay que subir la cantidad), `ends_at` anterior a `starts_at`, o borrado de una asignación **ya cobrada** |
+
 ---
 
 ## 13. Bitácoras de failover

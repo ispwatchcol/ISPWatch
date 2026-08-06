@@ -812,8 +812,16 @@
         </div>
 
         <!-- Pestaña: Facturación -->
-        <div v-if="activeTab === 'facturacion'" class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8 max-w-5xl mx-auto">
-          <CustomerBilling :customer-id="route.params.id" @notify="onNotify" />
+        <div v-if="activeTab === 'facturacion'" class="max-w-5xl mx-auto space-y-6">
+          <div class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8">
+            <CustomerBilling :customer-id="route.params.id" @notify="onNotify" />
+          </div>
+          <!-- Lo que se le cobra cada mes ADEMÁS del plan. Va aquí y no en una
+               pestaña propia: es parte de lo que el cliente paga, y separarlo
+               obligaría a mirar en dos sitios para saber cuánto factura. -->
+          <div class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8">
+            <CustomerAdditionalServices :customer-id="route.params.id" @notify="onNotify" />
+          </div>
         </div>
 
         <!-- Pestaña: Documentos -->
@@ -837,6 +845,7 @@ import api from '../services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import CustomerBilling from '@/components/customer/CustomerBilling.vue'
+import CustomerAdditionalServices from '@/components/customer/CustomerAdditionalServices.vue'
 import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 import CustomerTickets from '@/components/customer/CustomerTickets.vue'
 import DatePicker from '@/components/DatePicker.vue'

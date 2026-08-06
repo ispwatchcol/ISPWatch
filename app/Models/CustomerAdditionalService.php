@@ -65,7 +65,16 @@ class CustomerAdditionalService extends Model
         return $this->belongsTo(User::class, 'customer_id');
     }
 
-    public function assignedBy()
+    /**
+     * Quién activó el servicio.
+     *
+     * Se llama `assigner` y no `assignedBy` a propósito: Eloquent serializa la
+     * relación con el nombre en snake_case, así que `assignedBy` saldría en el
+     * JSON como `assigned_by` y **pisaría la columna FK del mismo nombre**. La
+     * misma clave significaría un id o un objeto según si la relación venía
+     * cargada, y quien consume la API no tiene forma de saberlo.
+     */
+    public function assigner()
     {
         return $this->belongsTo(User::class, 'assigned_by');
     }

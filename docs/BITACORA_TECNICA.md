@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-05 (auditoría de Finanzas — Fases 1-6 completas: debounce e índices de listado, búsqueda en Gastos, paginación + agregados server-side, totales en dinero, exportación a CSV, unificación visual bajo el acento esmeralda e historial de Servicios Adicionales · **Servicios adicionales recurrentes — Fases 1-2/6: esquema, modelos y CRUD del catálogo**) · Rama: `david-ux-ui-improve`
+**Última actualización:** 2026-08-05 (auditoría de Finanzas — Fases 1-6 completas: debounce e índices de listado, búsqueda en Gastos, paginación + agregados server-side, totales en dinero, exportación a CSV, unificación visual bajo el acento esmeralda e historial de Servicios Adicionales · **Servicios adicionales recurrentes — Fases 1-3/6: esquema, modelos, CRUD del catálogo y asignación por cliente**) · Rama: `david-ux-ui-improve`
 
 ---
 
@@ -211,6 +211,7 @@ ISPWatch/
 | `PaymentMethodController.php` | — | Formas de pago |
 | `InvoiceTypeController.php` | — | Catálogo de tipos de factura (sistema + propios del tenant) |
 | `AdditionalServiceController.php` | — | Catálogo de servicios adicionales recurrentes (plantilla reutilizable) |
+| `CustomerAdditionalServiceController.php` | — | Asignación de servicios adicionales a un cliente (rutas anidadas bajo el cliente) |
 | `SettingsController.php` | — | Limpieza de cache |
 | `VerificationController.php` | — | Verificación de correo |
 
@@ -307,7 +308,7 @@ ISPWatch/
 | `services/api.js` | Instancia axios y manejador global de `401`. El interceptor que inyectaba `tenant`/`tenant_id` se eliminó: el backend siempre lo ignoró |
 | ~~`services/auth.js`~~ | **Eliminado**: duplicaba `hasPermission` con lógica distinta a la del store, que es la que usa el guard |
 | `services/billing.js` | Cliente de facturación |
-| `services/api/*.js` | 20 módulos por dominio: `auth`, `customers`, `routers`, `plans`, `staff`, `support`, `inventory`, `inventory-stock/-provider/-branch`, `sectorials`, `tenant`, `roles`, `prospects`, `catalogs`, `expense`, `expense-category`, `additional-service`, `document-templates`, `help-center` |
+| `services/api/*.js` | 21 módulos por dominio: `auth`, `customers`, `routers`, `plans`, `staff`, `support`, `inventory`, `inventory-stock/-provider/-branch`, `sectorials`, `tenant`, `roles`, `prospects`, `catalogs`, `expense`, `expense-category`, `additional-service`, `customer-additional-service`, `document-templates`, `help-center` |
 
 ### 4.2 Composables
 
@@ -345,6 +346,7 @@ ISPWatch/
 | `SearchableSelect.vue` | Selector con búsqueda |
 | `StatCard.vue`, `NotificationToast.vue`, `TimezoneClock.vue`, `WhatsAppButton.vue`, `SubmenuItem.vue`, `SettingsSection.vue` | Piezas de UI |
 | `customer/CustomerBilling · CustomerDocuments · CustomerInstallations · CustomerTickets` | Pestañas de la ficha de cliente |
+| `customer/CustomerAdditionalServices.vue` | Servicios adicionales del cliente (asignar, editar, dar de baja) con el total recurrente. Segunda tarjeta de la pestaña Facturación |
 | `billing/AdditionalServiceCatalog.vue` | Catálogo de servicios adicionales recurrentes (grid de tarjetas + alta/edición). Vive como pestaña de `Billing/AdditionalCharges`; emite `notify` al padre en vez de montar su propio toast |
 | `import/ImportSection · CustomersUpdateSection · InventoryImportSection · ErrorsModal · FieldDocsModal` | Flujos de carga masiva |
 | `settings/DocumentTemplatesSection.vue` | Editor de plantillas |
@@ -783,6 +785,7 @@ stateDiagram-v2
 | Facturación | `Billing/*` | `/api/billing/*` | `BillingController` | `BillingService`, `FirstInvoicePolicy` | `billing`, `invoices`, `invoice_items`, `invoice_carryovers`, `payments`, `payment_allocations` |
 | Tipos de factura | `Billing/InvoiceTypes` | `/api/billing/invoice-types*` | `InvoiceTypeController` | — | `invoice_types` |
 | Servicios adicionales (catálogo) | `Billing/AdditionalCharges` → `billing/AdditionalServiceCatalog` | `/api/billing/additional-services*` | `AdditionalServiceController` | — | `additional_services` |
+| Servicios adicionales (asignación) | `customer/CustomerAdditionalServices` | `/api/billing/customers/{customer}/additional-services*` | `CustomerAdditionalServiceController` | — | `customer_additional_services` |
 | Cobranza | `MassActions` | `/api/billing/suspension-logs*` | `SuspensionActionLogController` | `OverdueSuspensionService`, `RouterProvisioningService` | `suspension_action_logs`, `cut_type` |
 | Failover facturación | `MassActions` | `/api/billing/action-logs*` | `BillingActionLogController` | `BillingService` | `billing_action_logs` |
 | Routers | `Routers`, `RouterAdd/Edit` | `/api/routers*` | `RouterController` | `VpnService`, `RouterApiService`, managers MikroTik | `router` |
@@ -898,3 +901,11 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | Un servicio con asignaciones **no se puede borrar** (422), sólo desactivar — y cuenta también las asignaciones dadas de baja | Los ítems de factura apuntan a la asignación y la asignación a este servicio: borrarlo dejaría sin explicación facturas ya emitidas. Se cuentan también las inactivas porque una asignación dada de baja **ya cobró** en meses anteriores. Mismo criterio que `InvoiceTypeController::destroy` con los tipos ya usados |
 | Nombre único por tenant, sin distinguir mayúsculas, con `lower()` y no con la macro `whereLike` | Dos "Alquiler de router extra" en el desplegable de asignación son indistinguibles para quien asigna. `whereLike` no sirve aquí: añade comodines y compara "contiene", cuando hace falta igualdad exacta. `lower()` existe igual en PostgreSQL y en SQLite |
 | `update` valida con `sometimes|required` en vez de `required` | Un PUT parcial (por ejemplo, sólo `is_active` desde la tarjeta) no debe resucitar los defaults y cambiarle en silencio el modo de prorrateo o la regla de cortesía a un servicio que ya se le está cobrando a clientes |
+| **Servicios adicionales — Fase 3 (2026-08-05)**: las cuatro rutas de asignación van anidadas bajo el cliente (`/billing/customers/{customer}/additional-services/{id}`), incluidas `PUT` y `DELETE` | El ámbito viaja siempre en la URL y el controlador comprueba que la asignación sea **de ese cliente**. Con `PUT /billing/customer-additional-services/{id}` a secas, un id válido serviría para editar la asignación de cualquier otro cliente de la misma empresa: el scope de tenant no lo impediría porque ambos clientes son del mismo tenant |
+| La relación a quien asignó se llama `assigner()`, no `assignedBy()` | Eloquent serializa la relación en snake_case: `assignedBy` saldría como `assigned_by` y **pisaría la columna FK del mismo nombre**. La misma clave sería un id o un objeto según el `->with()` del controlador. Ver trampa #30 del manual del desarrollador |
+| `effective_price` NO está en `$appends`; se añade explícitamente en el controlador | El accesor lee `service->price` cuando la asignación no tiene precio propio: en `$appends` dispararía una consulta por fila en cada listado. El controlador ya trae la relación con `->with()`, así que lo añade después con `->each->append()` |
+| Una segunda asignación **activa** del mismo servicio al mismo cliente se rechaza (422) y el mensaje remite a la cantidad | Dos filas activas cobrarían dos veces sin que se note en pantalla ni en la factura. El caso real ("dos routers extra") se expresa con `quantity`, que sí es explícito y viaja al ítem de factura. Una asignación **dada de baja** no bloquea: volver a contratar el servicio es legítimo |
+| Reactivar una asignación refresca `assigned_at` y `assigned_by` | Es una nueva alta a efectos de historial: si conservara la fecha original, diría que el cliente lleva el servicio desde antes de la baja, que es justo lo que no pasó |
+| El servicio del catálogo no se puede cambiar en una asignación existente | Sería otra asignación distinta con el historial de cobro de la anterior colgando de ella. El formulario muestra el servicio como texto fijo al editar |
+| Borrar una asignación se permite **sólo si nunca facturó**; si tiene ítems de factura, 422 | Simétrico al catálogo, pero con el criterio correcto para este nivel: un alta por error (que nunca llegó a una factura) no tiene historial que proteger y estorbaría para siempre si no se pudiera borrar |
+| El panel vive en la pestaña **Facturación** de la ficha del cliente, no en una pestaña propia | Es parte de lo que el cliente paga cada mes; en una quinta pestaña habría que mirar en dos sitios para saber cuánto se le factura. Se monta como segunda tarjeta, junto al resumen financiero que ya estaba |

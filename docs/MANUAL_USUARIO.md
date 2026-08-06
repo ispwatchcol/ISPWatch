@@ -255,10 +255,35 @@ más unas pestañas adicionales:
 
 | Pestaña | Contenido |
 |---|---|
-| **Facturación** | Facturas del cliente, saldo y saldo a favor |
+| **Facturación** | Facturas del cliente, saldo, saldo a favor y sus **servicios adicionales** (ver 5.3.1) |
 | **Documentos** | Cédula, contrato y otros archivos |
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
+
+#### 5.3.1 Servicios adicionales del cliente
+
+Al final de la pestaña **Facturación** está lo que el cliente paga **además de su plan**:
+el alquiler de un router extra, un punto de TV, soporte premium… Arriba del listado ves
+**cuánto se le suma cada mes** a su factura.
+
+Los servicios salen del catálogo de **Finanzas → Servicios adicionales** ([7.5](#75-servicios-adicionales)).
+Para asignar uno pulsa **Asignar servicio** y elige:
+
+| Campo | Qué hace |
+|---|---|
+| **Precio para este cliente** | Déjalo **vacío** para usar el del catálogo — así, si algún día subes el precio de lista, a este cliente también le sube. Ponle un valor para **congelárselo** (aparece la etiqueta *Precio propio*) |
+| **Cantidad** | Para cobrar el mismo servicio más de una vez, por ejemplo dos routers extra |
+| **Desde** | A partir de qué fecha se cobra. Si es a mitad de mes, lo que pase depende del *cobro del primer mes* configurado en el catálogo |
+| **Hasta** | Opcional: baja programada |
+
+> **Dar de baja vs. eliminar.** *Dar de baja* deja de cobrarlo desde la próxima factura y
+> conserva todo el historial — es lo que quieres casi siempre. *Eliminar* sólo funciona si
+> el servicio **nunca llegó a cobrarse** (un alta por error); si ya salió en una factura, el
+> sistema no deja borrarlo.
+
+Un cliente no puede tener el mismo servicio activo dos veces: si lo intentas, el sistema te
+pide subir la **cantidad** en la asignación que ya existe. Así el cobro doble se ve en la
+factura en vez de esconderse en dos líneas iguales.
 
 ### 5.4 Estados del cliente: suspender, retirar, cancelar
 

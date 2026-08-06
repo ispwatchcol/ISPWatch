@@ -30,6 +30,7 @@ use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\InvoiceTypeController;
 use App\Http\Controllers\AdditionalServiceController;
+use App\Http\Controllers\CustomerAdditionalServiceController;
 use App\Http\Controllers\HelpCenterController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
@@ -266,6 +267,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/additional-services', [AdditionalServiceController::class, 'store']);
         Route::put('/billing/additional-services/{id}', [AdditionalServiceController::class, 'update']);
         Route::delete('/billing/additional-services/{id}', [AdditionalServiceController::class, 'destroy']);
+
+        // Asignaciones por cliente. Anidadas bajo el cliente en las cuatro:
+        // así el ámbito viaja siempre en la URL y no hay forma de tocar la
+        // asignación de otro cliente pasando sólo su id.
+        Route::get('/billing/customers/{customer}/additional-services', [CustomerAdditionalServiceController::class, 'index']);
+        Route::post('/billing/customers/{customer}/additional-services', [CustomerAdditionalServiceController::class, 'store']);
+        Route::put('/billing/customers/{customer}/additional-services/{id}', [CustomerAdditionalServiceController::class, 'update']);
+        Route::delete('/billing/customers/{customer}/additional-services/{id}', [CustomerAdditionalServiceController::class, 'destroy']);
     });
 
     // ─── BILLING ACTION LOGS (failover de facturación) ───
