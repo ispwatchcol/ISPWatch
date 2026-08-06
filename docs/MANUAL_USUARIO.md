@@ -453,15 +453,53 @@ el sistema.
 
 ### 7.5 Servicios adicionales
 
-> **¿Dónde veo los cargos que ya generé?** En la misma pantalla, el botón
-> **Ver cargos generados** abre Facturación mostrando sólo las facturas de ese
-> tipo, de todos los meses. Un cargo adicional es una factura como cualquier
-> otra, así que desde ahí puedes filtrarla, ver sus totales y exportarla igual
-> que el resto.
+**Finanzas → Servicios adicionales.** La pantalla tiene **dos pestañas**, porque hay dos
+cosas distintas que se cobran fuera del plan:
 
-**Finanzas → Servicios adicionales.** Para cobrar algo puntual que no viene de un ticket
-(traslado, cambio de equipo, reconexión). También eliges el **tipo de factura** que se va
-a emitir.
+| Pestaña | Para qué | Cómo se cobra |
+|---|---|---|
+| **Catálogo** | Algo que se cobra **todos los meses**: alquiler de un router extra, soporte técnico mensual, un punto de TV adicional | Se suma a la **factura mensual** del cliente. No genera factura aparte |
+| **Cargo puntual** | Algo que se cobra **una sola vez**: un traslado, un cambio de equipo, una reconexión | Genera **su propia factura**, con su tipo y su fecha de vencimiento |
+
+#### El catálogo
+
+Es la lista de servicios que puedes asignar a tus clientes. Se crea **una vez** y se le
+asigna a todos los que lo tengan, en vez de escribir la misma descripción cliente por
+cliente.
+
+Para crear uno pulsa **Nuevo servicio** y llena:
+
+1. **Nombre** y **descripción** (ej. *Alquiler de router extra*).
+2. **Precio mensual** — es el precio de lista. Al asignarlo a un cliente concreto puedes
+   dejarle otro precio sin afectar a los demás.
+3. **Cobro del primer mes** — qué pasa si el servicio se activa a mitad de mes:
+
+   | Opción | Qué hace |
+   |---|---|
+   | *Mes completo* | Si se activa el 20, se cobra el mes entero. Lo habitual cuando ya entregaste el equipo |
+   | *Proporcional a los días* | Si se activa el 20 de un mes de 30, se cobran los 10 días restantes |
+   | *No cobrar el primer mes* | Empieza a facturarse en el ciclo siguiente |
+
+4. **Cobrar en meses de cortesía** — si el cliente está en un mes de cortesía por
+   instalación, ¿este servicio se cobra igual? Viene activado: lo normal es que la
+   promoción cubra el internet, no el alquiler del equipo.
+
+Cada tarjeta muestra a **cuántos clientes** se le está cobrando.
+
+> **Desactivar en vez de eliminar.** Un servicio que ya está asignado a algún cliente no se
+> puede borrar — el sistema te pedirá desactivarlo. Es a propósito: las facturas que ya lo
+> cobraron tienen que poder seguir explicando qué se cobró. Desactivarlo lo saca de la
+> lista al asignar y conserva todo el historial.
+
+#### El cargo puntual
+
+Para cobrar algo que no viene de un ticket. Eliges cliente, **tipo de factura**, ítems y
+fecha de vencimiento.
+
+> **¿Dónde veo los cargos que ya generé?** El botón **Ver cargos generados** abre
+> Facturación mostrando sólo las facturas de ese tipo, de todos los meses. Un cargo
+> puntual es una factura como cualquier otra, así que desde ahí puedes filtrarla, ver sus
+> totales y exportarla igual que el resto.
 
 ### 7.5.1 Tipos de factura (equipos, TV, reconexión…)
 

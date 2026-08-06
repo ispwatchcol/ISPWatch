@@ -795,6 +795,38 @@ Errores propios:
 | `403` | El tipo es del sistema (`monthly`, `installation`, `additional`, `service_charge`) o de otro tenant |
 | `422` | El nombre choca con un tipo existente, o se intenta borrar un tipo **ya usado en facturas** (hay que desactivarlo) |
 
+### Servicios adicionales (catálogo recurrente)
+
+Mismo permiso: **`view_billing`**. No confundir con `POST /api/billing/additional-charges`,
+que emite un **cargo puntual** en su propia factura. Esto es la **plantilla reutilizable**
+que se asigna a varios clientes y se cobra **dentro de la mensualidad** de cada uno.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/billing/additional-services` | Catálogo del tenant, con `active_assignments_count` |
+| `POST` | `/api/billing/additional-services` | Crea un servicio |
+| `PUT` | `/api/billing/additional-services/{id}` | Actualiza (parcial: sólo lo que llega) |
+| `DELETE` | `/api/billing/additional-services/{id}` | Elimina, si no tiene asignaciones |
+
+**`POST`** — `name` (≤120) y `price` (≥0) requeridos. Opcionales:
+
+| Campo | Valores | Por defecto |
+|---|---|---|
+| `description` | ≤255 | `null` |
+| `proration_mode` | `none` \| `prorated` \| `full` — **el mismo vocabulario** que la política de primera factura de los planes | `full` |
+| `charge_on_courtesy_month` | bool — si se cobra durante un mes de cortesía por instalación | `true` |
+| `is_active` | bool | `true` |
+| `sort_order` | ≥0 | `0` |
+
+**`PUT`** valida con `sometimes`: un payload parcial no reescribe lo que no viaja en él.
+
+Errores propios:
+
+| Código | Cuándo |
+|---|---|
+| `404` | El id no existe **o es de otro tenant** (el scope global no lo distingue, a propósito) |
+| `422` | Nombre repetido en el tenant (sin distinguir mayúsculas), `proration_mode` inválido, o borrado de un servicio **con asignaciones** — incluidas las dadas de baja, porque ya cobraron en meses anteriores |
+
 ---
 
 ## 13. Bitácoras de failover

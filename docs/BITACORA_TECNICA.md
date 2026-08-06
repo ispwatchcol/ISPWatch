@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-05 (auditoría de Finanzas — Fases 1-6 completas: debounce e índices de listado, búsqueda en Gastos, paginación + agregados server-side, totales en dinero, exportación a CSV, unificación visual bajo el acento esmeralda e historial de Servicios Adicionales) · Rama: `david-ux-ui-improve`
+**Última actualización:** 2026-08-05 (auditoría de Finanzas — Fases 1-6 completas: debounce e índices de listado, búsqueda en Gastos, paginación + agregados server-side, totales en dinero, exportación a CSV, unificación visual bajo el acento esmeralda e historial de Servicios Adicionales · **Servicios adicionales recurrentes — Fases 1-2/6: esquema, modelos y CRUD del catálogo**) · Rama: `david-ux-ui-improve`
 
 ---
 
@@ -210,6 +210,7 @@ ISPWatch/
 | `CatalogController.php` | — | Catálogos globales |
 | `PaymentMethodController.php` | — | Formas de pago |
 | `InvoiceTypeController.php` | — | Catálogo de tipos de factura (sistema + propios del tenant) |
+| `AdditionalServiceController.php` | — | Catálogo de servicios adicionales recurrentes (plantilla reutilizable) |
 | `SettingsController.php` | — | Limpieza de cache |
 | `VerificationController.php` | — | Verificación de correo |
 
@@ -306,7 +307,7 @@ ISPWatch/
 | `services/api.js` | Instancia axios y manejador global de `401`. El interceptor que inyectaba `tenant`/`tenant_id` se eliminó: el backend siempre lo ignoró |
 | ~~`services/auth.js`~~ | **Eliminado**: duplicaba `hasPermission` con lógica distinta a la del store, que es la que usa el guard |
 | `services/billing.js` | Cliente de facturación |
-| `services/api/*.js` | 19 módulos por dominio: `auth`, `customers`, `routers`, `plans`, `staff`, `support`, `inventory`, `inventory-stock/-provider/-branch`, `sectorials`, `tenant`, `roles`, `prospects`, `catalogs`, `expense`, `expense-category`, `document-templates`, `help-center` |
+| `services/api/*.js` | 20 módulos por dominio: `auth`, `customers`, `routers`, `plans`, `staff`, `support`, `inventory`, `inventory-stock/-provider/-branch`, `sectorials`, `tenant`, `roles`, `prospects`, `catalogs`, `expense`, `expense-category`, `additional-service`, `document-templates`, `help-center` |
 
 ### 4.2 Composables
 
@@ -344,6 +345,7 @@ ISPWatch/
 | `SearchableSelect.vue` | Selector con búsqueda |
 | `StatCard.vue`, `NotificationToast.vue`, `TimezoneClock.vue`, `WhatsAppButton.vue`, `SubmenuItem.vue`, `SettingsSection.vue` | Piezas de UI |
 | `customer/CustomerBilling · CustomerDocuments · CustomerInstallations · CustomerTickets` | Pestañas de la ficha de cliente |
+| `billing/AdditionalServiceCatalog.vue` | Catálogo de servicios adicionales recurrentes (grid de tarjetas + alta/edición). Vive como pestaña de `Billing/AdditionalCharges`; emite `notify` al padre en vez de montar su propio toast |
 | `import/ImportSection · CustomersUpdateSection · InventoryImportSection · ErrorsModal · FieldDocsModal` | Flujos de carga masiva |
 | `settings/DocumentTemplatesSection.vue` | Editor de plantillas |
 | `ui/ConfirmModal · Pagination` | Primitivas en uso real. `Pagination` acepta acento `blue` \| `indigo` \| `emerald` |
@@ -780,6 +782,7 @@ stateDiagram-v2
 | Instalaciones | `InstallationDetail` | `/api/installations*` | `CustomerInstallationController` | `InstallationBillingService` | `customer_installations`, `customer_documents`, `invoices` |
 | Facturación | `Billing/*` | `/api/billing/*` | `BillingController` | `BillingService`, `FirstInvoicePolicy` | `billing`, `invoices`, `invoice_items`, `invoice_carryovers`, `payments`, `payment_allocations` |
 | Tipos de factura | `Billing/InvoiceTypes` | `/api/billing/invoice-types*` | `InvoiceTypeController` | — | `invoice_types` |
+| Servicios adicionales (catálogo) | `Billing/AdditionalCharges` → `billing/AdditionalServiceCatalog` | `/api/billing/additional-services*` | `AdditionalServiceController` | — | `additional_services` |
 | Cobranza | `MassActions` | `/api/billing/suspension-logs*` | `SuspensionActionLogController` | `OverdueSuspensionService`, `RouterProvisioningService` | `suspension_action_logs`, `cut_type` |
 | Failover facturación | `MassActions` | `/api/billing/action-logs*` | `BillingActionLogController` | `BillingService` | `billing_action_logs` |
 | Routers | `Routers`, `RouterAdd/Edit` | `/api/routers*` | `RouterController` | `VpnService`, `RouterApiService`, managers MikroTik | `router` |
@@ -881,3 +884,17 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | La exportación va por `lazy(500)` y `StreamedResponse`, no por `get()` | El export cubre todo el filtro por decisión de producto, así que puede ser mucho mayor que cualquier respuesta normal del listado. `lazy()` (y no `cursor()`) porque recorre en lotes aplicando los eager loads por lote: con `cursor()` cada relación dispararía una consulta por fila |
 | El CSV de gastos incluye los anulados; el de facturas los lista pero no los suma | No es incoherencia: son cosas distintas. El CSV es un **registro** de lo que pasó —esconder los anulados ocultaría las correcciones—, mientras que `summary` es **dinero**, y ahí un anulado no cuenta. Quien quiera sólo los vigentes filtra por estado antes de exportar, y el archivo respeta ese filtro |
 | El listado de facturas también recibió desempate por `id` | Toda la facturación mensual comparte `issue_date`, así que el problema es aún más agudo que en gastos: sin desempate, dos páginas consecutivas pueden repetir u omitir facturas del mismo lote mensual |
+| **Servicios adicionales — Fase 1 (2026-08-05)**: se creó un catálogo (`additional_services`) + asignaciones (`customer_additional_services`) en vez de reutilizar `user_services` | `user_services` es el contrato del plan de internet y apunta a `service_plan`; además la facturación toma sólo el **primer** servicio activo del cliente (`->first()`), así que colgar de ahí los adicionales o los volvía invisibles o cambiaba el plan facturado. Son dos conceptos distintos que comparten la palabra "servicio" |
+| `customer_additional_services.customer_id` apunta a `users.id`, no a `customer_profile.id` | Es la misma llave que `invoices.customer_id`: el cobro mensual no tiene que traducir entre dos identificadores del mismo cliente en el punto más delicado del flujo |
+| El precio de la asignación es **nullable**: `null` sigue al catálogo, con valor queda congelado | Sin esa distinción, subir el precio de lista o se lo cambia a 200 clientes de golpe o no se lo cambia a nadie nunca. El caso real —"a este cliente se lo dejamos al precio viejo"— no tenía forma de expresarse |
+| La idempotencia del cobro se **deriva** de `invoice_items.customer_additional_service_id`, no de un "último periodo cobrado" en la asignación | Con un contador, si un administrador borra la factura del mes (flujo que ya existe y deja lápida en `billing_action_logs`), el contador queda adelantado y ese periodo **no se cobra nunca**. Derivándolo de los ítems, borrar la factura libera el periodo solo |
+| `charge_on_courtesy_month` por defecto **true**, y `proration_mode` por defecto **`full`** (los planes usan `none`) | La promoción que se vende es "N meses de internet gratis", no "N meses de equipos gratis", y el equipo cuesta plata cada mes. Y un adicional suele ser algo físico ya entregado: `full` es el único modo cuyo monto el operador predice sin hacer cuentas, y `starts_at` ya permite empezar el mes siguiente |
+| `proration_mode` reutiliza `Billing::FIRST_INVOICE_MODES` en vez de definir su propia lista | Mismas palabras y mismo significado que la política de primera factura de los planes: el operador no aprende dos idiomas para la misma decisión. Un test (`el_vocabulario_de_prorrateo_es_el_mismo_que_el_de_los_planes`) impide que las dos listas se separen |
+| Los defaults de `CustomerAdditionalService` se repiten en `protected $attributes` | El default de la migración protege la **fila**, no el **objeto**: una instancia recién creada traía `is_active` y `quantity` en `null`. Lo cazó un test de esta fase, pero el daño real habría sido en el cobro — `unit_price * null` = cargo en cero, sin error. Ver trampa #29 del manual del desarrollador |
+| La FK de `invoice_items` se crea sólo en PostgreSQL | SQLite (los tests corren en `:memory:`) no admite agregar una `FOREIGN KEY` a una tabla existente. La columna sí existe en ambos, que es lo que el código y los tests necesitan |
+| **Servicios adicionales — Fase 2 (2026-08-05)**: el catálogo vive como pestaña de la pantalla existente (`/billing/additional-charges`), no como ruta nueva | Lo recurrente y lo puntual son cosas distintas y se gestionan distinto, pero para el operador ambas son "servicios adicionales": separarlas en dos entradas del menú obligaría a recordar cuál es cuál. Mantener la ruta además no rompe los enlaces del `Sidebar`, del router ni el "Volver a facturación" de Facturación |
+| El catálogo es la pestaña por defecto, no el cargo puntual | Es el propósito principal del módulo a partir de ahora — lo que se cobra mes a mes — y coincide con el nombre de la entrada del menú. El cargo puntual sigue existiendo íntegro, a un clic |
+| Sin guardas `can(...)` en el frontend del catálogo | Todo el grupo de rutas va bajo `permission:view_billing` y **no existe un `edit_billing`**: una guarda con ese nombre habría escondido el botón de "Nuevo servicio" para *todos* los usuarios. Se sigue el patrón de `InvoiceTypes` y `PaymentMethods`, que tampoco guardan en el front porque llegar a la pantalla ya implica el permiso |
+| Un servicio con asignaciones **no se puede borrar** (422), sólo desactivar — y cuenta también las asignaciones dadas de baja | Los ítems de factura apuntan a la asignación y la asignación a este servicio: borrarlo dejaría sin explicación facturas ya emitidas. Se cuentan también las inactivas porque una asignación dada de baja **ya cobró** en meses anteriores. Mismo criterio que `InvoiceTypeController::destroy` con los tipos ya usados |
+| Nombre único por tenant, sin distinguir mayúsculas, con `lower()` y no con la macro `whereLike` | Dos "Alquiler de router extra" en el desplegable de asignación son indistinguibles para quien asigna. `whereLike` no sirve aquí: añade comodines y compara "contiene", cuando hace falta igualdad exacta. `lower()` existe igual en PostgreSQL y en SQLite |
+| `update` valida con `sometimes|required` en vez de `required` | Un PUT parcial (por ejemplo, sólo `is_active` desde la tarjeta) no debe resucitar los defaults y cambiarle en silencio el modo de prorrateo o la regla de cortesía a un servicio que ya se le está cobrando a clientes |

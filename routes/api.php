@@ -29,6 +29,7 @@ use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\PaymentMethodController;
 use App\Http\Controllers\InvoiceTypeController;
+use App\Http\Controllers\AdditionalServiceController;
 use App\Http\Controllers\HelpCenterController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
@@ -258,6 +259,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/billing/invoice-types', [InvoiceTypeController::class, 'store']);
         Route::put('/billing/invoice-types/{id}', [InvoiceTypeController::class, 'update']);
         Route::delete('/billing/invoice-types/{id}', [InvoiceTypeController::class, 'destroy']);
+
+        // Catálogo de servicios adicionales recurrentes. Mismo permiso que las
+        // dos listas de arriba y por la misma razón.
+        Route::get('/billing/additional-services', [AdditionalServiceController::class, 'index']);
+        Route::post('/billing/additional-services', [AdditionalServiceController::class, 'store']);
+        Route::put('/billing/additional-services/{id}', [AdditionalServiceController::class, 'update']);
+        Route::delete('/billing/additional-services/{id}', [AdditionalServiceController::class, 'destroy']);
     });
 
     // ─── BILLING ACTION LOGS (failover de facturación) ───

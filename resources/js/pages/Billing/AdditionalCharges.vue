@@ -2,15 +2,17 @@
     <div class="min-h-screen bg-slate-50 dark:bg-gray-900 p-6 transition-colors duration-300">
         <NotificationToast ref="toast" />
 
-        <div class="max-w-4xl mx-auto">
+        <div :class="tab === 'catalogo' ? 'max-w-7xl mx-auto' : 'max-w-4xl mx-auto'">
             <!-- Header -->
             <PageHeader
                 title="Servicios adicionales"
-                subtitle="Cobra algo puntual a un cliente fuera de la factura del mes."
+                :subtitle="tab === 'catalogo'
+                    ? 'Servicios recurrentes que se asignan a varios clientes y se cobran en su factura mensual.'
+                    : 'Cobra algo puntual a un cliente fuera de la factura del mes.'"
                 icon="bi-plus-circle"
             >
                 <template #actions>
-                    <button @click="verCargosGenerados"
+                    <button v-if="tab === 'puntual'" @click="verCargosGenerados"
                         title="Abre Facturación mostrando sólo las facturas de este tipo, de todos los meses"
                         class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-medium shadow-sm transition-all
                                bg-white text-slate-700 border border-slate-200 hover:bg-slate-50
@@ -29,7 +31,29 @@
                 </template>
             </PageHeader>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Pestañas: lo recurrente y lo puntual son cosas distintas y se
+                 gestionan distinto, pero ambas son "servicios adicionales" para
+                 el operador; separarlas en dos entradas del menú obligaría a
+                 recordar cuál es cuál. -->
+            <div class="flex gap-1 border-b border-slate-200 dark:border-gray-700 mb-6 overflow-x-auto">
+                <button
+                    v-for="t in tabs" :key="t.key"
+                    @click="tab = t.key"
+                    type="button"
+                    :class="[
+                        'px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition',
+                        tab === t.key
+                            ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
+                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                    ]"
+                >
+                    {{ t.label }}
+                </button>
+            </div>
+
+            <AdditionalServiceCatalog v-if="tab === 'catalogo'" @notify="onNotify" />
+
+            <div v-else class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Formulario -->
                 <div class="lg:col-span-2 space-y-6">
                     <!-- Cliente y tipo -->
@@ -204,10 +228,24 @@ import DatePicker from '@/components/DatePicker.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
+import AdditionalServiceCatalog from '@/components/billing/AdditionalServiceCatalog.vue'
 import { activeInvoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const router = useRouter()
 const toast = ref(null)
+
+const tabs = [
+    { key: 'catalogo', label: 'Catálogo' },
+    { key: 'puntual',  label: 'Cargo puntual' },
+]
+
+// Arranca en el catálogo: es el propósito principal del módulo (los servicios
+// que se cobran mes a mes). El cargo puntual queda a un clic.
+const tab = ref('catalogo')
+
+const onNotify = ({ type, title, message }) => {
+    toast.value?.[type === 'error' ? 'error' : 'success'](title, message)
+}
 const submitting = ref(false)
 const customers = ref([])
 
