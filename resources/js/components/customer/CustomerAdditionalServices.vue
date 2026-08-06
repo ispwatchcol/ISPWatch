@@ -69,6 +69,11 @@
                                     class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-lg bg-slate-200 text-slate-600 dark:bg-gray-700 dark:text-slate-400">
                                     Dado de baja
                                 </span>
+                                <span v-if="item.pending_billing"
+                                    class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                                    title="Este cliente ya recibió su factura del mes, pero este servicio no aparece en ella">
+                                    Sin cobrar este mes
+                                </span>
                                 <span v-if="item.price !== null && item.price !== undefined"
                                     class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                                     title="Este cliente tiene un precio propio: no cambia si cambia el del catálogo">

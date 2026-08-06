@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AdditionalService;
 use App\Models\CustomerAdditionalService;
 use App\Models\User;
+use App\Services\BillingService;
 use Illuminate\Http\Request;
 
 /**
@@ -21,6 +22,10 @@ use Illuminate\Http\Request;
  */
 class CustomerAdditionalServiceController extends Controller
 {
+    public function __construct(protected BillingService $billingService)
+    {
+    }
+
     public function index(Request $request, int $customer)
     {
         if (!$this->customerOfTenant($request, $customer)) {
@@ -37,6 +42,16 @@ class CustomerAdditionalServiceController extends Controller
         // effective_price no está en $appends para no disparar una consulta por
         // fila cuando `service` no viene cargado; aquí ya vino, así que se añade.
         $assignments->each->append('effective_price');
+
+        // Marca las que debían cobrarse este mes y no están en ninguna factura.
+        // Se calcula con el MISMO filtro que usa el cobro, así que no puede
+        // señalar como pendiente algo que el cobro no iba a cobrar igualmente.
+        $pendientes = $this->billingService->pendingAdditionalServiceIds(
+            (int) $request->user()->tenant_id,
+            $customer,
+        );
+
+        $assignments->each(fn ($a) => $a->setAttribute('pending_billing', in_array($a->id, $pendientes, true)));
 
         return response()->json($assignments);
     }

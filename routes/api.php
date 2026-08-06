@@ -263,6 +263,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Catálogo de servicios adicionales recurrentes. Mismo permiso que las
         // dos listas de arriba y por la misma razón.
+        // OJO: antes de `/billing/additional-services/{id}`, o 'unbilled' se
+        // interpretaría como un id si algún día se añade un GET show.
+        Route::get('/billing/additional-services/unbilled', [AdditionalServiceController::class, 'unbilled']);
         Route::get('/billing/additional-services', [AdditionalServiceController::class, 'index']);
         Route::post('/billing/additional-services', [AdditionalServiceController::class, 'store']);
         Route::put('/billing/additional-services/{id}', [AdditionalServiceController::class, 'update']);

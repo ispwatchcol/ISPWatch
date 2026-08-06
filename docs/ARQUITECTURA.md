@@ -287,6 +287,17 @@ el operador o el propio sistema, ya decidió que a ese cliente no se le cobra.
 > El tope de facturación es el que más importa respetar: existe para dejar de acumular
 > deuda incobrable en un moroso, así que la factura de adicionales también se frena ahí.
 
+**Fuga silenciosa.** Como en esos cinco casos el servicio sigue "activo" en la ficha pero no
+se factura, `pendingAdditionalServiceIds()` lo detecta y lo expone en el catálogo y en la
+ficha del cliente. Usa **el mismo filtro que el cobro**, así que no puede señalar como
+pendiente algo que el cobro no iba a cobrar igualmente — un indicador que grita en falso se
+acaba ignorando.
+
+**Una sola puerta.** `createMonthlyInvoiceFor()` no es la única ruta que crea mensualidades:
+el comando one-off `billing:generate-tenant` tiene la suya. Para que no facture de menos,
+llama a `BillingService::addRecurringExtrasTo()`, la única API pública de los adicionales.
+Esa duplicación es deuda conocida — ver **P-11** en `MEJORAS_RECOMENDADAS.md`.
+
 ### Plantillas de documentos (`app/Services/Templates`)
 
 Cada tenant puede personalizar el cuerpo de 3 documentos (factura, contrato, hoja de

@@ -17,6 +17,37 @@
             </button>
         </div>
 
+        <!-- Fuga silenciosa: activos que este mes no se cobraron -->
+        <div v-if="unbilled.count > 0"
+            class="mb-5 rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 p-4">
+            <div class="flex items-start gap-3">
+                <v-icon name="md-warning-round" class="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div class="min-w-0 flex-1">
+                    <p class="font-semibold text-amber-800 dark:text-amber-300">
+                        {{ unbilled.count }}
+                        {{ unbilled.count === 1 ? 'servicio activo no se cobró' : 'servicios activos no se cobraron' }}
+                        este mes
+                        <span class="font-normal">({{ formatCurrency(unbilled.total) }})</span>
+                    </p>
+                    <p class="text-xs text-amber-700 dark:text-amber-400/80 mt-0.5">
+                        Estos clientes ya recibieron su factura del mes, pero el servicio no aparece en ella.
+                        Suele ser porque están excluidos de facturación, retirados, o llegaron al tope de
+                        facturas pendientes.
+                    </p>
+                    <ul class="mt-2 space-y-1">
+                        <li v-for="i in unbilled.items.slice(0, 5)" :key="i.id"
+                            class="text-xs text-amber-800 dark:text-amber-300 flex justify-between gap-3">
+                            <span class="truncate">{{ i.customer_name }} — {{ i.service_name }}</span>
+                            <span class="tabular-nums shrink-0">{{ formatCurrency(i.amount) }}</span>
+                        </li>
+                    </ul>
+                    <p v-if="unbilled.items.length > 5" class="text-xs text-amber-700 dark:text-amber-400/80 mt-1">
+                        y {{ unbilled.items.length - 5 }} más.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <!-- Cargando -->
         <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div v-for="n in 6" :key="`sk-${n}`"
@@ -339,6 +370,7 @@ const PRORATION_HELP = {
 const loading = ref(false)
 const saving = ref(false)
 const items = ref([])
+const unbilled = ref({ count: 0, total: 0, items: [] })
 
 const showFormModal = ref(false)
 const showDeleteModal = ref(false)
@@ -456,5 +488,21 @@ const deleteItem = async () => {
     }
 }
 
-onMounted(loadItems)
+/**
+ * Silencioso a propósito: es un indicador de apoyo, no el contenido de la
+ * pantalla. Si falla, el catálogo tiene que seguir funcionando igual.
+ */
+const loadUnbilled = async () => {
+    try {
+        const { data } = await additionalServiceApi.unbilled()
+        unbilled.value = data || { count: 0, total: 0, items: [] }
+    } catch (error) {
+        console.error('Error loading unbilled additional services:', error)
+    }
+}
+
+onMounted(() => {
+    loadItems()
+    loadUnbilled()
+})
 </script>

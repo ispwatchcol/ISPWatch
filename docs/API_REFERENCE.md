@@ -803,6 +803,7 @@ que se asigna a varios clientes y se cobra **dentro de la mensualidad** de cada 
 
 | Método | Ruta | Descripción |
 |---|---|---|
+| `GET` | `/api/billing/additional-services/unbilled` | **Servicios activos que no se cobraron este mes** (ver abajo) |
 | `GET` | `/api/billing/additional-services` | Catálogo del tenant, con `active_assignments_count` |
 | `POST` | `/api/billing/additional-services` | Crea un servicio |
 | `PUT` | `/api/billing/additional-services/{id}` | Actualiza (parcial: sólo lo que llega) |
@@ -819,6 +820,18 @@ que se asigna a varios clientes y se cobra **dentro de la mensualidad** de cada 
 | `sort_order` | ≥0 | `0` |
 
 **`PUT`** valida con `sometimes`: un payload parcial no reescribe lo que no viaja en él.
+
+**`GET /unbilled`** — detector de fuga silenciosa. Devuelve `{count, total, items[]}` con las
+asignaciones **activas y en ventana** que este mes no aparecen en ninguna factura, cada una
+con `customer_name`, `service_name` y `amount`.
+
+Reutiliza el **mismo filtro que el cobro** (`BillingService::chargeableAdditionalServices`),
+así que no puede reportar como pendiente algo que el cobro no iba a cobrar igualmente. Calla
+mientras el cliente no tenga factura vigente del periodo: eso significa que el ciclo de su
+router no ha corrido, que no es lo mismo que haberse saltado el cobro.
+
+> La ruta va declarada **antes** de las que llevan `{id}`, por la misma razón que las tres
+> `/export` de Finanzas (trampa #27 del manual del desarrollador).
 
 Errores propios:
 
@@ -853,7 +866,8 @@ historial.
 el historial de cobro de la anterior colgando de ella.
 
 Cada asignación incluye `effective_price` (el precio que realmente se le cobra, ya
-resuelta la cascada asignación → catálogo), `service` y `assigner`.
+resuelta la cascada asignación → catálogo), `service`, `assigner` y **`pending_billing`**
+(`true` cuando el cliente ya recibió su factura del mes y este servicio no está en ella).
 
 > El campo de quien asignó viaja como **`assigner`** (objeto) y **`assigned_by`** (id).
 > La relación se llama `assigner` justamente para que no colisionen — ver trampa #30 del

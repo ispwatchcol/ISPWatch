@@ -5,6 +5,10 @@ export default {
     getAll(params = {}) {
         return apiClient.get('/billing/additional-services', { params })
     },
+    // Asignaciones que debían cobrarse este mes y no están en ninguna factura.
+    unbilled() {
+        return apiClient.get('/billing/additional-services/unbilled')
+    },
     create(data) {
         return apiClient.post('/billing/additional-services', data)
     },

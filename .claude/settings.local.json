@@ -143,7 +143,10 @@
       "Bash(grep -n \"customers/{.*}/\\\\|customer/{.*}/\" routes/api.php)",
       "Bash(sed -i \"s/'assignedBy:id,name'/'assigner:id,name'/g\" app/Http/Controllers/CustomerAdditionalServiceController.php)",
       "Bash(sed -i \"s/0\\\\.assigned_by_user\\\\.name/0.assigner.name/\" tests/Feature/AdditionalServices/CustomerAdditionalServiceTest.php)",
-      "Bash(php -l app/Billing/FirstInvoicePolicy.php)"
+      "Bash(php -l app/Billing/FirstInvoicePolicy.php)",
+      "Bash(php -l app/Console/Commands/GenerateTenantInvoicesOneOff.php)",
+      "Bash(php -l app/Http/Controllers/AdditionalServiceController.php)",
+      "Bash(php -l app/Http/Controllers/CustomerAdditionalServiceController.php)"
     ]
   }
 }

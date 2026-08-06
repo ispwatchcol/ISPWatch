@@ -615,6 +615,22 @@ frecuentes: cliente sin plan **y** con adicionales **y** con un abono parcial pr
 **Recomendación.** Decidirlo explícitamente cuando aparezca el primer caso real. Si se opta por
 cobrarlo, el aviso al cliente debería desglosar las dos cosas para que no parezca un cobro doble.
 
+### 📋 P-11 · `billing:generate-tenant` sigue siendo una segunda ruta de facturación
+
+`GenerateTenantInvoicesOneOff` crea mensualidades **sin pasar por**
+`BillingService::createMonthlyInvoiceFor()`: duplica la creación de la factura, el ítem del plan
+y la aplicación del saldo a favor. Su propio encabezado dice *"ONE-OFF ops command (safe to delete
+after use)"*.
+
+Ya mordió una vez: al añadir los servicios adicionales recurrentes, este comando habría facturado
+de menos y en silencio. Se parcheó llamando a `addRecurringExtrasTo()`, pero el problema de fondo
+sigue: **cualquier cosa nueva que entre en la factura mensual hay que acordarse de replicarla
+aquí**, y el día que alguien no se acuerde, el error no dará ninguna señal.
+
+**Recomendación.** Borrarlo si ya cumplió su propósito (es la opción limpia), o reescribirlo para
+que delegue en `createMonthlyInvoiceFor()` con un flag que suprima las notificaciones — que es lo
+único que justificaba tener una copia.
+
 ### 📋 Observación menor
 
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de

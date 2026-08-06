@@ -132,7 +132,17 @@ class GenerateTenantInvoicesOneOff extends Command
                     'amount'      => $subtotal,
                 ]);
 
+                // Servicios adicionales recurrentes del cliente. Este comando
+                // NO pasa por BillingService::createMonthlyInvoiceFor(), así
+                // que sin esta llamada facturaría de menos y en silencio: el
+                // cliente recibiría sólo el plan y el alquiler de su equipo se
+                // perdería ese mes. Delega en el mismo método que la corrida
+                // normal para que las dos rutas no puedan divergir.
+                $this->billing->addRecurringExtrasTo($invoice, $periodStart, $periodEnd);
+
                 // Apply available customer credit, mirroring BillingService.
+                $invoice->refresh();
+                $profile->refresh();
                 if ($profile->credit_balance > 0 && $invoice->balance_due > 0) {
                     $apply = min((float) $profile->credit_balance, (float) $invoice->balance_due);
                     $invoice->balance_due -= $apply;

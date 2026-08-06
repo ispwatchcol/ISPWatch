@@ -317,6 +317,22 @@ Tiene sentido: no paga internet, pero sí está alquilando el equipo.
 > el sistema lo respeta. El tope es el más importante: existe para dejar de acumularle deuda a
 > quien ya no está pagando.
 
+##### El aviso de "sin cobrar este mes"
+
+Justo por lo anterior, un servicio puede quedarse **activo pero sin facturarse** durante meses
+sin que nadie lo note. Para evitarlo:
+
+- En **Finanzas → Servicios adicionales → Catálogo**, un aviso ámbar arriba te dice cuántos
+  servicios activos no se cobraron este mes, por cuánto dinero y a qué clientes.
+- En la ficha del cliente, la asignación afectada lleva la etiqueta **Sin cobrar este mes**.
+
+El aviso sólo aparece cuando el cliente **ya recibió su factura del mes** y el servicio no está
+en ella. Durante los primeros días, antes de que el router facture, no dice nada — no habría
+nada que reportar.
+
+Si aparece, revisa el estado del cliente: casi siempre está excluido de facturación, retirado,
+o llegó al tope de facturas pendientes.
+
 ### 5.4 Estados del cliente: suspender, retirar, cancelar
 
 Desde la ficha del cliente, con los botones **Suspender** y **Activar**.

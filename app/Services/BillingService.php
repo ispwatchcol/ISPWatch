@@ -1369,6 +1369,98 @@ class BillingService
     }
 
     /**
+     * Puerta pública a los servicios adicionales, para las rutas de creación de
+     * facturas que NO pasan por createMonthlyInvoiceFor().
+     *
+     * Existe una: el comando one-off `billing:generate-tenant`. Sin esto,
+     * facturaría de menos y sin avisar. Cualquier camino nuevo que cree una
+     * mensualidad por su cuenta tiene que llamar aquí — o, mejor, no existir.
+     */
+    public function addRecurringExtrasTo(Invoice $invoice, Carbon $periodStart, Carbon $periodEnd): void
+    {
+        $this->applyAdditionalServicesTo($invoice, $periodStart, $periodEnd);
+    }
+
+    /**
+     * Servicios adicionales de un cliente que **deberían haberse cobrado este
+     * mes y no aparecen en ninguna factura**.
+     *
+     * Es el detector de la fuga silenciosa: una asignación puede quedar sin
+     * cobrar por motivos legítimos del ciclo (cliente excluido, retirado, tope
+     * de mora alcanzado, mes suprimido), y desde la ficha se seguiría viendo
+     * "activa" indefinidamente sin que nadie note que no se está facturando.
+     *
+     * Reutiliza EL MISMO filtro que el cobro (`chargeableAdditionalServices`),
+     * así que no puede reportar como pendiente algo que el cobro no iba a
+     * cobrar de todos modos — un indicador que grita en falso se acaba
+     * ignorando, y entonces no sirve para nada.
+     *
+     * Si el cliente todavía no tiene factura de este periodo no se reporta
+     * nada: el ciclo de su router simplemente no ha corrido aún, que no es lo
+     * mismo que haberse saltado el cobro.
+     *
+     * @return array<int,int> ids de asignación
+     */
+    public function pendingAdditionalServiceIds(int $tenantId, int $customerId): array
+    {
+        $periodStart = now()->startOfMonth()->startOfDay();
+        $periodEnd   = now()->endOfMonth()->startOfDay();
+
+        $tieneFacturaDelPeriodo = Invoice::where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->whereDate('period_start', '<=', $periodEnd->toDateString())
+            ->whereDate('period_end', '>=', $periodStart->toDateString())
+            ->exists();
+
+        if (!$tieneFacturaDelPeriodo) {
+            return [];
+        }
+
+        return array_column(
+            $this->chargeableAdditionalServices($tenantId, $customerId, $periodStart, $periodEnd),
+            'assignment_id'
+        );
+    }
+
+    /**
+     * Barrido del tenant: todas las asignaciones sin cobrar este mes.
+     *
+     * Itera sólo sobre los clientes QUE TIENEN adicionales activos, no sobre
+     * toda la base: ese conjunto es pequeño por naturaleza, así que el barrido
+     * cuesta poco aunque el tenant tenga miles de clientes.
+     *
+     * @return \Illuminate\Support\Collection<int,CustomerAdditionalService>
+     */
+    public function unbilledAdditionalServices(int $tenantId)
+    {
+        $customerIds = CustomerAdditionalService::withoutTenantScope()
+            ->where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->distinct()
+            ->pluck('customer_id');
+
+        $pendingIds = [];
+
+        foreach ($customerIds as $customerId) {
+            $pendingIds = array_merge($pendingIds, $this->pendingAdditionalServiceIds($tenantId, (int) $customerId));
+        }
+
+        if (empty($pendingIds)) {
+            return collect();
+        }
+
+        return CustomerAdditionalService::withoutTenantScope()
+            ->whereIn('id', $pendingIds)
+            ->with([
+                'service' => fn ($q) => $q->withoutGlobalScope('tenant'),
+                'customer:id',
+                'customer.customerProfile:user_id,name,last_name',
+            ])
+            ->get();
+    }
+
+    /**
      * Factura de EXCEPCIÓN: sólo servicios adicionales, sin plan.
      *
      * Existe para los dos únicos casos en que la corrida mensual salta a un
