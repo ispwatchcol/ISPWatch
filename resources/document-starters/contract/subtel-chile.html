@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1f2937; line-height: 1.45; }
+  .cab { text-align: center; border-bottom: 2px solid #0039a6; padding-bottom: 8px; margin-bottom: 12px; }
+  .cab h1 { margin: 0; font-size: 15px; color: #0039a6; }
+  .cab p { margin: 2px 0 0; font-size: 10px; color: #6b7280; }
+  h2 { font-size: 11px; color: #ffffff; background: #0039a6; padding: 3px 6px; margin: 12px 0 5px; }
+  p { margin: 4px 0; text-align: justify; }
+  table.datos { width: 100%; border-collapse: collapse; }
+  table.datos td { padding: 3px 5px; border: 1px solid #d1d5db; }
+  table.datos td.et { width: 32%; color: #4b5563; font-weight: bold; }
+  .destacado { border: 2px solid #0039a6; padding: 6px; margin: 8px 0; }
+  .firma { margin-top: 26px; }
+  .sign-box { width: 45%; display: inline-block; text-align: center; }
+  .sign-line { border-top: 1px solid #111827; margin-top: 6px; padding-top: 5px; font-size: 10px; }
+  .pie { margin-top: 18px; font-size: 9px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="cab">
+  {{empresa.logo}}
+  <h1>CONTRATO DE SUMINISTRO DE SERVICIO DE ACCESO A INTERNET FIJO</h1>
+  <p>{{empresa.nombre}} · RUT {{empresa.nit}}</p>
+  <p>Contrato N° <strong>{{contrato.numero}}</strong> · Fecha: {{contrato.fecha}}</p>
+</div>
+
+<p>Entre <strong>{{empresa.nombre}}</strong>, en adelante <strong>LA CONCESIONARIA</strong>, y
+<strong>{{cliente.nombre}} {{cliente.apellido}}</strong>, en adelante <strong>EL ABONADO</strong>, se
+celebra el presente contrato, regido por la Ley General de Telecomunicaciones N° 18.168, el Reglamento
+de Servicios de Telecomunicaciones y la normativa de la <strong>SUBTEL</strong>.</p>
+
+<h2>1. DATOS DEL ABONADO</h2>
+<table class="datos">
+  <tr><td class="et">Nombre o razón social</td><td>{{cliente.nombre}} {{cliente.apellido}}</td></tr>
+  <tr><td class="et">RUT</td><td>{{cliente.cedula}}</td></tr>
+  <tr><td class="et">Dirección de instalación</td><td>{{cliente.direccion}}</td></tr>
+  <tr><td class="et">Comuna</td><td>{{cliente.ciudad}}</td></tr>
+  <tr><td class="et">Región</td><td>{{cliente.departamento}}</td></tr>
+  <tr><td class="et">Correo electrónico</td><td>{{cliente.email}}</td></tr>
+  <tr><td class="et">Teléfono</td><td>{{cliente.telefono}}</td></tr>
+</table>
+
+<h2>2. SERVICIO CONTRATADO</h2>
+<table class="datos">
+  <tr><td class="et">Plan</td><td>{{plan.nombre}}</td></tr>
+  <tr><td class="et">Velocidad de bajada ofrecida</td><td>{{plan.velocidad_bajada}}</td></tr>
+  <tr><td class="et">Velocidad de subida ofrecida</td><td>{{plan.velocidad_subida}}</td></tr>
+  <tr><td class="et">Velocidad promedio garantizada</td><td><em>indica el porcentaje comprometido</em></td></tr>
+  <tr><td class="et">Precio mensual</td><td>$ {{plan.valor_mensual}} CLP, IVA incluido</td></tr>
+  <tr><td class="et">Cargo de instalación</td><td><em>escribe aquí el cargo</em></td></tr>
+  <tr><td class="et">Inicio del servicio</td><td>{{contrato.fecha}}</td></tr>
+</table>
+
+<div class="destacado">
+  <p><strong>Velocidad y medición.</strong> LA CONCESIONARIA debe informar la velocidad promedio
+  garantizada y ponerla a disposición de EL ABONADO. EL ABONADO puede verificar la velocidad efectiva
+  mediante el medidor oficial dispuesto por la SUBTEL.</p>
+</div>
+
+<h2>3. CONTINUIDAD DEL SERVICIO E INDEMNIZACIONES</h2>
+<p>Ante interrupciones del servicio por causas imputables a LA CONCESIONARIA, EL ABONADO tiene derecho
+al descuento proporcional del cargo fijo por el período de indisponibilidad, el que se aplicará de
+oficio en la boleta del período siguiente, sin necesidad de solicitud.</p>
+
+<h2>4. FACTURACIÓN Y PAGO</h2>
+<p>La boleta se emitirá mensualmente y se pondrá a disposición con la anticipación que exige la
+normativa. El no pago faculta la suspensión del servicio previo aviso. Acreditado el pago, el servicio
+se repondrá en el plazo máximo establecido por el reglamento.</p>
+
+<h2>5. TÉRMINO DEL CONTRATO</h2>
+<p>EL ABONADO puede poner término al contrato en cualquier momento, por el mismo medio por el que
+contrató y sin trámites adicionales. LA CONCESIONARIA debe hacerla efectiva dentro del plazo legal y no
+puede condicionarla a la devolución previa de equipos.</p>
+
+<h2>6. EQUIPOS</h2>
+<p>Los equipos entregados en comodato son propiedad de LA CONCESIONARIA y deberán restituirse al término
+del contrato. EL ABONADO responde por su pérdida o deterioro imputable.</p>
+
+<h2>7. RECLAMOS</h2>
+<p>Atención de clientes: <em>escribe aquí tu línea, tu correo y tu página web</em>. Todo reclamo recibe
+un número de seguimiento y será respondido en el plazo legal. Si la respuesta no resulta satisfactoria,
+EL ABONADO puede reclamar ante la <strong>SUBTEL</strong> (www.subtel.gob.cl, 800 800 400) y ante el
+SERNAC.</p>
+
+<h2>8. PROTECCIÓN DE DATOS PERSONALES</h2>
+<p>LA CONCESIONARIA tratará los datos personales de EL ABONADO conforme a la Ley N° 19.628, exclusivamente
+para la prestación, facturación y soporte del servicio.</p>
+
+<div class="firma">
+  <div class="sign-box">
+    {{contrato.firma_cliente}}
+    <div class="sign-line">
+      <strong>{{cliente.nombre}} {{cliente.apellido}}</strong><br>
+      RUT {{cliente.cedula}}<br>
+      EL ABONADO
+    </div>
+  </div>
+  <div class="sign-box" style="float:right;">
+    <div style="height:80px;"></div>
+    <div class="sign-line">
+      <strong>{{empresa.nombre}}</strong><br>
+      RUT {{empresa.nit}}<br>
+      LA CONCESIONARIA
+    </div>
+  </div>
+</div>
+
+<div class="pie">Contrato {{contrato.numero}} — {{contrato.fecha}}</div>
+
+</body>
+</html>

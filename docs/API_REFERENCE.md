@@ -233,7 +233,7 @@ Recurso base: `apiResource('customers', CustomerProfileController::class)`.
 | `POST` | `/api/customers` | auth | Crea cliente (+ aprovisionamiento opcional) |
 | `GET` | `/api/customers/{id}` | auth | Detalle |
 | `PUT/PATCH` | `/api/customers/{id}` | auth | Actualiza |
-| `DELETE` | `/api/customers/{id}` | auth | Elimina |
+| `DELETE` | `/api/customers/{id}` | auth | **Borrado completo**: filas, archivos de S3 y configuración del router (ver abajo) |
 | `GET` | `/api/customers/statistics` | auth | Estadísticas de clientes |
 | `GET` | `/api/customers/map` | auth | Datos georreferenciados para el mapa |
 | `GET` | `/api/customers/used-ips` | auth | IPs ya asignadas |
@@ -244,6 +244,40 @@ Recurso base: `apiResource('customers', CustomerProfileController::class)`.
 | `GET` | `/api/customers/bulk-provision-status/{jobId}` | `activate_deactivate_clients` | Progreso del masivo |
 | `POST` | `/api/customers/{id}/suspend` | `activate_deactivate_clients` | Suspende el servicio |
 | `POST` | `/api/customers/{id}/activate` | `activate_deactivate_clients` | Reactiva el servicio |
+
+### `DELETE /api/customers/{id}`
+
+Borrado **completo**, no sólo de la fila. Orquestado por `App\Services\CustomerDeletionService`
+(ver `BITACORA_TECNICA.md` § 19 para el porqué del orden de las operaciones):
+
+1. Se limpia la configuración del cliente en su router — secret y sesión PPPoE, simple queue,
+   usuario y sesión de HotSpot, lease DHCP, entradas de address-list, ARP estático y regla de
+   amarre.
+2. Se borran las filas: las que van en cascada por clave foránea (facturas, pagos, documentos,
+   servicios, bitácoras) más las tres tablas que **no** tienen clave foránea y quedarían
+   huérfanas (`customer_installations`, `bulk_provision_runs`, y el vínculo
+   `prospects.converted_user_id`, que se pone a `NULL` porque el prospecto es un registro propio).
+3. Se borran de S3 los contratos firmados, las fotos y las firmas de instalación.
+
+**200 OK**
+
+```json
+{
+  "message": "Cliente eliminado correctamente. ✅",
+  "cleanup": {
+    "router":  { "success": true, "statements": 11, "message": "Configuración del cliente eliminada del router." },
+    "files":   { "deleted": 4, "failed": 0 },
+    "records": { "instalaciones": 1, "documentos_instalacion": 3, "ejecuciones_alta": 2, "prospectos_desligados": 1 }
+  }
+}
+```
+
+> **Un fallo al limpiar el router NO revierte el borrado** — un router caído dejaría clientes
+> imposibles de eliminar — pero la respuesta sigue siendo `200` con
+> `cleanup.router.success = false` y un `message` que lo dice explícitamente. **El cliente
+> quedará navegando hasta que alguien quite esa configuración a mano**, así que el frontend lo
+> muestra como aviso y no como éxito. Es la única forma de fallo que el consumidor de esta API
+> tiene que tratar de forma distinta.
 
 ### `POST /api/customers`
 
@@ -1118,8 +1152,35 @@ devuelve:
 - `is_advanced_mode` (bool) — si la plantilla usa el shell fijo o el documento HTML completo.
 - `page_size` / `page_orientation` (string) — tamaño y orientación del PDF. Nunca vienen vacíos: si la fila no existe o los tiene en `NULL`, la respuesta trae los defaults (`"a4"` / `"portrait"`).
 - `page_sizes` / `page_orientations` — valores aceptados, para poblar los selectores del editor sin duplicar la lista en el frontend.
+- `starters` — plantillas base con las que el tenant puede empezar, **sin el cuerpo**: `[{slug, name, description, advanced, page_size, page_orientation}]`. Los cuerpos pesan varios KB cada uno y esto se pide en cada carga del editor.
 - `placeholders` — whitelist de placeholders **escalares** para el tipo (`config/document_placeholders.php`), `{token: etiqueta}`.
 - `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Los 3 tipos incluyen `empresa.logo` (auditoría 2026-08-03) — `contract` ya no está vacío. `contract` también incluye `contrato.firma_cliente` (auditoría 2026-08-04) — necesario en modo avanzado, donde no hay shell fijo que la imprima por su cuenta (ver `docs/ARQUITECTURA.md`).
+
+**`GET /api/document-templates/{type}/starters/{slug}`** — cuerpo de una plantilla base, para
+cargarla en el editor. **No persiste nada**: el tenant la recibe como borrador y decide si la
+guarda. `404` si el slug no está en `config/document_template_starters.php` para ese tipo.
+
+```json
+{
+  "data": {
+    "slug": "crc-colombia",
+    "name": "Contrato único CRC (Colombia)",
+    "description": "Formato regulado a dos columnas de la CRC/MinTIC…",
+    "advanced": true,
+    "page_size": "a4",
+    "page_orientation": "landscape",
+    "body_html": "<!DOCTYPE html>…"
+  }
+}
+```
+
+`advanced`, `page_size` y `page_orientation` son los que la plantilla **necesita**, no
+sugerencias: el formato CRC es a dos columnas y en A4 vertical sale descuadrado, y en modo
+seguro el sanitizer le quitaría las tablas al guardar. El frontend los aplica al cargarla.
+
+> El `slug` llega por URL y es entrada del usuario: `DocumentStarterLibrary` sólo lo convierte
+> en ruta de disco **después** de encontrarlo en el catálogo. Concatenarlo directamente sería
+> un salto de directorio (`../../../.env`), y hay una prueba dedicada a ello.
 
 **`PUT /api/document-templates/{type}`** y **`POST .../preview`** — cuerpo:
 
@@ -1152,23 +1213,54 @@ llegar a dompdf.
 > útiles a 96 dpi y dompdf aprieta el diseño; A4 horizontal da ~1027 px y cabe intacto.
 
 **Header `X-Template-Warnings`** (sólo en la respuesta de `preview`, sólo si aplica) — JSON
-array de `{token, label}` con los placeholders **de bloque** que no se pudieron insertar en el
-documento (ej. quedaron dentro de un atributo HTML). Informativo: el PDF se genera igual, sin
-ese contenido. Ausente si no hay huérfanos — el frontend sólo lo lee si el header existe.
+array de `{kind, token, label, message}` con todo lo que la plantilla tiene mal sin que llegue
+a romper el PDF. Informativo: el documento se genera igual. Ausente si no hay nada que avisar —
+el frontend sólo lo lee si el header existe.
 
 ```json
-[{ "token": "factura.tabla_items", "label": "Tabla de ítems de la factura…" }]
+[
+  {
+    "kind": "foreign_placeholder",
+    "token": "plan_internet.precio",
+    "label": "Marcador de otro sistema",
+    "message": "No se reconoce y sale en blanco. Aquí el equivalente es {{plan.valor_mensual}}."
+  }
+]
 ```
+
+`kind` (`App\Services\Templates\TemplateDiagnostics`):
+
+| `kind` | Qué pasó |
+|---|---|
+| `foreign_marker` | Marcador de otro sistema **sin llaves** (`NUMERO_CONTRATO_TAG`): aquí es texto y se imprime tal cual |
+| `foreign_placeholder` | `{{token}}` con el nombre de otro sistema; hay equivalente conocido (`config/document_placeholder_aliases.php`) |
+| `wrong_type` | El token existe, pero en el catálogo de **otro** tipo de documento |
+| `unknown_placeholder` | No se reconoce; si algo se le parece, el mensaje sugiere el más cercano |
+| `orphaned_block` | Placeholder de bloque que no se pudo insertar en esa posición (ej. dentro de un atributo) |
+| `remote_image` | `<img>` apuntando a internet: dompdf corre con `enable_remote = false` y sale rota |
+
+`message` viene armado del servidor y es el texto que el editor muestra tal cual — así se
+verifica en las pruebas de PHP junto a la detección que lo origina, y el frontend no tiene que
+duplicar el catálogo de equivalencias. La lista viene **ordenada por severidad** (primero lo
+que deja datos en blanco, al final lo cosmético) y **topada en 12 hallazgos**: los avisos
+viajan en una cabecera HTTP y una plantilla migrada entera puede tener decenas de marcadores
+ajenos, lo que pasaría del límite de cabeceras del proxy y dejaría al navegador sin el PDF.
+Por la misma razón el JSON va **sin** `JSON_UNESCAPED_UNICODE`: el escapado `\uXXXX` deja la
+cabecera en ASCII puro, que es lo único que una cabecera HTTP garantiza transportar.
 
 Al ser un header no estándar, va declarado en `exposed_headers` de `config/cors.php`: sin eso
 el navegador lo oculta a JavaScript en cualquier llamada cross-origin (el servidor de Vite en
 `:5173` contra la API en `:8000`), y el aviso nunca se dispararía en desarrollo. En producción
 front y API comparten origen, donde la restricción no aplica.
 
-> Un placeholder **escalar** desconocido, con typo, o de **otro tipo de documento**
-> (ej. `{{factura.tabla_items}}` dentro de un contrato) no genera este header — se blanquea a
-> `''` en silencio, mismo criterio que cualquier token no reconocido. Ver
-> `docs/MEJORAS_RECOMENDADAS.md`.
+**`PUT /api/document-templates/{type}`** devuelve los mismos hallazgos en la clave `warnings`
+del JSON (array vacío si no hay ninguno) — no en una cabecera, porque ahí no hay límite de
+tamaño. Va también en el guardado y no sólo en la vista previa porque guardar **activa** la
+plantilla de inmediato: quien pega el HTML y le da directo a "Guardar y activar" es
+exactamente quien más necesita el aviso.
+
+> Sigue vigente la regla de siempre: un token no reconocido se blanquea a `''` y **nunca**
+> rompe el render. Lo que cambió el 2026-08-06 es que ahora, además, se avisa por qué.
 
 > **Por qué `manage_document_templates` es un permiso aparte de `manage_tenant`:**
 > `manage_tenant` sólo cubre campos de identidad de empresa con validación estricta. El cuerpo

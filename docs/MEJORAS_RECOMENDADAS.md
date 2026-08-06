@@ -26,16 +26,16 @@
 
 | Estado | Cantidad | Detalle |
 |---|---:|---|
-| ✅ **Resuelto en código** | 21 | Aplicado y verificado con tests |
+| ✅ **Resuelto en código** | 25 | Aplicado y verificado con tests |
 | 🔧 **Requiere ejecución** | 4 | El código está listo; falta correr migraciones o rotar credenciales |
 | ❌ **Falso positivo** | 2 | Corregidos en §2 |
-| 📋 **Pendiente** | 13 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-10 a P-12 del repaso del manual del 2026-08-03; P-13 y P-14 del diagnóstico de plantillas migradas del 2026-08-05) |
+| 📋 **Pendiente** | 11 | Decisión de producto, infraestructura, o hallazgos posteriores (P-10 a P-12 del repaso del manual del 2026-08-03; P-14 del 2026-08-05; **P-15 del 2026-08-06**). P-3, P-4, P-13 y P-16 se cerraron el 2026-08-06 |
 
 ### Resultado medible
 
 | Métrica | Antes | Después |
 |---|---:|---:|
-| Tests pasando | 180 | **245** |
+| Tests pasando | 180 | **458** |
 | Tests fallando | 34 | **0** |
 | Endpoints de la API sin control de permisos | ~60 | **0** |
 | Límite de peticiones en la API | ninguno | 120/min + 10/min y 5/min en operaciones caras |
@@ -416,7 +416,14 @@ reenvía al guardar: ocultarlo **borraría la credencial** en la primera edició
 actual» (el controlador ignora el campo si llega vacío) y sólo entonces añadirlas a
 `$hidden`. Es trabajo de frontend, no de backend.
 
-### 📋 P-3 · Un placeholder de otro tipo de documento se blanquea sin avisar
+### ✅ P-3 · Un placeholder de otro tipo de documento se blanquea sin avisar
+
+> **Resuelto el 2026-08-06** junto con P-13. `App\Services\Templates\TemplateDiagnostics`
+> detecta el caso con su propio `kind` (`wrong_type`) y un mensaje distinto al de un typo:
+> *"Existe, pero sólo en la plantilla de Factura. En Contrato sale en blanco."* Cubre tanto
+> escalares como bloques de los 3 tipos. El diagnóstico sigue corriendo **fuera** del render:
+> el token se sigue blanqueando, exactamente igual que antes.
+> Ver `BITACORA_TECNICA.md` § 16. El diagnóstico original se conserva abajo.
 
 Si un tenant pega `{{factura.tabla_items}}` (o cualquier `{{factura.*}}`) dentro de la
 plantilla de **contrato**, el sistema lo blanquea a `''` en silencio — mismo camino que un
@@ -440,7 +447,16 @@ documento (`config/document_placeholders.php` + `config/document_placeholder_blo
 en vez de tratarlo como un typo genérico. No se implementó porque se identificó *después* de
 cerrar el alcance de la sesión que construyó el mecanismo de avisos, no por complejidad.
 
-### 📋 P-4 · Modo avanzado: editor de texto plano, sin editor visual ni protección contra typos en el token
+### ✅ P-4 · Modo avanzado: editor de texto plano, sin editor visual ni protección contra typos en el token
+
+> **Resuelto el 2026-08-06**, por un camino distinto al que proponía la recomendación. (a) El
+> typo en el token ya no pasa desapercibido: `TemplateDiagnostics` lo reporta con sugerencia por
+> cercanía, sin necesidad de un Blot atómico de Quill. (b) La ayuda visual llegó al reemplazar
+> Quill por `HtmlDocumentEditor` (iframe editable): ahora el modo normal **muestra el documento
+> como va a salir en el PDF**, y el interruptor de modo avanzado es una vista del mismo
+> contenido, no otro contenido. El `<textarea>` del modo avanzado se conserva a propósito: para
+> editar el código fuente es lo correcto. Ver `BITACORA_TECNICA.md` § 16 y § 17.
+> El diagnóstico original se conserva abajo.
 
 El modo avanzado de plantillas (HTML/CSS completo) se implementó con un `<textarea>` simple,
 a propósito ("sin editor visual sofisticado, eso se mejora después" — decisión explícita del
@@ -723,7 +739,17 @@ tenants. Deberían salir de `tenant.billing_phone`.
 
 ---
 
-### 📋 P-13 · Migrar una plantilla desde otro sistema no tiene ninguna ayuda dentro de la app
+### ✅ P-13 · Migrar una plantilla desde otro sistema no tiene ninguna ayuda dentro de la app
+
+> **Resuelto el 2026-08-06.** `App\Services\Templates\TemplateDiagnostics` inspecciona el
+> borrador crudo y devuelve hallazgos con el mensaje ya redactado, por
+> `X-Template-Warnings` (vista previa) y por la clave `warnings` del JSON (guardar, que es
+> donde más importa: guardar activa la plantilla). Detecta marcadores ajenos con y sin
+> llaves, cross-type (P-3), typos con sugerencia por cercanía, e imágenes remotas.
+> Equivalencias en `config/document_placeholder_aliases.php`, por tipo de documento.
+> **No se traduce automáticamente**, a propósito — ver el razonamiento en
+> `BITACORA_TECNICA.md` § 16.3. Contra el HTML real que originó el reporte: 10 hallazgos,
+> cero falsos positivos. El diagnóstico original se conserva abajo.
 
 Detectado 2026-08-05 con un tenant que pegó su contrato completo exportado de WispHub en modo
 avanzado y reportó que "no toma bien la plantilla". El HTML estaba bien y el sanitizer lo dejaba
@@ -760,6 +786,77 @@ la trampa vuelve en cuanto alguien llame a otro método del wrapper. Un helper e
 (`fakePdf()`) centralizaría la construcción y dejaría el motivo escrito una sola vez, en vez de
 obligar a cada quien a redescubrir por qué el mensaje de error miente sobre dónde está el problema.
 
+### 📋 P-15 · La vista previa del editor nunca va a ser idéntica al PDF mientras el motor sea dompdf
+
+Detectado 2026-08-06 (ver `BITACORA_TECNICA.md` § 18). El editor visual ya reproduce el **ancho
+imprimible real**, dibuja los cortes de página y marca las imágenes remotas, que eran las tres causas
+concretas del reporte "lo que veo no es lo que sale". Pero el editor es un navegador y el PDF lo
+genera **dompdf**, que implementa un subconjunto pobre de CSS 2.1: `float`, `position`, flexbox, grid
+y buena parte del box model se comportan distinto. Cualquier plantilla que se apoye en ellos va a
+seguir divergiendo, y no hay forma de arreglarlo desde el lado del editor.
+
+**Recomendación.** Sustituir dompdf por un renderizador basado en navegador — `spatie/browsershot`
+(Puppeteer) o **Gotenberg** (servicio HTTP con Chrome dentro). Con eso la paridad es exacta por
+construcción: el PDF lo produce el mismo motor que dibuja el editor. Además desaparecen de un golpe
+las tres limitaciones ya registradas (celda de tabla que no se parte y trunca en silencio, alturas
+fijas que generan páginas en blanco, `enable_remote = false`).
+
+**Por qué no se hizo ahora.** No es un refactor, es infraestructura: hay que meter Chrome en el
+droplet de DigitalOcean (o levantar Gotenberg como componente aparte), con lo que eso implica en
+imagen, memoria y despliegue. `TemplateRenderer` ya concentra los 6 caminos de render, así que el
+cambio del lado del código está acotado; la decisión es de plataforma y de costo.
+
+### ✅ P-16 · Borrar un cliente deja los archivos en S3, la configuración en el router y filas huérfanas
+
+> **Resuelto el 2026-08-06.** `App\Services\CustomerDeletionService` orquesta el borrado
+> completo y `App\Services\MikroTik\CustomerDeprovisionManager` es la contrapartida de borrado
+> en el router que no existía (todos los managers tenían sólo `ensure*`). Se borran los objetos
+> de S3 —incluidas las fotos de instalación, que se recogen por `installation_id` porque su
+> `customer_id` puede ser NULL—, se barre la configuración del equipo (secret y sesión PPPoE,
+> queue, HotSpot, lease, address-lists, ARP y amarre) y se limpian las tres tablas sin clave
+> foránea. El prospecto se desliga en vez de borrarse: es un registro comercial propio.
+> Un fallo del router no aborta el borrado pero se reporta como aviso, no como éxito.
+> Ver `BITACORA_TECNICA.md` § 19. **Queda abierta la decisión de producto** sobre archivar
+> (`SoftDeletes`) en vez de borrar, para conservar la historia contable.
+> El diagnóstico original se conserva abajo.
+
+Detectado 2026-08-06 al verificar qué se borra realmente. `CustomerProfileController::destroy()`
+hace exactamente dos cosas: `$customer->delete()` y `$user->delete()`. `User` **no** usa
+`SoftDeletes`, así que es un borrado real y las claves foráneas en cascada se disparan de verdad.
+
+**Lo que sí se borra en cascada** (verificado contra `information_schema` del esquema `public`, no
+supuesto): `customer_profile`, `customer_documents`, `invoices`, `payments`, `invoice_carryovers`,
+`user_services`, `customer_additional_services`, `billing_action_logs`, `suspension_action_logs`,
+`support_ticket_message`, `support_ticket_attachment`.
+
+**Lo que queda, y es el problema:**
+
+1. **Los archivos en S3 no se borran nunca.** `Storage::disk('s3')->delete()` sólo se ejecuta en
+   `CustomerDocumentController::destroy()`, o sea al borrar **un** documento a mano. La cascada
+   ocurre dentro de PostgreSQL, que jamás pasa por PHP: al borrar el cliente desaparecen las filas
+   de `customer_documents` y los objetos quedan en el bucket **para siempre**, sin nada que apunte a
+   ellos. Son contratos firmados y fotos de instalación, o sea datos personales, pagando
+   almacenamiento y sin forma de localizarlos.
+2. **El cliente sigue configurado en el router.** `destroy()` no llama a ningún manager de MikroTik:
+   no elimina el secret PPPoE, la simple queue, el usuario de HotSpot, el lease DHCP ni las reglas de
+   bloqueo. **El cliente borrado sigue navegando**, y ahora ya no existe en ISPWatch ningún registro
+   de quién era ni qué IP tenía. Fuga de ingreso silenciosa y configuración huérfana en el equipo.
+3. **Tres tablas quedan con filas huérfanas** porque no tienen clave foránea, sólo un índice:
+   `customer_installations.customer_id` (las actas de instalación), `bulk_provision_runs.customer_id`
+   y `prospects.converted_user_id`. Apuntan a un `users.id` que ya no existe.
+4. `support_ticket`, `inventory_device` y `audit_logs` quedan con la referencia en `NULL`. En
+   `inventory_device` **es lo correcto** (el equipo vuelve a estar libre); en `support_ticket` deja
+   tickets sin dueño; en `audit_logs` es deliberado y correcto (la traza no debe borrarse).
+
+**Recomendación.** Un hook `deleting` en el modelo `User` (o mejor, un servicio
+`DeleteCustomerService` dentro de la transacción que ya existe) que antes del borrado: (a) recoja
+los `file_path` de `customer_documents` y los borre de S3; (b) desaprovisione al cliente en el
+router reutilizando los managers que ya existen, registrando el resultado en
+`suspension_action_logs` como cualquier otra acción de red; (c) borre o reasigne las instalaciones.
+Añadir las claves foráneas faltantes cierra el punto 3 pero **no** el 1 ni el 2 — ésos exigen pasar
+por PHP a propósito. Conviene decidir además si el borrado debe ser un archivado (`SoftDeletes`)
+en vez de un borrado real: un cliente con facturas pagadas es historia contable, y hoy se va entero.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -793,8 +890,8 @@ obligar a cada quien a redescubrir por qué el mensaje de error miente sobre dó
 | **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
 | **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
 | **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
-| **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | 📋 Pendiente |
-| **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | 📋 Pendiente (deliberado, evaluar según demanda) |
+| **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | ✅ Resuelto 2026-08-06 (`kind: wrong_type`) |
+| **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics` + `HtmlDocumentEditor`) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
@@ -803,8 +900,10 @@ obligar a cada quien a redescubrir por qué el mensaje de error miente sobre dó
 | **P-10** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
-| **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | 📋 Pendiente (aviso vía `X-Template-Warnings`) |
+| **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
 | **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
+| **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Pendiente (decisión de infraestructura) |
+| **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 
 ---
 

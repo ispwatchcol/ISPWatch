@@ -34,6 +34,25 @@ class BlockMarkerInjectorTest extends TestCase
         $this->assertSame('<div><table><tr><td>Ítem</td></tr></table></div>', $result);
     }
 
+    /**
+     * Hasta el 2026-08-06 markify() exigía la forma exacta sin espacios, y
+     * como PlaceholderResolver::apply() corre después y blanquea todo
+     * {{...}} que no reconozca, un bloque escrito con espacios desaparecía
+     * sin dejar rastro. Los placeholders escalares siempre toleraron
+     * espacios: era una inconsistencia, no una regla.
+     */
+    public function test_tolerates_spaces_inside_the_braces(): void
+    {
+        $result = $this->injector->inject(
+            '<div>{{ factura.tabla_items }}</div>',
+            ['factura.tabla_items' => '<table><tr><td>Ítem</td></tr></table>'],
+            1,
+            'invoice'
+        );
+
+        $this->assertSame('<div><table><tr><td>Ítem</td></tr></table></div>', $result);
+    }
+
     public function test_leaves_html_untouched_when_the_template_does_not_use_the_block_token(): void
     {
         Log::shouldReceive('warning')->never();

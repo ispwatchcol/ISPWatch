@@ -132,6 +132,38 @@
             </span>
           </div>
 
+          <!-- Plantillas base. El editor arrancaba en blanco y no había forma
+               de ver ni partir del formato que el sistema ya usa por defecto:
+               el tenant tenía que escribir un documento entero desde cero o
+               pegar el de otro sistema. Estas son ese formato y los regulados,
+               ya editables. -->
+          <div v-if="current.starters.length">
+            <label class="label">Empezar desde una plantilla base</label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                v-for="s in current.starters"
+                :key="s.slug"
+                type="button"
+                :disabled="loadingStarter === s.slug"
+                @click="askLoadStarter(s)"
+                class="text-left flex items-start gap-2 text-xs bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 text-indigo-800 dark:text-indigo-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <v-icon name="md-description" class="w-4 h-4 mt-0.5 shrink-0" />
+                <span>
+                  <span class="font-semibold block">
+                    {{ s.name }}
+                    <span v-if="loadingStarter === s.slug" class="font-normal opacity-70">— cargando…</span>
+                  </span>
+                  <span class="opacity-80">{{ s.description }}</span>
+                </span>
+              </button>
+            </div>
+            <p class="text-xs text-gray-400 mt-1.5">
+              Son un punto de partida con la estructura del formato: revísalas y complétalas con las
+              condiciones de tu empresa antes de usarlas con clientes reales.
+            </p>
+          </div>
+
           <!-- Aviso especial para contrato -->
           <div v-if="activeType === 'contract'" class="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded-lg p-3">
             Las cláusulas 1 a 3.5 del contrato (datos del cliente, plan, condiciones generales) son fijas y no se editan aquí.
@@ -226,6 +258,45 @@
             Usa "Vista previa" para confirmar antes de guardar.
           </div>
 
+          <!-- El interruptor ya no pierde el contenido al cambiar de modo,
+               pero el modo seguro sí sanea con un allowlist estrecho AL
+               GUARDAR (sin tablas, sin <img>, sin <style>). Avisar aquí es la
+               diferencia entre "lo decides tú" y "se borró y no sé por qué". -->
+          <div
+            v-if="!current.is_advanced_mode && contentNeedsAdvancedMode"
+            class="text-sm bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg p-3"
+          >
+            Este contenido usa tablas, imágenes o estilos propios. El modo normal los
+            <strong>elimina al guardar</strong> (sólo admite texto con formato básico, porque se
+            inserta dentro de la plantilla base del sistema).
+            <button type="button" @click="current.is_advanced_mode = true" class="underline font-semibold">
+              Activa el modo avanzado
+            </button>
+            para conservarlo tal cual.
+          </div>
+
+          <!-- Desbordamiento horizontal: la causa nº1 de que el PDF salga con
+               los textos montados unos sobre otros. dompdf no encoge una tabla
+               con ancho fijo — la deja salirse sobre lo que tenga al lado. -->
+          <div
+            v-if="fit.overflows"
+            class="text-sm bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg p-3"
+          >
+            <strong>Tu diseño no cabe a lo ancho de la hoja.</strong>
+            Necesita <strong>{{ fit.contentWidth }} px</strong> y
+            {{ pageLabel }} sólo deja <strong>{{ fit.printableWidth }} px</strong>.
+            En el PDF eso sale con los textos y las cajas montados unos sobre otros.
+            <template v-if="current.page_orientation === 'portrait'">
+              <button type="button" @click="current.page_orientation = 'landscape'" class="underline font-semibold">
+                Cambia a horizontal
+              </button>
+              ({{ landscapeWidth }} px) o reduce el ancho de tus tablas.
+            </template>
+            <template v-else>
+              Reduce el ancho de tus tablas: ya estás en horizontal, que es lo más ancho disponible.
+            </template>
+          </div>
+
           <!-- Editor -->
           <div class="flex-1 flex flex-col min-h-[280px]">
             <label class="label">
@@ -238,15 +309,59 @@
               class="flex-1 min-h-[280px] font-mono text-xs bg-white dark:bg-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-b-xl p-3 resize-y"
               placeholder="<html><head><style>...</style></head><body>...</body></html>"
             ></textarea>
-            <QuillEditor
+            <!-- Mismo draftHtml que el textarea: el interruptor de modo
+                 avanzado sólo cambia CÓMO se edita, nunca QUÉ se edita. -->
+            <HtmlDocumentEditor
               v-else
-              ref="quillRef"
-              v-model:content="draftHtml"
-              contentType="html"
-              :toolbar="quillToolbar"
-              theme="snow"
-              class="bg-white dark:bg-gray-900 dark:text-white rounded-b-xl flex-1"
+              ref="visualEditorRef"
+              v-model="draftHtml"
+              height="480px"
+              :page-size="current.page_size"
+              :page-orientation="current.page_orientation"
+              @fit="onEditorFit"
             />
+          </div>
+
+          <!-- Diagnóstico de la plantilla. Aparece al previsualizar o guardar
+               (X-Template-Warnings / warnings de la respuesta) y explica por
+               qué un marcador va a salir en blanco: la plantilla se ve bien y
+               los datos no aparecen, que desde aquí es indistinguible de "el
+               sistema no funciona". Panel y no toast a propósito: la vista
+               previa abre otra pestaña, y un toast se pierde mientras el
+               usuario está mirando el PDF. -->
+          <div
+            v-if="templateWarnings.length"
+            class="border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3"
+          >
+            <div class="flex items-start justify-between gap-3 mb-2">
+              <h5 class="text-sm font-semibold text-amber-900 dark:text-amber-300 flex items-center gap-2">
+                <!-- oi-alert y no bi-exclamation-triangle: los iconos se
+                     registran uno por uno en app.js y uno no registrado no
+                     falla, simplemente no se dibuja. -->
+                <v-icon name="oi-alert" class="w-4 h-4 shrink-0" />
+                Revisa {{ templateWarnings.length }}
+                {{ templateWarnings.length === 1 ? 'marcador' : 'marcadores' }} de esta plantilla
+              </h5>
+              <button
+                type="button"
+                @click="templateWarnings = []"
+                class="text-xs text-amber-700 dark:text-amber-400 hover:underline shrink-0"
+              >
+                Ocultar
+              </button>
+            </div>
+            <ul class="space-y-2">
+              <li v-for="w in templateWarnings" :key="`${w.kind}|${w.token}`" class="text-xs">
+                <span class="font-mono font-semibold text-amber-900 dark:text-amber-200 break-all">
+                  {{ warningToken(w) }}
+                </span>
+                <span class="ml-1.5 text-amber-700/70 dark:text-amber-400/70">— {{ w.label }}</span>
+                <p class="text-amber-800 dark:text-amber-300/90 mt-0.5">{{ w.message }}</p>
+              </li>
+            </ul>
+            <p class="text-xs text-amber-700/80 dark:text-amber-400/70 mt-2 pt-2 border-t border-amber-200 dark:border-amber-800">
+              El documento se genera igual: lo que no se reconoce sale en blanco, nunca rompe el PDF.
+            </p>
           </div>
 
           <!-- Acciones -->
@@ -283,6 +398,17 @@
     </div>
 
     <ConfirmModal
+      :visible="starterToLoad !== null"
+      variant="warning"
+      title="Reemplazar el contenido del editor"
+      :message="`Se va a cargar «${starterToLoad?.name}» y el contenido actual del editor se pierde. Lo que ya está guardado y activo no se toca hasta que le des a «Guardar y activar».`"
+      confirm-text="Sí, cargar"
+      cancel-text="Cancelar"
+      @confirm="loadStarter(starterToLoad)"
+      @cancel="starterToLoad = null"
+    />
+
+    <ConfirmModal
       :visible="showResetModal"
       variant="warning"
       title="Restaurar plantilla base"
@@ -300,10 +426,9 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { QuillEditor } from '@vueup/vue-quill'
-import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
+import HtmlDocumentEditor from '@/components/settings/HtmlDocumentEditor.vue'
 import { documentTemplatesApi, tenantApi } from '@/services/api'
 
 const documentTypes = [
@@ -312,17 +437,8 @@ const documentTypes = [
   { id: 'installation', label: 'Hoja de Instalación' },
 ]
 
-const quillToolbar = [
-  [{ header: [1, 2, 3, 4, false] }],
-  ['bold', 'italic', 'underline'],
-  [{ list: 'ordered' }, { list: 'bullet' }],
-  [{ color: [] }, { background: [] }],
-  ['link'],
-  ['clean'],
-]
-
 const toast = ref(null)
-const quillRef = ref(null)
+const visualEditorRef = ref(null)
 const logoInput = ref(null)
 
 const activeType = ref('invoice')
@@ -331,8 +447,20 @@ const saving = ref(false)
 const resetting = ref(false)
 const previewing = ref(false)
 const showResetModal = ref(false)
+// Hallazgos de App\Services\Templates\TemplateDiagnostics: {kind, token,
+// label, message}. Se llena al previsualizar o guardar, y se vacía al
+// cambiar de tipo de documento — pertenecen al borrador que se inspeccionó,
+// no a la pantalla.
+const templateWarnings = ref([])
 
 const draftHtml = ref('')
+
+// Marca lo que el allowlist del modo seguro (TemplateSanitizer) descarta al
+// guardar: documento completo, tablas, imágenes o bloques <style>.
+const contentNeedsAdvancedMode = computed(() =>
+  /<html[\s>]|<body[\s>]|<!doctype|<table[\s>]|<img[\s>]|<style[\s>]/i.test(draftHtml.value || '')
+)
+
 const current = reactive({
   is_active: false,
   is_advanced_mode: false,
@@ -341,6 +469,29 @@ const current = reactive({
   has_draft: false,
   placeholders: {},
   block_placeholders: {},
+  starters: [],
+})
+
+const loadingStarter = ref(null)
+const starterToLoad = ref(null)
+
+// Medición que reporta el editor visual: cuánto ancho pide el contenido
+// frente a cuánto deja la hoja elegida.
+const fit = reactive({ contentWidth: 0, printableWidth: 0, overflows: false })
+
+function onEditorFit(measurement) {
+  Object.assign(fit, measurement)
+}
+
+const PAGE_LABELS = { a4: 'A4', letter: 'Carta', legal: 'Oficio' }
+const pageLabel = computed(
+  () => `${PAGE_LABELS[current.page_size] || current.page_size} ${current.page_orientation === 'landscape' ? 'horizontal' : 'vertical'}`
+)
+// Mismo cálculo que HtmlDocumentEditor (96 dpi, márgenes de dompdf de 48 px
+// por lado), sólo para poder decir cuánto ganaría al girar la hoja.
+const landscapeWidth = computed(() => {
+  const mm = { a4: 297, letter: 279, legal: 356 }[current.page_size] || 297
+  return Math.round((mm / 25.4) * 96) - 96
 })
 
 // ── Branding ──
@@ -370,6 +521,7 @@ const colorSwatch = computed({
 
 async function loadType(type) {
   loadingType.value = true
+  templateWarnings.value = []
   try {
     const { data } = await documentTemplatesApi.show(type)
     current.is_active = data.is_active
@@ -379,6 +531,7 @@ async function loadType(type) {
     current.has_draft = data.has_draft
     current.placeholders = data.placeholders || {}
     current.block_placeholders = data.block_placeholders || {}
+    current.starters = data.starters || []
     draftHtml.value = data.body_html || ''
   } catch (e) {
     toast.value?.error('No se pudo cargar', 'No se pudo cargar la plantilla. Intenta de nuevo.')
@@ -398,17 +551,26 @@ function placeholderToken(token) {
   return '{' + '{' + token + '}' + '}'
 }
 
+/**
+ * En modo avanzado se edita en un <textarea> y desde aquí no hay cursor que
+ * consultar, así que el marcador se añade al final del contenido — pero
+ * dentro del <body> si el documento lo tiene, porque pegarlo detrás de
+ * </html> lo dejaría fuera del documento y no se renderizaría nunca.
+ */
+function appendToSource(snippet) {
+  const html = draftHtml.value || ''
+  const closingBody = html.lastIndexOf('</body>')
+  draftHtml.value = closingBody === -1
+    ? html + snippet
+    : html.slice(0, closingBody) + snippet + html.slice(closingBody)
+}
+
 function insertPlaceholder(token) {
-  const quill = quillRef.value?.getQuill?.()
-  const text = `{{${token}}}`
-  if (!quill) {
-    draftHtml.value += `<p>${text}</p>`
+  if (current.is_advanced_mode || !visualEditorRef.value) {
+    appendToSource(`{{${token}}}`)
     return
   }
-  const range = quill.getSelection(true)
-  const index = range ? range.index : quill.getLength()
-  quill.insertText(index, text, 'user')
-  quill.setSelection(index + text.length)
+  visualEditorRef.value.insertToken(token)
 }
 
 function blockIcon(token) {
@@ -427,21 +589,48 @@ function blockIcon(token) {
  * de contenido son alcanzables, nunca dentro de un atributo).
  */
 function insertBlockPlaceholder(token) {
-  const quill = quillRef.value?.getQuill?.()
-  const text = `{{${token}}}`
-  if (!quill) {
-    draftHtml.value += `<p><span style="background:#eef2ff;color:#4338ca;">${text}</span></p>`
+  if (current.is_advanced_mode || !visualEditorRef.value) {
+    appendToSource(`\n<p>{{${token}}}</p>\n`)
     return
   }
+  visualEditorRef.value.insertToken(token, { ownParagraph: true })
+}
 
-  const range = quill.getSelection(true)
-  const index = range ? range.index : quill.getLength()
+/**
+ * Cargar una plantilla base reemplaza todo el editor. Si ya hay contenido se
+ * pregunta primero: es trabajo del tenant y no se pisa sin avisar. Con el
+ * editor vacío no hay nada que perder, así que se carga directo.
+ */
+function askLoadStarter(starter) {
+  if ((draftHtml.value || '').trim() === '') {
+    loadStarter(starter)
+    return
+  }
+  starterToLoad.value = starter
+}
 
-  quill.insertText(index, '\n', 'user')
-  quill.insertText(index + 1, text, 'user')
-  quill.formatText(index + 1, text.length, { background: '#eef2ff', color: '#4338ca' }, 'user')
-  quill.insertText(index + 1 + text.length, '\n', 'user')
-  quill.setSelection(index + 1 + text.length + 1)
+async function loadStarter(starter) {
+  starterToLoad.value = null
+  loadingStarter.value = starter.slug
+  try {
+    const { data } = await documentTemplatesApi.starter(activeType.value, starter.slug)
+    draftHtml.value = data.data.body_html
+    // La plantilla base trae el modo y el papel con los que está diseñada: un
+    // contrato CRC a dos columnas en A4 vertical sale descuadrado, y en modo
+    // seguro el servidor le quitaría las tablas al guardar.
+    current.is_advanced_mode = data.data.advanced
+    current.page_size = data.data.page_size
+    current.page_orientation = data.data.page_orientation
+    templateWarnings.value = []
+    toast.value?.success(
+      'Plantilla base cargada',
+      `Se cargó "${data.data.name}". Todavía no se guardó: edítala y usa "Guardar y activar" cuando esté lista.`
+    )
+  } catch (e) {
+    toast.value?.error('No se pudo cargar la plantilla base', e.response?.data?.message || 'Intenta de nuevo.')
+  } finally {
+    loadingStarter.value = null
+  }
 }
 
 async function save() {
@@ -459,7 +648,18 @@ async function save() {
     current.page_size = data.data.page_size
     current.page_orientation = data.data.page_orientation
     current.has_draft = data.data.has_draft
-    toast.value?.success('Plantilla guardada', 'Se guardó y activó correctamente.')
+    // Guardar activa la plantilla de inmediato: si trae marcadores que no se
+    // reconocen, los documentos reales ya van a salir con esos datos en
+    // blanco. Por eso el aviso también va aquí y no sólo en la vista previa.
+    templateWarnings.value = data.warnings || []
+    if (templateWarnings.value.length) {
+      toast.value?.warning(
+        'Plantilla guardada, pero revisa los marcadores',
+        `Se guardó y activó, pero ${templateWarnings.value.length} marcador(es) no se reconocen y van a salir en blanco. Revisa el detalle abajo del editor.`
+      )
+    } else {
+      toast.value?.success('Plantilla guardada', 'Se guardó y activó correctamente.')
+    }
   } catch (e) {
     toast.value?.error('No se pudo guardar', e.response?.data?.message || 'Intenta de nuevo.')
   } finally {
@@ -483,28 +683,32 @@ async function confirmReset() {
 }
 
 /**
- * Lee el header X-Template-Warnings (DocumentTemplateController::preview(),
- * JSON array de {token, label}) y avisa explícitamente qué bloque no se pudo
- * insertar, en vez de dejar que el tenant solo vea el PDF sin ese contenido
- * y no entienda por qué — nunca bloquea la vista previa, solo informa.
+ * Lee la cabecera X-Template-Warnings de la vista previa
+ * (DocumentTemplateController::preview(): JSON array de
+ * {kind, token, label, message}, ya ordenado por severidad y con tope en el
+ * servidor). Los mensajes vienen armados del backend a propósito — se
+ * verifican en las pruebas de PHP junto con la detección que los origina.
  */
-function warnOnOrphanedBlocks(response) {
+function readWarningsHeader(response) {
   const header = response.headers?.['x-template-warnings']
-  if (!header) return
+  if (!header) return []
 
-  let warnings = []
   try {
-    warnings = JSON.parse(header)
+    const parsed = JSON.parse(header)
+    return Array.isArray(parsed) ? parsed : []
   } catch (e) {
-    return
+    return []
   }
-  if (!warnings.length) return
+}
 
-  const labels = warnings.map((w) => `"${w.label}"`).join(', ')
-  toast.value?.warning(
-    'Un bloque no se pudo insertar',
-    `${labels} no se pudo insertar en esa posición del documento — verifica que esté en su propio párrafo, no dentro de un enlace o texto con formato.`
-  )
+/**
+ * Los marcadores se muestran con llaves; un marcador ajeno sin llaves
+ * (NUMERO_CONTRATO_TAG) o una URL de imagen remota se muestran tal cual,
+ * que es exactamente como aparecen en la plantilla.
+ */
+function warningToken(warning) {
+  const literal = warning.kind === 'foreign_marker' || warning.kind === 'remote_image'
+  return literal ? warning.token : placeholderToken(warning.token)
 }
 
 async function preview() {
@@ -517,7 +721,7 @@ async function preview() {
       current.page_size,
       current.page_orientation
     )
-    warnOnOrphanedBlocks(response)
+    templateWarnings.value = readWarningsHeader(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')
   } catch (e) {

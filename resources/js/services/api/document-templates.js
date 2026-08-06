@@ -7,6 +7,11 @@ export default {
     show(type) {
         return apiClient.get(`/document-templates/${type}`)
     },
+    // El listado de plantillas base viene dentro de show(); esto sólo baja el
+    // cuerpo de la elegida, que pesa varios KB.
+    starter(type, slug) {
+        return apiClient.get(`/document-templates/${type}/starters/${slug}`)
+    },
     update(type, bodyHtml, isAdvancedMode = false, pageSize = 'a4', pageOrientation = 'portrait') {
         return apiClient.put(`/document-templates/${type}`, {
             body_html: bodyHtml,
