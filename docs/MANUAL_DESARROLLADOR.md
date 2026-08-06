@@ -573,9 +573,27 @@ Las tres reglas que hacen que funcione:
    (`ContractNumberService::format($prefix, $n)`) sobre el contador actual — nunca
    `allocate()` — en cualquier ruta de preview.
 
-Si el consecutivo lleva prefijo configurable, valídalo en el `FormRequest` con
-`regex:/^[A-Za-z0-9\-]+$/`: acaba dentro del nombre del archivo y de la ruta en S3.
-`format()` vuelve a sanearlo de todos modos, por si el valor entró por otra vía.
+4. **Si el prefijo es configurable, no lo restrinjas para proteger el sistema de archivos.**
+   Es el error que tuvo la primera versión: `regex:/^[A-Za-z0-9\-]+$/` en el `FormRequest`,
+   porque el prefijo acababa dentro de la clave de S3. Eso le quitaba al ISP formatos
+   perfectamente legítimos (`CNO/`, `Contrato N° `). Lo correcto es separar las dos cosas:
+
+   | Cosa | Quién manda | Dónde |
+   |---|---|---|
+   | El número que se **imprime y se guarda** | El ISP, texto libre | `format()` |
+   | El nombre del **archivo** en S3 | El sistema, saneado a ASCII | `fileName()` |
+
+   `fileName()` translitera (`Nº` → `No`), reemplaza lo que no sea `[A-Za-z0-9._-]` por `-` y
+   cae a `contrato` si no queda nada. La parte numérica siempre sobrevive, así que dos
+   contratos del mismo cliente no colisionan aunque sus prefijos se saneen igual.
+
+   Dos detalles que se aprendieron por las malas:
+
+   - El separador se decide con `preg_match('/[\p{L}\p{N}]$/u', $prefix)` — sólo se añade `-`
+     si el prefijo termina en letra o dígito. Si no, el ISP ya puso el suyo.
+   - **El espacio final es significativo** (`Contrato N° `) y `TrimStrings` se lo comía. El
+     campo está exceptuado en `bootstrap/app.php`. Si añades otro campo donde el espacio
+     final signifique algo, tiene que ir en esa misma lista o nunca llegará a la base.
 
 ---
 

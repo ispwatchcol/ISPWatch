@@ -1365,7 +1365,17 @@ class HelpCenterSeeder extends Seeder
 <p>Además de los marcadores de texto hay marcadores especiales que insertan contenido más complejo: la tabla de ítems de la factura, la galería de fotos de la instalación, y las firmas del cliente y del técnico. Se insertan con botones aparte y el sistema los coloca en su propio párrafo.</p>
 <p>Si uno de estos bloques no se pudo insertar donde lo pusiste, la <strong>Vista previa</strong> te avisa con un mensaje explícito — a diferencia de los marcadores de texto simples, que se quedan callados.</p>
 <h3>Número consecutivo de los contratos</h3>
-<p>En el bloque de marca de esta misma pestaña hay un campo <strong>Prefijo del consecutivo de contratos</strong>. Cada contrato que se firma desde el sistema recibe un número irrepetible con ese prefijo: <code>CTR-00001</code>, <code>CTR-00002</code>, y así. Si escribes <code>FIBRAX</code>, quedarán <code>FIBRAX-00001</code> en adelante. Vacío equivale a <code>CTR</code>. Sólo admite letras, números y guion.</p>
+<p>En el bloque de marca de esta misma pestaña hay un campo <strong>Prefijo del consecutivo de contratos</strong>. Cada contrato que se firma desde el sistema recibe un número irrepetible con ese prefijo: <code>CTR-00001</code>, <code>CTR-00002</code>, y así. Vacío equivale a <code>CTR</code>.</p>
+<p><strong>Escribe el prefijo que quieras</strong>: letras, números, acentos, barras, puntos o espacios.</p>
+<ul>
+  <li><code>CTR</code> → <code>CTR-00001</code></li>
+  <li><code>FIBRAX</code> → <code>FIBRAX-00001</code></li>
+  <li><code>CNO/</code> → <code>CNO/00001</code></li>
+  <li><code>Contrato N° </code> → <code>Contrato N° 00001</code></li>
+  <li><code>FIBRA_2026.</code> → <code>FIBRA_2026.00001</code></li>
+</ul>
+<p>El guion lo pone el sistema <strong>solo si tu prefijo termina en letra o número</strong>. Si terminas en <code>/</code>, <code>.</code>, <code>_</code> o un espacio, se respeta tu separador y no se agrega nada más.</p>
+<p>Lo único que no se admite son los saltos de línea. El <strong>nombre del archivo</strong> descargable sí se simplifica (<code>Contrato N° 00001</code> se guarda como <code>contrato_Contrato-N-00001.pdf</code>) porque algunos símbolos no valen en un nombre de archivo; lo que ve el cliente dentro del documento es tu formato completo.</p>
 <p>Debajo del campo ves cuál es el <strong>próximo número</strong> que se asignará. Ese número se imprime dentro del PDF (<em>Contrato No. …</em>), da nombre al archivo y aparece en la pestaña <strong>Documentos</strong> del cliente. Es independiente para cada empresa.</p>
 <p>Cambiar el prefijo <strong>no renumera los contratos ya firmados</strong>: los anteriores conservan su número y los nuevos siguen la cuenta desde donde iba.</p>
 <h3>Vista previa y restaurar</h3>

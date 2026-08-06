@@ -70,7 +70,10 @@
               Cada contrato firmado recibe un número consecutivo irrepetible.
               Próximo:
               <span class="font-mono text-gray-500 dark:text-gray-300">{{ nextContractNumberPreview }}</span>.
-              Solo letras, números y guion; si lo dejas vacío se usa <span class="font-mono">CTR</span>.
+              Escribe el prefijo que quieras (<span class="font-mono">CNO/</span>,
+              <span class="font-mono">Contrato N°&nbsp;</span>, <span class="font-mono">FIBRA_2026-</span>).
+              El guion se agrega solo si terminas en letra o número; si lo dejas vacío se usa
+              <span class="font-mono">CTR</span>.
             </p>
           </div>
         </div>
@@ -321,10 +324,14 @@ const branding = reactive({ brand_color: '', document_footer_text: '', contract_
 // Espejo de App\Services\ContractNumberService::format(): solo para mostrar
 // cómo quedará el número mientras se escribe el prefijo. El número real lo
 // reserva el backend al firmar.
+// El prefijo es libre; el guion se añade solo si termina en letra o dígito,
+// para no estropear un separador propio como "CNO/" o "Contrato N° ".
 const nextContractNumber = ref(1)
 const nextContractNumberPreview = computed(() => {
-  const clean = (branding.contract_prefix || '').replace(/[^A-Za-z0-9-]/g, '').replace(/^-+|-+$/g, '')
-  return `${clean || 'CTR'}-${String(nextContractNumber.value).padStart(5, '0')}`
+  const raw = (branding.contract_prefix || '').replace(/^\s+/, '')
+  const prefix = raw.trim() === '' ? 'CTR' : raw
+  const separator = /[\p{L}\p{N}]$/u.test(prefix) ? '-' : ''
+  return `${prefix}${separator}${String(nextContractNumber.value).padStart(5, '0')}`
 })
 // <input type="color"> rejects an empty string ("" does not conform to
 // #rrggbb"); the text field next to it can still be genuinely empty to mean

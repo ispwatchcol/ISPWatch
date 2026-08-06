@@ -247,9 +247,28 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 
 #### Consecutivo de contratos
 
-Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant,
-con el formato `PREFIJO-00001`. El prefijo lo configura cada ISP (`tenant.contract_prefix`,
-pestaña **Plantillas de documentos**); vacío equivale a `CTR`.
+Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant, con
+el formato `PREFIJO` + consecutivo de 5 dígitos. El prefijo lo configura cada ISP
+(`tenant.contract_prefix`, pestaña **Plantillas de documentos**) y es **texto libre**: `CNO/`,
+`Contrato N° `, `FIBRA_2026.` son todos válidos; vacío equivale a `CTR`. El separador `-` se
+añade sólo cuando el prefijo termina en letra o dígito, para no duplicar el que ya puso el ISP.
+
+**El número que se imprime y el nombre del archivo son dos cosas distintas**, y esa separación
+es el punto de todo el diseño:
+
+| | Quién lo decide | Función |
+|---|---|---|
+| Número impreso en el PDF y guardado en `contract_number` | El ISP, tal cual lo escribió | `ContractNumberService::format()` |
+| Nombre del archivo en S3 | El sistema, saneado a ASCII seguro | `ContractNumberService::fileName()` |
+
+`fileName()` usa `Str::ascii()` (mapa propio de Laravel, sin depender de `intl` ni de `iconv`,
+así el resultado es idéntico en Windows y en el contenedor Linux), reemplaza lo que no sea
+`[A-Za-z0-9._-]` por `-` y cae a `contrato` si no queda nada. La parte numérica siempre
+sobrevive, así que dos contratos del mismo cliente nunca colisionan aunque sus prefijos se
+saneen al mismo texto: `CNO/00001` → `contrato_CNO-00001.pdf`.
+
+Como el espacio final del prefijo es significativo (`Contrato N° `), el campo está exceptuado
+del middleware `TrimStrings` en `bootstrap/app.php`.
 
 El mecanismo es el mismo que el de facturas (`BillingService::generateInvoiceNumber`): el
 contador vive en la fila del tenant (`tenant.next_contract_number`) y se reserva dentro de

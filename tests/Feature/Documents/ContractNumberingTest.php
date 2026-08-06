@@ -192,21 +192,74 @@ class ContractNumberingTest extends TestCase
     }
 
     /**
-     * El prefijo termina dentro del nombre del archivo y de la ruta en S3, así
-     * que cualquier cosa que no sea alfanumérica o guion se descarta antes de
-     * armarlo.
+     * El prefijo es libre: el ISP escribe lo que quiera y se respeta tal cual.
+     * Sólo se cae al default cuando no queda nada útil.
      */
-    public function test_format_sanitises_the_prefix_and_falls_back_to_the_default(): void
+    public function test_format_respects_whatever_prefix_the_isp_wrote(): void
     {
         $this->assertSame('CTR-00001', ContractNumberService::format(null, 1));
         $this->assertSame('CTR-00001', ContractNumberService::format('', 1));
         $this->assertSame('CTR-00042', ContractNumberService::format('   ', 42));
-        $this->assertSame('CTR-00007', ContractNumberService::format('../..', 7));
-        $this->assertSame('CTR-00008', ContractNumberService::format('---', 8));
-        $this->assertSame('FIBRAX-00005', ContractNumberService::format('FIBRA X', 5));
-        $this->assertSame('FIBRA-X-00013', ContractNumberService::format('FIBRA-X', 13));
+
+        // Caracteres que la validación anterior descartaba y ahora sobreviven.
+        $this->assertSame('FIBRA X-00005', ContractNumberService::format('FIBRA X', 5));
+        $this->assertSame('CÓRDOBA-00009', ContractNumberService::format('CÓRDOBA', 9));
+        $this->assertSame('FIBRA_2026-00003', ContractNumberService::format('FIBRA_2026', 3));
+        $this->assertSame('CTR.2026-00004', ContractNumberService::format('CTR.2026', 4));
+
+        // Cinco dígitos de relleno, pero el número nunca se trunca.
         $this->assertSame('ABC-99999', ContractNumberService::format('ABC', 99999));
-        // Pasado el tope de cinco dígitos el número sigue creciendo, no se trunca.
         $this->assertSame('ABC-100000', ContractNumberService::format('ABC', 100000));
+    }
+
+    /**
+     * El guion sólo aparece cuando el prefijo termina en letra o dígito: quien
+     * escribe «CNO/» o «Contrato N° » ya puso su propio separador.
+     */
+    public function test_format_does_not_add_a_separator_when_the_prefix_already_ends_in_one(): void
+    {
+        $this->assertSame('CNO/00001', ContractNumberService::format('CNO/', 1));
+        $this->assertSame('Contrato N° 00012', ContractNumberService::format('Contrato N° ', 12));
+        $this->assertSame('CTR-00007', ContractNumberService::format('CTR-', 7));
+        $this->assertSame('FIBRA_00002', ContractNumberService::format('FIBRA_', 2));
+        // El espacio a la izquierda es accidental y sí se descarta.
+        $this->assertSame('CNO-00003', ContractNumberService::format('   CNO', 3));
+    }
+
+    /**
+     * El número puede llevar «/», «°» o acentos; la clave de S3 no. El nombre
+     * del archivo se deriva saneado, conservando siempre la parte numérica.
+     */
+    public function test_file_name_is_sanitised_even_when_the_prefix_is_not(): void
+    {
+        $this->assertSame('contrato_CTR-00001.pdf', ContractNumberService::fileName('CTR-00001'));
+        // La barra crearía una carpeta fantasma dentro del bucket.
+        $this->assertSame('contrato_CNO-00001.pdf', ContractNumberService::fileName('CNO/00001'));
+        $this->assertStringNotContainsString('/', ContractNumberService::fileName('A/B/C/00001'));
+        $this->assertSame('contrato_FIBRA-X-00005.pdf', ContractNumberService::fileName('FIBRA X-00005'));
+        $this->assertSame('contrato_00099.pdf', ContractNumberService::fileName('・00099'));
+        // Un prefijo que no deja nada saneable no puede producir un nombre vacío.
+        $this->assertSame('contrato_contrato.pdf', ContractNumberService::fileName('・・・'));
+    }
+
+    public function test_a_free_form_prefix_survives_end_to_end_into_the_document(): void
+    {
+        $this->tenant->update(['contract_prefix' => 'CNO/']);
+        Sanctum::actingAs($this->staff);
+
+        $this->sign($this->customer)
+            ->assertStatus(201)
+            ->assertJsonPath('document.contract_number', 'CNO/00001');
+
+        $document = CustomerDocument::where('customer_id', $this->customer->id)->firstOrFail();
+
+        // El número lleva la barra; la ruta en S3 no puede llevarla.
+        $this->assertSame('CNO/00001', $document->contract_number);
+        $this->assertSame('contrato_CNO-00001.pdf', $document->file_name);
+        $this->assertSame(
+            "customer_documents/{$this->customer->id}/contrato_CNO-00001.pdf",
+            $document->file_path
+        );
+        Storage::disk('s3')->assertExists($document->file_path);
     }
 }

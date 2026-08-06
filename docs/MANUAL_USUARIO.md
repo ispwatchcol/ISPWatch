@@ -1163,9 +1163,28 @@ reconoce simplemente no muestra nada.
 
 **Número consecutivo de los contratos.** En el bloque de marca de esa misma pestaña hay un
 campo **Prefijo del consecutivo de contratos**. Cada contrato que se firma desde el sistema
-recibe un número irrepetible con ese prefijo: `CTR-00001`, `CTR-00002`, y así. Si escribes
-`FIBRAX`, los contratos quedarán `FIBRAX-00001` en adelante. Si lo dejas vacío se usa `CTR`.
-Solo admite letras, números y guion.
+recibe un número irrepetible con ese prefijo. Si lo dejas vacío se usa `CTR`.
+
+**Escribe el prefijo que quieras**: letras, números, acentos, barras, puntos, espacios. Estos
+son todos válidos:
+
+| Si escribes | Los contratos quedan |
+|---|---|
+| `CTR` | `CTR-00001` |
+| `FIBRAX` | `FIBRAX-00001` |
+| `CNO/` | `CNO/00001` |
+| `Contrato N° ` | `Contrato N° 00001` |
+| `FIBRA_2026.` | `FIBRA_2026.00001` |
+
+El guion lo pone el sistema **solo si tu prefijo termina en letra o número**. Si terminas en
+`/`, `.`, `_` o un espacio, se respeta ese separador tuyo y no se agrega nada más. Así puedes
+dejar el formato exactamente como lo usas en papel.
+
+Lo único que no se admite son saltos de línea. Y ojo: el **nombre del archivo** que se descarga
+sí se simplifica, porque algunos símbolos no son válidos en un nombre de archivo — un contrato
+`Contrato N° 00001` se guarda como `contrato_Contrato-N-00001.pdf`, y `CNO/00001` como
+`contrato_CNO-00001.pdf`. Lo que ve el cliente **dentro** del documento es tu formato completo,
+sin tocar.
 
 Debajo del campo verás cuál es el **próximo número** que se va a asignar. Ese número:
 
