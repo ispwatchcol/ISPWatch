@@ -60,6 +60,13 @@ use Barryvdh\DomPDF\Facade\Pdf;
  * caminos (3 render + 3 preview). La ruta legacy (sin fila en
  * document_templates) NO se toca: sigue saliendo con el default de
  * config/dompdf.php, que es exactamente lo que hacían todas antes.
+ *
+ * Geometría de página (auditoría 2026-08-06): compileAdvanced() inyecta el
+ * CSS base de PdfPageGeometry antes del <style> del tenant. Declara lo que
+ * dompdf ya hacía por defecto (margen de página, body sin margen), así que no
+ * mueve ni un píxel de los documentos existentes — su valor es que ese número
+ * deja de estar adivinado en el editor visual, que dibujaba los cortes de
+ * página 5 px fuera de sitio por lado.
  */
 class TemplateRenderer
 {
@@ -77,6 +84,7 @@ class TemplateRenderer
         private readonly AdvancedTemplateSanitizer $advancedSanitizer,
         private readonly BlockPlaceholderResolver $blockResolver,
         private readonly BlockMarkerInjector $blockInjector,
+        private readonly PdfPageGeometry $geometry,
     ) {
     }
 
@@ -415,7 +423,13 @@ class TemplateRenderer
         $withScalars = $this->resolver->apply($marked, $scalarValues);
         [$finalBody, $this->lastWarnings] = $this->blockInjector->splice($withScalars, $markers, $tenantId, $documentType);
 
+        // La base va PRIMERO y el <style> del tenant después, para que él
+        // siga ganando en todo lo que decida tocar. No cambia cómo se ve
+        // nada: sólo deja escrito el margen de página y el reset del body que
+        // dompdf ya aplicaba por defecto, para que el editor pueda dibujar
+        // los cortes de página sobre el mismo número (ver PdfPageGeometry).
         return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+            . '<style>' . $this->geometry->documentBaseCss() . '</style>'
             . ($style !== '' ? '<style>' . $style . '</style>' : '')
             . '</head><body>' . $finalBody . '</body></html>';
     }

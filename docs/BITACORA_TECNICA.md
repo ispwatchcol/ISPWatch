@@ -1872,3 +1872,136 @@ para ver *dónde* va a cortar, no para forzar el corte.
 ### 20.6 Estado
 
 Suite completa: **578 pruebas en verde** (573 antes, +5 de `TemplateDiagnosticsTest`).
+
+---
+
+## 21. El PDF no se parecía al editor: cuatro causas medidas — 2026-08-06
+
+### 21.1 El reporte
+
+> "El texto está encima de las líneas rojas, pero al descargar el PDF de la vista previa se ve
+> horrible. Necesito que lo que se vea en el render sea sí o sí lo que se va a ver en el PDF, y
+> que se previsualice la imagen del logo."
+
+Sobre el mismo contrato CRC de § 20. La § 18 ya había metido el editor dentro de la hoja real y
+la § 20 ya avisaba del modo seguro, pero seguía habiendo una brecha entre pantalla y PDF. Esta
+vez no era una causa: eran cuatro, y tres de ellas silenciosas.
+
+### 21.2 Causa 1 (la grave): el sanitizer borraba las reglas `body { … }`
+
+`Filter.ExtractStyleBlocks` valida cada selector contra los elementos de `HTML.Allowed` y
+**descarta la regla entera** si no lo reconoce. `body` y `html` no están —ni pueden estar:
+declararlos lanza *"Element 'body' is not supported"*— así que toda regla que aplicara al
+documento completo desaparecía al guardar. Medido sobre un `<style>` típico de Word:
+
+```
+ENTRADA : body { font-family: Arial, sans-serif; font-size: 11px; width: 900px; }
+          html { margin: 0; }
+          .tbl { width: 100%; }
+          @media print { body { font-size: 10px; } }
+SALIDA  : .tbl { width:100% }
+          @media print { }
+```
+
+Ahí es exactamente donde una plantilla exportada de Word o de otro panel pone su tipografía
+base. El PDF salía con los defaults de dompdf (Times 16 px) mientras el editor mostraba la
+letra del tenant: el mismo documento, distinto en cada lado, **sin que nada fallara**.
+
+Arreglo: enmascarado de ida y vuelta. Antes de purificar, los selectores `html`/`body` de cada
+`<style>` se reescriben como clases (que HTMLPurifier sí acepta) y después se devuelven a su
+nombre. El CSS se recorre carácter a carácter para tocar sólo la parte de **selector**, no las
+declaraciones, incluidas las reglas anidadas en un `@media`. Las declaraciones siguen pasando
+por el mismo allowlist: `position`, `behavior` y `url()` sobre `body` se caen igual, con test
+dedicado.
+
+> **Deuda asumida:** las plantillas guardadas antes de hoy ya perdieron esas reglas en disco.
+> No hay migración posible —el original no se conservó—; hay que volver a pegar el HTML.
+> Anotado en `MEJORAS_RECOMENDADAS.md` y en el manual de usuario.
+
+### 21.3 Causa 2: el editor tenía su propia copia de la geometría, y estaba mal
+
+`HtmlDocumentEditor.vue` calculaba el área imprimible con constantes propias: milímetros de
+papel y "margen de dompdf = 48 px por lado". El margen real de dompdf es `@page{margin:1.2cm}`
+= 45 px. Dos copias del mismo número en dos lenguajes, y nada las ataba.
+
+| | Editor (antes) | Real |
+|---|---|---|
+| A4 vertical | 698 × 1027 px | **703 × 1032 px** |
+| Margen/lado | 48 px (1,27 cm) | **45 px (1,2 cm)** |
+
+5 px por lado no rompen un documento, pero son la prueba de que la copia podía derivar sin que
+nadie se enterara — y ya había derivado.
+
+Arreglo: `App\Services\Templates\PdfPageGeometry` como única definición, y el frontend deja de
+calcular: pide `page_metrics` a `GET /document-templates/{type}`. `compileAdvanced()` inyecta
+además un `@page{margin:1.2cm}` explícito en el PDF; no cambia cómo se ve nada (es el default
+que dompdf ya aplicaba), pero fija el contrato para que el editor no tenga que adivinarlo.
+
+`PdfPageGeometryTest` no comprueba la aritmética: lee los valores del dompdf **instalado**
+(`lib/res/html.css`, `CPDF::$PAPER_SIZES`, `Css\Style::$default_line_height`,
+`$default_font_size`) y del Blade de cada shell, y falla si se separan. Es la red que faltaba
+la primera vez.
+
+### 21.4 Causa 3: los defaults del navegador no son los de dompdf
+
+Aun con la misma hoja y el mismo HTML, el texto caía en otro sitio:
+
+| | Navegador | dompdf |
+|---|---|---|
+| `body` margin | 8 px | 0 |
+| `line-height: normal` | ~1.15 (métricas de la fuente) | **1.2** (`Style::$default_line_height`) |
+| Familia por defecto | Times New Roman | `serif` → Times-Roman |
+
+El `line-height` es el caro: un 4 % de deriva vertical es casi una línea por página, y por eso
+los cortes de página del editor no coincidían con los del PDF ni con la hoja bien medida.
+`editorBaseCss()` fija los tres en el iframe (sólo en el editor: el PDF no cambia).
+
+Y una cuarta diferencia, que sólo aplica al **modo seguro**: ahí el fragmento no es el
+documento, va dentro de `.custom-block` del shell fijo. El editor lo mostraba en Times 13 px
+mientras la factura salía en DejaVu Sans **9 px** — el mismo párrafo ocupaba casi el doble en
+pantalla. `editorFragmentCss($type)` copia la tipografía de cada shell, y un test la lee del
+Blade para que no puedan separarse.
+
+### 21.5 Causa 4: el logo sólo se veía abriendo el PDF
+
+`{{empresa.logo}}` era texto en el editor. Ahora se dibuja como la `<img>` real, con las mismas
+medidas que `documents/blocks/logo.blade.php`. La sustitución se hace **sólo en posiciones de
+texto** (el HTML se parte en etiquetas y contenido; las etiquetas se devuelven intactas), por el
+mismo motivo que `BlockMarkerInjector` no inserta bloques dentro de atributos: sustituir dentro
+de un `alt="{{empresa.logo}}"` metería una etiqueta dentro de otra. `readValue()` lo devuelve a
+texto sobre la copia que serializa, así que **la URL nunca se guarda** — si se guardara, cambiar
+de logo dejaría los documentos con el viejo para siempre.
+
+De paso, `URI.AllowedSchemes` acepta ahora `data`: es el único esquema que produce una imagen
+que de verdad sale en el PDF (`enable_remote = false` mata http/https). No es un pase libre —
+HTMLPurifier sólo admite `image/jpeg|gif|png`, comprueba el tipo **real de los bytes** y
+reescribe la URI; SVG queda fuera porque puede llevar script.
+
+### 21.6 Lo que zanja la duda: el PDF real al lado del editor
+
+Las cuatro causas se arreglaron, pero el editor sigue siendo un navegador imitando a dompdf y
+esa imitación tiene un techo (`float`, `position`, flexbox). En vez de prometer una paridad que
+no se puede sostener, el editor muestra ahora el **PDF de verdad** en un panel a la derecha:
+mismo endpoint `preview`, mismo `TemplateRenderer`, mismo dompdf que los documentos reales, con
+*debounce* de 1,2 s. Las respuestas que llegan desordenadas se descartan por id de petición, y
+mientras se regenera se sigue viendo el anterior — poder comparar el antes y el después de un
+cambio es la mitad del valor.
+
+Es la única forma honesta de cumplir "lo que se ve es lo que se imprime": no imitándolo mejor,
+sino enseñando el original.
+
+### 21.7 Y una quinta diferencia, ahora avisada
+
+dompdf no lee las fuentes del sistema: sólo conoce las 14 base del PDF y las tres DejaVu que
+trae empaquetadas. Una plantilla de Word con `font-family: Calibri` se ve perfecta en el editor
+y en el PDF cae a Times, más angosta — el texto ocupa distinto y los saltos de página se mueven.
+No se puede arreglar sin instalar fuentes, así que se avisa: nuevo `kind: unsupported_font`, que
+**no** salta si la pila termina en una familia conocida (`Calibri, Arial, sans-serif` sí
+funciona, porque dompdf recorre la lista) — el ruido es lo que hace que se ignore el panel
+entero.
+
+### 21.8 Estado
+
+Suite completa: **599 pruebas en verde** (593 antes de empezar; +9 de `PdfPageGeometryTest`,
++6 de `AdvancedTemplateSanitizerTest`, +3 de `TemplateDiagnosticsTest`, +2 de
+`DocumentTemplateControllerTest`).

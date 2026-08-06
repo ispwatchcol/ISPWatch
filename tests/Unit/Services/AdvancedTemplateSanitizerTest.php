@@ -88,11 +88,132 @@ class AdvancedTemplateSanitizerTest extends TestCase
         $this->assertStringNotContainsString('javascript:', $result);
     }
 
-    public function test_strips_data_scheme_from_img_src(): void
+    /**
+     * `data:` se habilitó el 2026-08-06 SÓLO para imágenes reales: es la única
+     * forma de que una imagen pegada en la plantilla llegue al PDF, porque
+     * dompdf corre con enable_remote=false y nunca descarga una http(s).
+     * Lo que no cambia es que un payload que no sea una imagen de verdad se
+     * cae entero — HTMLPurifier mira los BYTES, no el mime que declara la URI.
+     */
+    public function test_strips_a_data_uri_that_is_not_a_real_image(): void
     {
-        $result = $this->sanitizer->sanitize('<img src="data:image/png;base64,AAAA" alt="x">');
+        $result = $this->sanitizer->sanitize(
+            '<img src="data:image/png;base64,AAAA" alt="x">'
+            . '<img src="data:text/html;base64,' . base64_encode('<script>alert(1)</script>') . '" alt="y">'
+            . '<img src="data:image/svg+xml;base64,' . base64_encode('<svg onload="alert(1)"/>') . '" alt="z">'
+        );
 
-        $this->assertStringNotContainsString('data:image', $result);
+        $this->assertStringNotContainsString('data:image/png;base64,AAAA', $result, 'un payload trunco no es una imagen');
+        $this->assertStringNotContainsString('data:text/html', $result);
+        $this->assertStringNotContainsString('svg', $result, 'SVG no está en los tipos permitidos: puede llevar script');
+        $this->assertStringNotContainsString('alert', $result);
+    }
+
+    public function test_keeps_a_data_uri_with_a_real_png(): void
+    {
+        $png = 'data:image/png;base64,' . base64_encode($this->onePixelPng());
+
+        $result = $this->sanitizer->sanitize('<img src="' . $png . '" alt="logo">');
+
+        $this->assertStringContainsString('data:image/png;base64,', $result);
+        $this->assertStringContainsString('alt="logo"', $result);
+    }
+
+    /** PNG de 1×1 válido: los bytes tienen que pasar exif_imagetype/getimagesize. */
+    private function onePixelPng(): string
+    {
+        return base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        );
+    }
+
+    // ── Selectores html/body (2026-08-06) ───────────────────────────────
+    //
+    // Antes se descartaban enteros porque HTMLPurifier no sabe modelar esos
+    // elementos, y ahí es donde una plantilla exportada de Word pone su
+    // tipografía base. El PDF salía con los defaults de dompdf mientras el
+    // editor mostraba la letra del tenant. Ver el docblock de la clase.
+
+    public function test_keeps_a_body_rule_with_its_declarations(): void
+    {
+        $style = $this->sanitizer->sanitizeParts(
+            '<html><head><style>body { font-family: Arial, sans-serif; font-size: 11px; }</style></head>'
+            . '<body><p>x</p></body></html>'
+        )['style'];
+
+        $this->assertStringContainsString('body {', $style);
+        $this->assertStringContainsString('font-family:Arial, sans-serif', $style);
+        $this->assertStringContainsString('font-size:11px', $style);
+    }
+
+    public function test_keeps_an_html_rule_and_a_body_rule_inside_a_media_block(): void
+    {
+        $style = $this->sanitizer->sanitizeParts(
+            '<html><head><style>html { margin: 0; } @media print { body { font-size: 10px; } }</style></head>'
+            . '<body><p>x</p></body></html>'
+        )['style'];
+
+        $this->assertStringContainsString('html {', $style);
+        $this->assertStringContainsString('margin:0', $style);
+        $this->assertStringContainsString('body {', $style);
+        $this->assertStringContainsString('font-size:10px', $style);
+    }
+
+    public function test_keeps_body_when_it_shares_a_selector_list(): void
+    {
+        $style = $this->sanitizer->sanitizeParts(
+            '<html><head><style>body, td { text-align: justify; }</style></head><body><p>x</p></body></html>'
+        )['style'];
+
+        $this->assertStringContainsString('body', $style);
+        $this->assertStringContainsString('text-align:justify', $style);
+    }
+
+    /**
+     * El enmascarado sólo puede tocar el nombre de elemento suelto. Una clase
+     * `.body-note`, un id `#body` o un valor de declaración que contenga esa
+     * palabra tienen que salir tal cual.
+     */
+    public function test_masking_never_touches_classes_ids_or_declaration_values(): void
+    {
+        $style = $this->sanitizer->sanitizeParts(
+            '<html><head><style>.body-note { color: #333; } #body { color: #444; }'
+            . ' .x { font-family: body, serif; }</style></head><body><p>x</p></body></html>'
+        )['style'];
+
+        $this->assertStringContainsString('.body-note', $style);
+        $this->assertStringContainsString('#body', $style);
+        $this->assertStringContainsStringIgnoringCase('font-family:body, serif', $style);
+    }
+
+    /** La máscara es interna: si se filtrara, el PDF traería una clase inventada. */
+    public function test_the_selector_mask_never_leaks_into_the_output(): void
+    {
+        $result = $this->sanitizer->sanitize(
+            '<html><head><style>body { color: #111; } html { margin: 0; }</style></head>'
+            . '<body><p>x</p></body></html>'
+        );
+
+        $this->assertStringNotContainsString('ispwatch-doc', $result);
+    }
+
+    /**
+     * Rescatar el selector NO rescata las declaraciones: pasan por el mismo
+     * allowlist de CSS que cualquier otra regla. Si esto se rompiera, `body`
+     * sería un agujero por el que entra todo lo que la clase promete bloquear.
+     */
+    public function test_a_body_rule_is_still_subject_to_the_css_allowlist(): void
+    {
+        $style = $this->sanitizer->sanitizeParts(
+            '<html><head><style>body { position: absolute; z-index: 9999; behavior: url(evil.htc);'
+            . ' background-image: url(https://evil.test/x.png); }</style></head><body><p>x</p></body></html>'
+        )['style'];
+
+        $this->assertStringNotContainsString('position', $style);
+        $this->assertStringNotContainsString('z-index', $style);
+        $this->assertStringNotContainsString('behavior', $style);
+        $this->assertStringNotContainsString('url(', $style);
+        $this->assertStringNotContainsString('evil.test', $style);
     }
 
     public function test_never_enables_position_or_z_index_even_though_broad_css_is_allowed(): void

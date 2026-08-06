@@ -1168,6 +1168,32 @@ devuelve:
 - `starters` — plantillas base con las que el tenant puede empezar, **sin el cuerpo**: `[{slug, name, description, advanced, page_size, page_orientation}]`. Los cuerpos pesan varios KB cada uno y esto se pide en cada carga del editor.
 - `placeholders` — whitelist de placeholders **escalares** para el tipo (`config/document_placeholders.php`), `{token: etiqueta}`.
 - `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Los 3 tipos incluyen `empresa.logo` (auditoría 2026-08-03) — `contract` ya no está vacío. `contract` también incluye `contrato.firma_cliente` (auditoría 2026-08-04) — necesario en modo avanzado, donde no hay shell fijo que la imprima por su cuenta (ver `docs/ARQUITECTURA.md`).
+- `page_metrics` (2026-08-06) — geometría **real** de dompdf para las 6 combinaciones de tamaño × orientación, indexada por `"{tamaño}:{orientación}"`. El editor visual dibuja la hoja y los cortes de página con estos números y **no calcula ninguno**: cuando los calculaba por su cuenta (constantes copiadas a ojo, 1,27 cm de margen en vez de los 1,2 cm reales) prometía que un diseño cabía y en el PDF se desbordaba.
+- `editor_base_css` (2026-08-06) — CSS con el que el navegador del editor imita los defaults de dompdf (margen del `body`, familia, `font-size`, `line-height`). Se inyecta **antes** del `<style>` del tenant, así que él sigue ganando en todo lo suyo.
+- `editor_fragment_css` (2026-08-06) — tipografía del shell fijo, para el **modo seguro**: ahí el fragmento va dentro de `.custom-block` del shell y hereda su letra, no la del documento completo.
+- `logo_url` (2026-08-06) — URL pública del logo del tenant, o `null` si no ha subido ninguno. Es el mismo archivo que el servidor inserta en el PDF por `{{empresa.logo}}`; el editor lo usa para dibujar ese marcador como imagen en vez de como texto.
+
+```json
+{
+  "page_metrics": {
+    "a4:portrait": {
+      "page_size": "a4", "page_orientation": "portrait",
+      "margin_px": 45,
+      "paper_width_px": 794, "paper_height_px": 1123,
+      "printable_width_px": 703, "printable_height_px": 1032
+    },
+    "a4:landscape": { "…": "…" }
+  },
+  "editor_base_css": "html{margin:0;padding:0}\nbody{…line-height:1.2}",
+  "editor_fragment_css": "body{…font-family:\"DejaVu Sans\", sans-serif;font-size:12px…}",
+  "logo_url": "https://…/storage/tenant_logos/7/logo.png"
+}
+```
+
+> Todos salen de `App\Services\Templates\PdfPageGeometry`, que es la única definición de estos
+> números. `PdfPageGeometryTest` los contrasta contra el dompdf instalado (su hoja de estilos,
+> `CPDF::$PAPER_SIZES`, `Css\Style::$default_line_height`) y contra el Blade de cada shell, y
+> falla si se separan.
 
 **`GET /api/document-templates/{type}/starters/{slug}`** — cuerpo de una plantilla base, para
 cargarla en el editor. **No persiste nada**: el tenant la recibe como borrador y decide si la
@@ -1222,8 +1248,15 @@ una fila ya guardada con basura cae al default en `TemplateRenderer::applyPaper(
 llegar a dompdf.
 
 > **Cuándo hace falta horizontal:** un contrato a dos columnas (formato CRC colombiano, el
-> que exportan sistemas como WispHub) necesita ~950 px de ancho. A4 vertical da ~698 px
-> útiles a 96 dpi y dompdf aprieta el diseño; A4 horizontal da ~1027 px y cabe intacto.
+> que exportan sistemas como WispHub) necesita ~950 px de ancho. A4 vertical da 703 px
+> útiles a 96 dpi y dompdf aprieta el diseño; A4 horizontal da 1032 px y cabe intacto.
+> (Cifras corregidas el 2026-08-06: antes se documentaban 698/1027, calculados con un margen
+> de 1,27 cm que dompdf nunca usó — el suyo es 1,2 cm. Ver `page_metrics` más arriba.)
+
+`POST .../preview` es además el motor del panel **"PDF real"** del editor, que lo llama con
+*debounce* de 1,2 s mientras se escribe. No persiste nada y usa datos de muestra, así que es
+seguro llamarlo tan seguido; el frontend descarta por id las respuestas que llegan
+desordenadas.
 
 **Header `X-Template-Warnings`** (sólo en la respuesta de `preview`, sólo si aplica) — JSON
 array de `{kind, token, label, message}` con todo lo que la plantilla tiene mal sin que llegue
@@ -1253,6 +1286,7 @@ el frontend sólo lo lee si el header existe.
 | `unknown_placeholder` | No se reconoce; si algo se le parece, el mensaje sugiere el más cercano |
 | `orphaned_block` | Placeholder de bloque que no se pudo insertar en esa posición (ej. dentro de un atributo) |
 | `remote_image` | `<img>` apuntando a internet: dompdf corre con `enable_remote = false` y sale rota |
+| `unsupported_font` | `font-family` que dompdf no tiene (sólo conoce las 14 base del PDF y las DejaVu que trae). En el editor se ve bien; en el PDF cae a Times, más angosta, y los saltos de página se mueven. No se avisa si la pila **termina** en una familia conocida (`Calibri, Arial, sans-serif` sí funciona) |
 
 `message` viene armado del servidor y es el texto que el editor muestra tal cual — así se
 verifica en las pruebas de PHP junto a la detección que lo origina, y el frontend no tiene que

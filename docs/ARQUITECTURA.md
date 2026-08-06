@@ -379,6 +379,24 @@ desconocido no lanza excepción, se queda en silencio con un canvas raro, y eso 
 ignorar el valor. Una fila con basura (escritura directa a la BD, migración desde otro
 sistema) cae al default.
 
+**`PdfPageGeometry`: una sola definición de la geometría** (2026-08-06) — el editor visual
+tenía sus propias constantes de papel y margen, copiadas a ojo (1,27 cm en vez de los 1,2 cm
+reales de `@page` en `dompdf/lib/res/html.css`). Dos copias del mismo número en dos lenguajes
+distintos, y nada fallaba cuando se separaban: sólo el PDF salía distinto a lo que el tenant
+veía en pantalla. Ahora el frontend **no calcula ningún milímetro** — pide los números a
+`GET /document-templates/{type}` (`page_metrics`, `editor_base_css`, `editor_fragment_css`).
+
+| Qué expone | Para qué |
+|---|---|
+| `metrics()` / `allMetrics()` | Hoja e área imprimible en px a 96 dpi para las 6 combinaciones de tamaño × orientación (A4 vertical = **703 × 1032 px**, no los 698 × 1027 que el editor asumía) |
+| `documentBaseCss()` | Se inyecta en el PDF de modo avanzado **antes** del `<style>` del tenant. Declara lo que dompdf ya hacía por defecto (`@page{margin:1.2cm}`, `body{margin:0}`), así que no mueve ni un píxel de los documentos existentes: su valor es fijar el contrato para que el editor no tenga que adivinarlo |
+| `editorBaseCss()` | Apaga las diferencias entre los defaults del navegador y los de dompdf: margen del `body` (8 px vs 0), familia (`serif` → Times-Roman), `font-size: medium` (12 pt) y `line-height: normal` (**1.2** en dompdf, ~1.15 en el navegador — un 4 % de deriva vertical, casi una línea por página) |
+| `editorFragmentCss($type)` | Tipografía del shell fijo, para el **modo seguro**: ahí el fragmento no es el documento, va dentro de `.custom-block` del shell y hereda su letra (DejaVu Sans a 9/11/12 px según el tipo) |
+
+`PdfPageGeometryTest` no comprueba que la clase "haga bien la cuenta": lee los valores del
+dompdf instalado (su hoja de estilos, `CPDF::$PAPER_SIZES`, `Css\Style::$default_line_height`)
+y del Blade de cada shell, y falla si se separan. Es la red que faltaba la primera vez.
+
 **Dos vistas previas distintas, ninguna con su propio renderizador:**
 
 | | Qué previsualiza | Punto de entrada |
@@ -469,26 +487,51 @@ modo seguro guarda un fragmento que va dentro del shell fijo, el avanzado un doc
 y confundirlos rompe el render.
 
 **El editor edita dentro de la hoja real, no dentro de la pantalla** (auditoría 2026-08-06,
-segunda pasada). El iframe fija el ancho del body al **área imprimible de verdad**: tamaño de
-papel a 96 dpi (el `dpi` de `config/dompdf.php`) menos 96 px de margen — los 1.27 cm por lado
-que mete dompdf. Eso da 698 px en A4 vertical y 1027 px en horizontal, exactamente las cifras
-medidas el 2026-08-05. Sin esa restricción el editor era tan ancho como el panel, así que un
-diseño de 950 px se veía perfecto ahí y en el PDF se salía de su columna y se montaba sobre la
-de al lado. Encima se dibujan los cortes de página con `html::before` — un pseudo-elemento, que
-no existe en el DOM y por tanto es imposible que acabe dentro del HTML guardado. La misma hoja
-de estilos marca las `<img>` remotas en rojo translúcido: el navegador las descarga y dompdf no
-(`enable_remote = false`), así que sin marcarlas el editor prometía una imagen que el PDF nunca
-iba a mostrar. Todo eso vive en un `<style>` con id conocido que `readValue()` quita de una
-copia del documento antes de serializar, junto con el `contenteditable` del body.
+segunda pasada). El iframe fija el ancho del body al **área imprimible de verdad**, que desde
+la tercera pasada llega calculada del backend (`PdfPageGeometry`, ver arriba) en vez de
+recalcularse aquí: 703 px en A4 vertical, 1032 px en horizontal. Sin esa restricción el editor
+era tan ancho como el panel, así que un diseño de 950 px se veía perfecto ahí y en el PDF se
+salía de su columna y se montaba sobre la de al lado. Encima se dibujan los cortes de página
+con `html::before` — un pseudo-elemento, que no existe en el DOM y por tanto es imposible que
+acabe dentro del HTML guardado. La misma hoja de estilos marca las `<img>` remotas en rojo
+translúcido: el navegador las descarga y dompdf no (`enable_remote = false`), así que sin
+marcarlas el editor prometía una imagen que el PDF nunca iba a mostrar. La caja de la hoja
+fuerza sólo **ancho y centrado**, con `box-sizing: border-box`: el `padding` y los márgenes
+verticales del `body` se dejan al tenant porque dompdf **sí** se los aplica, y forzarlos a cero
+era otra forma de mostrar un documento que el PDF no iba a reproducir. Todo eso vive en un
+`<style>` con id conocido que `readValue()` quita de una copia del documento antes de
+serializar, junto con el `contenteditable` del body.
 
 `HtmlDocumentEditor` emite además una medición (`@fit`) con el ancho que pide el contenido
 frente al que deja la hoja, y la pantalla la convierte en un aviso accionable con el número
 exacto y un botón para girar la hoja. Es la causa nº 1 de los PDF con los textos montados.
 
-> **Límite conocido:** el editor es un navegador y el PDF lo genera dompdf, que implementa un
-> subconjunto pobre de CSS. El ancho de hoja, los cortes de página y las imágenes remotas ya
-> están cubiertos, pero `float`, `position` y flexbox seguirán comportándose distinto. La
-> paridad exacta exige cambiar el motor por un navegador headless — ver `MEJORAS_RECOMENDADAS.md`.
+**Vista previa del PDF real, al lado del editor** (auditoría 2026-08-06, tercera pasada) —
+el editor es un navegador imitando a dompdf y esa imitación tiene un techo. `Configuración →
+Plantillas` muestra ahora el **PDF de verdad** en un panel junto al editor: mismo endpoint
+`POST /document-templates/{type}/preview`, mismo `TemplateRenderer`, mismo dompdf que los
+documentos reales, en un `<iframe>` sobre un blob. Se regenera con *debounce* de 1,2 s tras
+dejar de escribir, o al cambiar de modo/tamaño/orientación; las respuestas que llegan
+desordenadas se descartan por id de petición, y mientras se regenera **se sigue viendo el PDF
+anterior** (poder comparar antes/después de un cambio es la mitad del valor). Con el editor
+vacío no se pide nada: `body_html` es obligatorio en el endpoint. Los avisos de
+`X-Template-Warnings` se refrescan con cada render, así que el panel de diagnóstico deja de
+depender de que alguien pulse "vista previa".
+
+**`{{empresa.logo}}` se dibuja como imagen dentro del editor** — el marcador se sustituye por
+la `<img>` real (misma URL de `storage/`, mismas medidas que `documents/blocks/logo.blade.php`)
+sólo para mostrarlo, y `readValue()` lo devuelve a texto sobre la copia que serializa, así que
+la URL **nunca** se guarda: el día que el tenant cambie de logo, los documentos salen con el
+nuevo. La sustitución se hace únicamente en posiciones de texto — el HTML se parte en etiquetas
+y contenido y las etiquetas se devuelven intactas — por el mismo motivo que `BlockMarkerInjector`
+no inserta bloques dentro de atributos.
+
+> **Límite conocido:** el editor sigue siendo un navegador y el PDF lo genera dompdf, que
+> implementa un subconjunto pobre de CSS. El ancho de hoja, los cortes de página, la tipografía
+> base, las imágenes y las fuentes no soportadas ya están cubiertos o avisados, pero `float`,
+> `position` y flexbox seguirán comportándose distinto — para eso está el panel del PDF real.
+> La paridad exacta en el propio editor exige cambiar el motor por un navegador headless — ver
+> `MEJORAS_RECOMENDADAS.md`.
 
 **Diagnóstico de la plantilla** (`TemplateDiagnostics`, auditoría 2026-08-06) — capa aparte
 del render, que **no** cambia lo que se sustituye: inspecciona el `body_html` **crudo** (antes
@@ -499,7 +542,11 @@ ninguna pista. Detecta seis cosas: marcador de otro sistema con llaves (`{{plan_
 y sin llaves (`NUMERO_CONTRATO_TAG`, que aquí es texto y se imprime literal), token válido pero
 de **otro tipo** de documento, typo genuino (sugerencia por distancia de Levenshtein, con
 umbral corto a propósito: una sugerencia equivocada manda a cambiar el marcador que sí estaba
-bien), `<img>` remota (dompdf con `enable_remote = false` nunca la descarga) y los bloques
+bien), `<img>` remota (dompdf con `enable_remote = false` nunca la descarga), **fuente que
+dompdf no tiene** (2026-08-06: sólo conoce las 14 base del PDF y las DejaVu que trae; una
+plantilla de Word con `font-family: Calibri` se ve bien en el editor y en el PDF cae a Times,
+que es más angosta, así que el texto ocupa distinto y los saltos de página se mueven — no se
+avisa si la pila **termina** en una familia conocida, porque entonces sí funciona) y los bloques
 huérfanos que ya reportaba `BlockMarkerInjector`. Las equivalencias viven en
 `config/document_placeholder_aliases.php` — catálogo **de diagnóstico**, no de resolución: la
 traducción no es automática porque una equivalencia puede no aplicar al caso concreto
@@ -527,6 +574,35 @@ familia `<table>`, no de `<img>`/`<div>` donde son legítimas. Medido sobre un c
 quitando las alturas, el PDF pasa de 8 páginas con 3 en blanco a 7 con 1. `width` **sí** se conserva
 como atributo en `table`/`td`/`th` — es como esas plantillas arman su layout de columnas, y sin él
 dompdf cae en auto-layout y rompe la maquetación.
+
+**Selectores `html`/`body` del tenant** (`AdvancedTemplateSanitizer`, auditoría 2026-08-06) —
+`Filter.ExtractStyleBlocks` valida cada selector contra los elementos de `HTML.Allowed` y tira
+la regla entera si no lo reconoce. `body` y `html` no son elementos que HTMLPurifier sepa
+modelar (declararlos en `HTML.Allowed` lanza *"Element 'body' is not supported"*), así que
+**toda** regla `body { … }` desaparecía en silencio — y ahí es exactamente donde una plantilla
+exportada de Word o de otro panel pone su tipografía base: `font-family`, `font-size`,
+márgenes, ancho. El PDF salía con los defaults de dompdf mientras el editor mostraba la letra
+del tenant: el mismo documento, distinto en cada lado, sin que nada fallara. La solución es un
+enmascarado de ida y vuelta — antes de purificar, los selectores `html`/`body` de cada
+`<style>` se reescriben como clases y después se devuelven a su nombre. Sólo se toca la parte
+de **selector** de cada regla (el CSS se recorre carácter a carácter para distinguir selector
+de declaraciones, incluidas las reglas anidadas dentro de un `@media`), y `.body-note`, `#body`
+o un valor de declaración que contenga esa palabra quedan intactos. Las **declaraciones** pasan
+por el mismo allowlist de CSS que cualquier otra regla: rescatar el selector no abre ningún
+agujero, y hay test dedicado que lo verifica.
+
+> Las plantillas guardadas **antes** de este arreglo ya perdieron sus reglas `body`/`html` en
+> disco (se descartaron al guardar). Volver a pegar el HTML original las recupera; no hay
+> migración posible porque el original no se conservó.
+
+**Imágenes embebidas (`data:`)** (2026-08-06) — `URI.AllowedSchemes` acepta ahora `data`
+además de `http`/`https`. Es el único esquema que produce una imagen que de verdad sale en el
+PDF: las `http(s)` no se descargan nunca (`enable_remote = false`), así que una imagen pegada
+en la plantilla quedaba rota sin alternativa. No es un pase libre — el manejador de
+HTMLPurifier sólo acepta `image/jpeg`, `image/gif` y `image/png`, comprueba el tipo **real de
+los bytes** (`exif_imagetype`/`getimagesize`, no el mime que declara la URI) y reescribe la URI
+a partir de eso; SVG queda fuera precisamente porque puede llevar script. dompdf ya tenía
+`data://` en `allowed_protocols`.
 
 > **Limitación conocida, no corregida en el sanitizer:** dompdf no parte una celda de tabla entre
 > páginas — si un `<td>` excede el alto de la hoja, lo empuja entero (dejando la anterior en blanco)

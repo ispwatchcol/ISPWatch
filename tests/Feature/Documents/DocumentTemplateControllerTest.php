@@ -354,6 +354,53 @@ class DocumentTemplateControllerTest extends TestCase
         ])->assertStatus(200)->assertJsonPath('warnings', []);
     }
 
+    /**
+     * El editor visual dibuja la hoja y los cortes de página con ESTOS
+     * números. Antes los calculaba él mismo con constantes copiadas a ojo
+     * (1,27 cm de margen en vez de los 1,2 cm reales de dompdf) y por eso
+     * prometía que un diseño cabía cuando en el PDF se desbordaba. Si el
+     * endpoint deja de mandarlos, el editor vuelve a adivinar.
+     */
+    public function test_show_returns_the_real_page_geometry_and_editor_css(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $response = $this->getJson('/api/document-templates/contract')->assertStatus(200);
+
+        $metrics = $response->json('page_metrics');
+        $this->assertCount(6, $metrics);
+        $this->assertSame(703, $metrics['a4:portrait']['printable_width_px']);
+        $this->assertSame(1032, $metrics['a4:portrait']['printable_height_px']);
+        $this->assertSame(1032, $metrics['a4:landscape']['printable_width_px']);
+
+        // El CSS del editor tiene que fijar los defaults que el navegador y
+        // dompdf NO comparten; si llegara vacío, el editor volvería a mostrar
+        // el texto con otro alto de línea que el PDF.
+        $this->assertStringContainsString('line-height:1.2', $response->json('editor_base_css'));
+        $this->assertStringContainsString('margin:0', $response->json('editor_base_css'));
+        // Modo seguro: el fragmento va dentro del shell, con la letra del shell.
+        $this->assertStringContainsString('DejaVu Sans', $response->json('editor_fragment_css'));
+        $this->assertStringContainsString('font-size:12px', $response->json('editor_fragment_css'));
+    }
+
+    /**
+     * {{empresa.logo}} se dibuja como imagen dentro del editor: sin esta URL
+     * el marcador vuelve a ser un texto y el logo sólo se ve al abrir el PDF.
+     */
+    public function test_show_returns_the_tenant_logo_url_only_when_there_is_one(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $this->assertNull($this->getJson('/api/document-templates/contract')->json('logo_url'));
+
+        $this->tenant->update(['logo' => 'tenant_logos/1/logo.png']);
+
+        $this->assertStringEndsWith(
+            'storage/tenant_logos/1/logo.png',
+            $this->getJson('/api/document-templates/contract')->json('logo_url')
+        );
+    }
+
     public function test_show_lists_the_starter_templates_without_their_bodies(): void
     {
         Sanctum::actingAs($this->admin);

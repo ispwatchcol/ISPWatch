@@ -77,34 +77,51 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   height: { type: String, default: '420px' },
-  pageSize: { type: String, default: 'a4' },
-  pageOrientation: { type: String, default: 'portrait' },
+  /**
+   * Geometría REAL de la hoja, calculada por el backend
+   * (App\Services\Templates\PdfPageGeometry, expuesta en
+   * GET /document-templates/{type} → page_metrics). Este componente ya no
+   * calcula milímetros ni adivina el margen de dompdf: tenía sus propias
+   * constantes copiadas a ojo (1,27 cm en vez de 1,2 cm) y por eso dibujaba
+   * los cortes de página 5 px fuera de sitio por lado, que es justo la clase
+   * de mentira que el editor existe para no contar.
+   *
+   * El default es A4 vertical, sólo para que el componente sea usable antes
+   * de que llegue la respuesta del servidor.
+   */
+  pageMetrics: {
+    type: Object,
+    default: () => ({ printable_width_px: 703, printable_height_px: 1032 }),
+  },
+  /**
+   * CSS con el que el navegador imita los defaults de dompdf (margen del
+   * body, familia, tamaño y line-height). Viene del servidor por la misma
+   * razón: una sola definición, no dos que puedan separarse. Se inyecta
+   * ANTES del <style> del tenant, así que él sigue ganando en todo lo suyo.
+   */
+  baseCss: { type: String, default: '' },
+  /**
+   * Tipografía del shell fijo, para cuando lo que se edita es un FRAGMENTO
+   * (modo seguro). Ahí el contenido no es el documento: va dentro de
+   * `.custom-block` del shell, con su letra y su tamaño. Sin esto el editor
+   * mostraba Times 13px mientras la factura salía en DejaVu Sans 9px.
+   */
+  fragmentCss: { type: String, default: '' },
+  /**
+   * Marcadores que el servidor sustituye por una imagen al generar el PDF,
+   * mapeados a esa imagen: { 'empresa.logo': 'https://…/logo.png' }. En el
+   * editor se muestran como la imagen real en vez de como el texto
+   * `{{empresa.logo}}`, y se vuelven a convertir en texto al leer el valor,
+   * así que nunca se guarda la URL.
+   */
+  tokenPreviews: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['update:modelValue', 'fit'])
 
-// Tamaños en píxeles a 96 dpi, que es el `dpi` que usa config/dompdf.php.
-// Cambiar uno sin cambiar el otro haría que el editor mienta sobre lo que cabe.
-const PAPER_MM = {
-  a4:     { w: 210, h: 297 },
-  letter: { w: 216, h: 279 },
-  legal:  { w: 216, h: 356 },
-}
-// Margen por defecto de dompdf: 1.27 cm por lado = 48 px a 96 dpi. Es lo que
-// hace que un A4 vertical deje ~698 px útiles y no 794 (medido el 2026-08-05).
-const MARGIN_PX = 96
-
-const printable = computed(() => {
-  const paper = PAPER_MM[props.pageSize] || PAPER_MM.a4
-  const landscape = props.pageOrientation === 'landscape'
-  const mmW = landscape ? paper.h : paper.w
-  const mmH = landscape ? paper.w : paper.h
-  const toPx = (mm) => Math.round((mm / 25.4) * 96)
-
-  return {
-    width: toPx(mmW) - MARGIN_PX,
-    height: toPx(mmH) - MARGIN_PX,
-  }
-})
+const printable = computed(() => ({
+  width: props.pageMetrics?.printable_width_px || 703,
+  height: props.pageMetrics?.printable_height_px || 1032,
+}))
 
 const frame = ref(null)
 const currentBlock = ref('p')
@@ -125,19 +142,19 @@ let lastEmitted = null
 // devolver sólo el contenido del body. Confundirlos rompería el render.
 let valueWasFullDocument = false
 
-const FRAGMENT_STYLES = `
-  <style>
-    body { font-family: 'Times New Roman', Times, serif; font-size: 13px; color: #1f2937;
-           line-height: 1.5; background: #fff; }
-    table { border-collapse: collapse; }
-    td, th { padding: 4px 6px; }
-    img { max-width: 100%; }
-  </style>
-`
-
-// Hoja de estilos que sólo existe MIENTRAS se edita: nunca se guarda. Se
-// inyecta con un id conocido y readValue() la quita antes de serializar.
+// Hojas de estilo que sólo existen MIENTRAS se edita: nunca se guardan. Se
+// inyectan con ids conocidos y readValue() las quita antes de serializar.
+//   - BASE va primero en el <head>: imita los defaults de dompdf y pierde
+//     contra cualquier cosa que escriba el tenant.
+//   - ONLY va al final: es el papel gris, la caja de la hoja y las guías de
+//     corte, que tienen que ganarle a todo.
+const EDITOR_BASE_STYLE_ID = '__ispwatch_editor_base'
 const EDITOR_STYLE_ID = '__ispwatch_editor_only'
+
+// Atributo que marca un marcador dibujado como imagen. Es la única pista para
+// devolverlo a texto al leer, así que no puede cambiar sin cambiar los dos
+// lados (withTokenPreviews / restoreTokens).
+const TOKEN_ATTR = 'data-ispwatch-token'
 
 /**
  * Encierra el contenido en el ancho real del papel y dibuja los cortes de
@@ -151,11 +168,18 @@ const EDITOR_STYLE_ID = '__ispwatch_editor_only'
 function editorOnlyCss(width, height) {
   return `
     html { background: #9ca3af; position: relative; padding: 0 0 40px; }
+    /* La caja de la hoja. Se fuerzan sólo el ancho y el centrado; el relleno
+       y los márgenes verticales se dejan al tenant a propósito, porque dompdf
+       SÍ se los aplica al body y forzarlos aquí a cero era otra forma de que
+       el editor mostrara un documento que el PDF no iba a reproducir.
+       border-box: en dompdf el body ocupa el área imprimible y su padding va
+       por dentro; con content-box el relleno se sumaba al ancho y la hoja
+       crecía en pantalla pero no en el PDF. */
     body {
+      box-sizing: border-box !important;
       width: ${width}px !important;
-      margin: 0 auto !important;
-      padding: 0 !important;
-      box-sizing: content-box;
+      margin-left: auto !important;
+      margin-right: auto !important;
       min-height: ${height}px;
       outline: none;
       box-shadow: 0 0 0 1px #6b7280;
@@ -163,8 +187,12 @@ function editorOnlyCss(width, height) {
     /* El navegador SÍ descarga una imagen de internet y dompdf NO
        (enable_remote = false): sin marcarlas, el editor prometería una imagen
        que en el PDF sale rota. Se marcan aquí para que la diferencia se vea
-       antes de generar el PDF, no después. */
-    img[src^="http://"], img[src^="https://"] {
+       antes de generar el PDF, no después.
+       Las imágenes de un marcador (${TOKEN_ATTR}) se excluyen: ésas las
+       resuelve el servidor contra un archivo local, sí salen en el PDF.
+       Las data: URI tampoco entran aquí — dompdf las acepta tal cual. */
+    img[src^="http://"]:not([${TOKEN_ATTR}]),
+    img[src^="https://"]:not([${TOKEN_ATTR}]) {
       outline: 3px dashed #dc2626 !important;
       outline-offset: -3px;
       opacity: .3 !important;
@@ -208,6 +236,59 @@ function stripActiveContent(html) {
     .replace(/javascript:/gi, '')
 }
 
+/**
+ * Cambia `{{empresa.logo}}` por la imagen que el servidor va a poner ahí.
+ * Antes el editor mostraba el texto del marcador y el logo sólo aparecía al
+ * abrir el PDF, así que era imposible ver si quedaba demasiado grande, torcido
+ * o encima de otra cosa hasta después de generarlo.
+ *
+ * La sustitución se hace SÓLO en las posiciones de texto: el HTML se parte en
+ * etiquetas y contenido, y las etiquetas se devuelven intactas. Un marcador
+ * dentro de un atributo (`alt="{{empresa.logo}}"`) se quedaría como está — si
+ * se sustituyera ahí, se metería una etiqueta dentro de otra y el documento
+ * del tenant quedaría corrupto. Es además el mismo criterio del servidor:
+ * BlockMarkerInjector tampoco inserta bloques dentro de atributos.
+ *
+ * <style> y <script> se consumen enteros por el mismo motivo, y con una
+ * consecuencia peor: un <img> dentro de un <style> no es una etiqueta para el
+ * navegador, es texto CSS, así que restoreTokens() no lo encontraría al leer
+ * y el marcador se perdería para siempre.
+ */
+function withTokenPreviews(html) {
+  const previews = props.tokenPreviews || {}
+  if (!html || Object.keys(previews).length === 0) return html
+
+  const CHUNKS = /<style\b[^>]*>[\s\S]*?<\/style\s*>|<script\b[^>]*>[\s\S]*?<\/script\s*>|<[^>]*>|[^<]+/gi
+
+  return html.replace(CHUNKS, (chunk) => {
+    if (chunk.startsWith('<')) return chunk
+
+    return chunk.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (match, token) => {
+      const url = previews[token]
+      if (!url) return match
+
+      // Mismas medidas que documents/blocks/logo.blade.php, que es lo que el
+      // servidor inserta de verdad: si aquí se viera a otro tamaño, el editor
+      // volvería a mentir sobre cuánto ocupa.
+      return `<img ${TOKEN_ATTR}="${token}" src="${url}" alt="${token}" contenteditable="false"`
+        + ' style="max-height:80px; max-width:220px;">'
+    })
+  })
+}
+
+/**
+ * Inversa exacta de withTokenPreviews(), aplicada sobre la COPIA que se
+ * serializa. Sin esto se guardaría la URL del logo en la plantilla, y el día
+ * que el tenant cambie de logo los documentos seguirían saliendo con el viejo.
+ */
+function restoreTokens(root) {
+  const doc = root.ownerDocument || document
+
+  root.querySelectorAll(`[${TOKEN_ATTR}]`).forEach((el) => {
+    el.replaceWith(doc.createTextNode(`{{${el.getAttribute(TOKEN_ATTR)}}}`))
+  })
+}
+
 function doc() {
   return frame.value?.contentDocument || null
 }
@@ -217,10 +298,10 @@ function writeDocument(html) {
   if (!d) return
 
   valueWasFullDocument = isFullDocument(html)
-  const safe = stripActiveContent(html)
+  const safe = withTokenPreviews(stripActiveContent(html))
   const source = valueWasFullDocument
     ? safe
-    : `<!DOCTYPE html><html><head><meta charset="UTF-8">${FRAGMENT_STYLES}</head><body>${safe}</body></html>`
+    : `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${safe}</body></html>`
 
   d.open()
   d.write(source)
@@ -239,14 +320,31 @@ function writeDocument(html) {
 }
 
 /**
- * Inserta (o actualiza) la hoja de estilos de edición. Se actualiza en vez de
- * reescribir el documento cuando cambia el tamaño de página: reescribirlo
- * mandaría el cursor al principio a mitad de la frase que estás escribiendo.
+ * Inserta (o actualiza) las dos hojas de estilo de edición. Se actualizan en
+ * vez de reescribir el documento cuando cambia el tamaño de página:
+ * reescribirlo mandaría el cursor al principio a mitad de la frase que estás
+ * escribiendo.
  */
 function applyEditorStyles() {
   const d = doc()
   if (!d?.head) return
 
+  // Al PRINCIPIO del head: son los defaults, tienen que perder contra el
+  // <style> del tenant y contra cualquier style inline.
+  //
+  // CUÁL de las dos bases depende de lo que se esté editando, y son
+  // distintas de verdad: un documento completo (modo avanzado) se imprime
+  // tal cual y hereda los defaults de dompdf; un fragmento (modo seguro) va
+  // dentro del shell fijo y hereda la letra del shell.
+  let base = d.getElementById(EDITOR_BASE_STYLE_ID)
+  if (!base) {
+    base = d.createElement('style')
+    base.id = EDITOR_BASE_STYLE_ID
+    d.head.insertBefore(base, d.head.firstChild)
+  }
+  base.textContent = (valueWasFullDocument ? props.baseCss : props.fragmentCss) || ''
+
+  // Al FINAL: es el papel y las guías, tienen que ganarle a todo.
   let style = d.getElementById(EDITOR_STYLE_ID)
   if (!style) {
     style = d.createElement('style')
@@ -279,18 +377,21 @@ function reportFit() {
 
 function readValue() {
   const d = doc()
-  if (!d) return ''
-
-  if (!valueWasFullDocument) {
-    return d.body ? d.body.innerHTML : ''
-  }
+  if (!d?.documentElement) return ''
 
   // Se serializa sobre una COPIA para quitar lo que sólo existe mientras se
-  // edita: la hoja de estilos del editor y el contentEditable del body. Si se
-  // guardaran, el PDF saldría con el fondo gris y las guías de página encima.
+  // edita: las hojas de estilo del editor, el contentEditable del body y las
+  // imágenes de marcador. Si se guardaran, el PDF saldría con el fondo gris y
+  // las guías de página encima, y el logo quedaría congelado como una URL.
   const clone = d.documentElement.cloneNode(true)
+  clone.querySelector('#' + EDITOR_BASE_STYLE_ID)?.remove()
   clone.querySelector('#' + EDITOR_STYLE_ID)?.remove()
   clone.querySelector('body')?.removeAttribute('contenteditable')
+  restoreTokens(clone)
+
+  if (!valueWasFullDocument) {
+    return clone.querySelector('body')?.innerHTML || ''
+  }
 
   return '<!DOCTYPE html>' + clone.outerHTML
 }
@@ -330,19 +431,28 @@ function applyBlock(tag) {
  * propio párrafo: si quedan a mitad de una oración o dentro de un atributo,
  * el servidor no puede insertarlos y el tenant sólo ve que "no aparece nada"
  * (ver App\Services\Templates\BlockMarkerInjector).
+ *
+ * Si el marcador tiene vista previa de imagen (el logo), se inserta ya como
+ * imagen: es lo que va a salir en el PDF y lo que hace falta ver para saber
+ * si queda bien puesto.
  */
 function insertToken(token, { ownParagraph = false } = {}) {
   const d = doc()
   if (!d) return
   frame.value.contentWindow.focus()
 
-  const text = `{{${token}}}`
+  const preview = (props.tokenPreviews || {})[token]
+  const text = preview
+    ? withTokenPreviews(`{{${token}}}`)
+    : `<span style="background:#eef2ff;color:#4338ca;">{{${token}}}</span>`
+
   try {
     if (ownParagraph) {
-      d.execCommand('insertHTML', false,
-        `<p><span style="background:#eef2ff;color:#4338ca;">${text}</span></p><p><br></p>`)
+      d.execCommand('insertHTML', false, `<p>${text}</p><p><br></p>`)
+    } else if (preview) {
+      d.execCommand('insertHTML', false, text)
     } else {
-      d.execCommand('insertText', false, text)
+      d.execCommand('insertText', false, `{{${token}}}`)
     }
   } catch (e) {
     d.body.insertAdjacentHTML('beforeend', ownParagraph ? `<p>${text}</p>` : text)
@@ -384,11 +494,24 @@ watch(
 )
 
 // Cambiar de tamaño u orientación no reescribe el documento (perdería el
-// cursor): sólo se recalcula la hoja del editor y se vuelve a medir.
-watch(printable, () => {
+// cursor): sólo se recalculan las hojas del editor y se vuelve a medir.
+watch([printable, () => props.baseCss, () => props.fragmentCss], () => {
   applyEditorStyles()
   reportFit()
 })
+
+// Subir un logo nuevo sí exige repintar: las imágenes de marcador ya escritas
+// apuntan a la URL vieja. Pasa una vez cada mucho, así que perder la posición
+// del cursor aquí es aceptable.
+watch(
+  () => props.tokenPreviews,
+  () => {
+    writeDocument(lastEmitted ?? props.modelValue)
+    lastEmitted = readValue()
+    reportFit()
+  },
+  { deep: true }
+)
 
 defineExpose({ insertToken })
 </script>
