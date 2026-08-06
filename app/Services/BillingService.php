@@ -214,20 +214,43 @@ class BillingService
                     ->with('servicePlan')
                     ->first();
 
-                if (!$userService) {
-                    Log::info("Billing: Customer {$customerId} has no active service. Skipping.");
-                    continue;
-                }
+                // ── Sin plan que cobrar, pero cliente vigente ───────────────
+                // Los tres saltos de aquí abajo comparten un matiz: el sistema
+                // no deja de facturarle porque NO DEBA cobrarle (eso ya se
+                // filtró arriba: excluidos, retirados), sino porque no hay plan
+                // que cobrarle. Si además tiene servicios adicionales activos
+                // —el alquiler del router de un empleado con plan de cortesía,
+                // por ejemplo— se le emite una factura sólo con ellos.
+                $servicePlan = $userService?->servicePlan;
 
-                $servicePlan = $userService->servicePlan;
-                if (!$servicePlan) {
-                    Log::warning("Billing: Customer {$customerId} active service has no plan. Skipping.");
-                    continue;
-                }
+                $sinPlanQueCobrar = !$userService || !$servicePlan || $servicePlan->is_courtesy;
 
-                // Skip courtesy plans (they should be 'gratis' but double-check)
-                if ($servicePlan->is_courtesy) {
-                    Log::info("Billing: Customer {$customerId} has courtesy plan '{$servicePlan->name}'. Skipping.");
+                if ($sinPlanQueCobrar) {
+                    $motivo = match (true) {
+                        !$userService => 'no active service',
+                        !$servicePlan => 'active service has no plan',
+                        default       => "courtesy plan '{$servicePlan->name}'",
+                    };
+
+                    $extra = $this->issueAdditionalOnlyInvoice(
+                        router:        $router,
+                        profile:       $profile,
+                        billingConfig: $billingConfig,
+                        issueDate:     $issueDate,
+                        dueDate:       $dueDate,
+                        periodStart:   $periodStart,
+                        periodEnd:     $periodEnd,
+                        stopAt:        $stopAt,
+                    );
+
+                    if ($extra) {
+                        $created++;
+                        Log::info("Billing: Customer {$customerId} — {$motivo}, pero tiene servicios adicionales: "
+                            . "se emite la factura {$extra->number} sólo con ellos.");
+                    } else {
+                        Log::info("Billing: Customer {$customerId} — {$motivo}. Skipping.");
+                    }
+
                     continue;
                 }
 
@@ -1307,24 +1330,179 @@ class BillingService
         Carbon $periodStart,
         Carbon $periodEnd,
         bool $courtesyMonth = false,
+        ?array $lines = null,
     ): void {
+        // $lines ya calculado: lo pasa la factura de excepción, que tuvo que
+        // preguntar ANTES de crear nada para no emitir una factura vacía.
+        $lines ??= $this->chargeableAdditionalServices(
+            (int) $invoice->tenant_id, (int) $invoice->customer_id, $periodStart, $periodEnd, $courtesyMonth
+        );
+
+        if (empty($lines)) {
+            return;
+        }
+
+        $added = 0.0;
+
+        foreach ($lines as $line) {
+            InvoiceItem::create([
+                'invoice_id'                     => $invoice->id,
+                'customer_additional_service_id' => $line['assignment_id'],
+                'type'                           => 'additional_service',
+                'description'                    => $line['description'],
+                'quantity'                       => $line['quantity'],
+                'unit_price'                     => $line['unit_price'],
+                'amount'                         => $line['amount'],
+            ]);
+
+            $added += $line['amount'];
+        }
+
+        $invoice->subtotal    = (float) $invoice->subtotal + $added;
+        $invoice->total       = (float) $invoice->total + $added;
+        $invoice->balance_due = (float) $invoice->balance_due + $added;
+        $this->updateInvoiceStatus($invoice);
+        $invoice->save();
+
+        Log::info("Billing: factura {$invoice->id} (#{$invoice->number}) suma \${$added} "
+            . "en servicios adicionales del cliente {$invoice->customer_id}.");
+    }
+
+    /**
+     * Factura de EXCEPCIÓN: sólo servicios adicionales, sin plan.
+     *
+     * Existe para los dos únicos casos en que la corrida mensual salta a un
+     * cliente porque **no tiene plan que cobrarle**, no porque no haya que
+     * cobrarle: cliente vigente sin `user_services` activo, y cliente con plan
+     * de cortesía permanente (empleado, canje). Ese cliente no paga internet,
+     * pero sí puede estar alquilando un router — y eso hay que cobrarlo.
+     *
+     * NO se emite en los otros cinco motivos de salto (`exclude_from_billing`,
+     * retirado/cancelado, tope de facturas pendientes, mes suprimido por
+     * borrado manual, política de primera factura): en todos ellos alguien —el
+     * operador o el propio sistema— ya decidió que a ese cliente no se le cobra,
+     * y emitirle una factura sería desobedecerlo. El tope de mora es el más
+     * delicado: existe justo para dejar de inflar deuda incobrable, así que
+     * también se respeta aquí.
+     *
+     * Detalles deliberados:
+     *  - Usa el `due_date` del ciclo del router, no "hoy + 5 días" como el cargo
+     *    puntual: así entra al seguimiento de mora y al corte igual que el resto.
+     *  - `invoice_type = additional`, de modo que ni `monthlyInvoiceExists()` ni
+     *    `auditMonthlyBilling()` la confundan con la mensualidad que falta.
+     *  - `courtesyMonth = false`: `charge_on_courtesy_month` habla de los meses
+     *    de cortesía POR INSTALACIÓN, no de un plan de cortesía permanente. Aquí
+     *    no hay factura de plan de la que ser cortesía.
+     *
+     * @return Invoice|null null cuando no había nada que cobrar (lo normal).
+     */
+    protected function issueAdditionalOnlyInvoice(
+        Router $router,
+        CustomerProfile $profile,
+        Billing $billingConfig,
+        Carbon $issueDate,
+        Carbon $dueDate,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        ?int $stopAt,
+    ): ?Invoice {
+        $tenantId   = (int) $router->tenant_id;
+        $customerId = (int) $profile->user_id;
+
+        $lines = $this->chargeableAdditionalServices($tenantId, $customerId, $periodStart, $periodEnd);
+
+        if (empty($lines)) {
+            return null;
+        }
+
+        // Mismo tope que la mensualidad: al moroso que ya acumula facturas sin
+        // pagar no se le sigue sumando deuda, venga del plan o de un adicional.
+        if ($stopAt !== null && $this->pendingInvoiceCount($tenantId, $customerId) >= $stopAt) {
+            Log::info("Billing: Customer {$customerId} — tope de facturación alcanzado; "
+                . 'no se emite la factura de servicios adicionales.');
+            return null;
+        }
+
+        return DB::transaction(function () use (
+            $tenantId, $customerId, $router, $profile, $billingConfig,
+            $issueDate, $dueDate, $periodStart, $periodEnd, $lines
+        ) {
+            $invoiceNumber = $this->generateInvoiceNumber($tenantId);
+
+            $invoice = Invoice::create([
+                'tenant_id'    => $tenantId,
+                'customer_id'  => $customerId,
+                'invoice_type' => Invoice::TYPE_ADDITIONAL,
+                'number'       => $invoiceNumber,
+                'issue_date'   => $issueDate,
+                'due_date'     => $dueDate,
+                'period_start' => $periodStart,
+                'period_end'   => $periodEnd,
+                'currency'     => 'COP',
+                'subtotal'     => 0,
+                'tax'          => 0,
+                'total'        => 0,
+                'balance_due'  => 0,
+                'status'       => 'issued',
+            ]);
+
+            // Nace en cero y los ítems la levantan, igual que la mensualidad.
+            $this->applyAdditionalServicesTo($invoice, $periodStart, $periodEnd, false, $lines);
+
+            $profile->refresh();
+            $this->applyCreditToInvoice($invoice, $profile);
+
+            Log::info("Billing: Invoice {$invoiceNumber} (sólo servicios adicionales) creada para el cliente "
+                . "{$customerId} del router {$router->id} — no tiene plan que facturar.");
+
+            try {
+                $invoice->refresh()->load('tenant');
+
+                if ((float) $invoice->balance_due > 0) {
+                    $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+                }
+            } catch (\Throwable $e) {
+                Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+            }
+
+            return $invoice;
+        });
+    }
+
+    /**
+     * Qué servicios adicionales corresponde cobrarle a este cliente en este
+     * periodo, ya con su monto resuelto. **Sólo calcula: no escribe nada.**
+     *
+     * Está separado del método que persiste porque hay dos llamantes con
+     * necesidades distintas: la factura mensual aplica el resultado sobre una
+     * factura que ya existe, mientras que la factura de excepción (cliente sin
+     * plan que cobrar) necesita saber si hay algo que cobrar ANTES de crear la
+     * factura — emitir una vacía gastaría un consecutivo y confundiría al
+     * cliente. El filtro vive en un solo sitio para que las dos rutas no puedan
+     * divergir.
+     *
+     * @return array<int, array{assignment_id:int, description:string, quantity:int, unit_price:float, amount:float}>
+     */
+    protected function chargeableAdditionalServices(
+        int $tenantId,
+        int $customerId,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        bool $courtesyMonth = false,
+    ): array {
         // withoutTenantScope + tenant_id explícito: el scope global deriva el
         // tenant del usuario autenticado y esto corre en el scheduler (sin
         // sesión) y también desde la UI (donde el usuario podría pertenecer a
         // un tenant distinto del de la factura que se está generando). Fijarlo
         // a mano es la única forma de que dé lo mismo quién dispare la corrida.
         $assignments = CustomerAdditionalService::withoutTenantScope()
-            ->where('tenant_id', $invoice->tenant_id)
-            ->where('customer_id', $invoice->customer_id)
+            ->where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
             ->where('is_active', true)
             ->with(['service' => fn ($q) => $q->withoutGlobalScope('tenant')])
             ->get();
 
-        if ($assignments->isEmpty()) {
-            return;
-        }
-
-        $added = 0.0;
+        $lines = [];
 
         foreach ($assignments as $assignment) {
             $service = $assignment->service;
@@ -1347,7 +1525,7 @@ class BillingService
                 continue;
             }
 
-            if ($this->additionalServiceAlreadyBilled($assignment->id, $invoice, $periodStart, $periodEnd)) {
+            if ($this->additionalServiceAlreadyBilled($assignment->id, $customerId, $periodStart, $periodEnd)) {
                 continue;
             }
 
@@ -1378,31 +1556,16 @@ class BillingService
                 continue;
             }
 
-            InvoiceItem::create([
-                'invoice_id'                     => $invoice->id,
-                'customer_additional_service_id' => $assignment->id,
-                'type'                           => 'additional_service',
-                'description'                    => $description,
-                'quantity'                       => $quantity,
-                'unit_price'                     => $unitPrice,
-                'amount'                         => $amount,
-            ]);
-
-            $added += $amount;
+            $lines[] = [
+                'assignment_id' => (int) $assignment->id,
+                'description'   => $description,
+                'quantity'      => $quantity,
+                'unit_price'    => $unitPrice,
+                'amount'        => $amount,
+            ];
         }
 
-        if ($added <= 0) {
-            return;
-        }
-
-        $invoice->subtotal    = (float) $invoice->subtotal + $added;
-        $invoice->total       = (float) $invoice->total + $added;
-        $invoice->balance_due = (float) $invoice->balance_due + $added;
-        $this->updateInvoiceStatus($invoice);
-        $invoice->save();
-
-        Log::info("Billing: factura {$invoice->id} (#{$invoice->number}) suma \${$added} "
-            . "en servicios adicionales del cliente {$invoice->customer_id}.");
+        return $lines;
     }
 
     /**
@@ -1418,13 +1581,13 @@ class BillingService
      */
     protected function additionalServiceAlreadyBilled(
         int $assignmentId,
-        Invoice $invoice,
+        int $customerId,
         Carbon $periodStart,
         Carbon $periodEnd,
     ): bool {
         return InvoiceItem::where('customer_additional_service_id', $assignmentId)
-            ->whereHas('invoice', function ($q) use ($invoice, $periodStart, $periodEnd) {
-                $q->where('customer_id', $invoice->customer_id)
+            ->whereHas('invoice', function ($q) use ($customerId, $periodStart, $periodEnd) {
+                $q->where('customer_id', $customerId)
                     ->where('period_start', '<=', $periodEnd->toDateString())
                     ->where('period_end', '>=', $periodStart->toDateString());
             })

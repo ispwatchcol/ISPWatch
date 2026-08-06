@@ -594,6 +594,27 @@ por tipo, no con un listado propio — el razonamiento está en el registro de d
   migrar las 13 llamadas restantes es un cambio mecánico pero toca flujos ajenos a Finanzas
   (PDFs, importación), así que se dejó fuera del alcance de la fase.
 
+### 📋 P-10 · La factura de excepción no cobra el arrastre pendiente
+
+**Contexto.** Un cliente sin plan que cobrar (sin `user_services` activo, o con plan de cortesía
+permanente) pero con servicios adicionales recibe una factura sólo con ellos —
+`BillingService::issueAdditionalOnlyInvoice()`. Esa factura aplica el saldo a favor del cliente,
+pero **no** llama a `applyPendingCarryoversTo()`.
+
+**Consecuencia.** Si ese cliente abonó parcialmente una factura anterior, el saldo arrastrado queda
+en `invoice_carryovers` con estado `pending` **para siempre**: el arrastre se cobra en la siguiente
+factura mensual, y este cliente nunca recibe una. Es plata que se deja de cobrar sin que nadie se
+entere.
+
+**Por qué se dejó así.** La factura de excepción se diseñó para cobrar una cosa concreta e
+identificable — el alquiler del equipo —, y mezclarle deuda de un abono viejo sorprendería al
+cliente que la recibe. Añadirlo es una línea (`$this->applyPendingCarryoversTo($invoice)`), pero
+cambia lo que esa factura significa, y el caso es la intersección de tres situaciones poco
+frecuentes: cliente sin plan **y** con adicionales **y** con un abono parcial previo.
+
+**Recomendación.** Decidirlo explícitamente cuando aparezca el primer caso real. Si se opta por
+cobrarlo, el aviso al cliente debería desglosar las dos cosas para que no parezca un cobro doble.
+
 ### 📋 Observación menor
 
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de

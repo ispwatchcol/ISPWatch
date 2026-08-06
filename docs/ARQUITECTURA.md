@@ -274,6 +274,19 @@ Dos detalles que el código señala y conviene no perder:
   prorrateada es el día de instalación. Los adicionales razonan sobre el mes natural, que
   se deriva de `$periodEnd->startOfMonth()`.
 
+**Factura de excepción.** La corrida mensual salta a un cliente por siete motivos. En
+**dos** de ellos —sin `user_services` activo y plan de cortesía permanente— el cliente
+sigue vigente y sencillamente no hay *plan* que cobrarle: si tiene adicionales,
+`issueAdditionalOnlyInvoice()` emite una factura sólo con ellos, con
+`invoice_type = additional` y el `due_date` del ciclo del router.
+
+En los otros cinco —`exclude_from_billing`, retirado/cancelado, **tope de facturación**,
+mes suprimido por borrado manual, política de primera factura— no se emite nada: alguien,
+el operador o el propio sistema, ya decidió que a ese cliente no se le cobra.
+
+> El tope de facturación es el que más importa respetar: existe para dejar de acumular
+> deuda incobrable en un moroso, así que la factura de adicionales también se frena ahí.
+
 ### Plantillas de documentos (`app/Services/Templates`)
 
 Cada tenant puede personalizar el cuerpo de 3 documentos (factura, contrato, hoja de

@@ -302,6 +302,21 @@ factura todo lo demás.
 | Se **borra la factura** del mes | Al regenerarla, el adicional se vuelve a cobrar. No se pierde |
 | La generación mensual corre **dos veces** | El adicional se cobra **una sola vez**. No hay riesgo de duplicar |
 
+##### ¿Y si el cliente no paga plan?
+
+Hay clientes que no reciben factura mensual porque no tienen un plan que cobrarles: un
+**empleado con plan de cortesía**, o alguien vigente a quien todavía no se le asignó plan. Si
+ese cliente tiene servicios adicionales, el sistema le emite **una factura sólo con ellos**,
+con el mismo vencimiento que el resto de facturas de su router.
+
+Tiene sentido: no paga internet, pero sí está alquilando el equipo.
+
+> **No confundir con "no facturar".** Si el cliente está marcado como *excluido de
+> facturación*, retirado, o **llegó al tope de facturas pendientes**, no se le emite nada —
+> tampoco de adicionales. En esos casos alguien ya decidió que a ese cliente no se le cobra, y
+> el sistema lo respeta. El tope es el más importante: existe para dejar de acumularle deuda a
+> quien ya no está pagando.
+
 ### 5.4 Estados del cliente: suspender, retirar, cancelar
 
 Desde la ficha del cliente, con los botones **Suspender** y **Activar**.
