@@ -26,10 +26,10 @@
 
 | Estado | Cantidad | Detalle |
 |---|---:|---|
-| ✅ **Resuelto en código** | 20 | Aplicado y verificado con tests |
+| ✅ **Resuelto en código** | 21 | Aplicado y verificado con tests |
 | 🔧 **Requiere ejecución** | 4 | El código está listo; falta correr migraciones o rotar credenciales |
 | ❌ **Falso positivo** | 2 | Corregidos en §2 |
-| 📋 **Pendiente** | 12 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-10, P-11 y P-12, del repaso del manual del 2026-08-03) |
+| 📋 **Pendiente** | 13 | Decisión de producto, trabajo de frontend, o hallazgos posteriores (P-10 a P-12 del repaso del manual del 2026-08-03; P-13 y P-14 del diagnóstico de plantillas migradas del 2026-08-05) |
 
 ### Resultado medible
 
@@ -518,7 +518,7 @@ clave en local, con el riesgo que eso implica). Aplicar el mismo patrón de
 cualquier otro sitio que lea un campo `encrypted` fuera de un flujo que ya lo espera
 explícitamente (ej. conexión real a un router).
 
-### 📋 P-7 · El whitelist de contrato no tiene "departamento"/"ciudad" del cliente
+### ✅ P-7 · El whitelist de contrato no tiene "departamento"/"ciudad" del cliente — RESUELTO 2026-08-05
 
 Detectado 2026-08-04 preparando un HTML real de cliente (exportado de WispHub) para probar contra
 el modo avanzado: el contrato original usaba `{{cliente.localidad}}` (Departamento) y
@@ -528,12 +528,18 @@ práctica es sólo la dirección de calle, sin departamento/ciudad por separado)
 texto literal `(no disponible en ISPwatch)` en el HTML de prueba corregido, no por un placeholder
 real — de lo contrario se habrían blanqueado en silencio sin que nadie notara por qué.
 
-**Recomendación.** Si el negocio necesita mostrar departamento/ciudad en el contrato (común en
-plantillas migradas de WispHub), agregar `cliente.localidad`/`cliente.ciudad` (o nombres
-equivalentes) a la whitelist de `contract`, resueltos desde `CustomerProfile` (ver qué columnas
-existen ahí para departamento/ciudad antes de implementar — no asumir el nombre de columna). No
-implementado todavía: pendiente de confirmación explícita, mismo criterio que el resto de cambios
-de whitelist en esta sesión.
+**Resuelto 2026-08-05** (confirmado explícitamente por el usuario). Se agregaron
+`cliente.ciudad` (Municipio) y `cliente.departamento` (Departamento) a la whitelist de
+`contract` y a `PlaceholderResolver::forContract()`, resueltos desde
+`customer_profile.city` / `.state` — las columnas existen desde la migración
+`2025_12_22_163903_add_location_fields_to_customer_profile_table`, verificado antes de
+implementar en vez de asumir el nombre.
+
+Se eligió `cliente.departamento` y **no** `cliente.localidad` (el nombre de WispHub): la
+columna se llama `state` y "departamento" es el término del formato CRC, mientras que
+"localidad" en Colombia significa otra cosa (subdivisión de Bogotá). La equivalencia con el
+nombre de WispHub quedó documentada en la tabla de migración de marcadores de
+`docs/MANUAL_USUARIO.md`. Ver `docs/BITACORA_TECNICA.md` § 15.4.
 
 ### 📋 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página
 
@@ -653,6 +659,43 @@ tenants. Deberían salir de `tenant.billing_phone`.
 
 ---
 
+### 📋 P-13 · Migrar una plantilla desde otro sistema no tiene ninguna ayuda dentro de la app
+
+Detectado 2026-08-05 con un tenant que pegó su contrato completo exportado de WispHub en modo
+avanzado y reportó que "no toma bien la plantilla". El HTML estaba bien y el sanitizer lo dejaba
+prácticamente intacto; lo que fallaba eran los **nombres de los marcadores**, que no son
+compatibles entre sistemas. `PlaceholderResolver::apply()` blanquea en silencio cualquier
+`{{…}}` desconocido — comportamiento correcto y deliberado (un typo nunca debe romper el render),
+pero indistinguible de "el sistema no funciona" desde la interfaz: el usuario ve el HTML correcto
+y los datos en blanco, sin ninguna pista de por qué.
+
+La tabla de equivalencias WispHub → ISPwatch quedó documentada en `MANUAL_USUARIO.md`, pero
+**vive sólo en la documentación**: nadie la va a leer en el momento en que pega el HTML.
+
+**Recomendación.** Reutilizar el mecanismo de `X-Template-Warnings` que ya existe para bloques
+huérfanos: al previsualizar, recolectar los tokens `{{…}}` que no están en la whitelist del tipo
+y devolverlos como aviso — *"3 marcadores no se reconocen y saldrán en blanco: `plan_internet.precio`,
+`fecha_instalacion`, `cliente_nombre`"*. Cuando el token desconocido tenga un equivalente conocido,
+sugerirlo. Es el mismo camino que P-8 propone para las celdas largas, y ataca la causa raíz de esta
+clase entera de reportes. Relacionado con la nota existente sobre placeholders *cross-type* que se
+blanquean sin aviso — es el mismo agujero de diagnóstico, visto desde otro ángulo.
+
+### 📋 P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper
+
+Detectado 2026-08-05 al agregar `setPaper()` en `TemplateRenderer`: 14 pruebas fallaron con
+`BadMethodCallException: Method Mockery_…_PDF::setPaper() does not exist on this mock object`,
+apuntando al código de producción y no a la causa real.
+
+`Barryvdh\DomPDF\PDF` **no define** la mayoría de su API fluida: la resuelve por `__call()`
+reenviando al `Dompdf` interno. Mockery valida contra los métodos reales de la clase, así que
+ningún método mágico existe para el mock. Se resolvió con `->shouldIgnoreMissing(\Mockery::self())`
+en los 26 sitios donde se mockea el PDF.
+
+**Por qué sigue siendo deuda.** El arreglo es correcto pero está copiado en 8 archivos de prueba, y
+la trampa vuelve en cuanto alguien llame a otro método del wrapper. Un helper en `Tests\TestCase`
+(`fakePdf()`) centralizaría la construcción y dejaría el motivo escrito una sola vez, en vez de
+obligar a cada quien a redescubrir por qué el mensaje de error miente sobre dónde está el problema.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -690,12 +733,14 @@ tenants. Deberían salir de `tenant.billing_phone`.
 | **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | 📋 Pendiente (deliberado, evaluar según demanda) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
-| **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | 📋 Pendiente de confirmación |
+| **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
 | **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 | **P-10** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | 📋 Pendiente (aviso vía `X-Template-Warnings`) |
+| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
 
 ---
 

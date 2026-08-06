@@ -723,8 +723,20 @@ contratos ya firmados, por orden cronológico y por tenant).
 `is_advanced_mode` (boolean, default `false` — `false` = fragmento insertado en el shell
 Blade fijo con allowlist acotado; `true` = documento HTML completo del tenant, saneado por
 `AdvancedTemplateSanitizer` y renderizado con `Pdf::loadHTML()` directo, sin shell —
-migración `2026_08_01_120000`), `updated_by`. Ver `docs/ARQUITECTURA.md` § Plantillas de
-documentos para el pipeline completo de saneado y sustitución de placeholders.
+migración `2026_08_01_120000`), `page_size` / `page_orientation` (`varchar(10)`, defaults
+`'a4'` / `'portrait'` — migración `2026_08_05_120000`), `updated_by`. Ver
+`docs/ARQUITECTURA.md` § Plantillas de documentos para el pipeline completo de saneado y
+sustitución de placeholders.
+
+`page_size` ∈ {`a4`, `letter`, `legal`} y `page_orientation` ∈ {`portrait`, `landscape`}
+son **columnas de texto, no enums**, a propósito: agregar un tamaño nuevo no debe requerir
+una migración de tipo, y un enum de PostgreSQL no existe en el SQLite donde corre la suite
+de tests. La whitelist real vive en `DocumentTemplate::PAGE_SIZES` / `PAGE_ORIENTATIONS`,
+se valida en `UpdateDocumentTemplateRequest` y se vuelve a comprobar en
+`TemplateRenderer::applyPaper()` antes de llegar a dompdf (una fila con basura cae al
+default en vez de producir un canvas silenciosamente raro). Los defaults reproducen
+exactamente el comportamiento previo a la migración, así que las plantillas ya guardadas
+siguen saliendo idénticas.
 
 ### 4.15 `support_ticket` y derivadas
 

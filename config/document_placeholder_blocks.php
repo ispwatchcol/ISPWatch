@@ -41,8 +41,10 @@ return [
         'contrato.firma_cliente' => 'Imagen de la firma del cliente',
     ],
 
+    // instalacion.fotos se retiró el 2026-08-05: las fotos de la instalación
+    // se consultan en los documentos del cliente, y dentro del PDF nunca
+    // llegaron a verse (ruta local vs. almacenamiento en S3 → imagen rota).
     'installation' => [
-        'instalacion.fotos'          => 'Galería de fotos de la instalación',
         'instalacion.firma_cliente'  => 'Imagen de la firma del cliente',
         'instalacion.firma_tecnico'  => 'Imagen de la firma del técnico',
         'empresa.logo'               => 'Logo de la empresa',

@@ -102,6 +102,7 @@ class SecurityHeaders
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: blob: http://localhost:5173; " .
                     "connect-src 'self' http://localhost:* ws://localhost:*; " .
+                    "frame-src 'self' blob:; " .
                     "object-src 'none'; " .
                     "base-uri 'self'; " .
                     "form-action 'self'; " .
@@ -120,6 +121,16 @@ class SecurityHeaders
                     "font-src 'self' https://fonts.gstatic.com data:; " .
                     "img-src 'self' data: https: http: blob:; " .
                     "connect-src 'self' https: wss:; " .
+                    // frame-src NO se hereda de default-src por accidente: sin
+                    // declararlo, caía en "default-src 'self'" y el navegador
+                    // RECHAZABA cualquier <iframe src="blob:...">. Eso rompía la
+                    // vista previa en PDF de la hoja de instalación (el visor
+                    // salía en gris con el icono de documento roto). 'blob:' sólo
+                    // habilita documentos generados por la propia página —quien
+                    // pudiera crear uno ya ejecuta script— y el blob hereda la
+                    // CSP del contexto que lo creó, así que no abre una vía de
+                    // escape. NO se añade 'data:', que sí es un vector clásico.
+                    "frame-src 'self' blob:; " .
                     // object-src 'none' bloquea <object>/<embed>, vectores clásicos
                     // de XSS. base-uri 'self' impide que una inyección reescriba
                     // la base de las URLs relativas. form-action 'self' evita que

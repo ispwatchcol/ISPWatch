@@ -640,6 +640,22 @@ class CustomerInstallationController extends Controller
             'technician_signature' => ['nullable', 'string', 'regex:/^data:image\/png;base64,/'],
         ]);
 
+        // Una orden = UNA hoja firmada. Firmar dos veces dejaba dos PDF casi
+        // idénticos en los documentos del cliente sin forma de saber cuál vale.
+        // Se comprueba ANTES de tocar nada: si se rechaza, la orden queda
+        // exactamente como estaba.
+        $existingSheet = CustomerDocument::where('installation_id', $installation->id)
+            ->where('signed', true)
+            ->first();
+
+        if ($existingSheet) {
+            return response()->json([
+                'message' => "Esta orden ya tiene una hoja de instalación firmada ({$existingSheet->file_name}). "
+                    . 'Elimínala en «Documentos de la orden» antes de generar otra.',
+                'existing_document_id' => $existingSheet->id,
+            ], 409);
+        }
+
         $custPath = $this->storeSignature($data['customer_signature'], $installation, 'cliente');
         $techPath = !empty($data['technician_signature'])
             ? $this->storeSignature($data['technician_signature'], $installation, 'tecnico')
@@ -690,10 +706,6 @@ class CustomerInstallationController extends Controller
         $tenant   = Tenant::find($installation->tenant_id);
         $tech     = $installation->technicianUser;
 
-        $photos = CustomerDocument::where('installation_id', $installation->id)
-            ->where('type', 'instalacion')
-            ->get();
-
         $sheet = $installation->sheet ?? [];
         $sectorial = !empty($sheet['sectorial_id']) ? \App\Models\Sectorial::find($sheet['sectorial_id']) : null;
         $router    = !empty($sheet['router_id'])    ? \App\Models\Router::find($sheet['router_id'])       : null;
@@ -708,7 +720,6 @@ class CustomerInstallationController extends Controller
             $prospect,
             $tenant,
             $tech,
-            $photos,
             $sectorial,
             $router,
             $plan,

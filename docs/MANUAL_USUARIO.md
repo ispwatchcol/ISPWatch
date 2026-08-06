@@ -262,6 +262,11 @@ el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejempl
 ese consecutivo va impreso dentro del documento y no se repite nunca. El prefijo lo
 configuras en **Configuración → Plantillas** (ver [17.4](#174-plantillas-de-documentos)).
 
+**Un solo contrato firmado por cliente.** Si el cliente ya tiene contrato, la zona de firma
+se reemplaza por un aviso: para generar uno nuevo hay que **eliminar primero el anterior**
+en *Documentos del cliente*. Es a propósito — así no se acumulan dos contratos casi iguales
+sin saber cuál es el que vale. Lo mismo aplica a la hoja de instalación de cada orden.
+
 Los documentos se ven pulsando sobre ellos: se abren en una pestaña nueva. Si alguno no
 abre, avísale al soporte técnico — puede ser un archivo de antes de la migración al
 almacenamiento actual.
@@ -353,13 +358,23 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    necesites.
    > Esto importa sobre todo con un **prospecto**, que aún no es cliente y no tiene ficha
    > donde consultar el documento después.
+   >
+   > Si tu teléfono no muestra el PDF dentro de la ventana, usa **Abrir en pestaña** o
+   > **Descargar**, en la misma barra.
 5. **Recoge las firmas**: la del cliente y la del técnico, dibujadas en pantalla.
    > El trazo se ve a medida que se firma. Si al firmar el recuadro se quedara en blanco,
    > vuelve a trazar la firma: el sistema **no deja cerrar la orden con una firma vacía**.
 
 Al firmar, el sistema genera la **hoja de instalación en PDF** y la orden queda cerrada. El
-PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con un botón
-**Ver PDF**; además queda guardado en la pestaña **Documentos** del cliente.
+PDF aparece en el bloque **Documentos de la orden**, en esa misma pantalla, con los botones
+**Ver PDF** y **Eliminar**; además queda guardado en la pestaña **Documentos** del cliente.
+
+> **Una orden, una hoja firmada.** Una vez firmada, el botón de firmar desaparece. Si la
+> hoja quedó mal, **elimínala** en *Documentos de la orden* y vuelve a firmar — así no
+> quedan dos hojas casi iguales sin saber cuál vale.
+>
+> La hoja **no incluye las fotos** de la instalación: esas se consultan en los documentos,
+> que es donde se guardan.
 
 > Antes ese PDF no se mostraba en la pantalla de la instalación —sólo en la ficha del
 > cliente—, así que después de firmar parecía que no se había generado nada. Ya se ve donde
@@ -1142,6 +1157,19 @@ pusiste, la **Vista previa** te avisa con un mensaje explícito (a diferencia de
 de texto simples, que se quedan callados). Si no has subido un logo en **Configuración → Marca**,
 el marcador simplemente no muestra nada — no es un error.
 
+**Tamaño y orientación de página.** Arriba del editor eliges el tamaño del papel (A4, Carta
+u Oficio) y si el documento sale **Vertical** u **Horizontal**. Cada documento tiene su
+propia configuración: puedes dejar la factura en vertical y el contrato en horizontal.
+
+Usa **Horizontal** si tu diseño es a dos columnas. Es el caso típico del contrato de
+servicio en Colombia (el formato de la CRC, con las cláusulas repartidas en dos columnas por
+página): ese diseño necesita más ancho del que cabe en una hoja vertical, y si lo dejas en
+vertical el PDF sale con las columnas aplastadas y el texto descuadrado. Si el documento se
+te ve apretado o cortado por los lados, esto es casi siempre la causa.
+
+La **Vista previa** usa lo que tengas seleccionado en ese momento, aunque todavía no hayas
+guardado — así puedes probar vertical y horizontal antes de decidir.
+
 El botón **Vista previa** te muestra cómo queda con datos de ejemplo, y **Restaurar** vuelve
 a la plantilla original (tu borrador no se pierde, puedes reactivarlo guardando de nuevo).
 
@@ -1158,6 +1186,36 @@ sistema. Si vienes de otra plataforma (ej. WispHub), revisa los nombres de marca
 marcadores no son compatibles entre sistemas, tienes que reemplazarlos por los de ISPwatch
 (los ves en el panel de marcadores disponibles) — un marcador con un nombre que ISPwatch no
 reconoce simplemente no muestra nada.
+
+**Si pegaste una plantilla de WispHub**, esta es la equivalencia de marcadores. Es el error
+más común al migrar: el HTML se ve bien pero los datos salen en blanco, porque los nombres
+no coinciden.
+
+| WispHub | ISPwatch |
+|---|---|
+| `{{ cliente_nombre }}` | `{{cliente.nombre}}` |
+| `{{ cliente_apellidos }}` | `{{cliente.apellido}}` |
+| `{{ cliente.user.email }}` | `{{cliente.email}}` |
+| `{{ plan_internet.nombre }}` | `{{plan.nombre}}` |
+| `{{ plan_internet.precio }}` | `{{plan.valor_mensual}}` |
+| `{{ fecha_instalacion }}` | `{{contrato.fecha}}` |
+| `{{cliente.localidad}}` | `{{cliente.departamento}}` |
+| `{{cliente.ciudad}}` | `{{cliente.ciudad}}` (igual) |
+| `CO-NUMERO_CONTRATO_TAG` | `{{contrato.numero}}` |
+| `<img src="FIRMA_CLIENTE_NO_BORRAR">` | `{{contrato.firma_cliente}}` |
+| Logo con una dirección de internet (`https://…`) | `{{empresa.logo}}` |
+
+Tres detalles que no son evidentes:
+
+- **El número de contrato ya trae el prefijo.** `{{contrato.numero}}` incluye el prefijo que
+  configuraste en **Configuración → Marca**. Si escribes `CO-{{contrato.numero}}` te va a
+  salir el prefijo dos veces.
+- **El logo tiene que ser el marcador, no una imagen de internet.** Una imagen enlazada a
+  una dirección externa (`https://…`) nunca se descarga al generar el PDF: sale rota. Sube
+  el logo en **Configuración → Marca** y usa `{{empresa.logo}}`.
+- **Los bloques (logo y firma) van sin espacios por dentro.** `{{contrato.firma_cliente}}`
+  funciona; `{{ contrato.firma_cliente }}` con espacios **no** se reconoce y desaparece. Los
+  marcadores de texto normales sí toleran espacios, pero conviene escribirlos todos igual.
 
 > ⚠️ **Importante si pegas HTML de otro sistema: no metas textos largos dentro de una celda de
 > tabla.** El generador de PDF no sabe partir una celda entre dos páginas: si el texto de una

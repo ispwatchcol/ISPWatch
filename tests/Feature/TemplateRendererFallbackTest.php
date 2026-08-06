@@ -89,7 +89,7 @@ class TemplateRendererFallbackTest extends TestCase
     {
         $tenant = $this->makeTenant();
         $invoice = $this->makeInvoice($tenant, $this->makeCustomer($tenant));
-        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
 
         Pdf::shouldReceive('loadView')
             ->once()
@@ -111,7 +111,7 @@ class TemplateRendererFallbackTest extends TestCase
             'is_active' => true,
         ]);
 
-        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
 
         Pdf::shouldReceive('loadView')
             ->once()
@@ -142,7 +142,7 @@ class TemplateRendererFallbackTest extends TestCase
         Pdf::shouldReceive('loadView')
             ->once()
             ->withArgs(fn ($view) => $view === 'billing.invoice_pdf')
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderInvoice($invoice);
 
@@ -217,7 +217,7 @@ class TemplateRendererFallbackTest extends TestCase
             'address'        => 'Calle 1',
             'status'         => 'pendiente',
         ]);
-        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $sentinel = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
 
         Pdf::shouldReceive('loadView')
             ->once()
@@ -226,7 +226,7 @@ class TemplateRendererFallbackTest extends TestCase
 
         $result = $this->renderer->renderInstallationSheet(
             $installation, $customer, $customer->customerProfile, null, $tenant, null,
-            collect(), null, null, null, self::SAMPLE_PNG, self::SAMPLE_PNG, '25/07/2026'
+            null, null, null, self::SAMPLE_PNG, self::SAMPLE_PNG, '25/07/2026'
         );
 
         $this->assertSame($sentinel, $result);
@@ -267,7 +267,6 @@ class TemplateRendererFallbackTest extends TestCase
             null,
             $tenant,
             null,
-            collect(),
             null,
             null,
             $plan,

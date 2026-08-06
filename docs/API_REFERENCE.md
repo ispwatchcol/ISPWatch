@@ -416,6 +416,14 @@ prospecto, que todavía no es cliente— lea lo que va a firmar.
   El frontend lo pide con `responseType: 'blob'`.
 - Respeta el tenant: una orden de otro tenant devuelve `404`.
 
+#### `409` al firmar por segunda vez
+
+`POST /api/installations/{installation}/sign` y `POST /api/customers/{customer}/contract-sign`
+devuelven **`409 Conflict`** —con `message` y `existing_document_id`— si ya existe el
+documento firmado (la hoja de esa orden, o el contrato de ese cliente). No se acumulan
+varios PDF del mismo documento: hay que **eliminar el anterior** y volver a firmar. El
+contrato lo comprueba antes de reservar el consecutivo, así que un `409` no gasta número.
+
 ---
 
 ## 7. Documentos de cliente
@@ -930,13 +938,20 @@ ruta a propósito**: un valor inválido debe llegar al controlador para que
 **`GET /api/document-templates/{type}`** — además de `body_html`/`is_active`/`has_draft`,
 devuelve:
 - `is_advanced_mode` (bool) — si la plantilla usa el shell fijo o el documento HTML completo.
+- `page_size` / `page_orientation` (string) — tamaño y orientación del PDF. Nunca vienen vacíos: si la fila no existe o los tiene en `NULL`, la respuesta trae los defaults (`"a4"` / `"portrait"`).
+- `page_sizes` / `page_orientations` — valores aceptados, para poblar los selectores del editor sin duplicar la lista en el frontend.
 - `placeholders` — whitelist de placeholders **escalares** para el tipo (`config/document_placeholders.php`), `{token: etiqueta}`.
 - `block_placeholders` — whitelist de placeholders **de bloque** para el tipo (`config/document_placeholder_blocks.php`), mismo formato. Los 3 tipos incluyen `empresa.logo` (auditoría 2026-08-03) — `contract` ya no está vacío. `contract` también incluye `contrato.firma_cliente` (auditoría 2026-08-04) — necesario en modo avanzado, donde no hay shell fijo que la imprima por su cuenta (ver `docs/ARQUITECTURA.md`).
 
 **`PUT /api/document-templates/{type}`** y **`POST .../preview`** — cuerpo:
 
 ```json
-{ "body_html": "<p>…</p>", "is_advanced_mode": false }
+{
+  "body_html": "<p>…</p>",
+  "is_advanced_mode": false,
+  "page_size": "a4",
+  "page_orientation": "portrait"
+}
 ```
 
 `is_advanced_mode` es `sometimes|boolean` (default `false`). Determina **qué sanitizer** se
@@ -944,6 +959,19 @@ usa para sanear `body_html` — `TemplateSanitizer` (acotado) o `AdvancedTemplat
 (amplio, documento completo). En `preview`, refleja el modo que el tenant tiene seleccionado
 *en ese momento* en el editor, no necesariamente lo persistido (puede estar probando antes de
 guardar).
+
+`page_size` (`a4`|`letter`|`legal`) y `page_orientation` (`portrait`|`landscape`) son
+`sometimes|nullable|in:…` — omitirlos o mandarlos `null` significa "usa el default", que es
+el comportamiento previo a que existieran (a4 vertical). Igual que `is_advanced_mode`, en
+`preview` reflejan lo seleccionado *en ese momento* en el editor y no lo guardado: si la
+vista previa usara la fila persistida, cambiar a horizontal y previsualizar seguiría
+mostrando el diseño roto en vertical. Un valor fuera de la whitelist se rechaza con `422`;
+una fila ya guardada con basura cae al default en `TemplateRenderer::applyPaper()` en vez de
+llegar a dompdf.
+
+> **Cuándo hace falta horizontal:** un contrato a dos columnas (formato CRC colombiano, el
+> que exportan sistemas como WispHub) necesita ~950 px de ancho. A4 vertical da ~698 px
+> útiles a 96 dpi y dompdf aprieta el diseño; A4 horizontal da ~1027 px y cabe intacto.
 
 **Header `X-Template-Warnings`** (sólo en la respuesta de `preview`, sólo si aplica) — JSON
 array de `{token, label}` con los placeholders **de bloque** que no se pudieron insertar en el

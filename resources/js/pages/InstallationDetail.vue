@@ -285,10 +285,18 @@
                 {{ d.signed ? 'Generado y firmado por el sistema' : 'Archivo adjunto' }}
               </p>
             </div>
-            <a :href="d.url" target="_blank" rel="noopener"
-              class="shrink-0 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition">
-              Ver PDF
-            </a>
+            <div class="shrink-0 flex items-center gap-2">
+              <a :href="d.url" target="_blank" rel="noopener"
+                class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition">
+                Ver PDF
+              </a>
+              <!-- Sin este botón no habría forma de rehacer una hoja mal
+                   firmada: sólo se puede volver a firmar si se borra la anterior. -->
+              <button @click="deleteGeneratedDoc(d)" type="button"
+                class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-3 py-1.5 rounded-lg transition">
+                Eliminar
+              </button>
+            </div>
           </li>
         </ul>
       </div>
@@ -601,8 +609,16 @@
           </div>
         </div>
 
+        <!-- Una orden = UNA hoja firmada: mientras exista, no se ofrece firmar
+             otra (el backend también lo rechaza). -->
+        <div v-if="signedSheet"
+          class="mt-5 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300">
+          Esta orden ya tiene su hoja firmada (<strong>{{ signedSheet.file_name }}</strong>).
+          Para rehacerla, elimínala en <strong>Documentos de la orden</strong> y vuelve a firmar.
+        </div>
+
         <div class="flex flex-wrap gap-3 mt-5">
-          <button @click="sign" :disabled="signing || !hasCustSig"
+          <button v-if="!signedSheet" @click="sign" :disabled="signing || !hasCustSig"
             class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
             {{ signing ? 'Generando hoja...' : 'Firmar y completar' }}
           </button>
@@ -634,9 +650,15 @@
             </p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
+            <!-- Alternativas si el visor incrustado no puede pintar el PDF
+                 (algunos navegadores móviles no lo soportan dentro de un iframe). -->
             <a :href="previewUrl" target="_blank" rel="noopener"
               class="text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white px-3 py-1.5 rounded-lg">
               Abrir en pestaña
+            </a>
+            <a :href="previewUrl" :download="`hoja-instalacion-${installationId}.pdf`"
+              class="text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white px-3 py-1.5 rounded-lg">
+              Descargar
             </a>
             <button @click="closePreview" type="button"
               class="text-xs bg-gray-800 hover:bg-gray-900 text-white px-3 py-1.5 rounded-lg">
@@ -819,6 +841,9 @@ const discountIsPositive  = computed(() => Number(billing.value.discount) > 0)
 
 const photos = ref([])
 const generatedDocs = ref([])
+// La hoja firmada de esta orden, si ya se generó. Es lo que bloquea firmar
+// dos veces y dejar dos PDF casi idénticos entre los documentos del cliente.
+const signedSheet = computed(() => generatedDocs.value.find(d => d.signed))
 const fileInput = ref(null)
 const pendingFiles = ref([])
 const uploading = ref(false)
@@ -1079,6 +1104,17 @@ const uploadFiles = async () => {
   }
 }
 
+const deleteGeneratedDoc = async (d) => {
+  if (!confirm(`¿Eliminar "${d.file_name}"? Esta acción no se puede deshacer.`)) return
+  try {
+    await api.customers.deleteDocument(d.id)
+    generatedDocs.value = generatedDocs.value.filter(x => x.id !== d.id)
+    toast.value?.success('Eliminado', 'Documento eliminado. Ya puedes volver a firmar la orden.')
+  } catch {
+    toast.value?.error('Error', 'No se pudo eliminar el documento.')
+  }
+}
+
 const deletePhoto = async (p) => {
   if (!confirm(`¿Eliminar "${p.file_name}"?`)) return
   try {
@@ -1218,10 +1254,23 @@ const previewSheet = async () => {
   previewing.value = true
   try {
     const { data } = await api.customers.previewInstallationSheet(installationId.value, buildSheetPayload())
+
+    // El gateway puede responder 200 con HTML (una página de error suya) en
+    // vez del PDF. Sin comprobarlo, el visor sale en gris con el icono de
+    // documento roto y no hay forma de saber qué pasó: se comprueba la firma
+    // del archivo antes de abrir el modal.
+    const head = await data.slice(0, 5).text()
+    if (!head.startsWith('%PDF-')) {
+      throw new Error('La respuesta no es un PDF')
+    }
+
     closePreview()
     previewUrl.value = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }))
   } catch (e) {
-    toast.value?.error('Error', 'No se pudo generar la vista previa de la hoja.')
+    toast.value?.error(
+      'No se pudo generar la vista previa',
+      'El servidor no devolvió el PDF de la hoja. Vuelve a intentarlo; si sigue igual, avisa a soporte.'
+    )
   } finally {
     previewing.value = false
   }

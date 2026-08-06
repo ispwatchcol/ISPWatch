@@ -61,22 +61,20 @@ class BlockPlaceholderResolver
         ];
     }
 
+    /**
+     * El bloque `instalacion.fotos` se retiró el 2026-08-05: las fotos ya
+     * viven en los documentos del cliente y en el PDF nunca llegaron a verse
+     * (se referenciaban en disco local mientras se almacenan en S3).
+     */
     public function forInstallation(
         CustomerInstallation $installation,
         Tenant $tenant,
-        $photos,
         ?string $customerSignature,
         ?string $technicianSignature
     ): array {
         $tenantId = (int) $installation->tenant_id;
 
         return [
-            'instalacion.fotos' => $this->safeRender(
-                'documents.blocks.installation_photos',
-                ['photos' => $photos],
-                'instalacion.fotos',
-                $tenantId
-            ),
             'instalacion.firma_cliente' => $this->safeRender(
                 'documents.blocks.signature_image',
                 ['signature' => $customerSignature, 'alt' => 'Firma cliente'],

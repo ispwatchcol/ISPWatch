@@ -79,7 +79,7 @@ class CustomerContractSignTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -146,7 +146,7 @@ class CustomerContractSignTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -206,7 +206,7 @@ class CustomerContractSignTest extends TestCase
             'is_active' => false,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -230,6 +230,53 @@ class CustomerContractSignTest extends TestCase
         ]);
 
         $response->assertStatus(422);
+    }
+
+    /**
+     * Un cliente = UN contrato firmado vigente. Además el rechazo NO puede
+     * gastar un número de la secuencia: se comprueba antes de reservarlo.
+     */
+    public function test_refuses_a_second_contract_and_says_to_delete_the_previous_one(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $this->postJson("/api/customers/{$this->customer->id}/contract-sign", [
+            'signature' => self::SAMPLE_PNG,
+        ])->assertStatus(201);
+
+        $numberBefore = $this->tenant->fresh()->next_contract_number;
+
+        $second = $this->postJson("/api/customers/{$this->customer->id}/contract-sign", [
+            'signature' => self::SAMPLE_PNG,
+        ]);
+
+        $second->assertStatus(409);
+        $this->assertStringContainsString('Elimínalo', $second->json('message'));
+
+        $this->assertSame(
+            1,
+            \App\Models\CustomerDocument::where('customer_id', $this->customer->id)
+                ->where('type', 'contrato')
+                ->count()
+        );
+        $this->assertSame($numberBefore, $this->tenant->fresh()->next_contract_number);
+    }
+
+    public function test_can_sign_a_new_contract_after_deleting_the_previous_one(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $this->postJson("/api/customers/{$this->customer->id}/contract-sign", [
+            'signature' => self::SAMPLE_PNG,
+        ])->assertStatus(201);
+
+        \App\Models\CustomerDocument::where('customer_id', $this->customer->id)
+            ->where('type', 'contrato')
+            ->delete();
+
+        $this->postJson("/api/customers/{$this->customer->id}/contract-sign", [
+            'signature' => self::SAMPLE_PNG,
+        ])->assertStatus(201);
     }
 
     public function test_cannot_sign_a_contract_for_a_customer_of_another_tenant(): void

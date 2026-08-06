@@ -137,19 +137,13 @@
         </table>
     @endif
 
-    @if($photos && count($photos))
-        <h2>Fotos de la Instalación</h2>
-        <div class="photos">
-            @foreach($photos as $p)
-                @if(in_array(strtolower(pathinfo($p->file_name, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'webp']))
-                    <div class="photo">
-                        <img src="{{ public_path('storage/' . $p->file_path) }}" alt="">
-                        <div class="cap">{{ $p->file_name }}</div>
-                    </div>
-                @endif
-            @endforeach
-        </div>
-    @endif
+    {{--
+        Las fotos de la instalación NO van en la hoja: viven en los documentos
+        del cliente, que es donde se consultan. Además nunca llegaron a verse
+        aquí — se referenciaban con public_path('storage/...') mientras que se
+        almacenan en S3, así que dompdf pintaba recuadros de imagen rota con el
+        nombre del archivo debajo (retirado el 2026-08-05).
+    --}}
 
     <div class="sign-area">
         <div class="sign-box">

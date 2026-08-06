@@ -24,6 +24,7 @@
 12. [Consecutivo de contratos — 2026-08-04](#12-consecutivo-de-contratos--2026-08-04)
 13. [El prefijo del consecutivo pasa a ser texto libre — 2026-08-05](#13-el-prefijo-del-consecutivo-pasa-a-ser-texto-libre--2026-08-05)
 14. [Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05](#14-vista-previa-de-la-hoja-de-instalación-y-firma-que-no-se-dibujaba--2026-08-05)
+15. [Tamaño/orientación de página y plantillas migradas de WispHub — 2026-08-05](#15-tamañoorientación-de-página-y-plantillas-migradas-de-wisphub--2026-08-05)
 
 ---
 
@@ -1083,7 +1084,70 @@ Los tres arreglos, en orden de importancia:
 | `loadInstallation({ silent: true })` en los refrescos (subida de fotos) | El spinner de pantalla completa ya no desmonta el bloque, así que una firma en curso sobrevive al refresco. En modo silencioso un error tampoco vacía `installation` |
 | `canvasHasInk(canvas)` (barrido del canal alfa) decide si hay firma, en vez de la bandera reactiva | La bandera mentía cuando el canvas se re-montaba. Ahora es imposible cerrar una orden con una firma en blanco |
 
-### 14.3 Efecto colateral en las pruebas
+### 14.3 El visor salía en gris: `frame-src` faltaba en la CSP
+
+Ya en producción, el modal abría pero el PDF no se pintaba (recuadro gris con el icono de
+documento roto). No era el PDF: la CSP de `SecurityHeaders` **no declaraba `frame-src`**, así
+que heredaba `default-src 'self' {origen}` y el navegador **rechazaba** el
+`<iframe src="blob:…">`. Añadido `frame-src 'self' blob:` en las dos ramas (local y
+producción).
+
+`blob:` sólo habilita documentos generados por la propia página —quien pueda crear uno ya
+ejecuta script— y el blob hereda la CSP del contexto que lo creó, así que no abre una vía de
+escape. **No** se añadió `data:`, que sí es un vector clásico de XSS.
+
+Lo importante del fallo no es la directiva sino cómo se manifestó: **una regresión de CSP no
+rompe nada en el servidor**, falla en el navegador del usuario y no deja rastro en los logs de
+la aplicación. Por eso ahora hay `tests/Feature/SecurityHeadersTest.php`, que fija
+`frame-src 'self' blob:`, prohíbe `data:` en esa directiva y vuelve a comprobar las tres
+restricciones de la auditoría de 2026-07-30 (`object-src 'none'`, sin `unsafe-eval`, sin
+`unsafe-inline` en `script-src`).
+
+Como segunda red, `previewSheet()` comprueba que la respuesta empiece por `%PDF-` antes de
+abrir el modal: si el gateway devuelve 200 con HTML propio, sale un aviso claro en vez de un
+visor gris. El modal ofrece además **Abrir en pestaña** y **Descargar** para los navegadores
+móviles que no pintan PDFs dentro de un iframe.
+
+> **Despliegue:** este arreglo es de **backend** (cabecera HTTP). Desplegar sólo el frontend
+> deja el visor exactamente igual de gris.
+
+### 14.4 Fuera las fotos del PDF, y un solo documento firmado por tipo
+
+Dos cosas que salieron al usarlo de verdad en producción.
+
+**Las fotos no van en la hoja.** El PDF traía una sección *Fotos de la Instalación* con
+recuadros de imagen rota y el nombre del archivo debajo. Nunca funcionó: se referenciaban
+como `public_path('storage/'.$file_path)` mientras que se almacenan en **S3**, así que dompdf
+no encontraba nada. Además son redundantes — las fotos se consultan en los documentos del
+cliente, que es su sitio. Retirado de la vista legacy, del shell y como bloque:
+
+| Se eliminó | Consecuencia |
+|---|---|
+| Sección de fotos en `installation_sheet_pdf.blade.php` y `shells/installation_shell.blade.php` | La hoja ya no intenta pintar imágenes que no puede resolver |
+| Bloque `{{instalacion.fotos}}` (config, resolver y su partial) | Una plantilla que todavía lo use se blanquea, como cualquier token desconocido — nunca deja el marcador ni el texto crudo a la vista (fijado en `TemplateRendererBlockPlaceholdersTest`) |
+| Parámetro `$photos` en `renderInstallationSheet`/`previewInstallationSheet`/`forInstallation` | Ya no lo consume nadie; se quitó de la firma en vez de dejarlo muerto |
+
+Si algún día se quieren fotos dentro del PDF, hay que **incrustarlas desde S3 como data URI**
+— no basta con volver a poner el `<img>`, que es exactamente el error que se retira aquí.
+
+**Un solo documento firmado por tipo.** Firmar dos veces dejaba dos PDF casi idénticos entre
+los documentos del cliente, sin forma de saber cuál vale. Ahora:
+
+- `sign()` (hoja de instalación) devuelve **409** si la orden ya tiene su hoja firmada.
+- `signContract()` devuelve **409** si el cliente ya tiene contrato firmado — comprobado
+  **antes** de `allocate()`, porque rechazar después gastaría un número de la secuencia en un
+  contrato que nunca se genera (fijado con un test que compara `next_contract_number`).
+- El bloqueo mira los **documentos**, no una marca en la orden: borrar el anterior habilita
+  volver a firmar, que es justamente el flujo pedido. Las fotos (`signed = false`) no cuentan.
+- En la interfaz, mientras exista el documento firmado la zona de firma se sustituye por el
+  aviso de eliminar el anterior, y **Documentos de la orden** estrenó botón *Eliminar*: sin
+  él no había forma de rehacer una hoja mal firmada en una orden de prospecto.
+
+`CustomerDocuments.vue` tenía el **mismo bug de contexto de canvas** que 14.2, latente hasta
+que la sección de firma pasó a montarse y desmontarse; se le aplicó el mismo arreglo
+(`WeakMap` por elemento + `canvasHasInk()`).
+
+### 14.5 Efecto colateral en las pruebas
 
 La migración `2026_05_27_223001_link_installations_to_prospects` dejaba `customer_id` como
 `NOT NULL` en sqlite (sólo pgsql/mysql aplicaban el `DROP NOT NULL`), con un comentario que
@@ -1091,3 +1155,92 @@ lo daba por aceptable. No lo era: hacía **imposible representar una orden de pr
 tests**, justo el caso que motivó la vista previa. Con Laravel 11+ `change()` ya no necesita
 doctrine/dbal, así que la rama sqlite ahora hace lo mismo que las demás. La suite completa
 (398 pruebas) sigue en verde.
+
+---
+
+## 15. Tamaño/orientación de página y plantillas migradas de WispHub — 2026-08-05
+
+### 15.1 El reporte
+
+Un tenant pegó en **modo avanzado** el HTML completo de su contrato exportado de WispHub —
+un contrato CRC a dos columnas— y reportó que "el contrato no está tomando bien la
+plantilla", subrayando que *ese mismo HTML sí funciona en el otro sistema*.
+
+### 15.2 Diagnóstico: el sanitizer no tenía nada que ver
+
+La sospecha natural era `AdvancedTemplateSanitizer`, porque es la capa que más recorta. Se
+descartó midiendo, no razonando: pasando el HTML real por `sanitizeParts()`, el documento
+salía **prácticamente intacto** (2664 → 2632 caracteres) y conservaba `width="964"`,
+`page-break-before`, `class`, colores y la estructura de tablas completa. El allowlist ya
+cubría este caso desde las auditorías del 03 y 04 de agosto (`Attr.EnableID`, `width` como
+atributo HTML en `table`/`td`/`th`).
+
+Las causas reales eran tres, y ninguna era de saneado:
+
+1. **Los marcadores eran los de WispHub.** `PlaceholderResolver::apply()` blanquea en
+   silencio cualquier `{{…}}` que no reconozca — comportamiento deliberado desde la Fase 1,
+   para que un typo nunca rompa el render. De los 11 marcadores de la plantilla, **8 se
+   estaban borrando**: `{{ plan_internet.precio }}`, `{{ fecha_instalacion }}`,
+   `{{ cliente_nombre }}`, `{{ cliente_apellidos }}`, `{{ cliente.user.email }}`,
+   `{{ plan_internet.nombre }}`, `{{cliente.localidad}}`, `{{cliente.ciudad}}`. Sólo
+   coincidían por casualidad `cedula`, `telefono` y `direccion`.
+2. **El logo apuntaba a una URL remota** (`https://wisphub.app/media/…`). Con
+   `enable_remote = false` en `config/dompdf.php`, dompdf nunca hace un *fetch* de red: la
+   imagen sale rota siempre. Para eso existe el bloque `{{empresa.logo}}`, que resuelve una
+   ruta **local** en disco.
+3. **El diseño no cabía en la página.** Éste era el único que requería código.
+
+### 15.3 Por qué hizo falta la orientación configurable
+
+El contrato es a dos columnas, con tablas declaradas a 475 px por columna: la fila necesita
+~950 px. `TemplateRenderer` entregaba todo a `Pdf::loadHTML()`/`loadView()` **sin
+`setPaper()`**, o sea siempre el default de `config/dompdf.php` (A4 vertical), que a 96 dpi
+deja ~698 px útiles. dompdf apretaba el diseño y descuadraba la maquetación entera. A4
+horizontal da ~1027 px y cabe intacto.
+
+Las alternativas se descartaron por lo que costaban: rediseñar el contrato a una columna
+significa tocar un **formato regulado por la CRC**, y forzar horizontal sólo para
+`contract` afectaría a todos los tenants con un contrato ya en uso.
+
+Se agregaron `page_size` / `page_orientation` a `document_templates` (migración
+`2026_08_05_120000`, defaults `a4`/`portrait` = comportamiento previo exacto) y
+`TemplateRenderer::applyPaper()`, aplicado en los 6 caminos (3 `render*` + 3 `preview*`) y
+en ambos modos. La ruta legacy (sin fila) queda intacta a propósito.
+
+**`applyPaper()` revalida contra la whitelist** aunque `UpdateDocumentTemplateRequest` ya
+validó en la entrada. No es paranoia decorativa: `setPaper()` con un tamaño desconocido no
+lanza excepción, se queda callado con un canvas raro. Una fila con basura (escritura directa
+a la BD, migración desde otro sistema) cae al default en vez de producir un PDF absurdo.
+
+**La vista previa usa la selección del editor, no la fila guardada** — mismo criterio que ya
+tenía `is_advanced_mode`. Si usara lo persistido, cambiar a horizontal y previsualizar
+seguiría mostrando el diseño roto en vertical, que es exactamente el momento en que el
+usuario necesita la confirmación.
+
+### 15.4 `cliente.ciudad` y `cliente.departamento`
+
+Municipio y departamento del servicio son campos **obligatorios** en el formato de contrato
+CRC, y no existían como marcador; se blanqueaban en silencio. Las columnas
+`customer_profile.city` / `.state` existen desde `2025_12_22_163903`, así que sólo hubo que
+exponerlas en `PlaceholderResolver::forContract()` y en la whitelist de
+`config/document_placeholders.php`.
+
+### 15.5 Deuda de los tests: mocks contra una API mágica
+
+14 pruebas rompieron con `BadMethodCallException: Method Mockery_…_PDF::setPaper() does not
+exist on this mock object`. La causa no era el cambio: `Barryvdh\DomPDF\PDF` **no define**
+`setPaper()`, lo resuelve por `__call()` reenviando al `Dompdf` interno. Mockery valida
+contra los métodos reales de la clase, así que un método mágico no existe para el mock.
+
+Se resolvió con `->shouldIgnoreMissing(\Mockery::self())` en los 26 sitios donde se mockea
+el PDF, que devuelve el propio mock para cualquier método no declarado — preserva el
+encadenamiento fluido sin tener que declarar cada método mágico de dompdf uno por uno.
+
+Vale registrarlo como patrón: **cualquier método nuevo que se llame sobre el wrapper de
+dompdf va a romper estos mocks de la misma forma**, y el mensaje de error apunta al código
+de producción, no a la causa.
+
+`TemplateRendererPageSetupTest` verifica el **`/MediaBox` del PDF real**, no que se haya
+llamado a `setPaper()`. Un mock probaría que el código invoca el método; sólo el PDF
+generado prueba que dompdf de verdad produce la página en la orientación pedida, que es lo
+único que le importa al usuario. Suite completa: **413 pruebas en verde**.
