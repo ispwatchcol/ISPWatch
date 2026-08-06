@@ -42,6 +42,7 @@
 17. [El editor perdía el documento al cambiar de modo, y abría en blanco — 2026-08-06](#17-el-editor-perdía-el-documento-al-cambiar-de-modo-y-abría-en-blanco--2026-08-06)
 18. [El PDF salía con los textos montados: el editor mentía sobre el ancho — 2026-08-06](#18-el-pdf-salía-con-los-textos-montados-el-editor-mentía-sobre-el-ancho--2026-08-06)
 19. [Borrar un cliente pasa a ser un borrado real, sin residuos — 2026-08-06](#19-borrar-un-cliente-pasa-a-ser-un-borrado-real-sin-residuos--2026-08-06)
+20. [El PDF no se parecía al editor porque el modo avanzado estaba apagado — 2026-08-06](#20-el-pdf-no-se-parecía-al-editor-porque-el-modo-avanzado-estaba-apagado--2026-08-06)
 
 ---
 
@@ -1731,3 +1732,143 @@ Suite completa: **458 pruebas en verde** (445 antes, +13: 7 de `CustomerDeletion
 **Queda una decisión de producto abierta:** un cliente con facturas pagadas es historia contable
 y hoy se va entero. Si se quiere conservar, el camino es archivar (`SoftDeletes`) en vez de
 borrar, y no se hizo porque cambia la semántica del módulo entero, no sólo este método.
+
+---
+
+## 20. La conversión de prospecto tiraba los datos técnicos de la orden — 2026-08-06
+
+### 20.1 El síntoma reportado
+
+*"Una vez que se cargan los datos del cliente cuando es prospecto y luego se llenan los datos
+técnicos en detalle, no queda guardado al intentar convertir en cliente esta parte."*
+
+Y, sobre la misma pantalla: hay que poder **elegir la IP de un desplegable, la del cliente, no
+la local, porque se confunde**.
+
+### 20.2 Tres causas distintas, no una
+
+**1. El alta nunca leía la hoja de la orden.** `CustomerAdd.vue::loadProspect()` copiaba del
+prospecto los datos personales y la fecha de instalación, y ahí paraba. Todo lo que el técnico
+había cargado en `customer_installations.sheet` —core, plan, sectorial/caja, IP, credenciales
+PPPoE, MAC del módem— se quedaba en la orden: la sección *Configuración del Servicio* salía en
+blanco y había que digitarla de nuevo. Para el operador eso es indistinguible de "no se guardó".
+
+**2. En cores PPPoE la IP del cliente se descartaba al guardar.** `buildSheetPayload()` hacía
+`delete payload.client_ip` cuando el core tenía PPPoE activo. Ese dato **sí** existe en PPPoE
+(es la IP que termina asignada al abonado, y la que el alta necesita); se borraba del payload
+antes de salir del navegador, así que el backend nunca lo veía. Escribirlo y encontrarlo vacío
+después era el comportamiento esperado del código.
+
+**3. La tarjeta *Conexión / Red* no tenía botón de guardar.** El único `Guardar hoja` vivía en
+la tarjeta siguiente (*Hoja técnica de instalación*) y guardaba las dos, pero nada en pantalla
+lo decía. Llenar la primera tarjeta y salir perdía el trabajo, sin ningún aviso.
+
+Encima, en cores PPPoE el campo *IP del cliente* estaba oculto (`v-if="!isPppoeRouter"`) y el
+único selector de IPs visible era el de la **IP local** del secret. De ahí la confusión
+reportada: el técnico llenaba la IP local creyendo que asignaba la del abonado.
+
+### 20.3 Qué se hizo
+
+- `applyInstallationSheet()` en `CustomerAdd.vue` vuelca la hoja sobre el formulario de alta.
+  **Sólo rellena campos vacíos**: lo que el operador ya escribió manda. El router se asigna
+  junto con el plan en el mismo tick, para que el watcher que descarta planes incompatibles con
+  el modo de control del core vea el par completo y no borre el plan de la orden. Si el
+  elemento de red es una caja **NAP**, activa el modo fibra y sube por `parent_id` hasta la OLT
+  (con un `Set` de visitados: un árbol mal armado no puede colgar la pantalla).
+- Si la orden elegida no tiene hoja, se busca la más reciente que sí la tenga — el técnico pudo
+  llenarla en una visita anterior.
+- Se dejó de borrar `client_ip` del payload en cores PPPoE, y el campo se pide **siempre**.
+- Botón **Guardar datos técnicos** en la tarjeta *Conexión / Red* (mismo `saveSheet`).
+- Desplegable de IPs libres pegado al campo, en las tres pantallas (`CustomerAdd`,
+  `CustomerEdit`, `InstallationDetail` vía `IpRangeAnalyzer`), con el título del analizador
+  diciendo a cuál pertenece: *IP del cliente* o *IP local PPPoE*.
+
+### 20.4 Decisiones de diseño
+
+**El desplegable tiene tope de 512 IPs por segmento.** Un `/20` son 4.094 hosts: un `<select>`
+con esa cantidad de opciones es inservible en un teléfono. La grilla del analizador sigue
+mostrando el rango entero, así que no se pierde ninguna IP — sólo se acota el atajo.
+
+**Una IP escrita a mano deja el desplegable en blanco** en vez de mostrar otra seleccionada.
+Mentir sobre cuál está elegida es peor que no mostrar nada. Por lo mismo, en *Editar cliente* la
+IP actual se agrega como grupo aparte ("Asignada actualmente"): figura como ocupada —es suya— y
+si no se agregara, el desplegable saldría vacío en cada edición.
+
+**Prellenar sin pisar.** `setIfEmpty()` no toca un campo con valor. Si el operador corrigió algo
+antes de que llegara la respuesta del prospecto, su valor sobrevive.
+
+### 20.5 Deuda aceptada
+
+El **puerto NAP** no se captura en la hoja de instalación, así que en fibra hay que escribirlo a
+mano en el alta aunque todo lo demás venga prellenado (`MEJORAS_RECOMENDADAS.md` P-17).
+
+---
+
+## 20. El PDF no se parecía al editor porque el modo avanzado estaba apagado — 2026-08-06
+
+### 20.1 El reporte
+
+Con el editor mostrando el contrato CRC del tenant perfectamente maquetado, la vista previa
+devolvía **la plantilla base del sistema** (cláusulas 1 a 3.5 con datos de ejemplo) y el
+contenido del tenant desmaquetado al final, en 10 páginas.
+
+### 20.2 La causa, medida
+
+El tenant editaba un documento HTML completo con el **modo avanzado apagado**. El editor visual
+es un iframe: un navegador que entiende todo y lo dibuja bien. Pero al renderizar, el modo seguro
+pasa el cuerpo por `TemplateSanitizer` —allowlist estrecho— y lo incrusta dentro del shell fijo.
+
+Medido sobre el contrato real del tenant:
+
+| | Modo avanzado | Modo seguro |
+|---|---:|---:|
+| Bytes conservados | **95 %** | 51 % |
+| Tablas | 2 | 2 |
+| Imágenes | 2 | **0** |
+| `width` / `background-color` | conservados | **0** |
+
+Las tablas sobreviven, pero **sin anchos ni colores**: exactamente lo que sostiene un diseño a
+dos columnas. Por eso el resultado no es "parecido pero peor", es otro documento.
+
+Ya existía un aviso rojo en el editor, pero sólo hablaba de lo que pasa **al guardar** y estaba
+lejos del botón. El momento en que el usuario descubre el problema es al previsualizar.
+
+### 20.3 Qué se hizo
+
+- **`TemplateDiagnostics::inspectRenderMode()`** — nuevo `kind: needs_advanced_mode`, el primero
+  en severidad. `inspect()` recibe ahora el modo con el que se va a renderizar; `null` significa
+  "no lo compruebes" (plantillas base, donde el modo lo decide quien las carga).
+- **Confirmación antes de previsualizar.** Si el borrador es un documento completo y el modo
+  avanzado está apagado, el editor lo dice antes de generar el PDF y ofrece activarlo. Se puede
+  seguir adelante igual — a veces se quiere ver justamente eso.
+
+### 20.4 Un segundo bug, del mismo contrato
+
+`{{plan.valor_mensual}` (una sola llave de cierre) y `{{ cliente.cedula&nbsp;}}` (un `&nbsp;`
+dentro) **no se blanquean: se imprimen tal cual en el PDF**. `PlaceholderResolver::apply()` sólo
+reconoce `{{nombre.campo}}` bien formado; lo que no coincide con ese patrón ni siquiera es un
+marcador para él, así que pasa como texto.
+
+Es un síntoma distinto —"me sale un texto raro" en vez de "me sale vacío"— y por eso el escaneo
+de marcadores no lo veía: sólo miraba los bien formados. Nuevo `kind: malformed_placeholder`,
+que busca `{{...}` y `{{...}}` con contenido inválido y descarta los que sí coinciden con el
+patrón real del resolver, para no reportar dos veces lo mismo.
+
+Verificado contra el resolver real antes de escribir el código:
+
+```
+ENTRADA : A: {{plan.valor_mensual} B: {{plan.valor_mensual}} C: {{ cliente.cedula&nbsp;}}
+SALIDA  : A: {{plan.valor_mensual} B: 80.000 C: {{ cliente.cedula&nbsp;}}
+```
+
+### 20.5 Sobre las líneas rojas del editor
+
+Las guías de corte de página son **una regla, no una paginación**. El editor es un navegador
+mostrando un flujo continuo: no reflowea el contenido para respetarlas, y un párrafo que las
+cruza se queda cruzándolas. En el PDF, dompdf **sí** empuja a la página siguiente el bloque que
+no cabe — salvo dentro de una celda de tabla, donde recorta sin avisar (§ 15). Las líneas sirven
+para ver *dónde* va a cortar, no para forzar el corte.
+
+### 20.6 Estado
+
+Suite completa: **578 pruebas en verde** (573 antes, +5 de `TemplateDiagnosticsTest`).

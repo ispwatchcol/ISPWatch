@@ -340,16 +340,32 @@
             </div>
 
             <div :class="['grid gap-4', serviceGridClass]">
-                <!-- IP del Usuario -->
+                <!-- IP del cliente: se puede escribir o elegir del desplegable de IPs
+                     libres del router. Es la IP del abonado, NO la "IP local" del
+                     secret PPPoE (esa es del lado del router) — mezclarlas era la
+                     confusión reportada al convertir prospectos. -->
                 <div>
                 <label class="label">
                     <v-icon name="bi-hdd-network" class="w-4 h-4 mr-1 inline" />
-                    IP del Usuario
+                    IP del cliente
                     <span v-if="loadingFreeIps" class="ml-1 text-xs text-blue-400 animate-pulse">cargando...</span>
                     <span v-else-if="ipStats.free > 0" class="ml-1 text-xs text-green-500">{{ ipStats.free }} libres</span>
                 </label>
                 <input v-model="form.ip_user" type="text" class="svc-input"
                     placeholder="192.168.1.100" />
+                <select v-if="freeIpOptions.length"
+                    :value="ipPickerValue"
+                    @change="pickFreeIp($event.target.value)"
+                    class="svc-input mt-2 text-xs">
+                    <option value="">Elegir IP libre del router...</option>
+                    <optgroup v-for="g in freeIpOptions" :key="g.cidr" :label="g.cidr">
+                        <option v-for="ip in g.ips" :key="ip" :value="ip">{{ ip }}</option>
+                    </optgroup>
+                </select>
+                <p class="hint">
+                    IP que se le asigna al abonado. No confundir con la <strong>IP local</strong>
+                    del PPPoE (esa va en la sección de credenciales).
+                </p>
                 </div>
 
                 <div>
@@ -609,10 +625,13 @@
                 </div>
 
                 <div class="md:col-span-2">
-                <label class="label">IP Local <span class="text-gray-400 font-normal text-xs">(opcional)</span></label>
+                <label class="label">IP local del secret PPPoE <span class="text-gray-400 font-normal text-xs">(opcional)</span></label>
                 <input v-model="form.pppoe_local_address" type="text" class="input"
                     placeholder="Ej: 10.0.0.1" />
-                <p class="hint">Es el local-address del secret PPPoE. Déjalo vacío para que lo defina el perfil/router.</p>
+                <p class="hint">
+                    Es el local-address del secret PPPoE (la punta del <strong>router</strong>),
+                    <strong>no</strong> la IP del cliente. Déjalo vacío para que lo defina el perfil/router.
+                </p>
                 </div>
             </div>
             </div>
@@ -941,6 +960,24 @@ const ipStats = computed(() => {
     return { total, free, used, usagePercent: total > 0 ? Math.round((used / total) * 100) : 0 }
 })
 
+// ── Desplegable de IPs libres (junto al campo, no solo en el analizador) ─────
+// Mismo dato que el analizador, pero a la mano del campo "IP del cliente". El
+// tope por segmento evita un <select> con miles de opciones en rangos /20.
+const FREE_IP_OPTIONS_LIMIT = 512
+const freeIpOptions = computed(() =>
+    parsedRanges.value
+        .map(r => ({ cidr: r.cidr, ips: r.freeHosts.slice(0, FREE_IP_OPTIONS_LIMIT) }))
+        .filter(g => g.ips.length)
+)
+// Una IP escrita a mano (o fuera de rango) deja el desplegable en blanco en vez
+// de mentir mostrando otra seleccionada.
+const ipPickerValue = computed(() =>
+    freeIpOptions.value.some(g => g.ips.includes(form.value.ip_user)) ? form.value.ip_user : ''
+)
+const pickFreeIp = (ip) => {
+    if (ip) form.value.ip_user = ip
+}
+
 const loadFreeIps = async (routerId) => {
     rangosIpStr.value = ''
     usedIpsSet.value  = new Set()
@@ -1142,6 +1179,70 @@ const loadCatalogs = async () => {
     }
 }
 
+/**
+ * Vuelca la hoja técnica de la orden de instalación (`installation.sheet`) sobre
+ * el formulario de alta.
+ *
+ * Sin esto la conversión de prospecto perdía TODO lo que el técnico había
+ * cargado en la orden (core, plan, sectorial, IP, credenciales PPPoE, MAC): la
+ * pantalla salía en blanco y el operador tenía que volver a digitarlo a mano —
+ * de ahí el reporte de que "los datos técnicos no quedan guardados".
+ *
+ * Solo rellena campos vacíos: si el operador ya escribió algo, manda lo suyo.
+ * Devuelve true si copió al menos un dato (para avisarlo en el toast).
+ */
+const applyInstallationSheet = (installation) => {
+    const sheet = installation?.sheet
+    if (!sheet || typeof sheet !== 'object') return false
+
+    const num = (v) => {
+        const n = Number(v)
+        return v === null || v === undefined || v === '' || !Number.isFinite(n) ? null : n
+    }
+    let copied = false
+
+    const setIfEmpty = (field, value) => {
+        if (value === null || value === undefined || value === '') return
+        const current = form.value[field]
+        if (current !== null && current !== undefined && current !== '') return
+        form.value[field] = value
+        copied = true
+    }
+
+    // El router va primero: la lista de planes se filtra por su modo de control y
+    // un watcher descarta el plan incompatible. Ambos se asignan en el mismo tick,
+    // así el watcher ya ve el par completo y respeta el plan de la orden.
+    setIfEmpty('router_id',    num(sheet.router_id))
+    setIfEmpty('service_id',   num(sheet.plan_id))
+    setIfEmpty('sectorial_id', num(sheet.sectorial_id))
+    setIfEmpty('ip_user',      sheet.client_ip)
+    setIfEmpty('pppoe_username',      sheet.pppoe_username)
+    setIfEmpty('pppoe_password',      sheet.pppoe_password)
+    setIfEmpty('pppoe_local_address', sheet.pppoe_local_address)
+    // El módem de la hoja es el equipo del cliente: sirve como MAC del lease DHCP.
+    setIfEmpty('mac_address',  sheet.modem_mac)
+
+    // Fibra: si el elemento de red de la orden es una caja NAP, el alta tiene que
+    // entrar en modo fibra o el select de "Caja" queda vacío (la lista inalámbrica
+    // excluye las NAP). La OLT se deduce subiendo por el árbol parent_id.
+    const assigned = sectorials.value.find(s => s.id === form.value.sectorial_id)
+    if (assigned?.element_type === 'nap') {
+        form.value.is_fiber = true
+        let node = assigned
+        const seen = new Set()
+        while (node?.parent_id && !seen.has(node.id)) {
+            seen.add(node.id)
+            node = sectorials.value.find(s => s.id === node.parent_id)
+            if (node?.element_type === 'olt') {
+                form.value.olt_id = node.id
+                break
+            }
+        }
+    }
+
+    return copied
+}
+
 const loadProspect = async () => {
     const pid = Number(route.query.prospect_id)
     if (!pid) return
@@ -1165,6 +1266,7 @@ const loadProspect = async () => {
         // devuelve ordenadas por fecha agendada desc).
         const installs = Array.isArray(data.installations) ? data.installations : []
         const done     = installs.find(i => i.status === 'completada')
+        const chosen   = done || installs[0] || null
         const rawDate  = done
             ? (done.completed_at || done.scheduled_date)
             : installs[0]?.scheduled_date
@@ -1173,11 +1275,23 @@ const loadProspect = async () => {
             form.value.installation_date = String(rawDate).slice(0, 10)
         }
 
+        // Datos técnicos de la orden (core, plan, sectorial/caja, IP, PPPoE, MAC).
+        // Si la orden elegida no tiene hoja, se busca la más reciente que sí la
+        // tenga: el técnico pudo llenarla en una visita anterior.
+        const withSheet = chosen?.sheet && Object.keys(chosen.sheet).length
+            ? chosen
+            : installs.find(i => i.sheet && Object.keys(i.sheet).length)
+        const technicalCopied = applyInstallationSheet(withSheet)
+
+        const dateNote = form.value.installation_date
+            ? `Instalación del ${form.value.installation_date.split('-').reverse().join('/')}. Revisá la primera factura antes de guardar.`
+            : 'Completá los campos faltantes y guardá.'
+
         toast.value?.info(
             'Datos del prospecto cargados',
-            form.value.installation_date
-                ? `Instalación del ${form.value.installation_date.split('-').reverse().join('/')}. Revisá la primera factura antes de guardar.`
-                : 'Completá los campos faltantes y guardá.'
+            technicalCopied
+                ? `${dateNote} Se cargaron también los datos técnicos de la orden de instalación.`
+                : dateNote
         )
     } catch (err) {
         console.error('No se pudo cargar el prospecto:', err)

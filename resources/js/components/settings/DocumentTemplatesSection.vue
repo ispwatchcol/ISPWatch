@@ -398,6 +398,17 @@
     </div>
 
     <ConfirmModal
+      :visible="previewNeedsAdvanced"
+      variant="warning"
+      title="El PDF no se va a parecer al editor"
+      message="Tu plantilla usa anchos, imágenes o estilos propios. Con el modo normal, el servidor los elimina y mete el resto dentro de la plantilla base del sistema: el PDF saldrá con otro diseño. Activa el modo avanzado para que salga como lo ves aquí."
+      confirm-text="Activar modo avanzado y previsualizar"
+      cancel-text="Previsualizar así de todos modos"
+      @confirm="previewInAdvancedMode"
+      @cancel="runPreview"
+    />
+
+    <ConfirmModal
       :visible="starterToLoad !== null"
       variant="warning"
       title="Reemplazar el contenido del editor"
@@ -474,6 +485,7 @@ const current = reactive({
 
 const loadingStarter = ref(null)
 const starterToLoad = ref(null)
+const previewNeedsAdvanced = ref(false)
 
 // Medición que reporta el editor visual: cuánto ancho pide el contenido
 // frente a cuánto deja la hoja elegida.
@@ -712,6 +724,26 @@ function warningToken(warning) {
 }
 
 async function preview() {
+  // El editor visual es un navegador y entiende todo, pero el modo seguro
+  // desarma el documento al renderizar: quita anchos, estilos e imágenes y
+  // mete el resto dentro de la plantilla base del sistema. Previsualizar sin
+  // avisar entrega un PDF que no se parece a lo que hay en pantalla, que es
+  // justo la confusión que este editor existe para evitar.
+  if (!current.is_advanced_mode && contentNeedsAdvancedMode.value) {
+    previewNeedsAdvanced.value = true
+    return
+  }
+  await runPreview()
+}
+
+async function previewInAdvancedMode() {
+  previewNeedsAdvanced.value = false
+  current.is_advanced_mode = true
+  await runPreview()
+}
+
+async function runPreview() {
+  previewNeedsAdvanced.value = false
   previewing.value = true
   try {
     const response = await documentTemplatesApi.preview(

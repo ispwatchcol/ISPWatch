@@ -7,7 +7,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          <span class="font-semibold text-xs">Analizador de IPs</span>
+          <span class="font-semibold text-xs">{{ label }}</span>
         </div>
         <button v-if="!loading && parsedRanges.length > 0" type="button" @click="toggleAll"
           class="text-white/90 hover:text-white text-xs font-medium">
@@ -20,6 +20,17 @@
           </svg>
           Consultando...
         </div>
+      </div>
+      <!-- Desplegable de IPs libres: elegir de una lista es más rápido (y menos
+           propenso a errores) que cazar el número en la grilla de abajo. -->
+      <div v-if="freeIpOptions.length" class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+        <select :value="pickerValue" @change="$emit('update:modelValue', $event.target.value || modelValue)"
+          class="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-xs font-mono">
+          <option value="">{{ pickerPlaceholder }}</option>
+          <optgroup v-for="g in freeIpOptions" :key="g.cidr" :label="g.cidr">
+            <option v-for="ip in g.ips" :key="ip" :value="ip">{{ ip }}</option>
+          </optgroup>
+        </select>
       </div>
       <div class="grid grid-cols-3 divide-x divide-gray-200 dark:divide-gray-700 border-b border-gray-200 dark:border-gray-700">
         <div class="px-3 py-2 text-center">
@@ -101,6 +112,10 @@ import api from '@/services/api'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   routerId:   { type: [Number, String, null], default: null },
+  // Título del panel: el mismo componente se usa para la IP del cliente y para
+  // la IP local del PPPoE, y sin distinguirlos se confunden.
+  label:             { type: String, default: 'Analizador de IPs' },
+  pickerPlaceholder: { type: String, default: 'Elegir IP libre...' },
 })
 defineEmits(['update:modelValue'])
 
@@ -141,6 +156,24 @@ const ipStats = computed(() => {
   const used = total - free
   return { total, free, used }
 })
+
+// Opciones del desplegable. El tope por segmento evita un <select> con miles de
+// opciones en rangos grandes (/20). La IP ya asignada figura como ocupada, así
+// que se agrega aparte para que el desplegable no salga en blanco.
+const FREE_IP_OPTIONS_LIMIT = 512
+const freeIpOptions = computed(() => {
+  const groups = parsedRanges.value
+    .map(r => ({ cidr: r.cidr, ips: r.freeHosts.slice(0, FREE_IP_OPTIONS_LIMIT) }))
+    .filter(g => g.ips.length)
+  if (groups.length && props.modelValue && !groups.some(g => g.ips.includes(props.modelValue))) {
+    groups.unshift({ cidr: 'Asignada actualmente', ips: [props.modelValue] })
+  }
+  return groups
+})
+
+const pickerValue = computed(() =>
+  freeIpOptions.value.some(g => g.ips.includes(props.modelValue)) ? props.modelValue : ''
+)
 
 const allExpanded = computed(() =>
   parsedRanges.value.length > 0 && expandedRanges.value.size === parsedRanges.value.length

@@ -138,15 +138,22 @@
           </div>
         </div>
 
-        <!-- IP del cliente con analizador (solo cuando NO es PPPoE) -->
-        <div v-if="!isPppoeRouter" class="mt-4">
+        <!-- IP del cliente con analizador. Se pide SIEMPRE, también en cores PPPoE:
+             es la IP del abonado (la que viaja al alta del cliente al convertir el
+             prospecto). Antes se ocultaba en PPPoE y el técnico terminaba llenando
+             la "IP local" creyendo que era esta. -->
+        <div class="mt-4">
           <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
             IP del cliente
             <span v-if="!sheet.router_id" class="ml-1 text-[10px] normal-case text-gray-400">— selecciona un core para ver IPs libres</span>
           </label>
           <input v-model="sheet.client_ip" type="text" placeholder="192.168.1.100"
             class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
-          <IpRangeAnalyzer v-if="sheet.router_id" v-model="sheet.client_ip" :router-id="sheet.router_id" />
+          <p v-if="isPppoeRouter" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            IP que queda asignada al abonado. <strong>No</strong> es la IP local del secret PPPoE (esa está más abajo).
+          </p>
+          <IpRangeAnalyzer v-if="sheet.router_id" v-model="sheet.client_ip" :router-id="sheet.router_id"
+            label="Analizador de IPs — IP del cliente" picker-placeholder="Elegir IP libre para el cliente..." />
         </div>
 
         <!-- Sección PPPoE (solo cuando el core tiene PPPoE activo) -->
@@ -183,12 +190,28 @@
             </p>
 
             <div v-if="sheet.local_address_manual" class="mt-3">
-              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">IP local PPPoE</label>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+                IP local PPPoE <span class="normal-case text-[10px] text-gray-400">(lado del router, no la del cliente)</span>
+              </label>
               <input v-model="sheet.pppoe_local_address" type="text" placeholder="10.0.0.1"
                 class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
-              <IpRangeAnalyzer v-model="sheet.pppoe_local_address" :router-id="sheet.router_id" />
+              <IpRangeAnalyzer v-model="sheet.pppoe_local_address" :router-id="sheet.router_id"
+                label="Analizador de IPs — IP local PPPoE" picker-placeholder="Elegir IP libre para el local-address..." />
             </div>
           </div>
+        </div>
+
+        <!-- El único botón de guardado vivía en la tarjeta de abajo, así que estos
+             campos se llenaban y se perdían al salir de la pantalla. Es el mismo
+             saveSheet: persiste conexión + hoja técnica en una sola llamada. -->
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button @click="saveSheet" :disabled="savingSheet"
+            class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
+            {{ savingSheet ? 'Guardando...' : 'Guardar datos técnicos' }}
+          </button>
+          <p class="text-[11px] text-gray-500 dark:text-gray-400">
+            Guarda conexión y hoja técnica. Estos datos se cargan solos al convertir el prospecto en cliente.
+          </p>
         </div>
       </div>
 
@@ -976,8 +999,10 @@ const buildSheetPayload = () => {
     else payload[k] = Number(payload[k])
   }
 
+  // La IP del cliente se guarda SIEMPRE, también en cores PPPoE: es el dato que
+  // viaja al alta al convertir el prospecto en cliente. Antes se descartaba aquí
+  // y el técnico la escribía para encontrarla vacía en la siguiente visita.
   if (isPppoeRouter.value) {
-    delete payload.client_ip
     if (!payload.local_address_manual) delete payload.pppoe_local_address
   } else {
     delete payload.pppoe_username

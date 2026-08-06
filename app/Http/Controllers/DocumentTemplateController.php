@@ -174,7 +174,7 @@ class DocumentTemplateController extends Controller
             // preview() porque guardar sin previsualizar es un camino real:
             // sin esto, la plantilla queda ACTIVA y generando documentos con
             // los datos en blanco sin que nadie se entere.
-            'warnings' => $this->diagnostics->inspect($validated['body_html'], $type),
+            'warnings' => $this->diagnostics->inspect($validated['body_html'], $type, $isAdvancedMode),
         ]);
     }
 
@@ -281,7 +281,8 @@ class DocumentTemplateController extends Controller
         $warnings = $this->diagnostics->inspectWithOrphanedBlocks(
             $draftHtml,
             $type,
-            $this->templateRenderer->lastRenderWarnings()
+            $this->templateRenderer->lastRenderWarnings(),
+            $isAdvancedMode
         );
 
         if (!empty($warnings)) {
