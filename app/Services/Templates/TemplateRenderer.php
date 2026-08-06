@@ -54,6 +54,12 @@ use Barryvdh\DomPDF\Facade\Pdf;
  *      firmas ya existente, sin duplicar lógica de resolución.
  *   Reensambla <html><head><style>...</style></head><body>...</body></html>
  *   y lo pasa a Pdf::loadHTML() directo — nunca a un shell Blade.
+ *
+ * Tamaño/orientación de página (auditoría 2026-08-05): cada plantilla lleva
+ * su propio page_size/page_orientation y se aplica con applyPaper() en los 6
+ * caminos (3 render + 3 preview). La ruta legacy (sin fila en
+ * document_templates) NO se toca: sigue saliendo con el default de
+ * config/dompdf.php, que es exactamente lo que hacían todas antes.
  */
 class TemplateRenderer
 {
@@ -89,13 +95,13 @@ class TemplateRenderer
         }
 
         if ($template->is_advanced_mode) {
-            return Pdf::loadHTML($this->compileAdvanced(
+            return $this->applyPaper(Pdf::loadHTML($this->compileAdvanced(
                 $template->body_html,
                 $this->resolver->forInvoice($invoice),
                 $this->blockResolver->forInvoice($invoice),
                 (int) $invoice->tenant_id,
                 DocumentTemplate::TYPE_INVOICE
-            ));
+            )), $template->page_size, $template->page_orientation);
         }
 
         $body = $this->compile(
@@ -106,11 +112,11 @@ class TemplateRenderer
             DocumentTemplate::TYPE_INVOICE
         );
 
-        return Pdf::loadView('documents.shells.invoice_shell', [
+        return $this->applyPaper(Pdf::loadView('documents.shells.invoice_shell', [
             'invoice' => $invoice,
             'tenant'  => $invoice->tenant,
             'body'    => $body,
-        ]);
+        ]), $template->page_size, $template->page_orientation);
     }
 
     public function renderContract(
@@ -142,13 +148,13 @@ class TemplateRenderer
         $blockValues = $this->blockResolver->forContract($tenant, $signature);
 
         if ($template->is_advanced_mode) {
-            return Pdf::loadHTML($this->compileAdvanced(
+            return $this->applyPaper(Pdf::loadHTML($this->compileAdvanced(
                 $template->body_html,
                 $scalarValues,
                 $blockValues,
                 (int) $tenant->id,
                 DocumentTemplate::TYPE_CONTRACT
-            ));
+            )), $template->page_size, $template->page_orientation);
         }
 
         // Modo seguro: la firma la sigue imprimiendo el shell fijo (fuera de
@@ -156,7 +162,11 @@ class TemplateRenderer
         // pero se resuelve igual aquí por si el tenant lo usa también.
         $body = $this->compile($template->body_html, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
-        return Pdf::loadView('documents.shells.contract_shell', $legacyData + ['body' => $body]);
+        return $this->applyPaper(
+            Pdf::loadView('documents.shells.contract_shell', $legacyData + ['body' => $body]),
+            $template->page_size,
+            $template->page_orientation
+        );
     }
 
     public function renderInstallationSheet(
@@ -198,43 +208,58 @@ class TemplateRenderer
         $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $customerSignature, $technicianSignature);
 
         if ($template->is_advanced_mode) {
-            return Pdf::loadHTML($this->compileAdvanced(
+            return $this->applyPaper(Pdf::loadHTML($this->compileAdvanced(
                 $template->body_html,
                 $scalarValues,
                 $blockValues,
                 (int) $tenant->id,
                 DocumentTemplate::TYPE_INSTALLATION
-            ));
+            )), $template->page_size, $template->page_orientation);
         }
 
         $body = $this->compile($template->body_html, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION);
 
-        return Pdf::loadView('documents.shells.installation_shell', $legacyData + ['body' => $body]);
+        return $this->applyPaper(
+            Pdf::loadView('documents.shells.installation_shell', $legacyData + ['body' => $body]),
+            $template->page_size,
+            $template->page_orientation
+        );
     }
 
     /**
      * Renders an UNSAVED draft body against the given invoice — always
      * through the custom shell (modo seguro) o Pdf::loadHTML directo (modo
-     * avanzado), nunca la vista legacy. $isAdvancedMode refleja el modo que
-     * el tenant tiene seleccionado AHORA en el editor (puede no coincidir
-     * con lo persistido si todavía no guardó el cambio de modo).
+     * avanzado), nunca la vista legacy. $isAdvancedMode / $pageSize /
+     * $pageOrientation reflejan lo que el tenant tiene seleccionado AHORA en
+     * el editor (puede no coincidir con lo persistido si todavía no guardó) —
+     * si la vista previa usara lo guardado, cambiar a horizontal y
+     * previsualizar seguiría mostrando el diseño roto en vertical.
      */
-    public function previewInvoice(Invoice $invoice, string $draftHtml, bool $isAdvancedMode = false)
-    {
+    public function previewInvoice(
+        Invoice $invoice,
+        string $draftHtml,
+        bool $isAdvancedMode = false,
+        ?string $pageSize = null,
+        ?string $pageOrientation = null
+    ) {
         $scalarValues = $this->resolver->forInvoice($invoice);
         $blockValues = $this->blockResolver->forInvoice($invoice);
 
         if ($isAdvancedMode) {
-            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $invoice->tenant_id, DocumentTemplate::TYPE_INVOICE));
+            return $this->applyPaper(
+                Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $invoice->tenant_id, DocumentTemplate::TYPE_INVOICE)),
+                $pageSize,
+                $pageOrientation
+            );
         }
 
         $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $invoice->tenant_id, DocumentTemplate::TYPE_INVOICE);
 
-        return Pdf::loadView('documents.shells.invoice_shell', [
+        return $this->applyPaper(Pdf::loadView('documents.shells.invoice_shell', [
             'invoice' => $invoice,
             'tenant'  => $invoice->tenant,
             'body'    => $body,
-        ]);
+        ]), $pageSize, $pageOrientation);
     }
 
     public function previewContract(
@@ -246,18 +271,24 @@ class TemplateRenderer
         string $date,
         string $draftHtml,
         bool $isAdvancedMode = false,
-        ?string $contractNumber = null
+        ?string $contractNumber = null,
+        ?string $pageSize = null,
+        ?string $pageOrientation = null
     ) {
         $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date, $contractNumber);
         $blockValues = $this->blockResolver->forContract($tenant, $signature);
 
         if ($isAdvancedMode) {
-            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT));
+            return $this->applyPaper(
+                Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT)),
+                $pageSize,
+                $pageOrientation
+            );
         }
 
         $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
-        return Pdf::loadView('documents.shells.contract_shell', [
+        return $this->applyPaper(Pdf::loadView('documents.shells.contract_shell', [
             'customer'       => $customer,
             'profile'        => $profile,
             'tenant'         => $tenant,
@@ -266,7 +297,7 @@ class TemplateRenderer
             'date'           => $date,
             'contractNumber' => $contractNumber,
             'body'           => $body,
-        ]);
+        ]), $pageSize, $pageOrientation);
     }
 
     public function previewInstallationSheet(
@@ -283,18 +314,24 @@ class TemplateRenderer
         ?string $technicianSignature,
         string $date,
         string $draftHtml,
-        bool $isAdvancedMode = false
+        bool $isAdvancedMode = false,
+        ?string $pageSize = null,
+        ?string $pageOrientation = null
     ) {
         $scalarValues = $this->resolver->forInstallation($installation, $customer, $profile, $prospect, $tenant, $technician, $date, $plan);
         $blockValues = $this->blockResolver->forInstallation($installation, $tenant, $customerSignature, $technicianSignature);
 
         if ($isAdvancedMode) {
-            return Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION));
+            return $this->applyPaper(
+                Pdf::loadHTML($this->compileAdvanced($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION)),
+                $pageSize,
+                $pageOrientation
+            );
         }
 
         $body = $this->compile($draftHtml, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_INSTALLATION);
 
-        return Pdf::loadView('documents.shells.installation_shell', [
+        return $this->applyPaper(Pdf::loadView('documents.shells.installation_shell', [
             'installation'         => $installation,
             'customer'             => $customer,
             'profile'              => $profile,
@@ -308,7 +345,32 @@ class TemplateRenderer
             'technician_signature' => $technicianSignature,
             'date'                 => $date,
             'body'                 => $body,
-        ]);
+        ]), $pageSize, $pageOrientation);
+    }
+
+    /**
+     * Aplica tamaño/orientación al PDF ya cargado. Un valor nulo o fuera de
+     * la whitelist cae al default (a4 vertical) en vez de propagarse hasta
+     * dompdf: setPaper() con un tamaño desconocido no lanza excepción, se
+     * queda en silencio con un canvas raro, y eso es peor que ignorar el
+     * valor. La validación de entrada vive en UpdateDocumentTemplateRequest;
+     * esto es la red de seguridad para filas viejas o escrituras directas a
+     * la BD.
+     *
+     * @param  \Barryvdh\DomPDF\PDF $pdf
+     * @return \Barryvdh\DomPDF\PDF
+     */
+    private function applyPaper($pdf, ?string $pageSize, ?string $pageOrientation)
+    {
+        $size = in_array($pageSize, DocumentTemplate::PAGE_SIZES, true)
+            ? $pageSize
+            : DocumentTemplate::DEFAULT_PAGE_SIZE;
+
+        $orientation = in_array($pageOrientation, DocumentTemplate::PAGE_ORIENTATIONS, true)
+            ? $pageOrientation
+            : DocumentTemplate::DEFAULT_PAGE_ORIENTATION;
+
+        return $pdf->setPaper($size, $orientation);
     }
 
     private function activeTemplate(int $tenantId, string $type): ?DocumentTemplate

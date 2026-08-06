@@ -24,6 +24,7 @@
 12. [Consecutivo de contratos — 2026-08-04](#12-consecutivo-de-contratos--2026-08-04)
 13. [El prefijo del consecutivo pasa a ser texto libre — 2026-08-05](#13-el-prefijo-del-consecutivo-pasa-a-ser-texto-libre--2026-08-05)
 14. [Vista previa de la hoja de instalación y firma que no se dibujaba — 2026-08-05](#14-vista-previa-de-la-hoja-de-instalación-y-firma-que-no-se-dibujaba--2026-08-05)
+15. [Tamaño/orientación de página y plantillas migradas de WispHub — 2026-08-05](#15-tamañoorientación-de-página-y-plantillas-migradas-de-wisphub--2026-08-05)
 
 ---
 
@@ -1154,3 +1155,92 @@ lo daba por aceptable. No lo era: hacía **imposible representar una orden de pr
 tests**, justo el caso que motivó la vista previa. Con Laravel 11+ `change()` ya no necesita
 doctrine/dbal, así que la rama sqlite ahora hace lo mismo que las demás. La suite completa
 (398 pruebas) sigue en verde.
+
+---
+
+## 15. Tamaño/orientación de página y plantillas migradas de WispHub — 2026-08-05
+
+### 15.1 El reporte
+
+Un tenant pegó en **modo avanzado** el HTML completo de su contrato exportado de WispHub —
+un contrato CRC a dos columnas— y reportó que "el contrato no está tomando bien la
+plantilla", subrayando que *ese mismo HTML sí funciona en el otro sistema*.
+
+### 15.2 Diagnóstico: el sanitizer no tenía nada que ver
+
+La sospecha natural era `AdvancedTemplateSanitizer`, porque es la capa que más recorta. Se
+descartó midiendo, no razonando: pasando el HTML real por `sanitizeParts()`, el documento
+salía **prácticamente intacto** (2664 → 2632 caracteres) y conservaba `width="964"`,
+`page-break-before`, `class`, colores y la estructura de tablas completa. El allowlist ya
+cubría este caso desde las auditorías del 03 y 04 de agosto (`Attr.EnableID`, `width` como
+atributo HTML en `table`/`td`/`th`).
+
+Las causas reales eran tres, y ninguna era de saneado:
+
+1. **Los marcadores eran los de WispHub.** `PlaceholderResolver::apply()` blanquea en
+   silencio cualquier `{{…}}` que no reconozca — comportamiento deliberado desde la Fase 1,
+   para que un typo nunca rompa el render. De los 11 marcadores de la plantilla, **8 se
+   estaban borrando**: `{{ plan_internet.precio }}`, `{{ fecha_instalacion }}`,
+   `{{ cliente_nombre }}`, `{{ cliente_apellidos }}`, `{{ cliente.user.email }}`,
+   `{{ plan_internet.nombre }}`, `{{cliente.localidad}}`, `{{cliente.ciudad}}`. Sólo
+   coincidían por casualidad `cedula`, `telefono` y `direccion`.
+2. **El logo apuntaba a una URL remota** (`https://wisphub.app/media/…`). Con
+   `enable_remote = false` en `config/dompdf.php`, dompdf nunca hace un *fetch* de red: la
+   imagen sale rota siempre. Para eso existe el bloque `{{empresa.logo}}`, que resuelve una
+   ruta **local** en disco.
+3. **El diseño no cabía en la página.** Éste era el único que requería código.
+
+### 15.3 Por qué hizo falta la orientación configurable
+
+El contrato es a dos columnas, con tablas declaradas a 475 px por columna: la fila necesita
+~950 px. `TemplateRenderer` entregaba todo a `Pdf::loadHTML()`/`loadView()` **sin
+`setPaper()`**, o sea siempre el default de `config/dompdf.php` (A4 vertical), que a 96 dpi
+deja ~698 px útiles. dompdf apretaba el diseño y descuadraba la maquetación entera. A4
+horizontal da ~1027 px y cabe intacto.
+
+Las alternativas se descartaron por lo que costaban: rediseñar el contrato a una columna
+significa tocar un **formato regulado por la CRC**, y forzar horizontal sólo para
+`contract` afectaría a todos los tenants con un contrato ya en uso.
+
+Se agregaron `page_size` / `page_orientation` a `document_templates` (migración
+`2026_08_05_120000`, defaults `a4`/`portrait` = comportamiento previo exacto) y
+`TemplateRenderer::applyPaper()`, aplicado en los 6 caminos (3 `render*` + 3 `preview*`) y
+en ambos modos. La ruta legacy (sin fila) queda intacta a propósito.
+
+**`applyPaper()` revalida contra la whitelist** aunque `UpdateDocumentTemplateRequest` ya
+validó en la entrada. No es paranoia decorativa: `setPaper()` con un tamaño desconocido no
+lanza excepción, se queda callado con un canvas raro. Una fila con basura (escritura directa
+a la BD, migración desde otro sistema) cae al default en vez de producir un PDF absurdo.
+
+**La vista previa usa la selección del editor, no la fila guardada** — mismo criterio que ya
+tenía `is_advanced_mode`. Si usara lo persistido, cambiar a horizontal y previsualizar
+seguiría mostrando el diseño roto en vertical, que es exactamente el momento en que el
+usuario necesita la confirmación.
+
+### 15.4 `cliente.ciudad` y `cliente.departamento`
+
+Municipio y departamento del servicio son campos **obligatorios** en el formato de contrato
+CRC, y no existían como marcador; se blanqueaban en silencio. Las columnas
+`customer_profile.city` / `.state` existen desde `2025_12_22_163903`, así que sólo hubo que
+exponerlas en `PlaceholderResolver::forContract()` y en la whitelist de
+`config/document_placeholders.php`.
+
+### 15.5 Deuda de los tests: mocks contra una API mágica
+
+14 pruebas rompieron con `BadMethodCallException: Method Mockery_…_PDF::setPaper() does not
+exist on this mock object`. La causa no era el cambio: `Barryvdh\DomPDF\PDF` **no define**
+`setPaper()`, lo resuelve por `__call()` reenviando al `Dompdf` interno. Mockery valida
+contra los métodos reales de la clase, así que un método mágico no existe para el mock.
+
+Se resolvió con `->shouldIgnoreMissing(\Mockery::self())` en los 26 sitios donde se mockea
+el PDF, que devuelve el propio mock para cualquier método no declarado — preserva el
+encadenamiento fluido sin tener que declarar cada método mágico de dompdf uno por uno.
+
+Vale registrarlo como patrón: **cualquier método nuevo que se llame sobre el wrapper de
+dompdf va a romper estos mocks de la misma forma**, y el mensaje de error apunta al código
+de producción, no a la causa.
+
+`TemplateRendererPageSetupTest` verifica el **`/MediaBox` del PDF real**, no que se haya
+llamado a `setPaper()`. Un mock probaría que el código invoca el método; sólo el PDF
+generado prueba que dompdf de verdad produce la página en la orientación pedida, que es lo
+único que le importa al usuario. Suite completa: **413 pruebas en verde**.

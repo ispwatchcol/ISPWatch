@@ -56,6 +56,8 @@ class DocumentTemplateController extends Controller
                 'body_html'        => $row?->body_html,
                 'is_active'        => (bool) ($row?->is_active),
                 'is_advanced_mode' => (bool) ($row?->is_advanced_mode),
+                'page_size'        => $row?->page_size ?: DocumentTemplate::DEFAULT_PAGE_SIZE,
+                'page_orientation' => $row?->page_orientation ?: DocumentTemplate::DEFAULT_PAGE_ORIENTATION,
                 'has_draft'        => $row !== null,
                 'updated_at'       => $row?->updated_at,
             ];
@@ -81,10 +83,14 @@ class DocumentTemplateController extends Controller
             'body_html'          => $row?->body_html,
             'is_active'          => (bool) ($row?->is_active),
             'is_advanced_mode'   => (bool) ($row?->is_advanced_mode),
+            'page_size'          => $row?->page_size ?: DocumentTemplate::DEFAULT_PAGE_SIZE,
+            'page_orientation'   => $row?->page_orientation ?: DocumentTemplate::DEFAULT_PAGE_ORIENTATION,
             'has_draft'          => $row !== null,
             'updated_at'         => $row?->updated_at,
             'placeholders'       => config("document_placeholders.{$type}", []),
             'block_placeholders' => config("document_placeholder_blocks.{$type}", []),
+            'page_sizes'         => DocumentTemplate::PAGE_SIZES,
+            'page_orientations'  => DocumentTemplate::PAGE_ORIENTATIONS,
         ]);
     }
 
@@ -102,10 +108,12 @@ class DocumentTemplateController extends Controller
         $this->assertValidType($type);
         $tenantId = $this->authTenant($request);
 
-        $isAdvancedMode = (bool) ($request->validated()['is_advanced_mode'] ?? false);
+        $validated = $request->validated();
+
+        $isAdvancedMode = (bool) ($validated['is_advanced_mode'] ?? false);
         $sanitized = $isAdvancedMode
-            ? $this->advancedSanitizer->sanitize($request->validated()['body_html'])
-            : $this->sanitizer->sanitize($request->validated()['body_html']);
+            ? $this->advancedSanitizer->sanitize($validated['body_html'])
+            : $this->sanitizer->sanitize($validated['body_html']);
 
         $row = DocumentTemplate::updateOrCreate(
             ['tenant_id' => $tenantId, 'type' => $type],
@@ -113,6 +121,11 @@ class DocumentTemplateController extends Controller
                 'body_html'        => $sanitized,
                 'is_active'        => true,
                 'is_advanced_mode' => $isAdvancedMode,
+                // 'sometimes' + 'nullable': la clave puede no venir (cliente
+                // viejo) o venir null ("usa el default") — ambos caen al
+                // default, nunca a un string vacío que rompería setPaper().
+                'page_size'        => ($validated['page_size'] ?? null) ?: DocumentTemplate::DEFAULT_PAGE_SIZE,
+                'page_orientation' => ($validated['page_orientation'] ?? null) ?: DocumentTemplate::DEFAULT_PAGE_ORIENTATION,
                 'updated_by'       => $request->user()->id,
             ]
         );
@@ -124,6 +137,8 @@ class DocumentTemplateController extends Controller
                 'body_html'        => $row->body_html,
                 'is_active'        => $row->is_active,
                 'is_advanced_mode' => $row->is_advanced_mode,
+                'page_size'        => $row->page_size,
+                'page_orientation' => $row->page_orientation,
                 'has_draft'        => true,
                 'updated_at'       => $row->updated_at,
             ],
@@ -173,17 +188,23 @@ class DocumentTemplateController extends Controller
         $this->assertValidType($type);
         $tenantId = $this->authTenant($request);
         $tenant = Tenant::findOrFail($tenantId);
-        $draftHtml = $request->validated()['body_html'];
-        // Refleja el modo que el tenant tiene seleccionado AHORA en el
-        // editor, no lo persistido — puede estar probando un cambio de modo
-        // antes de guardar.
-        $isAdvancedMode = (bool) ($request->validated()['is_advanced_mode'] ?? false);
+        $validated = $request->validated();
+        $draftHtml = $validated['body_html'];
+        // Refleja el modo y el papel que el tenant tiene seleccionados AHORA
+        // en el editor, no lo persistido — puede estar probando un cambio
+        // antes de guardar, y una vista previa que ignorara eso mostraría el
+        // documento con la configuración vieja.
+        $isAdvancedMode = (bool) ($validated['is_advanced_mode'] ?? false);
+        $pageSize = ($validated['page_size'] ?? null) ?: DocumentTemplate::DEFAULT_PAGE_SIZE;
+        $pageOrientation = ($validated['page_orientation'] ?? null) ?: DocumentTemplate::DEFAULT_PAGE_ORIENTATION;
 
         $pdf = match ($type) {
             DocumentTemplate::TYPE_INVOICE => $this->templateRenderer->previewInvoice(
                 $this->sampleInvoice($tenant),
                 $draftHtml,
-                $isAdvancedMode
+                $isAdvancedMode,
+                $pageSize,
+                $pageOrientation
             ),
             DocumentTemplate::TYPE_CONTRACT => $this->templateRenderer->previewContract(
                 $this->sampleCustomer(),
@@ -197,7 +218,9 @@ class DocumentTemplateController extends Controller
                 // La vista previa muestra el consecutivo que le tocaría al
                 // próximo contrato, pero NO lo reserva: previsualizar no puede
                 // gastar números de la secuencia.
-                ContractNumberService::format($tenant->contract_prefix, (int) ($tenant->next_contract_number ?: 1))
+                ContractNumberService::format($tenant->contract_prefix, (int) ($tenant->next_contract_number ?: 1)),
+                $pageSize,
+                $pageOrientation
             ),
             DocumentTemplate::TYPE_INSTALLATION => $this->templateRenderer->previewInstallationSheet(
                 $this->sampleInstallation($tenant),
@@ -213,7 +236,9 @@ class DocumentTemplateController extends Controller
                 null,
                 now()->format('d/m/Y H:i'),
                 $draftHtml,
-                $isAdvancedMode
+                $isAdvancedMode,
+                $pageSize,
+                $pageOrientation
             ),
         };
 
@@ -278,6 +303,7 @@ class DocumentTemplateController extends Controller
             'cedula'  => '000000000',
             'address' => 'Calle de Ejemplo # 1-23',
             'city'    => 'Ciudad de Ejemplo',
+            'state'   => 'Departamento de Ejemplo',
             'ip_user' => '10.0.0.1',
         ]);
     }

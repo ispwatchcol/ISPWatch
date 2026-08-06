@@ -250,7 +250,7 @@ class DocumentTemplateControllerTest extends TestCase
     {
         Sanctum::actingAs($this->admin);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('stream')
             ->once()
             ->with('vista-previa.pdf')

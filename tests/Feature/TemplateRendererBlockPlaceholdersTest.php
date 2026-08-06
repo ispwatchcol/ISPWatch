@@ -114,7 +114,7 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
                     && substr_count($body, '<table') === 1
                     && !preg_match('/title="[^"]*<table/', $body);
             })
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderInvoice($invoice);
     }
@@ -171,7 +171,7 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
                     && !str_contains($body, 'instalacion.fotos')
                     && !str_contains($body, 'BLOCKMARK_');
             })
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderInstallationSheet(
             $installation,
@@ -263,7 +263,7 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
                     // Nada de marcadores internos filtrados al HTML final.
                     && !str_contains($body, 'BLOCKMARK_');
             })
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         // No debe lanzar ninguna excepción por el token roto.
         $this->renderer->renderInvoice($invoice);
@@ -318,7 +318,7 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
                         && str_contains($body, 'Condiciones para Juan')
                         && !str_contains($body, 'BLOCKMARK_');
                 })
-                ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+                ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
             $this->renderer->renderContract($customer, $customer->customerProfile, $tenant, null, '', now()->format('d/m/Y'));
         } finally {
@@ -351,7 +351,7 @@ class TemplateRendererBlockPlaceholdersTest extends TestCase
                 return str_contains($html, 'data:image/png;base64,firma-real-del-cliente')
                     && !str_contains($html, 'BLOCKMARK_');
             })
-            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class));
+            ->andReturn(\Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self()));
 
         $this->renderer->renderContract(
             $customer,

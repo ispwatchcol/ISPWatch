@@ -140,7 +140,7 @@ class ContractNumberingTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')

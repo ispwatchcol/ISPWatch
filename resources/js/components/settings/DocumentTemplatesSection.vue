@@ -138,6 +138,31 @@
             Lo que escribas abajo se agrega como <strong>"4. Condiciones Adicionales del Proveedor"</strong>, después de esas cláusulas.
           </div>
 
+          <!-- Tamaño y orientación de página. Un contrato a dos columnas
+               (formato CRC) necesita ~950px de ancho: A4 vertical solo da
+               ~698px útiles y dompdf lo aprieta, A4 horizontal da ~1027px. -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="label">Tamaño de página</label>
+              <select v-model="current.page_size" class="input">
+                <option value="a4">A4 (210 × 297 mm)</option>
+                <option value="letter">Carta (216 × 279 mm)</option>
+                <option value="legal">Oficio (216 × 356 mm)</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Orientación</label>
+              <select v-model="current.page_orientation" class="input">
+                <option value="portrait">Vertical</option>
+                <option value="landscape">Horizontal</option>
+              </select>
+              <p class="text-xs text-gray-400 mt-1">
+                Usa <strong>Horizontal</strong> si tu diseño es a dos columnas (ancho
+                mayor a ~700&nbsp;px): en vertical no cabe y el PDF sale descuadrado.
+              </p>
+            </div>
+          </div>
+
           <!-- Placeholders escalares -->
           <div>
             <label class="label">Placeholders disponibles (click para insertar)</label>
@@ -311,6 +336,8 @@ const draftHtml = ref('')
 const current = reactive({
   is_active: false,
   is_advanced_mode: false,
+  page_size: 'a4',
+  page_orientation: 'portrait',
   has_draft: false,
   placeholders: {},
   block_placeholders: {},
@@ -347,6 +374,8 @@ async function loadType(type) {
     const { data } = await documentTemplatesApi.show(type)
     current.is_active = data.is_active
     current.is_advanced_mode = data.is_advanced_mode || false
+    current.page_size = data.page_size || 'a4'
+    current.page_orientation = data.page_orientation || 'portrait'
     current.has_draft = data.has_draft
     current.placeholders = data.placeholders || {}
     current.block_placeholders = data.block_placeholders || {}
@@ -418,9 +447,17 @@ function insertBlockPlaceholder(token) {
 async function save() {
   saving.value = true
   try {
-    const { data } = await documentTemplatesApi.update(activeType.value, draftHtml.value, current.is_advanced_mode)
+    const { data } = await documentTemplatesApi.update(
+      activeType.value,
+      draftHtml.value,
+      current.is_advanced_mode,
+      current.page_size,
+      current.page_orientation
+    )
     current.is_active = data.data.is_active
     current.is_advanced_mode = data.data.is_advanced_mode
+    current.page_size = data.data.page_size
+    current.page_orientation = data.data.page_orientation
     current.has_draft = data.data.has_draft
     toast.value?.success('Plantilla guardada', 'Se guardó y activó correctamente.')
   } catch (e) {
@@ -473,7 +510,13 @@ function warnOnOrphanedBlocks(response) {
 async function preview() {
   previewing.value = true
   try {
-    const response = await documentTemplatesApi.preview(activeType.value, draftHtml.value, current.is_advanced_mode)
+    const response = await documentTemplatesApi.preview(
+      activeType.value,
+      draftHtml.value,
+      current.is_advanced_mode,
+      current.page_size,
+      current.page_orientation
+    )
     warnOnOrphanedBlocks(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')

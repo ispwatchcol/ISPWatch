@@ -70,6 +70,12 @@ class PlaceholderResolver
             'cliente.apellido'      => (string) ($customer->user_lastname ?: ''),
             'cliente.cedula'        => (string) ($profile?->cedula ?: ''),
             'cliente.direccion'     => (string) ($profile?->address ?: ''),
+            // Municipio/Departamento del servicio: campos obligatorios en el
+            // formato de contrato CRC colombiano (auditoría 2026-08-05). Se
+            // leen de customer_profile.city/.state, las mismas columnas que
+            // llena el formulario de cliente.
+            'cliente.ciudad'        => (string) ($profile?->city ?: ''),
+            'cliente.departamento'  => (string) ($profile?->state ?: ''),
             'cliente.email'         => (string) ($customer->email ?: ''),
             'cliente.telefono'      => (string) ($customer->tel ?: ''),
             'cliente.ip'            => (string) ($profile?->ip_user ?: ''),

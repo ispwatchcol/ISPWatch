@@ -53,6 +53,8 @@ return [
         'cliente.apellido'       => 'Apellido(s) del cliente',
         'cliente.cedula'         => 'Cédula del cliente',
         'cliente.direccion'      => 'Dirección del cliente',
+        'cliente.ciudad'         => 'Municipio del servicio',
+        'cliente.departamento'   => 'Departamento del servicio',
         'cliente.email'          => 'Correo del cliente',
         'cliente.telefono'       => 'Teléfono del cliente',
         'cliente.ip'             => 'IP asignada al cliente',

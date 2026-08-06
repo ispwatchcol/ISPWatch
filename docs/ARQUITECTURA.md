@@ -308,6 +308,24 @@ zero-regression: personalizar es opt-in.
 | Sanitizer | `TemplateSanitizer` — allowlist acotado (`p`,`ul`,`table`,`span[style]`…), sin `<div>` ni `<img>` | `AdvancedTemplateSanitizer` — allowlist amplio (`div`,`table`,`img[src]`,`h1-h6`,`class`…), `id`/`style` en todos los tags (`Attr.EnableID=true`, auditoría 2026-08-03) + CSS vía `Filter.ExtractStyleBlocks`/CSSTidy |
 | Render | `Pdf::loadView('documents.shells.*_shell', ['body' => $html, …])` | `Pdf::loadHTML($html)` directo, sin shell |
 
+**Tamaño y orientación de página** (2026-08-05) — cada plantilla lleva su propio
+`page_size` / `page_orientation` y `TemplateRenderer::applyPaper()` los aplica con
+`setPaper()` en los 6 caminos (3 `render*` + 3 `preview*`), en ambos modos. La ruta legacy
+(sin fila en `document_templates`) **no** se toca: sigue con el default de
+`config/dompdf.php`, que es lo que hacían todas antes.
+
+El motivo es concreto y no cosmético: un contrato a dos columnas — el formato CRC estándar
+en Colombia, y el que exportan sistemas como WispHub — necesita ~950 px de ancho. A4
+vertical da ~698 px útiles a 96 dpi, así que dompdf aprieta el diseño y descuadra la
+maquetación entera; A4 horizontal da ~1027 px y cabe intacto. Sin esta opción, la única
+salida era rediseñar el contrato, que es un formato regulado.
+
+`applyPaper()` **revalida** contra `DocumentTemplate::PAGE_SIZES`/`PAGE_ORIENTATIONS`
+aunque `UpdateDocumentTemplateRequest` ya validó en la entrada: `setPaper()` con un tamaño
+desconocido no lanza excepción, se queda en silencio con un canvas raro, y eso es peor que
+ignorar el valor. Una fila con basura (escritura directa a la BD, migración desde otro
+sistema) cae al default.
+
 **Dos vistas previas distintas, ninguna con su propio renderizador:**
 
 | | Qué previsualiza | Punto de entrada |

@@ -85,7 +85,7 @@ class InstallationSheetSignTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -155,7 +155,7 @@ class InstallationSheetSignTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -215,7 +215,7 @@ class InstallationSheetSignTest extends TestCase
             'is_active' => false,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -272,7 +272,7 @@ class InstallationSheetSignTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
         $fakePdf->shouldReceive('stream')->once()->andReturn(response('%PDF-fake'));
 
         Pdf::shouldReceive('loadView')
