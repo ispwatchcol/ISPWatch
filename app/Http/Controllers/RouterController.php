@@ -597,14 +597,20 @@ class RouterController extends Controller
             return response()->json(['ranges' => [], 'free_ips' => [], 'message' => 'El router no tiene rangos IP configurados.']);
         }
 
-        // Collect used IPs from customer_profile for this tenant
-        $tenantId = $request->query('tenant_id') ?? $request->query('tenant');
-        $usedQuery = \App\Models\CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
-            ->whereNotNull('customer_profile.ip_user');
-        if ($tenantId) {
-            $usedQuery->where('users.tenant_id', $tenantId);
-        }
-        $usedIps = $usedQuery->pluck('customer_profile.ip_user')->toArray();
+        // IPs ya ocupadas por clientes de ESTA empresa.
+        //
+        // El tenant se deriva del usuario autenticado, no de un parámetro de la
+        // URL: antes llegaba como `?tenant=` y, cuando no llegaba, la consulta
+        // se quedaba **sin filtro alguno** — daba por ocupadas las IPs de todos
+        // los tenants y escondía direcciones libres. Con un tenant ajeno en la
+        // URL, peor: calculaba la disponibilidad contra el uso de otra empresa.
+        $tenantId = $request->user()?->tenant_id;
+        abort_if(!$tenantId, 403, 'No autorizado.');
+
+        $usedIps = \App\Models\CustomerProfile::join('users', 'customer_profile.user_id', '=', 'users.id')
+            ->whereNotNull('customer_profile.ip_user')
+            ->where('users.tenant_id', $tenantId)
+            ->pluck('customer_profile.ip_user')->toArray();
         $usedSet = array_flip($usedIps);
 
         $lines    = array_filter(array_map('trim', explode("\n", $rangosIp)));

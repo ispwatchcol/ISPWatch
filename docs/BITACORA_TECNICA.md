@@ -8,6 +8,9 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Panel de Finanzas mensual, con gastos y balance (2026-08-06, § 24):** las cifras dejan de ser
+  el acumulado histórico, se excluyen anuladas, entran los gastos y el tenant deja de viajar por
+  la URL.
 - **Inventario con custodia, consumibles y kardex (2026-08-06, § 23):** un equipo sabe quién lo
   tiene, los consumibles se llevan por saldo, una instalación puede descargar varios equipos, y
   todo movimiento queda escrito en una tabla append-only.
@@ -49,6 +52,7 @@
 21. [El PDF no se parecía al editor: cuatro causas medidas — 2026-08-06](#21-el-pdf-no-se-parecía-al-editor-cuatro-causas-medidas--2026-08-06)
 22. [Las tarjetas de Inventario contaban dispositivos, no catálogos — 2026-08-06](#22-las-tarjetas-de-inventario-contaban-dispositivos-no-catálogos--2026-08-06)
 23. [Custodia de inventario, consumibles y kardex — 2026-08-06](#23-custodia-de-inventario-consumibles-y-kardex--2026-08-06)
+24. [El Panel de Finanzas era el acumulado histórico y no sabía de gastos — 2026-08-06](#24-el-panel-de-finanzas-era-el-acumulado-histórico-y-no-sabía-de-gastos--2026-08-06)
 
 ---
 
@@ -2140,3 +2144,196 @@ se traga la ruta literal y `movements` llega al controlador como si fuera un id.
 611 pruebas en verde (599 antes; +12 de `InventoryCustodyTest`, que cubre el filtro por custodia,
 el rechazo de equipo ajeno, el descuento por cantidad, el saldo insuficiente, la devolución, el
 traspaso, la entrada sin origen y el kardex por custodio).
+
+---
+
+## 24. El Panel de Finanzas era el acumulado histórico y no sabía de gastos — 2026-08-06
+
+**Síntoma reportado.** «En la vista de facturación no se me están descontando los gastos, y
+tampoco me lleva el balance mensual sino general desde siempre.»
+
+**Lo que había.** `BillingController::getStats()` eran tres consultas sin un solo filtro:
+
+```php
+$totalInvoiced = Invoice::where('tenant_id', $tenantId)->sum('total');
+$totalPaid     = Payment::where('tenant_id', $tenantId)->sum('amount');
+$totalPending  = Invoice::where('tenant_id', $tenantId)->sum('balance_due');
+```
+
+Tres defectos, dos reportados y uno que apareció al mirar:
+
+1. **Sin condición de fecha.** Las cuatro tarjetas eran el histórico completo del ISP y crecían
+   para siempre.
+2. **Los gastos no se consultaban.** La tabla `expenses` no aparecía. «Recaudado» era ingreso
+   bruto; el panel nunca fue construido para restar nada.
+3. **Sumaba facturas anuladas** (`void`/`cancelled`) y **pagos anulados** (`payments.status =
+   void`). El listado de facturas sí las excluye desde hace tiempo, así que el panel y el listado
+   daban cifras distintas para lo mismo. Además las anuladas inflaban lo facturado sin aportar
+   pagos, así que **hundían la tasa de cobro**: el 77,34 % que se veía en pantalla era peor que
+   el real.
+
+Y un cuarto, de seguridad: el tenant salía del query param (`$request->tenant_id ?? $request->tenant`)
+y el frontend lo mandaba desde `localStorage`. Cualquiera con `view_billing` podía pedir
+`?tenant=<otra empresa>` y leer sus finanzas — la misma clase de agujero que la auditoría A-1
+cerró en el resto de la API. Ahora sale de `$request->user()->tenant_id` y el frontend ya no lo
+envía.
+
+### 24.1 Flujo y saldo no se filtran igual
+
+La decisión de diseño de fondo es que las tarjetas mezclaban dos naturalezas distintas:
+
+- **Flujo** (facturado, recaudado, gastos): sólo significan algo dentro de un periodo.
+- **Saldo** (cartera): es un acumulado por definición.
+
+Por eso el panel es mensual **salvo la cartera**, que sigue siendo de todos los meses y lo dice
+en su propia etiqueta ("Cartera total · acumulada, no sólo de este mes"). Hacerla mensual habría
+escondido la mora vieja, que es exactamente la que hay que perseguir.
+
+### 24.2 El balance es de caja, no de causación
+
+`balance = total_paid − total_expenses`, no `total_invoiced − total_expenses`. Un ISP de este
+tamaño decide con caja: una factura emitida y no pagada no cubre la nómina. La cifra de
+causación se puede añadir después como dato secundario si hace falta, pero no debe ser *el*
+balance.
+
+### 24.3 La tasa de cobro no es recaudado ÷ facturado
+
+Al pasar a mensual aparece un problema que en el acumulado no existía: si se cobra mora vieja,
+ese dinero entra en `total_paid` del mes pero pertenece a facturas de meses anteriores.
+`total_paid / total_invoiced` daría tasas por encima del 100 % que no significan nada.
+
+Se mide contra las facturas del propio mes, uniendo por `payment_allocations` (que ya existía y
+guarda cuánto de cada pago se imputó a cada factura), y descartando los pagos anulados en el
+join. La prueba `the_collection_rate_measures_the_months_own_invoices` fija justo ese caso:
+250.000 recaudados en el mes, de los cuales 100.000 son de una factura de mayo → 75 %, no 125 %.
+
+### 24.4 Los gastos son de otro permiso
+
+El panel exige `view_billing`, pero los gastos viven bajo `view_expenses` (el rol Contabilidad
+los ve; uno de sólo facturación, no). `total_expenses` y `balance` llegan en **`null`** —no en
+`0`— cuando falta el permiso, y el frontend esconde esas dos tarjetas. Devolver `0` habría
+mostrado un balance falso igual al recaudado.
+
+### 24.5 El barrido encontró un segundo caso, peor de lo que parecía
+
+Buscar el mismo patrón por todos los controladores dio un único resultado más:
+`RouterController::getFreeIps()` leía `?tenant_id`/`?tenant` y, cuando no llegaba, **no aplicaba
+filtro alguno** (`if ($tenantId) { $usedQuery->where(...) }`). Y el frontend nunca lo enviaba
+(`routers.js` llama a `/routers/{id}/free-ips` a secas), así que en producción esa consulta
+llevaba tiempo corriendo sin filtro: marcaba como ocupadas las IPs de **todos** los tenants y por
+tanto escondía direcciones libres en el analizador de IPs del alta de cliente. No es fuga de
+datos —sólo devuelve direcciones— pero sí un defecto funcional que nadie podía ver. Corregido con
+el mismo criterio: tenant del usuario autenticado y filtro siempre aplicado.
+
+### 24.6 Estado
+
+620 pruebas en verde (611 antes; +9 de `BillingStatsTest`: filtro por mes, exclusión de anuladas,
+gastos y balance de caja, cartera acumulada, tasa de cobro por `payment_allocations`, mes actual
+por defecto, aislamiento entre tenants aun pidiendo otro por URL, ocultamiento de gastos sin
+permiso y rechazo de un `month` mal formado).
+
+---
+
+## 25. API pública de solo lectura por llave — 2026-08-07
+
+**Motivo:** un ISP cliente necesita leer sus propios datos (clientes, facturación, soporte)
+desde un sistema externo. El requisito explícito fue «super seguro, sin inestabilidad, y que
+sólo vea su propio tenant».
+
+### 25.1 Lo que el código ya tenía en contra
+
+Tres cosas del estado previo definieron el diseño más que cualquier preferencia:
+
+1. **`customer_profile` no tiene `tenant_id`.** Su frontera es el join con `users`
+   (`CustomerProfileController` lo hace explícito en cada consulta). Un endpoint nuevo que
+   se olvidara del join devolvería la base de clientes **completa de la plataforma** sin dar
+   ningún error. Es el fallo más caro posible aquí y el que dirigió toda la estrategia de
+   pruebas.
+2. **`CheckPermission` tiene bypass por `role_id == 1`.** Cualquier identidad con ese rol
+   pasa cualquier control. Colgar la llave de un usuario era jugar con eso.
+3. **`sanctum.expiration` es `null`.** Un token sin caducidad explícita vive para siempre.
+
+### 25.2 Por qué la identidad NO es un usuario
+
+Se descartó el «usuario-máquina» en `users`: heredaría el camino de login, aparecería en los
+listados de Personal y bastaría un `role_id = 1` mal puesto para abrir la aplicación entera.
+En su lugar, tabla propia `api_clients` — `Authenticatable` con `HasApiTokens`, sin
+contraseña y **sin rol que asignar**, de modo que ese error deja de ser posible.
+
+Lo que sí se reutiliza es el aislamiento: `api_clients.tenant_id` hace que el global scope de
+`BelongsToTenant` funcione igual que con un humano. No se creó ninguna resolución paralela
+«llave → tenant» que pudiera divergir de la del panel.
+
+### 25.3 El hallazgo: la separación salió estructural, no por middleware
+
+El diseño inicial ponía un middleware (`DenyApiClients`) en el grupo del panel para impedir
+que una llave de integración alcanzara `/api/customers`. Al escribir los tests apareció algo
+mejor: **el guard de Sanctum comprueba que el dueño del token sea del modelo del provider del
+guard**.
+
+De hecho eso mismo fue lo que primero rompió el `ping` con un 401: `guards.sanctum.provider`
+es `users`, así que un token de `ApiClient` no autenticaba en ninguna parte. La solución no
+fue relajar la comprobación sino aprovecharla — un guard propio:
+
+```php
+'api_key' => ['driver' => 'sanctum', 'provider' => 'api_clients'],
+```
+
+Con eso, un token de integración da **401** contra las rutas del panel y un token de usuario
+da 401 contra `/api/v1/partner/*`, sin que nadie tenga que acordarse de nada al agregar
+rutas nuevas. El test que esperaba el 403 de `DenyApiClients` pasó a esperar 401 y a
+documentar por qué. El middleware se conservó como segunda capa: hoy no llega a dispararse,
+y existe para que una regresión en `config/auth.php` no se vuelva una fuga silenciosa.
+
+### 25.4 Decisiones de contrato
+
+- **Controladores propios** en `Api/Partner/`, nunca los del panel: esos devuelven el modelo
+  entero, con `pppoe_password`, `hotspot_password` y credenciales de router. Cada endpoint
+  declara su `select()` con columnas explícitas, así que agregar mañana una columna sensible
+  a una tabla no la publica sola.
+- **Filtro de tenant explícito en cada consulta**, aunque el modelo traiga el global scope.
+  `Payment` ni siquiera usa el trait (sólo tiene la columna), y depender de qué modelo lo usa
+  y cuál no es exactamente el detalle que se olvida al agregar un endpoint.
+- **404 y no 403** al pedir un recurso de otro tenant: un 403 le confirmaría al integrador
+  que ese id existe en la plataforma.
+- **Allowlist de IPs obligatoria**, que falla cerrado si está vacía. Una llave sin IPs no es
+  «sin restricción», es una llave inutilizable.
+- **Sin ability comodín `*`**: Sanctum lo interpreta como «puede todo», y una llave que lo
+  tuviera pasaría cualquier control futuro sin que nadie lo revise.
+- **Revocar conserva la fila** (marca `revoked_at` y rompe el hash): un registro de auditoría
+  que apunta a una llave borrada no sirve de nada.
+
+### 25.5 Estabilidad
+
+- Cubo de rate limit **propio del token** (60/min y 5.000/hora): el consumo del integrador no
+  puede comerse la capacidad que el ISP necesita para cobrar y reconectar. Los 5.000/hora
+  cortan el barrido sostenido de toda la base, que es la forma realista de exfiltrarla con
+  una llave legítima.
+- **Ningún endpoint habla con el router.** Una llamada al CORE tarda 17-34 s; un integrador
+  con reintentos agotaría el pool y tumbaría el aprovisionamiento y el corte para todos.
+- **Bug corregido de paso:** el limitador general `api` llaveaba por `$request->user()->id` a
+  secas, así que el usuario 7 y el `ApiClient` 7 habrían compartido cubo. Ahora es `Clase:id`.
+
+### 25.6 Deuda aceptada conscientemente
+
+`trustProxies(at: '*')` (necesario en DigitalOcean App Platform) hace que `$request->ip()`
+salga de `X-Forwarded-For`, una cabecera que el cliente controla. **La allowlist de IPs es,
+por tanto, defensa en profundidad y no una frontera criptográfica**: el secreto primario
+sigue siendo el token. Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 25.7 Estado
+
+**644 pruebas en verde**, 24 de ellas nuevas en `tests/Feature/ApiKeys/`:
+
+- `PartnerApiIsolationTest` (5): dos tenants poblados; cada listado afirma que sale
+  **exactamente uno** —no que «salga algo»—, el detalle de otro tenant da 404 y la respuesta
+  no contiene credenciales de red.
+- `ApiKeySecurityTest` (12): allowlist (exacta, CIDR y vacía), abilities, revocación,
+  caducidad, cliente desactivado, solo-lectura, las dos direcciones de la separación
+  panel ⇄ API, y la bitácora.
+- `ApiKeyManagementTest` (7): el admin de otro tenant no administra llaves, el texto plano se
+  ve una sola vez, catálogo cerrado de abilities, IPs obligatorias, revocación que rompe el
+  hash y `tenant_id` inmutable.
+
+**Pendiente de despliegue:** `php artisan migrate:both` (4 migraciones) y decidir el
+`API_KEYS_OPERATOR_TENANT_ID` real si no es el 1.

@@ -147,6 +147,40 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `sessions`,
 `password_reset_tokens`, `personal_access_tokens`, `migrations`.
 
+### API pública de solo lectura (2026-08-07)
+
+| Tabla | Filas | Función |
+|---|---:|---|
+| `api_clients` | 0 | Consumidor externo de la API. **No es un usuario**: sin contraseña, sin rol, sin login |
+| `api_key_request_logs` | 0 | Bitácora append-only: una fila por petición atendida o rechazada |
+
+**`api_clients`**
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | bigserial | PK |
+| `tenant_id` | bigint | FK → `tenant` (`CASCADE`). **La frontera de datos de todas sus llaves** |
+| `name` | varchar | Nombre del integrador |
+| `contact_email` | varchar? | A quién avisar si hay que revocar |
+| `description` | text? | |
+| `is_active` | boolean | Interruptor de emergencia: apaga **todas** sus llaves de golpe |
+| `created_by` | bigint? | FK → `users` (`SET NULL`). Admin del tenant operador que lo dio de alta |
+
+**Columnas añadidas a `personal_access_tokens`** (todas nullable, no afectan a otros tokens):
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `allowed_ips` | json? | Allowlist de IPs/CIDR. **Obligatoria a nivel de aplicación**, no de esquema: `EnsureApiKeyRequest` rechaza la llave si viene vacía |
+| `revoked_at` | timestamp? | Revocación manual, distinta de la caducidad |
+| `last_used_ip` | varchar(45)? | Detectar uso desde un origen inesperado aun dentro de la allowlist |
+| `created_by` | bigint? | Quién emitió la llave |
+
+**`api_key_request_logs`**: `api_client_id`, `token_id`, `tenant_id` (los tres nullable —
+un token inexistente no resuelve cliente y ese intento es justo el que interesa auditar),
+`method`, `path`, `ip`, `status_code`, `duration_ms`, `denied_reason`, `created_at`.
+Sin `updated_at`. Índices en `(api_client_id, created_at)` y `created_at`. La purga la
+hace `api-keys:prune-logs` (90 días por defecto).
+
 ### PostGIS
 
 `spatial_ref_sys` (tabla) y las vistas `geometry_columns` / `geography_columns`.

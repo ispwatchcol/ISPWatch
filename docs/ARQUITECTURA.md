@@ -24,6 +24,7 @@
 11. [Flujo de datos extremo a extremo](#11-flujo-de-datos-extremo-a-extremo)
 12. [Dependencias críticas](#12-dependencias-críticas)
 13. [Despliegue](#13-despliegue)
+14. [API pública de solo lectura](#14-api-pública-de-solo-lectura)
 
 ---
 
@@ -1002,3 +1003,103 @@ La plantilla `.do/deploy.template.yaml` **ya no contiene secretos**: todo valor 
 marcador `<<<CAMBIAR:...>>>` declarado como `type: SECRET`. La especificación real vive en
 `.do/deploy.yaml`, que está en `.gitignore`. Ver
 [`RUNBOOK_ROTACION_SECRETOS.md`](RUNBOOK_ROTACION_SECRETOS.md).
+
+---
+
+## 14. API pública de solo lectura
+
+**Añadida:** 2026-08-07 · Prefijo `/api/v1/partner` · Referencia completa en
+[`API_REFERENCE.md` § 22](API_REFERENCE.md#22-api-pública-de-solo-lectura-llaves-de-integración)
+
+Permite que un ISP consuma **sus propios datos** (clientes, facturación, soporte)
+desde un sistema externo mediante una llave, sin darle acceso al panel.
+
+### 14.1 Identidad: `ApiClient`, no un usuario
+
+Un consumidor externo es una fila en `api_clients`, no en `users`. Es un modelo
+`Authenticatable` con `HasApiTokens` pero **sin contraseña y sin rol**.
+
+La alternativa evidente —un «usuario-máquina» en `users`— se descartó por tres
+razones concretas: heredaría el camino de login, aparecería en los listados de
+Personal, y si alguien le asignara por error el rol Administrador (`role_id = 1`),
+el bypass de `CheckPermission` le abriría la aplicación entera. Con una tabla
+aparte ese error es imposible de cometer: un `ApiClient` no tiene rol que asignar.
+
+Lo que **sí** se reutiliza es el aislamiento: `api_clients.tenant_id` hace que el
+global scope de `BelongsToTenant` (que lee `auth()->user()->tenant_id`) funcione
+igual que con un usuario humano. No hay una segunda resolución «llave → tenant»
+que pueda divergir de la del panel.
+
+### 14.2 Separación estructural entre panel e integraciones
+
+El punto de diseño más importante. Un token de Sanctum autentica en **cualquier**
+ruta protegida por su guard, no sólo en aquella para la que se emitió. En vez de
+resolverlo con un middleware que hay que acordarse de poner, se resuelve en la
+configuración:
+
+```php
+// config/auth.php
+'sanctum' => ['driver' => 'sanctum', 'provider' => 'users'],       // panel
+'api_key' => ['driver' => 'sanctum', 'provider' => 'api_clients'], // API pública
+```
+
+Sanctum comprueba que el dueño del token sea del modelo del provider del guard.
+Resultado: un token de `ApiClient` devuelve **401** contra `/api/customers`, y un
+token de un usuario del panel devuelve 401 contra `/api/v1/partner/*`. Ninguna de
+las dos direcciones depende de que nadie recuerde nada al agregar rutas nuevas.
+
+`App\Http\Middleware\DenyApiClients` (en el grupo `auth:sanctum` del panel) queda
+como segunda capa: hoy no llega a dispararse, y existe para que una regresión en
+`config/auth.php` no se convierta en una fuga silenciosa.
+
+### 14.3 Pipeline de una petición
+
+```
+auth:api_key ──► api_key ──────────► throttle:api-key ──► ability:read:* ──► controlador
+   guard         EnsureApiKeyRequest    60/min                 Sanctum         select() explícito
+   (ApiClient)   · solo GET             5.000/hora
+                 · HTTPS en producción
+                 · llave viva
+                 · allowlist de IPs
+                 · bitácora
+```
+
+`EnsureApiKeyRequest` falla cerrado en todos sus caminos: si el cliente no tiene
+tenant, si la allowlist está vacía o si el token no es un `PersonalAccessToken`
+real, rechaza. En particular rechaza el `TransientToken` que Sanctum inyecta en
+las sesiones con cookie, porque ese devuelve `true` a cualquier `tokenCan()` y
+admitirlo anularía por completo el control de abilities.
+
+### 14.4 Forma de la respuesta
+
+Los controladores viven en `app/Http/Controllers/Api/Partner/` y **no** reutilizan
+los del panel. Cada endpoint declara su `select()` con columnas explícitas: lo que
+no se nombra no sale. Fuera de la respuesta, a propósito: `pppoe_password`,
+`hotspot_password`, `mac_address`, las firmas digitalizadas y el `sheet` del acta
+de instalación.
+
+`PartnerController` centraliza el tope de página (100), la envoltura
+`{data, meta}` y la validación de filtros comunes.
+
+### 14.5 Auditoría y capacidad
+
+- Cada petición —atendida o rechazada— escribe una fila en `api_key_request_logs`
+  (llave, tenant, ruta, IP, código, milisegundos, motivo del rechazo). El logging
+  nunca lanza: un fallo de auditoría no puede tumbar la petición del cliente.
+- `api-keys:prune-logs` corre a diario (03:30) y conserva 90 días.
+- El cubo de rate limit es **propio del token**, no compartido con el limitador
+  general de la API: el consumo del integrador no puede comerse la capacidad que
+  el personal del ISP necesita para cobrar y reconectar.
+- El limitador general `api` pasó a llavear por `Clase:id` en vez de por `id` a
+  secas, porque el usuario 7 y el `ApiClient` 7 compartían cubo.
+
+### 14.6 Emisión de llaves
+
+Centralizada en el **tenant operador** (`config/api_keys.php`), pestaña
+Configuración → Llaves API. El permiso `manage_api_keys` no basta por sí solo —lo
+tiene el rol Administrador de todos los tenants—, así que `ApiClientController`
+comprueba además el tenant en cada acción.
+
+El texto plano se muestra **una sola vez**; en la base sólo queda el hash de
+Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero conserva la fila:
+un registro de auditoría que apunta a una llave borrada no sirve de nada.

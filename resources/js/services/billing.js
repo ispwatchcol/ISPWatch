@@ -78,8 +78,10 @@ export default {
     return apiClient.patch(`/billing/customers/${customerId}/credit`, { credit_balance: creditBalance, reason })
   },
 
-  getStats(tenantId) {
-    return apiClient.get('/billing/stats', { params: { tenant: tenantId } })
+  // month en formato YYYY-MM; sin él, el backend responde el mes en curso.
+  // El tenant NO se envía: lo deduce del usuario autenticado.
+  getStats(month = null) {
+    return apiClient.get('/billing/stats', { params: month ? { month } : {} })
   },
 
   // List Payments

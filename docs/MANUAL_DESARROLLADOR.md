@@ -513,6 +513,88 @@ Route::middleware(['permission:view_reports'])->group(function () {
 **7. Documentación** — actualiza `API_REFERENCE.md`, `BITACORA_TECNICA.md`,
 `MANUAL_USUARIO.md` y `BASE_DATOS.md` según corresponda.
 
+### Ejemplo: exponer datos nuevos en la API pública
+
+La API de integraciones (`/api/v1/partner`) es un **contrato con un tercero** y su
+superficie es deliberadamente estrecha. Antes de agregar nada, dos reglas que no son
+negociables:
+
+1. **Nunca reutilices un controlador del panel.** Los del panel devuelven el modelo
+   entero, y ahí viajan `pppoe_password`, `hotspot_password` y credenciales de router.
+2. **Nunca confíes sólo en el global scope para el tenant.** `customer_profile` no tiene
+   `tenant_id` propio: su frontera es el join con `users`. Un endpoint que lo olvide
+   devuelve la base de clientes completa de la plataforma sin dar ningún error.
+
+**1. Ability** (`config/api_keys.php`) — sólo si el área es nueva:
+
+```php
+'abilities' => [
+    // …
+    'read:inventory' => 'Inventario (equipos y existencias)',
+],
+```
+
+Agregar el ability aquí **no abre nada por sí solo**: alimenta las casillas del panel y
+la validación. El acceso lo concede el `ability:` de la ruta.
+
+**2. Controlador** en `app/Http/Controllers/Api/Partner/`, extendiendo `PartnerController`:
+
+```php
+class PartnerInventoryController extends PartnerController
+{
+    public function index(Request $request): JsonResponse
+    {
+        $request->validate($this->commonRules() + ['status' => 'sometimes|string|max:30']);
+
+        $tenantId = $this->tenantId($request);   // ← de la llave, nunca del request
+
+        $query = InventoryDevice::query()
+            ->where('inventory_devices.tenant_id', $tenantId)   // ← explícito, siempre
+            ->select([                                          // ← lista blanca
+                'inventory_devices.id',
+                'inventory_devices.serial',
+                'inventory_devices.status',
+            ]);
+
+        return $this->paginated($query, $request, fn ($row) => [
+            'id'     => (int) $row->id,
+            'serial' => $row->serial,
+            'status' => $row->status,
+        ]);
+    }
+}
+```
+
+El `select()` con columnas explícitas es lo que hace que agregar mañana una columna
+sensible a esa tabla no la publique sola. `paginated()` aplica el tope de 100 por página
+y la envoltura `{data, meta}`.
+
+**3. Ruta** (`routes/api.php`, grupo `v1/partner`):
+
+```php
+Route::middleware('ability:read:inventory')->group(function () {
+    Route::get('/inventory', [PartnerInventoryController::class, 'index']);
+});
+```
+
+**4. Test de aislamiento** — no es opcional. Puebla **dos** tenants y afirma que sólo
+sale el propio; afirmar que «sale algo» no prueba nada:
+
+```php
+$this->assertCount(1, $response->json('data'));
+$response->assertJsonMissing(['serial' => 'DEL-TENANT-B']);
+```
+
+Ver `tests/Feature/ApiKeys/PartnerApiIsolationTest.php`.
+
+**5. Documenta el endpoint** en `API_REFERENCE.md` § 22. Es un contrato publicado: si no
+está escrito, el integrador no puede usarlo.
+
+> ⚠️ **No agregues verbos de escritura ni endpoints que hablen con el router.** La API es
+> de lectura por diseño, y una llamada al CORE tarda 17-34 s: un integrador con
+> reintentos agotaría el pool de conexiones y tumbaría el aprovisionamiento y el corte
+> para todos los tenants.
+
 ### Ejemplo: mover existencias de inventario
 
 **Nunca escribas `inventory_device.status`, `inventory_balances` ni `inventory_movements` a
@@ -822,6 +904,7 @@ Las tres reglas que hacen que funcione:
 | 34 | **Un formulario largo con un solo botón de guardar al final** | La tarjeta *Conexión / Red* de `InstallationDetail.vue` no tenía botón propio: el único `Guardar hoja` vivía en la tarjeta siguiente y guardaba las dos, pero nada lo decía en pantalla. Llenar la primera y salir perdía el trabajo en silencio. Cada bloque visualmente independiente necesita su acción de guardado (aunque llame al mismo handler) |
 | 31 | **El `$periodStart` de `createMonthlyInvoiceFor()` NO siempre es el día 1** | Llega como `$charge['period_start']`, y en una primera factura prorrateada eso es el **día de instalación** (`2026-07-11`), no el inicio del mes. Cualquier cálculo que necesite el mes natural —la ventana de vigencia de un servicio adicional, su prorrateo— debe derivarlo de `$periodEnd->copy()->startOfMonth()`, que sí es siempre fin de mes en ese método. Usar el `$periodStart` recibido prorratea por error asignaciones antiguas, y el error sólo aparece en clientes instalados a mitad de mes |
 | 35 | **Una relación NO puede llamarse igual que una columna del mismo modelo** | `customer_installations` tiene una columna `equipment` (texto libre "equipo previsto"). Al añadir la relación `equipment()` hacia `installation_equipment`, `$installation->equipment` seguía devolviendo **el string**: Eloquent resuelve primero `$attributes` y sólo cae a las relaciones si no hay atributo con ese nombre — ni siquiera un `loadMissing('equipment')` previo cambia eso, porque la relación queda cargada pero inalcanzable por la propiedad. La vista del PDF habría hecho `->count()` sobre un texto. Se llama `equipmentItems()`. Es la trampa gemela de la #30 (relación que pisa una FK), pero al revés: aquí la **columna** gana |
+| 37 | **El tenant NUNCA sale de un parámetro de la petición** | Dos casos vivos encontrados el 2026-08-06: `billing/stats` lo leía de `?tenant=` (cualquiera con `view_billing` podía pedir las finanzas de otra empresa cambiando la URL) y `routers/{id}/free-ips` de `?tenant_id=` con un `if ($tenantId)` que, al no llegar nunca desde el frontend, dejaba la consulta **sin filtro** y escondía IPs libres. Deriva siempre de `$request->user()->tenant_id`, o usa `BelongsToTenant` — y desconfía de todo `if ($tenantId)`: un filtro condicional es un filtro que algún día no se aplica |
 | 36 | **Un `whereIn` polimórfico con NULL no filtra: usa un índice único sin nulos** | En `inventory_balances` el custodio es `holder_type` + `holder_id` **NOT NULL** en vez de `branch_id`/`user_id` nulables, porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos duplicados — y en PostgreSQL **dos NULL son distintos entre sí**, así que un único sobre columnas nulables deja pasar duplicados en silencio. Si necesitas unicidad sobre "una de dos referencias", conviértelo en par tipo+id antes que en dos columnas nulables |
 ---
 

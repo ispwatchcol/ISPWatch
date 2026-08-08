@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { RouterLink } from 'vue-router'
 import billingService from '@/services/billing'
 import { usePermissions } from '@/composables/usePermissions'
 import { customerDisplayName } from '@/utils/customerName'
@@ -9,6 +10,26 @@ const { can } = usePermissions()
 const stats = ref(null)
 const loading = ref(true)
 const user = ref({})
+
+// Mes que se está mirando, en formato YYYY-MM (el que entiende <input type="month">
+// y el que valida el backend). Arranca en el mes en curso.
+const currentMonthKey = () => new Date().toISOString().slice(0, 7)
+const selectedMonth = ref(currentMonthKey())
+
+const isCurrentMonth = computed(() => selectedMonth.value >= currentMonthKey())
+
+const shiftMonth = (delta) => {
+    const [year, month] = selectedMonth.value.split('-').map(Number)
+    // Día 1 a mediodía: con día 31 o a medianoche, el cambio de mes se pasa de
+    // largo en meses cortos y con el desfase de zona horaria.
+    const date = new Date(year, month - 1 + delta, 1, 12)
+    const next = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    if (next > currentMonthKey()) return
+    selectedMonth.value = next
+    fetchStats()
+}
+
+const money = (value) => Number(value ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
 
 const showPeriodModal = ref(false)
 const periodInput = ref(new Date().toISOString().slice(0, 7))
@@ -34,7 +55,9 @@ const selectMonth = (index) => {
 const fetchStats = async () => {
     loading.value = true
     try {
-        const response = await billingService.getStats(user.value?.tenant_id)
+        // El tenant ya no viaja en la URL: lo deduce el backend del usuario
+        // autenticado. Enviarlo permitía pedir las finanzas de otra empresa.
+        const response = await billingService.getStats(selectedMonth.value)
         stats.value = response.data
     } catch (e) {
         console.error('Error fetching stats', e)
@@ -137,9 +160,25 @@ onMounted(() => {
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
             <div>
                 <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 dark:text-white tracking-tight">Panel de Finanzas</h1>
-                <p class="text-slate-500 dark:text-slate-400 mt-2 font-medium">Resumen general de facturación y recaudos.</p>
+                <p class="text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                    Facturación, recaudo y gastos de {{ stats?.period?.label ?? 'este mes' }}.
+                </p>
             </div>
             <div class="flex flex-wrap gap-3">
+                <!-- Mes que se está viendo. Es el eje del panel: sin él, las
+                     cifras eran el acumulado histórico y nunca bajaban. -->
+                <div class="flex items-center bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 overflow-hidden">
+                    <button @click="shiftMonth(-1)" title="Mes anterior"
+                        class="px-3 py-3 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-gray-700 transition-colors">
+                        <v-icon name="md-keyboardarrowdown" class="w-5 h-5 rotate-90" />
+                    </button>
+                    <input v-model="selectedMonth" @change="fetchStats" type="month"
+                        class="px-2 py-2.5 bg-transparent text-slate-700 dark:text-slate-200 text-sm font-semibold outline-none" />
+                    <button @click="shiftMonth(1)" :disabled="isCurrentMonth" title="Mes siguiente"
+                        class="px-3 py-3 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                        <v-icon name="md-keyboardarrowdown" class="w-5 h-5 -rotate-90" />
+                    </button>
+                </div>
                 <button @click="fetchStats" class="p-3 bg-white dark:bg-gray-800 text-slate-600 dark:text-slate-300 rounded-2xl shadow-sm border border-slate-200 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-700 transition-all active:scale-[0.95]">
                     <v-icon name="bi-arrow-repeat" class="w-6 h-6" :class="{ 'animate-spin': loading }" />
                 </button>
@@ -167,8 +206,11 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Stats Grid -->
-        <div v-if="!loading && stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        <!-- Stats Grid.
+             Las cinco primeras tarjetas son del mes elegido; la cartera es
+             acumulada y lo dice en su propia etiqueta, porque recortarla al mes
+             escondería la mora vieja, que es justo la que hay que cobrar. -->
+        <div v-if="!loading && stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
             <!-- Invoiced -->
             <div class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 relative overflow-hidden group">
                 <div class="absolute -right-4 -top-4 w-24 h-24 bg-indigo-50 dark:bg-indigo-900/20 rounded-full transition-transform group-hover:scale-110"></div>
@@ -177,11 +219,12 @@ onMounted(() => {
                         <div class="p-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-2xl">
                             <v-icon name="la-money-bill-wave-solid" class="w-6 h-6" />
                         </div>
-                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Facturado</span>
+                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Facturado del mes</span>
                     </div>
                     <div class="text-3xl font-medium text-slate-900 dark:text-white">
-                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ stats.summary.total_invoiced.toLocaleString() }}
+                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ money(stats.summary.total_invoiced) }}
                     </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-2">Sin facturas anuladas</p>
                 </div>
             </div>
 
@@ -193,11 +236,55 @@ onMounted(() => {
                         <div class="p-3 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-2xl">
                             <v-icon name="md-payments-outlined" class="w-6 h-6" />
                         </div>
-                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Recaudado</span>
+                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Recaudado del mes</span>
                     </div>
                     <div class="text-3xl font-medium text-slate-900 dark:text-white">
-                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ stats.summary.total_paid.toLocaleString() }}
+                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ money(stats.summary.total_paid) }}
                     </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-2">Todo lo que entró, de cualquier mes</p>
+                </div>
+            </div>
+
+            <!-- Expenses (sólo con permiso de gastos) -->
+            <div v-if="stats.summary.can_view_expenses"
+                class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 relative overflow-hidden group">
+                <div class="absolute -right-4 -top-4 w-24 h-24 bg-orange-50 dark:bg-orange-900/20 rounded-full transition-transform group-hover:scale-110"></div>
+                <div class="relative">
+                    <div class="flex items-center gap-4 mb-4">
+                        <div class="p-3 bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 rounded-2xl">
+                            <v-icon name="md-trendingdown" class="w-6 h-6" />
+                        </div>
+                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Gastos del mes</span>
+                    </div>
+                    <div class="text-3xl font-medium text-slate-900 dark:text-white">
+                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ money(stats.summary.total_expenses) }}
+                    </div>
+                    <RouterLink to="/expenses" class="text-xs text-orange-600 dark:text-orange-400 mt-2 inline-block hover:underline">
+                        Ver detalle
+                    </RouterLink>
+                </div>
+            </div>
+
+            <!-- Balance de caja: recaudado − gastos -->
+            <div v-if="stats.summary.can_view_expenses"
+                class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-gray-700 relative overflow-hidden group">
+                <div class="absolute -right-4 -top-4 w-24 h-24 rounded-full transition-transform group-hover:scale-110"
+                    :class="stats.summary.balance >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-rose-50 dark:bg-rose-900/20'"></div>
+                <div class="relative">
+                    <div class="flex items-center gap-4 mb-4">
+                        <div class="p-3 rounded-2xl"
+                            :class="stats.summary.balance >= 0
+                                ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400'">
+                            <v-icon name="la-dollar-sign-solid" class="w-6 h-6" />
+                        </div>
+                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Balance del mes</span>
+                    </div>
+                    <div class="text-3xl font-medium"
+                        :class="stats.summary.balance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ money(stats.summary.balance) }}
+                    </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-2">Recaudado − gastos (caja)</p>
                 </div>
             </div>
 
@@ -209,11 +296,12 @@ onMounted(() => {
                         <div class="p-3 bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-2xl">
                             <v-icon name="md-trendingdown" class="w-6 h-6" />
                         </div>
-                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Pendiente</span>
+                        <span class="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cartera total</span>
                     </div>
                     <div class="text-3xl font-medium text-slate-900 dark:text-white">
-                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ stats.summary.total_pending.toLocaleString() }}
+                        <span class="text-lg text-slate-400 mr-1">{{ stats.currency }}</span>{{ money(stats.summary.total_pending) }}
                     </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-2">Acumulada, no sólo de este mes</p>
                 </div>
             </div>
 
@@ -233,12 +321,13 @@ onMounted(() => {
                     <div class="w-full bg-slate-100 dark:bg-gray-700 h-2 rounded-full mt-4">
                         <div class="bg-amber-500 h-2 rounded-full transition-all duration-1000" :style="{ width: stats.summary.collection_rate + '%' }"></div>
                     </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-2">De lo facturado en el mes, cuánto está pagado</p>
                 </div>
             </div>
         </div>
 
-        <div v-else-if="loading" class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-            <div v-for="i in 4" :key="i" class="h-32 bg-white dark:bg-gray-800 animate-pulse rounded-3xl border border-slate-100 dark:border-gray-700"></div>
+        <div v-else-if="loading" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            <div v-for="i in 6" :key="i" class="h-32 bg-white dark:bg-gray-800 animate-pulse rounded-3xl border border-slate-100 dark:border-gray-700"></div>
         </div>
 
         <!-- Main Content Area -->
@@ -248,7 +337,7 @@ onMounted(() => {
                 <div class="p-6 border-b border-slate-50 dark:border-gray-700 flex justify-between items-center bg-slate-50/50 dark:bg-gray-900/30">
                     <h3 class="font-medium text-slate-900 dark:text-white flex items-center gap-2 uppercase tracking-wide text-sm">
                         <v-icon name="la-money-bill-wave-solid" class="w-5 h-5 text-indigo-500" />
-                        Facturas Recientes
+                        Facturas del mes
                     </h3>
                     <router-link to="/billing/invoices" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">Ver todas</router-link>
                 </div>
@@ -273,7 +362,7 @@ onMounted(() => {
                         </div>
                     </div>
                     <div v-else class="p-10 text-center">
-                         <p class="text-slate-400">No hay facturas recientes.</p>
+                         <p class="text-slate-400">No hay facturas en {{ stats?.period?.label ?? 'este mes' }}.</p>
                     </div>
                 </div>
             </div>
@@ -283,7 +372,7 @@ onMounted(() => {
                 <div class="p-6 border-b border-slate-50 dark:border-gray-700 flex justify-between items-center bg-slate-50/50 dark:bg-gray-900/30">
                     <h3 class="font-medium text-slate-900 dark:text-white flex items-center gap-2 uppercase tracking-wide text-sm">
                         <v-icon name="md-payments-outlined" class="w-5 h-5 text-emerald-500" />
-                        Últimos Recaudos
+                        Recaudos del mes
                     </h3>
                     <router-link to="/billing/payments" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">Ver todos</router-link>
                 </div>
@@ -308,7 +397,7 @@ onMounted(() => {
                         </div>
                     </div>
                     <div v-else class="p-10 text-center">
-                         <p class="text-slate-400">No hay recaudos recientes.</p>
+                         <p class="text-slate-400">No hay recaudos en {{ stats?.period?.label ?? 'este mes' }}.</p>
                     </div>
                 </div>
             </div>

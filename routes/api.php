@@ -41,6 +41,11 @@ use App\Http\Controllers\InstallationEquipmentController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
+use App\Http\Controllers\ApiClientController;
+use App\Http\Controllers\Api\Partner\PartnerBillingController;
+use App\Http\Controllers\Api\Partner\PartnerCustomerController;
+use App\Http\Controllers\Api\Partner\PartnerMetaController;
+use App\Http\Controllers\Api\Partner\PartnerSupportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -63,7 +68,11 @@ Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
 | PROTECTED ROUTES (require auth:sanctum)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum'])->group(function () {
+// `deny_api_clients` va en el grupo entero, no ruta por ruta: un token de la
+// API pública autentica igual de bien contra CUALQUIER ruta con auth:sanctum,
+// así que la barrera tiene que estar donde no se pueda olvidar al agregar un
+// endpoint nuevo. Ver App\Http\Middleware\DenyApiClients.
+Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
 
     // ─── AUTH ───
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -558,4 +567,61 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('inventory', [ImportController::class, 'importInventory']);
         Route::get('inventory-docs', [ImportController::class, 'inventoryFieldDocs']);
     });
+
+    // ─── LLAVES DE LA API PÚBLICA ───
+    // El permiso lo tiene el rol Administrador de todos los tenants, así que
+    // ApiClientController vuelve a comprobar que quien llama es del tenant
+    // operador (config/api_keys.php). Emitir una llave decide qué datos salen
+    // de la plataforma: no es una preferencia auto-servicio.
+    Route::middleware('permission:manage_api_keys')->group(function () {
+        Route::get('/api-clients', [ApiClientController::class, 'index']);
+        Route::get('/api-clients/tenants', [ApiClientController::class, 'tenants']);
+        Route::post('/api-clients', [ApiClientController::class, 'store']);
+        Route::put('/api-clients/{apiClient}', [ApiClientController::class, 'update']);
+        Route::get('/api-clients/{apiClient}/logs', [ApiClientController::class, 'logs']);
+        Route::post('/api-clients/{apiClient}/keys', [ApiClientController::class, 'storeKey']);
+        Route::delete('/api-clients/{apiClient}/keys/{tokenId}', [ApiClientController::class, 'destroyKey']);
+    });
 });
+
+/*
+|--------------------------------------------------------------------------
+| API PÚBLICA DE SOLO LECTURA (llaves de integración)
+|--------------------------------------------------------------------------
+|
+| Grupo separado y versionado a propósito: lo que se publica aquí es un
+| contrato con un tercero, y romperlo al refactorizar una pantalla del panel
+| no es una opción. Por eso NO reutiliza los controladores de la aplicación —
+| esos devuelven el modelo entero, incluidas credenciales PPPoE/hotspot.
+|
+| Cadena de middleware, en orden:
+|   auth:api_key   → guard propio (config/auth.php): sólo autentica tokens cuyo
+|                    dueño es un ApiClient, nunca un usuario del panel
+|   api_key        → solo GET, HTTPS, allowlist de IPs, llave viva, bitácora
+|   throttle:api-key → cubo propio, para que el integrador no consuma la
+|                      capacidad que el ISP necesita para cobrar y reconectar
+|   ability:*      → permiso de lectura por área, declarado por ruta
+|
+*/
+Route::prefix('v1/partner')
+    ->middleware(['auth:api_key', 'api_key', 'throttle:api-key'])
+    ->group(function () {
+        // Sin `ability`: sirve para verificar la llave antes de tener permisos.
+        Route::get('/ping', [PartnerMetaController::class, 'ping']);
+
+        Route::middleware('ability:read:customers')->group(function () {
+            Route::get('/customers', [PartnerCustomerController::class, 'index']);
+            Route::get('/customers/{customer}', [PartnerCustomerController::class, 'show'])
+                ->whereNumber('customer');
+        });
+
+        Route::middleware('ability:read:billing')->group(function () {
+            Route::get('/invoices', [PartnerBillingController::class, 'invoices']);
+            Route::get('/payments', [PartnerBillingController::class, 'payments']);
+        });
+
+        Route::middleware('ability:read:support')->group(function () {
+            Route::get('/tickets', [PartnerSupportController::class, 'tickets']);
+            Route::get('/installations', [PartnerSupportController::class, 'installations']);
+        });
+    });

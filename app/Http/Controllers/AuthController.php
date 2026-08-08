@@ -127,6 +127,11 @@ class AuthController extends Controller
                     'permissions' => $user->role?->permissions ?? [],
                     'has_staff_profile' => $user->staffProfile !== null,
                     'is_superadmin' => $user->is_superadmin ?? false,
+                    // Sólo el tenant operador administra llaves de la API
+                    // pública. Va calculado en el backend (config/api_keys.php)
+                    // y no comparando el tenant en el front: son dos fuentes de
+                    // verdad que se desincronizarían al cambiar el operador.
+                    'is_api_key_operator' => (int) $user->tenant_id === (int) config('api_keys.operator_tenant_id'),
                 ]
             ]);
 
@@ -242,6 +247,7 @@ class AuthController extends Controller
                 'permissions'      => $user->role?->permissions ?? [],
                 'has_staff_profile' => $user->staffProfile !== null,
                 'is_superadmin'    => $user->is_superadmin ?? false,
+                'is_api_key_operator' => (int) $user->tenant_id === (int) config('api_keys.operator_tenant_id'),
             ],
         ]);
     }

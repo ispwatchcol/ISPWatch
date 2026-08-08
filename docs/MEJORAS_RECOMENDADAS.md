@@ -147,6 +147,21 @@ devuelve 403 sin permiso, deja pasar con él, y la escritura sigue cerrada al t�
 > cliente se apoya en `edit_internet_service` para no inventar un permiso que ningún rol
 > sembrado tendría. Anotado como pendiente **P-1**.
 
+**Rescoldo encontrado el 2026-08-06 (ya corregido).** `GET /api/billing/stats` tenía el permiso
+correcto pero derivaba el tenant del **query param**: `$request->tenant_id ?? $request->tenant`,
+con el frontend enviándolo desde `localStorage`. Cualquiera con `view_billing` podía leer las
+finanzas de otra empresa cambiando un número en la URL. Ahora sale de
+`$request->user()->tenant_id` y el frontend ya no lo manda; fijado en
+`BillingStatsTest::another_tenants_figures_are_never_returned`.
+
+El barrido posterior por el mismo patrón encontró **un solo caso más**, también corregido:
+`RouterController::getFreeIps()` leía `?tenant_id`/`?tenant` y, **si no llegaba, no filtraba nada**
+(`if ($tenantId) { … }`). Como el frontend nunca envió ese parámetro, en producción venía
+funcionando sin filtro: daba por ocupadas las IPs de *todos* los tenants y por tanto **escondía
+direcciones libres** del analizador de IPs. No era una fuga de datos de cliente —sólo devuelve
+direcciones— pero sí un defecto funcional silencioso. Hoy deriva el tenant del usuario
+autenticado y filtra siempre.
+
 ### ✅ A-2 · Sin límite de peticiones en la API
 
 **Aplicado.** `$middleware->throttleApi()` en `bootstrap/app.php` y tres limitadores en
@@ -926,6 +941,32 @@ Nada de esto bloquea el uso, pero conviene tenerlo escrito antes de que aparezca
    simultáneas del mismo tenant** podrían atribuirse filas entre sí. Ese escenario ya estaba roto
    antes por otro motivo (la deduplicación de seriales se cachea en memoria por instancia), así
    que no se agrava nada; se documenta para que quien arregle lo uno arregle lo otro.
+
+### 📋 P-20 · La allowlist de IPs de las llaves de API es falsificable por cabecera
+
+**Detectado:** 2026-08-07, al implementar la API pública de solo lectura.
+
+`bootstrap/app.php` declara `trustProxies(at: '*')`, que es **necesario** en DigitalOcean App
+Platform: sin él Laravel vería siempre la IP del balanceador y no la del cliente. El efecto
+secundario es que `$request->ip()` se resuelve a partir de `X-Forwarded-For`, una cabecera que
+el emisor de la petición controla. Con todos los proxies confiados, Symfony toma la entrada
+más a la izquierda de esa cabecera, que es precisamente la que puede escribir quien llama.
+
+**Consecuencia concreta:** quien tenga una llave filtrada y sepa cuál es una de sus IPs
+autorizadas puede saltarse la allowlist enviando `X-Forwarded-For: <ip autorizada>`.
+
+**Lo que esto sí y no significa.** La allowlist sigue valiendo: eleva mucho el listón (hay que
+conocer la IP autorizada, no sólo el token) y sirve contra el uso accidental desde el sitio
+equivocado. Pero **no es una frontera criptográfica** y no debe presentarse como tal: el
+secreto primario es el token. Los controles que no dependen de la IP —caducidad, revocación,
+abilities acotadas, rate limit por token y la bitácora— son los que aguantan solos.
+
+**Recomendación.** Sustituir `trustProxies(at: '*')` por la lista real de rangos del
+balanceador de DigitalOcean, o por `TrustProxies::HEADER_X_FORWARDED_AWS_ELB` si aplica. No se
+hizo aquí porque tocar la confianza de proxies afecta a **toda** la aplicación (sesiones,
+`URL::forceScheme`, rate limiting por IP del login) y merece su propio cambio, verificado
+contra producción. Mientras tanto está documentado en `ARQUITECTURA.md` § 14 y en el manual
+no se promete más de lo que la allowlist da.
 
 ## 8. Tabla consolidada
 
