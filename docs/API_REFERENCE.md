@@ -32,6 +32,7 @@
 19. [Catálogos, ayuda y ajustes](#19-catálogos-ayuda-y-ajustes)
 20. [Importación masiva](#20-importación-masiva)
 21. [Mapa de permisos por endpoint](#21-mapa-de-permisos-por-endpoint)
+22. [API pública de solo lectura (llaves de integración)](#22-api-pública-de-solo-lectura-llaves-de-integración)
 
 ---
 
@@ -660,7 +661,7 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 
 | Método | Ruta | Permiso extra | Descripción |
 |---|---|---|---|
-| `GET` | `/api/billing/stats` | — | Indicadores de facturación |
+| `GET` | `/api/billing/stats?month=YYYY-MM` | — | Panel de Finanzas del mes (ver abajo) |
 | `GET` | `/api/billing/invoices` | — | Lista con filtros |
 | `GET` | `/api/billing/invoices/{id}` | — | Detalle |
 | `POST` | `/api/billing/invoices` | — | Crea factura manual |
@@ -670,6 +671,40 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `POST` | `/api/billing/invoices/{id}/items` | — | Añade ítem |
 | `GET` | `/api/billing/invoices/{id}/pdf` | — | Descarga el PDF |
 | `GET` | `/api/billing/invoices/export` | — | **CSV** de todas las facturas del filtro |
+
+**`GET /api/billing/stats`** — Panel de Finanzas. Acepta `month` en formato `YYYY-MM`
+(sin él, el mes en curso). **No acepta `tenant`**: el tenant sale del usuario autenticado.
+
+```json
+{
+  "period":  { "month": "2026-08", "label": "Agosto 2026", "start": "2026-08-01",
+               "end": "2026-08-31", "is_current_month": true },
+  "summary": {
+    "total_invoiced":  4200000,   // facturado EN el mes, sin anuladas
+    "total_paid":      3100000,   // recaudado EN el mes (pagos no anulados)
+    "total_expenses":   850000,   // gastos activos del mes · null sin view_expenses
+    "balance":         2250000,   // CAJA: recaudado − gastos · null sin view_expenses
+    "total_pending":  10094749,   // cartera ACUMULADA, no del mes
+    "collection_rate":     73.8,
+    "can_view_expenses":  true
+  },
+  "recent_invoices": [], "recent_payments": [], "currency": "$"
+}
+```
+
+Tres decisiones que conviene no revertir sin pensarlo:
+
+1. **`total_pending` es acumulado a propósito.** Facturado, recaudado y gastos son *flujo* y
+   sólo significan algo dentro de un periodo; la cartera es un *saldo*. Recortarla al mes
+   escondería la mora vieja, que es justo la que hay que cobrar.
+2. **`balance` es caja, no causación**: `total_paid − total_expenses`, no
+   `total_invoiced − total_expenses`. Una factura emitida y no pagada no cubre la nómina.
+3. **`collection_rate` se mide contra las facturas del propio mes**, vía `payment_allocations`,
+   no como `total_paid / total_invoiced`. Cobrar mora vieja infla el recaudado del mes con dinero
+   que pertenece a facturas anteriores y daría tasas por encima del 100% sin significado.
+
+`total_expenses` y `balance` llegan en **`null`** —no en `0`— cuando el usuario no tiene
+`view_expenses`, para que el panel oculte esas tarjetas en vez de mostrar un balance falso.
 
 **`GET /api/billing/invoices`** — listado paginado (20 por página, orden
 `issue_date` descendente con desempate por `id`). Filtros opcionales combinables
@@ -1465,3 +1500,120 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 > sectoriales y routers, y el rol Técnico tiene `add_clients` pero no `view_plans`,
 > `view_sectorials` ni `manage_routers`. La **escritura** exige el permiso dueño a secas.
 > Contrato fijado por 42 tests en `tests/Feature/Auth/ApiAuthorizationTest.php`.
+
+---
+
+## 22. API pública de solo lectura (llaves de integración)
+
+**Prefijo:** `/api/v1/partner` · **Autenticación:** `Authorization: Bearer <llave>`
+
+API separada del panel, pensada para que un ISP consuma **sus propios datos** desde
+un CRM, un tablero o un proceso de conciliación. Es de **solo lectura**: no expone
+ningún verbo de escritura ni ningún endpoint que hable con el router.
+
+### 22.1 Por qué es un grupo aparte
+
+No reutiliza los controladores del panel. Los del panel devuelven el modelo completo,
+y ahí viajan `pppoe_password`, `hotspot_password`, `mac_address` y credenciales de
+router. Aquí cada endpoint declara un `select()` con columnas explícitas: **lo que no
+se nombra, no sale**, y agregar mañana una columna sensible a una tabla no la publica
+sola.
+
+Además es un contrato con un tercero: versionarlo (`v1`) permite refactorizar el panel
+sin romper la integración del cliente.
+
+### 22.2 Cadena de controles
+
+| Capa | Qué exige |
+|---|---|
+| `auth:api_key` | Guard propio (`config/auth.php`) cuyo provider es `ApiClient`. Un token de un usuario del panel **no** autentica aquí, y un token de integración **no** autentica en `auth:sanctum`. La separación es estructural, no un middleware que haya que recordar |
+| `api_key` | Solo `GET`/`HEAD`; HTTPS en producción; llave no revocada ni vencida; cliente activo; **allowlist de IPs**; escribe la bitácora |
+| `throttle:api-key` | 60 peticiones/minuto **y** 5.000/hora, por token |
+| `ability:*` | Permiso de lectura del área, declarado ruta por ruta |
+
+### 22.3 Permisos de lectura (abilities)
+
+Catálogo en `config/api_keys.php`. No existe comodín `*` a propósito.
+
+| Ability | Da acceso a |
+|---|---|
+| `read:customers` | `/customers`, `/customers/{id}` |
+| `read:billing` | `/invoices`, `/payments` |
+| `read:support` | `/tickets`, `/installations` |
+
+### 22.4 Endpoints
+
+| Método | Ruta | Ability | Filtros |
+|---|---|---|---|
+| `GET` | `/api/v1/partner/ping` | — | — |
+| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/customers/{id}` | `read:customers` | — |
+| `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/payments` | `read:billing` | `customer_id`, `status`, `from`, `to`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/tickets` | `read:support` | `status`, `priority`, `customer_id`, `from`, `to`, `updated_since` |
+| `GET` | `/api/v1/partner/installations` | `read:support` | `status`, `customer_id`, `from`, `to`, `updated_since` |
+
+`from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación
+(tickets) o programada (instalaciones). `per_page` tiene tope de **100**.
+
+### 22.5 Envoltura de respuesta
+
+```json
+{
+  "data": [ { "id": 42, "name": "Ana", "...": "..." } ],
+  "meta": { "page": 1, "per_page": 50, "total": 137, "last_page": 3 }
+}
+```
+
+Los endpoints de detalle devuelven `{"data": {...}}` sin `meta`.
+
+### 22.6 Errores
+
+Todo rechazo trae un `error` estable, legible por máquina, para que el integrador
+distinga «me cambió la IP» de «me revocaron la llave» sin llamar por teléfono.
+
+| HTTP | `error` | Significado |
+|---|---|---|
+| 401 | *(sin cuerpo propio)* | Token inexistente, vencido o de un dueño que no es `ApiClient` |
+| 401 | `invalid_credentials` | Autenticó pero no con una llave de API (p. ej. sesión del panel) |
+| 401 | `key_revoked` / `key_expired` | Llave revocada o vencida |
+| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave |
+| 403 | `client_disabled` | El cliente de API está desactivado |
+| 403 | `tenant_missing` | La llave no tiene tenant asignado (falla cerrado) |
+| 403 | `https_required` | Petición por HTTP plano en producción |
+| 403 | *(Sanctum)* | Falta el ability del área |
+| 404 | `not_found` | Recurso inexistente **o de otro tenant** — no se distinguen a propósito |
+| 405 | `method_not_allowed` | Se intentó algo que no es `GET` |
+| 429 | *(throttle)* | Se superó 60/min o 5.000/hora |
+
+### 22.7 Aislamiento entre tenants
+
+Una llave sólo ve el tenant al que fue emitida. El filtro es **explícito en cada
+consulta**, no delegado al global scope: `customer_profile` no tiene `tenant_id`
+propio y su frontera es el join con `users`, así que un endpoint que lo olvidara
+devolvería la base de clientes completa de la plataforma sin dar ningún error.
+Fijado por `tests/Feature/ApiKeys/PartnerApiIsolationTest.php`, que puebla dos
+tenants y afirma que sólo sale el propio.
+
+### 22.8 Ejemplo
+
+```bash
+curl -H "Authorization: Bearer ispw_xxxxxxxx" \
+     "https://app.ispwatch.co/api/v1/partner/invoices?status=issued&from=2026-08-01&per_page=100"
+```
+
+### 22.9 Administración de llaves (panel)
+
+Reservado al **tenant operador** (`config/api_keys.php`), permiso `manage_api_keys`.
+El permiso por sí solo no basta: lo tiene el rol Administrador de todos los tenants,
+así que `ApiClientController` vuelve a comprobar el tenant.
+
+| Método | Ruta | Notas |
+|---|---|---|
+| `GET` | `/api/api-clients` | Clientes con sus llaves (nunca el texto plano) y catálogo de abilities |
+| `GET` | `/api/api-clients/tenants` | Tenants para el desplegable de alta |
+| `POST` | `/api/api-clients` | `tenant_id`, `name`, `contact_email?`, `description?` |
+| `PUT` | `/api/api-clients/{apiClient}` | `name?`, `contact_email?`, `description?`, `is_active?`. **`tenant_id` se ignora a propósito** |
+| `POST` | `/api/api-clients/{apiClient}/keys` | `name`, `abilities[]`, `allowed_ips[]` (obligatorio), `expires_at?`. Devuelve `plain_text_token` **una sola vez** |
+| `DELETE` | `/api/api-clients/{apiClient}/keys/{tokenId}` | Revoca: marca `revoked_at` y rompe el hash. La fila se conserva para la auditoría |
+| `GET` | `/api/api-clients/{apiClient}/logs` | Últimas peticiones (`limit` ≤ 200) |

@@ -58,3 +58,8 @@ Schedule::command('traffic:collect')->everyFiveMinutes()->withoutOverlapping();
 // Prune fine traffic samples older than 30 days (daily aggregates are kept).
 Schedule::command('traffic:prune --days=30')->daily();
 
+// Bitácora de la API pública: se conserva la ventana de auditoría configurada
+// en config/api_keys.php (90 días por defecto). Sin esta purga la tabla crece
+// sin techo, porque se escribe una fila por petición atendida o rechazada.
+Schedule::command('api-keys:prune-logs')->dailyAt('03:30');
+

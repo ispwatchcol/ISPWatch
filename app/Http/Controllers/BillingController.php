@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Constants\Permissions;
 use App\Models\Billing;
+use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
@@ -12,6 +14,7 @@ use App\Services\OverdueSuspensionService;
 use App\Services\Templates\TemplateRenderer;
 use App\Traits\ExportsCsv;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class BillingController extends Controller
@@ -695,34 +698,154 @@ class BillingController extends Controller
         });
     }
 
-    // Dashboard Stats
+    /**
+     * Panel de Finanzas.
+     *
+     * Las cifras son de UN MES, salvo la cartera. La distinción no es cosmética:
+     * facturado, recaudado y gastos son **flujo** y sólo significan algo dentro
+     * de un periodo, mientras que el pendiente es un **saldo** — lo que te deben
+     * es todo lo que te deben, y recortarlo al mes escondería precisamente la
+     * mora vieja, que es la que duele. Antes el panel no filtraba nada y las
+     * cuatro tarjetas eran el acumulado histórico del ISP.
+     *
+     * Tres exclusiones que antes faltaban y movían los números:
+     *  - facturas `void`/`cancelled`: inflaban lo facturado sin aportar pagos, y
+     *    por tanto hundían la tasa de cobro. El listado de facturas ya las
+     *    excluía, así que el panel y el listado no cuadraban entre sí.
+     *  - pagos `void`: sumaban plata que se había anulado.
+     *  - gastos `anulado`.
+     */
     public function getStats(Request $request)
     {
-        $tenantId = $request->tenant_id ?? $request->tenant;
+        // El tenant sale del usuario autenticado, NUNCA del query param: antes
+        // llegaba como `?tenant=`, así que cualquiera con view_billing podía
+        // pedir las finanzas de otra empresa cambiando un número en la URL.
+        $tenantId = $request->user()?->tenant_id;
+        abort_if(!$tenantId, 403, 'No autorizado.');
 
-        if (!$tenantId) {
-            return response()->json(['error' => 'Tenant ID required'], 400);
-        }
+        $data = $request->validate([
+            'month' => 'nullable|date_format:Y-m',
+        ]);
 
-        $totalInvoiced = Invoice::where('tenant_id', $tenantId)->sum('total');
-        $totalPaid = Payment::where('tenant_id', $tenantId)->sum('amount');
-        $totalPending = Invoice::where('tenant_id', $tenantId)->sum('balance_due');
+        $start = empty($data['month'])
+            ? Carbon::now()->startOfMonth()
+            : Carbon::createFromFormat('Y-m', $data['month'])->startOfMonth();
+        $end = $start->copy()->endOfMonth();
 
-        // Recent activity
-        $recentInvoices = Invoice::where('tenant_id', $tenantId)->with('customer.customerProfile')->orderBy('created_at', 'desc')->limit(5)->get();
-        $recentPayments = Payment::where('tenant_id', $tenantId)->with('customer.customerProfile')->orderBy('created_at', 'desc')->limit(5)->get();
+        $totalInvoiced = (float) Invoice::where('tenant_id', $tenantId)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->whereBetween('issue_date', [$start, $end])
+            ->sum('total');
+
+        $totalPaid = (float) Payment::where('tenant_id', $tenantId)
+            ->where('status', 'completed')
+            ->whereBetween('payment_date', [$start, $end])
+            ->sum('amount');
+
+        // La cartera es acumulada a propósito (ver el docblock).
+        $totalPending = (float) Invoice::where('tenant_id', $tenantId)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->sum('balance_due');
+
+        $canSeeExpenses = $this->userCanViewExpenses($request);
+        $totalExpenses = $canSeeExpenses
+            ? (float) Expense::where('tenant_id', $tenantId)
+                ->where('status', Expense::STATUS_ACTIVE)
+                ->whereBetween('expense_date', [$start, $end])
+                ->sum('amount')
+            : null;
+
+        $recentInvoices = Invoice::where('tenant_id', $tenantId)
+            ->whereNotIn('status', ['void', 'cancelled'])
+            ->whereBetween('issue_date', [$start, $end])
+            ->with('customer.customerProfile')
+            ->orderBy('created_at', 'desc')->limit(5)->get();
+
+        $recentPayments = Payment::where('tenant_id', $tenantId)
+            ->where('status', 'completed')
+            ->whereBetween('payment_date', [$start, $end])
+            ->with('customer.customerProfile')
+            ->orderBy('created_at', 'desc')->limit(5)->get();
 
         return response()->json([
+            'period' => [
+                'month' => $start->format('Y-m'),
+                'label' => $this->monthLabel($start),
+                'start' => $start->toDateString(),
+                'end'   => $end->toDateString(),
+                'is_current_month' => $start->isSameMonth(Carbon::now()),
+            ],
             'summary' => [
-                'total_invoiced' => (float) $totalInvoiced,
-                'total_paid' => (float) $totalPaid,
-                'total_pending' => (float) $totalPending,
-                'collection_rate' => $totalInvoiced > 0 ? round(($totalPaid / $totalInvoiced) * 100, 2) : 0
+                'total_invoiced' => $totalInvoiced,
+                'total_paid'     => $totalPaid,
+                'total_expenses' => $totalExpenses,
+                // Balance de CAJA: lo que entró menos lo que salió. No es
+                // facturado − gastos (causación), porque una factura emitida y
+                // no pagada no sirve para cubrir la nómina.
+                'balance'        => $canSeeExpenses ? round($totalPaid - $totalExpenses, 2) : null,
+                'total_pending'  => $totalPending,
+                'collection_rate' => $this->collectionRate($tenantId, $start, $end, $totalInvoiced),
+                'can_view_expenses' => $canSeeExpenses,
             ],
             'recent_invoices' => $recentInvoices,
             'recent_payments' => $recentPayments,
             'currency' => '$'
         ]);
+    }
+
+    /**
+     * Qué porcentaje de LO FACTURADO EN EL MES está pagado.
+     *
+     * Se mide contra los pagos imputados a esas facturas (`payment_allocations`),
+     * no contra el total recaudado en el mes: si se cobra mora vieja, ese dinero
+     * pertenece a facturas de meses anteriores y meterlo aquí daría tasas por
+     * encima del 100% que no significan nada.
+     */
+    private function collectionRate(int $tenantId, Carbon $start, Carbon $end, float $totalInvoiced): float
+    {
+        if ($totalInvoiced <= 0) {
+            return 0;
+        }
+
+        $collected = (float) DB::table('payment_allocations')
+            ->join('invoices', 'invoices.id', '=', 'payment_allocations.invoice_id')
+            ->join('payments', 'payments.id', '=', 'payment_allocations.payment_id')
+            ->where('invoices.tenant_id', $tenantId)
+            ->whereNotIn('invoices.status', ['void', 'cancelled'])
+            ->whereBetween('invoices.issue_date', [$start, $end])
+            ->where('payments.status', 'completed')
+            ->sum('payment_allocations.amount');
+
+        return round(($collected / $totalInvoiced) * 100, 2);
+    }
+
+    /**
+     * Los gastos son de otro permiso (`view_expenses`): el rol Contabilidad los
+     * ve y un rol sólo-facturación no. Devolver null en vez de 0 permite que el
+     * panel esconda las tarjetas en vez de mostrar un balance falso.
+     */
+    private function userCanViewExpenses(Request $request): bool
+    {
+        $user = $request->user();
+
+        if ((int) $user->role_id === 1) {
+            return true;
+        }
+
+        $user->loadMissing('role');
+
+        return $user->role?->hasPermission(Permissions::VIEW_EXPENSES) ?? false;
+    }
+
+    /** "Agosto 2026" — Carbon no localiza los meses sin configurar el locale. */
+    private function monthLabel(Carbon $date): string
+    {
+        $months = [
+            1 => 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+        ];
+
+        return $months[$date->month] . ' ' . $date->year;
     }
 
     // Process Overdue Invoices (Admin) — legacy endpoint

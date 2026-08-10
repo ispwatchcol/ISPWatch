@@ -578,6 +578,35 @@ configuración a fechas reales del mes en curso (emisión, periodo cubierto, rec
 vencimiento y corte) y avisa de combinaciones sospechosas — recordatorio después del
 vencimiento, o día de corte anterior al vencimiento. Es sólo informativo: no cambia nada.
 
+### 7.1.1 El Panel de Finanzas
+
+**Finanzas → Resumen.** Arriba a la derecha hay un **selector de mes** con flechas: todo lo que
+ves debajo es de ese mes. No puedes avanzar más allá del mes actual.
+
+| Tarjeta | Qué cuenta exactamente |
+|---|---|
+| **Facturado del mes** | Lo emitido en el mes elegido. **No incluye facturas anuladas** |
+| **Recaudado del mes** | Todo el dinero que entró en el mes, aunque sea de facturas viejas |
+| **Gastos del mes** | Gastos con fecha en el mes, sin los anulados |
+| **Balance del mes** | Recaudado **−** gastos. Verde si te sobró, rojo si no |
+| **Cartera total** | Lo que te deben **en total**, de todos los meses. Es la única cifra acumulada |
+| **Tasa de cobro** | De lo facturado **en ese mes**, qué porcentaje ya está pagado |
+
+Tres cosas que conviene entender para no leer mal los números:
+
+**El balance es de caja, no de papel.** Resta los gastos de lo que *cobraste*, no de lo que
+*facturaste*. Una factura emitida que nadie pagó no sirve para pagar la nómina, así que no entra.
+
+**La cartera es la única cifra acumulada, y es a propósito.** Si sólo mostrara la mora del mes,
+escondería la deuda vieja — que es justamente la que hay que perseguir.
+
+**La tasa de cobro no compara recaudado contra facturado.** Compara lo pagado *de las facturas de
+ese mes* contra lo facturado ese mes. Si cobras mora de hace tres meses, ese dinero suma en
+*Recaudado* pero no sube la tasa: pertenece a otro mes.
+
+> **Gastos y Balance sólo se ven con permiso de gastos.** Un rol de sólo facturación ve las otras
+> cuatro tarjetas y estas dos no aparecen — no salen en cero, desaparecen.
+
 ### 7.2 Ver y buscar facturas
 
 **Finanzas → Facturación.**
@@ -1614,6 +1643,70 @@ puede escribir dentro de un archivo que no generó él.
 
 > Esta pestaña necesita el permiso *Gestionar Plantillas de Documentos*, que es distinto
 > del de configuración de empresa. Si no la ves, revisa tu rol.
+
+### 17.5 Llaves de API (integraciones externas)
+
+Sirve para que un sistema externo —un CRM, un tablero de indicadores, un proceso de
+conciliación contable— pueda **leer** los datos de un ISP sin que nadie tenga que entrar
+al panel ni compartir una contraseña.
+
+> Esta pestaña sólo la ve el equipo de ISPWatch. Un administrador de un ISP no puede
+> emitirse llaves a sí mismo: quién recibe los datos y desde dónde es una decisión que
+> se toma y se registra en un solo sitio.
+
+**Qué puede hacer una llave — y qué no**
+
+- Sólo **consultar**. No crea, no modifica y no borra nada.
+- Sólo ve **el tenant al que se emitió**. Nunca los datos de otro ISP.
+- Nunca devuelve contraseñas PPPoE ni de hotspot, ni las firmas de las actas de instalación.
+- No puede tocar los routers.
+
+**Emitir una llave**
+
+1. **Configuración → Llaves API**.
+2. En *Nuevo cliente de API*, elige el **tenant**, ponle nombre (por ejemplo «CRM del ISP»)
+   y un correo de contacto. Pulsa **Crear cliente**.
+3. En la ficha del cliente, pulsa **Emitir llave** y completa:
+   - **Nombre de la llave**: para saber cuál es cuál si hay varias (`produccion-crm`).
+   - **Vence el**: la fecha en que dejará de funcionar. Déjalo vacío sólo si el
+     integrador lo exige; una llave que nadie rota nunca sigue viva cuando el contrato
+     ya terminó.
+   - **Permisos de lectura**: marca sólo las áreas que la integración necesita
+     (Clientes, Facturación, Soporte). Si sólo va a conciliar pagos, no le des Soporte.
+   - **IPs autorizadas**: obligatorio. Son las direcciones del servidor desde el que se
+     va a consumir la API. Acepta una IP suelta (`190.24.7.10`) o un rango
+     (`190.24.8.0/24`), separadas por coma o por líneas. Si la llave se filtra, desde
+     cualquier otro sitio no sirve.
+4. Pulsa **Emitir**.
+
+> ⚠️ **La llave se muestra una sola vez.** Cópiala en ese momento y entrégala por un
+> canal seguro. El sistema no la guarda: sólo guarda una huella para poder verificarla.
+> Si se pierde, no hay forma de recuperarla — se revoca y se emite otra.
+
+**Vigilar el uso**
+
+La tabla de cada cliente muestra, por llave: los permisos, las IPs autorizadas, cuándo se
+usó por última vez y desde qué dirección. Si ves un último uso desde una IP que no
+esperabas, o una llave que lleva meses sin usarse, revócala.
+
+**Revocar**
+
+Pulsa **Revocar** en la llave. El corte es inmediato: la siguiente petición del integrador
+falla. La llave sigue apareciendo tachada en el listado, porque el registro de quién
+consultó qué tiene que poder seguir nombrándola.
+
+**Apagar todo de golpe**
+
+El botón **Desactivar** del cliente apaga **todas** sus llaves a la vez, sin borrarlas.
+Es lo que hay que usar ante una sospecha: se corta primero y se investiga después,
+y volver a activarlo restablece las llaves que no se revocaron.
+
+**Qué decirle al integrador**
+
+Que la llave viaja en la cabecera `Authorization: Bearer <llave>` y que empiece probando
+con `GET /api/v1/partner/ping`, que le confirma que la llave funciona, desde qué IP lo
+está viendo el servidor y qué permisos tiene. La referencia completa está en
+`docs/API_REFERENCE.md`, sección 22.
 
 ---
 

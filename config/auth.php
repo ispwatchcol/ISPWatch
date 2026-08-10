@@ -45,6 +45,21 @@ return [
             'driver' => 'sanctum',
             'provider' => 'users',
         ],
+
+        /*
+         * Guard de la API pública de solo lectura (/api/v1/partner/*).
+         *
+         * Existe para que la separación entre el panel y las integraciones
+         * externas sea ESTRUCTURAL y no dependa de recordar un middleware:
+         * Sanctum comprueba que el dueño del token sea del modelo del provider
+         * del guard, así que un token de ApiClient no autentica en `sanctum`
+         * (provider `users`) y un token de un usuario humano no autentica aquí.
+         * Ninguna de las dos direcciones necesita que nadie se acuerde de nada.
+         */
+        'api_key' => [
+            'driver' => 'sanctum',
+            'provider' => 'api_clients',
+        ],
     ],
 
     /*
@@ -68,6 +83,14 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', App\Models\User::class),
+        ],
+
+        // Consumidores externos de la API pública. No tienen contraseña: este
+        // provider sólo se usa para que Sanctum sepa qué modelo puede ser dueño
+        // de un token del guard `api_key`.
+        'api_clients' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\ApiClient::class,
         ],
 
         // 'users' => [

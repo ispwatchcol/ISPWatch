@@ -1030,6 +1030,11 @@
                 <div v-if="activeTab === 'templates'" class="space-y-6">
                     <DocumentTemplatesSection />
                 </div>
+
+                <!-- Llaves de la API pública (sólo tenant operador) -->
+                <div v-if="activeTab === 'apikeys'" class="space-y-6">
+                    <ApiKeysSection @notify="onSectionNotify" />
+                </div>
             </div>
     </div>
 </template>
@@ -1042,6 +1047,7 @@ import ImportSection from "@/components/import/ImportSection.vue";
 import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.vue";
 import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
 import DocumentTemplatesSection from "@/components/settings/DocumentTemplatesSection.vue";
+import ApiKeysSection from "@/components/settings/ApiKeysSection.vue";
 import { apiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 
@@ -1065,6 +1071,12 @@ const tabs = computed(() => [
     { id: "notifications", label: "Notificaciones", icon: "md-notifications" },
     ...(authStore.hasPermission("manage_document_templates")
         ? [{ id: "templates", label: "Plantillas de Documentos", icon: "md-description" }]
+        : []),
+    // Doble condición: el permiso lo tiene el rol Administrador de TODOS los
+    // tenants, así que sin `isApiKeyOperator` la pestaña saldría también para
+    // los admins de cada ISP y todo lo que verían serían 403 del backend.
+    ...(authStore.hasPermission("manage_api_keys") && authStore.isApiKeyOperator
+        ? [{ id: "apikeys", label: "Llaves API", icon: "md-vpnkey" }]
         : []),
     { id: "import", label: "Importar Datos", icon: "md-cloudupload" },
     { id: "system", label: "Sistema", icon: "md-computer" },
@@ -1290,6 +1302,16 @@ const exportData = () => {
         "Próximamente",
         "La función de exportación estará disponible pronto",
     );
+};
+
+// Las secciones hijas no conocen el toast de esta página: emiten `notify` y
+// aquí se traduce al componente real.
+const onSectionNotify = ({ message, type = "success" }) => {
+    if (type === "error") {
+        toast.value?.error("Llaves API", message);
+        return;
+    }
+    toast.value?.success("Llaves API", message);
 };
 
 // Load tenant data from API

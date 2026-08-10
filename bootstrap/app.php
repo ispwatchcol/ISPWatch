@@ -22,9 +22,19 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Register custom middleware aliases
         $middleware->alias([
-            'can_do'        => \App\Http\Middleware\CheckPermission::class,
-            'permission'    => \App\Http\Middleware\CheckPermission::class,
-            'staff_profile' => \App\Http\Middleware\CheckStaffProfile::class,
+            'can_do'           => \App\Http\Middleware\CheckPermission::class,
+            'permission'       => \App\Http\Middleware\CheckPermission::class,
+            'staff_profile'    => \App\Http\Middleware\CheckStaffProfile::class,
+
+            // API pública de solo lectura (/api/v1/partner).
+            'api_key'          => \App\Http\Middleware\EnsureApiKeyRequest::class,
+            'deny_api_clients' => \App\Http\Middleware\DenyApiClients::class,
+
+            // Abilities de Sanctum: `ability:a,b` exige AL MENOS una; se usa
+            // esa semántica (y no `abilities`, que las exige todas) porque
+            // cada endpoint depende de un único permiso de lectura.
+            'ability'          => \Laravel\Sanctum\Http\Middleware\CheckForAnyAbility::class,
+            'abilities'        => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
         ]);
 
         // Add global security headers to all responses

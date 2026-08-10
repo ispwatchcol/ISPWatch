@@ -22,6 +22,12 @@ export const useAuthStore = defineStore('auth', () => {
     const isStaffOrAdmin = computed(() => ['admin', 'staff'].includes(roleCode.value))
     const isAdmin = computed(() => roleCode.value === 'admin')
 
+    // Sólo el tenant operador administra las llaves de la API pública. Lo
+    // resuelve el backend (config/api_keys.php) y viaja en /auth/me: comparar
+    // aquí contra un id fijo crearía una segunda fuente de verdad que se
+    // rompería en silencio el día que el operador cambie.
+    const isApiKeyOperator = computed(() => user.value?.is_api_key_operator === true)
+
     // ─── Actions ───
     function loadFromStorage() {
         const raw = localStorage.getItem('userData') || sessionStorage.getItem('userData')
@@ -115,6 +121,7 @@ export const useAuthStore = defineStore('auth', () => {
         permissions,
         isStaffOrAdmin,
         isAdmin,
+        isApiKeyOperator,
         // Actions
         loadFromStorage,
         setUser,
