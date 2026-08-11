@@ -173,8 +173,8 @@ resources/js/
 ├── composables/            # useNotification, usePermissions,
 │                           # useProvisionPolling, useTableControls
 ├── layouts/DefaultLayout.vue
-├── components/             # Sidebar, BillingPanel, DatePicker, …
-├── pages/                  # 44 páginas + subcarpeta Billing/
+├── components/             # Sidebar, BillingPanel, DatePicker, ManualContent, …
+├── pages/                  # 46 páginas + 9 en la subcarpeta Billing/
 └── utils/                  # customerName.js, image.js
 ```
 
@@ -190,6 +190,27 @@ resources/js/
 - El tenant **no** se envía en las peticiones: el backend lo deriva siempre del usuario
   autenticado.
 - Un `401` en cualquier respuesta borra `userData` y redirige a `/`.
+
+### Rutas sin sesión
+
+La guarda sólo exige sesión donde hay `meta.requiresAuth`, así que una ruta puede declararse
+pública simplemente omitiéndolo. Hoy son tres:
+
+| Ruta | Qué es |
+|---|---|
+| `/` | Login |
+| `/ayuda` | **Manual de usuario público** (`pages/ManualPublic.vue`) |
+| `/portal-pago` | Portal de pago del cliente cortado — es una vista Blade, no la SPA |
+
+`/ayuda` es seguro porque su contenido está **compilado en el bundle** y la página no llama a
+la API: no hay dato de tenant que filtrar. Comparte el componente
+`components/ManualContent.vue` con `/manual`, la versión con sesión, así que no existen dos
+textos que mantener. No monta `DefaultLayout` a propósito: ese layout monta el `Sidebar`, que
+depende del store de sesión.
+
+> Antes de hacer pública cualquier otra ruta, comprueba lo mismo: que no consuma la API y que
+> no dependa del store de sesión. El criterio no es "la pantalla no muestra datos sensibles",
+> es "la pantalla no puede pedirlos".
 
 ```mermaid
 sequenceDiagram

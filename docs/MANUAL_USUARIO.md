@@ -4,12 +4,17 @@
 > sin conocimientos técnicos previos.
 > Si eres desarrollador, busca [`MANUAL_DESARROLLADOR.md`](MANUAL_DESARROLLADOR.md).
 >
-> **Este documento es la fuente de verdad del manual.** Lo que el usuario lee dentro de la
-> aplicación (**Manual → Centro de Ayuda**) es su espejo, y sale de
-> `database/seeders/HelpCenterSeeder.php`. **Si corriges algo aquí, corrígelo también allí**:
-> los dos ya se separaron una vez y el de la app acumuló información falsa durante meses.
+> **Este documento es la fuente de verdad del manual.** Su espejo dentro del producto es
+> `resources/js/components/ManualContent.vue`, que se sirve en **dos** rutas:
+> **`/manual`** (dentro de la app, menú *Manual de Usuario*) y **`/ayuda`** (público, sin
+> login). **Si corriges algo aquí, corrígelo también allí** — los dos ya se separaron una vez
+> y el de la app acumuló información falsa durante meses.
+>
+> No confundir con el **Centro de Ayuda** (`/centro-ayuda`), que son artículos editables desde
+> la app y sembrados por `database/seeders/HelpCenterSeeder.php`: ése es un canal aparte, no el
+> espejo de este documento.
 
-**Última actualización:** 2026-08-03
+**Última actualización:** 2026-08-10
 
 ---
 
@@ -96,10 +101,15 @@ A la izquierda está el **menú lateral**. Los grupos que ves dependen de tu rol
 | **Personal** | Empleados y técnicos | Ver personal |
 | **Acciones masivas** | Cargas por Excel y paneles de reintentos | Ejecutar acciones masivas |
 | **Configuración** | Datos de la empresa, plantillas, ajustes | Ver ajustes |
-| **Manual** | Centro de ayuda | Todos |
+| **Manual de Usuario** | Este manual, dentro de la app | Todos |
+| **Centro de Ayuda** | Artículos publicados por el equipo de ISPWatch | Todos |
 
 > **Importante:** si necesitas ver una sección y no aparece, no es un error del sistema.
 > Pídele a un administrador que revise tu rol en **Personal → Roles**.
+
+> **Este manual también se puede leer sin iniciar sesión**, en la dirección `/ayuda` de tu
+> instalación. Es el mismo texto, de sólo lectura: sirve para consultarlo desde el celular en
+> campo, o para pasárselo a alguien que todavía no tiene cuenta.
 
 ---
 

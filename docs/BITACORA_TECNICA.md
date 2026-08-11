@@ -4,10 +4,16 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-06 · Rama: `feat/document-templates-and-customer-purge`
+**Última actualización:** 2026-08-10 · Rama: `feat/document-templates-and-customer-purge`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Manual de usuario como página propia, y público en `/ayuda` (2026-08-10, § 26):** el manual
+  deja de ser un CRUD de artículos en base de datos y pasa a ser una página estática espejo de
+  `MANUAL_USUARIO.md`, servida con sesión en `/manual` y sin login en `/ayuda`. El Centro de
+  Ayuda editable sobrevive intacto en `/centro-ayuda`.
+- **API pública de solo lectura por llave (2026-08-07, § 25):** llaves por tenant con allowlist
+  de IPs, abilities y bitácora de uso.
 - **Panel de Finanzas mensual, con gastos y balance (2026-08-06, § 24):** las cifras dejan de ser
   el acumulado histórico, se excluyen anuladas, entran los gastos y el tenant deja de viajar por
   la URL.
@@ -1003,10 +1009,16 @@ desaprovisionamiento) y P-11 (`$monthlyRevenue` muerto).
 
 ### 11.1 El manual dentro de la app (Centro de Ayuda)
 
-`MANUAL_USUARIO.md` no es lo que lee el usuario final: lo que ve en la app es el **Centro de
-Ayuda** (`pages/Manual.vue`), que renderiza `help_categories` / `help_articles` sembrados por
-`HelpCenterSeeder`. Los dos venían divergiendo por separado, así que el seeder se reescribió
-para que sea el espejo del manual corregido.
+> **Superado el 2026-08-10 (§ 26).** Cuando se escribió esta sección, `pages/Manual.vue` *era*
+> el Centro de Ayuda y el espejo del manual vivía en `HelpCenterSeeder`. Hoy el espejo es
+> `components/ManualContent.vue` (estático, en el repositorio) y el Centro de Ayuda quedó como
+> un canal aparte en `/centro-ayuda`. Lo de abajo se conserva porque la tabla de errores
+> documenta qué decía la app y por qué había que corregirlo.
+
+`MANUAL_USUARIO.md` no era lo que leía el usuario final: lo que veía en la app era el **Centro
+de Ayuda** (entonces `pages/Manual.vue`), que renderiza `help_categories` / `help_articles`
+sembrados por `HelpCenterSeeder`. Los dos venían divergiendo por separado, así que el seeder se
+reescribió para que fuera el espejo del manual corregido.
 
 | | Antes | Después |
 |---|---:|---:|
@@ -2337,3 +2349,86 @@ sigue siendo el token. Anotado en `MEJORAS_RECOMENDADAS.md`.
 
 **Pendiente de despliegue:** `php artisan migrate:both` (4 migraciones) y decidir el
 `API_KEYS_OPERATOR_TENANT_ID` real si no es el 1.
+
+---
+
+## 26. El manual de usuario, reescrito como página propia y publicado sin login — 2026-08-10
+
+### 26.1 De qué se partía
+
+`/manual` no mostraba un manual: mostraba el **Centro de Ayuda**, un CRUD de
+`help_categories` / `help_articles` con editor Quill para el superadmin. El texto real del
+manual vivía en `docs/MANUAL_USUARIO.md` (1.830 líneas) y su espejo en la app salía de
+`HelpCenterSeeder` — el arreglo descrito en § 11.1, que ya había tenido que corregir diez
+afirmaciones falsas acumuladas durante meses.
+
+Dos problemas de fondo:
+
+1. **La fuente de verdad era una tabla, no el repositorio.** Un artículo editado en producción
+   no dejaba rastro en git, no pasaba por revisión y no se podía comparar con el `.md`. Por eso
+   habían divergido.
+2. **No había forma de publicarlo.** `migrate:both --seed` omite `public` a propósito
+   (`MEJORAS_RECOMENDADAS.md` P-12), así que sembrar el Centro de Ayuda en producción no tenía
+   camino sancionado.
+
+### 26.2 Qué se hizo
+
+El manual pasa a ser **una página estática compilada en el bundle**, espejo directo del `.md`:
+
+| Archivo | Rol |
+|---|---|
+| `components/ManualContent.vue` | **Todo el contenido.** 19 secciones, espejo de `MANUAL_USUARIO.md` |
+| `pages/Manual.vue` | Envoltorio de `/manual`, dentro de `DefaultLayout` (con sesión) |
+| `pages/ManualPublic.vue` | Envoltorio de `/ayuda`, público, con barra e identidad propias |
+| `pages/HelpCenter.vue` | El CRUD de antes, **intacto**, movido a `/centro-ayuda` |
+
+El Centro de Ayuda **no se eliminó**: conserva su ruta, su entrada de menú y su CRUD de
+superadmin. Lo que se le quitó es el papel de «el manual».
+
+### 26.3 La ruta pública
+
+`/ayuda` va **sin `requiresAuth`**, siguiendo el patrón que Converza ya usa en su propio
+`/ayuda`. Es seguro porque el texto está compilado en el bundle y la página **no consulta la
+API**: no hay dato de tenant que exponer. `ManualPublic.vue` no monta `DefaultLayout` a
+propósito — ese layout monta el `Sidebar`, que depende del store de sesión (permisos, tenant,
+usuario) que un invitado no tiene.
+
+Sirve para pasárselo a un ISP que todavía no tiene cuenta, y para que un técnico lo consulte
+en campo sin loguearse.
+
+### 26.4 Detalles de implementación que cuestan una tarde si no se saben
+
+- **Los `{{…}}` del manual son texto, no interpolación.** La sección 17 documenta marcadores de
+  plantilla (`{{cliente.nombre}}`, la tabla de equivalencias de WispHub). Sin `v-pre` el
+  compilador de Vue los trata como bindings y el build revienta o los deja en blanco. Van todos
+  dentro de `<code v-pre>`.
+- **Los tokens de color viven en `.manual-theme`, no en `.manual-doc`.** Así la barra y el pie
+  de la página pública heredan exactamente la misma paleta sin duplicar un solo valor.
+- **El bloque `<style>` no es `scoped`.** Necesita definir variables que `.dark` (en `<html>`)
+  pueda sobreescribir, y `scoped` lo impide. A cambio, **todo va prefijado con `.manual-doc` /
+  `.manual-public`** para no filtrar estilos al resto de la app.
+- **`white-space: pre` y la sangría del template.** Los diagramas de flujo van a ras de margen
+  en el archivo, sin sangrar: cualquier indentación del `<template>` se vería en pantalla.
+- **`<img src="/brand/icon.svg">` rompe el build.** Rollup intenta resolver la ruta literal como
+  módulo. Hay que enlazarla (`:src="'/brand/icon.svg'"`), que es lo que ya hacía
+  `DefaultLayout`.
+- **`HiSupport` hubo que registrarlo** en `app.js`: oh-vue-icons sólo trae los iconos que se
+  importan explícitamente, y el del Centro de Ayuda no estaba.
+
+### 26.5 Diseño
+
+Editorial, no «panel de administración»: serif en el cuerpo (un manual se lee largo), grotesca
+en los títulos y monoespaciada en metadatos y variables. Índice numerado fijo con scrollspy por
+`IntersectionObserver`, buscador de secciones, y un `<select>` que lo reemplaza en móvil.
+Componentes con significado propio: `.thesis` para las dos reglas que gobiernan el producto
+(que ISPWatch habla con los routers de verdad, y que la facturación se configura por router),
+`.note` en tres severidades, `.steps`, `.faq` y `.flow`. Claro y oscuro, colgados de la clase
+`.dark` que ya usa el resto de la app.
+
+### 26.6 Estado
+
+`npx vite build` en verde. Los chunks quedan bien repartidos: `ManualContent` (92 kB) se carga
+una vez y lo comparten los dos envoltorios, de 0,18 kB y 1,03 kB.
+
+**Sin verificación visual en navegador** — no se levantó la app (el `.env` local apunta a
+`public`, que es producción). Queda pendiente abrir `/manual` y `/ayuda` en claro y oscuro.

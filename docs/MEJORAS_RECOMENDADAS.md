@@ -744,6 +744,17 @@ destructivo y se puede permitir en `public` sin contradecir la separación dev/p
 que hoy obliga a elegir entre "no actualizar el manual" y "correr un seeder destructivo contra
 producción a mano".
 
+> **Actualización 2026-08-10 — el problema deja de ser bloqueante, pero no desaparece.**
+> El manual salió de la base de datos: ahora es una página estática
+> (`components/ManualContent.vue`, servida en `/manual` y `/ayuda`) que se despliega con el
+> bundle, sin seeders y sin tocar `public`. Ver `BITACORA_TECNICA.md` § 26.
+>
+> Lo que queda vivo de P-12 es **sólo el segundo punto**: `HelpCenterSeeder::run()` sigue
+> empezando por un `delete()` masivo, y el Centro de Ayuda sigue teniendo editor de superadmin
+> en `/centro-ayuda`. Si alguien publica un artículo desde la UI y luego se corre el seeder, se
+> pierde igual. La recomendación del `updateOrCreate` por `slug` sigue en pie; lo que ya no
+> urge es el punto 1, porque corregir el manual ya no exige sembrar producción.
+
 
 
 ### 📋 Observación menor
@@ -1010,7 +1021,7 @@ no se promete más de lo que la allowlist da.
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 | **P-10** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
-| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-12** | El seeder del Centro de Ayuda borra todo antes de sembrar | En cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye. **Reducido el 2026-08-10:** el manual salió de la base y ya no necesita sembrarse en producción (§ 26); queda sólo el borrado destructivo del seeder | 🟢 Baja | 📋 Pendiente |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
 | **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |

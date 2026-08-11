@@ -142,6 +142,18 @@
                         <span class="text-sm font-medium">Manual de Usuario</span>
                     </RouterLink>
                 </li>
+
+                <!-- Centro de Ayuda -->
+                <li v-if="canSee.manual">
+                    <RouterLink
+                        to="/centro-ayuda"
+                        class="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+                        active-class="bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400"
+                    >
+                        <v-icon name="hi-support" class="w-5 h-5 group-hover:scale-110 transition-transform duration-200 dark:text-white dark:group-hover:text-indigo-400" />
+                        <span class="text-sm font-medium">Centro de Ayuda</span>
+                    </RouterLink>
+                </li>
                 <!-- Acciones Masivas -->
                 <li v-if="canSee.accionesMasivas">
                     <RouterLink

@@ -446,6 +446,19 @@ const routes = [
   },
 
   // ─── MANUAL ───
+  // /ayuda          → manual PÚBLICO, sin login (mismo contenido que /manual)
+  // /manual         → manual de usuario estático (espejo de docs/MANUAL_USUARIO.md)
+  // /centro-ayuda   → artículos editables por el superadmin (Centro de Ayuda)
+  //
+  // /ayuda va sin `requiresAuth` a propósito: es de sólo lectura, el texto está
+  // compilado en el bundle y no consulta la API, así que no expone nada del
+  // tenant. Sirve para compartirlo con un ISP que todavía no tiene cuenta.
+  {
+    path: '/ayuda',
+    name: 'ManualPublic',
+    component: () => import('@/pages/ManualPublic.vue'),
+    meta: { title: 'Manual de Usuario' },
+  },
   {
     path: '/manual',
     component: () => import('@/layouts/DefaultLayout.vue'),
@@ -456,6 +469,19 @@ const routes = [
         name: 'Manual',
         component: () => import('@/pages/Manual.vue'),
         meta: { title: 'Manual' },
+      },
+    ],
+  },
+  {
+    path: '/centro-ayuda',
+    component: () => import('@/layouts/DefaultLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'HelpCenter',
+        component: () => import('@/pages/HelpCenter.vue'),
+        meta: { title: 'Centro de Ayuda' },
       },
     ],
   },

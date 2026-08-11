@@ -857,6 +857,33 @@ Las tres reglas que hacen que funcione:
      campo está exceptuado en `bootstrap/app.php`. Si añades otro campo donde el espacio
      final signifique algo, tiene que ir en esa misma lista o nunca llegará a la base.
 
+### Tocar el manual de usuario
+
+El manual vive en **dos** sitios que tienen que moverse juntos:
+
+| Sitio | Qué es |
+|---|---|
+| `docs/MANUAL_USUARIO.md` | La fuente de verdad, en prosa larga |
+| `resources/js/components/ManualContent.vue` | Su espejo dentro del producto |
+
+Ese componente lo consumen dos páginas, y **no hay que duplicar el texto en ninguna**:
+
+- `pages/Manual.vue` → `/manual`, dentro de `DefaultLayout` (requiere sesión).
+- `pages/ManualPublic.vue` → `/ayuda`, **público**, con barra e identidad propias.
+
+`/ayuda` va sin `requiresAuth` a propósito: el texto está compilado en el bundle y la página no
+consulta la API, así que no hay dato de tenant que exponer. No uses `DefaultLayout` ahí — monta
+el `Sidebar`, que depende del store de sesión que un invitado no tiene.
+
+No confundir con el **Centro de Ayuda** (`pages/HelpCenter.vue`, `/centro-ayuda`): son
+artículos editables desde la app, sembrados por `HelpCenterSeeder`. Es un canal aparte, no el
+espejo del `.md`.
+
+> Los estilos del manual son un `<style>` **sin `scoped`** — hace falta para que `.dark`, que
+> vive en `<html>`, pueda sobreescribir las variables de color. A cambio, **todo selector va
+> prefijado** con `.manual-doc` / `.manual-public`. Los tokens se declaran en `.manual-theme`
+> para que la página pública vista su barra y su pie con la misma paleta sin duplicar valores.
+
 ---
 
 ## 11. Trampas conocidas
@@ -905,6 +932,9 @@ Las tres reglas que hacen que funcione:
 | 31 | **El `$periodStart` de `createMonthlyInvoiceFor()` NO siempre es el día 1** | Llega como `$charge['period_start']`, y en una primera factura prorrateada eso es el **día de instalación** (`2026-07-11`), no el inicio del mes. Cualquier cálculo que necesite el mes natural —la ventana de vigencia de un servicio adicional, su prorrateo— debe derivarlo de `$periodEnd->copy()->startOfMonth()`, que sí es siempre fin de mes en ese método. Usar el `$periodStart` recibido prorratea por error asignaciones antiguas, y el error sólo aparece en clientes instalados a mitad de mes |
 | 35 | **Una relación NO puede llamarse igual que una columna del mismo modelo** | `customer_installations` tiene una columna `equipment` (texto libre "equipo previsto"). Al añadir la relación `equipment()` hacia `installation_equipment`, `$installation->equipment` seguía devolviendo **el string**: Eloquent resuelve primero `$attributes` y sólo cae a las relaciones si no hay atributo con ese nombre — ni siquiera un `loadMissing('equipment')` previo cambia eso, porque la relación queda cargada pero inalcanzable por la propiedad. La vista del PDF habría hecho `->count()` sobre un texto. Se llama `equipmentItems()`. Es la trampa gemela de la #30 (relación que pisa una FK), pero al revés: aquí la **columna** gana |
 | 37 | **El tenant NUNCA sale de un parámetro de la petición** | Dos casos vivos encontrados el 2026-08-06: `billing/stats` lo leía de `?tenant=` (cualquiera con `view_billing` podía pedir las finanzas de otra empresa cambiando la URL) y `routers/{id}/free-ips` de `?tenant_id=` con un `if ($tenantId)` que, al no llegar nunca desde el frontend, dejaba la consulta **sin filtro** y escondía IPs libres. Deriva siempre de `$request->user()->tenant_id`, o usa `BelongsToTenant` — y desconfía de todo `if ($tenantId)`: un filtro condicional es un filtro que algún día no se aplica |
+| 38 | **Los `{{…}}` literales del manual necesitan `v-pre`** | `components/ManualContent.vue` documenta los marcadores de plantilla (`{{cliente.nombre}}`, la tabla de equivalencias de WispHub). Sin `v-pre` el compilador de Vue los interpreta como bindings: o rompe el build, o los renderiza vacíos. Van dentro de `<code v-pre>` |
+| 39 | **`<img src="/ruta/literal">` rompe el build de Vite** | Rollup intenta resolver la ruta literal como módulo y falla con *failed to resolve import*. Para archivos servidos desde `public/`, enlaza el atributo: `:src="'/brand/icon.svg'"`. Es lo que ya hacía `DefaultLayout.vue` |
+| 40 | **oh-vue-icons sólo trae los iconos que se importan** | Un `<v-icon name="hi-support">` sin su `HiSupport` en el `addIcons()` de `app.js` no da error de compilación: simplemente no dibuja nada. Si un icono "no se ve", revisa `app.js` antes que el nombre |
 | 36 | **Un `whereIn` polimórfico con NULL no filtra: usa un índice único sin nulos** | En `inventory_balances` el custodio es `holder_type` + `holder_id` **NOT NULL** en vez de `branch_id`/`user_id` nulables, porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos duplicados — y en PostgreSQL **dos NULL son distintos entre sí**, así que un único sobre columnas nulables deja pasar duplicados en silencio. Si necesitas unicidad sobre "una de dos referencias", conviértelo en par tipo+id antes que en dos columnas nulables |
 ---
 
