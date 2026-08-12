@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\Plan;
 use App\Support\AuditContext;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Bitácora automática de todo lo que mueve plata.
@@ -121,17 +122,38 @@ class MoneyAuditObserver
 
     // ─── Interno ────────────────────────────────────────────────────────────
 
+    /**
+     * La bitácora nunca puede tumbar la operación que está auditando.
+     *
+     * Un pago tiene que quedar registrado aunque el log falle: perder la
+     * trazabilidad de un movimiento es malo, pero perder el movimiento es peor.
+     *
+     * En PostgreSQL además no es solo el registro que se pierde: una excepción
+     * dentro de la transacción la deja abortada, y a partir de ahí toda consulta
+     * revienta con «current transaction is aborted». Es decir, sin este try el
+     * observer puede tumbar en cadena todo lo que venga detrás. SQLite no tiene
+     * ese estado, así que un fallo así pasaría inadvertido en local.
+     */
     protected function write(Model $model, string $verb, ?array $old, ?array $new, string $description): void
     {
-        AuditLog::log([
-            'tenant_id'   => $this->tenantIdFor($model),
-            'action'      => $this->actionName($model) . '.' . $verb,
-            'model_type'  => get_class($model),
-            'model_id'    => $model->getKey(),
-            'old_values'  => $old,
-            'new_values'  => $new,
-            'description' => $description,
-        ]);
+        try {
+            AuditLog::log([
+                'tenant_id'   => $this->tenantIdFor($model),
+                'action'      => $this->actionName($model) . '.' . $verb,
+                'model_type'  => get_class($model),
+                'model_id'    => $model->getKey(),
+                'old_values'  => $old,
+                'new_values'  => $new,
+                'description' => $description,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Audit: no se pudo registrar el cambio en la bitácora.', [
+                'model'     => get_class($model),
+                'model_id'  => $model->getKey(),
+                'verb'      => $verb,
+                'exception' => $e->getMessage(),
+            ]);
+        }
     }
 
     /** `App\Models\Plan` → `plan`, para acciones tipo `plan.updated`. */

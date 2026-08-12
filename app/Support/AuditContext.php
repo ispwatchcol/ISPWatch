@@ -42,10 +42,24 @@ class AuditContext
         }
     }
 
-    /** Usuario autenticado, o null si lo hizo el scheduler / un comando. */
+    /**
+     * Usuario autenticado, o null si lo hizo el scheduler / un comando.
+     *
+     * Comprueba que sea de verdad un User y no cualquier cosa autenticada: la
+     * API pública autentica un **ApiClient**, cuyo id vive en otra tabla. Meterlo
+     * en audit_logs.user_id —que tiene clave foránea contra `users`— viola la
+     * restricción en PostgreSQL. SQLite no aplica las foráneas por defecto, así
+     * que en local pasaría inadvertido y sólo reventaría en producción.
+     */
     public static function actorId(): ?int
     {
-        return auth()->check() ? auth()->id() : null;
+        if (!auth()->check()) {
+            return null;
+        }
+
+        $actor = auth()->user();
+
+        return $actor instanceof User ? $actor->getKey() : null;
     }
 
     public static function source(): string

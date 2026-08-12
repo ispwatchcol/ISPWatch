@@ -190,6 +190,71 @@ class MoneyAuditTrailTest extends TestCase
         $this->assertEquals($staff->id, $log->user_id);
     }
 
+    /**
+     * La bitácora es un observador, no un guardián: si falla, el negocio sigue.
+     *
+     * En PostgreSQL esto es más grave de lo que parece — una excepción dentro de
+     * la transacción la deja abortada y todo lo que venga después revienta en
+     * cadena. SQLite no tiene ese estado, así que un observer frágil pasaría
+     * inadvertido en local y tumbaría producción.
+     */
+    #[Test]
+    public function si_la_bitacora_falla_la_operacion_de_negocio_no_se_cae(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user   = User::factory()->create(['tenant_id' => $tenant->id]);
+
+        // Simula que escribir en la bitácora revienta.
+        \Illuminate\Support\Facades\Schema::drop('audit_logs');
+
+        $pago = \App\Models\Payment::create([
+            'tenant_id'    => $tenant->id,
+            'customer_id'  => $user->id,
+            'amount'       => 60000,
+            'payment_date' => now()->toDateString(),
+            'method'       => 'cash',
+            'status'       => 'completed',
+        ]);
+
+        $this->assertTrue($pago->exists, 'Un fallo de la bitácora no puede impedir registrar un pago.');
+        $this->assertDatabaseHas('payments', ['id' => $pago->id, 'amount' => 60000]);
+    }
+
+    /**
+     * `audit_logs.user_id` tiene clave foránea contra `users`, pero no todo lo
+     * que se autentica es un User: la API pública autentica un ApiClient, cuyo
+     * id vive en otra tabla. Estamparlo ahí viola la foránea en PostgreSQL.
+     *
+     * SQLite no aplica las foráneas por defecto, así que este fallo sólo se ve
+     * en el motor real — exactamente el tipo de divergencia por la que el CI
+     * corre las dos bases.
+     */
+    #[Test]
+    public function un_actor_que_no_es_usuario_no_se_estampa_como_autor(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $plan   = $this->plan($tenant);
+
+        $cliente = \App\Models\ApiClient::create([
+            'tenant_id' => $tenant->id,
+            'name'      => 'CRM externo',
+            'is_active' => true,
+        ]);
+
+        AuditLog::query()->delete();
+
+        $this->actingAs($cliente);
+        $plan->update(['cost_product' => 60000]);
+
+        $log = $this->logsFor('plan.updated')->last();
+
+        $this->assertNotNull($log, 'El cambio debía registrarse igual.');
+        $this->assertNull(
+            $log->user_id,
+            'El id de un ApiClient no puede ir a user_id: viola la foránea contra users en PostgreSQL.'
+        );
+    }
+
     #[Test]
     public function los_cambios_sin_sesion_se_marcan_como_consola(): void
     {
