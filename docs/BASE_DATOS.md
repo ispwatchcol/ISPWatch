@@ -117,6 +117,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `invoice_items` | 1 166 | Ítems de factura |
 | `invoice_types` | 4 + propios | **Catálogo de tipos de factura** (4 del sistema + los del tenant) |
 | `invoice_carryovers` | 0 | **Arrastre de saldo** por abono parcial (factura vieja → factura nueva) |
+| `customer_credits` | 0 | **Libro del saldo a favor** (espejo positivo del anterior). La verdad del saldo; `customer_profile.credit_balance` es su caché |
 | `payments` | 1 086 | Pagos recibidos |
 | `payment_allocations` | 1 061 | Asignación pago → factura (N:M con importe) |
 | `payment_methods` | 16 | Formas de pago por tenant |
@@ -139,7 +140,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `inventory_stock` / `_device` / `_provider` / `_branch` | 0 / 0 / 2 / 0 | Inventario de equipos |
 | `help_categories` / `help_articles` | 9 / 30 | Centro de ayuda embebido |
 | `bulk_provision_runs` | 50 | Progreso de aprovisionamiento masivo asíncrono |
-| `audit_logs` | 0 | Auditoría genérica de modelos |
+| `audit_logs` | 28 | **Bitácora de lo que mueve plata.** Alimentada por `MoneyAuditObserver`; lleva `tenant_id` y `source` (`web`/`api`/`console`/`import`/`scheduler`) |
 | ~~`activity_log`~~ | 0 | **Eliminada** por la migración `2026_07_31_000005` |
 
 ### Infraestructura Laravel
@@ -331,7 +332,26 @@ erDiagram
         numeric amount
         varchar status "pending|applied"
     }
+    customer_credits {
+        bigint id PK
+        bigint customer_id FK
+        varchar type "earned|applied|adjusted|reversed"
+        bigint from_payment_id FK "pago que dejó el excedente"
+        bigint to_invoice_id FK "factura que lo consumió"
+        numeric amount "+ suma, - consume"
+        numeric balance_after "saldo tras el movimiento"
+        numeric consumed "cuánto del earned ya se gastó"
+        varchar source "web|api|console|import|scheduler"
+    }
 ```
+
+**Invariante de `customer_credits`:**
+`SUM(amount)` de un cliente **debe** ser igual a `customer_profile.credit_balance`. Si no lo es,
+hay un bug: el extracto del cliente lo delata en pantalla y `audit:backfill-money` lo reporta.
+
+`consumed` existe para poder anular un pago sin destruir saldo ajeno. Al revertir un pago solo se
+devuelve la parte de sus `earned` que ninguna factura consumió todavía; lo ya gastado se queda
+donde está —misma doctrina que `invoice_carryovers`— porque devolverlo cobraría dos veces.
 
 ### 3.3 Comercial, soporte e inventario
 

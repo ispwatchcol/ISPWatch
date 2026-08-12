@@ -944,3 +944,69 @@ grep "Auto-cut:"  storage/logs/laravel.log
 
 Los servicios registran con prefijos consistentes (`Billing:`, `Auto-cut:`) y los comandos
 MikroTik incluyen `variant`, `envelope_state` y `exit_code` para diagnóstico exacto.
+
+---
+
+## Auditar un cambio nuevo
+
+Todo lo que mueve plata debe quedar registrado. Hay dos mecanismos y **no son intercambiables**.
+
+### Un campo nuevo que mueve plata
+
+Agrégalo a la lista blanca de `MoneyAuditObserver::WATCHED`, con su etiqueta en español:
+
+```php
+Plan::class => [
+    'cost_product' => 'precio',
+    'mi_campo'     => 'etiqueta legible',
+],
+```
+
+Eso basta: el observer atrapa el cambio venga de donde venga —panel, API, carga masiva o
+consola—. **No instrumentes el controlador.** Es la lección del episodio del precio mal cargado:
+un cambio equivalente entró por `CustomersUpdateImport`, que no pasa por ningún controlador de
+planes, y por eso quedó sin registro.
+
+Si el valor no se lee bien en crudo (un `service_id` no le dice nada a nadie), agrégale
+traducción en `MoneyAuditObserver::readable()`.
+
+**Un modelo nuevo** se registra además en `AppServiceProvider::registerMoneyAudit()`.
+
+**Cuidado con el volumen.** La lista blanca es corta a propósito. `Invoice::balance_due` queda
+fuera porque cambia en cada pago y ya deja asiento en `payment_allocations`; `credit_balance`
+queda fuera porque lo cubre el libro con más detalle. Auditarlo todo hace la bitácora ilegible.
+
+### Tocar el saldo a favor
+
+**Nunca escribas `customer_profile.credit_balance` directamente.** Es una caché; la verdad son los
+movimientos de `customer_credits`, y escribir el escalar a pelo rompe el invariante
+`SUM(amount) == credit_balance`.
+
+Usa `CustomerCredit::earn()`, `applyToInvoice()`, `adjust()` o `reverseForPayment()` según el caso.
+Todos sincronizan la caché por su cuenta. Si después necesitas el saldo actualizado en un modelo
+que ya tenías cargado, llama `$profile->refresh()`: el libro trabaja sobre su propia instancia y la
+tuya queda vieja.
+
+Cuando escribas un test que toque saldo, afirma el invariante. Es una línea y es lo que detecta el
+tipo de error que hace desaparecer dinero:
+
+```php
+$this->assertEqualsWithDelta(
+    (float) CustomerProfile::where('user_id', $id)->value('credit_balance'),
+    CustomerCredit::ledgerBalanceFor($id),
+    0.01
+);
+```
+
+### Marcar el origen de un proceso
+
+Un proceso que escribe en nombre de otro —una importación, un comando— debe marcar sus escrituras
+para que la bitácora las distinga:
+
+```php
+AuditContext::as(AuditContext::SOURCE_IMPORT, fn () => Excel::import($import, $file));
+```
+
+Sin eso, una carga masiva lanzada desde el panel queda registrada como `web` y se vuelve
+indistinguible de un cambio hecho a mano — que es exactamente la ambigüedad que costó la auditoría
+manual del episodio 56.000 → 60.000.

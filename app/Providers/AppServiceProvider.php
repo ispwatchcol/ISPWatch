@@ -2,8 +2,14 @@
 
 namespace App\Providers;
 
+use App\Models\Billing;
 use App\Models\CustomerInstallation;
+use App\Models\CustomerProfile;
+use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\PersonalAccessToken;
+use App\Models\Plan;
+use App\Observers\MoneyAuditObserver;
 use App\Policies\CustomerInstallationPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -40,7 +46,22 @@ class AppServiceProvider extends ServiceProvider
         // esa subclase o el middleware no vería esas columnas casteadas.
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
 
+        $this->registerMoneyAudit();
         $this->configureRateLimiting();
+    }
+
+    /**
+     * Bitácora de todo lo que mueve plata.
+     *
+     * Se engancha por observer y no dentro de los controladores porque los
+     * cambios entran por cuatro puertas —panel, API, carga masiva y consola— y
+     * solo el observer las cubre todas. Ver MoneyAuditObserver.
+     */
+    protected function registerMoneyAudit(): void
+    {
+        foreach ([Plan::class, CustomerProfile::class, Payment::class, Invoice::class, Billing::class] as $model) {
+            $model::observe(MoneyAuditObserver::class);
+        }
     }
 
     /**

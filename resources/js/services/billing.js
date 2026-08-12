@@ -78,6 +78,13 @@ export default {
     return apiClient.patch(`/billing/customers/${customerId}/credit`, { credit_balance: creditBalance, reason })
   },
 
+  // Extracto del saldo a favor: de dónde salió y en qué facturas se gastó.
+  // Devuelve además el contraste entre el libro y el saldo cacheado, para que
+  // un descuadre se vea en pantalla y no en el mostrador.
+  getCreditMovements(customerId) {
+    return apiClient.get(`/billing/customers/${customerId}/credit-movements`)
+  },
+
   // month en formato YYYY-MM; sin él, el backend responde el mes en curso.
   // El tenant NO se envía: lo deduce del usuario autenticado.
   getStats(month = null) {

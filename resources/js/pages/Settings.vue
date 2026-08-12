@@ -1035,6 +1035,11 @@
                 <div v-if="activeTab === 'apikeys'" class="space-y-6">
                     <ApiKeysSection @notify="onSectionNotify" />
                 </div>
+
+                <!-- Bitácora de auditoría -->
+                <div v-if="activeTab === 'audit'" class="space-y-6">
+                    <AuditLogSection />
+                </div>
             </div>
     </div>
 </template>
@@ -1048,6 +1053,7 @@ import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.v
 import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
 import DocumentTemplatesSection from "@/components/settings/DocumentTemplatesSection.vue";
 import ApiKeysSection from "@/components/settings/ApiKeysSection.vue";
+import AuditLogSection from "@/components/settings/AuditLogSection.vue";
 import { apiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 
@@ -1079,6 +1085,9 @@ const tabs = computed(() => [
         ? [{ id: "apikeys", label: "Llaves API", icon: "md-vpnkey" }]
         : []),
     { id: "import", label: "Importar Datos", icon: "md-cloudupload" },
+    ...(authStore.hasPermission("view_audit_log")
+        ? [{ id: "audit", label: "Auditoría", icon: "md-history" }]
+        : []),
     { id: "system", label: "Sistema", icon: "md-computer" },
 ]);
 

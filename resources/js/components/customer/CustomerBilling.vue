@@ -49,6 +49,11 @@
           :class="creditBalance > 0 ? 'opacity-70' : 'text-gray-400 dark:text-gray-500'">
           {{ creditBalance > 0 ? 'Se aplicará a la próxima factura' : 'Sin crédito acumulado' }}
         </p>
+        <button @click="openMovementsModal"
+          class="mt-2 text-xs underline"
+          :class="creditBalance > 0 ? 'opacity-80 hover:opacity-100' : 'text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400'">
+          Ver movimientos
+        </button>
       </div>
 
       <!-- Facturas abiertas -->
@@ -196,6 +201,81 @@
         </tbody>
       </table>
     </div>
+
+    <!-- ── Modal extracto de saldo a favor ──────────────────────────────── -->
+    <!-- Es lo que le faltaba a quien cobra en el mostrador: poder responder
+         "¿por qué la factura dice 60.000 y me cobran 36.000?" en el momento. -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showMovementsModal"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          @click.self="showMovementsModal = false">
+          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 max-h-[80vh] overflow-y-auto">
+
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-1">Movimientos del saldo a favor</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              De dónde salió el saldo y en qué facturas se gastó.
+            </p>
+
+            <!-- Si el libro y el saldo guardado no coinciden hay un problema y
+                 es mejor que se vea aquí que en el mostrador. -->
+            <div v-if="Math.abs(movementsDiscrepancy) >= 0.01"
+              class="mb-4 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3">
+              <p class="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                Descuadre de ${{ fmt(Math.abs(movementsDiscrepancy)) }}
+              </p>
+              <p class="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                La suma de los movimientos (${{ fmt(movementsLedger) }}) no coincide con el saldo
+                guardado (${{ fmt(movementsCached) }}). Reportar al administrador.
+              </p>
+            </div>
+
+            <div v-if="movementsLoading" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              Cargando…
+            </div>
+
+            <div v-else-if="!movements.length" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              Este cliente no tiene movimientos de saldo registrados.
+            </div>
+
+            <table v-else class="min-w-full text-sm">
+              <thead>
+                <tr class="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                  <th class="py-2 pr-3 font-medium whitespace-nowrap">Fecha</th>
+                  <th class="py-2 pr-3 font-medium">Concepto</th>
+                  <th class="py-2 pr-3 font-medium text-right whitespace-nowrap">Monto</th>
+                  <th class="py-2 font-medium text-right whitespace-nowrap">Saldo</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                <tr v-for="m in movements" :key="m.id">
+                  <td class="py-2.5 pr-3 whitespace-nowrap text-gray-600 dark:text-gray-400">
+                    {{ new Date(m.created_at).toLocaleDateString('es-CO') }}
+                  </td>
+                  <td class="py-2.5 pr-3 text-gray-800 dark:text-gray-200">
+                    {{ m.reason || MOVEMENT_LABELS[m.type] || m.type }}
+                  </td>
+                  <td class="py-2.5 pr-3 text-right whitespace-nowrap font-medium"
+                    :class="Number(m.amount) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+                    {{ Number(m.amount) >= 0 ? '+' : '−' }}${{ fmt(Math.abs(Number(m.amount))) }}
+                  </td>
+                  <td class="py-2.5 text-right whitespace-nowrap text-gray-600 dark:text-gray-400">
+                    ${{ fmt(Number(m.balance_after)) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="flex justify-end pt-5">
+              <button type="button" @click="showMovementsModal = false"
+                class="px-5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-white py-2.5 rounded-xl transition">
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- ── Modal ajuste saldo a favor ───────────────────────────────────── -->
     <Teleport to="body">
@@ -370,6 +450,39 @@ const showCreditModal  = ref(false)
 const creditSubmitting = ref(false)
 const creditError      = ref('')
 const creditForm       = ref({ amount: 0, reason: '' })
+
+// Extracto del saldo a favor
+const showMovementsModal   = ref(false)
+const movementsLoading     = ref(false)
+const movements            = ref([])
+const movementsLedger      = ref(0)
+const movementsCached      = ref(0)
+const movementsDiscrepancy = ref(0)
+
+const MOVEMENT_LABELS = {
+  earned:   'Excedente de un pago',
+  applied:  'Aplicado a una factura',
+  adjusted: 'Ajuste manual',
+  reversed: 'Pago anulado',
+}
+
+async function openMovementsModal () {
+  showMovementsModal.value = true
+  movementsLoading.value = true
+
+  try {
+    const { data } = await billingService.getCreditMovements(props.customerId)
+    movements.value            = data.movements?.data ?? []
+    movementsLedger.value      = data.ledger_balance ?? 0
+    movementsCached.value      = data.cached_balance ?? 0
+    movementsDiscrepancy.value = data.discrepancy ?? 0
+  } catch (e) {
+    movements.value = []
+    movementsDiscrepancy.value = 0
+  } finally {
+    movementsLoading.value = false
+  }
+}
 
 const payForm = ref({
   amount: 0,

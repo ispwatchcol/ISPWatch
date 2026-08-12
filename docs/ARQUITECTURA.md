@@ -1103,3 +1103,67 @@ comprueba además el tenant en cada acción.
 El texto plano se muestra **una sola vez**; en la base sólo queda el hash de
 Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero conserva la fila:
 un registro de auditoría que apunta a una llave borrada no sirve de nada.
+
+---
+
+## 15. Trazabilidad del flujo de caja
+
+Dos piezas separadas que resuelven dos problemas distintos: **dónde está el saldo del cliente** y
+**quién cambió qué**.
+
+### 15.1 El libro del saldo a favor (`customer_credits`)
+
+Hasta 2026-08-11 el saldo a favor vivía solo como el escalar `customer_profile.credit_balance`: se
+sumaba al recibir un pago en exceso y se restaba al aplicarlo a una factura, **sin asiento de
+ninguna de las dos operaciones**. Eso producía facturas en estado `paid` sin una sola fila en
+`payment_allocations` (66 pagos por $4.6M en producción) y hacía imposible explicar en el mostrador
+por qué una factura de $60.000 se cobraba en $36.000.
+
+`customer_credits` es el espejo positivo de `invoice_carryovers`, que ya resolvía lo mismo para los
+faltantes y con el mismo argumento: **para poder revertir hay que guardar movimientos, no un
+acumulado**. `credit_balance` queda como caché denormalizada, igual que `carried_in`/`carried_out`
+en `invoices`.
+
+Toda escritura pasa por `CustomerCredit`; escribir `credit_balance` a pelo rompe el libro:
+
+| Método | Cuándo |
+|---|---|
+| `earn()` | Un pago dejó excedente (`allocatePayment`) |
+| `applyToInvoice()` | El saldo pagó una factura (`applyCreditToInvoice`, paso 5 de la mensual) |
+| `adjust()` | Un operador corrigió el saldo a mano (`BillingController::updateCreditBalance`) |
+| `reverseForPayment()` | Se anuló o corrigió un pago (`reversePaymentAllocations`) |
+
+El campo `consumed` de cada `earned` es lo que hace correcta la reversión. Antes se restaba el
+excedente completo sin mirar si ya se había gastado, y el `max(0, ...)` tapaba la pérdida: anular
+un pago viejo borraba saldo que venía de otros pagos.
+
+### 15.2 La bitácora (`audit_logs` + `MoneyAuditObserver`)
+
+**Por qué observers y no instrumentación de controladores.** Los cambios entran por cuatro puertas
+—panel, API, carga masiva y consola— y solo el observer las cubre todas. El caso real que lo
+motivó: un precio se cambió desde `PlanController`, pero los planes equivocados de la otra sede se
+reasignaron desde `CustomersUpdateImport`, que no pasa por ningún controlador de planes.
+
+Lista blanca por modelo, deliberadamente corta —auditarlo todo haría la bitácora ilegible:
+
+| Modelo | Se vigila |
+|---|---|
+| `Plan` | `cost_product`, `name`, `is_courtesy`, primera factura |
+| `CustomerProfile` | `service_id`, `exclude_from_billing`, `service_status` |
+| `Payment` | `amount`, `payment_date`, `status`, `method` |
+| `Invoice` | `total` (no `balance_due`: cambia en cada pago y ya deja asiento) |
+| `Billing` | días y horas de facturación, corte y recordatorio; topes; política de primera factura |
+
+`credit_balance` queda **fuera** a propósito: lo cubre `customer_credits` con más detalle.
+
+`AuditContext` resuelve autor y origen. El `source` (`web`/`api`/`console`/`import`/`scheduler`) es
+lo que distingue "lo cambió un operador" de "lo cambió un Excel"; `AuditContext::as()` permite a un
+proceso marcar sus escrituras sin propagar el origen por toda la pila de llamadas.
+
+### 15.3 Reconstrucción del histórico
+
+`audit:backfill-money` replica cronológicamente los excedentes de pago y los créditos aplicados,
+reutilizando los métodos reales del libro para no divergir de ellos. **No mueve plata:** si el
+saldo reconstruido no coincide con el real, deja el real intacto y escribe un movimiento de
+descuadre explícito. Un libro que dice "aquí faltan $X sin explicar" vale más que uno que cuadra
+porque le cambió el saldo a alguien.

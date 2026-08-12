@@ -485,13 +485,18 @@ class BillingController extends Controller
         $customer = \App\Models\CustomerProfile::where('user_id', $customerId)->firstOrFail();
         $previous = (float) $customer->credit_balance;
 
-        $customer->credit_balance = $data['credit_balance'];
-        $customer->save();
+        // El ajuste entra por el libro de movimientos: queda con autor, motivo y
+        // saldo resultante. Antes solo se escribía a un Log::info de archivo,
+        // que en producción rota y se pierde — es decir, tocar el saldo a mano
+        // era la única operación de plata que no dejaba rastro recuperable.
+        \App\Models\CustomerCredit::adjust(
+            (int) $customerId,
+            (float) $data['credit_balance'],
+            $previous,
+            $data['reason'] ?? null
+        );
 
-        \Log::info("Billing: Credit balance adjusted for customer {$customerId}. " .
-            "Previous: {$previous}, New: {$data['credit_balance']}. " .
-            "Reason: " . ($data['reason'] ?? 'no reason given') . ". " .
-            "By user: " . $request->user()?->id);
+        $customer->refresh();
 
         return response()->json([
             'credit_balance' => (float) $customer->credit_balance,

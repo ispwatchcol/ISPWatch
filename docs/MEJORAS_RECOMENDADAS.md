@@ -411,6 +411,20 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
+### 📋 P-0 · La devolución de saldo al borrar una factura no des-consume el origen
+
+Al borrar una factura que había sido pagada con saldo a favor, el saldo vuelve al cliente como un
+movimiento `adjusted`, pero **no se des-consumen los `earned` originales** que lo habían pagado.
+
+Es el lado conservador a propósito —nunca destruye saldo, que es el error caro— a costa de que
+anular después el pago de origen ya no arrastre esa devolución: se devolvería solo la parte que
+nunca se consumió, y el saldo restituido se queda con el cliente.
+
+**Recomendación.** Si algún día hace falta exactitud total, `CustomerCredit` tendría que
+des-consumir en orden LIFO los `earned` que financiaron esa factura, en vez de compensar con un
+ajuste. Hoy no compensa la complejidad: el caso es raro y el error resultante siempre favorece al
+cliente, nunca al ISP.
+
 ### 📋 P-1 · Falta un permiso `delete_clients`
 
 Borrar un cliente se apoya hoy en `edit_internet_service` porque el catálogo no tiene un

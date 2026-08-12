@@ -20,6 +20,7 @@ use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\BillingActionLogController;
 use App\Http\Controllers\SuspensionActionLogController;
 use App\Http\Controllers\DashboardController;
@@ -316,6 +317,19 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::get('/billing/suspension-logs/stats',       [SuspensionActionLogController::class, 'stats']);
         Route::post('/billing/suspension-logs/{id}/retry', [SuspensionActionLogController::class, 'retry']);
         Route::post('/billing/suspension-logs/reconcile',  [SuspensionActionLogController::class, 'reconcile']);
+    });
+
+    // ─── BITÁCORA DE AUDITORÍA (quién movió plata y cuándo) ───
+    // Solo lectura: una bitácora editable desde la app no sirve como bitácora.
+    Route::middleware(['permission:view_audit_log'])->group(function () {
+        Route::get('/audit-logs',         [AuditLogController::class, 'index']);
+        Route::get('/audit-logs/filters', [AuditLogController::class, 'filters']);
+    });
+
+    // El extracto de saldo a favor lo necesita quien cobra en el mostrador, que
+    // no siempre tiene acceso a la bitácora completa del sistema.
+    Route::middleware(['permission:view_audit_log,view_billing,register_payments'])->group(function () {
+        Route::get('/billing/customers/{customer}/credit-movements', [AuditLogController::class, 'creditMovements']);
     });
 
     // ─── SUPPORT (requires staff profile) ───
