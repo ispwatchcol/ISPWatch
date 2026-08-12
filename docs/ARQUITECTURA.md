@@ -1162,8 +1162,17 @@ proceso marcar sus escrituras sin propagar el origen por toda la pila de llamada
 
 ### 15.3 Reconstrucción del histórico
 
-`audit:backfill-money` replica cronológicamente los excedentes de pago y los créditos aplicados,
-reutilizando los métodos reales del libro para no divergir de ellos. **No mueve plata:** si el
-saldo reconstruido no coincide con el real, deja el real intacto y escribe un movimiento de
-descuadre explícito. Un libro que dice "aquí faltan $X sin explicar" vale más que uno que cuadra
-porque le cambió el saldo a alguien.
+`audit:backfill-money` replica cronológicamente los excedentes de pago y los créditos aplicados.
+**No mueve plata:** si el saldo reconstruido no coincide con el real, deja el real intacto y
+escribe un movimiento de descuadre explícito. Un libro que dice "aquí faltan $X sin explicar" vale
+más que uno que cuadra porque le cambió el saldo a alguien.
+
+Lee los tres conjuntos completos en **tres consultas**, arma el replay en memoria e inserta por
+lotes de 500 en transacciones cortas. La primera versión reutilizaba los métodos del modelo cliente
+por cliente —más elegante— pero eran 4-5 viajes a la base por movimiento: contra Supabase tardaba
+más de 10 minutos con la conexión `idle in transaction`, que sobre un pooler termina en conexión
+cortada a medio camino. La lógica FIFO de `consumed` está replicada a mano en el comando y los
+tests de `tests/Feature/Audit/` la fijan por ambos lados.
+
+Es **idempotente**: salta a los clientes que ya tienen libro. Para rehacer un intervalo —por
+ejemplo el que va entre correrlo y desplegar el código— hace falta `--force`.

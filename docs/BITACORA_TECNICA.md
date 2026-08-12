@@ -2444,5 +2444,40 @@ anular después el pago de origen ya no arrastre esa devolución. Anotado en
   sin tocar la plata, idempotencia y dry-run que no escribe.
 - `AuditLogApiTest` (4): permiso exigido, aislamiento entre sedes, filtro y detección de descuadre.
 
-**Pendiente de despliegue:** `php artisan migrate:both` (3 migraciones) y correr
-`audit:backfill-money --dry-run` antes del definitivo.
+### 26.9 Ejecución en producción — 2026-08-11
+
+`migrate:both` aplicado en `ispwatch_dev` y `public`. Backfill corrido: **117 clientes, 241
+movimientos**. Invariante `SUM(amount) == credit_balance` verificado en los **100 clientes con
+libro: 0 descuadrados**.
+
+**El backfill hubo que reescribirlo.** La primera versión reutilizaba los métodos del modelo
+cliente por cliente, que es más elegante pero eran 4-5 viajes a la base por movimiento: contra
+Supabase se tradujo en **más de 10 minutos con la conexión `idle in transaction`**, que sobre un
+pooler es la mejor forma de que te maten la conexión a medio camino. Es la misma lección que ya
+había dejado la carga masiva de clientes —nada de consultas por fila en procesos masivos— y se
+repitió igual. Ahora son tres consultas, replay en memoria e inserción por lotes de 500 en
+transacciones cortas; el dry-run no escribe nada en absoluto. Pasó de >10 min a segundos.
+
+### 26.10 Lo que destapó el backfill: pagos fuera del pipeline
+
+Aparecieron **9 clientes por $1.252.000** con una firma idéntica: el histórico reconstruye saldo
+positivo pero el `credit_balance` real es **0**.
+
+| Cliente | Reconstruido | Real | Qué se ve |
+|---|---:|---:|---|
+| 636 GABRIEL BRAVO (T19) | 567.000 | 0 | Pago de **$630.000** sin asignar, con plan de 63.000 |
+| 325 Normelys Garate (T16) | 224.000 | 0 | **Cuatro** pagos de 56.000 el 16-17 jun, todos sin asignar |
+| 336, 854, 214, 339, 228, 212, 288 | 4.000 – 120.000 | 0 | Mismo patrón |
+
+No es el bug de reversión ni dinero que el sistema haya destruido: son **pagos que entraron a la
+base sin pasar por `BillingService::registerPayment`**. Por eso no generaron asignación ni
+incrementaron el saldo. Los cuatro pagos idénticos de Normelys en dos días apuntan a carga directa
+o duplicada, no a operación de mostrador.
+
+Quedan registrados como movimiento `adjusted` de descuadre, **sin tocar el saldo de nadie**. Es
+exactamente para lo que se diseñó así: el libro dice "aquí faltan $X sin explicar" en vez de
+cuadrar cambiándole el saldo a alguien.
+
+**Pendiente:** desplegar el código. Mientras prod corra sin él, cada pago con excedente moverá
+`credit_balance` sin escribir en el libro; tras el despliegue hay que correr
+`audit:backfill-money --force` para reconstruir el intervalo.
