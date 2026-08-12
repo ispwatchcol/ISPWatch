@@ -2478,6 +2478,27 @@ Quedan registrados como movimiento `adjusted` de descuadre, **sin tocar el saldo
 exactamente para lo que se diseñó así: el libro dice "aquí faltan $X sin explicar" en vez de
 cuadrar cambiándole el saldo a alguien.
 
+### 26.11 Lo que solo vio PostgreSQL
+
+El CI tumbó los 5 tests de `PartnerApiIsolationTest`, **únicamente en el job de PostgreSQL**. En
+local todo estaba verde porque `.env.testing` usa SQLite. Es exactamente la clase de divergencia
+para la que ese segundo job existe, y esta vez la cobró entera.
+
+**1. `audit_logs.user_id` tiene clave foránea contra `users`, pero no todo lo que se autentica es
+un `User`.** La API pública autentica un `ApiClient`, cuyo id vive en otra tabla; estamparlo ahí
+viola la foránea. **SQLite no aplica claves foráneas por defecto**, así que el error era invisible
+en la suite rápida y habría reventado directamente en producción. `AuditContext::actorId()` ahora
+comprueba el tipo del actor.
+
+**2. Una excepción del observer se llevaba por delante la operación de negocio.** Verificado
+quitando el `try`: `Payment::create()` revienta entero si falla el log. En PostgreSQL es peor que
+perder el registro — la excepción deja la transacción **abortada** y todo lo que venga detrás falla
+en cadena con «current transaction is aborted», que es justo la firma de que cayeran los 5 tests de
+una misma clase y ninguno más. Ahora `MoneyAuditObserver::write()` traga y registra en
+`Log::error`.
+
+Las dos reglas quedaron escritas en `MANUAL_DESARROLLADOR.md`.
+
 **Pendiente:** desplegar el código. Mientras prod corra sin él, cada pago con excedente moverá
 `credit_balance` sin escribir en el libro; tras el despliegue hay que correr
 `audit:backfill-money --force` para reconstruir el intervalo.

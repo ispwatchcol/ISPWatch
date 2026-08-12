@@ -1010,3 +1010,17 @@ AuditContext::as(AuditContext::SOURCE_IMPORT, fn () => Excel::import($import, $f
 Sin eso, una carga masiva lanzada desde el panel queda registrada como `web` y se vuelve
 indistinguible de un cambio hecho a mano — que es exactamente la ambigüedad que costó la auditoría
 manual del episodio 56.000 → 60.000.
+
+### Dos reglas que la bitácora aprendió a golpes
+
+**La bitácora nunca tumba la operación que audita.** `MoneyAuditObserver::write()` traga cualquier
+excepción y la manda a `Log::error`. Perder la trazabilidad de un pago es malo; perder el pago es
+peor. En PostgreSQL además no es solo el registro: una excepción dentro de la transacción la deja
+abortada y **todo lo que venga detrás revienta en cadena** con «current transaction is aborted».
+SQLite no tiene ese estado, así que un observer frágil pasa los tests en local y tumba producción.
+
+**No todo lo que se autentica es un `User`.** La API pública autentica un `ApiClient`, cuyo id vive
+en otra tabla. `audit_logs.user_id` y `customer_credits.created_by` tienen clave foránea contra
+`users`, así que `AuditContext::actorId()` comprueba el tipo antes de estampar nada. **SQLite no
+aplica claves foráneas por defecto**: este fallo es invisible en la suite rápida y solo aparece en
+el job de PostgreSQL. Si tocas algo que guarde un id de actor, pásalo por ahí.
