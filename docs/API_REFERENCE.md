@@ -706,10 +706,32 @@ Tres decisiones que conviene no revertir sin pensarlo:
 `total_expenses` y `balance` llegan en **`null`** —no en `0`— cuando el usuario no tiene
 `view_expenses`, para que el panel oculte esas tarjetas en vez de mostrar un balance falso.
 
-**`GET /api/billing/invoices`** — listado paginado (20 por página, orden
-`issue_date` descendente con desempate por `id`). Filtros opcionales combinables
-con `AND`: `search` (número o cliente), `customer_id`, `status`, `invoice_type`,
-`period` (`YYYY-MM` sobre `period_start`), `page`.
+**`GET /api/billing/invoices`** — listado paginado (20 por página por defecto,
+orden `issue_date` descendente con desempate por `id`). Todos los parámetros son
+opcionales y se combinan con `AND`:
+
+| Parámetro | Reglas | Filtra |
+|---|---|---|
+| `search` | texto | Búsqueda general: número **o** cliente |
+| `number` | texto | Número de factura (coincidencia parcial) |
+| `customer` | texto | Nombre, apellido, **nombre completo**, cédula, usuario o correo |
+| `customer_id` | entero | Un cliente exacto |
+| `status` | texto | Estado exacto (`issued`, `pending`, `partial`, `paid`, `overdue`, `cancelled`, `void`) |
+| `invoice_type` | texto | Slug del catálogo de tipos, incluidos los inactivos |
+| `period` | `YYYY-MM` | Mes de `period_start` |
+| `due_from`, `due_to` | fecha | Rango de `due_date`, inclusive |
+| `total_min`, `total_max` | numérico | Rango de `total`, inclusive |
+| `balance_min`, `balance_max` | numérico | Rango de `balance_due`, inclusive |
+| `sort_by` | `issue_date`\|`due_date`\|`number`\|`total`\|`balance_due`\|`status`\|`invoice_type` | Columna de orden |
+| `sort_dir` | `asc`\|`desc` | Sentido (por defecto `desc`) |
+| `per_page` | entero 1–200 | Tamaño de página |
+| `page` | entero | Página |
+
+Las búsquedas de texto son insensibles a mayúsculas en PostgreSQL y en SQLite
+(macros `whereLike`/`orWhereLike`, ver `SearchMacrosServiceProvider`).
+
+> `sort_by` es lista blanca en la validación: entra directo en el `ORDER BY`, así
+> que cualquier otro valor devuelve **422**, no una consulta con SQL ajeno.
 
 > La vista de Facturación acepta `invoice_type`, `status`, `search` y `period`
 > **también por la URL del frontend** (`/billing/invoices?invoice_type=…`). Es lo
@@ -729,6 +751,9 @@ del **filtro completo** (no de la página):
 > aparezcan en `data`: una factura anulada no es dinero facturado. Misma regla que
 > los gastos anulados. `balance_due` es lo que falta por cobrar de las facturas
 > que cumplen el filtro.
+
+> El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
+> query param se ignora.
 
 ### Exportación a CSV
 

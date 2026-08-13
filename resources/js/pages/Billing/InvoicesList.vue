@@ -51,6 +51,7 @@ const initialFilters = () => {
     const vieneFiltradoPorUrl = q.invoice_type || q.status || q.search
 
     return {
+        ...emptyColumnFilters(),
         status:       q.status ? String(q.status) : '',
         invoice_type: q.invoice_type ? String(q.invoice_type) : '',
         // El mes por defecto es el actual, pero si se entra filtrando por tipo
@@ -63,7 +64,52 @@ const initialFilters = () => {
     }
 }
 
-const filters = ref(initialFilters())
+/**
+ * Filtros por columna: acotan UNA columna cada uno, a diferencia de `search`,
+ * que es la búsqueda general (número o cliente).
+ *
+ * `period` no está aquí porque tiene su propio control visible (el selector de
+ * mes) y no lo borra el botón "Limpiar filtros".
+ */
+const emptyColumnFilters = () => ({
+    number:      '',
+    customer:    '',
+    status:      '',
+    invoice_type:'',
+    total_min:   '',
+    total_max:   '',
+    balance_min: '',
+    balance_max: '',
+    due_from:    '',
+    due_to:      '',
+    search:      '',
+})
+
+const filters  = ref(initialFilters())
+const sort     = ref({ by: 'issue_date', dir: 'desc' })
+const perPage  = ref(20)
+
+// Cuenta sólo lo que borra "Limpiar filtros" — el mes queda fuera a propósito:
+// se ve en su propio selector y siempre tendría algo puesto.
+const activeFilterCount = computed(
+    () => Object.keys(emptyColumnFilters())
+        .filter(k => filters.value[k] !== '' && filters.value[k] !== null && filters.value[k] !== undefined)
+        .length
+)
+
+const clearFilters = () => {
+    filters.value = { ...filters.value, ...emptyColumnFilters() }
+}
+
+// Al buscar por texto ignoramos el mes seleccionado: si no, el mes actual (el
+// que trae por defecto) esconde las facturas del cliente o del número buscado
+// en cualquier otro periodo, y la tabla sale vacía sin explicar por qué.
+const searchingAcrossPeriods = computed(
+    () => ['search', 'number', 'customer'].some(k => String(filters.value[k] ?? '').trim() !== '')
+)
+
+// Estilo compartido por los minibuscadores de la cabecera.
+const columnInputClass = 'w-full text-xs font-normal normal-case bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 rounded-md border border-slate-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-400'
 
 const showCreateModal = ref(false)
 const customers = ref([])
@@ -111,14 +157,16 @@ const buildFilterParams = () => {
         }
     }
 
-    const params = { ...filters.value, period: periodValue }
-
-    // Al buscar por cliente o número, ignoramos el filtro de mes para que la
-    // búsqueda recorra TODOS los períodos. Si no, el mes seleccionado (por
-    // defecto el actual) oculta facturas del cliente de otros meses.
-    if (filters.value.search && filters.value.search.trim() !== '') {
-        delete params.period
+    // Los vacíos no se mandan: el backend valida los filtros y una cadena vacía
+    // sólo añade ruido a la URL.
+    const params = { sort_by: sort.value.by, sort_dir: sort.value.dir }
+    for (const [key, value] of Object.entries({ ...filters.value, period: periodValue })) {
+        if (value !== '' && value !== null && value !== undefined) params[key] = value
     }
+
+    // Al buscar por texto, ignoramos el filtro de mes para que la búsqueda
+    // recorra TODOS los períodos.
+    if (searchingAcrossPeriods.value) delete params.period
 
     return params
 }
@@ -129,8 +177,8 @@ const fetchInvoices = async () => {
     try {
         const params = {
             ...buildFilterParams(),
-            page: currentPage.value,
-            tenant: user.value?.tenant_id
+            page:     currentPage.value,
+            per_page: perPage.value,
         }
 
         const response = await billingService.getInvoices(params)
@@ -142,6 +190,15 @@ const fetchInvoices = async () => {
             invoices.value = response.data
         }
         summary.value = response.data?.summary ?? { total: 0, balance_due: 0, count: 0 }
+
+        // Si pedimos una página que ya no existe (p. ej. tras eliminar la última
+        // factura de la última página) retrocedemos en vez de dejar la tabla
+        // vacía.
+        const meta = invoices.value
+        if ((meta.data?.length ?? 0) === 0 && (meta.last_page || 1) < (meta.current_page || 1)) {
+            currentPage.value = meta.last_page || 1
+            return fetchInvoices()
+        }
     } catch (e) {
         if (id === requestId) console.error('Error loading invoices', e)
     } finally {
@@ -289,6 +346,26 @@ onMounted(() => {
 // Al cambiar cualquier filtro, volvemos a la primera página para no quedar
 // en una página que ya no existe con el nuevo conjunto de resultados.
 watch(filters, () => { currentPage.value = 1; scheduleFetch() }, { deep: true })
+watch(perPage, () => { currentPage.value = 1; fetchInvoices() })
+
+// ── Orden ───────────────────────────────────────────────
+const toggleSort = (column) => {
+    if (sort.value.by === column) {
+        sort.value.dir = sort.value.dir === 'asc' ? 'desc' : 'asc'
+    } else {
+        sort.value.by = column
+        // Fechas e importes se leen mejor de mayor a menor; el texto, alfabético.
+        sort.value.dir = ['issue_date', 'due_date', 'total', 'balance_due'].includes(column) ? 'desc' : 'asc'
+    }
+    currentPage.value = 1
+    fetchInvoices()
+}
+
+// Flecha en la cabecera de la columna por la que se está ordenando.
+const sortIndicator = (column) => {
+    if (sort.value.by !== column) return '↕'
+    return sort.value.dir === 'asc' ? '↑' : '↓'
+}
 
 // ── Paginación ──────────────────────────────────────────
 const goToPage = (page) => {
@@ -407,37 +484,27 @@ const sendBulkReminders = async () => {
                 </div>
                 
                 <div class="flex items-center gap-3 flex-wrap">
-                    <div class="flex items-center gap-2">
-                        <v-icon name="bi-filter" class="w-5 h-5 text-slate-400" />
-                        <select v-model="filters.status" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white py-2 px-4 transition-all">
-                            <option value="">Todos los Estados</option>
-                            <option value="issued">Emitidas</option>
-                            <option value="partial">Pago Parcial</option>
-                            <option value="pending">Pendientes</option>
-                            <option value="overdue">Vencidas</option>
-                            <option value="paid">Pagadas</option>
-                        </select>
-                    </div>
-
-                    <select v-model="filters.invoice_type" class="bg-slate-50 dark:bg-gray-900 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:text-white py-2 px-4 transition-all">
-                        <option value="">Todos los Tipos</option>
-                        <!-- Incluye los inactivos: siguen existiendo facturas viejas con ese tipo. -->
-                        <option v-for="t in allTypeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
-                    </select>
-
+                    <!-- Estado y Tipo viven ahora bajo su propia columna, junto al
+                         resto de minibuscadores de la tabla. El mes se queda aquí:
+                         no le corresponde ninguna columna. -->
                     <div class="w-52"
-                        :title="filters.search && filters.search.trim() ? 'Mientras buscas, se muestran facturas de todos los meses' : ''">
+                        :title="searchingAcrossPeriods ? 'Mientras buscas, se muestran facturas de todos los meses' : ''">
                         <MonthPicker
                             v-model="filters.period"
-                            :disabled="!!(filters.search && filters.search.trim())"
+                            :disabled="searchingAcrossPeriods"
                             placeholder="Todos los meses"
                         />
                     </div>
-                    
-                    <button @click="fetchInvoices" class="p-2 bg-slate-100 dark:bg-gray-700 hover:bg-slate-200 dark:hover:bg-gray-600 rounded-xl transition-colors">
-                        <v-icon name="bi-filter" class="w-5 h-5 text-slate-600 dark:text-slate-300" />
+
+                    <button v-if="activeFilterCount" type="button" @click="clearFilters"
+                        class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all">
+                        <v-icon name="md-close" class="w-4 h-4" />
+                        Limpiar filtros
+                        <span class="min-w-[1.25rem] h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-emerald-600 text-white text-[11px] font-semibold">
+                            {{ activeFilterCount }}
+                        </span>
                     </button>
-                    
+
                     <!-- Bulk Reminder Button -->
                     <button @click="sendBulkReminders" 
                         :disabled="selectedInvoices.length === 0 || sendingBulkReminder"
@@ -489,27 +556,123 @@ const sendBulkReminders = async () => {
                 :class="refreshing && !loading ? 'opacity-60' : ''">
                 <table class="w-full text-left border-collapse">
                     <thead>
-                        <tr class="bg-slate-50/50 dark:bg-gray-900/50 border-b border-slate-200 dark:border-gray-700">
+                        <tr class="bg-slate-50/50 dark:bg-gray-900/50">
                             <!-- Select All Checkbox -->
-                            <th class="px-4 py-4 w-14">
-                                <button @click="toggleSelectAll" 
+                            <th class="px-4 pt-4 pb-2 w-14">
+                                <button @click="toggleSelectAll"
                                     :class="[
                                         'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200',
-                                        allSelected 
-                                            ? 'bg-emerald-600 border-emerald-600 text-white' 
+                                        allSelected
+                                            ? 'bg-emerald-600 border-emerald-600 text-white'
                                             : 'border-slate-400 dark:border-gray-500 hover:border-emerald-500 dark:hover:border-emerald-400'
                                     ]">
                                     <v-icon v-if="allSelected" name="md-check" class="w-3 h-3" />
                                 </button>
                             </th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Número</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Tipo</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Total</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Saldo</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Estado</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Vencimiento</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Acciones</th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                <button type="button" @click="toggleSort('number')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                    Número <span class="text-[10px]">{{ sortIndicator('number') }}</span>
+                                </button>
+                            </th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">
+                                <button type="button" @click="toggleSort('invoice_type')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                    Tipo <span class="text-[10px]">{{ sortIndicator('invoice_type') }}</span>
+                                </button>
+                            </th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">
+                                <button type="button" @click="toggleSort('total')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                    Total <span class="text-[10px]">{{ sortIndicator('total') }}</span>
+                                </button>
+                            </th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">
+                                <button type="button" @click="toggleSort('balance_due')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                    Saldo <span class="text-[10px]">{{ sortIndicator('balance_due') }}</span>
+                                </button>
+                            </th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">
+                                <button type="button" @click="toggleSort('status')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                    Estado <span class="text-[10px]">{{ sortIndicator('status') }}</span>
+                                </button>
+                            </th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                <button type="button" @click="toggleSort('due_date')" class="inline-flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                    Vencimiento <span class="text-[10px]">{{ sortIndicator('due_date') }}</span>
+                                </button>
+                            </th>
+                            <th class="px-6 pt-4 pb-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Acciones</th>
+                        </tr>
+
+                        <!-- Minibuscador por columna -->
+                        <tr class="bg-slate-50/50 dark:bg-gray-900/50 border-b border-slate-200 dark:border-gray-700">
+                            <th class="px-4 pb-3 pt-0"></th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <input v-model="filters.number" type="text" placeholder="No. de factura" :class="columnInputClass">
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <input v-model="filters.customer" type="text" placeholder="Nombre o cédula" :class="columnInputClass">
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <select v-model="filters.invoice_type" :class="columnInputClass">
+                                    <option value="">Todos</option>
+                                    <!-- Incluye los inactivos: siguen existiendo facturas viejas con ese tipo. -->
+                                    <option v-for="t in allTypeOptions" :key="t.slug" :value="t.slug">{{ t.name }}</option>
+                                </select>
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <div class="flex flex-col gap-1">
+                                    <label class="flex items-center gap-1.5">
+                                        <span class="w-10 shrink-0 text-[10px] font-normal normal-case text-slate-400">Mín.</span>
+                                        <input v-model="filters.total_min" type="number" step="0.01" min="0" placeholder="0" :class="columnInputClass">
+                                    </label>
+                                    <label class="flex items-center gap-1.5">
+                                        <span class="w-10 shrink-0 text-[10px] font-normal normal-case text-slate-400">Máx.</span>
+                                        <input v-model="filters.total_max" type="number" step="0.01" min="0" placeholder="Sin tope" :class="columnInputClass">
+                                    </label>
+                                </div>
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <div class="flex flex-col gap-1">
+                                    <label class="flex items-center gap-1.5">
+                                        <span class="w-10 shrink-0 text-[10px] font-normal normal-case text-slate-400">Mín.</span>
+                                        <input v-model="filters.balance_min" type="number" step="0.01" min="0" placeholder="0" :class="columnInputClass">
+                                    </label>
+                                    <label class="flex items-center gap-1.5">
+                                        <span class="w-10 shrink-0 text-[10px] font-normal normal-case text-slate-400">Máx.</span>
+                                        <input v-model="filters.balance_max" type="number" step="0.01" min="0" placeholder="Sin tope" :class="columnInputClass">
+                                    </label>
+                                </div>
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <select v-model="filters.status" :class="columnInputClass">
+                                    <option value="">Todos</option>
+                                    <option value="issued">Emitidas</option>
+                                    <option value="partial">Pago parcial</option>
+                                    <option value="pending">Pendientes</option>
+                                    <option value="overdue">Vencidas</option>
+                                    <option value="paid">Pagadas</option>
+                                    <option value="cancelled">Canceladas</option>
+                                    <option value="void">Anuladas</option>
+                                </select>
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top">
+                                <div class="flex flex-col gap-1">
+                                    <label class="flex items-center gap-1.5">
+                                        <span class="w-10 shrink-0 text-[10px] font-normal normal-case text-slate-400">Desde</span>
+                                        <input v-model="filters.due_from" type="date" :class="columnInputClass">
+                                    </label>
+                                    <label class="flex items-center gap-1.5">
+                                        <span class="w-10 shrink-0 text-[10px] font-normal normal-case text-slate-400">Hasta</span>
+                                        <input v-model="filters.due_to" type="date" :class="columnInputClass">
+                                    </label>
+                                </div>
+                            </th>
+                            <th class="px-6 pb-3 pt-0 align-top text-center">
+                                <button v-if="activeFilterCount" type="button" @click="clearFilters"
+                                    class="text-xs font-normal normal-case text-emerald-600 dark:text-emerald-400 hover:underline">
+                                    Limpiar
+                                </button>
+                            </th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-gray-700">
@@ -524,7 +687,13 @@ const sendBulkReminders = async () => {
                         <tr v-else-if="invoices.data.length === 0">
                             <td colspan="9" class="px-6 py-12 text-center">
                                 <v-icon name="la-money-bill-wave-solid" class="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-                                <p class="text-slate-500 dark:text-slate-400 font-medium">No se encontraron facturas.</p>
+                                <p class="text-slate-500 dark:text-slate-400 font-medium">
+                                    {{ activeFilterCount ? 'Ninguna factura coincide con los filtros aplicados.' : 'No se encontraron facturas.' }}
+                                </p>
+                                <button v-if="activeFilterCount" type="button" @click="clearFilters"
+                                    class="mt-3 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline">
+                                    Limpiar filtros
+                                </button>
                             </td>
                         </tr>
                         <tr v-else v-for="invoice in invoices.data" :key="invoice.id" 
@@ -610,9 +779,18 @@ const sendBulkReminders = async () => {
             </div>
             
             <!-- Pagination -->
-            <div v-if="invoices.total > invoices.per_page" class="px-6 py-4 bg-slate-50/50 dark:bg-gray-900/30 border-t border-slate-200 dark:border-gray-700 flex justify-between items-center text-sm">
-                <div class="text-slate-500 dark:text-slate-400">
-                    Mostrando <span class="font-bold text-slate-900 dark:text-white">{{ invoices.from }}</span> a <span class="font-bold text-slate-900 dark:text-white">{{ invoices.to }}</span> de {{ invoices.total }}
+            <div v-if="!loading && invoices.total" class="px-6 py-4 bg-slate-50/50 dark:bg-gray-900/30 border-t border-slate-200 dark:border-gray-700 flex flex-col sm:flex-row gap-3 justify-between items-center text-sm">
+                <div class="flex items-center gap-3 text-slate-500 dark:text-slate-400">
+                    <span>
+                        Mostrando <span class="font-bold text-slate-900 dark:text-white">{{ invoices.from }}</span> a <span class="font-bold text-slate-900 dark:text-white">{{ invoices.to }}</span> de {{ invoices.total }}
+                    </span>
+                    <select v-model.number="perPage" title="Facturas por página"
+                        class="bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-200 text-xs px-2 py-1.5 rounded-md border border-slate-300 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <option :value="20">20 / pág.</option>
+                        <option :value="50">50 / pág.</option>
+                        <option :value="100">100 / pág.</option>
+                        <option :value="200">200 / pág.</option>
+                    </select>
                 </div>
                 <Pagination
                     :current-page="invoices.current_page || 1"
