@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-13 · Rama: `feat/money-audit-trail`
+**Última actualización:** 2026-08-13 · Rama: `feat/invoices-column-filters`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Facturación se revisaba a ciegas (2026-08-13, § 29):** la pantalla tenía un solo buscador
+  para nueve columnas, así que "qué facturas de más de $100.000 vencen esta semana y siguen
+  debiendo" sólo se podía responder exportando a Excel. Ahora hay una casilla bajo cada título,
+  títulos ordenables y tamaño de página — la misma mecánica que ya usaba Recaudos.
 - **Dos fallos que sólo el CI de PostgreSQL podía ver (2026-08-13, § 28):** un estado de
   instalación inventado que sqlite dejaba pasar porque pierde el CHECK del enum al reconstruir la
   tabla, y un `try` en la bitácora que daba falsa confianza: en PostgreSQL atrapar la excepción no
@@ -74,6 +78,7 @@
 27. [El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13](#27-el-botón-de-wan-culpaba-al-router-de-un-silencio-nuestro--2026-08-13)
 28. [La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13](#28-la-wan-seguía-sin-leerse-había-dos-túneles-peleándose--2026-08-13)
 28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
+29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
 
 ---
 
@@ -2760,3 +2765,66 @@ con L2TP/IPsec no pueden compartir pública: uno tiene que ir a WireGuard (neces
 **Observación aparte, sin acción:** `CORE_TOCAIMA` está en WireGuard (`172.18.16.2`, handshake
 fresco) y **además** mantiene una sesión L2TP viva (`mL6b8SjaHa`, 172.16.16.254). No colisiona
 —su `caller-id` es único— pero es un resto de la migración que conviene revisar.
+
+---
+
+## 29. Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13
+
+Recaudos ya tenía una casilla debajo de cada título (§ auditoría de Finanzas, fases 1-6);
+Facturación se había quedado con **un buscador general, dos selectores y el mes**. Para
+comprobar algo tan corriente como *"qué facturas de más de $100.000 vencen esta semana y
+siguen debiendo"* no había forma: había que exportar el CSV y filtrar en Excel — la propia
+pantalla no podía responderlo.
+
+### 29.1 Qué faltaba exactamente
+
+| Pregunta del operador | Antes |
+|---|---|
+| Facturas de un rango de importe | No existía |
+| Las que aún deben algo (saldo > 0) | Sólo aproximable por estado, y `partial` no cubre las emitidas con abono |
+| Lo que vence entre dos fechas | No existía: el único filtro de fecha era el **mes del periodo**, que no es el vencimiento |
+| Una factura por su número | Sólo por el buscador general, mezclado con el nombre del cliente |
+| Un cliente por cédula | El buscador no miraba `cedula` (Recaudos sí) |
+
+Además el listado estaba clavado en 20 por página sin poder cambiarlo, y no se podía ordenar
+por ninguna columna: el orden era siempre `issue_date desc`.
+
+### 29.2 Lo que se hizo
+
+Se replicó tal cual la mecánica de Recaudos, no una variante:
+
+| Capa | Cambio |
+|---|---|
+| `BillingController::validatedInvoiceFilters()` | Nuevo. Reglas de los filtros, compartidas por listado y exportación. `sort_by` es **lista blanca**: entra directo en el `ORDER BY` |
+| `BillingController::filteredInvoicesQuery()` | Pasa a recibir los filtros ya validados. Suma `number`, `customer`, `due_from/to`, `total_min/max`, `balance_min/max` |
+| `BillingController::index()` | `sort_by`/`sort_dir`/`per_page`, con desempate por `id` para cualquier columna de orden |
+| `InvoicesList.vue` | Fila de minibuscadores bajo los títulos, títulos ordenables, selector de tamaño de página, "Limpiar filtros" |
+| `InvoicesListFilterTest` | 10 casos, espejo de `PaymentsListFilterTest` |
+
+Tres detalles que no son cosméticos:
+
+**La búsqueda general pasó a las macros `whereLike`.** Tenía su propio `ilike` con escape a mano
+y un `DB::getDriverName()` en línea —justo el patrón que `SearchMacrosServiceProvider` existe para
+borrar—. De paso hereda `applyCustomerSearch()`, que ya buscaba por **cédula y nombre completo**:
+esas dos coincidencias faltaban aquí y ya funcionaban en Recaudos.
+
+**Estado y Tipo se bajaron a su columna.** Dejarlos también arriba habría puesto dos controles
+sobre el mismo filtro en la misma pantalla. Arriba se quedan el buscador general y el mes, que no
+tienen columna propia.
+
+**El mes se apaga al buscar texto.** Ya pasaba con `search`; ahora también con `number` y
+`customer`. Buscar una factura por su número teniendo el mes actual puesto por defecto devolvía
+una tabla vacía sin decir por qué. `period` tampoco lo borra "Limpiar filtros": tiene su propio
+selector a la vista y siempre tendría algo puesto.
+
+### 29.3 Lo que NO se tocó
+
+El `summary` sigue excluyendo `void`/`cancelled` y el tenant sigue saliendo del usuario
+autenticado (se quitó el `tenant` que el frontend mandaba de más, que el backend ya ignoraba
+desde la corrección de OWASP A01). La entrada por URL de Servicios Adicionales
+(`/billing/invoices?invoice_type=…&period=`) sigue funcionando igual.
+
+> **Deuda menor detectada, no corregida:** este documento tiene **dos secciones numeradas 28**
+> (`Dos fallos que sólo el CI de PostgreSQL podía ver` y `La WAN seguía sin leerse`), resultado
+> de dos ramas que añadieron sección a la vez. No se renumeran aquí para no romper las
+> referencias cruzadas de otras ramas abiertas.

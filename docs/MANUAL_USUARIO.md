@@ -611,7 +611,7 @@ ese mes* contra lo facturado ese mes. Si cobras mora de hace tres meses, ese din
 
 **Finanzas → Facturación.**
 
-Puedes filtrar por estado, cliente y fechas. Los estados son:
+Los estados son:
 
 | Estado | Significa |
 |---|---|
@@ -622,8 +622,34 @@ Puedes filtrar por estado, cliente y fechas. Los estados son:
 | **Vencida** | Pasó la fecha de pago sin pagarse |
 | **Anulada** | Sin efecto |
 
-El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido** y
-**correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
+El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido**,
+**cédula** y **correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
+
+**Una casilla debajo de cada título**, igual que en Recaudos, para revisar las emitidas sin
+depender del buscador general:
+
+| Columna | Qué acepta |
+|---|---|
+| Número | Parte del número de factura (`0042` encuentra la `FAC-2026-0042`) |
+| Cliente | Nombre, apellido, **nombre completo**, cédula o correo |
+| Tipo | Lista con tus tipos de factura (incluye los desactivados: hay facturas viejas con ese tipo) |
+| Total | Dos casillas: **mínimo** y **máximo** |
+| Saldo | Dos casillas: **mínimo** y **máximo**. Con `Mín. 1` ves sólo las que aún deben algo |
+| Estado | Emitidas, parciales, pendientes, vencidas, pagadas, canceladas o anuladas |
+| Vencimiento | **Desde** y **hasta**: te deja ver todo lo que vence esta semana |
+
+**Limpiar** (al final de la fila de casillas, o arriba junto al selector de mes) quita todos
+los filtros de golpe. El **mes** no se borra con ese botón: tiene su propio selector.
+
+Los títulos **Número, Tipo, Total, Saldo, Estado y Vencimiento** ordenan la tabla: púlsalos
+una vez para ordenar y otra para invertir el sentido. La flecha indica por cuál estás
+ordenando.
+
+> Al escribir en el buscador, en **Número** o en **Cliente**, el selector de mes se apaga y
+> la búsqueda recorre **todos los meses**. Si no, el mes actual escondería las facturas del
+> cliente en cualquier otro periodo y la tabla parecería vacía.
+
+En el pie de la tabla eliges cuántas facturas ver por página (20, 50, 100 o 200).
 
 Arriba de la tabla verás dos totales: **Total facturado** y **Saldo pendiente** (lo que falta
 por cobrar). Ambos suman **todas** las facturas que cumplen el filtro, no sólo las de la página

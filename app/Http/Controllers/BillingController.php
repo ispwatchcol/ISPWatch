@@ -30,6 +30,29 @@ class BillingController extends Controller
         $this->templateRenderer = $templateRenderer;
     }
 
+    /** Reglas de los filtros de facturas, compartidas por el listado y la exportación. */
+    private function validatedInvoiceFilters(Request $request): array
+    {
+        return $request->validate([
+            'search'       => 'nullable|string|max:255',
+            'number'       => 'nullable|string|max:100',
+            'customer'     => 'nullable|string|max:255',
+            'customer_id'  => 'nullable|integer',
+            'status'       => 'nullable|string|max:30',
+            'invoice_type' => 'nullable|string|max:50',
+            'period'       => 'nullable|string|max:20',
+            'due_from'     => 'nullable|date',
+            'due_to'       => 'nullable|date',
+            'total_min'    => 'nullable|numeric',
+            'total_max'    => 'nullable|numeric',
+            'balance_min'  => 'nullable|numeric',
+            'balance_max'  => 'nullable|numeric',
+            'sort_by'      => 'nullable|in:issue_date,due_date,number,total,balance_due,status,invoice_type',
+            'sort_dir'     => 'nullable|in:asc,desc',
+            'per_page'     => 'nullable|integer|min:1|max:200',
+        ]);
+    }
+
     /**
      * Consulta de facturas con los filtros del listado aplicados, SIN orden ni
      * paginación.
@@ -38,46 +61,79 @@ class BillingController extends Controller
      * armara sus propios filtros, acabarían divergiendo y el CSV dejaría de
      * corresponder a lo que el usuario tenía en pantalla — que es justo lo que
      * la exportación promete.
+     *
+     * Además de la búsqueda general hay un filtro por cada columna de la tabla,
+     * igual que en Recaudos: con un solo `search` la única forma de revisar las
+     * facturas emitidas era escribir en el buscador y esperar que el término
+     * cayera en el número o en el nombre.
      */
-    private function filteredInvoicesQuery(Request $request)
+    private function filteredInvoicesQuery(Request $request, array $f)
     {
         $query = Invoice::query()->with(['customer.customerProfile']);
 
-        if ($request->filled('search')) {
-            $search = str_replace(['%', '_'], ['\\%', '\\_'], $request->search);
-            // PostgreSQL's LIKE is case-sensitive, so "eliud" no coincide con
-            // "Eliud". Usamos ILIKE en pgsql; SQLite (tests) no tiene ILIKE pero
-            // su LIKE ya es insensible a mayúsculas para ASCII.
-            $likeOp = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-            $query->where(function ($q) use ($search, $likeOp) {
-                $q->where('number', $likeOp, "%$search%")
-                    ->orWhereHas('customer', function ($cq) use ($search, $likeOp) {
-                        $cq->where('user_name', $likeOp, "%$search%")
-                            ->orWhere('email', $likeOp, "%$search%")
-                            ->orWhereHas('customerProfile', function ($cpq) use ($search, $likeOp) {
-                                $cpq->where('name', $likeOp, "%$search%")
-                                    ->orWhere('last_name', $likeOp, "%$search%");
-                            });
-                    });
+        // Búsqueda general: número o cliente.
+        if (!empty($f['search'])) {
+            $search = $f['search'];
+            $query->where(function ($q) use ($search) {
+                $q->whereLike('number', $search)
+                    ->orWhereHas('customer', fn ($cq) => $this->applyCustomerSearch($cq, $search));
             });
         }
 
-        if ($request->filled('customer_id')) {
-            $query->where('customer_id', $request->customer_id);
+        // ── Filtros específicos por columna ───────────────────────────────────
+        if (!empty($f['number'])) {
+            $query->whereLike('number', $f['number']);
         }
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
+
+        if (!empty($f['customer'])) {
+            $query->whereHas('customer', fn ($cq) => $this->applyCustomerSearch($cq, $f['customer']));
         }
-        if ($request->filled('invoice_type')) {
-            $query->where('invoice_type', $request->invoice_type);
+
+        if (!empty($f['customer_id'])) {
+            $query->where('customer_id', $f['customer_id']);
         }
-        if ($request->filled('period')) {
+
+        if (!empty($f['status'])) {
+            $query->where('status', $f['status']);
+        }
+
+        if (!empty($f['invoice_type'])) {
+            $query->where('invoice_type', $f['invoice_type']);
+        }
+
+        if (!empty($f['period'])) {
             try {
-                $period = \Illuminate\Support\Carbon::parse($request->period)->format('Y-m');
+                $period = Carbon::parse($f['period'])->format('Y-m');
                 $query->where('period_start', 'like', $period . '%');
             } catch (\Exception $e) {
-                $query->where('period_start', 'like', $request->period . '%');
+                $query->where('period_start', 'like', $f['period'] . '%');
             }
+        }
+
+        if (!empty($f['due_from'])) {
+            $query->whereDate('due_date', '>=', $f['due_from']);
+        }
+
+        if (!empty($f['due_to'])) {
+            $query->whereDate('due_date', '<=', $f['due_to']);
+        }
+
+        // Ojo: 0 es un importe válido (factura en cero, saldo saldado), por eso
+        // aquí se usa isset y no !empty.
+        if (isset($f['total_min'])) {
+            $query->where('total', '>=', $f['total_min']);
+        }
+
+        if (isset($f['total_max'])) {
+            $query->where('total', '<=', $f['total_max']);
+        }
+
+        if (isset($f['balance_min'])) {
+            $query->where('balance_due', '>=', $f['balance_min']);
+        }
+
+        if (isset($f['balance_max'])) {
+            $query->where('balance_due', '<=', $f['balance_max']);
         }
 
         // SECURITY FIX (OWASP A01): Always filter by authenticated user's tenant.
@@ -93,7 +149,8 @@ class BillingController extends Controller
     // List Invoices
     public function index(Request $request)
     {
-        $query = $this->filteredInvoicesQuery($request);
+        $f     = $this->validatedInvoiceFilters($request);
+        $query = $this->filteredInvoicesQuery($request, $f);
 
         // Agregados del listado, misma convención que Gastos: clave `summary` en
         // la MISMA respuesta, calculada en SQL sobre el filtro completo. En un
@@ -106,8 +163,12 @@ class BillingController extends Controller
 
         // `issue_date` es una fecha sin hora y se repite (toda la facturación
         // mensual comparte día): sin desempate estable, dos páginas pueden
-        // repetir u omitir la misma factura.
-        $paginator = $query->orderBy('issue_date', 'desc')->orderBy('id', 'desc')->paginate(20);
+        // repetir u omitir la misma factura. Vale para cualquier columna de
+        // orden, no sólo la de por defecto.
+        $paginator = $query->orderBy($f['sort_by'] ?? 'issue_date', $f['sort_dir'] ?? 'desc')
+            ->orderBy('id', 'desc')
+            ->paginate($f['per_page'] ?? 20)
+            ->withQueryString();
 
         return response()->json($paginator->toArray() + [
             'summary' => [
@@ -126,8 +187,10 @@ class BillingController extends Controller
      */
     public function exportInvoices(Request $request)
     {
-        $query = $this->filteredInvoicesQuery($request)
-            ->orderBy('issue_date', 'desc')
+        $f = $this->validatedInvoiceFilters($request);
+
+        $query = $this->filteredInvoicesQuery($request, $f)
+            ->orderBy($f['sort_by'] ?? 'issue_date', $f['sort_dir'] ?? 'desc')
             ->orderBy('id', 'desc');
 
         $columns = [

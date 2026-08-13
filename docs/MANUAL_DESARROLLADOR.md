@@ -861,6 +861,56 @@ Las tres reglas que hacen que funcione:
      campo está exceptuado en `bootstrap/app.php`. Si añades otro campo donde el espacio
      final signifique algo, tiene que ir en esa misma lista o nunca llegará a la base.
 
+### Ejemplo: añadir un filtro por columna a un listado
+
+Recaudos, Facturación y Gastos siguen la misma estructura de tres piezas. Cópiala; no
+inventes una variante:
+
+```php
+// 1. Reglas — compartidas por el listado Y la exportación.
+private function validatedInvoiceFilters(Request $request): array
+{
+    return $request->validate([
+        'total_min' => 'nullable|numeric',
+        'sort_by'   => 'nullable|in:issue_date,due_date,number,total,balance_due',
+        'per_page'  => 'nullable|integer|min:1|max:200',
+    ]);
+}
+
+// 2. Consulta — SIN orden ni paginación, para que el CSV no pueda divergir
+//    de lo que el usuario tiene en pantalla.
+private function filteredInvoicesQuery(Request $request, array $f)
+{
+    // Texto: SIEMPRE con las macros, nunca `like` ni `ilike` a pelo (trampa 4).
+    if (!empty($f['number'])) $query->whereLike('number', $f['number']);
+
+    // Importes: `isset`, no `!empty` — 0 es un valor válido y `!empty(0)` es false.
+    if (isset($f['total_min'])) $query->where('total', '>=', $f['total_min']);
+
+    // El tenant sale del usuario autenticado, jamás de un query param.
+    ...
+}
+
+// 3. Listado — orden con desempate estable por `id`.
+$query->orderBy($f['sort_by'] ?? 'issue_date', $f['sort_dir'] ?? 'desc')
+      ->orderBy('id', 'desc')
+      ->paginate($f['per_page'] ?? 20);
+```
+
+Cuatro reglas que no son opcionales:
+
+- **`sort_by` va en lista blanca (`in:`)**: entra directo en el `ORDER BY`. Sin la lista, el
+  parámetro es una inyección.
+- **El desempate por `id`** hace falta en cualquier columna que repita valores (`issue_date`
+  es una fecha sin hora y toda la facturación mensual comparte día): sin él, dos páginas
+  repiten u omiten filas.
+- **El `summary` se calcula sobre la MISMA consulta filtrada** (`clone $query`), no sobre la
+  página ni en un endpoint aparte: si no, la cifra y la lista pueden responder a filtros
+  distintos sin que nada lo delate.
+- **El frontend no manda los vacíos** y devuelve a la página 1 en cada cambio de filtro; los
+  campos de texto van con `debounce` de 400 ms y descartan respuestas viejas con un
+  `requestId`, o al teclear rápido la primera en llegar pinta resultados obsoletos.
+
 ---
 
 ## 11. Trampas conocidas
