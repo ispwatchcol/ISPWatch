@@ -1114,6 +1114,13 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 | **Generar script VPN** | Genera el texto para configurar el túnel del equipo |
 | **Verificar VPN** | Comprueba que el túnel está arriba |
 
+> **Si "Fijar interfaz WAN" no logra leer las interfaces**, la ventana te explica cuál de los dos
+> saltos falló (el sistema al equipo central, o el equipo central al router) y **siempre te deja
+> escribir el nombre a mano** — `ether1`, `sfp1`, etc. También hay un botón **Reintentar lectura**:
+> vale la pena usarlo si el router acaba de reconectar, porque el fallo suele ser pasajero. Un
+> mensaje de *tiempo de espera agotado* significa que el router no alcanzó a contestar; **no**
+> significa que la contraseña esté mal.
+
 > ⚠️ **Antes de usar el corte automático: verifica la VPN y aplica las reglas de bloqueo.**
 > Si el túnel está caído o las reglas no están, el sistema marca al cliente como cortado pero
 > el cliente sigue navegando. **Aplicar reglas de bloqueo** sirve también cuando las reglas ya

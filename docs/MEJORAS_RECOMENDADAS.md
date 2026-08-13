@@ -982,6 +982,31 @@ hizo aquí porque tocar la confianza de proxies afecta a **toda** la aplicación
 contra producción. Mientras tanto está documentado en `ARQUITECTURA.md` § 14 y en el manual
 no se promete más de lo que la allowlist da.
 
+### 📋 P-21 · El resto de los managers siguen con la ventana corta para el `ssh-exec` anidado
+
+**Detectado:** 2026-08-13, al arreglar la lectura de interfaces WAN (`BITACORA_TECNICA.md` § 27).
+
+La causa raíz de aquel fallo —15 s de espera para un comando que obliga al CORE a abrir un SSH
+**anidado** contra un RouterBOARD por el overlay— no es exclusiva de `InterfaceReader`. Es el
+mismo `$this->timeout` por defecto que usan `SuspensionManager`, `QueueManager`,
+`PppSecretManager`, `PppProfileManager`, `PcqManager`, `HotspotManager`, `DhcpLeaseManager`,
+`IpMacBindingManager` y `CustomerDeprovisionManager` cuando llaman a `executeSsh()` sin segundo
+argumento.
+
+**Lo que ya está cubierto:** desde este cambio, una salida truncada por tiempo deja de pasar por
+éxito — `executeSsh()` devuelve `success: false` con `timed_out: true`. Ninguno de esos managers
+puede volver a dar por aplicado un cambio que nunca se escribió por esta vía.
+
+**Lo que falta:** darles la ventana adecuada. Hoy, contra un router lento, esas operaciones
+fallan **correctamente pero de más**: el corte o el alta se reporta fallido cuando habría
+funcionado con unos segundos más. No se hizo aquí porque varias de ellas corren en lote
+(aprovisionamiento masivo, `billing:auto-cut`) y subir la espera por comando multiplica el
+tiempo total del lote — hay que decidir el presupuesto por lote, no solo por comando, y eso
+merece su propio cambio medido contra producción.
+
+**Mientras tanto:** `MIKROTIK_CORE_SSH_TIMEOUT` permite subir el valor por defecto de toda la
+flota sin tocar código, a costa de alargar los lotes.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -1031,6 +1056,9 @@ no se promete más de lo que la allowlist da.
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
 | **P-18** | Las plantillas guardadas antes del 2026-08-06 perdieron sus reglas `body`/`html` | El sanitizer las descartaba en silencio y sólo se guarda el HTML ya saneado: el original no existe | 🟡 Media | 📋 Pendiente (hay que repegar el HTML; sin migración posible) |
+| **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | 📋 Pendiente |
+| **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
+| **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 
 ---
 

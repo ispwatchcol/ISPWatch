@@ -170,8 +170,14 @@ class MikroTikApiProtocol
      * wrong credentials (router sent !trap) from Login Protection blocking
      * (router closed the TCP connection before answering).
      *
+     * A read TIMEOUT is reported separately from both of those ('timeout'): the
+     * socket is alive and nothing came back, which means the bytes never reached
+     * a RouterOS API listener at all (dead forwarded channel, port answered by
+     * something that isn't the API). Folding it into "wrong credentials" — as
+     * this used to — sent operators to check passwords that were perfectly fine.
+     *
      * @param resource $socket
-     * @return array{success: bool, reason: 'ok'|'trap'|'socket_closed'|'no_response', message: string}
+     * @return array{success: bool, reason: 'ok'|'trap'|'socket_closed'|'timeout'|'no_response', message: string}
      */
     public function loginDetailed($socket, string $user, string $pass): array
     {
@@ -191,6 +197,10 @@ class MikroTikApiProtocol
                 if ($this->isSocketClosed($socket)) {
                     Log::error('[MikroTikApiProtocol] loginDetailed: socket closed before reply', ['user' => $user]);
                     return ['success' => false, 'reason' => 'socket_closed', 'message' => 'socket_closed'];
+                }
+                if (!$sawDone && !$sawTrap && $challenge === null && $this->isSocketTimedOut($socket)) {
+                    Log::error('[MikroTikApiProtocol] loginDetailed: read timeout, no reply at all', ['user' => $user]);
+                    return ['success' => false, 'reason' => 'timeout', 'message' => 'read_timeout'];
                 }
                 break;
             }
@@ -250,6 +260,21 @@ class MikroTikApiProtocol
         }
         $meta = @stream_get_meta_data($socket);
         return !empty($meta['eof']) || feof($socket);
+    }
+
+    /**
+     * True when the last read hit the stream timeout instead of returning data.
+     * readWord() collapses "0-length word" (a legitimate sentence terminator)
+     * and "nothing arrived" into the same empty string, so this is the only way
+     * to tell silence apart from an actual end-of-sentence.
+     */
+    private function isSocketTimedOut($socket): bool
+    {
+        if (!is_resource($socket)) {
+            return false;
+        }
+        $meta = @stream_get_meta_data($socket);
+        return !empty($meta['timed_out']);
     }
 
     /**

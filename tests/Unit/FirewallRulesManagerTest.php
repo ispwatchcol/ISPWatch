@@ -49,7 +49,7 @@ class FirewallRulesManagerTest extends TestCase
                 return false;
             }
 
-            public function executeSsh(string $command): array
+            public function executeSsh(string $command, ?int $timeoutSeconds = null): array
             {
                 $this->commands[] = $command;
 
@@ -92,7 +92,7 @@ class FirewallRulesManagerTest extends TestCase
                 return false;
             }
 
-            public function executeSsh(string $command): array
+            public function executeSsh(string $command, ?int $timeoutSeconds = null): array
             {
                 $this->commands[] = $command;
 
