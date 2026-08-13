@@ -286,6 +286,22 @@ permiso. Cubierto por 7 tests.
 suite. Es lo único que puede detectar el booleano comparado con cadena, el `LIKE` sensible a
 mayúsculas y los índices parciales.
 
+**Dos divergencias más, medidas el 2026-08-13** (§ 28 de la bitácora), que conviene tener
+presentes al escribir pruebas — ninguna se va a "arreglar", son propiedades del motor:
+
+1. **SQLite pierde el CHECK de un `enum` si la tabla pasa por un `->change()`.** Laravel
+   implementa `change()` en SQLite reconstruyendo la tabla, y el CHECK inline no sobrevive a la
+   reconstrucción. En PostgreSQL sí sobrevive. Efecto práctico: **un valor de enum inventado pasa
+   en local y sólo revienta en el CI real** — fue el caso de `customer_installations.status`, donde
+   un test insertaba `'pending'` contra un vocabulario que es `'pendiente' | 'completada' |
+   'cancelada'`. Al escribir una prueba, tomar el valor del enum de la migración, no de memoria.
+
+2. **Un `try/catch` no protege una transacción de PostgreSQL.** Una sentencia fallida deja la
+   transacción abortada y todo lo posterior revienta con `25P02`, aunque la excepción se haya
+   atrapado; sólo un `ROLLBACK TO SAVEPOINT` la recupera. Toda escritura accesoria que no deba
+   tumbar la operación principal (bitácora, métricas, notificaciones) tiene que ir envuelta en
+   `transaction()` para que emita su propio SAVEPOINT. En sqlite la diferencia es invisible.
+
 ### ✅ M-3 · `LIKE` sensible a mayúsculas sin corregir en todas partes
 
 **Aplicado.** `SearchMacrosServiceProvider` añade las macros `whereLike` y `orWhereLike`,

@@ -133,19 +133,30 @@ class MoneyAuditObserver
      * revienta con «current transaction is aborted». Es decir, sin este try el
      * observer puede tumbar en cadena todo lo que venga detrás. SQLite no tiene
      * ese estado, así que un fallo así pasaría inadvertido en local.
+     *
+     * Y atrapar la excepción NO basta: en PostgreSQL la transacción queda
+     * abortada igual, porque sólo un ROLLBACK la recupera. Por eso la escritura
+     * va dentro de `transaction()`, que emite un SAVEPOINT cuando ya hay una
+     * transacción abierta y hace ROLLBACK TO SAVEPOINT si falla: el daño queda
+     * acotado a la bitácora y la transacción de negocio sigue utilizable. Sin
+     * esto el `try` da falsa confianza — el pago se pierde de todos modos.
      */
     protected function write(Model $model, string $verb, ?array $old, ?array $new, string $description): void
     {
+        $entry = [
+            'tenant_id'   => $this->tenantIdFor($model),
+            'action'      => $this->actionName($model) . '.' . $verb,
+            'model_type'  => get_class($model),
+            'model_id'    => $model->getKey(),
+            'old_values'  => $old,
+            'new_values'  => $new,
+            'description' => $description,
+        ];
+
         try {
-            AuditLog::log([
-                'tenant_id'   => $this->tenantIdFor($model),
-                'action'      => $this->actionName($model) . '.' . $verb,
-                'model_type'  => get_class($model),
-                'model_id'    => $model->getKey(),
-                'old_values'  => $old,
-                'new_values'  => $new,
-                'description' => $description,
-            ]);
+            AuditLog::query()->getConnection()->transaction(
+                static fn () => AuditLog::log($entry)
+            );
         } catch (\Throwable $e) {
             Log::error('Audit: no se pudo registrar el cambio en la bitácora.', [
                 'model'     => get_class($model),

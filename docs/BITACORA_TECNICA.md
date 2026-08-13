@@ -8,6 +8,10 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Dos fallos que sólo el CI de PostgreSQL podía ver (2026-08-13, § 28):** un estado de
+  instalación inventado que sqlite dejaba pasar porque pierde el CHECK del enum al reconstruir la
+  tabla, y un `try` en la bitácora que daba falsa confianza: en PostgreSQL atrapar la excepción no
+  descongela la transacción, hace falta un SAVEPOINT.
 - **La lectura de interfaces WAN mentía sobre quién fallaba (2026-08-13, § 27):** un tiempo de
   espera que phpseclib no reporta como error hacía pasar media respuesta del CORE por una
   respuesta del router; de paso, un sondeo de túnel con falsos positivos, dos variantes de comando
@@ -64,6 +68,7 @@
 25. [API pública de solo lectura por llave — 2026-08-07](#25-api-pública-de-solo-lectura-por-llave--2026-08-07)
 26. [El saldo a favor movía plata sin dejar asiento — 2026-08-11](#26-el-saldo-a-favor-movía-plata-sin-dejar-asiento--2026-08-11)
 27. [El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13](#27-el-botón-de-wan-culpaba-al-router-de-un-silencio-nuestro--2026-08-13)
+28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
 
 ---
 
@@ -2593,3 +2598,81 @@ Si `CORE_SAN_ISIDRO` sigue sin leer sus interfaces después de esto, el mensaje 
 saltos falla y qué comprobar. Un router realmente inalcanzable seguirá siendo inalcanzable: lo que
 cambia es que ISPWatch ya no le atribuye al router palabras que nunca dijo, y que la modal siempre
 deja escribir la interfaz a mano.
+
+---
+
+## 28. Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13
+
+### 28.1 El síntoma: verde en local, rojo en el CI
+
+`php artisan test` en local: **672 pasadas, 0 fallos**, repetible. El mismo commit en CI:
+
+| Job | Resultado |
+|---|---|
+| PHPUnit (SQLite, rápido) | ✅ |
+| PHPUnit (PostgreSQL, motor real) | ❌ 6 fallos |
+
+Es exactamente el escenario para el que se creó el segundo job en la auditoría (M-2). Los seis
+fallos eran **dos defectos distintos**, ninguno visible en sqlite.
+
+### 28.2 Un estado inventado que sqlite no podía rechazar
+
+Los 5 fallos de `PartnerApiIsolationTest` eran todos el mismo `INSERT`, en el `setUp` compartido:
+
+```
+SQLSTATE[23514]: Check violation: new row for relation "customer_installations"
+violates check constraint "customer_installations_status_check"
+```
+
+`seedCustomer()` insertaba `status => 'pending'`. El vocabulario real de la columna es **español**:
+`enum('status', ['pendiente', 'completada', 'cancelada'])`, que es lo que usa todo
+`CustomerInstallationController`. El valor simplemente no existe.
+
+Lo interesante es **por qué sqlite lo aceptaba**, porque su gramática sí genera el CHECK
+(`varchar check ("status" in (...))`). Lo pierde después: la migración
+`link_installations_to_prospects` hace `customer_id` nullable, y en la rama sqlite eso se resuelve
+con `->change()`. Laravel implementa `change()` en SQLite **reconstruyendo la tabla entera**, y en
+esa reconstrucción regenera las columnas desde el tipo introspectado — el CHECK inline del enum no
+sobrevive. En PostgreSQL la misma migración sólo emite `ALTER COLUMN ... DROP NOT NULL`, así que
+ahí el CHECK sigue vivo.
+
+> Consecuencia general, no sólo de este test: **la base de pruebas local no valida los enums de
+> ninguna tabla que haya pasado por un `->change()`.** Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 28.3 Atrapar la excepción no basta: hace falta un SAVEPOINT
+
+El sexto fallo era el test que se escribió el 2026-08-12 justamente para blindar esto:
+
+```
+SQLSTATE[25P02]: In failed sql transaction: current transaction is aborted,
+commands ignored until end of transaction block
+SQL: select exists(select * from "payments" where "id" = 11 and "amount" = 60000)
+```
+
+El `try/catch` que se le puso al observer **detiene la propagación pero no descongela la
+transacción**. En PostgreSQL, cualquier sentencia que falla deja la transacción en estado abortado
+y toda consulta posterior revienta hasta que haya un `ROLLBACK`; sólo un `ROLLBACK TO SAVEPOINT`
+la recupera sin perder lo anterior. El test escribe el pago, la bitácora falla, el `catch` la
+silencia — y el `assertDatabaseHas` siguiente cae igual.
+
+**El fallo no era del test: el arreglo del día anterior estaba incompleto.** En producción la
+consecuencia es la que el propio commit decía querer evitar: si `AuditLog::log()` falla dentro de
+la transacción de registro de un pago, el pago se pierde de todos modos y el `try` sólo sirve para
+que nadie se entere.
+
+La escritura ahora va dentro de `transaction()`, que emite `SAVEPOINT` cuando ya hay una
+transacción abierta y hace `ROLLBACK TO SAVEPOINT` al fallar. El daño queda acotado a la bitácora.
+
+### 28.4 Qué se cambió
+
+| Archivo | Cambio |
+|---|---|
+| `MoneyAuditObserver::write()` | La escritura va envuelta en `transaction()` → SAVEPOINT; el `catch` sigue registrando en `Log::error` |
+| `PartnerApiIsolationTest::seedCustomer()` | `status` pasa de `'pending'` a `'pendiente'`, con nota de por qué sqlite no lo cazaba |
+
+### 28.5 La regla que deja
+
+Un `try/catch` alrededor de una escritura a base de datos **no es una red de seguridad en
+PostgreSQL** si ocurre dentro de una transacción. Si el objetivo es que un fallo accesorio (bitácora,
+métrica, notificación) no tumbe la operación principal, tiene que ir en su propio SAVEPOINT. En
+sqlite la diferencia es invisible, así que este tipo de error sólo lo caza el job de PostgreSQL.
