@@ -1799,6 +1799,104 @@ class BillingService
     }
 
     /**
+     * Audita el destino del dinero recibido, cliente por cliente. NO escribe nada.
+     *
+     * La invariante que comprueba es la más simple que tiene el módulo:
+     *
+     *     todo peso que entró está aplicado a una factura, o está en el saldo a favor
+     *
+     *     sum(payments.amount) == sum(payment_allocations.amount) + credit_balance
+     *
+     * Cuando la resta da positivo hay dinero recibido que no respalda ninguna
+     * factura y tampoco figura como saldo: entró por caja y el sistema no sabe
+     * decir qué pagó. Da igual qué lo provocó —borrar una factura pagada y no
+     * reaplicar el saldo, un ajuste manual del saldo a la baja, o un pago que
+     * nunca se asignó—: el síntoma es el mismo y es el que hay que ver.
+     *
+     * Se mide por cliente y no en total porque el total se compensa solo: a un
+     * cliente le sobra lo que a otro le falta y el descuadre desaparece.
+     *
+     * @return array<int,array<string,mixed>> Una fila por cliente descuadrado,
+     *                                        de mayor a menor importe.
+     */
+    public function auditOrphanPayments(?int $tenantId = null): array
+    {
+        $entrado = DB::table('payments')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->selectRaw('customer_id, count(*) as pagos, sum(amount) as entrado')
+            ->groupBy('customer_id')
+            ->get()
+            ->keyBy('customer_id');
+
+        if ($entrado->isEmpty()) {
+            return [];
+        }
+
+        $aplicado = DB::table('payment_allocations as pa')
+            ->join('payments as p', 'p.id', '=', 'pa.payment_id')
+            ->whereIn('p.customer_id', $entrado->keys())
+            ->selectRaw('p.customer_id, sum(pa.amount) as aplicado')
+            ->groupBy('p.customer_id')
+            ->pluck('aplicado', 'customer_id');
+
+        $perfiles = DB::table('customer_profile')
+            ->whereIn('user_id', $entrado->keys())
+            ->get(['user_id', 'name', 'last_name', 'credit_balance'])
+            ->keyBy('user_id');
+
+        $filas = [];
+
+        foreach ($entrado as $customerId => $fila) {
+            $perfil = $perfiles->get($customerId);
+
+            $recibido = (float) $fila->entrado;
+            $enFacturas = (float) ($aplicado[$customerId] ?? 0);
+            $enSaldo = (float) ($perfil->credit_balance ?? 0);
+            $suelto = round($recibido - $enFacturas - $enSaldo, 2);
+
+            // Redondeo: los importes son decimal(·,2) y un céntimo suelto es
+            // ruido de coma flotante, no un descuadre que valga una alerta.
+            if ($suelto < 0.01) {
+                continue;
+            }
+
+            $filas[] = [
+                'customer_id' => (int) $customerId,
+                'cliente'     => trim(($perfil->name ?? '') . ' ' . ($perfil->last_name ?? '')) ?: "cliente #{$customerId}",
+                'pagos'       => (int) $fila->pagos,
+                'recibido'    => $recibido,
+                'en_facturas' => $enFacturas,
+                'en_saldo'    => $enSaldo,
+                'suelto'      => $suelto,
+            ];
+        }
+
+        usort($filas, fn ($a, $b) => $b['suelto'] <=> $a['suelto']);
+
+        return $filas;
+    }
+
+    /**
+     * Aplica el saldo a favor del cliente a una factura creada a mano.
+     *
+     * La generación mensual siempre terminaba con applyCreditToInvoice(); el
+     * alta manual, no. La diferencia se notaba justo en el peor momento: al
+     * borrar una factura ya pagada y crear otra en su lugar, el dinero volvía
+     * como saldo a favor y la factura nueva nacía debiendo el total, con lo que
+     * el cliente aparecía debiendo algo que ya había pagado.
+     */
+    public function applyCreditToManualInvoice(Invoice $invoice): Invoice
+    {
+        $profile = CustomerProfile::where('user_id', $invoice->customer_id)->first();
+
+        if ($profile) {
+            $this->applyCreditToInvoice($invoice, $profile);
+        }
+
+        return $invoice->refresh();
+    }
+
+    /**
      * Update invoice status based on balance_due.
      *
      * @param Invoice $invoice
