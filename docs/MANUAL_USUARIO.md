@@ -1114,6 +1114,12 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 | **Generar script VPN** | Genera el texto para configurar el túnel del equipo |
 | **Verificar VPN** | Comprueba que el túnel está arriba |
 
+> **"La VPN dice que está conectada y aun así nada funciona en ese router."** Suele ser un
+> **túnel duplicado**: dos equipos (o el mismo equipo con una configuración vieja que quedó puesta)
+> marcando la VPN desde la **misma conexión a internet**. Se tumban entre sí cada pocos minutos y
+> el sistema pierde el control del router aunque lo veas "activo". Ahora **Verificar VPN** te lo
+> avisa. La solución es dejar **un solo túnel** por cada conexión a internet.
+
 > **Si "Fijar interfaz WAN" no logra leer las interfaces**, la ventana te explica cuál de los dos
 > saltos falló (el sistema al equipo central, o el equipo central al router) y **siempre te deja
 > escribir el nombre a mano** — `ether1`, `sfp1`, etc. También hay un botón **Reintentar lectura**:
