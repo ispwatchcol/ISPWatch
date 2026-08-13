@@ -142,6 +142,10 @@ planes de servicio → routers → usuarios base → clientes de ejemplo.
 | `MIKROTIK_CORE_API_HOST` / `_PORT` / `_USER` / `_PASS` | Acceso API (8728) |
 | `MIKROTIK_CORE_VPN_IP` | IP del CORE en el overlay |
 | `MIKROTIK_USE_CORE_TUNNEL` | `true` en producción |
+| `MIKROTIK_CORE_SSH_CONNECT_TIMEOUT` | Segundos para el *handshake* servidor→CORE (por defecto 8). Falla rápido si el CORE no responde |
+| `MIKROTIK_CORE_SSH_TIMEOUT` | Segundos de espera por la **salida** de un comando en el CORE (por defecto 15) |
+| `MIKROTIK_CORE_SSH_EXEC_TIMEOUT` | Igual, pero para los comandos que hacen al CORE abrir un SSH **anidado** al cliente (lectura de interfaces WAN). Por defecto 25, acotado a 10-50 para no rebasar el límite del *gateway* |
+| `MIKROTIK_TUNNEL_READY_TIMEOUT` | Segundos que se espera a que el `ssh -L` quede listo (por defecto 6) |
 | `MIKROTIK_VPN_PASSWORD`, `MIKROTIK_IPSEC_SECRET` | Secretos de los scripts VPN generados |
 | `PORTAL_IP` | IP del portal de pago. **La regla de firewall la deja accesible al cliente cortado** |
 
@@ -924,6 +928,9 @@ Las tres reglas que hacen que funcione:
 | **Pestaña ausente para un admin** | Permiso nuevo sin backfill | Migración de backfill, o marcar en `/roles` y re-loguear |
 | **`<connection failed> <ip>:22`** | IP obsoleta o puerto SSH distinto | `RouterEndpointResolver` + `router.puerto_ssh`. El CORE necesita `forwarding-enabled=both`. Comprueba que el puerto llegue **hasta el `ssh-exec`**: si un método intermedio no lo recibe en su firma, el `port=` se pierde y todo cae al 22 |
 | **Aprovisionamiento con éxito pero sin efecto** | `ssh-exec` con `exit-code ≠ 0` | Revisar centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END` en el log |
+| **"Respuesta del router: `ISP_BEGIN`"** al leer la WAN | No es una respuesta del router: es media respuesta del CORE. El `ssh-exec` seguía esperando al cliente cuando venció el tiempo de espera, y `phpseclib` devuelve lo poco que llegó sin lanzar excepción | Ya se reporta como *timeout* explícito. Diagnostica con `php artisan router:diagnose-wan <id>`; si el enlace es lento pero sano, sube `MIKROTIK_CORE_SSH_EXEC_TIMEOUT` (segundos, por defecto 25) |
+| **"Credenciales incorrectas en el router cliente: `no_done`"** | Tampoco es la contraseña: el router no respondió **nada** al login API. El socket abrió pero al otro lado no había una API MikroTik escuchando | Verifica en el cliente `/ip service print` (servicio `api` habilitado y su *available from*). Hoy este caso se reporta como tiempo de espera agotado, no como credenciales |
+| **La modal de WAN falla y no deja escribir la interfaz** | Resuelto: el bloque de error ya no oculta la entrada manual | Escribe el nombre a mano, o pulsa *Reintentar lectura* |
 | **Cliente cortado sigue navegando** | Faltan reglas en el router o falta flush de conntrack | *Aplicar reglas de bloqueo* + `billing:reconcile-suspensions` |
 | **Toda la suite Feature falla** | SQL exclusivo de PostgreSQL en una migración | Protégelo por driver |
 | **Error CORS/CSRF con Vite** | Host de Vite ausente | Añádelo a `SANCTUM_STATEFUL_DOMAINS` y `CORS_ALLOWED_ORIGINS` |

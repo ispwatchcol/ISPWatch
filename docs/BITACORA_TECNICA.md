@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-11 · Rama: `feat/money-audit-trail`
+**Última actualización:** 2026-08-13 · Rama: `feat/money-audit-trail`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **La lectura de interfaces WAN mentía sobre quién fallaba (2026-08-13, § 27):** un tiempo de
+  espera que phpseclib no reporta como error hacía pasar media respuesta del CORE por una
+  respuesta del router; de paso, un sondeo de túnel con falsos positivos, dos variantes de comando
+  inalcanzables y una modal que al fallar no dejaba escribir la interfaz a mano.
 - **Bitácora de flujo de caja y libro de saldo a favor (2026-08-11, § 26):** el saldo a favor deja
   de ser un escalar suelto y pasa a tener libro de movimientos; se arregla un bug que borraba
   dinero al anular pagos; y todo lo que mueve plata queda registrado con quién, cuándo y desde
@@ -57,6 +61,9 @@
 22. [Las tarjetas de Inventario contaban dispositivos, no catálogos — 2026-08-06](#22-las-tarjetas-de-inventario-contaban-dispositivos-no-catálogos--2026-08-06)
 23. [Custodia de inventario, consumibles y kardex — 2026-08-06](#23-custodia-de-inventario-consumibles-y-kardex--2026-08-06)
 24. [El Panel de Finanzas era el acumulado histórico y no sabía de gastos — 2026-08-06](#24-el-panel-de-finanzas-era-el-acumulado-histórico-y-no-sabía-de-gastos--2026-08-06)
+25. [API pública de solo lectura por llave — 2026-08-07](#25-api-pública-de-solo-lectura-por-llave--2026-08-07)
+26. [El saldo a favor movía plata sin dejar asiento — 2026-08-11](#26-el-saldo-a-favor-movía-plata-sin-dejar-asiento--2026-08-11)
+27. [El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13](#27-el-botón-de-wan-culpaba-al-router-de-un-silencio-nuestro--2026-08-13)
 
 ---
 
@@ -2502,3 +2509,87 @@ Las dos reglas quedaron escritas en `MANUAL_DESARROLLADOR.md`.
 **Pendiente:** desplegar el código. Mientras prod corra sin él, cada pago con excedente moverá
 `credit_balance` sin escribir en el libro; tras el despliegue hay que correr
 `audit:backfill-money --force` para reconstruir el intervalo.
+
+---
+
+## 27. El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13
+
+### 27.1 Lo que veía el operador
+
+Modal *Configurar Interfaz WAN* sobre `CORE_SAN_ISIDRO` (172.16.17.248), dos métodos y dos
+diagnósticos, **los dos falsos**:
+
+```
+1. API directa (puerto 8728): Credenciales incorrectas en el router cliente: no_done
+2. SSH vía CORE: El router respondió pero no se pudieron leer las interfaces.
+   Respuesta del router: ISP_BEGIN
+```
+
+Ni las credenciales estaban mal, ni el router había respondido `ISP_BEGIN`.
+
+### 27.2 La causa raíz: phpseclib no lanza excepción al vencer el tiempo
+
+`SSH2::exec()` **no** lanza excepción cuando se agota el tiempo de operación. `get_channel_packet()`
+captura la `TimeoutException` y devuelve `true`, que `exec()` interpreta como "canal cerrado":
+retorna **los bytes que alcanzaron a llegar** y marca `isTimeout()`. Nadie miraba esa marca.
+
+El guion que corre en el CORE empieza con `:put "ISP_BEGIN"` y luego entra al `/system ssh-exec`
+contra el cliente. Ese `ssh-exec` tarda: es un *handshake* SSH completo contra un RouterBOARD
+pequeño al otro lado del overlay. A los 15 s (el `$this->timeout` fijo del connection manager)
+phpseclib se rendía y devolvía exactamente `"ISP_BEGIN\n"` con `success: true`. Aguas abajo:
+
+- `parseSshExecEnvelope()` veía `ISP_BEGIN` sin `ISP_END` y lo trataba como "salida legado sin
+  centinelas", devolviendo el centinela **como si fuera la respuesta del cliente**;
+- el parser no encontraba interfaces en él y el mensaje resultante le atribuía al router una frase
+  que había escrito el CORE.
+
+**15 s no es un margen apretado: es insuficiente.** Un `ssh-exec` sano por el overlay contra un
+equipo modesto pasa de 15 s con frecuencia. Es decir, el tiempo de espera no solo escondía la
+causa — muy probablemente *era* la causa en los routers lentos.
+
+### 27.3 Los otros tres defectos que salieron con el hilo
+
+1. **`no_done` reportado como credenciales.** `loginDetailed()` devolvía `no_response` cuando el
+   router no contestaba **nada** al login API, e `InterfaceReader` lo imprimía como *"Credenciales
+   incorrectas en el router cliente"*. Un socket mudo no es un `!trap`: no hubo rechazo, hubo
+   silencio. `readWord()` no distingue "palabra de longitud 0" (fin de sentencia legítimo) de "no
+   llegó nada", así que ahora se consulta `stream_get_meta_data()['timed_out']` y existe el motivo
+   `timeout`.
+
+2. **El sondeo TCP daba falsos positivos.** `tryDirectClientConnection()` hacía `fsockopen()` al
+   extremo local del `ssh -L`. Ese proceso acepta la conexión local **antes** de saber si el CORE
+   puede abrir el canal remoto; si no puede, cierra el socket después. El sondeo decía
+   "alcanzable" y el fallo reaparecía disfrazado de credenciales en el paso siguiente. Ahora se
+   espera 400 ms: *timeout* de lectura = bien (la API MikroTik nunca habla primero), EOF inmediato
+   = el canal se cayó. El stderr de ssh se traduce a causa concreta —`administratively prohibited`
+   es el CORE sin `forwarding-enabled=both`, no el cliente—.
+
+3. **Las variantes 2 y 3 eran código muerto.** El bucle `return`aba dentro de la primera iteración
+   ante una salida no parseable, así que `output_field_envelope` y `legacy_autoprint` no llegaban a
+   ejecutarse nunca. Existían justo para cubrir versiones de RouterOS que responden con otra forma.
+
+4. **La modal era un callejón sin salida.** `v-if` / `v-else-if` encadenados: al mostrarse el error
+   desaparecía la entrada manual. El propio mensaje decía "ingresa el nombre de la interfaz en el
+   campo de texto" y no había campo de texto, con *Guardar* deshabilitado.
+
+### 27.4 Qué se cambió
+
+| Archivo | Cambio |
+|---|---|
+| `MikroTikConnectionManager` | `executeSsh($cmd, $timeoutSeconds = null)`; una salida truncada por tiempo vuelve como `success: false` + `timed_out: true` en vez de éxito silencioso. `$this->timeout` configurable (`MIKROTIK_CORE_SSH_TIMEOUT`) |
+| `MikroTikConnectionManager` | Sondeo del túnel con verificación de EOF + `lastProbeError()` traducido del stderr de ssh |
+| `MikroTikApiProtocol` | `loginDetailed()` distingue `timeout` de credenciales rechazadas |
+| `InterfaceReader` | Ventana propia (`MIKROTIK_CORE_SSH_EXEC_TIMEOUT`, 25 s, acotada 10-50); estado `truncated` del sobre; mensaje de *timeout* con los tres pasos de verificación; el bucle recorre las tres variantes |
+| `Routers.vue` | El error deja de ocultar la entrada manual; botón *Reintentar lectura* |
+| `DiagnoseRouterWan` | Usa la misma ventana que producción y reporta el *timeout* aparte |
+
+**Una variante que expira corta el intento entero**: las otras dos se colgarían igual contra el
+mismo cliente mudo y tres esperas seguidas rebasarían el límite del *gateway* (~60 s). Solo se
+reintenta con otra sintaxis cuando el CORE **sí** respondió algo.
+
+### 27.5 Lo que este arreglo no puede arreglar
+
+Si `CORE_SAN_ISIDRO` sigue sin leer sus interfaces después de esto, el mensaje dirá cuál de los dos
+saltos falla y qué comprobar. Un router realmente inalcanzable seguirá siendo inalcanzable: lo que
+cambia es que ISPWatch ya no le atribuye al router palabras que nunca dijo, y que la modal siempre
+deja escribir la interfaz a mano.

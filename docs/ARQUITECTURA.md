@@ -818,6 +818,39 @@ sequenceDiagram
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`
 para poder distinguir un fallo real de una salida vacía.
 
+**El tiempo de espera es parte del contrato, no un detalle.** El primer salto
+(APP→CORE) es rápido; el segundo (CORE→RB) incluye un *handshake* SSH completo
+contra un equipo pequeño al otro lado del overlay y tarda con frecuencia más de
+15 s antes de escribir el primer byte. Y `phpseclib` **no lanza excepción** al
+agotarse el tiempo: devuelve los bytes que alcanzaron a llegar y marca
+`isTimeout()`. Sin mirar esa marca, media respuesta —el `ISP_BEGIN` de un script
+todavía bloqueado dentro del `ssh-exec`— llegaba como `success: true` y el
+llamador la interpretaba como "el router contestó algo raro" cuando el router no
+había contestado nada.
+
+Por eso:
+
+- `executeSsh()` acepta un tiempo de espera por comando y devuelve
+  `timed_out: true` con `success: false` cuando la salida vino cortada.
+- `InterfaceReader` pide `MIKROTIK_CORE_SSH_EXEC_TIMEOUT` segundos (25 por
+  defecto, acotado a 10-50 para no rebasar el límite del *gateway*) y **una
+  variante que expira termina el intento**: las otras dos se colgarían igual
+  contra el mismo cliente mudo y agotarían el presupuesto de la petición.
+- `ISP_BEGIN` sin `ISP_END` es su propio estado (`truncated`), no una salida
+  legado sin centinelas: el script sí arrancó, sólo que dejamos de escuchar.
+
+**El túnel local miente si se le pregunta mal.** Para hablar API con un cliente,
+`SshTunnelManager` levanta un `ssh -L`. Ese proceso **acepta la conexión local de
+inmediato** y sólo después pide al CORE que abra el canal remoto; si el CORE no
+puede, ssh cierra el socket local. Un `fsockopen()` a secas, por tanto, daba
+"alcanzable" aunque al otro lado no hubiera nadie —y el fallo reaparecía más
+tarde disfrazado de credenciales rechazadas—. `tryDirectClientConnection()`
+espera 400 ms tras conectar: un *timeout* de lectura es la señal **buena** (la
+API MikroTik nunca habla primero) y un EOF inmediato significa que el canal se
+cayó. El motivo, traducido del stderr de ssh, queda en `lastProbeError()`
+—`administratively prohibited` es el CORE sin `/ip ssh set forwarding-enabled=both`,
+no un problema del cliente—.
+
 ### Métodos de control (excluyentes)
 
 Un router usa **uno y sólo uno** de estos modos, resuelto por

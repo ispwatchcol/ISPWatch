@@ -82,6 +82,16 @@ class SshTunnel
         return $this->clientIp;
     }
 
+    /**
+     * True when no ssh subprocess exists because tunneling is disabled and we
+     * talk to the client directly. Callers that explain failures need this:
+     * blaming the CORE for a hop that never happened is its own wrong diagnosis.
+     */
+    public function isPassthrough(): bool
+    {
+        return $this->passthrough;
+    }
+
     public function clientPort(): int
     {
         return $this->clientPort;
