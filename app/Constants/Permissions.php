@@ -36,6 +36,7 @@ class Permissions
     const MANAGE_API_KEYS = 'manage_api_keys';
     const VIEW_SETTINGS = 'view_settings';
     const EXECUTE_MASS_ACTIONS = 'execute_mass_actions';
+    const VIEW_AUDIT_LOG = 'view_audit_log';
 
     // Facturas permissions
     const VIEW_DASHBOARD_STATS = 'view_dashboard_stats';
@@ -110,6 +111,7 @@ class Permissions
                 self::MANAGE_API_KEYS => 'Gestionar Llaves de API (integraciones externas)',
                 self::VIEW_SETTINGS => 'Ver Ajustes del Sistema',
                 self::EXECUTE_MASS_ACTIONS => 'Ejecutar Acciones Masivas',
+                self::VIEW_AUDIT_LOG => 'Ver Bitácora de Auditoría (cambios de precio, planes, pagos y saldos)',
             ],
         ];
     }

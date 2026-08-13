@@ -944,3 +944,83 @@ grep "Auto-cut:"  storage/logs/laravel.log
 
 Los servicios registran con prefijos consistentes (`Billing:`, `Auto-cut:`) y los comandos
 MikroTik incluyen `variant`, `envelope_state` y `exit_code` para diagnóstico exacto.
+
+---
+
+## Auditar un cambio nuevo
+
+Todo lo que mueve plata debe quedar registrado. Hay dos mecanismos y **no son intercambiables**.
+
+### Un campo nuevo que mueve plata
+
+Agrégalo a la lista blanca de `MoneyAuditObserver::WATCHED`, con su etiqueta en español:
+
+```php
+Plan::class => [
+    'cost_product' => 'precio',
+    'mi_campo'     => 'etiqueta legible',
+],
+```
+
+Eso basta: el observer atrapa el cambio venga de donde venga —panel, API, carga masiva o
+consola—. **No instrumentes el controlador.** Es la lección del episodio del precio mal cargado:
+un cambio equivalente entró por `CustomersUpdateImport`, que no pasa por ningún controlador de
+planes, y por eso quedó sin registro.
+
+Si el valor no se lee bien en crudo (un `service_id` no le dice nada a nadie), agrégale
+traducción en `MoneyAuditObserver::readable()`.
+
+**Un modelo nuevo** se registra además en `AppServiceProvider::registerMoneyAudit()`.
+
+**Cuidado con el volumen.** La lista blanca es corta a propósito. `Invoice::balance_due` queda
+fuera porque cambia en cada pago y ya deja asiento en `payment_allocations`; `credit_balance`
+queda fuera porque lo cubre el libro con más detalle. Auditarlo todo hace la bitácora ilegible.
+
+### Tocar el saldo a favor
+
+**Nunca escribas `customer_profile.credit_balance` directamente.** Es una caché; la verdad son los
+movimientos de `customer_credits`, y escribir el escalar a pelo rompe el invariante
+`SUM(amount) == credit_balance`.
+
+Usa `CustomerCredit::earn()`, `applyToInvoice()`, `adjust()` o `reverseForPayment()` según el caso.
+Todos sincronizan la caché por su cuenta. Si después necesitas el saldo actualizado en un modelo
+que ya tenías cargado, llama `$profile->refresh()`: el libro trabaja sobre su propia instancia y la
+tuya queda vieja.
+
+Cuando escribas un test que toque saldo, afirma el invariante. Es una línea y es lo que detecta el
+tipo de error que hace desaparecer dinero:
+
+```php
+$this->assertEqualsWithDelta(
+    (float) CustomerProfile::where('user_id', $id)->value('credit_balance'),
+    CustomerCredit::ledgerBalanceFor($id),
+    0.01
+);
+```
+
+### Marcar el origen de un proceso
+
+Un proceso que escribe en nombre de otro —una importación, un comando— debe marcar sus escrituras
+para que la bitácora las distinga:
+
+```php
+AuditContext::as(AuditContext::SOURCE_IMPORT, fn () => Excel::import($import, $file));
+```
+
+Sin eso, una carga masiva lanzada desde el panel queda registrada como `web` y se vuelve
+indistinguible de un cambio hecho a mano — que es exactamente la ambigüedad que costó la auditoría
+manual del episodio 56.000 → 60.000.
+
+### Dos reglas que la bitácora aprendió a golpes
+
+**La bitácora nunca tumba la operación que audita.** `MoneyAuditObserver::write()` traga cualquier
+excepción y la manda a `Log::error`. Perder la trazabilidad de un pago es malo; perder el pago es
+peor. En PostgreSQL además no es solo el registro: una excepción dentro de la transacción la deja
+abortada y **todo lo que venga detrás revienta en cadena** con «current transaction is aborted».
+SQLite no tiene ese estado, así que un observer frágil pasa los tests en local y tumba producción.
+
+**No todo lo que se autentica es un `User`.** La API pública autentica un `ApiClient`, cuyo id vive
+en otra tabla. `audit_logs.user_id` y `customer_credits.created_by` tienen clave foránea contra
+`users`, así que `AuditContext::actorId()` comprueba el tipo antes de estampar nada. **SQLite no
+aplica claves foráneas por defecto**: este fallo es invisible en la suite rápida y solo aparece en
+el job de PostgreSQL. Si tocas algo que guarde un id de actor, pásalo por ahí.

@@ -1050,6 +1050,40 @@ Todo el bloque exige **`execute_mass_actions`**.
 router y vuelve a aplicarlo. Es el mismo motor que ejecuta `billing:reconcile-suspensions`
 cada hora.
 
+### Bitácora de auditoría
+
+Solo lectura: una bitácora que se puede editar o borrar desde la aplicación no sirve como
+bitácora. La retención se maneja por fuera.
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `GET` | `/api/audit-logs` | `view_audit_log` | Cambios que mueven plata, más recientes primero |
+| `GET` | `/api/audit-logs/filters` | `view_audit_log` | Catálogo para poblar los filtros |
+| `GET` | `/api/billing/customers/{id}/credit-movements` | `view_audit_log` ∪ `view_billing` ∪ `register_payments` | Extracto del saldo a favor |
+
+**Filtros de `/api/audit-logs`** (todos opcionales, combinables):
+`model_type` (nombre corto: `Plan`, `CustomerProfile`, `Payment`, `Invoice`, `Billing`),
+`model_id`, `action` (`plan.updated`, `payment.created`…), `source`
+(`web`/`api`/`console`/`import`/`scheduler`), `user_id`, `from`, `to`, `search`, `per_page`.
+
+Siempre acotado al tenant del usuario autenticado. Los registros anteriores a la columna
+`tenant_id` no se muestran: es preferible ocultarlos a arriesgar una fuga entre sedes.
+
+**Respuesta de `credit-movements`:**
+
+```json
+{
+  "movements":      { "data": [ /* paginado */ ] },
+  "ledger_balance": 34000,
+  "cached_balance": 34000,
+  "discrepancy":    0
+}
+```
+
+`discrepancy` distinto de cero significa que el libro de movimientos y el escalar
+`customer_profile.credit_balance` divergieron — es decir, hay un bug. El extracto lo expone en
+pantalla a propósito, para que se detecte ahí y no en el mostrador.
+
 ---
 
 ## 14. Gastos
@@ -1489,6 +1523,7 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `manage_roles` | `POST/PUT/DELETE /api/roles`, `/api/roles/permissions` |
 | `manage_tenant` | `/api/tenants/{id}`, `/api/tenant/config`, `/api/tenant/logo` |
 | `manage_document_templates` | `/api/document-templates*` |
+| `view_audit_log` | `/api/audit-logs*`; extracto de saldo por OR con `view_billing` / `register_payments` |
 | `view_settings` | `/api/settings/cache/clear`, escritura del centro de ayuda (+ `is_superadmin`) |
 | `view_expenses` / `add_expense` / `edit_expense` | Lectura / alta / edición de gastos y categorías |
 | *(sólo `staff_profile`)* | `/api/support/statistics`, mensajes, cambio de estado y cargos de ticket |

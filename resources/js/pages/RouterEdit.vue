@@ -83,7 +83,7 @@
               <option
                 v-for="v in scriptVersions"
                 :key="v.id"
-                :value="v.id"
+                :value="v.version"
               >
                 {{ v.version }}
               </option>

@@ -886,6 +886,24 @@ No confundir con el **saldo pendiente arrastrado** (8.2.1): el saldo a favor es 
 el cliente pagó de más y se le descuenta; el arrastrado es plata que le falta por pagar y
 se le sumará.
 
+#### 8.5.1 «La factura dice $60.000 pero me cobran $36.000»
+
+Es la pregunta más común en el mostrador y casi siempre tiene la misma respuesta: el cliente
+tiene saldo a favor y el sistema se lo está descontando de esa factura.
+
+Pasa sobre todo con clientes que **pagan siempre la misma cifra redonda** aunque su plan valga
+otra cosa. Alguien con plan de $60.000 que paga $70.000 todos los meses acumula $10.000 cada mes,
+y el monto a cobrar le va bajando: primero $50.000, después $40.000, y así.
+
+Para verlo, botón **Ver movimientos** en el recuadro de Saldo a Favor. El extracto muestra de
+dónde salió cada peso y en qué factura se gastó, con fecha y saldo resultante.
+
+Si el extracto muestra un aviso de **descuadre**, no es un tema del mostrador: repórtalo al
+administrador. Significa que la suma de los movimientos no coincide con el saldo guardado.
+
+Cuando el cliente lleva meses pagando de más, lo que hay que resolver no es la factura sino el
+acuerdo: o el plan tiene el precio equivocado, o hay que devolverle o avisarle.
+
 ### 8.6 Formas de pago
 
 **Finanzas → Formas de pago.** Puedes crear las tuyas, editarlas o desactivarlas.
@@ -1707,6 +1725,32 @@ Que la llave viaja en la cabecera `Authorization: Bearer <llave>` y que empiece 
 con `GET /api/v1/partner/ping`, que le confirma que la llave funciona, desde qué IP lo
 está viendo el servidor y qué permisos tiene. La referencia completa está en
 `docs/API_REFERENCE.md`, sección 22.
+
+### 17.7 Auditoría
+
+**Configuración → Auditoría.** Requiere el permiso *Ver Bitácora de Auditoría*.
+
+Registra **todo lo que mueve plata**: precio de un plan, cambio de plan de un cliente, pagos,
+exclusión de facturación y configuración de facturación (días y horas de factura, corte y
+recordatorio). De cada cambio guarda **quién, cuándo, el valor anterior y el nuevo**.
+
+La columna **Origen** es la que más suele hacer falta:
+
+| Origen | Significa |
+|---|---|
+| Panel | Alguien lo cambió desde la pantalla |
+| Carga masiva | Entró por una importación de Excel |
+| Automático | Lo hizo el sistema (facturación, cortes) |
+| Consola | Un comando de mantenimiento |
+
+Es la diferencia entre «un operador subió el precio» y «lo cambió un archivo que alguien
+importó», que es justo lo que no se podía distinguir antes.
+
+Puedes filtrar por tipo de registro, acción, origen y rango de fechas, y buscar texto en la
+descripción. **Ver detalle** muestra los valores exactos antes y después.
+
+La bitácora es **solo lectura**: no se puede editar ni borrar desde el sistema, a propósito.
+Solo ves lo de tu sede.
 
 ---
 

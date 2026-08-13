@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-06 · Rama: `feat/document-templates-and-customer-purge`
+**Última actualización:** 2026-08-11 · Rama: `feat/money-audit-trail`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Bitácora de flujo de caja y libro de saldo a favor (2026-08-11, § 26):** el saldo a favor deja
+  de ser un escalar suelto y pasa a tener libro de movimientos; se arregla un bug que borraba
+  dinero al anular pagos; y todo lo que mueve plata queda registrado con quién, cuándo y desde
+  dónde —incluidas las cargas masivas, que eran el camino ciego.
 - **Panel de Finanzas mensual, con gastos y balance (2026-08-06, § 24):** las cifras dejan de ser
   el acumulado histórico, se excluyen anuladas, entran los gastos y el tenant deja de viajar por
   la URL.
@@ -2337,3 +2341,164 @@ sigue siendo el token. Anotado en `MEJORAS_RECOMENDADAS.md`.
 
 **Pendiente de despliegue:** `php artisan migrate:both` (4 migraciones) y decidir el
 `API_KEYS_OPERATOR_TENANT_ID` real si no es el 1.
+
+---
+
+## 26. El saldo a favor movía plata sin dejar asiento — 2026-08-11
+
+### 26.1 Cómo se detectó
+
+Una clienta de Tocaima llegó a pagar y la factura le apareció en **$36.000** cuando ella paga
+**$70.000** todos los meses. No era un error: su plan cuesta $60.000, viene pagando $70.000 desde
+junio, y el sistema le venía descontando solo el saldo acumulado de la factura siguiente.
+
+Al auditarlo apareció que no era un caso aislado: **101 clientes** tenían al menos una factura
+cuyo monto a cobrar no era el precio de su plan, repartidos en las dos sedes (66 facturas en
+Tocaima, 55 en Chaguaní).
+
+### 26.2 Las causas, que eran cuatro y no una
+
+De 129 pagos con excedente:
+
+| Origen | Pagos | Clientes | Monto |
+|---|---|---|---|
+| Prepago de varios meses (múltiplo exacto del plan) — **legítimo** | 68 | 61 | $5.805.500 |
+| Residuo que no cuadra con el plan — **el problema** | 61 | 42 | $1.473.358 |
+
+Dentro del segundo grupo:
+
+1. **Cambio de precio 56.000 → 60.000 desincronizado (Tocaima), 20 clientes.** En junio el sistema
+   facturó $56.000 a 94 clientes mientras en la calle ya se cobraba $60.000. Cada uno pagó 60.000
+   contra una factura de 56.000 y quedaron **$4.000 atascados**. Como el crédito se aplica solo,
+   en julio y agosto a esos mismos clientes les siguió apareciendo $56.000 en vez de $60.000.
+2. **Pagos registrados sin factura abierta, 53 clientes, $4.639.708.** El pago entra completo a
+   saldo y la siguiente factura nace pagada.
+3. **Clientes que pagan una cifra redonda distinta a su plan.**
+4. **Errores puntuales:** un pago de $660.000 contra una factura de 60.000, un pago duplicado, y
+   saldo sobre un plan de cortesía de $0.
+
+### 26.3 El defecto estructural
+
+`applyCreditToInvoice` bajaba el `balance_due` de la factura y el `credit_balance` del cliente
+**sin crear ningún asiento**. Consecuencias medidas en producción:
+
+- 66 pagos sin una sola fila en `payment_allocations`, por $4.639.708. El libro no cuadraba con la
+  caja.
+- Facturas en estado `paid` sin ningún peso asignado.
+- Nadie podía explicarle al cliente en el mostrador de dónde salía el descuento.
+
+### 26.4 El bug de pérdida de dinero
+
+`reversePaymentAllocations` restaba el excedente **completo** del `credit_balance` al anular o
+corregir un pago, sin mirar si ese excedente ya había sido consumido por una factura posterior. El
+`max(0, ...)` tapaba el resultado.
+
+Reproducido en test: cliente con dos pagos de $70.000 sobre facturas de $60.000. El primer
+excedente ($10.000) ya se había gastado; al anular ese primer pago el saldo caía de $20.000 a
+$10.000. **$10.000 reales desaparecían sin traza**, y venían del segundo pago.
+
+### 26.5 Por qué observers y no instrumentar controladores
+
+Fue la decisión de diseño central. El precio del plan de Tocaima se cambió desde `PlanController`,
+pero los planes equivocados de Chaguaní se reasignaron en masa desde `CustomersUpdateImport`, que
+no pasa por ningún controlador de planes. Instrumentar controladores habría dejado ciega justo la
+mitad del problema.
+
+`MoneyAuditObserver` cubre las cuatro puertas: panel, API, carga masiva y consola (incluido
+tinker). Hay un test que lo comprueba por el camino del import, que es el que importaba.
+
+### 26.6 Qué se construyó
+
+- **`customer_credits`** — libro de movimientos del saldo a favor, espejo positivo de
+  `invoice_carryovers`, que ya resolvía lo mismo para los faltantes y por la misma razón: para
+  revertir con precisión hay que guardar movimientos, no un acumulado. Tipos `earned`, `applied`,
+  `adjusted`, `reversed`. El campo `consumed` de cada `earned` es lo que hace posible anular un
+  pago sin destruir saldo ajeno. `credit_balance` queda como caché denormalizada.
+- **`audit_logs` reforzado** — se le agregó `tenant_id` (sin él era imposible filtrar por sede en
+  un sistema multi-tenant) y `source` (`web`/`api`/`console`/`import`/`scheduler`), que es lo que
+  distingue "lo cambió un operador" de "lo cambió un Excel".
+- **`MoneyAuditObserver`** — lista blanca corta y deliberada por modelo. `credit_balance` queda
+  fuera a propósito: lo cubre el libro con mucho más detalle.
+- **`audit:backfill-money`** — reconstruye el histórico. **No mueve plata**: si el saldo
+  reconstruido no coincide con el real, deja el real intacto y escribe un movimiento de descuadre.
+- **Visor** en Ajustes → Auditoría y **extracto de saldo** en la ficha del cliente, que delata en
+  pantalla si el libro y la caché divergen.
+
+### 26.7 Deuda aceptada conscientemente
+
+Al borrar una factura que había sido pagada con saldo, el saldo vuelve como `adjusted` sin
+des-consumir los `earned` originales. Es el lado conservador —nunca destruye saldo— a costa de que
+anular después el pago de origen ya no arrastre esa devolución. Anotado en
+`MEJORAS_RECOMENDADAS.md`.
+
+### 26.8 Estado
+
+**667 pruebas en verde**, 23 nuevas:
+
+- `CustomerCreditLedgerTest` (7): el asiento de `earned` y `applied`, el caso real de los tres
+  meses reproducido al peso, la devolución del saldo vivo, el ajuste manual con motivo, y **el
+  test del bug** — verificado que falla con el código anterior antes de darlo por bueno.
+- `MoneyAuditTrailTest` (7): cambio de precio con valores viejo y nuevo, ruido descartado, alta y
+  baja, **la carga masiva** (el camino ciego), día de corte, autoría y origen sin sesión.
+- `BackfillMoneyAuditTest` (5): reconstrucción de excedentes y de créditos aplicados, el descuadre
+  sin tocar la plata, idempotencia y dry-run que no escribe.
+- `AuditLogApiTest` (4): permiso exigido, aislamiento entre sedes, filtro y detección de descuadre.
+
+### 26.9 Ejecución en producción — 2026-08-11
+
+`migrate:both` aplicado en `ispwatch_dev` y `public`. Backfill corrido: **117 clientes, 241
+movimientos**. Invariante `SUM(amount) == credit_balance` verificado en los **100 clientes con
+libro: 0 descuadrados**.
+
+**El backfill hubo que reescribirlo.** La primera versión reutilizaba los métodos del modelo
+cliente por cliente, que es más elegante pero eran 4-5 viajes a la base por movimiento: contra
+Supabase se tradujo en **más de 10 minutos con la conexión `idle in transaction`**, que sobre un
+pooler es la mejor forma de que te maten la conexión a medio camino. Es la misma lección que ya
+había dejado la carga masiva de clientes —nada de consultas por fila en procesos masivos— y se
+repitió igual. Ahora son tres consultas, replay en memoria e inserción por lotes de 500 en
+transacciones cortas; el dry-run no escribe nada en absoluto. Pasó de >10 min a segundos.
+
+### 26.10 Lo que destapó el backfill: pagos fuera del pipeline
+
+Aparecieron **9 clientes por $1.252.000** con una firma idéntica: el histórico reconstruye saldo
+positivo pero el `credit_balance` real es **0**.
+
+| Cliente | Reconstruido | Real | Qué se ve |
+|---|---:|---:|---|
+| 636 GABRIEL BRAVO (T19) | 567.000 | 0 | Pago de **$630.000** sin asignar, con plan de 63.000 |
+| 325 Normelys Garate (T16) | 224.000 | 0 | **Cuatro** pagos de 56.000 el 16-17 jun, todos sin asignar |
+| 336, 854, 214, 339, 228, 212, 288 | 4.000 – 120.000 | 0 | Mismo patrón |
+
+No es el bug de reversión ni dinero que el sistema haya destruido: son **pagos que entraron a la
+base sin pasar por `BillingService::registerPayment`**. Por eso no generaron asignación ni
+incrementaron el saldo. Los cuatro pagos idénticos de Normelys en dos días apuntan a carga directa
+o duplicada, no a operación de mostrador.
+
+Quedan registrados como movimiento `adjusted` de descuadre, **sin tocar el saldo de nadie**. Es
+exactamente para lo que se diseñó así: el libro dice "aquí faltan $X sin explicar" en vez de
+cuadrar cambiándole el saldo a alguien.
+
+### 26.11 Lo que solo vio PostgreSQL
+
+El CI tumbó los 5 tests de `PartnerApiIsolationTest`, **únicamente en el job de PostgreSQL**. En
+local todo estaba verde porque `.env.testing` usa SQLite. Es exactamente la clase de divergencia
+para la que ese segundo job existe, y esta vez la cobró entera.
+
+**1. `audit_logs.user_id` tiene clave foránea contra `users`, pero no todo lo que se autentica es
+un `User`.** La API pública autentica un `ApiClient`, cuyo id vive en otra tabla; estamparlo ahí
+viola la foránea. **SQLite no aplica claves foráneas por defecto**, así que el error era invisible
+en la suite rápida y habría reventado directamente en producción. `AuditContext::actorId()` ahora
+comprueba el tipo del actor.
+
+**2. Una excepción del observer se llevaba por delante la operación de negocio.** Verificado
+quitando el `try`: `Payment::create()` revienta entero si falla el log. En PostgreSQL es peor que
+perder el registro — la excepción deja la transacción **abortada** y todo lo que venga detrás falla
+en cadena con «current transaction is aborted», que es justo la firma de que cayeran los 5 tests de
+una misma clase y ninguno más. Ahora `MoneyAuditObserver::write()` traga y registra en
+`Log::error`.
+
+Las dos reglas quedaron escritas en `MANUAL_DESARROLLADOR.md`.
+
+**Pendiente:** desplegar el código. Mientras prod corra sin él, cada pago con excedente moverá
+`credit_balance` sin escribir en el libro; tras el despliegue hay que correr
+`audit:backfill-money --force` para reconstruir el intervalo.

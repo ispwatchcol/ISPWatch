@@ -8,6 +8,7 @@ use App\Exports\UnifiedTemplateExport;
 use App\Imports\CustomersUpdateImport;
 use App\Imports\InventoryImport;
 use App\Imports\UnifiedImport;
+use App\Support\AuditContext;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -75,7 +76,14 @@ class ImportController extends Controller
         $import = new CustomersUpdateImport($tenantId);
 
         try {
-            Excel::import($import, $request->file('file'));
+            // Marca la bitácora con origen "carga masiva": es lo que permite
+            // distinguir después "un operador cambió este plan" de "lo cambió
+            // un Excel", que fue justo la ambigüedad imposible de resolver
+            // cuando se reasignaron planes equivocados en bloque.
+            AuditContext::as(
+                AuditContext::SOURCE_IMPORT,
+                fn () => Excel::import($import, $request->file('file'))
+            );
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
