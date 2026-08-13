@@ -236,6 +236,26 @@ class RouterController extends Controller
             return response()->json($result);
         }
 
+        $hint = $result['hint'] ?? 'Para configurar la WAN manualmente, ingresa el nombre de la interfaz en el campo de texto.';
+
+        // Un segundo túnel entrando desde la misma pública explica por sí solo
+        // que todo lo que el CORE inicia hacia este router se cuelgue, y deja
+        // sin sentido el resto de las pistas (credenciales, puertos, firewall).
+        // Va primero y con nombre propio, no como una nota al pie.
+        if (!empty($endpoint['duplicate_tunnels'])) {
+            $others = implode(', ', array_map(
+                fn ($t) => "{$t['name']} ({$t['address']}, up {$t['uptime']})",
+                $endpoint['duplicate_tunnels']
+            ));
+
+            $hint = "⚠️ CAUSA MÁS PROBABLE — túnel duplicado. El CORE ve otra sesión VPN activa entrando desde " .
+                    "la MISMA IP pública que este router: {$others}. Con L2TP eso no es redundancia: los dos " .
+                    "túneles se reciclan mutuamente y el router queda con dos direcciones de overlay, así que " .
+                    "todo lo que el CORE inicia hacia él (API y ssh-exec) muere a mitad de camino. " .
+                    "Deja UN solo túnel discando desde esa pública —quítale la configuración l2tp-client al " .
+                    "equipo que sobre y borra su secret del CORE— y vuelve a intentar.\n\n" . $hint;
+        }
+
         // Return the real error message — no hardcoded fallback
         return response()->json([
             'success'        => false,
@@ -244,7 +264,8 @@ class RouterController extends Controller
             'interfaces'     => [],
             'current_wan'    => $router->wan_interface,
             'configured_port' => $router->puerto_api ?? 8728,
-            'hint'           => $result['hint'] ?? 'Para configurar la WAN manualmente, ingresa el nombre de la interfaz en el campo de texto.',
+            'duplicate_tunnels' => $endpoint['duplicate_tunnels'] ?? [],
+            'hint'           => $hint,
         ]);
     }
 

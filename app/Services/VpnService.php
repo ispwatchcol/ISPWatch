@@ -535,12 +535,36 @@ SCRIPT;
                     ]);
                 }
 
+                $duplicates = $result['duplicate_tunnels'] ?? [];
+
+                if (!empty($duplicates)) {
+                    $others = implode(', ', array_map(
+                        fn ($t) => "{$t['name']} ({$t['address']})",
+                        $duplicates
+                    ));
+
+                    Log::warning('[VPN] Túnel duplicado desde la misma IP pública', [
+                        'router_id' => $router->id,
+                        'router'    => $router->name,
+                        'caller_id' => $result['caller_id'] ?? null,
+                        'others'    => array_column($duplicates, 'name'),
+                    ]);
+                }
+
                 return [
                     'success' => true,
                     'connected' => true,
-                    'message' => '✅ VPN ACTIVA (PPP activo en CORE)',
+                    // "Conectada" a secas era engañoso con dos túneles peleándose:
+                    // el estado momentáneo es correcto y la gestión igual no funciona.
+                    'message' => empty($duplicates)
+                        ? '✅ VPN ACTIVA (PPP activo en CORE)'
+                        : "⚠️ VPN ACTIVA pero HAY OTRO TÚNEL desde la misma IP pública ({$result['caller_id']}): {$others}. " .
+                          'Los dos se reciclan entre sí y la gestión desde el CORE fallará de forma intermitente. ' .
+                          'Deja uno solo discando desde esa pública.',
                     'assigned_ip' => $assignedIp,
                     'uptime' => $result['uptime'] ?? null,
+                    'caller_id' => $result['caller_id'] ?? null,
+                    'duplicate_tunnels' => $duplicates,
                     // Credenciales de gestión del RB (columnas legacy = fuente de verdad,
                     // las que escribe el formulario; *_encrypted no se mantiene — ver 4f24551)
                     'user_rb' => $router->user_rb,

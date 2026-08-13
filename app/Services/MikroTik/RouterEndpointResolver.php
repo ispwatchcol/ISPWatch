@@ -40,7 +40,7 @@ class RouterEndpointResolver
     }
 
     /**
-     * @return array{ip: string, ssh_port: int, api_port: int, source: string, drifted: bool, stored_ip: ?string}
+     * @return array{ip: string, ssh_port: int, api_port: int, source: string, drifted: bool, stored_ip: ?string, duplicate_tunnels: array}
      */
     public function resolve(Router $router): array
     {
@@ -57,6 +57,10 @@ class RouterEndpointResolver
             'source'    => 'db',
             'drifted'   => false,
             'stored_ip' => $storedIp,
+            // Otras sesiones activas entrando desde la misma IP pública. Con
+            // L2TP eso no es redundancia, es una colisión: los dos túneles se
+            // reciclan y la dirección de este endpoint deja de ser fiable.
+            'duplicate_tunnels' => [],
         ];
 
         // WireGuard no tiene pool ni deriva: la dirección del overlay se asigna
@@ -71,15 +75,29 @@ class RouterEndpointResolver
             return $this->cache[$key] = $endpoint;
         }
 
-        $liveIp = $this->liveOverlayIp($router);
+        $session = $this->liveSession($router);
+        $liveIp  = trim((string) ($session['address'] ?? ''));
 
-        if ($liveIp !== null && $liveIp !== '') {
+        if ($session !== null && $liveIp !== '') {
             $endpoint['ip']     = $liveIp;
             $endpoint['source'] = 'ppp-active';
+            $endpoint['duplicate_tunnels'] = $this->pppManager->sessionsSharingCallerId(
+                $this->sessions(),
+                $session
+            );
 
             if ($liveIp !== $storedIp) {
                 $endpoint['drifted'] = true;
                 $this->persistLiveIp($router, $liveIp, $storedIp);
+            }
+
+            if (!empty($endpoint['duplicate_tunnels'])) {
+                Log::warning('[RouterEndpointResolver] túnel duplicado desde la misma IP pública', [
+                    'router_id' => $router->id,
+                    'router'    => $router->name,
+                    'caller_id' => $session['caller_id'] ?? null,
+                    'others'    => array_column($endpoint['duplicate_tunnels'], 'name'),
+                ]);
             }
         }
 
@@ -95,10 +113,16 @@ class RouterEndpointResolver
     }
 
     /**
-     * Address the CORE currently has for this router's L2TP session, or null
-     * when the router is not connected (or has no vpn_username on file).
+     * The CORE's live `/ppp active` row for this router, or null when it is not
+     * connected (or has no vpn_username on file).
+     *
+     * Devuelve la fila entera y no solo la dirección porque el `caller-id` —la
+     * pública desde la que disca— es lo que permite ver si hay otro túnel
+     * compitiendo por el mismo punto de entrada.
+     *
+     * @return array<string, mixed>|null
      */
-    private function liveOverlayIp(Router $router): ?string
+    private function liveSession(Router $router): ?array
     {
         $vpnUser = trim((string) $router->vpn_username);
         if ($vpnUser === '') {
@@ -107,8 +131,7 @@ class RouterEndpointResolver
 
         foreach ($this->sessions() as $session) {
             if (($session['name'] ?? '') === $vpnUser) {
-                $address = trim((string) ($session['address'] ?? ''));
-                return $address !== '' ? $address : null;
+                return $session;
             }
         }
 

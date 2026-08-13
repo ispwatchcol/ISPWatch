@@ -74,7 +74,8 @@ class VerifyVpnTunnels extends Command
             $wgPeers = $result['peers'] ?? [];
         }
 
-        $pppActive = [];
+        $pppActive   = [];
+        $pppSessions = [];
         if ($routers->contains(fn (Router $r) => !$r->usesWireguard())) {
             $result = $ppp->getPppActive();
             if (!($result['success'] ?? false)) {
@@ -84,22 +85,27 @@ class VerifyVpnTunnels extends Command
                 ]);
                 return Command::FAILURE;
             }
-            foreach ($result['connections'] ?? [] as $session) {
+            $pppSessions = $result['connections'] ?? [];
+            foreach ($pppSessions as $session) {
                 $pppActive[$session['name'] ?? ''] = $session;
             }
         }
 
         $rows = [];
         $down = [];
+        $duplicated = [];
 
         foreach ($routers as $router) {
             $row = $router->usesWireguard()
                 ? $this->checkWireguard($router, $wgPeers, $wireguard, $staleMinutes)
-                : $this->checkL2tp($router, $pppActive);
+                : $this->checkL2tp($router, $pppActive, $pppSessions, $ppp);
 
             $rows[] = $row;
             if ($row['status'] === 'DOWN') {
                 $down[] = $row;
+            }
+            if ($row['status'] === 'DUPLICADO') {
+                $duplicated[] = $row;
             }
         }
 
@@ -115,14 +121,20 @@ class VerifyVpnTunnels extends Command
             ])->all()
         );
 
-        if (empty($down)) {
+        if (empty($down) && empty($duplicated)) {
             $this->info('✓ Todos los túneles vivos.');
             return Command::SUCCESS;
         }
 
+        // Un túnel duplicado NO está caído — por eso este comando lo daba por
+        // bueno y el operador se quedaba sin explicación mientras la gestión
+        // fallaba de forma intermitente. Se alerta aparte, con su propia frase.
         $lines = collect($down)->map(
             fn ($r) => "• Router #{$r['router_id']} {$r['router_name']} (tenant {$r['tenant_id']}, {$r['transport']}): TÚNEL CAÍDO — {$r['signal']}."
-        );
+        )->concat(collect($duplicated)->map(
+            fn ($r) => "• Router #{$r['router_id']} {$r['router_name']} (tenant {$r['tenant_id']}, l2tp): TÚNEL DUPLICADO — {$r['signal']}. " .
+                       'El túnel figura activo, pero los dos se reciclan entre sí y la gestión desde el CORE falla de forma intermitente.'
+        ));
 
         Log::error('[VPN-NOSHOW] ' . count($down) . ' router(s) sin túnel contra el CORE. ' . $lines->implode(' '));
         $this->error($lines->implode("\n"));
@@ -159,10 +171,11 @@ class VerifyVpnTunnels extends Command
     }
 
     /**
-     * @param array<string, array<string, mixed>> $active
+     * @param array<string, array<string, mixed>> $active   sesiones indexadas por nombre
+     * @param array<int, array<string, mixed>>    $sessions  la tabla completa, para cruzar caller-id
      * @return array<string, mixed>
      */
-    private function checkL2tp(Router $router, array $active): array
+    private function checkL2tp(Router $router, array $active, array $sessions, PppSecretManager $ppp): array
     {
         $session = $active[trim((string) $router->vpn_username)] ?? null;
 
@@ -170,10 +183,25 @@ class VerifyVpnTunnels extends Command
             return $this->row($router, 'l2tp', (string) $router->ip, 'sin sesión en /ppp active', 'DOWN');
         }
 
+        $endpoint = (string) ($session['address'] ?? $router->ip);
+        $siblings = $ppp->sessionsSharingCallerId($sessions, $session);
+
+        if (!empty($siblings)) {
+            $others = implode(', ', array_map(fn ($s) => "{$s['name']} ({$s['address']})", $siblings));
+
+            return $this->row(
+                $router,
+                'l2tp',
+                $endpoint,
+                'otra sesión desde la misma pública ' . ($session['caller_id'] ?? '?') . ': ' . $others,
+                'DUPLICADO'
+            );
+        }
+
         return $this->row(
             $router,
             'l2tp',
-            (string) ($session['address'] ?? $router->ip),
+            $endpoint,
             'activo hace ' . ($session['uptime'] ?? '?'),
             'UP'
         );
@@ -224,7 +252,7 @@ class VerifyVpnTunnels extends Command
         }
 
         $body = 'ALERTA DE TÚNEL VPN — ' . now()->toDateTimeString() . "\n\n"
-              . "Routers sin túnel contra el CORE:\n\n"
+              . "Routers con problema de túnel contra el CORE:\n\n"
               . $lines->implode("\n") . "\n\n"
               . "Mientras el túnel esté caído, ese router NO recibe altas, cambios de plan,\n"
               . "cortes ni reconexiones. Los clientes siguen navegando: lo que se pierde es\n"
@@ -235,7 +263,12 @@ class VerifyVpnTunnels extends Command
               . "  2) L2TP: log del CORE. 'no IPsec encryption while it was required' = el\n"
               . "     IKE y los datos salen del cliente por IPs públicas distintas\n"
               . "     (multi-WAN); hacen falta las reglas ISPWatch-CORE-no-nat/no-mark.\n"
-              . "  3) Que el router tenga internet y llegue a la IP pública del CORE.\n";
+              . "  3) Que el router tenga internet y llegue a la IP pública del CORE.\n"
+              . "  4) TÚNEL DUPLICADO: dos secrets distintos discando desde la MISMA IP\n"
+              . "     pública. No es redundancia — con L2TP/IPsec se reciclan entre sí y el\n"
+              . "     router queda con dos direcciones de overlay, así que todo lo que el\n"
+              . "     CORE inicie hacia él muere a mitad de camino. Deja UNO solo: quítale\n"
+              . "     el l2tp-client al equipo que sobre y borra su secret del CORE.\n";
 
         try {
             Mail::raw($body, function ($msg) use ($to, $count) {

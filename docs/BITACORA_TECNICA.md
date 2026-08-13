@@ -12,6 +12,10 @@
   instalación inventado que sqlite dejaba pasar porque pierde el CHECK del enum al reconstruir la
   tabla, y un `try` en la bitácora que daba falsa confianza: en PostgreSQL atrapar la excepción no
   descongela la transacción, hace falta un SAVEPOINT.
+- **Túnel duplicado: la VPN "activa" que rompe la gestión (2026-08-13, § 28):** dos secrets L2TP
+  discando desde la misma IP pública se reciclan entre sí y tumban todo lo que el CORE inicia hacia
+  el router, mientras el túnel figura activo. ISPWatch no lo miraba; ahora lo detecta por
+  `caller-id` y lo dice en los tres sitios donde el operador pregunta.
 - **La lectura de interfaces WAN mentía sobre quién fallaba (2026-08-13, § 27):** un tiempo de
   espera que phpseclib no reporta como error hacía pasar media respuesta del CORE por una
   respuesta del router; de paso, un sondeo de túnel con falsos positivos, dos variantes de comando
@@ -68,6 +72,7 @@
 25. [API pública de solo lectura por llave — 2026-08-07](#25-api-pública-de-solo-lectura-por-llave--2026-08-07)
 26. [El saldo a favor movía plata sin dejar asiento — 2026-08-11](#26-el-saldo-a-favor-movía-plata-sin-dejar-asiento--2026-08-11)
 27. [El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13](#27-el-botón-de-wan-culpaba-al-router-de-un-silencio-nuestro--2026-08-13)
+28. [La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13](#28-la-wan-seguía-sin-leerse-había-dos-túneles-peleándose--2026-08-13)
 28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
 
 ---
@@ -2676,3 +2681,82 @@ Un `try/catch` alrededor de una escritura a base de datos **no es una red de seg
 PostgreSQL** si ocurre dentro de una transacción. Si el objetivo es que un fallo accesorio (bitácora,
 métrica, notificación) no tumbe la operación principal, tiene que ir en su propio SAVEPOINT. En
 sqlite la diferencia es invisible, así que este tipo de error sólo lo caza el job de PostgreSQL.
+
+---
+
+## 28. La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13
+
+Continuación de § 27. Con los mensajes ya honestos, la modal decía la verdad —"el CORE se quedó
+esperando al router 172.16.17.248:22"— pero el operador seguía sin poder leer la WAN, y con razón:
+**el diagnóstico estaba bien, la causa era de red**.
+
+### 28.1 Lo que dijo el CORE
+
+Consultando `/ppp active` en producción, tres sesiones:
+
+| Sesión | Overlay | `caller-id` | Uptime T1 (16:43:50) | Uptime T2 (16:44:57) |
+|---|---|---|---:|---:|
+| `mL6b8SjaHa` — CORE_TOCAIMA | 172.16.16.254 | 190.14.255.110 | 1h43m15s | 1h44m21s |
+| `6hRZFLsOnM` — CORE_SAN_ISIDRO | 172.16.17.248 | **190.14.255.100** | 1m16s | 2m22s |
+| `SV5YANDeKg` — VEN_CORE_VEGA | 172.16.17.249 | **190.14.255.100** | 2m20s | **45s** |
+
+En 67 segundos `SV5YANDeKg` pasó de 2m20s a 45s: se cayó y volvió. Las dos sesiones que comparten
+la pública 190.14.255.100 reciclan cada 1-2 minutos; la que no la comparte llevaba casi dos horas
+sin moverse.
+
+`/ppp secret` confirmó de quién es cada una: `SV5YANDeKg` es *"ISPWatch - VEN_CORE_VEGA"*, perfil
+`vpn-isp-17` —el mismo tenant— y **no existe en la tabla `router`**. Es un secret huérfano cuyo
+equipo sigue discando.
+
+### 28.2 Por qué eso rompe justamente la lectura de la WAN
+
+Es la patología de los dos flujos de `ARQUITECTURA.md` en su forma peor. El router acaba con dos
+direcciones de overlay y dos rutas de vuelta al CORE. Cuando el CORE abre TCP contra .248, la
+respuesta sale por la interfaz equivocada o no sale, y a los pocos segundos la sesión recicla y se
+lleva la conexión por delante. De ahí, exactamente:
+
+- **API:** el TCP figura aceptado y el login nunca recibe respuesta.
+- **`ssh-exec`:** el CORE se queda esperando y no termina en 25 s.
+
+Y explica el *"antes funcionaba"*: funcionó hasta que un segundo equipo empezó a discar desde esa
+misma pública.
+
+### 28.3 El hueco de ISPWatch
+
+Ninguna de las dos comprobaciones que el operador tenía a mano miraba el `caller-id`:
+
+- `isVpnConnected()` devolvía el **primer** match y respondía `✅ VPN ACTIVA`.
+- `vpn:verify-tunnels` daba `UP`, porque el túnel efectivamente **no está caído**.
+- `RouterEndpointResolver` tomaba la dirección y seguía.
+
+Es decir: el sistema afirmaba que la VPN estaba bien y a continuación fallaba todo, sin nada que
+relacionara ambas cosas. Un túnel duplicado era invisible por diseño.
+
+### 28.4 Qué se construyó
+
+| Archivo | Cambio |
+|---|---|
+| `PppSecretManager` | `sessionsSharingCallerId()`; `isVpnConnected()` devuelve `caller_id` y `duplicate_tunnels` |
+| `RouterEndpointResolver` | `liveOverlayIp()` → `liveSession()` (la fila entera, no solo la IP); expone `duplicate_tunnels` y lo registra en el log |
+| `VpnService::verifyConnection` | *Verificar VPN* deja de decir "activa" a secas cuando hay otro túnel en la misma pública |
+| `RouterController::getInterfaces` | Si hay duplicado, encabeza el error: es la causa y deja sin sentido al resto de las pistas |
+| `VerifyVpnTunnels` | Estado `DUPLICADO`, distinto de `DOWN`, con su propia frase en consola y en el email |
+
+Verificado contra el CORE real: `#60 CORE_SAN_ISIDRO … DUPLICADO — otra sesión desde la misma
+pública 190.14.255.100: SV5YANDeKg (172.16.17.249)`.
+
+**Sin caller-id no se afirma nada.** Si la tabla no lo trae, no se reporta "sin duplicados": no se
+sabe, y decirlo sería inventar. Hay un test para eso.
+
+### 28.5 Lo que queda del lado de la red
+
+ISPWatch ya sabe **nombrar** el problema; no puede resolverlo solo, y no debe: quitar un
+`l2tp-client` o borrar un secret es tocar infraestructura en producción. Debe quedar **un solo
+túnel discando desde 190.14.255.100**. Si `VEN_CORE_VEGA` ya no se gestiona, se le quita la
+configuración al equipo y se borra su secret del CORE. Si son dos equipos reales en la misma sede,
+con L2TP/IPsec no pueden compartir pública: uno tiene que ir a WireGuard (necesita v7, y
+`CORE_SAN_ISIDRO` es v6) o salir por otra pública.
+
+**Observación aparte, sin acción:** `CORE_TOCAIMA` está en WireGuard (`172.18.16.2`, handshake
+fresco) y **además** mantiene una sesión L2TP viva (`mL6b8SjaHa`, 172.16.16.254). No colisiona
+—su `caller-id` es único— pero es un resto de la migración que conviene revisar.

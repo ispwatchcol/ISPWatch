@@ -774,6 +774,29 @@ obligatoriamente las defensas equivalentes, acotadas a la IP del CORE:
 `ISPWatch-CORE-no-mark` (mangle output), `ISPWatch-CORE-no-nat` (srcnat) y
 `ISPWatch-CORE-pin` (ruta /32 por el gateway activo, para el caso ECMP).
 
+**Dos túneles desde una misma pública es la misma falla, en su forma peor.** No
+hace falta multi-WAN: basta con que **dos secrets distintos disquen desde la misma
+IP pública** —típicamente un equipo reaprovisionado cuyo `l2tp-client` viejo nunca
+se quitó, o dos equipos de la misma sede tras un solo NAT—. Se reciclan
+mutuamente y el router queda con dos direcciones de overlay, así que **todo lo
+que el CORE inicia hacia él muere a mitad de camino** mientras el túnel *figura
+activo*.
+
+Medido en producción el 2026-08-13 sobre `CORE_SAN_ISIDRO`:
+
+| Sesión | Overlay | `caller-id` | Uptime T1 | Uptime T2 (+67 s) |
+|---|---|---|---:|---:|
+| `6hRZFLsOnM` (CORE_SAN_ISIDRO) | 172.16.17.248 | 190.14.255.100 | 1m16s | 2m22s |
+| `SV5YANDeKg` (huérfano VEN_CORE_VEGA) | 172.16.17.249 | 190.14.255.100 | 2m20s | **45s** ← recicló |
+| `mL6b8SjaHa` (CORE_TOCAIMA) | 172.16.16.254 | 190.14.255.110 | 1h43m | 1h44m |
+
+La sesión que no compartía pública llevaba casi dos horas intacta. Por eso el
+`caller-id` **es** la señal: `PppSecretManager::sessionsSharingCallerId()` cruza la
+tabla y lo reportan `vpn:verify-tunnels` (estado `DUPLICADO`, distinto de `DOWN`
+porque el túnel no está caído), el botón *Verificar VPN* y la lectura de
+interfaces WAN. Antes nada lo miraba: se decía "✅ VPN ACTIVA" y la gestión
+fallaba a continuación sin que nada relacionara ambas cosas.
+
 **Las claves las acuña ISPWatch** con phpseclib (X25519), no el router. Si
 esperáramos a que el equipo nos entregara su clave pública haría falta un túnel
 previo para leerla, y un router recién instalado no tiene ninguno.
