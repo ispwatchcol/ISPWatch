@@ -672,8 +672,15 @@ El botón **Descargar PDF** genera la factura con el diseño y los datos de tu e
 ### 7.4 Crear una factura manual
 
 **Finanzas → Facturación → Nueva factura.** Necesitas indicar cliente, **tipo de
-factura**, fecha de emisión, fecha de vencimiento, periodo y total. El número lo asigna
-el sistema.
+factura**, **concepto**, fecha de emisión, fecha de vencimiento, periodo y total. El número
+lo asigna el sistema.
+
+El **concepto** es lo que el cliente verá como línea de detalle en la factura y en el PDF
+("Mensualidad agosto con descuento pactado"). Si lo dejas vacío se usa el nombre del tipo de
+factura y el mes.
+
+Si el cliente tiene **saldo a favor**, se aplica solo a esta factura, igual que en la
+facturación automática: la factura puede quedar como *Pago parcial* o directamente *Pagada*.
 
 ### 7.5 Servicios adicionales
 
@@ -747,16 +754,32 @@ Para crear uno:
 > El nombre se puede cambiar cuando quieras (las facturas viejas se ven con el nombre
 > nuevo). Lo que **no** cambia es el identificador interno que se creó al principio.
 
-### 7.6 Corregir una factura
+### 7.6 Corregir una factura: descuentos, cambios de precio y anulaciones
 
-- **Editar**: cambia fechas, total o notas.
-- **Marcar como no pagada**: revierte los pagos y restaura el saldo. Úsalo si registraste
-  un pago por error.
-- **Eliminar**: la borra.
+Es la duda más frecuente del módulo, y la respuesta corta es: **no borres la factura para
+crear otra.** Casi nunca es lo que hace falta y es la única acción que no se puede deshacer.
 
-> ⚠️ **Al eliminar una factura, el sistema NO la volverá a generar nunca.**
-> Deja una marca interna para ese cliente y ese mes. Si la borraste por error, tendrás que
-> crearla a mano. El mes siguiente se factura con normalidad.
+| Lo que quieres | Cómo se hace |
+|---|---|
+| **Hacer un descuento** | Abre la factura → recuadro *Ajuste manual / Adicional* → concepto (ej. `Descuento acordado`) y monto **en negativo** (`-10000`). El total y el saldo se recalculan solos y el descuento queda **como una línea visible** en el PDF |
+| **Cobrar algo extra** | Igual, pero con monto positivo |
+| **Cambiarle el precio** | El mismo ajuste: la diferencia, positiva o negativa. Así queda escrito **por qué** cambió |
+| **Dejarla sin efecto** | *Editar* → estado **Cancelada**. Sale de los totales y de la mora, conserva su número, y el mes sigue "ocupado" para que la automática no la duplique |
+| **Corregir fechas o notas** | *Editar factura* |
+| **Deshacer un pago mal registrado** | *Marcar como no pagada*: revierte los pagos y restaura el saldo |
+
+**Qué pasa realmente si eliminas una factura:**
+
+- El mes de esa factura **queda bloqueado**: la facturación automática **no la volverá a
+  generar nunca**. Los meses siguientes siguen normales.
+- Si tenía pagos, ese dinero **vuelve como saldo a favor** del cliente. El recaudo no se
+  borra, pero deja de estar aplicado a nada hasta que alguien lo use.
+- El **número se pierde**: el consecutivo salta y no se reutiliza.
+- Se borran también los ítems del detalle. **No hay papelera.**
+
+> ⚠️ Antes de confirmar, el aviso te dice **cuánto dinero** tiene esa factura ya aplicado.
+> **Si ahí aparece una cifra, párate**: casi siempre significa que estás borrando una factura
+> ya pagada — probablemente la de un mes anterior en vez de la del mes en curso.
 
 ### 7.7 Recordatorios de pago
 

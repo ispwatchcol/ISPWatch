@@ -788,9 +788,25 @@ trampa 28 en `MANUAL_DESARROLLADOR.md` antes de cambiar cualquiera de los tres.
 | `total` | numérico ≥ 0 |
 | `notes` | texto |
 | `invoice_type` | opcional, slug **activo** del catálogo del tenant (`GET /api/billing/invoice-types`). Por defecto `monthly` |
+| `description` | opcional, máx. 255. Concepto de la línea de detalle; por defecto, el nombre del tipo (y el mes, si es mensual) |
 
 El servidor fija `status = issued`, `subtotal = total = balance_due`, `currency = COP` y
 genera `number` con `BillingService::generateInvoiceNumber()` (seguro ante concurrencia).
+
+Además, **en la misma transacción**:
+
+1. Crea **un `invoice_item`** con el concepto y el importe, salvo que `total` sea 0.
+   Antes no lo hacía y el PDF salía con la tabla de detalle vacía y un total suelto al pie.
+2. Aplica el **saldo a favor** del cliente (`applyCreditToManualInvoice`), igual que la
+   generación automática. La respuesta puede por tanto llegar con `balance_due < total` y
+   `status` en `partial` o `paid`.
+
+> Esto último importa al reemplazar una factura: borrar una factura pagada devuelve el dinero
+> como saldo a favor, y hasta ahora la factura de reemplazo nacía debiendo el total **con el
+> saldo del cliente intacto al lado** — el cliente aparecía debiendo lo que ya había pagado.
+
+Lo que el alta manual **sigue sin hacer** (y la automática sí): arrastre de abonos parciales,
+servicios adicionales recurrentes y aviso al cliente.
 **Responde `201`** con la factura.
 
 > `invoice_type` se valida contra el catálogo: un slug inexistente, inactivo o de

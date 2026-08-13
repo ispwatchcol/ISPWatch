@@ -299,11 +299,17 @@ class BillingController extends Controller
             'total'       => 'nullable|numeric|min:0',
             'notes'       => 'nullable|string',
             'invoice_type'=> ['nullable', 'string', 'max:50', $this->invoiceTypeRule($request)],
+            // Concepto de la línea de detalle. Opcional: si no viene, se deriva
+            // del tipo de factura.
+            'description' => 'nullable|string|max:255',
         ]);
 
         // Sin tipo explícito se mantiene el comportamiento histórico (la columna
         // nace con default 'monthly'), pero el formulario ya lo manda siempre.
         $data['invoice_type'] = $data['invoice_type'] ?? Invoice::TYPE_MONTHLY;
+
+        $description = trim((string) ($data['description'] ?? '')) ?: $this->defaultItemDescription($data);
+        unset($data['description']);
 
         $total = $data['total'] ?? 0;
         $data['status']      = 'issued';
@@ -312,11 +318,74 @@ class BillingController extends Controller
         $data['balance_due'] = $total;
         $data['currency']    = 'COP';
 
-        // Generate invoice number using BillingService
-        $data['number'] = $this->billingService->generateInvoiceNumber($data['tenant_id']);
+        // Todo o nada: la factura, su ítem y el saldo aplicado son un solo
+        // hecho. A medias dejaría justo los estados que este cambio viene a
+        // eliminar — una factura sin detalle, o un saldo descontado del cliente
+        // que no llegó a bajar ningún saldo.
+        $invoice = DB::transaction(function () use ($data, $total, $description) {
+            // Generate invoice number using BillingService
+            $data['number'] = $this->billingService->generateInvoiceNumber($data['tenant_id']);
 
-        $invoice = Invoice::create($data);
-        return response()->json($invoice, 201);
+            $invoice = Invoice::create($data);
+
+            // La factura nace CON su línea de detalle. Sin esto el PDF salía con
+            // la tabla de ítems vacía y un total suelto al pie: el cliente
+            // recibía un documento que no dice qué se le está cobrando. La
+            // automática siempre creó su ítem; sólo el alta manual se quedaba
+            // sin él.
+            if ($total > 0) {
+                InvoiceItem::create([
+                    'invoice_id'  => $invoice->id,
+                    'type'        => $this->itemTypeFor($data['invoice_type']),
+                    'description' => $description,
+                    'quantity'    => 1,
+                    'unit_price'  => $total,
+                    'amount'      => $total,
+                ]);
+            }
+
+            // Y consume el saldo a favor del cliente, igual que la automática.
+            // Sin esto, quien borraba una factura pagada y creaba otra en su
+            // lugar dejaba al cliente con saldo a favor Y con la factura nueva
+            // debiendo entera: el dinero seguía en el sistema pero no pagaba
+            // nada, y el cliente aparecía debiendo lo que ya había pagado.
+            return $this->billingService->applyCreditToManualInvoice($invoice);
+        });
+
+        return response()->json($invoice->fresh('items'), 201);
+    }
+
+    /**
+     * Concepto por defecto de la línea de una factura manual: el nombre del tipo
+     * en el catálogo del tenant y, si es mensual, el mes que cubre.
+     */
+    private function defaultItemDescription(array $data): string
+    {
+        $slug = $data['invoice_type'];
+
+        $nombre = \App\Models\InvoiceType::forTenant((int) $data['tenant_id'])
+            ->where('slug', $slug)
+            ->value('name') ?: ucfirst(str_replace('_', ' ', $slug));
+
+        if ($slug === Invoice::TYPE_MONTHLY && !empty($data['period_start'])) {
+            try {
+                return $nombre . ': ' . Carbon::parse($data['period_start'])->translatedFormat('F \d\e Y');
+            } catch (\Exception $e) {
+                // Fecha rara: mejor el nombre a secas que reventar el alta.
+            }
+        }
+
+        return $nombre;
+    }
+
+    /** Tipo de ítem coherente con el tipo de factura (`invoice_items.type`). */
+    private function itemTypeFor(string $invoiceType): string
+    {
+        return match ($invoiceType) {
+            Invoice::TYPE_MONTHLY => 'plan',
+            'installation'        => 'service',
+            default               => 'charge',
+        };
     }
 
     // Update Invoice

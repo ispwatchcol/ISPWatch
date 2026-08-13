@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import InvoiceDeleteWarning from '@/components/billing/InvoiceDeleteWarning.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { customerDisplayName as resolveCustomerDisplayName } from '@/utils/customerName'
 import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
@@ -343,13 +344,14 @@ onMounted(() => {
             :visible="showDeleteModal"
             variant="danger"
             title="Eliminar factura"
-            :message="invoice ? `Vas a eliminar la factura #${invoice.number} de forma permanente. Si tiene pagos, el monto se devolverá como saldo a favor del cliente. Esta acción no se puede deshacer.` : ''"
             require-text="ELIMINAR"
             confirm-text="Eliminar"
             loading-text="Eliminando..."
             :loading="deleting"
             @confirm="confirmDelete"
             @cancel="showDeleteModal = false"
-        />
+        >
+            <InvoiceDeleteWarning :invoice="invoice" />
+        </ConfirmModal>
     </div>
 </template>

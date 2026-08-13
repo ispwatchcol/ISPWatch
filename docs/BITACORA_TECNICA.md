@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-13 · Rama: `feat/invoices-column-filters`
+**Última actualización:** 2026-08-13 · Rama: `fix/invoice-delete-warning-and-manual-invoice`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Borrar una factura pagada dejaba el dinero en el aire (2026-08-13, § 30):** el modal no
+  decía cuánto dinero soltaba, el alta manual no creaba el ítem ni aplicaba el saldo a favor, y
+  nadie auditaba que el dinero ya cobrado siguiera cuadrando. En producción: 91 clientes y
+  $5.709.350 sin respaldo. Nuevo `billing:verify-orphan-payments`.
 - **Facturación se revisaba a ciegas (2026-08-13, § 29):** la pantalla tenía un solo buscador
   para nueve columnas, así que "qué facturas de más de $100.000 vencen esta semana y siguen
   debiendo" sólo se podía responder exportando a Excel. Ahora hay una casilla bajo cada título,
@@ -79,6 +83,7 @@
 28. [La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13](#28-la-wan-seguía-sin-leerse-había-dos-túneles-peleándose--2026-08-13)
 28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
 29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
+30. [Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13](#30-borrar-una-factura-pagada-dejaba-el-dinero-en-el-aire--2026-08-13)
 
 ---
 
@@ -2828,3 +2833,87 @@ desde la corrección de OWASP A01). La entrada por URL de Servicios Adicionales
 > (`Dos fallos que sólo el CI de PostgreSQL podía ver` y `La WAN seguía sin leerse`), resultado
 > de dos ramas que añadieron sección a la vez. No se renumeran aquí para no romper las
 > referencias cruzadas de otras ramas abiertas.
+
+---
+
+## 30. Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13
+
+Un cliente preguntó qué pasa exactamente al eliminar una factura y al crear otra en su lugar.
+La respuesta, mirando el código **y los datos de producción**, resultó ser que el flujo que se
+estaba usando a diario pierde dinero por tres sitios distintos, y que ninguna auditoría lo veía.
+
+### 30.1 El caso que lo destapó
+
+Un cliente con una mensualidad de julio ya pagada (52.500, efectivo, ref 2186):
+
+| Hora | Qué pasó |
+|---|---|
+| 13-ago 17:04:09 | Un operador borra la mensualidad **de julio** — la que ya estaba pagada |
+| 13-ago 17:04:25 | 16 s después crea una factura nueva, periodo agosto, 68.000, **sin ítems** |
+| 13-ago 19:28:58 | Otro operador borra la mensualidad **de agosto** |
+| entre medias | Cuatro ajustes manuales del saldo a favor: +52.500, −52.500, +52.500, −52.500 |
+
+La intención era cambiarle el precio a agosto. Se borró la factura equivocada y, al final, el
+pago de julio no respaldaba ninguna factura ni figuraba como saldo: el cliente aparecía
+debiendo 68.000 después de haber pagado 52.500.
+
+**No era un caso aislado.** En producción, el día de la revisión: 91 clientes con
+**$5.709.350** de dinero recibido que no respalda factura ni saldo, 27 periodos con lápida y
+37 facturas sin un solo ítem. 15 borrados de factura en los siete días anteriores.
+
+### 30.2 Los tres huecos
+
+**El modal de borrado no decía cuánto dinero estaba en juego.** Decía *"si tiene pagos, el
+monto se devolverá como saldo a favor"* — en condicional y sin cifra. Quien borraba no podía
+distinguir una factura de $0 pendiente de una de $52.500 ya cobrada. Justo el dato que habría
+frenado el primer clic.
+
+**El alta manual no creaba el ítem de detalle.** `generateMonthlyInvoices()` siempre creó el
+suyo; `BillingController::store()` sólo insertaba la cabecera. Resultado: PDF con la tabla de
+detalle vacía y un total suelto al pie, en 37 facturas.
+
+**El alta manual no aplicaba el saldo a favor.** La automática termina en
+`applyCreditToInvoice()`; la manual no. Combinado con el borrado —que devuelve el dinero
+*como saldo a favor*— el resultado era el peor posible: el cliente con saldo a favor **y** con
+la factura de reemplazo debiendo entera. El dinero seguía en el sistema sin pagar nada.
+
+### 30.3 Qué se construyó
+
+| Archivo | Cambio |
+|---|---|
+| `components/billing/InvoiceDeleteWarning.vue` | Nuevo. Cuerpo del modal, compartido por listado y detalle: importe ya aplicado, mes que queda bloqueado, y las dos alternativas (ítem negativo / Cancelada) |
+| `BillingController::store()` | Crea el `invoice_item` con su concepto y aplica el saldo a favor, **todo en una transacción** |
+| `BillingService::applyCreditToManualInvoice()` | Envoltura pública de `applyCreditToInvoice()` para el alta manual |
+| `BillingService::auditOrphanPayments()` | Comprueba la invariante de caja por cliente. No escribe |
+| `billing:verify-orphan-payments` | Comando de alerta (log + email + exit-code), diario a las 08:00 |
+| `InvoicesList.vue` | Campo **Concepto** en *Nueva factura* |
+
+La invariante del comando nuevo es la más simple que tiene el módulo:
+
+```
+sum(payments.amount) == sum(payment_allocations.amount) + credit_balance
+```
+
+Todo peso que entró está aplicado a una factura o está en el saldo a favor. Se mide **por
+cliente** y no en total, porque en el total se compensa solo: a uno le sobra lo que al otro le
+falta y el descuadre desaparece. Da igual qué lo provocó —borrar una factura pagada, un ajuste
+manual a la baja, un pago que nunca se asignó—: el síntoma es el mismo y es el que hay que ver.
+
+Cubre un punto ciego real: `billing:verify-monthly` mira que las facturas se generen y
+`billing:verify-cuts` que se corte a quien debe. Que el dinero **ya cobrado** siguiera cuadrando
+no lo miraba nadie.
+
+### 30.4 Decisiones
+
+**El comando no arregla nada, sólo avisa.** Igual que las otras dos auditorías. Reasignar un
+pago o devolver un saldo exige saber qué se quiso cobrar; automatizarlo movería dinero real
+sobre una suposición. La alerta trae, por cliente, qué revisar y en qué orden.
+
+**El aviso de borrado no bloquea.** Se consideró prohibir eliminar facturas con pagos
+aplicados. Se descartó: hay casos legítimos (factura duplicada que ya recibió un abono) y una
+prohibición se acaba sorteando por la vía peor. Se da la cifra y se exige escribir `ELIMINAR`.
+
+**Los 91 clientes descuadrados NO se tocaron.** Son dinero real de clientes reales y cada caso
+necesita criterio: no es lo mismo un pago que nunca se asignó que uno cuyo saldo alguien ajustó
+a mano. Parte puede venir además del bug de anulación de pagos que arregla
+`feat/money-audit-trail`, **todavía sin desplegar**. Queda en `MEJORAS_RECOMENDADAS.md`.
