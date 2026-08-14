@@ -969,12 +969,32 @@ Consecuencias prácticas:
 | Carga masiva | N sesiones SSH → 504 del gateway | N filas → sin red |
 | Credenciales de gestión del router | Obligatorias | No hacen falta |
 | Config en el equipo | Por cliente | Una vez por router |
-| Corte por mora | Regla de firewall + reconciliar contra el RB | Perfil restringido + CoA |
+| Corte por mora | Regla de firewall + reconciliar contra el RB | Lo aplica el AAA externo; ISPWatch lo ordena y lo concilia |
 
 Por eso `provisionByControlMode()` resuelve RADIUS y **retorna antes** de
 llamar a `RouterEndpointResolver`: resolver el endpoint abre SSH contra el CORE
 para preguntar qué IP tiene realmente el router, y en este modo ese dato no se
 usa para nada.
+
+### Dónde termina la responsabilidad de ISPWatch
+
+`radius = true` es **una sola bandera, y es a propósito**. ISPWatch no guarda el
+secreto del NAS, ni el puerto de CoA, ni los perfiles; tampoco sesiones ni
+contabilidad. Todo eso vive en el servidor AAA, que lo opera quien lo tiene.
+
+La razón es de producto. Que ISPWatch respondiera cada `Access-Request` lo
+pondría en el **camino crítico de la autenticación**: un despliegue dejaría sin
+internet a los abonados de ese ISP, no sin panel. Para un SaaS multi-inquilino
+ese canje no cierra — obliga a sostener un SLA de red con un producto de gestión.
+
+El diseño completo —`rlm_rest`, cola de CoA y espejo de sesiones— quedó archivado
+en la rama `spike/radius-rlm-rest`. Sigue siendo válido para un ISP **sin**
+orquestador propio y se retoma si aparece uno que lo pida.
+
+**Contrapartida que hay que cubrir:** si el corte por mora lo ejecuta un tercero,
+ISPWatch necesita confirmación técnica de vuelta y reconciliación — o el cobro
+depende de que alguien más ejecute sin que podamos verificarlo. Ver el § 33 de
+[`BITACORA_TECNICA.md`](BITACORA_TECNICA.md).
 
 El detalle de versión y empaquetado del servidor FreeRADIUS está en
 [`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).

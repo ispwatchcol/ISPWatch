@@ -3136,3 +3136,91 @@ Esquema, modelos, el modo en el dispatcher y el toggle en el formulario. **Nada 
 ningún cliente en producción todavía**: no hay router con `radius = true` y las tres tablas nacen
 vacías. Faltan los endpoints `/api/radius/*` (fase 2), FreeRADIUS contra un router de laboratorio
 (fase 3), el piloto en producción (fase 4) y el corte por mora con el agente CoA (fase 5).
+
+---
+
+## 33. RADIUS se reduce a un interruptor: llega la propuesta de CNO — 2026-08-14
+
+### 33.1 Qué cambió el mismo día
+
+Horas después de implementar la fase 1 del § 32, Colombia Net de Occidente (CNO) envió una
+propuesta de integración de ocho contratos. CNO **ya opera su propio FreeRADIUS 3.x** sobre
+MariaDB, con MikroTik como NAS y una plataforma propia que hace provisioning, lectura de
+sesiones y reconciliación. Su principio rector, textual:
+
+> «ISPwash no necesita escribir directamente en FreeRADIUS ni en los routers.»
+
+Eso contradice de frente el diseño `rlm_rest` elegido en el § 32, donde ISPWatch respondía
+cada `Access-Request`. **Los dos modelos son mutuamente excluyentes** para un mismo cliente:
+no puede haber dos sistemas dueños de la misma respuesta RADIUS.
+
+### 33.2 Por qué se cede la capa técnica (y por qué conviene)
+
+La decisión no se tomó por complacer al cliente, sino por lo que ISPWatch es: **un SaaS
+multi-inquilino, no un desarrollo a la medida**. Con `rlm_rest`, un despliegue de ISPWatch o
+un pico de latencia dejan **sin internet** a los abonados de ese ISP — no sin panel, sin red.
+Vender eso a cinco ISP y subiendo no es sostenible: obliga a ofrecer un SLA de red cuando el
+producto es de gestión.
+
+En el modelo de CNO esa dependencia desaparece: FreeRADIUS decide, CNO provisiona e ISPWatch
+queda fuera del camino de datos. Se pierde control y visibilidad; se gana que una caída del
+panel no sea una caída del servicio. Para un SaaS, ese canje es correcto.
+
+### 33.3 Qué quedó y qué se archivó
+
+De la fase 1 sobrevive lo que sirve **en los dos modelos**:
+
+- `MODE_RADIUS` en el dispatcher. Bajo el modelo de CNO pasa de conveniencia a **requisito**:
+  es el interruptor de «ISPWatch no escribe en este RouterBoard».
+- `router.radius` como bandera única.
+- El trait `NormalizesRouterControlMode`, que además arregla una inconsistencia previa.
+
+Se archivó en la rama `spike/radius-rlm-rest`:
+
+- Las tablas `radius_sessions`, `radius_auth_logs` y `radius_coa_commands`. Bajo este modelo
+  esos datos son del orquestador externo; mantener migraciones que nadie escribiría es deuda,
+  y peor, deuda que alguien puede aplicar por error.
+- Las columnas `radius_secret`, `radius_coa_port`, `radius_nas_identifier` y
+  `radius_walled_garden_list`: configuración del NAS, que la tiene quien opera el NAS.
+
+No se borró: el diseño completo sigue siendo válido para un ISP **sin** orquestador propio,
+donde resuelve un dolor real (se acaban los pushes SSH por cliente). Se retoma si un segundo
+ISP lo pide; sostenerlo por un solo cliente que además no lo quiere, no.
+
+### 33.4 Tres trampas encontradas al mapear los contratos
+
+**`customer_profile.service_id` NO es un servicio: es el plan** (FK a `service_plan.id`; ver
+`Plan::find($customer->service_id)`). Mapearlo al `service_id` canónico de un integrador
+correlaciona clientes contra planes y **falla en silencio**. Es la única de las tres que no
+avisa.
+
+**No hay soporte real de multi-punto por cliente.** `user_services.id` sí sirve como
+`service_id` estable y distinto del cliente, pero los atributos de red (`router_id`,
+`ip_user`, `pppoe_username`) viven en `customer_profile`. Una segunda fila de servicios no
+tendría configuración de red propia. Publicar el identificador sin aclararlo llevaría al
+integrador a construir sobre una capacidad inexistente.
+
+**La Partner API es de solo lectura por diseño**: el middleware `api_key` devuelve **405** a
+todo lo que no sea `GET` (`READ_ONLY_METHODS`). Es una invariante valiosa — una llave filtrada
+expone datos pero no cambia nada. Cualquier retorno técnico del integrador exige abrirla de
+forma acotada, nunca en general.
+
+### 33.5 Postura de producto
+
+ISPWatch publica **su** Partner API y el integrador es consumidor, no autor. La propuesta de
+CNO se usa como criterio de validación —si nuestra API cierra sus ocho contratos, está bien
+diseñada— pero no se adopta su vocabulario: con varios ISP encima, un dialecto por integrador
+es un contrato que nadie puede romper nunca.
+
+Dos posiciones que se sostienen aunque incomoden:
+
+- **Feed de cambios por cursor, no webhooks salientes.** Un webhook obliga a hacer peticiones
+  a URLs que controla el cliente: SSRF, presión de cola y un endpoint caído que degrada a los
+  demás inquilinos. El feed append-only con cursor no tiene ninguno de los tres, y ya hay
+  precedente probado (`router_outage_events` ↔ Converza).
+- **El retorno técnico del integrador es requisito nuestro, no una concesión.** Si ISPWatch
+  cede la ejecución, el corte por mora —del que depende el cobro— pasa a depender de que un
+  tercero ejecute. Sin confirmación no hay forma de saber que ocurrió. Este proyecto ya tiene
+  cinco comandos de verificación (`VerifyAutomaticCuts`, `ReconcileSuspensions`,
+  `VerifyMonthlyBilling`, `VerifyOrphanPayments`, `VerifyVpnTunnels`) precisamente porque un
+  cambio de estado no confirmado es un cambio que no ocurrió.

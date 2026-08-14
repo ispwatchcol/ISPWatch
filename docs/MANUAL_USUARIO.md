@@ -1173,10 +1173,10 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 > Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
 > por demora.
 >
-> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**, y hay
-> que llenar el **secreto compartido** (el mismo que tenga configurado el equipo). Por
-> seguridad ese secreto **no se vuelve a mostrar** una vez guardado: si dejas el campo
-> vacío al editar, se conserva el que ya estaba; sólo escribe algo si quieres cambiarlo.
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**.
+> La configuración del servidor RADIUS (secreto compartido, puertos, perfiles) se hace
+> **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para que
+> el sistema deje de escribirle configuración por su cuenta.
 
 Y dos opciones **adicionales** que se suman al método elegido:
 

@@ -144,7 +144,6 @@ class RadiusControlModeTest extends TestCase
             // El cliente manda dos modos: el backend debe quedarse con uno.
             'radius'           => true,
             'pppoe'            => true,
-            'radius_secret'    => 'un-secreto-compartido',
         ]);
 
         $response->assertCreated();
@@ -156,21 +155,11 @@ class RadiusControlModeTest extends TestCase
     }
 
     #[Test]
-    public function el_secreto_radius_nunca_vuelve_en_la_api(): void
+    public function cambiar_a_otro_modo_apaga_radius(): void
     {
-        $tenant = Tenant::factory()->create();
-        Sanctum::actingAs($this->admin($tenant));
-
-        $router = $this->radiusRouter($tenant, ['radius_secret' => 'no-me-publiques']);
-
-        $this->getJson("/api/routers/{$router->id}")
-            ->assertOk()
-            ->assertJsonMissingPath('radius_secret');
-    }
-
-    #[Test]
-    public function actualizar_sin_mandar_secreto_conserva_el_vigente(): void
-    {
+        // El camino de vuelta importa tanto como el de ida: un router que se
+        // saca de RADIUS tiene que volver a recibir configuración por SSH, y
+        // para eso la bandera debe quedar en false de verdad.
         $tenant = Tenant::factory()->create();
         Sanctum::actingAs($this->admin($tenant));
 
@@ -179,69 +168,33 @@ class RadiusControlModeTest extends TestCase
             'user_rb'          => 'admin',
             'password_rb'      => 'secreta',
             'firmware_version' => '7.14.3',
-            'radius_secret'    => 'el-secreto-original',
         ]);
 
-        // El formulario reenvía todo MENOS el secreto (el campo va vacío
-        // porque la API nunca lo devolvió). Esto no debe borrarlo.
         $this->putJson("/api/routers/{$router->id}", [
-            'name'          => 'NAS renombrado',
-            'radius'        => true,
-            'radius_secret' => '',
+            'radius'       => false,
+            'simple_queue' => true,
         ])->assertOk();
 
         $router->refresh();
-        $this->assertSame('NAS renombrado', $router->name);
-        $this->assertSame('el-secreto-original', $router->radius_secret);
+        $this->assertFalse((bool) $router->radius);
+        $this->assertTrue((bool) $router->simple_queue);
+        $this->assertSame(
+            CustomerProvisioningService::MODE_SIMPLE_QUEUE,
+            CustomerProvisioningService::resolveControlMode($router)
+        );
     }
 
     #[Test]
-    public function el_secreto_radius_se_guarda_cifrado_en_la_base(): void
+    public function un_router_sin_radius_no_expone_la_bandera_encendida(): void
     {
         $tenant = Tenant::factory()->create();
-        $router = $this->radiusRouter($tenant, ['radius_secret' => 'texto-plano-jamas']);
-
-        $raw = \DB::table('router')->where('id', $router->id)->value('radius_secret');
-
-        $this->assertNotSame('texto-plano-jamas', $raw);
-        $this->assertSame('texto-plano-jamas', $router->fresh()->radius_secret);
-    }
-
-    #[Test]
-    public function una_fila_sin_configurar_cae_en_los_defaults_seguros(): void
-    {
-        $tenant = Tenant::factory()->create();
-        // Sin tocar ninguna columna RADIUS: el puerto lo pone el default de la
-        // migración y los dos textos quedan nulos.
-        $router = $this->radiusRouter($tenant, [
-            'radius_nas_identifier'     => null,
-            'radius_walled_garden_list' => null,
+        $router = Router::create([
+            'name'      => 'RB clásico',
+            'tenant_id' => $tenant->id,
+            'status'    => 'active',
         ]);
 
-        $this->assertSame(3799, $router->fresh()->coaPort());
-        $this->assertSame("ispwatch-router-{$router->id}", $router->nasIdentifier());
-        $this->assertSame('morosos', $router->walledGardenList());
-        $this->assertTrue($router->usesRadius());
-    }
-
-    #[Test]
-    public function los_helpers_resisten_valores_vacios_sin_pasar_por_la_base(): void
-    {
-        // `radius_coa_port` es NOT NULL con default en el esquema, así que la
-        // rama de "valor ausente" de coaPort() no es alcanzable escribiendo una
-        // fila — pero sí con un modelo en memoria o con un 0 heredado. Se prueba
-        // el contrato del helper directamente, que es lo que protege al emisor
-        // de CoA de marcar el puerto 0.
-        $router = new Router([
-            'radius_coa_port'           => null,
-            'radius_nas_identifier'     => '   ',
-            'radius_walled_garden_list' => '',
-        ]);
-
-        $this->assertSame(3799, $router->coaPort());
-        $this->assertSame('morosos', $router->walledGardenList());
-
-        $router->radius_coa_port = 0;
-        $this->assertSame(3799, $router->coaPort());
+        $this->assertFalse($router->usesRadius());
+        $this->assertNull(CustomerProvisioningService::resolveControlMode($router));
     }
 }

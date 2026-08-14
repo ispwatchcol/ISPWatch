@@ -55,14 +55,8 @@ class StoreRouterRequest extends FormRequest
             'dhcp_leases' => 'nullable|boolean',
             'falla_general' => 'nullable|boolean',
 
-            // ── RADIUS (sexto método de control) ──
+            // Sexto método de control: el AAA externo gestiona este router.
             'radius' => 'nullable|boolean',
-            // El secreto compartido con el NAS. Nunca vuelve en las respuestas
-            // (Router::$hidden) y solo se escribe cuando llega no vacío.
-            'radius_secret' => 'nullable|string|max:255',
-            'radius_coa_port' => 'nullable|integer|min:1|max:65535',
-            'radius_nas_identifier' => 'nullable|string|max:64',
-            'radius_walled_garden_list' => 'nullable|string|max:64',
         ];
     }
 

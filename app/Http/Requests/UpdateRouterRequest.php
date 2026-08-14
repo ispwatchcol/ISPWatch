@@ -55,14 +55,8 @@ class UpdateRouterRequest extends FormRequest
             'dhcp_leases' => 'nullable|boolean',
             'falla_general' => 'nullable|boolean',
 
-            // ── RADIUS (sexto método de control) ──
+            // Sexto método de control: el AAA externo gestiona este router.
             'radius' => 'nullable|boolean',
-            // Llega vacío cuando el operador no lo cambia: RouterController lo
-            // descarta en ese caso para no pisar el secreto vigente con "".
-            'radius_secret' => 'nullable|string|max:255',
-            'radius_coa_port' => 'nullable|integer|min:1|max:65535',
-            'radius_nas_identifier' => 'nullable|string|max:64',
-            'radius_walled_garden_list' => 'nullable|string|max:64',
         ];
     }
 }

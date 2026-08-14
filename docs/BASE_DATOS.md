@@ -105,14 +105,12 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `traffic_daily` | 57 | Agregado diario de tráfico |
 | `router_outage_events` | 0 | Falla masiva (append-only), consumido por Converza |
 | `script_version` | 2 | Catálogo de versiones de script |
-| `radius_sessions` | — | Sesiones RADIUS vivas y cerradas (alimentadas por Accounting) |
-| `radius_auth_logs` | — | Bitácora de autenticaciones RADIUS (accept y reject, con motivo) |
-| `radius_coa_commands` | — | Cola de órdenes CoA/Disconnect hacia el NAS, con reintentos |
-
-> Las tres tablas `radius_*` se crean en las migraciones `2026_08_14_1001xx`–`1003xx`
-> y nacen vacías: el modo RADIUS todavía no está activo en ningún router.
-> Ver [`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md) y la sección de RADIUS en
-> [`ARQUITECTURA.md`](ARQUITECTURA.md).
+> **No hay tablas `radius_*`, y es a propósito.** Cuando un router tiene
+> `radius = true`, las sesiones, la contabilidad y las órdenes de desconexión viven
+> en el sistema AAA externo, no aquí. Una versión anterior de este trabajo las
+> creaba (ISPWatch como cerebro del RADIUS); ese diseño quedó archivado en la rama
+> `spike/radius-rlm-rest` por poner a ISPWatch en el camino crítico de cada
+> autenticación. Ver [`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).
 
 ### Facturación
 
@@ -573,11 +571,7 @@ Contiene **todos** los actores: clientes, técnicos, staff y administradores. El
 | `hotspot` | boolean | NN | `false` | **Método de control** |
 | `pppoe` | boolean | NN | `false` | **Método de control** |
 | `dhcp_leases` | boolean | NN | `false` | **Método de control** |
-| `radius` | boolean | NN | `false` | **Método de control**. Gana el desempate: es el único que no escribe en el RouterBoard |
-| `radius_secret` | text | | | Secreto compartido con el NAS. **Cifrado** por cast y oculto de la API (`Router::$hidden`) |
-| `radius_coa_port` | integer | NN | `3799` | Puerto de CoA/Disconnect (RFC 5176) |
-| `radius_nas_identifier` | varchar(64) | | | Identidad estable del NAS; si es NULL se deriva del `id` |
-| `radius_walled_garden_list` | varchar(64) | | `morosos` | Address-list de cortados con acceso solo al portal |
+| `radius` | boolean | NN | `false` | **Método de control**: el AAA externo gestiona este router e ISPWatch no le escribe. Gana el desempate por ser el único que no toca el RouterBoard |
 | `pppoe_limit_mode` | varchar(20) | NN | `dynamic` | Modo de límite PPPoE |
 | `ip_bindings` | boolean | NN | `false` | Aditivo: ARP estático |
 | `amarre` | boolean | NN | `false` | Aditivo: drop por par IP/MAC |

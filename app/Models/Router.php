@@ -44,10 +44,6 @@ class Router extends Model
         'amarre',
         'dhcp_leases',
         'radius',
-        'radius_secret',
-        'radius_coa_port',
-        'radius_nas_identifier',
-        'radius_walled_garden_list',
         'falla_general',
         'vpn_transport',
         'wg_private_key',
@@ -95,24 +91,7 @@ class Router extends Model
         // wg_public_key queda SIN cifrar a propósito: se compara contra los peers
         // que el CORE tiene registrados, y un valor cifrado no es consultable.
         'wg_private_key' => 'encrypted',
-
-        // Secreto RADIUS compartido con el NAS. Cifrado y NO consultable: el
-        // generador de clients.conf recorre los routers por modelo y descifra
-        // al leer, nunca filtra por esta columna en SQL.
-        'radius_secret' => 'encrypted',
     ];
-
-    /**
-     * radius_secret SÍ se oculta de la API, al revés que password_rb.
-     *
-     * No es una inconsistencia: es hacer bien lo que en password_rb quedó mal.
-     * Aquel campo no puede ocultarse hoy porque el formulario lo reenvía tal
-     * cual y ocultarlo lo sobrescribiría con vacío (ver la nota de abajo).
-     * radius_secret nace sin ese lastre, así que se estrena con el contrato
-     * correcto: el formulario lo manda SOLO cuando el operador escribe uno
-     * nuevo, y RouterController conserva el actual si llega vacío o ausente.
-     */
-    protected $hidden = ['radius_secret'];
 
     // NOTA: password_rb y vpn_password NO están en $hidden a propósito.
     // El formulario de edición de router (resources/js/pages/RouterEdit.vue)
@@ -160,45 +139,17 @@ class Router extends Model
         return $this->vpnTransport() === self::TRANSPORT_WIREGUARD;
     }
 
-    /** ¿Este router delega autenticación y control de plan en RADIUS? */
+    /**
+     * ¿El control de este router lo ejecuta un AAA externo?
+     *
+     * Cuando devuelve true, ISPWatch NO escribe la configuración por-cliente en
+     * el RouterBoard: el equipo autentica contra un servidor RADIUS y el estado
+     * del abonado no vive en el router. Es la compuerta que consulta
+     * CustomerProvisioningService antes de abrir cualquier sesión SSH.
+     */
     public function usesRadius(): bool
     {
         return (bool) $this->radius;
-    }
-
-    /**
-     * Puerto al que el agente manda CoA/Disconnect. 3799 es el estándar
-     * (RFC 5176) y lo que RouterOS abre con `/radius incoming set accept=yes`.
-     */
-    public function coaPort(): int
-    {
-        $port = (int) ($this->radius_coa_port ?? 0);
-
-        return $port > 0 ? $port : 3799;
-    }
-
-    /**
-     * Identidad estable del NAS ante el RADIUS.
-     *
-     * No se usa la IP: el CORE reasigna direcciones del pool en cada
-     * reconexión del túnel, así que la IP almacenada queda obsoleta sola —
-     * es exactamente la deriva que RouterEndpointResolver existe para
-     * corregir. Si el operador no fijó un identificador, se deriva del id,
-     * que sí es inmutable.
-     */
-    public function nasIdentifier(): string
-    {
-        $identifier = trim((string) ($this->radius_nas_identifier ?? ''));
-
-        return $identifier !== '' ? $identifier : "ispwatch-router-{$this->id}";
-    }
-
-    /** Address-list del walled garden para los cortados por mora. */
-    public function walledGardenList(): string
-    {
-        $list = trim((string) ($this->radius_walled_garden_list ?? ''));
-
-        return $list !== '' ? $list : 'morosos';
     }
 
     /**

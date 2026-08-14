@@ -467,47 +467,6 @@
                 </label>
               </div>
 
-              <!-- Sub-opción: configuración RADIUS -->
-              <div v-if="form.radius" class="mt-4 p-4 rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-900/10">
-                <div class="text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Configuración RADIUS</div>
-                <p class="hint mb-3">
-                  Con RADIUS los clientes ya no se cargan uno a uno en el Mikrotik: el router pregunta y
-                  ISPWatch responde. Los clientes de este router necesitan usuario y contraseña PPPoE.
-                </p>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label class="label">Secreto compartido</label>
-                    <input
-                      v-model="form.radius_secret"
-                      type="password"
-                      autocomplete="new-password"
-                      class="input"
-                      placeholder="El mismo configurado en el NAS"
-                    />
-                    <p class="hint">Debe coincidir con el secreto que tiene el router en <code>/radius</code>.</p>
-                  </div>
-
-                  <div>
-                    <label class="label">Puerto CoA</label>
-                    <input v-model.number="form.radius_coa_port" type="number" min="1" max="65535" class="input" />
-                    <p class="hint">3799 es el estándar. Requiere <code>/radius incoming set accept=yes</code> en el router.</p>
-                  </div>
-
-                  <div>
-                    <label class="label">Identificador NAS</label>
-                    <input v-model="form.radius_nas_identifier" type="text" maxlength="64" class="input" placeholder="Se genera solo si lo dejas vacío" />
-                    <p class="hint">Identifica al router aunque cambie su IP del túnel.</p>
-                  </div>
-
-                  <div>
-                    <label class="label">Lista de morosos</label>
-                    <input v-model="form.radius_walled_garden_list" type="text" maxlength="64" class="input" placeholder="morosos" />
-                    <p class="hint">Address-list a la que van los cortados, con acceso solo al portal de pago.</p>
-                  </div>
-                </div>
-              </div>
-
               <!-- Sub-opción: Tipo de limitación PPPoE -->
               <div v-if="form.pppoe" class="mt-4 p-4 rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-900/10">
                 <div class="text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Tipo de limitación PPPoE</div>
@@ -768,10 +727,6 @@ const form = reactive({
   amarre: false,
   dhcp_leases: false,
   radius: false,
-  radius_secret: '',
-  radius_coa_port: 3799,
-  radius_nas_identifier: '',
-  radius_walled_garden_list: 'morosos',
   falla_general: false,
   comentarios_router: "",
   activo: true,
@@ -1039,12 +994,6 @@ const saveRouter = async () => {
     amarre: form.amarre || false,
     dhcp_leases: form.dhcp_leases || false,
     radius: form.radius || false,
-    // Solo se manda si el operador escribió algo: el backend interpreta la
-    // ausencia como "conservar el secreto actual".
-    ...(form.radius_secret ? { radius_secret: form.radius_secret } : {}),
-    radius_coa_port: form.radius_coa_port || 3799,
-    radius_nas_identifier: form.radius_nas_identifier || null,
-    radius_walled_garden_list: form.radius_walled_garden_list || 'morosos',
     falla_general: form.falla_general || false,
     rangos_ip: form.rangos_ip || null,
     billing: buildBillingPayload(),
