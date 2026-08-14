@@ -1165,6 +1165,18 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 | **HotSpot** | Clientes que entran con usuario y contraseña en un portal |
 | **PPPoE** | Clientes con usuario y contraseña de conexión |
 | **DHCP Leases** | Asignación fija por dirección MAC |
+| **RADIUS (AAA)** | Tienes un servidor RADIUS que autentica a los clientes |
+
+> **RADIUS funciona al revés que los demás.** Con los otros métodos, ISPWatch entra al
+> router y escribe la configuración de cada cliente. Con RADIUS es el router el que
+> pregunta e ISPWatch responde, así que **los clientes ya no se cargan uno por uno en el
+> Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
+> por demora.
+>
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**.
+> La configuración del servidor RADIUS (secreto compartido, puertos, perfiles) se hace
+> **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para que
+> el sistema deje de escribirle configuración por su cuenta.
 
 Y dos opciones **adicionales** que se suman al método elegido:
 

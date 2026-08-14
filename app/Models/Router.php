@@ -43,6 +43,7 @@ class Router extends Model
         'ip_bindings',
         'amarre',
         'dhcp_leases',
+        'radius',
         'falla_general',
         'vpn_transport',
         'wg_private_key',
@@ -64,6 +65,7 @@ class Router extends Model
         'ip_bindings' => 'boolean',
         'amarre' => 'boolean',
         'dhcp_leases' => 'boolean',
+        'radius' => 'boolean',
         'falla_general' => 'boolean',
 
         // Credenciales cifradas en reposo. El cast descifra de forma transparente
@@ -135,6 +137,19 @@ class Router extends Model
     public function usesWireguard(): bool
     {
         return $this->vpnTransport() === self::TRANSPORT_WIREGUARD;
+    }
+
+    /**
+     * ¿El control de este router lo ejecuta un AAA externo?
+     *
+     * Cuando devuelve true, ISPWatch NO escribe la configuración por-cliente en
+     * el RouterBoard: el equipo autentica contra un servidor RADIUS y el estado
+     * del abonado no vive en el router. Es la compuerta que consulta
+     * CustomerProvisioningService antes de abrir cualquier sesión SSH.
+     */
+    public function usesRadius(): bool
+    {
+        return (bool) $this->radius;
     }
 
     /**

@@ -427,6 +427,34 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
+### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
+
+**Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.
+
+El diseño RADIUS usa `rlm_rest` con ISPWatch como fuente de verdad, lo que pone a la API en el
+camino crítico de cada autenticación. Para que una caída de ISPWatch no deje a toda la red sin
+conectar, FreeRADIUS cae a un **snapshot SQL local** que se sincroniza cada 5 minutos.
+
+La consecuencia: un cliente cortado por mora hace **menos de 5 minutos** puede reconectarse
+durante una caída de ISPWatch, porque el snapshot todavía lo tiene al día.
+
+**Por qué se acepta.** La alternativa es rechazar toda autenticación que no pueda confirmarse
+contra la BD, o sea dejar sin servicio a los clientes al día para no darle 5 minutos de gracia a
+un moroso. El compromiso está deliberadamente del lado de la continuidad del servicio.
+
+**Si alguna vez molesta**, la salida no es bajar el intervalo (multiplica la carga de sync sin
+cerrar la ventana): es que el pipeline de corte escriba el estado del moroso directo al snapshot
+además de a Postgres, para que la degradación herede el corte al instante.
+
+### 🟡 P-RADIUS-2 · Doble contabilidad de tráfico sin fuente autoritativa
+
+`radius_sessions` (octetos por sesión, vía Accounting) y el historial WAN existente
+(`traffic_samples`, contadores por interfaz) miden cosas distintas y **no van a coincidir**: uno
+cuenta tráfico de cliente autenticado, el otro todo lo que cruza la WAN del router.
+
+Antes de mostrar ambos en el panel hay que decidir cuál manda para cada pregunta, o soporte va a
+recibir llamadas por dos números distintos en dos pantallas de la misma app.
+
 ### 🔴 P-00 · 91 clientes con dinero recibido que no respalda nada (producción)
 
 Detectado el 2026-08-13 con el comando nuevo `billing:verify-orphan-payments`, que comprueba

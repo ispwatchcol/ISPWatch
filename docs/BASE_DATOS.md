@@ -105,6 +105,12 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `traffic_daily` | 57 | Agregado diario de tráfico |
 | `router_outage_events` | 0 | Falla masiva (append-only), consumido por Converza |
 | `script_version` | 2 | Catálogo de versiones de script |
+> **No hay tablas `radius_*`, y es a propósito.** Cuando un router tiene
+> `radius = true`, las sesiones, la contabilidad y las órdenes de desconexión viven
+> en el sistema AAA externo, no aquí. Una versión anterior de este trabajo las
+> creaba (ISPWatch como cerebro del RADIUS); ese diseño quedó archivado en la rama
+> `spike/radius-rlm-rest` por poner a ISPWatch en el camino crítico de cada
+> autenticación. Ver [`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).
 
 ### Facturación
 
@@ -565,6 +571,7 @@ Contiene **todos** los actores: clientes, técnicos, staff y administradores. El
 | `hotspot` | boolean | NN | `false` | **Método de control** |
 | `pppoe` | boolean | NN | `false` | **Método de control** |
 | `dhcp_leases` | boolean | NN | `false` | **Método de control** |
+| `radius` | boolean | NN | `false` | **Método de control**: el AAA externo gestiona este router e ISPWatch no le escribe. Gana el desempate por ser el único que no toca el RouterBoard |
 | `pppoe_limit_mode` | varchar(20) | NN | `dynamic` | Modo de límite PPPoE |
 | `ip_bindings` | boolean | NN | `false` | Aditivo: ARP estático |
 | `amarre` | boolean | NN | `false` | Aditivo: drop por par IP/MAC |

@@ -45,6 +45,7 @@ class RouterController extends Controller
             'hotspot',
             'pppoe',
             'dhcp_leases',
+            'radius',
             'firmware_version',
             'status',
             'falla_general',

@@ -407,6 +407,29 @@
                     ></span>
                   </span>
                 </label>
+
+                <!-- RADIUS -->
+                <label
+                  class="flex items-center justify-between gap-4 p-3 rounded-xl border bg-white dark:bg-gray-800 cursor-pointer transition-colors"
+                  :class="form.radius ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-gray-200 dark:border-gray-700'"
+                >
+                  <div class="text-sm">
+                    <div class="font-medium text-gray-700 dark:text-gray-200">RADIUS (AAA)</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">El router consulta al servidor RADIUS en cada conexión</div>
+                  </div>
+
+                  <input type="checkbox" :checked="form.radius" @change="setControlMode('radius')" class="sr-only" />
+
+                  <span
+                    class="relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="form.radius ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'"
+                  >
+                    <span
+                      class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
+                      :style="{ transform: form.radius ? 'translateX(20px)' : 'translateX(0)' }"
+                    ></span>
+                  </span>
+                </label>
               </div>
 
               <!-- Sub-opción: Tipo de limitación PPPoE -->
@@ -690,6 +713,7 @@ const form = reactive({
   ip_bindings: false,
   amarre: false,
   dhcp_leases: false,
+  radius: false,
   falla_general: false,
   comentarios_router: "",
   activo: true,
@@ -724,7 +748,10 @@ const form = reactive({
    MÉTODO DE CONTROL (exclusivo)
    Solo uno de estos puede estar activo a la vez.
 ============================ */
-const CONTROL_MODES = ['simple_queue', 'control_pcq', 'hotspot', 'pppoe', 'dhcp_leases']
+// El orden espeja el de CustomerProvisioningService::resolveControlMode() y el
+// del trait NormalizesRouterControlMode del backend. Si cambia en un lado tiene
+// que cambiar en los tres.
+const CONTROL_MODES = ['radius', 'simple_queue', 'control_pcq', 'hotspot', 'pppoe', 'dhcp_leases']
 
 const setControlMode = (mode) => {
   const enable = !form[mode]
@@ -773,6 +800,8 @@ const loadRouterData = async () => {
     form.dhcp_leases = !!data.dhcp_leases
     form.falla_general = !!data.falla_general
     form.pppoe_limit_mode = data.pppoe_limit_mode || 'dynamic'
+
+    form.radius = !!data.radius
 
     // Normalizar: el método de control es excluyente. Si por datos legados
     // hubiera más de uno activo, conservar solo el primero por prioridad.
@@ -950,6 +979,7 @@ const saveRouter = async () => {
     ip_bindings: form.ip_bindings || false,
     amarre: form.amarre || false,
     dhcp_leases: form.dhcp_leases || false,
+    radius: form.radius || false,
     falla_general: form.falla_general || false,
     rangos_ip: form.rangos_ip || null,
   }
