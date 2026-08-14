@@ -133,7 +133,8 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 |---|---:|---|
 | `prospects` | 9 | Clientes potenciales antes de convertirse en cliente |
 | `customer_installations` | 7 | Órdenes de instalación con acta firmada y cobro |
-| `customer_documents` | 13 | Documentos en S3 (cédula, contrato, acta) |
+| `customer_documents` | 14 | Documentos en S3 (cédula, contrato, acta) |
+| `contract_signature_links` | 19 | Enlaces de firma remota del contrato (token hasheado) |
 | `document_templates` | 0 | Plantillas HTML de factura/contrato/acta por tenant |
 | `support_ticket` | 6 | Tickets de soporte |
 | `support_ticket_message` / `_attachment` | 0 / 0 | Conversación y adjuntos |
@@ -829,6 +830,42 @@ entre sí dentro de un índice único). El contador vive en `tenant.next_contrac
 se reserva con `lockForUpdate`, igual que el de facturas — migraciones
 `2026_08_04_120000` (esquema) y `2026_08_04_120100` (numeración retroactiva de los
 contratos ya firmados, por orden cronológico y por tenant).
+
+`content_sha256` (varchar(64), nullable — migración `2026_08_13_150000`) es la **huella
+del PDF tal como quedó almacenado**. Se calcula sobre los mismos bytes que se suben a S3,
+nunca releyendo el objeto: un hash tomado de la relectura documentaría una corrupción de
+escritura como si fuera lo que el cliente firmó. Es lo que permite demostrar años después
+que el archivo exhibido es byte a byte el firmado, y por eso **no** va impreso dentro del
+propio PDF (sería una referencia circular). Lo llenan los dos caminos de firma.
+
+### 4.14.1 `contract_signature_links` — Firma remota del contrato
+
+Un cliente firma su contrato desde un enlace, sin cuenta ni sesión (§ *Firma remota de
+contratos* en `ARQUITECTURA.md`).
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `tenant_id`, `customer_id` | bigint | Índice `(tenant_id, customer_id)` |
+| `token_hash` | varchar(64) **UK** | **SHA-256** del token; el token en claro NUNCA se persiste |
+| `expires_at` | timestamp | 72 h por defecto (`ContractSignatureLink::DEFAULT_TTL_HOURS`) |
+| `created_by` | bigint null | Empleado que lo emitió |
+| `sent_channel` / `sent_to` / `sent_at` | varchar(20) / varchar(190) / timestamp | `email`, `whatsapp`, `manual`. `sent_at` sólo se marca cuando **el servidor** envió algo (correo); un `wa.me` lo dispara el operador desde su teléfono |
+| `reminder_sent_at` | timestamp null | Un único recordatorio por enlace |
+| `opened_at` | timestamp null | **Primera** apertura, no la última |
+| `verified_at` | timestamp null | Superó la verificación de cédula |
+| `failed_attempts` | smallint | A los 5 (`MAX_FAILED_ATTEMPTS`) el enlace queda quemado |
+| `signed_at`, `signer_ip`, `signer_user_agent` | timestamp / varchar(45) / varchar(512) | Constancia de firma electrónica |
+| `document_id` | bigint null | `customer_documents` generado |
+| `revoked_at` | timestamp null | Anulado a mano o al emitir uno nuevo |
+
+Índice `(signed_at, expires_at)` para el barrido de `contracts:remind-unsigned`.
+
+**Por qué una tabla y no un signed URL de Laravel** (como el de verificación de correo):
+un contrato es un documento legal y lo que le da valor probatorio es el rastro — quién lo
+abrió, desde qué IP y cuándo, más que fuera de un solo uso y revocable. Un signed URL
+lleva la firma dentro de la propia URL: no se puede revocar sin rotar `APP_KEY` (que
+invalidaría también los correos de verificación) y no deja dónde anotar un intento
+fallido.
 
 **`document_templates`** — plantilla HTML por tenant y tipo (**UK** `(tenant_id, type)`),
 `type` ∈ {`invoice`, `contract`, `installation`}, `body_html`, `is_active`,

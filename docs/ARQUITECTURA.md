@@ -659,6 +659,61 @@ siempre un PDF standalone vía `Pdf::loadHTML()`, nunca se embebe en otra págin
 guardada **antes** de este fix perdió su `id` de forma permanente en `body_html` (la sanitización
 corre una sola vez, al guardar) — requiere volver a pegar/guardar el HTML para recuperarlo.
 
+### Firma remota de contratos (`ContractSigningService` + `PublicContractController`)
+
+El cliente firma su contrato desde un enlace en el celular, sin cuenta ni sesión. Es el
+**único punto del sistema donde una petición sin autenticar escribe un documento legal**,
+así que casi todo el diseño gira alrededor de esa frase.
+
+**Un solo servicio para los dos caminos.** Existen dos entradas a la misma operación —
+firma presencial (`CustomerDocumentController::signContract`, con un empleado autenticado)
+y firma remota (`PublicContractController::sign`, autorizada por el token) — y todo lo
+delicado es común: el candado de un solo contrato vigente por cliente, la reserva del
+consecutivo con `lockForUpdate` y el orden entre reservar, renderizar y guardar.
+`ContractSigningService::sign()` es ese punto único; duplicarlo en dos controladores
+significaba, tarde o temprano, dos huecos distintos en la numeración del ISP.
+
+**El token no se guarda.** `contract_signature_links.token_hash` es el SHA-256 del token,
+igual que `personal_access_tokens`. El token en claro sólo existe en la respuesta que lo
+genera. Consecuencia directa y deliberada: **no hay "reenviar el mismo enlace"** — ni el
+servidor puede reconstruirlo. Un reenvío es siempre un enlace nuevo, y emitirlo revoca el
+anterior dentro de la misma transacción.
+
+**Tres pasos, no uno.** `show` (portada con lo mínimo: nombre de pila y del ISP) → `verify`
+(últimos 4 de la cédula; recién ahí sale el contrato completo) → `sign` (que **vuelve** a
+exigir esos 4 dígitos, porque un `POST` directo se saltaría `verify` sin despeinarse). Un
+cliente sin cédula registrada queda exento de la verificación: lo contrario lo dejaría
+encerrado fuera de su propio contrato.
+
+**Defensas por capa.** Por enlace: expiración (72 h), un solo uso, revocable y 5 intentos
+de verificación antes de quemarse. Por IP: `throttle:public-contract` (20/min, 120/h), que
+es lo único que se puede contar cuando no hay usuario.
+
+**Constancia de firma electrónica.** El PDF remoto lleva impresa la fecha, la hora, la IP y
+el dispositivo (`documents/blocks/signature_audit.blade.php`), y el SHA-256 del archivo
+queda en `customer_documents.content_sha256`. El hash **no** va dentro del PDF: se calcula
+sobre el archivo ya renderizado, así que incluirlo lo cambiaría. La firma **presencial no
+lleva constancia** — la presencia un empleado, y sus contratos siguen saliendo byte a byte
+como antes de que existiera este flujo.
+
+Esto es **firma electrónica simple** en el sentido de la Ley 527 de 1999: válida por
+trazabilidad y consentimiento (la casilla de aceptación es explícita y obligatoria), no
+firma digital certificada.
+
+**El contrato se lee en HTML, no en PDF.** `TemplateRenderer::renderContractHtml()` produce
+el mismo documento que `renderContract()` pero como cadena, y la página lo muestra en un
+`<iframe srcdoc>`. Un PDF embebido era justo lo que no servía: Safari iOS no renderiza un
+`data:application/pdf` en un iframe y el visor de Chrome Android abre el documento fuera de
+la página, sacando al cliente del flujo a mitad de camino. El iframe además aísla el CSS
+del documento, que trae selectores globales (`* { … }`) capaces de repintar la página
+entera.
+
+**Envío.** Correo (Brevo SMTP, automático) o enlace `wa.me` con el mensaje ya escrito, que
+dispara el operador desde su propio teléfono. No se usa la API de WhatsApp de Meta a
+propósito: sólo deja iniciar conversaciones con plantillas aprobadas una a una, mientras
+que `wa.me` funciona siempre y sin trámite previo. `sent_at` se marca **sólo** cuando el
+servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia del contrato.
+
 ### Managers MikroTik (`app/Services/MikroTik`)
 
 | Manager | Recurso RouterOS |
@@ -692,6 +747,7 @@ corre una sola vez, al guardar) — requiere volver a pegar/guardar el HTML para
 | `billing:simulate` | Simulador del ciclo completo |
 | `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
 | `billing:generate-tenant {tenant} {period} {--dry-run}` | Facturación puntual por tenant |
+| `contracts:remind-unsigned {--after=24} {--dry-run}` | **Un** recordatorio por enlace de firma sin usar (emite uno nuevo: el viejo no se puede reenviar) |
 | `traffic:collect` | Muestreo de contadores WAN |
 | `traffic:prune {--days=30}` | Poda de muestras finas |
 | `migrate:both` | **Aplica migraciones a `ispwatch_dev` y `public` a la vez** |
@@ -947,6 +1003,7 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:send-reminders` | `withoutOverlapping`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
+| Diario 09:00 | `contracts:remind-unsigned` | **Un solo** aviso por enlace de firma, a las 24 h. Insistir a diario acabaría marcando como spam el dominio del ISP, y con él las facturas y los avisos de corte |
 | Cada 30 min | `vpn:verify-tunnels` | Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
 | Cada 5 min | `traffic:collect` | Sólo routers con `historial_trafico = true` |
 | Diario | `traffic:prune --days=30` | Conserva los agregados diarios |

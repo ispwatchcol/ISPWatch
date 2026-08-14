@@ -37,8 +37,11 @@ return [
     ],
 
     'contract' => [
-        'empresa.logo'           => 'Logo de la empresa',
-        'contrato.firma_cliente' => 'Imagen de la firma del cliente',
+        'empresa.logo'              => 'Logo de la empresa',
+        'contrato.firma_cliente'    => 'Imagen de la firma del cliente',
+        // Sólo se imprime si el contrato se firmó de forma remota por link;
+        // en la firma presencial el bloque se resuelve a vacío.
+        'contrato.constancia_firma' => 'Constancia de firma electrónica remota (fecha, IP, dispositivo)',
     ],
 
     // instalacion.fotos se retiró el 2026-08-05: las fotos de la instalación

@@ -21,6 +21,15 @@ const routes = [
     component: () => import('@/pages/ResendVerification.vue'),
     meta: { title: 'Verificación' },
   },
+  {
+    // Firma remota del contrato. Sin layout y sin requiresAuth a propósito: la
+    // abre el CLIENTE FINAL desde un WhatsApp o un correo, no tiene cuenta en
+    // el panel y no debe ver ni el sidebar ni nada del ISP.
+    path: '/firmar/:token',
+    name: 'PublicContractSign',
+    component: () => import('@/pages/PublicContractSign.vue'),
+    meta: { title: 'Firmar contrato' },
+  },
 
   // ─── DASHBOARD ───
   {

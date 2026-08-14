@@ -101,6 +101,17 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(60)->by(self::apiKeyThrottleKey($request)),
             Limit::perHour(5000)->by(self::apiKeyThrottleKey($request)),
         ]);
+
+        // Firma remota del contrato: rutas SIN autenticación, así que el cubo
+        // sólo puede ir por IP. El techo por token (5 intentos de verificación,
+        // en ContractSignatureLink) protege un link concreto; esto protege al
+        // servidor de que alguien barra tokens al azar desde una misma IP.
+        // 20/min deja margen de sobra al cliente real —abrir, verificar,
+        // firmar son 3 peticiones— y no a un barrido.
+        RateLimiter::for('public-contract', fn (Request $request) => [
+            Limit::perMinute(20)->by('public-contract|' . $request->ip()),
+            Limit::perHour(120)->by('public-contract|' . $request->ip()),
+        ]);
     }
 
     /**

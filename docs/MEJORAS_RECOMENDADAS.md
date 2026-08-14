@@ -1023,6 +1023,36 @@ merece su propio cambio medido contra producción.
 **Mientras tanto:** `MIKROTIK_CORE_SSH_TIMEOUT` permite subir el valor por defecto de toda la
 flota sin tocar código, a costa de alargar los lotes.
 
+### P-13 · El enlace de firma no se envía solo por WhatsApp
+
+**Detectado:** 2026-08-14, al implementar la firma remota (§ 30 de `BITACORA_TECNICA.md`).
+**Prioridad:** media · **Estado:** deuda aceptada conscientemente.
+
+Hoy el botón *Enviar por WhatsApp* abre `wa.me` con el mensaje ya escrito y **el operador lo
+envía desde su teléfono**. Funciona siempre y no depende de nadie, pero no es automático: no se
+puede disparar desde el alta de un cliente ni desde el recordatorio programado, que por eso hoy
+sólo llega por correo.
+
+**Por qué no se hizo:** `WhatsAppService` usa la API de Meta, que sólo permite **iniciar**
+conversaciones con plantillas aprobadas una a una en Meta Business. Escribir el método era
+trivial; lo que no se puede escribir desde el repositorio es la plantilla aprobada, así que el
+envío habría fallado en silencio en producción — peor que no ofrecerlo.
+
+**Camino natural:** hacerlo por Converza, que ya tiene la sesión de WhatsApp abierta y ya lee
+eventos de ISPWatch por cursor de id para la falla masiva (§ *Falla masiva*). El mismo patrón
+—ISPWatch registra el evento, Converza envía— evita depender de plantillas de Meta y cierra de
+paso el recordatorio automático por WhatsApp.
+
+### P-14 · Falta el QR del enlace de firma para el técnico en campo
+
+**Detectado:** 2026-08-14 · **Prioridad:** baja · **Estado:** no implementado.
+
+Un QR en pantalla dejaría al técnico pasar el enlace al celular del cliente sin depender de que
+al cliente le llegue el WhatsApp ni de que tenga datos. Se dejó fuera porque exige una
+dependencia npm nueva (`qrcode`) para un caso que hoy cubren el `wa.me`, el correo y el botón de
+copiar — y porque el técnico que está delante del cliente tiene a mano el camino presencial, que
+ya funcionaba.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

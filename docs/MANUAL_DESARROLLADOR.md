@@ -411,6 +411,12 @@ php artisan billing:verify-cuts
 | `traffic:prune {--days=30}` | Poda muestras finas |
 | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
 
+### Contratos
+
+| Comando | Descripción |
+|---|---|
+| `contracts:remind-unsigned [--after=24] [--dry-run]` | Un recordatorio por enlace de firma sin usar. **Emite un enlace nuevo**: el token original sólo existe hasheado, así que reenviarlo es imposible por diseño |
+
 ### Base de datos y mantenimiento
 
 | Comando | Descripción |
@@ -462,6 +468,35 @@ php artisan billing:verify-cuts
    la API directamente la evita. Añade además un caso a `ApiAuthorizationTest`.
 9. **Los permisos de LECTURA pueden llevar varios valores** (`permission:a,b`, semántica OR)
    cuando son datos de referencia que otra pantalla necesita. Los de ESCRITURA, nunca.
+10. **Un token que viaja al exterior se guarda hasheado, nunca en claro.** Vale para las
+    llaves de la API pública y para los enlaces de firma remota
+    (`contract_signature_links.token_hash`). La consecuencia hay que asumirla de frente:
+    si el token no se puede recuperar, **no puede existir un "reenviar"** — se emite uno
+    nuevo y se revoca el anterior. No inventes una columna en claro para ahorrarte ese
+    diálogo con el usuario.
+11. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
+    otra cosa que contar (`throttle:public-contract` en `AppServiceProvider`), y además un
+    techo por recurso: los 5 intentos de verificación de `ContractSignatureLink` protegen
+    un enlace concreto, el limitador protege al servidor de un barrido.
+
+### Añadir una operación que ya existe por otro camino
+
+Si una operación va a tener **dos entradas** (por ejemplo firmar un contrato: presencial
+con empleado autenticado y remota por enlace), la lógica va a un servicio compartido —
+`ContractSigningService` es el caso de referencia — y los controladores quedan como
+adaptadores de autorización. Lo que se protege no es la elegancia: la reserva del
+consecutivo y el candado de "un solo contrato vigente" duplicados en dos sitios acaban
+divergiendo, y cada divergencia es un hueco permanente en la numeración legal del ISP.
+
+En el frontend aplica lo mismo: `SignaturePad.vue` es un componente compartido porque la
+firma presencial y la remota producen el **mismo PDF** con el mismo valor legal, y una
+diferencia sutil entre ambas —la detección de tinta, sobre todo— sería un contrato firmado
+en blanco según por dónde entró el cliente.
+
+**Una página pública no usa `apiClient`.** Su interceptor de `401` borra la sesión y
+redirige a `/`; un cliente final sin sesión acabaría mirando la pantalla de acceso del
+panel sin entender qué pasó. Usa una instancia propia de axios
+(`services/api/public-contract.js` es el patrón).
 10. **Las búsquedas de texto usan `whereLike`/`orWhereLike`**, jamás `like` ni `ilike` a pelo.
 
 ### Git
