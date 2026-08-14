@@ -8,11 +8,15 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
-- **El contrato obligaba a un viaje (2026-08-14, § 30):** firmar sólo se podía sobre la pantalla
+- **El contrato obligaba a un viaje (2026-08-14, § 31):** firmar sólo se podía sobre la pantalla
   de un empleado logueado, así que cada contrato costaba un desplazamiento y muchos clientes
   llevaban meses instalados sin firmar. Ahora se manda un enlace personal (correo, WhatsApp o
   copiado) y el cliente lee y firma desde el celular; el PDF remoto lleva constancia de fecha, IP
   y dispositivo, y el token sólo se guarda hasheado.
+- **Borrar una factura pagada dejaba el dinero en el aire (2026-08-13, § 30):** el modal no
+  decía cuánto dinero soltaba, el alta manual no creaba el ítem ni aplicaba el saldo a favor, y
+  nadie auditaba que el dinero ya cobrado siguiera cuadrando. En producción: 91 clientes y
+  $5.709.350 sin respaldo. Nuevo `billing:verify-orphan-payments`.
 - **Facturación se revisaba a ciegas (2026-08-13, § 29):** la pantalla tenía un solo buscador
   para nueve columnas, así que "qué facturas de más de $100.000 vencen esta semana y siguen
   debiendo" sólo se podía responder exportando a Excel. Ahora hay una casilla bajo cada título,
@@ -84,6 +88,7 @@
 28. [La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13](#28-la-wan-seguía-sin-leerse-había-dos-túneles-peleándose--2026-08-13)
 28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
 29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
+30. [Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13](#30-borrar-una-factura-pagada-dejaba-el-dinero-en-el-aire--2026-08-13)
 
 ---
 
@@ -2836,9 +2841,93 @@ desde la corrección de OWASP A01). La entrada por URL de Servicios Adicionales
 
 ---
 
-## 30. El contrato obligaba a un viaje: firma remota por enlace — 2026-08-14
+## 30. Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13
 
-### 30.1 El problema
+Un cliente preguntó qué pasa exactamente al eliminar una factura y al crear otra en su lugar.
+La respuesta, mirando el código **y los datos de producción**, resultó ser que el flujo que se
+estaba usando a diario pierde dinero por tres sitios distintos, y que ninguna auditoría lo veía.
+
+### 30.1 El caso que lo destapó
+
+Un cliente con una mensualidad de julio ya pagada (52.500, efectivo, ref 2186):
+
+| Hora | Qué pasó |
+|---|---|
+| 13-ago 17:04:09 | Un operador borra la mensualidad **de julio** — la que ya estaba pagada |
+| 13-ago 17:04:25 | 16 s después crea una factura nueva, periodo agosto, 68.000, **sin ítems** |
+| 13-ago 19:28:58 | Otro operador borra la mensualidad **de agosto** |
+| entre medias | Cuatro ajustes manuales del saldo a favor: +52.500, −52.500, +52.500, −52.500 |
+
+La intención era cambiarle el precio a agosto. Se borró la factura equivocada y, al final, el
+pago de julio no respaldaba ninguna factura ni figuraba como saldo: el cliente aparecía
+debiendo 68.000 después de haber pagado 52.500.
+
+**No era un caso aislado.** En producción, el día de la revisión: 91 clientes con
+**$5.709.350** de dinero recibido que no respalda factura ni saldo, 27 periodos con lápida y
+37 facturas sin un solo ítem. 15 borrados de factura en los siete días anteriores.
+
+### 30.2 Los tres huecos
+
+**El modal de borrado no decía cuánto dinero estaba en juego.** Decía *"si tiene pagos, el
+monto se devolverá como saldo a favor"* — en condicional y sin cifra. Quien borraba no podía
+distinguir una factura de $0 pendiente de una de $52.500 ya cobrada. Justo el dato que habría
+frenado el primer clic.
+
+**El alta manual no creaba el ítem de detalle.** `generateMonthlyInvoices()` siempre creó el
+suyo; `BillingController::store()` sólo insertaba la cabecera. Resultado: PDF con la tabla de
+detalle vacía y un total suelto al pie, en 37 facturas.
+
+**El alta manual no aplicaba el saldo a favor.** La automática termina en
+`applyCreditToInvoice()`; la manual no. Combinado con el borrado —que devuelve el dinero
+*como saldo a favor*— el resultado era el peor posible: el cliente con saldo a favor **y** con
+la factura de reemplazo debiendo entera. El dinero seguía en el sistema sin pagar nada.
+
+### 30.3 Qué se construyó
+
+| Archivo | Cambio |
+|---|---|
+| `components/billing/InvoiceDeleteWarning.vue` | Nuevo. Cuerpo del modal, compartido por listado y detalle: importe ya aplicado, mes que queda bloqueado, y las dos alternativas (ítem negativo / Cancelada) |
+| `BillingController::store()` | Crea el `invoice_item` con su concepto y aplica el saldo a favor, **todo en una transacción** |
+| `BillingService::applyCreditToManualInvoice()` | Envoltura pública de `applyCreditToInvoice()` para el alta manual |
+| `BillingService::auditOrphanPayments()` | Comprueba la invariante de caja por cliente. No escribe |
+| `billing:verify-orphan-payments` | Comando de alerta (log + email + exit-code), diario a las 08:00 |
+| `InvoicesList.vue` | Campo **Concepto** en *Nueva factura* |
+
+La invariante del comando nuevo es la más simple que tiene el módulo:
+
+```
+sum(payments.amount) == sum(payment_allocations.amount) + credit_balance
+```
+
+Todo peso que entró está aplicado a una factura o está en el saldo a favor. Se mide **por
+cliente** y no en total, porque en el total se compensa solo: a uno le sobra lo que al otro le
+falta y el descuadre desaparece. Da igual qué lo provocó —borrar una factura pagada, un ajuste
+manual a la baja, un pago que nunca se asignó—: el síntoma es el mismo y es el que hay que ver.
+
+Cubre un punto ciego real: `billing:verify-monthly` mira que las facturas se generen y
+`billing:verify-cuts` que se corte a quien debe. Que el dinero **ya cobrado** siguiera cuadrando
+no lo miraba nadie.
+
+### 30.4 Decisiones
+
+**El comando no arregla nada, sólo avisa.** Igual que las otras dos auditorías. Reasignar un
+pago o devolver un saldo exige saber qué se quiso cobrar; automatizarlo movería dinero real
+sobre una suposición. La alerta trae, por cliente, qué revisar y en qué orden.
+
+**El aviso de borrado no bloquea.** Se consideró prohibir eliminar facturas con pagos
+aplicados. Se descartó: hay casos legítimos (factura duplicada que ya recibió un abono) y una
+prohibición se acaba sorteando por la vía peor. Se da la cifra y se exige escribir `ELIMINAR`.
+
+**Los 91 clientes descuadrados NO se tocaron.** Son dinero real de clientes reales y cada caso
+necesita criterio: no es lo mismo un pago que nunca se asignó que uno cuyo saldo alguien ajustó
+a mano. Parte puede venir además del bug de anulación de pagos que arregla
+`feat/money-audit-trail`, **todavía sin desplegar**. Queda en `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 31. El contrato obligaba a un viaje: firma remota por enlace — 2026-08-14
+
+### 31.1 El problema
 
 Firmar el contrato existía desde el § 16, pero **sólo presencialmente**: el canvas vivía en
 `CustomerDocuments.vue` y `POST /customers/{id}/contract-sign` estaba detrás de `auth:sanctum` +
@@ -2847,7 +2936,7 @@ un empleado logueado con su pantalla delante. En la práctica eso significa un d
 contrato, y el resultado conocido: clientes meses instalados sin contrato firmado, que es
 exactamente el documento que hace falta el día que hay un pleito.
 
-### 30.2 Por qué una tabla y no un signed URL
+### 31.2 Por qué una tabla y no un signed URL
 
 Laravel ya trae `URL::temporarySignedRoute` y el proyecto lo usa para la verificación de correo
 (`routes/api.php:62`). Cero migraciones, tentador. Se descartó:
@@ -2862,7 +2951,7 @@ Laravel ya trae `URL::temporarySignedRoute` y el proyecto lo usa para la verific
 Un contrato es un documento legal y lo que le da valor probatorio **es el rastro**. Sin sitio
 donde escribirlo, el mecanismo barato no servía.
 
-### 30.3 Lo que se construyó
+### 31.3 Lo que se construyó
 
 | Archivo | Rol |
 |---|---|
@@ -2878,7 +2967,7 @@ donde escribirlo, el mecanismo barato no servía.
 | `public-contract.js` | Cliente axios propio, sin el interceptor de sesión |
 | `signature_audit.blade.php` | Constancia de firma electrónica dentro del PDF |
 
-### 30.4 Las cinco decisiones que no son obvias
+### 31.4 Las cinco decisiones que no son obvias
 
 **El token no se guarda, y eso mata el "reenviar".** `token_hash` es el SHA-256, igual que
 `personal_access_tokens`. Ni el servidor puede reconstruir el enlace, así que **no existe**
@@ -2915,7 +3004,7 @@ HTML lo escribe el tenant**: sin esa restricción, un `<img src="/etc/passwd">` 
 la vista previa en lectura arbitraria de archivos del servidor. Se restringe por `realpath()` bajo
 `public/storage` y por extensión de imagen.
 
-### 30.5 Qué NO cambia para el flujo existente
+### 31.5 Qué NO cambia para el flujo existente
 
 La firma presencial sale **byte a byte igual que antes**: `signatureAudit` llega `null` y el
 bloque de constancia no se imprime. Es deliberado — un empleado presenció el acto, la constancia
@@ -2927,14 +3016,14 @@ extracción a `ContractSigningService` fue transparente.
 sobre los bytes que se suben, no releyendo S3 (un hash de la relectura documentaría una corrupción
 de escritura como si fuera lo firmado). No va impreso dentro del PDF: sería circular.
 
-### 30.6 Alcance legal
+### 31.6 Alcance legal
 
 Esto es **firma electrónica simple** en el sentido de la Ley 527 de 1999 — válida por
 trazabilidad y consentimiento (la casilla de aceptación es obligatoria y explícita), no firma
 digital certificada. Si algún día se exige lo segundo hace falta una autoridad certificadora, y
 el diseño actual no lo estorba: la constancia y el hash ya están donde tienen que estar.
 
-### 30.7 Deuda aceptada
+### 31.7 Deuda aceptada
 
 Ver `MEJORAS_RECOMENDADAS.md`: envío automático por WhatsApp (hoy es un `wa.me` que dispara el
 operador) y QR del enlace para el técnico en campo.

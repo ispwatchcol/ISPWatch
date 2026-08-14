@@ -7,6 +7,7 @@ import DatePicker from '@/components/DatePicker.vue'
 import MonthPicker from '@/components/MonthPicker.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import InvoiceDeleteWarning from '@/components/billing/InvoiceDeleteWarning.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import StatCard from '@/components/ui/StatCard.vue'
@@ -116,6 +117,7 @@ const customers = ref([])
 const newInvoice = ref({
     customer_id: '',
     invoice_type: 'monthly',
+    description: '',
     total: 0,
     issue_date: new Date().toISOString().split('T')[0],
     due_date: new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0],
@@ -840,6 +842,19 @@ const sendBulkReminders = async () => {
                             </p>
                         </div>
 
+                        <!-- Concepto: es la línea que sale en el detalle y en el
+                             PDF. Si se deja vacío, el servidor la deriva del tipo. -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Concepto</label>
+                            <input type="text" v-model="newInvoice.description" maxlength="255"
+                                class="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-3 px-4 focus:ring-2 focus:ring-emerald-500 dark:text-white"
+                                placeholder="Ej.: Mensualidad agosto con descuento pactado">
+                            <p class="text-[11px] text-slate-400 mt-1.5 px-2">
+                                Es lo que verá el cliente en el detalle de la factura y en el PDF.
+                                Si lo dejas vacío se usa el nombre del tipo de factura.
+                            </p>
+                        </div>
+
                         <!-- Valor -->
                         <div>
                             <label class="block text-xs font-medium text-slate-400 uppercase tracking-widest mb-2 px-2">Valor Total</label>
@@ -904,14 +919,15 @@ const sendBulkReminders = async () => {
             :visible="showDeleteModal"
             variant="danger"
             title="Eliminar factura"
-            :message="deleteTarget ? `Vas a eliminar la factura #${deleteTarget.number} de forma permanente. Si tiene pagos, el monto se devolverá como saldo a favor del cliente. Esta acción no se puede deshacer.` : ''"
             require-text="ELIMINAR"
             confirm-text="Eliminar"
             loading-text="Eliminando..."
             :loading="deleting"
             @confirm="confirmDelete"
             @cancel="showDeleteModal = false"
-        />
+        >
+            <InvoiceDeleteWarning :invoice="deleteTarget" />
+        </ConfirmModal>
     </div>
 </template>
 

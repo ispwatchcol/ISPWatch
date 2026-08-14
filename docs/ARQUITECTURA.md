@@ -741,6 +741,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
+| `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
 | `vpn:verify-tunnels` | Alerta los routers sin túnel vivo contra el CORE |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:process-overdue` | Procesamiento manual de morosos |
@@ -1003,6 +1004,7 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:send-reminders` | `withoutOverlapping`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
+| Diario 08:00 | `billing:verify-orphan-payments` | Auditoría de caja: `pagos == aplicado + saldo a favor` |
 | Diario 09:00 | `contracts:remind-unsigned` | **Un solo** aviso por enlace de firma, a las 24 h. Insistir a diario acabaría marcando como spam el dominio del ISP, y con él las facturas y los avisos de corte |
 | Cada 30 min | `vpn:verify-tunnels` | Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
 | Cada 5 min | `traffic:collect` | Sólo routers con `historial_trafico = true` |

@@ -427,6 +427,33 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
+### 🔴 P-00 · 91 clientes con dinero recibido que no respalda nada (producción)
+
+Detectado el 2026-08-13 con el comando nuevo `billing:verify-orphan-payments`, que comprueba
+por cliente la invariante `sum(pagos) == sum(aplicado a facturas) + saldo a favor`:
+
+| Medida | Valor |
+|---|---|
+| Clientes descuadrados | **91** |
+| Importe sin respaldo | **$5.709.350** |
+| Periodos con lápida (`suppressed`) | 27 — 8 de julio, 19 de agosto |
+| Facturas sin ningún ítem | 37 |
+
+Es dinero **recibido de verdad**: el recaudo sigue en la tabla, pero hoy no paga ninguna
+factura ni figura como saldo a favor del cliente. La causa dominante es el flujo de "borrar
+la factura y crear otra": el borrado devuelve el importe como saldo a favor y después, o se
+ajusta ese saldo a mano, o la factura de reemplazo nace sin consumirlo. Los tres huecos de
+código ya están tapados (§ 30 de la bitácora); **los datos ya descuadrados no**.
+
+**Recomendación.** No corregirlo en bloque: cada caso necesita criterio, y un script masivo
+movería dinero real sobre una suposición. Recorrer la lista por importe descendente
+(`php artisan billing:verify-orphan-payments --limit=100`) y por cada cliente decidir entre
+devolver el importe al saldo a favor o reasignar el pago a la factura que corresponda.
+
+**Antes de empezar, desplegar `feat/money-audit-trail`**: parte del descuadre puede venir del
+bug de anulación de pagos que esa rama arregla, y sin ella las correcciones no quedan
+registradas en el libro de auditoría — que es justamente lo que se necesita aquí.
+
 ### 📋 P-0 · La devolución de saldo al borrar una factura no des-consume el origen
 
 Al borrar una factura que había sido pagada con saldo a favor, el saldo vuelve al cliente como un
@@ -1025,7 +1052,7 @@ flota sin tocar código, a costa de alargar los lotes.
 
 ### P-13 · El enlace de firma no se envía solo por WhatsApp
 
-**Detectado:** 2026-08-14, al implementar la firma remota (§ 30 de `BITACORA_TECNICA.md`).
+**Detectado:** 2026-08-14, al implementar la firma remota (§ 31 de `BITACORA_TECNICA.md`).
 **Prioridad:** media · **Estado:** deuda aceptada conscientemente.
 
 Hoy el botón *Enviar por WhatsApp* abre `wa.me` con el mensaje ya escrito y **el operador lo

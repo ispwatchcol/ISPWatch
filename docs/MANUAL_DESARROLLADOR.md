@@ -389,6 +389,7 @@ php artisan billing:verify-cuts
 | `billing:generate-monthly {period?}` | Genera facturas. Sin argumento deriva el periodo por router; `YYYY-MM` fuerza uno y **salta el gate de hora** |
 | `billing:retry-failed` | Reintenta filas `failed` con `next_retry_at` vencido |
 | `billing:verify-monthly` | Auditoría de no-show. **No escribe nada** |
+| `billing:verify-orphan-payments {--tenant=} {--min=} {--limit=} {--no-mail}` | Auditoría de caja: dinero recibido que no respalda factura ni saldo a favor. **No escribe nada** |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
 | `billing:generate-tenant {tenant} {period} {--dry-run}` | Facturación puntual por tenant |
