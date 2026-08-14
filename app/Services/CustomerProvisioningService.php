@@ -25,6 +25,7 @@ class CustomerProvisioningService
     public const MODE_HOTSPOT      = 'hotspot';
     public const MODE_PPPOE        = 'pppoe';
     public const MODE_DHCP         = 'dhcp';
+    public const MODE_RADIUS       = 'radius';
 
     private RouterEndpointResolver $endpoints;
 
@@ -39,6 +40,10 @@ class CustomerProvisioningService
      */
     public static function resolveControlMode(Router $router): ?string
     {
+        // RADIUS va primero: si alguna vez un router quedara con dos banderas
+        // encendidas, la que NO escribe en el RouterBoard es la que menos daño
+        // hace ganando el desempate.
+        if ($router->radius)       return self::MODE_RADIUS;
         if ($router->simple_queue) return self::MODE_SIMPLE_QUEUE;
         if ($router->control_pcq)  return self::MODE_PCQ;
         if ($router->hotspot)      return self::MODE_HOTSPOT;
@@ -114,7 +119,12 @@ class CustomerProvisioningService
 
         // Pre-check rápido: sin credenciales de gestión cada intento SSH solo
         // hace timeout. Fallar al instante.
-        if (!$router->ip || !$router->user_rb || !$router->password_rb) {
+        //
+        // No aplica a RADIUS: ese modo no abre una sola sesión SSH, así que
+        // exigirle credenciales de gestión rechazaría clientes perfectamente
+        // aprovisionables. Un router RADIUS puede no tener VPN configurada
+        // todavía y aun así atender clientes.
+        if (!$router->usesRadius() && (!$router->ip || !$router->user_rb || !$router->password_rb)) {
             return [
                 'customer_id' => $customerId,
                 'customer_name' => $name,
@@ -143,15 +153,32 @@ class CustomerProvisioningService
      */
     public function provisionByControlMode(Router $router, CustomerProfile $customer, Plan $plan): array
     {
-        $mikrotik = app(MikroTikSshService::class);
-        $name     = trim("{$customer->name} {$customer->last_name}");
-        $mode     = self::resolveControlMode($router);
+        $name = trim("{$customer->name} {$customer->last_name}");
+        $mode = self::resolveControlMode($router);
+
+        // ── RADIUS: se resuelve aquí y se sale, ANTES de tocar la red ──
+        //
+        // Va delante de todo a propósito. Debajo de esta línea el método hace
+        // dos cosas caras que para RADIUS no tendrían sentido: resolver el
+        // endpoint (que abre SSH contra el CORE para preguntar qué IP tiene
+        // realmente el router) y abrir sesiones SSH al RouterBoard.
+        //
+        // En RADIUS el aprovisionamiento por-cliente NO escribe en el router:
+        // el equipo pregunta en cada conexión y la respuesta sale de la BD.
+        // Resolver el endpoint solo para no usarlo agregaría ~17-34s y un
+        // punto de falla (CORE inalcanzable) a una operación que no necesita
+        // la red en absoluto. De ahí que el aprovisionamiento masivo en modo
+        // RADIUS deje de dar 504.
+        if ($mode === self::MODE_RADIUS) {
+            return $this->provisionRadius($customer);
+        }
 
         // Never dial `router.ip` blindly: the CORE hands client routers a pool
         // address on each L2TP reconnect, so the stored value goes stale and
         // every push lands on an address nobody answers (`<connection failed>`
         // / `action timed out`, which reads like a client-side firewall issue).
         // The resolver asks the CORE which address this router is really using.
+        $mikrotik = app(MikroTikSshService::class);
         $endpoint = $this->endpoints->resolve($router);
         $ip       = $endpoint['ip'];
         $port     = $endpoint['api_port'];
@@ -311,6 +338,64 @@ class CustomerProvisioningService
             'queue_ok'       => $queueResult !== null ? (bool) ($queueResult['success'] ?? false) : null,
             'queue_message'  => $queueResult['message'] ?? null,
             'pppoe_message'  => $pppoeResult['message'] ?? null,
+        ];
+    }
+
+    /**
+     * Aprovisionamiento en modo RADIUS.
+     *
+     * Es deliberadamente casi vacío: valida que el cliente tenga con qué
+     * autenticarse y devuelve. No hay nada que empujar al router porque en
+     * este modo el estado del cliente no vive en el RouterBoard.
+     *
+     * Se validan las credenciales PPPoE porque RADIUS autentica la sesión
+     * PPPoE: el User-Name que llega en el Access-Request es pppoe_username.
+     * Sin ellas el cliente nunca podría conectarse, así que reportarlo aquí
+     * —con el mismo mensaje que usa el modo PPPoE directo— le ahorra al
+     * operador descubrirlo cuando el cliente llame.
+     *
+     * La configuración del router (servidor PPPoE, cliente RADIUS, walled
+     * garden) se instala UNA vez por equipo, no por cliente, y es trabajo de
+     * RouterPolicyInstallerService.
+     *
+     * SOBRE ip_bindings Y amarre
+     * --------------------------
+     * Esta rama sale antes de aplicarlos, y no es un olvido: ambos existen
+     * para atar una IP a una MAC en redes donde el cliente toma la IP por su
+     * cuenta (ARP estático + drop por par IP/MAC). Con RADIUS sobre PPPoE la
+     * IP la entrega la sesión autenticada, así que el amarre lo hace ya el
+     * propio login — replicarlo con reglas estáticas no agrega seguridad y sí
+     * agrega SSH que este modo no necesita.
+     *
+     * @return array Mismo shape que provisionByControlMode; el job y el
+     *               frontend ya lo consumen sin cambios.
+     */
+    private function provisionRadius(CustomerProfile $customer): array
+    {
+        $hasCredentials = $customer->pppoe_username && $customer->pppoe_password;
+
+        return [
+            'success'        => $hasCredentials,
+            'mode'           => self::MODE_RADIUS,
+            'message'        => $hasCredentials
+                ? 'OK'
+                : 'El router usa RADIUS pero el cliente no tiene credenciales PPPoE configuradas',
+            'queue_result'   => null,
+            'pppoe_result'   => null,
+            'hotspot_result' => null,
+            'pcq_result'     => null,
+            'dhcp_result'    => null,
+            'arp_result'     => null,
+            'amarre_result'  => null,
+            // Compatibilidad con el job/bulk legado. pppoe_applies queda en
+            // false: mide si hay que escribir un secret PPPoE en el router, y
+            // en RADIUS no lo hay aunque el cliente sí use PPPoE.
+            'pppoe_applies'  => false,
+            'pppoe_skipped'  => false,
+            'pppoe_created'  => false,
+            'queue_ok'       => null,
+            'queue_message'  => null,
+            'pppoe_message'  => null,
         ];
     }
 

@@ -3027,3 +3027,112 @@ el diseño actual no lo estorba: la constancia y el hash ya están donde tienen 
 
 Ver `MEJORAS_RECOMENDADAS.md`: envío automático por WhatsApp (hoy es un `wa.me` que dispara el
 operador) y QR del enlace para el técnico en campo.
+
+---
+
+## 32. RADIUS entra como sexto método de control — 2026-08-14
+
+### 32.1 El encargo y la decisión de forma
+
+El cliente tiene un servidor **FreeRADIUS** propio en Ubuntu y quiere gestionar desde ahí a sus
+usuarios. La pregunta de arquitectura no era "¿se puede?" sino **quién manda sobre el dato**.
+
+Se eligió **FreeRADIUS + `rlm_rest` con ISPWatch como fuente de verdad viva**: FreeRADIUS consulta
+por HTTP en cada `Access-Request` y responde con lo que diga la BD, en vez de que ISPWatch escriba
+en las tablas `radcheck`/`radreply` y las dos copias se desincronicen. También se decidió que
+**conviva** con los cinco modos actuales (bandera por router, migración gradual, sin fecha límite)
+y que el corte por mora use **CoA/Disconnect + perfil restringido** hacia el portal de pago.
+
+### 32.2 Lo que RADIUS cambia de fondo
+
+Los cinco modos existentes **empujan**: `provisionByControlMode()` abre SSH y escribe la queue, el
+secret PPPoE o el lease. RADIUS **invierte el flujo** — el router pregunta y la respuesta sale de
+Postgres. El aprovisionamiento por-cliente deja de escribir en el RouterBoard, y con eso
+desaparecen por construcción los 504 del gateway en cargas masivas y los timeouts del push PPPoE
+sincrónico. No es una optimización: es que la operación ya no toca la red.
+
+De ahí una decisión concreta en el código: la rama RADIUS de `provisionByControlMode()`
+**retorna antes** de llamar a `RouterEndpointResolver`. Resolver el endpoint abre SSH contra el
+CORE para averiguar qué IP tiene realmente el router (la deriva del pool documentada en el § 24), y
+en este modo ese dato no se usa. Dejarlo pasar habría metido 17-34 s y un punto de falla —CORE
+inalcanzable— en una operación que no necesita la red en absoluto.
+
+Por la misma razón el pre-chequeo de credenciales de gestión (`ip` + `user_rb` + `password_rb`) se
+saltea para routers RADIUS: exigirlas rechazaría clientes perfectamente aprovisionables en un
+equipo que quizá ni tenga VPN configurada todavía.
+
+### 32.3 El riesgo que asume `rlm_rest`, y cómo se desactiva
+
+Elegir `rlm_rest` mete a ISPWatch **en el camino crítico de cada autenticación**. Un despliegue, un
+pico de latencia o una caída de Postgres se traducen en clientes que no pueden conectarse. Un ISP
+tolera el panel caído diez minutos; la red no.
+
+La mitigación, que es parte del diseño y no un extra: un **snapshot SQL local** en el host del
+FreeRADIUS que ISPWatch sincroniza cada 5 minutos, consultado mediante
+
+```
+authorize { redundant { rest  sql } }
+```
+
+`redundant` cae al siguiente módulo **sólo ante `fail`**, nunca ante `reject`. Esa distinción es
+todo el diseño: un `reject` legítimo de ISPWatch (moroso) no debe caer al snapshot, o el cortado se
+reconectaría por la puerta de atrás. Es también la razón por la que la versión de FreeRADIUS no es
+un detalle de gusto — ver § 32.6.
+
+**Deuda aceptada:** un cliente cortado hace menos de 5 minutos puede reconectarse durante una caída
+de ISPWatch, porque el snapshot todavía lo tiene al día. Es el compromiso correcto (falla a favor
+de la continuidad del servicio) y queda anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 32.4 Por qué el CoA necesita un agente aparte
+
+El paquete CoA es UDP y va **de ISPWatch hacia el router**, al revés que el resto del tráfico
+RADIUS. Los MikroTik viven detrás del overlay VPN del CORE (§ 27) y **el droplet de la API no está
+dentro de ese overlay**: no los alcanza.
+
+Por eso el emisor real es un agente en el host del FreeRADIUS (que sí es par del overlay), y
+`radius_coa_commands` es el contrato entre ambos: ISPWatch encola, el agente toma, ejecuta
+`radclient` y confirma. Se reusó a propósito el patrón cola + reintentos + confirmación de
+`suspension_action_logs` (§ 12) en vez de inventar uno nuevo.
+
+Se eligió **`Disconnect` y no CoA de reemplazo**: un CoA en caliente deja el estado del cliente
+viviendo en la sesión del router; un `Disconnect` fuerza la reautenticación y el perfil correcto
+sale de ISPWatch en ese momento. Es idempotente y sobrevive a reinicios del NAS, del RADIUS y de la
+API. Cortar y reconectar recorren **la misma cola** — la reconexión al pagar no es un camino
+especial, es otra orden de desconexión.
+
+### 32.5 Dos decisiones de detalle que se apartaron del diseño original
+
+**Se eliminó la tabla `radius_nas_clients`.** El diseño la contemplaba, pero habría duplicado
+exactamente las columnas que ya viven en `router` con un join de por medio. El `clients.conf` se
+genera desde `router where radius = true`, única fuente de verdad.
+
+**La exclusividad del método de control se normaliza, no se rechaza.** La tentación era validar
+"solo uno" y devolver 422. El problema es el dato heredado: si un router quedara en BD con dos
+banderas encendidas, el formulario lo carga y lo reenvía tal cual, así que el operador tendría un
+router que **no puede guardar ni para corregirlo**. Una validación que sólo se resuelve con SQL a
+mano no es una validación, es una trampa. El trait `NormalizesRouterControlMode` deja encendido el
+de mayor prioridad —mismo orden que `resolveControlMode()` usa al leer— y de paso arregla la fila.
+
+**`radius_secret` se estrena con el contrato correcto.** Va cifrado y en `Router::$hidden`, al
+revés que `password_rb`, que viaja en claro porque el formulario lo reenvía y ocultarlo lo
+sobrescribiría con vacío (nota en `Router::$casts`). El campo nuevo no arrastra ese lastre: el
+formulario lo manda **sólo si el operador escribe uno nuevo** y `RouterController::update()`
+conserva el vigente cuando llega vacío o ausente.
+
+### 32.6 La versión de FreeRADIUS sí importa
+
+Objetivo **3.2.10** (última estable, junio 2026). La 3.0.x sólo recibe mantenimiento y la 4.0 no
+tiene release estable —y además cambia la sintaxis de configuración, incluido el bloque
+`redundant` del que depende toda la resiliencia del § 32.3.
+
+La trampa que más tiempo hace perder: `apt install freeradius` **no instala `rlm_rest`**. Va en
+`freeradius-rest`, y además hay que enlazarlo a `mods-enabled/`. Falla sin un mensaje que mencione
+la palabra "paquete". Todo el detalle operativo, con checklist de verificación, en
+[`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).
+
+### 32.7 Alcance de esta entrega (fase 1 de 6)
+
+Esquema, modelos, el modo en el dispatcher y el toggle en el formulario. **Nada de esto afecta a
+ningún cliente en producción todavía**: no hay router con `radius = true` y las tres tablas nacen
+vacías. Faltan los endpoints `/api/radius/*` (fase 2), FreeRADIUS contra un router de laboratorio
+(fase 3), el piloto en producción (fase 4) y el corte por mora con el agente CoA (fase 5).

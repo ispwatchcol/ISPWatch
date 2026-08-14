@@ -2,13 +2,21 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\NormalizesRouterControlMode;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreRouterRequest extends FormRequest
 {
+    use NormalizesRouterControlMode;
+
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->normalizeControlMode();
     }
 
     public function rules(): array
@@ -46,6 +54,15 @@ class StoreRouterRequest extends FormRequest
             'amarre' => 'nullable|boolean',
             'dhcp_leases' => 'nullable|boolean',
             'falla_general' => 'nullable|boolean',
+
+            // ── RADIUS (sexto método de control) ──
+            'radius' => 'nullable|boolean',
+            // El secreto compartido con el NAS. Nunca vuelve en las respuestas
+            // (Router::$hidden) y solo se escribe cuando llega no vacío.
+            'radius_secret' => 'nullable|string|max:255',
+            'radius_coa_port' => 'nullable|integer|min:1|max:65535',
+            'radius_nas_identifier' => 'nullable|string|max:64',
+            'radius_walled_garden_list' => 'nullable|string|max:64',
         ];
     }
 

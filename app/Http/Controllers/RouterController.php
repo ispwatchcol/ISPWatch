@@ -45,6 +45,7 @@ class RouterController extends Controller
             'hotspot',
             'pppoe',
             'dhcp_leases',
+            'radius',
             'firmware_version',
             'status',
             'falla_general',
@@ -101,6 +102,17 @@ class RouterController extends Controller
         $data = $request->validated();
         $billingInput = $request->input('billing');
         $tenantId = $request->user()?->tenant_id;
+
+        // El secreto RADIUS es de un solo sentido: sale oculto de la API
+        // (Router::$hidden), así que el formulario NO puede reenviarlo y manda
+        // vacío cuando el operador no lo cambia. Escribir ese vacío borraría el
+        // secreto y dejaría al router sin poder autenticar a nadie —
+        // exactamente la pérdida de datos que password_rb evita a costa de
+        // viajar en claro. Aquí se resuelve al revés: ausente o vacío significa
+        // "conservar el actual".
+        if (!filled($data['radius_secret'] ?? null)) {
+            unset($data['radius_secret']);
+        }
 
         DB::transaction(function () use (&$data, $billingInput, $tenantId, $router) {
             if (is_array($billingInput)) {
