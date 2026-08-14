@@ -118,15 +118,15 @@
         </p>
 
         <div class="flex flex-wrap gap-2">
-          <button @click="createLink('email')" :disabled="creatingLink"
+          <button @click="createLink('email')" :disabled="creatingLink !== ''"
             class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition">
             {{ creatingLink === 'email' ? 'Enviando...' : 'Enviar por correo' }}
           </button>
-          <button @click="createLink('whatsapp')" :disabled="creatingLink"
+          <button @click="createLink('whatsapp')" :disabled="creatingLink !== ''"
             class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition">
             {{ creatingLink === 'whatsapp' ? 'Generando...' : 'Enviar por WhatsApp' }}
           </button>
-          <button @click="createLink('manual')" :disabled="creatingLink"
+          <button @click="createLink('manual')" :disabled="creatingLink !== ''"
             class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white text-xs font-medium rounded-lg transition">
             {{ creatingLink === 'manual' ? 'Generando...' : 'Solo copiar enlace' }}
           </button>
@@ -221,6 +221,11 @@ const hasSignature = ref(false)
 
 // ── Firma remota ──
 const links = ref([])
+// Canal que se está generando ahora mismo ('' = ninguno). OJO al enlazarlo a
+// `disabled` en la plantilla: hay que comparar contra '' explícitamente. Vue
+// resuelve los atributos booleanos con `!!value || value === ''`, así que
+// `:disabled="creatingLink"` deja los tres botones deshabilitados de entrada —
+// se ven apagados por `disabled:opacity-50` y el clic no dispara nada.
 const creatingLink = ref('')
 const issuedUrl = ref('')
 const issuedWhatsappUrl = ref('')
