@@ -4,10 +4,15 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-13 · Rama: `fix/invoice-delete-warning-and-manual-invoice`
+**Última actualización:** 2026-08-14 · Rama: `feat/contract-remote-signing`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El contrato obligaba a un viaje (2026-08-14, § 31):** firmar sólo se podía sobre la pantalla
+  de un empleado logueado, así que cada contrato costaba un desplazamiento y muchos clientes
+  llevaban meses instalados sin firmar. Ahora se manda un enlace personal (correo, WhatsApp o
+  copiado) y el cliente lee y firma desde el celular; el PDF remoto lleva constancia de fecha, IP
+  y dispositivo, y el token sólo se guarda hasheado.
 - **Borrar una factura pagada dejaba el dinero en el aire (2026-08-13, § 30):** el modal no
   decía cuánto dinero soltaba, el alta manual no creaba el ítem ni aplicaba el saldo a favor, y
   nadie auditaba que el dinero ya cobrado siguiera cuadrando. En producción: 91 clientes y
@@ -2917,3 +2922,108 @@ prohibición se acaba sorteando por la vía peor. Se da la cifra y se exige escr
 necesita criterio: no es lo mismo un pago que nunca se asignó que uno cuyo saldo alguien ajustó
 a mano. Parte puede venir además del bug de anulación de pagos que arregla
 `feat/money-audit-trail`, **todavía sin desplegar**. Queda en `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 31. El contrato obligaba a un viaje: firma remota por enlace — 2026-08-14
+
+### 31.1 El problema
+
+Firmar el contrato existía desde el § 16, pero **sólo presencialmente**: el canvas vivía en
+`CustomerDocuments.vue` y `POST /customers/{id}/contract-sign` estaba detrás de `auth:sanctum` +
+`permission:edit_internet_service,add_clients`. Es decir, para que un cliente firmara hacía falta
+un empleado logueado con su pantalla delante. En la práctica eso significa un desplazamiento por
+contrato, y el resultado conocido: clientes meses instalados sin contrato firmado, que es
+exactamente el documento que hace falta el día que hay un pleito.
+
+### 31.2 Por qué una tabla y no un signed URL
+
+Laravel ya trae `URL::temporarySignedRoute` y el proyecto lo usa para la verificación de correo
+(`routes/api.php:62`). Cero migraciones, tentador. Se descartó:
+
+| | Signed URL | `contract_signature_links` |
+|---|---|---|
+| Revocar | Sólo rotando `APP_KEY` (rompería también los correos de verificación) | `revoked_at` |
+| Un solo uso | No | `signed_at` |
+| Quién lo abrió y desde dónde | No hay dónde anotarlo | `opened_at`, `signer_ip`, `signer_user_agent` |
+| Intentos fallidos | No hay dónde contarlos | `failed_attempts` |
+
+Un contrato es un documento legal y lo que le da valor probatorio **es el rastro**. Sin sitio
+donde escribirlo, el mecanismo barato no servía.
+
+### 31.3 Lo que se construyó
+
+| Archivo | Rol |
+|---|---|
+| `2026_08_13_150000_create_contract_signature_links.php` | Tabla + `customer_documents.content_sha256` |
+| `ContractSignatureLink` | Estados del enlace (`isUsable`, `unusableReason`, scope `usable`) |
+| `ContractSigningService` | **Punto único de firma**, compartido por los dos caminos, + `issueLink()` |
+| `ContractAlreadySignedException` | El candado de contrato único, como excepción de dominio |
+| `PublicContractController` | `show` / `verify` / `sign`, sin autenticación |
+| `ContractSignatureLinkController` | Emisión, historial y anulación (lado ISP) |
+| `ContractSignatureLinkMail` + vista | Envío e insistencia por correo |
+| `RemindUnsignedContracts` | Un recordatorio a las 24 h, diario a las 09:00 |
+| `PublicContractSign.vue` + `SignaturePad.vue` | Página pública y pad compartido |
+| `public-contract.js` | Cliente axios propio, sin el interceptor de sesión |
+| `signature_audit.blade.php` | Constancia de firma electrónica dentro del PDF |
+
+### 31.4 Las cinco decisiones que no son obvias
+
+**El token no se guarda, y eso mata el "reenviar".** `token_hash` es el SHA-256, igual que
+`personal_access_tokens`. Ni el servidor puede reconstruir el enlace, así que **no existe**
+endpoint de reenvío: reenviar es emitir uno nuevo, y emitirlo revoca el anterior en la misma
+transacción. Dos enlaces vivos sólo sirven para que el cliente firme por el que nadie sigue.
+Consecuencia práctica que la UI tuvo que asumir: el enlace se muestra **siempre** al generarlo,
+incluso cuando salió por correo, porque puede ser la única copia que llegue a existir.
+
+**`sign` vuelve a pedir los 4 dígitos.** El flujo es `show → verify → sign`, pero confiar en que
+se pasó por `verify` habría sido regalar el único control de identidad: un `POST` directo a
+`/sign` se lo salta sin despeinarse. La comprobación se repite en el servidor. Y un cliente **sin
+cédula registrada** queda exento — lo contrario lo encerraría fuera de su propio contrato.
+
+**La portada no filtra datos.** Antes de verificar sólo salen el nombre de pila y el del ISP.
+Un enlace reenviado por error no puede convertirse en una cosecha de cédula, dirección y plan.
+Hay un test que lo fija buscando la cédula en el cuerpo de la respuesta.
+
+**El contrato se lee en HTML, no en un PDF embebido.** Fue el hallazgo que cambió el diseño:
+Safari iOS no renderiza un `data:application/pdf` dentro de un iframe y el visor de Chrome
+Android abre el documento **fuera** de la página, sacando al cliente del flujo a mitad de camino
+— justo antes de firmar. `TemplateRenderer::renderContractHtml()` devuelve el mismo documento
+como cadena y la página lo monta en un `<iframe srcdoc>`, que además lo aísla del CSS de la
+página (el contrato trae selectores globales `* { … }` capaces de repintar los botones).
+
+`renderContract()` **no** se reescribió para pasar por ahí: sus tests de caracterización fijan
+que se llama `Pdf::loadView` con un nombre de vista concreto. La ramificación se extrajo a
+`contractDocument()` y los dos métodos la consumen, así que el camino del PDF sigue siendo
+literalmente el mismo.
+
+**El inlineado de imágenes está acotado a `public/storage`.** El HTML del preview convierte a
+data URI las imágenes que dompdf lee por ruta local (el logo), porque si no el cliente vería un
+icono roto en el encabezado del contrato que está a punto de firmar. Pero en modo avanzado **el
+HTML lo escribe el tenant**: sin esa restricción, un `<img src="/etc/passwd">` habría convertido
+la vista previa en lectura arbitraria de archivos del servidor. Se restringe por `realpath()` bajo
+`public/storage` y por extensión de imagen.
+
+### 31.5 Qué NO cambia para el flujo existente
+
+La firma presencial sale **byte a byte igual que antes**: `signatureAudit` llega `null` y el
+bloque de constancia no se imprime. Es deliberado — un empleado presenció el acto, la constancia
+es lo que suple esa ausencia en el flujo remoto. Los 4 tests de caracterización de
+`CustomerContractSignTest` (§ 16) siguen pasando sin tocar una línea, que era la prueba de que la
+extracción a `ContractSigningService` fue transparente.
+
+`content_sha256` sí se llena en **ambos** caminos: es la huella del PDF almacenado y se calcula
+sobre los bytes que se suben, no releyendo S3 (un hash de la relectura documentaría una corrupción
+de escritura como si fuera lo firmado). No va impreso dentro del PDF: sería circular.
+
+### 31.6 Alcance legal
+
+Esto es **firma electrónica simple** en el sentido de la Ley 527 de 1999 — válida por
+trazabilidad y consentimiento (la casilla de aceptación es obligatoria y explícita), no firma
+digital certificada. Si algún día se exige lo segundo hace falta una autoridad certificadora, y
+el diseño actual no lo estorba: la constancia y el hash ya están donde tienen que estar.
+
+### 31.7 Deuda aceptada
+
+Ver `MEJORAS_RECOMENDADAS.md`: envío automático por WhatsApp (hoy es un `wa.me` que dispara el
+operador) y QR del enlace para el técnico en campo.

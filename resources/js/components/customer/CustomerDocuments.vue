@@ -109,19 +109,75 @@
         <p><span class="text-gray-500 dark:text-gray-400">Valor mensual:</span> <strong class="text-gray-800 dark:text-white">${{ Number(contract.plan?.cost_product || 0).toLocaleString('es-CO') }}</strong></p>
       </div>
 
-      <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Firma del cliente</label>
-      <div class="bg-white rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 overflow-hidden" style="touch-action: none;">
-        <canvas
-          ref="canvas"
-          width="600"
-          height="200"
-          class="w-full h-[200px] cursor-crosshair"
-          @pointerdown="startDraw"
-          @pointermove="draw"
-          @pointerup="endDraw"
-          @pointerleave="endDraw"
-        ></canvas>
+      <!-- ── Firma remota: mandarle el link al cliente ── -->
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-5">
+        <h4 class="text-sm font-bold text-gray-800 dark:text-white mb-1">Que lo firme el cliente desde su celular</h4>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          Genera un enlace personal para que lea y firme el contrato por su cuenta. Vence en 72 horas, sirve una sola
+          vez y le pide los últimos 4 dígitos de su cédula.
+        </p>
+
+        <div class="flex flex-wrap gap-2">
+          <button @click="createLink('email')" :disabled="creatingLink"
+            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition">
+            {{ creatingLink === 'email' ? 'Enviando...' : 'Enviar por correo' }}
+          </button>
+          <button @click="createLink('whatsapp')" :disabled="creatingLink"
+            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition">
+            {{ creatingLink === 'whatsapp' ? 'Generando...' : 'Enviar por WhatsApp' }}
+          </button>
+          <button @click="createLink('manual')" :disabled="creatingLink"
+            class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white text-xs font-medium rounded-lg transition">
+            {{ creatingLink === 'manual' ? 'Generando...' : 'Solo copiar enlace' }}
+          </button>
+        </div>
+
+        <!-- El enlace recién generado. Se muestra SIEMPRE, incluso cuando se
+             envió por correo: si el correo no llega, esta es la única copia
+             que va a existir (el token no se guarda, sólo su hash). -->
+        <div v-if="issuedUrl" class="mt-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+          <p class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 uppercase mb-1.5">Enlace generado</p>
+          <div class="flex items-center gap-2">
+            <input :value="issuedUrl" readonly
+              class="flex-1 bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 rounded px-2 py-1.5 text-xs font-mono text-gray-700 dark:text-gray-200" />
+            <button @click="copyLink" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded transition shrink-0">
+              {{ copied ? '¡Copiado!' : 'Copiar' }}
+            </button>
+          </div>
+          <a v-if="issuedWhatsappUrl" :href="issuedWhatsappUrl" target="_blank" rel="noopener"
+            class="inline-block mt-2 text-xs text-emerald-700 dark:text-emerald-400 font-medium hover:underline">
+            Abrir WhatsApp con el mensaje listo →
+          </a>
+          <p class="mt-2 text-[11px] text-indigo-600 dark:text-indigo-400">
+            Guárdalo si lo vas a mandar por otro medio: por seguridad no se puede volver a consultar.
+          </p>
+        </div>
+
+        <!-- Historial: sirve para responder "¿ya lo abrió?" sin llamar al cliente. -->
+        <div v-if="links.length" class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-3">
+          <p class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">Enlaces enviados</p>
+          <div v-for="link in links" :key="link.id"
+            class="flex items-center justify-between gap-3 py-1.5 text-xs border-b border-gray-50 dark:border-gray-700/50 last:border-0">
+            <div class="min-w-0">
+              <span :class="linkBadge(link.status)" class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase mr-2">{{ linkLabel(link.status) }}</span>
+              <span class="text-gray-500 dark:text-gray-400">{{ formatDate(link.created_at) }}</span>
+              <span v-if="link.sent_to" class="text-gray-400 dark:text-gray-500"> · {{ link.sent_to }}</span>
+              <span v-if="link.opened_at" class="text-emerald-600 dark:text-emerald-400"> · abierto</span>
+            </div>
+            <button v-if="link.status === 'pending'" @click="revokeLink(link)"
+              class="text-rose-600 dark:text-rose-400 hover:underline shrink-0">Anular</button>
+          </div>
+        </div>
       </div>
+
+      <div class="flex items-center gap-3 mb-5">
+        <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+        <span class="text-[11px] text-gray-400 dark:text-gray-500 uppercase font-semibold">o fírmalo aquí mismo</span>
+        <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+      </div>
+
+      <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Firma del cliente</label>
+      <SignaturePad ref="pad" :height="200" @change="hasSignature = $event" />
       <div class="flex flex-wrap gap-3 mt-4">
         <button @click="clearSignature" type="button"
           class="px-4 py-2.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white text-sm rounded-lg transition">
@@ -139,8 +195,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '@/services/api'
+import SignaturePad from '@/components/SignaturePad.vue'
 
 const props = defineProps({
   customerId: { type: [String, Number], required: true },
@@ -158,10 +215,16 @@ const contract = ref(null)
 // Sólo puede haber un contrato firmado vigente por cliente: mientras exista,
 // la sección de firma se sustituye por el aviso de eliminar el anterior.
 const signedContract = computed(() => documents.value.find(d => d.type === 'contrato' && d.signed))
-const canvas = ref(null)
+const pad = ref(null)
 const signing = ref(false)
 const hasSignature = ref(false)
-let drawing = false
+
+// ── Firma remota ──
+const links = ref([])
+const creatingLink = ref('')
+const issuedUrl = ref('')
+const issuedWhatsappUrl = ref('')
+const copied = ref(false)
 
 const typeLabel = (t) => ({
   cedula: 'Cédula', instalacion: 'Instalación', contrato: 'Contrato', otros: 'Otros',
@@ -222,92 +285,24 @@ const removeDoc = async (doc) => {
   }
 }
 
-// ── Firma (canvas) ──
-// El contexto se cachea POR ELEMENTO y se obtiene de forma perezosa: el
-// bloque de firma se monta y desmonta (al eliminar el contrato anterior
-// vuelve a aparecer), y un contexto guardado aparte quedaría apuntando a un
-// canvas ya desconectado — el trazo se dibujaría donde nadie lo ve y
-// toDataURL() devolvería un PNG transparente. Mismo criterio que
-// InstallationDetail.vue.
-const ctxByCanvas = new WeakMap()
-
-const getCtx = () => {
-  const c = canvas.value
-  if (!c) return null
-  let context = ctxByCanvas.get(c)
-  if (!context) {
-    context = c.getContext('2d')
-    context.lineWidth = 2.5
-    context.lineCap = 'round'
-    context.lineJoin = 'round'
-    context.strokeStyle = '#111827'
-    ctxByCanvas.set(c, context)
-  }
-  return context
-}
-
-/** ¿Hay tinta real? Se barre el canal alfa: la bandera reactiva miente si el canvas se re-montó. */
-const canvasHasInk = () => {
-  const c = canvas.value
-  if (!c) return false
-  try {
-    const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
-    for (let i = 3; i < data.length; i += 4) {
-      if (data[i] !== 0) return true
-    }
-  } catch {
-    return true
-  }
-  return false
-}
-
-const pointerPos = (e) => {
-  const rect = canvas.value.getBoundingClientRect()
-  return {
-    x: (e.clientX - rect.left) * (canvas.value.width / rect.width),
-    y: (e.clientY - rect.top) * (canvas.value.height / rect.height),
-  }
-}
-
-const startDraw = (e) => {
-  const ctx = getCtx()
-  if (!ctx) return
-  drawing = true
-  const { x, y } = pointerPos(e)
-  ctx.beginPath()
-  ctx.moveTo(x, y)
-  // Punto visible también en un toque sin arrastre.
-  ctx.lineTo(x + 0.1, y + 0.1)
-  ctx.stroke()
-  hasSignature.value = true
-}
-const draw = (e) => {
-  if (!drawing) return
-  const ctx = getCtx()
-  if (!ctx) return
-  const { x, y } = pointerPos(e)
-  ctx.lineTo(x, y)
-  ctx.stroke()
-  hasSignature.value = true
-}
-const endDraw = () => { drawing = false }
-
+// ── Firma presencial ──
+// El recuadro y su detección de tinta viven en SignaturePad.vue, compartido
+// con la página pública de firma remota: las dos producen el MISMO PDF, así
+// que no pueden diferir en cuándo consideran que hay una firma trazada.
 const clearSignature = () => {
-  const ctx = getCtx()
-  if (!ctx) return
-  ctx.clearRect(0, 0, canvas.value.width, canvas.value.height)
+  pad.value?.clear()
   hasSignature.value = false
 }
 
 const signContract = async () => {
-  if (!canvasHasInk()) {
+  if (!pad.value?.hasInk()) {
     hasSignature.value = false
     emit('notify', { type: 'error', title: 'Falta firma', message: 'Traza la firma del cliente en el recuadro.' })
     return
   }
   signing.value = true
   try {
-    const signature = canvas.value.toDataURL('image/png')
+    const signature = pad.value.toDataURL()
     const res = await api.customers.signContract(props.customerId, { signature })
     clearSignature()
     const number = res?.data?.document?.contract_number
@@ -336,12 +331,87 @@ const fetchContractData = async () => {
   }
 }
 
+// ── Firma remota (links) ──
+
+const LINK_LABELS = {
+  pending: 'Pendiente', signed: 'Firmado', expired: 'Vencido', revoked: 'Anulado', locked: 'Bloqueado',
+}
+const linkLabel = (s) => LINK_LABELS[s] || s
+
+const linkBadge = (s) => ({
+  pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  signed:  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  locked:  'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
+}[s] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')
+
+const formatDate = (iso) => {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+const fetchLinks = async () => {
+  try {
+    const res = await api.customers.getContractLinks(props.customerId)
+    links.value = res.data ?? []
+  } catch (e) {
+    // non-blocking — el historial es informativo, no bloquea generar un link
+  }
+}
+
+const createLink = async (channel) => {
+  creatingLink.value = channel
+  issuedUrl.value = ''
+  issuedWhatsappUrl.value = ''
+  copied.value = false
+
+  try {
+    const res = await api.customers.createContractLink(props.customerId, { channel })
+    issuedUrl.value = res.data.url
+    issuedWhatsappUrl.value = res.data.whatsapp_url || ''
+
+    // El enlace de WhatsApp se abre solo: el operador ya dijo por dónde quiere
+    // mandarlo, hacerle dar un segundo clic no aporta nada.
+    if (channel === 'whatsapp' && res.data.whatsapp_url) {
+      window.open(res.data.whatsapp_url, '_blank', 'noopener')
+    }
+
+    emit('notify', {
+      type: res.data.mail_error ? 'error' : 'success',
+      title: res.data.mail_error ? 'Enlace generado, correo no enviado' : 'Enlace generado',
+      message: res.data.message,
+    })
+    await fetchLinks()
+  } catch (e) {
+    emit('notify', { type: 'error', title: 'Error', message: e.response?.data?.message || 'No se pudo generar el enlace.' })
+  } finally {
+    creatingLink.value = ''
+  }
+}
+
+const copyLink = async () => {
+  try {
+    await navigator.clipboard.writeText(issuedUrl.value)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  } catch {
+    emit('notify', { type: 'error', title: 'No se pudo copiar', message: 'Selecciona el enlace y cópialo a mano.' })
+  }
+}
+
+const revokeLink = async (link) => {
+  if (!confirm('¿Anular este enlace? El cliente ya no podrá firmar con él.')) return
+  try {
+    await api.customers.revokeContractLink(link.id)
+    emit('notify', { type: 'success', title: 'Anulado', message: 'El enlace quedó sin efecto.' })
+    if (issuedUrl.value) { issuedUrl.value = ''; issuedWhatsappUrl.value = '' }
+    await fetchLinks()
+  } catch (e) {
+    emit('notify', { type: 'error', title: 'Error', message: e.response?.data?.message || 'No se pudo anular el enlace.' })
+  }
+}
+
 onMounted(async () => {
   await fetchDocuments()
-  await fetchContractData()
-  await nextTick()
-  // Pre-inicializa el contexto si el canvas ya está montado; si aparece más
-  // tarde (al eliminar el contrato anterior), getCtx() lo hace en el 1er trazo.
-  getCtx()
+  await Promise.all([fetchContractData(), fetchLinks()])
 })
 </script>

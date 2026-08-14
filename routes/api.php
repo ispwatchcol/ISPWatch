@@ -42,6 +42,8 @@ use App\Http\Controllers\InstallationEquipmentController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
+use App\Http\Controllers\ContractSignatureLinkController;
+use App\Http\Controllers\PublicContractController;
 use App\Http\Controllers\ApiClientController;
 use App\Http\Controllers\Api\Partner\PartnerBillingController;
 use App\Http\Controllers\Api\Partner\PartnerCustomerController;
@@ -63,6 +65,17 @@ Route::get('/verify-email/{id}/{hash}', [VerificationController::class, 'verify'
     ->name('verification.verify');
 Route::post('/verify-email/resend', [VerificationController::class, 'resend'])
     ->name('verification.resend');
+
+// ─── FIRMA REMOTA DEL CONTRATO (sin autenticación) ───
+// El token del link ES la autorización: no hay usuario del que derivar el
+// tenant, y por eso PublicContractController parte SIEMPRE del link para saber
+// de qué cliente habla. El throttle es por IP porque no hay nada más por lo que
+// contar; el techo por link (5 intentos de verificación) vive en el modelo.
+Route::middleware('throttle:public-contract')->group(function () {
+    Route::get('/public/contract/{token}', [PublicContractController::class, 'show']);
+    Route::post('/public/contract/{token}/verify', [PublicContractController::class, 'verify']);
+    Route::post('/public/contract/{token}/sign', [PublicContractController::class, 'sign']);
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -188,6 +201,15 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::get('/customers/{customer}/contract-data', [CustomerDocumentController::class, 'contractData'])
         ->middleware('permission:view_clients');
     Route::post('/customers/{customer}/contract-sign', [CustomerDocumentController::class, 'signContract'])
+        ->middleware('permission:edit_internet_service,add_clients');
+
+    // Links de firma remota. Mismos permisos que firmar presencialmente: quien
+    // puede generar el contrato firmado es quien puede mandarlo a firmar.
+    Route::get('/customers/{customer}/contract-links', [ContractSignatureLinkController::class, 'index'])
+        ->middleware('permission:view_clients');
+    Route::post('/customers/{customer}/contract-links', [ContractSignatureLinkController::class, 'store'])
+        ->middleware('permission:edit_internet_service,add_clients');
+    Route::delete('/customers/contract-links/{link}', [ContractSignatureLinkController::class, 'destroy'])
         ->middleware('permission:edit_internet_service,add_clients');
 
     // ─── ROUTER MANAGEMENT ───

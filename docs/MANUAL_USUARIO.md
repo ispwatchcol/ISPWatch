@@ -338,6 +338,38 @@ el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejempl
 ese consecutivo va impreso dentro del documento y no se repite nunca. El prefijo lo
 configuras en **Configuración → Plantillas** (ver [17.4](#174-plantillas-de-documentos)).
 
+**Que lo firme el cliente desde su celular.** En esa misma zona, arriba del recuadro de
+firma, tienes tres botones para mandarle un **enlace personal** y que firme por su cuenta,
+sin que nadie tenga que desplazarse:
+
+| Botón | Qué hace |
+|---|---|
+| **Enviar por correo** | Le llega el enlace al correo de contacto del cliente. El sistema lo envía solo |
+| **Enviar por WhatsApp** | Abre WhatsApp con el mensaje ya escrito, listo para enviar desde tu teléfono |
+| **Solo copiar enlace** | Genera el enlace y lo copia; lo mandas por donde quieras |
+
+El cliente abre el enlace, le pedimos los **últimos 4 dígitos de su cédula**, lee el
+contrato completo en la pantalla, firma con el dedo, marca que acepta y listo: el PDF queda
+guardado en su ficha igual que si lo hubiera firmado en la oficina.
+
+Cosas que conviene saber:
+
+- **El enlace vence a las 72 horas y sirve una sola vez.**
+- **No se puede reenviar el mismo enlace.** Si el cliente lo perdió, genera uno nuevo — eso
+  anula el anterior automáticamente. Por eso, cuando lo generes, **cópialo si lo vas a
+  mandar por otro medio**: después no se puede volver a consultar.
+- **Puedes ver si ya lo abrió.** Debajo de los botones queda el historial de enlaces
+  enviados con su estado (Pendiente, Firmado, Vencido, Anulado) y la marca de *abierto*.
+  Sirve para saber si insistir sin tener que llamar.
+- **Puedes anularlo** con el botón *Anular*, si te equivocaste de número o el cliente
+  cambió de teléfono.
+- **A las 24 horas el sistema le manda un recordatorio** por correo, una sola vez, si el
+  enlace se envió por correo y sigue sin usarse.
+- **El contrato firmado a distancia lleva una constancia** al pie con la fecha, la hora y la
+  dirección IP desde la que se firmó. El firmado en la oficina no la lleva: ahí estabas tú.
+- Si el cliente **no tiene cédula registrada**, no se le piden los 4 dígitos (si no,
+  quedaría sin forma de entrar). Vale la pena registrarla antes de mandar el enlace.
+
 **Un solo contrato firmado por cliente.** Si el cliente ya tiene contrato, la zona de firma
 se reemplaza por un aviso: para generar uno nuevo hay que **eliminar primero el anterior**
 en *Documentos del cliente*. Es a propósito — así no se acumulan dos contratos casi iguales

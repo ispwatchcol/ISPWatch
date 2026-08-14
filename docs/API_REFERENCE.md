@@ -483,7 +483,10 @@ contrato lo comprueba antes de reservar el consecutivo, así que un `409` no gas
 | `POST` | `/api/customers/{customer}/documents` | Sube documento (`cedula`, `instalacion`, `contrato`, `otros`) |
 | `DELETE` | `/api/customers/documents/{document}` | Elimina |
 | `GET` | `/api/customers/{customer}/contract-data` | Datos para render del contrato |
-| `POST` | `/api/customers/{customer}/contract-sign` | Firma del contrato |
+| `POST` | `/api/customers/{customer}/contract-sign` | Firma **presencial** del contrato |
+| `GET` | `/api/customers/{customer}/contract-links` | Historial de enlaces de firma remota |
+| `POST` | `/api/customers/{customer}/contract-links` | Emite un enlace de firma remota |
+| `DELETE` | `/api/customers/contract-links/{link}` | Anula un enlace |
 
 Los archivos residen en **S3 privado**. Cada documento expone un atributo `url` que es una
 **URL firmada válida 30 minutos** (`Storage::disk('s3')->temporaryUrl`).
@@ -531,6 +534,84 @@ Dos comportamientos que conviene conocer:
 El nombre del archivo **no** es el número: se deriva de él saneado a ASCII seguro
 (`ContractNumberService::fileName()`), porque una `/` en la clave de S3 crearía una carpeta
 fantasma. `CNO/00001` se guarda como `contrato_CNO-00001.pdf`.
+
+### Firma remota por enlace
+
+Emitir un enlace **revoca el que estuviera vivo** para ese cliente: dos enlaces válidos a
+la vez sólo sirven para que el cliente firme por el que nadie está siguiendo.
+
+```jsonc
+// POST /api/customers/{customer}/contract-links → 201
+// body: { "channel": "email" | "whatsapp" | "manual", "ttl_hours": 72 }
+{
+  "message": "Enlace generado y enviado por correo.",
+  "url": "https://ispwatch-crm.app/firmar/<token>",   // ÚNICA vez que aparece el token
+  "whatsapp_url": "https://wa.me/573001234567?text=...", // null si no hay teléfono
+  "mail_sent": true,
+  "mail_error": null,
+  "link": { "id": 12, "status": "pending", "expires_at": "...", "opened_at": null }
+}
+```
+
+`url` sólo se devuelve **aquí**: en la base de datos vive el SHA-256 del token, así que ni
+el servidor puede reconstruirlo. Por eso **no existe** un endpoint de "reenviar": un
+reenvío es siempre un enlace nuevo. `GET .../contract-links` nunca expone el token.
+
+Un fallo de SMTP **no** invalida el enlace ni devuelve `500`: responde `201` con
+`mail_sent: false` y `mail_error`, para que el operador copie la URL y la mande por otro
+medio. Devuelve `409` si el cliente ya tiene un contrato firmado.
+
+### Rutas públicas de firma (sin autenticación)
+
+`throttle:public-contract` — 20/min y 120/hora por IP. El token del enlace **es** la
+autorización: no hay usuario del que derivar el tenant, y el controlador parte siempre del
+enlace para saber de qué cliente habla.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/public/contract/{token}` | Portada: estado del enlace y datos mínimos |
+| `POST` | `/api/public/contract/{token}/verify` | Confirma identidad y devuelve el contrato |
+| `POST` | `/api/public/contract/{token}/sign` | Firma y genera el PDF |
+
+```jsonc
+// GET /api/public/contract/{token} → 200
+{
+  "status": "pending",            // pending | signed | expired | revoked | locked
+  "company_name": "Fibra XYZ",
+  "customer_first_name": "Juan",  // sólo el nombre de pila: ver nota
+  "requires_verification": true,
+  "expires_at": "2026-08-16T15:00:00-05:00"
+  // si status = signed, además: contract_number, document_url, signed_at
+}
+
+// POST /api/public/contract/{token}/verify  { "document_last4": "7890" } → 200
+{ "status": "verified", "customer": {...}, "plan": {...}, "contract_html": "<html>…" }
+
+// POST /api/public/contract/{token}/sign
+// { "signature": "data:image/png;base64,…", "document_last4": "7890", "accepted": true } → 201
+{ "status": "signed", "contract_number": "CTR-00042", "document_url": "https://…" }
+```
+
+Cuatro decisiones que conviene conocer:
+
+- **La portada no filtra datos personales.** Antes de verificar sólo salen el nombre de
+  pila y el del ISP — nunca cédula, dirección ni plan. Quien reciba un enlace reenviado
+  por error no puede cosechar datos del cliente.
+- **`sign` vuelve a exigir `document_last4`.** No confía en que se haya pasado por
+  `verify`: un `POST` directo se saltaría el único control de identidad del flujo. Un
+  cliente **sin cédula registrada** queda exento (`requires_verification: false`), porque
+  si no quedaría encerrado fuera de su propio contrato.
+- **`409` ≠ `404`.** `404` es token inexistente; `409` es "el enlace es válido pero ya no
+  sirve" (`signed`/`revoked`/`expired`/`locked`), que el front necesita distinguir para
+  decir "ya firmaste" en vez de "enlace inválido". Un enlace ya firmado devuelve el PDF en
+  vez de un error: es el cliente volviendo a buscar su copia.
+- **`contract_html`, no un PDF embebido.** Safari iOS no renderiza un
+  `data:application/pdf` dentro de un iframe y el visor de Chrome Android saca al cliente
+  de la página. El HTML se muestra en un `<iframe srcdoc>` que lo aísla del CSS de la
+  página y le da su propio scroll.
+
+Cinco intentos fallidos de verificación (`ContractSignatureLink::MAX_FAILED_ATTEMPTS`)
+queman el enlace de forma permanente, incluso ante los dígitos correctos.
 
 ---
 

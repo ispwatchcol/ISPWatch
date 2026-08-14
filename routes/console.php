@@ -66,6 +66,11 @@ Schedule::command('traffic:collect')->everyFiveMinutes()->withoutOverlapping();
 // Prune fine traffic samples older than 30 days (daily aggregates are kept).
 Schedule::command('traffic:prune --days=30')->daily();
 
+// Recordatorio de contratos sin firmar: UN solo aviso por link, a las 24h de
+// haberse enviado. A las 09:00 y no de madrugada porque el correo compite con
+// la atención del cliente, no con la del servidor.
+Schedule::command('contracts:remind-unsigned')->dailyAt('09:00');
+
 // Bitácora de la API pública: se conserva la ventana de auditoría configurada
 // en config/api_keys.php (90 días por defecto). Sin esta purga la tabla crece
 // sin techo, porque se escribe una fila por petición atendida o rechazada.

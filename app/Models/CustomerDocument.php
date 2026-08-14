@@ -22,6 +22,9 @@ class CustomerDocument extends Model
         'mime_type',
         'signed',
         'contract_number',
+        // SHA-256 del PDF tal como quedó almacenado. Es lo que permite
+        // demostrar que el archivo exhibido es el que se firmó.
+        'content_sha256',
         'uploaded_by',
     ];
 
