@@ -145,6 +145,9 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `document_templates` | 0 | Plantillas HTML de factura/contrato/acta por tenant |
 | `support_ticket` | 6 | Tickets de soporte |
 | `support_ticket_message` / `_attachment` | 0 / 0 | Conversación y adjuntos |
+| `ticket_status` / `_priority` / `_category` | 4 / 4 / 4 | **Catálogos versionados** que sustituyen a los enums del ticket (Fase 1 R1) |
+| `ticket_symptom` / `_cause` / `_solution` / `_result` | 0 / 0 / 0 / 0 | Vocabulario de diagnóstico. Vacíos a propósito hasta acordarlo con el ISP y el integrador |
+| `ticket_catalog_version` | 7 | Versión de cada catálogo, para que un integrador sepa si su copia sigue vigente |
 | `inventory_stock` / `_device` / `_provider` / `_branch` | 0 / 0 / 2 / 0 | Inventario de equipos |
 | `help_categories` / `help_articles` | 9 / 30 | Centro de ayuda embebido |
 | `bulk_provision_runs` | 50 | Progreso de aprovisionamiento masivo asíncrono |
@@ -908,6 +911,55 @@ afectado), `subject`, `description`,
 
 Un ticket puede generar facturas de tipo `service_charge` mediante `invoices.ticket_id`.
 
+**Desde la Fase 1 R1 (2026-08-14)** el ticket lleva además las claves foráneas a los
+catálogos y `closed_at`.
+
+**Tras la R2 (mismo día) la clave foránea es la fuente de verdad** y los tres enums de
+arriba quedaron como **copia**, que se mantiene sincronizada desde el modelo únicamente
+para poder revertir. Ningún lector de la aplicación depende ya de ellos; su eliminación
+es la R3, pendiente de aprobación.
+
+| Columna | Apunta a | Nota |
+|---|---|---|
+| `status_id`, `priority_id`, `category_id` | `ticket_status`, `ticket_priority`, `ticket_category` | Rellenadas por la migración y mantenidas al día por un hook `saving` del modelo |
+| `symptom_id` | `ticket_symptom` | Nullable, sin captura en la interfaz todavía |
+| `suspected_cause_id`, `confirmed_cause_id` | **ambas** a `ticket_cause` | Comparten catálogo para poder medir si el diagnóstico sugerido acertó |
+| `solution_id`, `result_id` | `ticket_solution`, `ticket_result` | Nullable |
+| `closed_at` | — | Nace vacía incluso en tickets ya cerrados: no existe registro de cuándo se cerraron y rellenarla con `updated_at` sería inventar el dato |
+
+Todas las FK son **`ON DELETE RESTRICT`**: perder una fila de catálogo dejaría un ticket
+histórico sin poder decir en qué estado quedó.
+
+### 4.15b Catálogos del ticket
+
+Siete tablas con un núcleo común: `code` (estable e **inmutable**), `label` (visible y
+editable), `description`, `weight`, `valid_from`, `valid_until`, `revision`.
+
+No hay columna `is_active`: vigente se define una sola vez como
+`valid_from <= now() AND (valid_until IS NULL OR valid_until > now())`.
+
+| Tabla | Alcance | Columnas propias |
+|---|---|---|
+| `ticket_status` | Global estricto | `is_initial`, `is_terminal`, `stamps_resolved_at`, `stamps_closed_at` |
+| `ticket_priority` | Global estricto | `sla_response_hours`, `sla_resolution_hours` (nullable, inertes hasta la fase de SLA) |
+| `ticket_category` | Global estricto | `is_integration_visible` — sólo `technical` viaja al integrador |
+| `ticket_result` | Global estricto | — |
+| `ticket_symptom` | Base global + tenant | `category_id` → `ticket_category` |
+| `ticket_cause` | Base global + tenant | `group_code` (red, abonado, energia, externo) |
+| `ticket_solution` | Base global + tenant | — |
+
+En los tres extensibles, `tenant_id NULL` = fila de plataforma (visible para todos);
+un valor = vocabulario propio de ese ISP. La unicidad **no** se puede expresar con un
+`UNIQUE(tenant_id, code)`, porque en SQL `NULL` nunca es igual a `NULL` y dos filas
+globales podrían compartir código. Se resuelve con dos índices parciales disjuntos:
+`(code) WHERE tenant_id IS NULL` y `(tenant_id, code) WHERE tenant_id IS NOT NULL`.
+
+`ticket_status` lleva además un índice parcial único sobre `is_initial` que garantiza que
+exista **exactamente un** estado inicial.
+
+`ticket_catalog_version`: una fila por catálogo (`catalog` PK, `version`, `updated_at`).
+Sube en cada alta, retiro o reetiquetado.
+
 ### 4.16 Inventario
 
 | Tabla | Columnas |
@@ -1187,3 +1239,5 @@ prioridad e impacto está en [`MEJORAS_RECOMENDADAS.md`](MEJORAS_RECOMENDADAS.md
 | 9 | `customer_documents.installation_id` y `prospects.converted_user_id` sin FK declarada. | `information_schema` | 📋 Pendiente |
 | 10 | **`customer_installations.customer_id` y `bulk_provision_runs.customer_id` tampoco tienen FK**, sólo un índice. Al borrar un cliente la cascada de PostgreSQL no las toca y quedan apuntando a un `users.id` inexistente. | `information_schema` (2026-08-06) | ✅ Mitigado en código: `CustomerDeletionService` las borra explícitamente antes del cliente. La FK sigue sin declararse |
 | 11 | **`customer_documents.customer_id` era nullable en producción pero `NOT NULL` en SQLite.** La migración `2026_05_27_223002` sólo escribió las ramas de pgsql y mysql, así que la suite no podía reproducir el caso real de una foto de instalación que cuelga de un prospecto. | `migrate` en sqlite vs `information_schema` | ✅ Resuelto: migración `2026_08_06_120000`, limitada a sqlite |
+| 12 | **Un tenant puede crear una fila de catálogo con un código que ya existe como global.** Los dos índices parciales garantizan unicidad *dentro* de cada ámbito, pero ningún índice puede cruzarlos: `(NULL, 'sin_senal')` y `(7, 'sin_senal')` son ambos válidos. Un integrador que reciba `sin_senal` no sabría cuál de los dos es. | Diseño de `2026_08_14_000001` | 📋 Pendiente: validación en aplicación al exponer la administración de catálogos (Fase 3) |
+| 13 | **`support_ticket` tiene los enums y las FK de catálogo a la vez.** Es el estado intencional de la R1 (expandir), no un descuido: permite revertir sin pérdida. Deja de ser deuda cuando la R3 elimine los enums. | `2026_08_14_000003` | ⏳ Por diseño hasta la R3 |

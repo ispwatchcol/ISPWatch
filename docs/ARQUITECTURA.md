@@ -1336,3 +1336,107 @@ tests de `tests/Feature/Audit/` la fijan por ambos lados.
 
 Es **idempotente**: salta a los clientes que ya tienen libro. Para rehacer un intervalo —por
 ejemplo el que va entre correrlo y desplegar el código— hace falta `--force`.
+
+---
+
+## 15. Catálogos versionados del ticket de soporte
+
+Introducidos en la Fase 1 R1 (2026-08-14) para sustituir los tres enums de
+`support_ticket` y dar cabida al vocabulario de diagnóstico que la integración con un
+tercero exige. Ver `BITACORA_TECNICA.md` § 26 para el registro de la decisión y
+`BASE_DATOS.md` § 4.15b para el detalle de columnas.
+
+### 15.1 La regla que sostiene el diseño
+
+**El código es identidad; la etiqueta es presentación.** Es la distinción que evita romper
+el histórico, y conviene tenerla clara antes de tocar cualquier catálogo:
+
+- **`code` es inmutable, para siempre.** Renombrar `high` a `alta_prioridad` no es un
+  renombrado: es una **fila nueva** con código nuevo más el retiro suave de la vieja
+  (`valid_until = now()`). Los tickets antiguos siguen apuntando por clave foránea a la
+  fila `high`, que nunca se borra ni se muta, y siguen diciendo `high` en la API pública.
+- **`label` sí cambia, y aplica retroactivamente.** Corregir un texto visible debe verse
+  también en los tickets viejos, porque es presentación y no significado.
+
+La pregunta que decide cuál de los dos casos aplica:
+
+> ¿Cambió lo que la fila **significa**, o sólo cómo se **escribe**?
+> Significado → fila nueva. Redacción → mismo código, `label` nuevo, `revision` + 1.
+
+De ahí se sigue que **`DELETE` sobre un catálogo está prohibido**. No es una convención:
+las claves foráneas del ticket son `ON DELETE RESTRICT`, así que lo impide el motor.
+
+También se sigue que **no hace falta copiar el código dentro del ticket**. Mientras los
+códigos sean inmutables y las filas no se borren, la clave foránea basta; duplicar el
+valor crearía una segunda verdad que acabaría divergiendo.
+
+### 15.2 Alcance: qué es global y qué es de cada ISP
+
+| Catálogo | Alcance | Razón |
+|---|---|---|
+| `ticket_status` | Global estricto | La máquina de estados (Fase 2) se define sobre él. Estados por tenant serían una máquina de estados por tenant |
+| `ticket_priority` | Global estricto | Va atada a SLA; por tenant haría incomparables los tiempos de respuesta |
+| `ticket_category` | Global estricto | Es el filtro de alcance del contrato con el integrador |
+| `ticket_result` | Global estricto | Desenlace del ticket: métrica comparable entre ISPs |
+| `ticket_symptom`, `ticket_cause`, `ticket_solution` | Base global + extensión por tenant | El vocabulario técnico de un ISP de fibra no es el de uno inalámbrico |
+
+En los extensibles, `tenant_id NULL` es la fila de plataforma y un valor es la fila propia
+del ISP. La unicidad se garantiza con dos índices parciales disjuntos, no con un
+`UNIQUE(tenant_id, code)`: en SQL `NULL` nunca es igual a `NULL`, así que ese índice
+dejaría pasar dos filas globales con el mismo código.
+
+### 15.3 Causa sospechada y causa confirmada comparten catálogo
+
+`suspected_cause_id` y `confirmed_cause_id` apuntan ambas a `ticket_cause`. No es un
+atajo: el vocabulario diagnóstico es el mismo y lo que cambia es quién lo afirma —el
+sistema externo sugiere, el personal del ISP confirma—. Compartir catálogo es lo que
+permite responder la pregunta que justifica la integración entera:
+
+```sql
+WHERE suspected_cause_id IS DISTINCT FROM confirmed_cause_id
+```
+
+Con dos catálogos separados haría falta una tabla de equivalencias mantenida a mano, que
+se desincronizaría.
+
+### 15.4 Estado de la migración
+
+**R1 y R2 aplicadas. Falta la R3.**
+
+- **R1 (aditiva)** — se crearon los catálogos y las columnas de clave foránea, y se
+  rellenaron hacia atrás (migración) y hacia adelante (hook del modelo).
+- **R2 (invertir la lectura)** — la clave foránea pasó a ser la fuente de verdad y el
+  enum quedó como **copia**, que se conserva sólo para poder revertir. Ningún lector de
+  la aplicación depende ya de las columnas enum.
+- **R3 (pendiente, requiere aprobación)** — eliminar los enums y sus `CHECK`. Punto sin
+  retorno.
+
+### 15.5 Cómo se lee un estado, después de la R2
+
+`$ticket->status` sigue devolviendo el **código en texto** (`'open'`) para todos sus
+consumidores —controladores, plantillas de correo, API pública—, pero ya no sale de la
+columna enum sino del catálogo, a través de un accessor. Cambió de dónde viene el dato,
+no lo que el resto de la aplicación ve, y por eso la R2 no rompió ningún contrato.
+
+`App\Support\TicketCatalogs` resuelve código ⇄ id. Es **singleton del contenedor**: una
+consulta por catálogo y por petición, y resolución en memoria a partir de ahí. No es una
+estática porque una estática sobreviviría a `RefreshDatabase` entre tests y resolvería
+ids de una base que ya no existe.
+
+Consecuencia a tener presente: dentro de una misma petición, editar un catálogo no se ve
+hasta llamar a `flush()`. En producción es irrelevante —cada petición recarga—, pero la
+pantalla de administración de catálogos de la Fase 3 tendrá que hacerlo tras guardar.
+
+### 15.6 Etiqueta y color no son lo mismo
+
+Distinción que atraviesa backend y frontend:
+
+| | Qué es | Dónde vive | Puede cambiar sin desplegar |
+|---|---|---|---|
+| **Etiqueta** | Dato de negocio | Columna `label` del catálogo | Sí |
+| **Color** | Presentación | Mapas de clases en los componentes Vue, indexados por **código** | No, ni hace falta |
+
+Por eso el frontend recibe siempre `code` **y** `label`: colorea por el primero, que es
+estable, y muestra el segundo, que no lo es. La SPA los obtiene de
+`GET /api/catalogs/ticket` mediante el composable `useTicketCatalogs()`, que sustituyó a
+los mapas de etiquetas que estaban duplicados en cinco componentes.

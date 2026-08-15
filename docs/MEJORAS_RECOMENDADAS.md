@@ -1108,6 +1108,85 @@ dependencia npm nueva (`qrcode`) para un caso que hoy cubren el `wa.me`, el corr
 copiar — y porque el técnico que está delante del cliente tiene a mano el camino presencial, que
 ya funcionaba.
 
+
+### 📋 P-21 · Un tenant puede pisar un código de catálogo global
+
+Los catálogos extensibles del ticket (`ticket_symptom`, `ticket_cause`, `ticket_solution`)
+llevan dos índices parciales que garantizan unicidad **dentro** de cada ámbito: uno para
+las filas de plataforma (`tenant_id IS NULL`) y otro por tenant. Ningún índice puede
+cruzar los dos ámbitos, así que `(NULL, 'sin_senal')` y `(7, 'sin_senal')` conviven sin
+error.
+
+**Consecuencia concreta.** Un integrador que reciba el código `sin_senal` no puede saber
+si es el síntoma de plataforma o el propio de ese ISP, y dos tenants podrían estar
+reportando cosas distintas bajo el mismo código.
+
+**Por qué no se resolvió ahora.** La R1 no expone administración de catálogos: las únicas
+filas que existen las escribió una migración. El agujero sólo se puede explotar cuando
+haya una pantalla o un endpoint que permita crear filas por tenant, que es la Fase 3.
+
+**Recomendación.** Validar en aplicación, al dar de alta una fila con `tenant_id`, que el
+código no exista ya como global. Y decidir de forma explícita en el contrato qué gana si
+llegara a pasar — lo razonable es que el código global tenga prioridad y el propio se
+rechace.
+
+### 📋 P-22 · El vocabulario de diagnóstico del ticket está sin acordar
+
+`ticket_symptom`, `ticket_cause`, `ticket_solution` y `ticket_result` existen como tablas
+pero están **vacíos a propósito**, y las cinco columnas del ticket que apuntan a ellos
+(`symptom_id`, `suspected_cause_id`, `confirmed_cause_id`, `solution_id`, `result_id`)
+son nullable y no se capturan en ninguna pantalla.
+
+**Por qué se dejó así.** Los códigos son inmutables por diseño: una vez sembrados, un
+ticket puede apuntar a ellos para siempre. Inventar el vocabulario antes de acordarlo con
+el ISP y con el integrador significaría o cargar con códigos equivocados de forma
+permanente, o retirarlos a las dos semanas dejando basura en el histórico.
+
+**Riesgo mientras tanto.** Son columnas muertas. Si el acuerdo del vocabulario se
+demorase mucho, conviene revisar si vale la pena mantenerlas declaradas — se incluyeron
+para poder publicar el contrato OpenAPI una sola vez con el juego completo de campos.
+
+**Recomendación.** Cerrar el vocabulario con el ISP y el integrador, sembrarlo en su
+propia migración (nunca en un seeder: `migrate:both` no siembra `public`), y sólo entonces
+construir la captura en la interfaz.
+
+### 📋 P-23 · Falta la R3: `support_ticket` sigue con los enums y las FK a la vez
+
+**R2 aplicada el 2026-08-14.** La aplicación ya lee y escribe por clave foránea; las
+columnas enum quedaron como **copia** que sólo se mantiene para poder revertir. Que
+ningún lector dependa ya de ellas está probado por `TicketCatalogReadPathTest`, que
+corrompe el espejo a propósito y comprueba que nadie lo mira.
+
+**Lo que falta.** R3 — eliminar los enums y sus `CHECK`. Es el punto sin retorno y
+requiere aprobación explícita.
+
+**Riesgo de alargar la convivencia.** Mientras las dos representaciones coexistan,
+cualquier escritura que NO pase por el modelo —SQL crudo, una importación, un `UPDATE`
+manual en producción— puede desincronizarlas sin que nada avise. Hoy no existe ninguna
+escritura así, pero cada semana que pasa es una oportunidad de que aparezca.
+
+**Antes de la R3, verificar que el espejo y la FK siguen coincidiendo:**
+
+```sql
+SELECT count(*) FROM support_ticket t
+JOIN ticket_status s ON s.id = t.status_id
+WHERE t.status IS DISTINCT FROM s.code;   -- debe ser 0
+```
+
+### 📋 P-24 · La pantalla de catálogos de la Fase 3 tendrá que vaciar la caché
+
+`App\Support\TicketCatalogs` cachea los catálogos **por petición** (singleton del
+contenedor). En producción eso basta y es lo correcto: la edición ocurre en una petición
+y la siguiente ya ve el cambio.
+
+**El caso que sí falla.** Editar un catálogo y volver a leerlo *dentro de la misma
+petición* devuelve el valor viejo. Hoy no ocurre porque no existe administración de
+catálogos —las únicas filas las escribió una migración—, pero la pantalla de la Fase 3
+hará exactamente eso.
+
+**Recomendación.** Llamar a `flush()` después de guardar, y subir de paso la fila
+correspondiente de `ticket_catalog_version` para que los integradores externos detecten
+el cambio.
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

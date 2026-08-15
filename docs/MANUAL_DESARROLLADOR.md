@@ -949,6 +949,103 @@ Cuatro reglas que no son opcionales:
 
 ---
 
+
+### Ejemplo: agregar o cambiar un código de catálogo del ticket
+
+Los catálogos del ticket (`ticket_status`, `ticket_priority`, `ticket_category`,
+`ticket_symptom`, `ticket_cause`, `ticket_solution`, `ticket_result`) tienen una regla que
+no es negociable y que conviene entender antes de tocarlos:
+
+> **`code` es inmutable. `label` no.**
+
+**1. ¿Qué cambió de verdad?**
+
+| Lo que quieres hacer | Qué es en realidad | Cómo se hace |
+|---|---|---|
+| Corregir «Alat» → «Alta» | Cambió la **redacción** | `UPDATE ... SET label = 'Alta', revision = revision + 1` sobre la misma fila. Aplica retroactivamente a todos los tickets, que es lo que quieres |
+| `high` pasa a llamarse `alta_prioridad` | Cambió el **significado** (o al menos la identidad) | Fila **nueva** con el código nuevo + `valid_until = now()` en la vieja. Nunca un `UPDATE` del código |
+| Retirar una prioridad que ya no se usa | Retiro | `valid_until = now()`. **Nunca `DELETE`** |
+
+Si intentas borrar una fila que algún ticket usa, la base de datos te lo impedirá: las FK
+son `ON DELETE RESTRICT`. Eso es deliberado — un ticket histórico tiene que poder decir
+siempre en qué estado quedó.
+
+**2. Siembra desde una migración, jamás desde un seeder**
+
+```php
+// database/migrations/AAAA_MM_DD_..._add_ticket_symptoms.php
+$existentes = DB::table('ticket_symptom')->whereNull('tenant_id')->pluck('code')->all();
+
+foreach ($nuevos as $fila) {
+    if (in_array($fila['code'], $existentes, true)) {
+        continue;  // idempotente: no toca lo que ya está
+    }
+    DB::table('ticket_symptom')->insert($fila + [
+        'valid_from' => now(), 'revision' => 1,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+}
+```
+
+`migrate:both` aplica migraciones en `ispwatch_dev` **y** en `public`, pero **nunca siembra
+`public`**. Un catálogo que dependa del seeder queda vacío en producción, y sin filas en
+`ticket_status` no se puede crear ni un ticket. Ya pasó con `cut_type` (ver
+`2026_07_31_000001`); no vuelvas a pagarlo.
+
+**3. Sube la versión del catálogo**
+
+```php
+DB::table('ticket_catalog_version')
+    ->where('catalog', 'symptom')
+    ->update(['version' => DB::raw('version + 1'), 'updated_at' => now()]);
+```
+
+Es lo que un integrador externo consulta para saber si su copia cacheada sigue vigente sin
+descargar el catálogo entero.
+
+**4. Filas propias de un ISP**
+
+En los tres catálogos extensibles (`symptom`, `cause`, `solution`), `tenant_id NULL` es
+fila de plataforma y un valor es fila de ese ISP. Al crear una fila con `tenant_id`,
+**valida en código que el código no exista ya como global**: ningún índice puede impedirlo
+(ver P-21 en `MEJORAS_RECOMENDADAS.md`).
+
+**Trampa de PostgreSQL:** no intentes garantizar la unicidad con
+`UNIQUE(tenant_id, code)`. En SQL `NULL` nunca es igual a `NULL`, así que ese índice deja
+pasar dos filas globales con el mismo código. Por eso hay dos índices parciales disjuntos.
+
+**5. Después de escribir, vacía la caché**
+
+`App\Support\TicketCatalogs` cachea por petición. Si editas un catálogo y vuelves a
+leerlo en la MISMA petición, obtendrás el valor viejo:
+
+```php
+app(TicketCatalogs::class)->flush();   // o flush('ticket_status') para uno solo
+```
+
+En producción esto sólo hace falta en la petición que hace la edición; la siguiente
+recarga sola.
+
+**6. En el frontend no escribas etiquetas**
+
+Usa el composable, que pide `GET /api/catalogs/ticket` una sola vez por sesión:
+
+```js
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+
+const { statuses, cargar, statusLabel } = useTicketCatalogs()
+onMounted(() => cargar())
+```
+
+Los mapas de **color** sí se quedan en el componente, indexados por `code`. La regla:
+el color es presentación y se decide por código —que es estable—; la etiqueta es dato de
+negocio y viene del catálogo. Nunca compares contra la etiqueta.
+
+**Trampa de Eloquent (te va a morder):** si te tienta escribir un ayudante que devuelva
+`Attribute` para no repetir accessors, **no le declares el tipo de retorno**. Eloquent
+descubre los accessors reflexionando sobre los métodos cuyo tipo declarado es `Attribute`
+y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo entero con
+«Too few arguments». Está documentado en `SupportTicket::atributoDeCatalogo()`.
 ## 11. Trampas conocidas
 
 | # | Trampa | Detalle |

@@ -54,10 +54,8 @@
                         v-model="form.category"
                         class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                        <option value="technical">Técnico</option>
-                        <option value="billing">Facturación</option>
-                        <option value="services">Servicios</option>
-                        <option value="general">General</option>
+                        <!-- R2: opciones desde el catálogo, no en duro -->
+                        <option v-for="c in categories" :key="c.code" :value="c.code">{{ c.label }}</option>
                     </select>
                 </div>
 
@@ -70,10 +68,7 @@
                         v-model="form.priority"
                         class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                        <option value="low">Baja</option>
-                        <option value="medium">Media</option>
-                        <option value="high">Alta</option>
-                        <option value="urgent">Urgente</option>
+                        <option v-for="p in priorities" :key="p.code" :value="p.code">{{ p.label }}</option>
                     </select>
                 </div>
 
@@ -86,10 +81,7 @@
                         v-model="form.status"
                         class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                        <option value="open">Abierto</option>
-                        <option value="in_progress">En Progreso</option>
-                        <option value="resolved">Resuelto</option>
-                        <option value="closed">Cerrado</option>
+                        <option v-for="e in statuses" :key="e.code" :value="e.code">{{ e.label }}</option>
                     </select>
                 </div>
 
@@ -140,6 +132,10 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+
+// R2: estados, prioridades y categorías salen del catálogo del backend.
+const { statuses, priorities, categories, cargar: cargarCatalogos } = useTicketCatalogs()
 
 const router = useRouter()
 const route = useRoute()
@@ -232,6 +228,7 @@ const handleSubmit = async () => {
 }
 
 onMounted(() => {
+    cargarCatalogos()
     loadTicket()
 })
 </script>

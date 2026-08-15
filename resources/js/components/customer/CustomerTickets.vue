@@ -82,6 +82,7 @@
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import api from '@/services/api'
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 
 const props = defineProps({
   customerId: { type: [String, Number], required: true },
@@ -101,9 +102,9 @@ const load = async () => {
   }
 }
 
-const statusLabel = (s) => ({ open: 'Abierto', in_progress: 'En progreso', resolved: 'Resuelto', closed: 'Cerrado' }[s] ?? s)
-const priorityLabel = (p) => ({ low: 'Baja', medium: 'Media', high: 'Alta', urgent: 'Urgente' }[p] ?? p)
-const categoryLabel = (c) => ({ technical: 'Técnico', billing: 'Facturación', services: 'Servicios', general: 'General' }[c] ?? c)
+// R2: las etiquetas salen del catálogo. Los colores siguen aquí porque se
+// deciden por código —que es estable— y son presentación, no dato de negocio.
+const { cargar: cargarCatalogos, statusLabel, priorityLabel, categoryLabel } = useTicketCatalogs()
 
 const statusBadge = (s) => ({
   open:        'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -124,5 +125,8 @@ const formatDate = (d) => {
   return new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-onMounted(load)
+onMounted(() => {
+  cargarCatalogos()
+  load()
+})
 </script>

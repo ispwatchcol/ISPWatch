@@ -8,7 +8,10 @@ use App\Models\SupportTicketMessage;
 use App\Models\SupportTicketAttachment;
 use App\Models\User;
 use App\Services\BillingService;
+use App\Support\TicketCatalogs;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\In;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
@@ -17,6 +20,35 @@ use App\Mail\SendTicketNotification;
 
 class SupportTicketController extends Controller
 {
+    /**
+     * FASE 1 · R2 — campo de la petición => [columna FK, tabla de catálogo].
+     *
+     * El controlador ya no toca las columnas enum: recibe códigos, los resuelve
+     * contra el catálogo y consulta por clave foránea.
+     */
+    private const CATALOGOS_FILTRABLES = [
+        'status'   => ['status_id',   TicketCatalogs::STATUS],
+        'priority' => ['priority_id', TicketCatalogs::PRIORITY],
+        'category' => ['category_id', TicketCatalogs::CATEGORY],
+    ];
+
+    public function __construct(private readonly TicketCatalogs $catalogs)
+    {
+    }
+
+    /**
+     * Reglas de validación tomadas del catálogo y no escritas a mano.
+     *
+     * Con esto, retirar una fila (ponerle `valid_until`) deja de aceptarla en la
+     * API sin tocar código ni desplegar. Antes la lista vivía duplicada en tres
+     * sitios de este mismo archivo, y añadir un estado obligaba a acordarse de
+     * los tres.
+     */
+    private function reglaDe(string $tabla): In
+    {
+        return Rule::in($this->catalogs->codigosVigentes($tabla));
+    }
+
     /**
      * Display a listing of support tickets.
      */
@@ -30,17 +62,13 @@ class SupportTicketController extends Controller
             $query->where('tenant_id', $tenantId);
         }
 
-        // Filtros
-        if ($request->has('status') && $request->status != 'all') {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->has('priority') && $request->priority != 'all') {
-            $query->where('priority', $request->priority);
-        }
-
-        if ($request->has('category') && $request->category != 'all') {
-            $query->where('category', $request->category);
+        // Filtros. Llegan como CÓDIGO, como siempre, pero se resuelven contra el
+        // catálogo y se filtra por clave foránea (R2). Un código inexistente
+        // resuelve a null y no devuelve tickets, en vez de ignorarse en silencio.
+        foreach (self::CATALOGOS_FILTRABLES as $campo => [$columna, $tabla]) {
+            if ($request->has($campo) && $request->{$campo} != 'all') {
+                $query->where($columna, $this->catalogs->id($tabla, $request->{$campo}));
+            }
         }
 
         if ($request->has('user_id')) {
@@ -72,7 +100,7 @@ class SupportTicketController extends Controller
         $data = $request->validate([
             'subject' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'category' => 'nullable|in:technical,billing,services,general',
+            'category' => ['nullable', $this->reglaDe(TicketCatalogs::CATEGORY)],
             'user_id' => 'required|exists:users,id',
             'staff_id' => 'nullable|exists:users,id',
             'sectorial_id' => 'nullable|integer|exists:sectorial,id',
@@ -178,9 +206,9 @@ class SupportTicketController extends Controller
         $validator = \Validator::make($request->all(), [
             'subject' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
-            'category' => 'sometimes|in:technical,billing,services,general',
-            'priority' => 'sometimes|in:low,medium,high,urgent',
-            'status' => 'sometimes|in:open,in_progress,resolved,closed',
+            'category' => ['sometimes', $this->reglaDe(TicketCatalogs::CATEGORY)],
+            'priority' => ['sometimes', $this->reglaDe(TicketCatalogs::PRIORITY)],
+            'status'   => ['sometimes', $this->reglaDe(TicketCatalogs::STATUS)],
             'staff_id' => 'sometimes|nullable|exists:users,id',
             'sectorial_id' => 'sometimes|nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
@@ -312,13 +340,15 @@ class SupportTicketController extends Controller
             $baseQuery->where('tenant_id', $tenantId);
         }
 
+        $idDeEstado = fn (string $code) => $this->catalogs->id(TicketCatalogs::STATUS, $code);
+
         $totalTickets = (clone $baseQuery)->count();
-        $openTickets = (clone $baseQuery)->where('status', SupportTicket::STATUS_OPEN)->count();
-        $inProgressTickets = (clone $baseQuery)->where('status', SupportTicket::STATUS_IN_PROGRESS)->count();
+        $openTickets = (clone $baseQuery)->where('status_id', $idDeEstado(SupportTicket::STATUS_OPEN))->count();
+        $inProgressTickets = (clone $baseQuery)->where('status_id', $idDeEstado(SupportTicket::STATUS_IN_PROGRESS))->count();
 
         // Tickets resueltos este mes
         $startOfMonth = now()->startOfMonth();
-        $resolvedThisMonth = (clone $baseQuery)->where('status', SupportTicket::STATUS_RESOLVED)
+        $resolvedThisMonth = (clone $baseQuery)->where('status_id', $idDeEstado(SupportTicket::STATUS_RESOLVED))
             ->where('resolved_at', '>=', $startOfMonth)
             ->count();
 
@@ -333,40 +363,25 @@ class SupportTicketController extends Controller
             $avgResolutionTime = round($totalDays / $resolvedTickets->count(), 1);
         }
 
-        // Distribución por prioridad (only if priority exists)
-        $byPriority = (clone $baseQuery)->select('priority', DB::raw('count(*) as count'))
-            ->whereNotNull('priority')
-            ->groupBy('priority')
-            ->get()
-            ->map(function ($item) {
-                return [
-                    'priority' => ucfirst($item->priority),
-                    'count' => $item->count
-                ];
-            });
+        // Distribuciones. Se agrupa por clave foránea y la etiqueta sale del
+        // catálogo (R2). Antes se fabricaba con `ucfirst(str_replace('_',' '))`
+        // sobre el código, que producía "In progress" —inglés y con la forma que
+        // impusiera el código— en una interfaz en español. Ahora dice lo que el
+        // catálogo dice, y cambiarlo es editar una fila, no desplegar.
+        $distribucion = fn (string $columna, string $tabla, string $clave) =>
+            (clone $baseQuery)->select($columna, DB::raw('count(*) as count'))
+                ->whereNotNull($columna)
+                ->groupBy($columna)
+                ->get()
+                ->map(fn ($item) => [
+                    $clave  => $this->catalogs->label($tabla, (int) $item->{$columna}),
+                    'code'  => $this->catalogs->code($tabla, (int) $item->{$columna}),
+                    'count' => $item->count,
+                ]);
 
-        // Distribución por estado
-        $byStatus = (clone $baseQuery)->select('status', DB::raw('count(*) as count'))
-            ->groupBy('status')
-            ->get()
-            ->map(function ($item) {
-                return [
-                    'status' => ucfirst(str_replace('_', ' ', $item->status)),
-                    'count' => $item->count
-                ];
-            });
-
-        // Distribución por categoría (only if category exists)
-        $byCategory = (clone $baseQuery)->select('category', DB::raw('count(*) as count'))
-            ->whereNotNull('category')
-            ->groupBy('category')
-            ->get()
-            ->map(function ($item) {
-                return [
-                    'category' => ucfirst($item->category),
-                    'count' => $item->count
-                ];
-            });
+        $byPriority = $distribucion('priority_id', TicketCatalogs::PRIORITY, 'priority');
+        $byStatus   = $distribucion('status_id',   TicketCatalogs::STATUS,   'status');
+        $byCategory = $distribucion('category_id', TicketCatalogs::CATEGORY, 'category');
 
         // Tendencia mensual (últimos 6 meses)
         $monthlyTrend = [];
@@ -463,7 +478,7 @@ class SupportTicketController extends Controller
         $ticket = SupportTicket::findOrFail($id);
 
         $data = $request->validate([
-            'status' => 'required|in:open,in_progress,resolved,closed',
+            'status' => ['required', $this->reglaDe(TicketCatalogs::STATUS)],
         ]);
 
         DB::beginTransaction();
