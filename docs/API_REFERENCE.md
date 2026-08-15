@@ -1724,16 +1724,25 @@ Catálogo en `config/api_keys.php`. No existe comodín `*` a propósito.
 | Ability | Da acceso a |
 |---|---|
 | `read:customers` | `/customers`, `/customers/{id}` |
+| `read:services` | `/services`, `/services/{id}` |
+| `read:events` | `/events` |
 | `read:billing` | `/invoices`, `/payments` |
 | `read:support` | `/tickets`, `/installations` |
+
+`read:services` es ability propia y no parte de `read:customers`: un integrador de
+cartera necesita clientes y facturas, pero no tiene por qué ver la configuración de
+red de cada punto.
 
 ### 22.4 Endpoints
 
 | Método | Ruta | Ability | Filtros |
 |---|---|---|---|
 | `GET` | `/api/v1/partner/ping` | — | — |
-| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `document`, `updated_since`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/customers/{id}` | `read:customers` | — |
+| `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `status`, `service_status`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/services/{id}` | `read:services` | — |
+| `GET` | `/api/v1/partner/events` | `read:events` | `since`, `limit` (máx. 500), `event_type`, `customer_id` |
 | `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/payments` | `read:billing` | `customer_id`, `status`, `from`, `to`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/tickets` | `read:support` | `status`, `priority`, `customer_id`, `from`, `to`, `updated_since` |
@@ -1744,6 +1753,43 @@ Catálogo en `config/api_keys.php`. No existe comodín `*` a propósito.
 
 `from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación
 (tickets) o programada (instalaciones). `per_page` tiene tope de **100**.
+
+El filtro `document` es de **coincidencia exacta**, no parcial: una búsqueda por
+prefijo convertiría esa ruta en un enumerador de la base de clientes del ISP.
+
+#### Feed de cambios (`/events`)
+
+Es el único endpoint que **no** pagina por página, y es a propósito: el feed crece
+mientras se recorre, así que "la página 2" ya no contiene las mismas filas y se
+saltan eventos sin ningún error visible. Se recorre por cursor:
+
+```
+GET /api/v1/partner/events?since=0&limit=100
+→ { "data": [...], "meta": { "next_since": 18494, "count": 100, "has_more": true } }
+```
+
+El consumidor guarda `next_since` y lo manda en la llamada siguiente. Si no hay
+eventos nuevos, `next_since` devuelve el mismo valor recibido — nunca cero, o el
+integrador reprocesaría todo desde el principio en cada ciclo vacío.
+
+Tipos de evento (contrato público; se agregan valores, no se renombran):
+`SERVICE_CREATED`, `SERVICE_ACTIVATED`, `SERVICE_SUSPENDED`, `SERVICE_REACTIVATED`,
+`PLAN_CHANGED`, `SERVICE_CANCELLED`, `CUSTOMER_UPDATED`.
+
+El evento es **delgado**: dice qué cambió y de quién, no transporta el recurso. El
+consumidor re-consulta `/customers/{id}` o `/services/{id}` para el estado
+definitivo. Así el feed no puede quedar desactualizado y un evento duplicado —que
+puede ocurrir, ver `PartnerEventObserver`— sólo cuesta una petición.
+
+#### `revision`
+
+`/customers` y `/services` devuelven `revision`: el id del último evento publicado
+de ese recurso. Sirve para detectar cambios y para reconciliar sin depender del
+reloj — dos escrituras en el mismo segundo son indistinguibles por `updated_at`,
+por `revision` no.
+
+`revision: null` significa que ese recurso no ha cambiado desde que existe el feed.
+No es un error.
 
 ### 22.5 Envoltura de respuesta
 
