@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ApiKeyRequestLog extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'api_key_request_logs';
 
     public const UPDATED_AT = null;

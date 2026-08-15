@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class InvoiceCarryover extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'invoice_carryovers';
 
     public const STATUS_PENDING = 'pending';

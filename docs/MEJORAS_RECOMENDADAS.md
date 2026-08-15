@@ -427,6 +427,74 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
+### 🔴 P-RLS-1 · La frontera entre tenants sigue siendo 100 % de aplicación
+
+Tras la revisión del 2026-08-15 (§ 35 de la bitácora) todos los modelos con `tenant_id`
+llevan el global scope o una excepción justificada, y hay un test que lo mantiene así. Pero
+la base de datos **no aísla nada por su cuenta**: si una consulta olvida el filtro, Postgres
+obedece. Esa fue exactamente la falla de `Payment`, y no dio ninguna señal hasta que se
+revisó a mano.
+
+La capa que falta es **Row Level Security**, y su valor es que la protección deja de depender
+de que alguien se acuerde:
+
+```sql
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments FORCE  ROW LEVEL SECURITY;   -- sin FORCE, el dueño se salta su política
+
+CREATE POLICY tenant_isolation ON payments
+  USING      (tenant_id = current_setting('app.tenant_id', true)::bigint)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::bigint);
+```
+
+`USING` corta la lectura, `WITH CHECK` corta la escritura hacia otro tenant. Si la variable
+no está puesta, `current_setting` devuelve NULL, la comparación es NULL y **no pasa ninguna
+fila**: falla cerrado.
+
+**Tres condiciones sin las cuales esto es decoración:**
+
+1. **`FORCE`, no sólo `ENABLE`.**
+2. **La app no puede conectarse como `postgres` ni con `BYPASSRLS`.** Hoy
+   `config/database.php` usa un único usuario para todo. Hay que separar `ispwatch_web`
+   (RLS forzado, atiende HTTP) de `ispwatch_jobs` (`BYPASSRLS`, sólo el scheduler, que es
+   legítimamente cross-tenant). El tráfico de internet nunca debe tocar el rol que puede
+   saltarse la frontera.
+3. **Cuidado con el pooler.** `set_config('app.tenant_id', ?, true)` dentro de transacción
+   (ámbito transaccional, seguro con cualquier pooler), o conexión directa en modo sesión
+   con PDO no persistente. Elegir mal aquí reintroduce fuga entre peticiones.
+
+**Orden obligatorio:** primero el punto 2, después las políticas. Al revés, la app sigue
+conectándose con un rol que se las salta y RLS no protege nada — pero *parece* que sí.
+
+Prerrequisitos de datos ya resueltos: `customer_profile.tenant_id` (migración
+`2026_08_15_100000`) y el backfill de `billing.tenant_id` (`2026_08_15_100100`).
+
+### 🟡 P-RLS-2 · `Billing` sin global scope hasta verificar el backfill
+
+`Billing` es la única excepción de la lista que no es estructural, sino de datos: su
+`tenant_id` quedó en NULL en las filas anteriores a que `RouterController` lo poblara.
+Activarle el scope antes de confirmar que no quedan NULL **escondería la configuración de
+cobro y pararía la facturación**.
+
+Secuencia para cerrarlo:
+
+```sql
+-- 1. Después de correr la migración 2026_08_15_100100, confirmar que quedó en cero:
+SELECT count(*) FROM billing WHERE tenant_id IS NULL;
+
+-- 2. Si hay filas, ver si alguna está realmente en uso (las huérfanas se pueden ignorar):
+SELECT b.id FROM billing b
+ WHERE b.tenant_id IS NULL
+   AND EXISTS (SELECT 1 FROM router r WHERE r.billing_router_id = b.id);
+```
+
+Con el conteo en cero, agregar `use BelongsToTenant;` a `App\Models\Billing` y borrar su
+entrada de `TenantScopeCoverageTest::EXCEPCIONES_JUSTIFICADAS` (el propio test exige que se
+borre: verifica que ninguna excepción listada lleve ya el trait).
+
+La urgencia es baja: a un `billing` sólo se llega por `router.billing_router_id` y `Router`
+sí lleva scope, así que la frontera está puesta un nivel más arriba.
+
 ### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
 
 **Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.

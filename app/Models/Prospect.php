@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class Prospect extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'prospects';
 
     public const STATUSES = ['interesado', 'agendado', 'instalado', 'convertido', 'rechazado'];

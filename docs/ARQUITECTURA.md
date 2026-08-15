@@ -1023,11 +1023,46 @@ El detalle de versión y empaquetado del servidor FreeRADIUS está en
   query param como respaldo para jobs.
 - Modelos con el trait: `Router`, `Plan`, `Sectorial`, `Invoice`, `SupportTicket`,
   `Expense`, `ExpenseCategory`, `CustomerInstallation`, `InventoryStock/Device/Provider/Branch`,
-  `RouterOutageEvent`, `SectorialHistory/Note/Photo`.
-- **Excepción deliberada:** `BulkProvisionRun` **no** lleva el scope, porque los jobs en
-  cola corren sin sesión; el filtrado por tenant se hace explícito en el controlador.
+  `RouterOutageEvent`, `SectorialHistory/Note/Photo`, `Payment`, `PaymentMethod`,
+  `InvoiceCarryover`, `CustomerDocument`, `ContractSignatureLink`, `DocumentTemplate`,
+  `Prospect`, `AuditLog`, `BillingActionLog`, `ApiKeyRequestLog`.
 - `Role` usa un scope propio que incluye roles del tenant **y** roles globales
   (`tenant_id IS NULL`).
+
+**Excepciones deliberadas** (modelos con `tenant_id` y sin scope automático). Cada una
+está declarada con su motivo en `TenantScopeCoverageTest::EXCEPCIONES_JUSTIFICADAS`, y
+el test falla si alguna deja de ser cierta:
+
+| Modelo | Por qué no lleva el scope |
+|---|---|
+| `User` | El login busca por `email_tenant` **antes** de saber de qué tenant es quien entra. Con el scope puesto nadie podría autenticarse. El aislamiento se hace explícito en cada controlador. |
+| `Role` | Los roles globales viven con `tenant_id NULL` y deben verse desde todos los tenants. |
+| `CustomerProfile` | Su frontera la pone el `User`: toda lectura del perfil va precedida de `User::where('tenant_id', …)->findOrFail($id)`. Su columna `tenant_id` existe como insumo de RLS, no como filtro de aplicación. |
+| `BulkProvisionRun` | Los jobs en cola leen y escriben la corrida sin sesión; el filtrado se hace explícito en el controlador. |
+| `Billing` | Sólo se llega por `router.billing_router_id`, y `Router` sí lleva scope. Sus filas antiguas tienen `tenant_id NULL`, así que activarlo escondería la configuración de cobro. Deuda anotada. |
+
+### Por qué la frontera no puede quedarse en esta capa
+
+El aislamiento es hoy **100 % de aplicación**: si una consulta olvida el filtro, la base
+lo obedece sin protestar. La falla es silenciosa —no rompe nada visible y en desarrollo,
+con un solo tenant, funciona igual— y por eso `Payment` llegó a producción alimentando el
+listado y la exportación de recaudos sin filtro alguno.
+
+Dos guardias contra la reincidencia:
+
+1. `TenantScopeCoverageTest` recorre `app/Models`, y cualquier modelo cuya tabla tenga
+   `tenant_id` sin trait ni excepción declarada **rompe CI**.
+2. La capa que falta es **Row Level Security en PostgreSQL** (`USING` + `WITH CHECK` sobre
+   `current_setting('app.tenant_id')`, con `FORCE ROW LEVEL SECURITY` y un rol de
+   aplicación sin `BYPASSRLS`). Con ella, una consulta sin filtro devuelve cero filas en
+   vez de la base entera. Está pendiente y detallada en `MEJORAS_RECOMENDADAS.md`.
+
+> **Descartado: un schema por cliente.** Multiplica cada migración por el número de ISPs
+> (un fallo parcial deja tenants en versiones distintas del esquema), colisiona con el uso
+> actual del schema como separador dev/prod (`DB_SCHEMA`), y con pooling en modo
+> transacción el `search_path` se filtra entre conexiones — la misma fuga que se quería
+> evitar, pero invisible. Además no ataca la causa real: sustituye "olvidé el `WHERE`" por
+> "olvidé el `search_path`", y sin una sola consulta capaz de auditarlo.
 
 > ⚠️ **Trampa conocida:** si el `tenant_id` del usuario no coincide con el de su rol,
 > el scope anula el rol y se produce un falso `403 "No role assigned"`. Por eso tanto

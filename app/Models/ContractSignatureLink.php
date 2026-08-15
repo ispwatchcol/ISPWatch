@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
@@ -11,6 +12,8 @@ use Illuminate\Support\Str;
  */
 class ContractSignatureLink extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'contract_signature_links';
 
     /** Vigencia por defecto del link, en horas. */

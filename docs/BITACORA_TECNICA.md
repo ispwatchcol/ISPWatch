@@ -89,6 +89,7 @@
 28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
 29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
 30. [Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13](#30-borrar-una-factura-pagada-dejaba-el-dinero-en-el-aire--2026-08-13)
+35. [El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15](#35-el-aislamiento-entre-tenants-se-apoyaba-en-que-nadie-olvidara-el-where--2026-08-15)
 
 ---
 
@@ -3305,3 +3306,87 @@ trampas 43 y 44 del manual del desarrollador.
 749 tests en verde. Las migraciones **no** se aplicaron: el `.env` local apunta a producción.
 Falta `migrate:both` y emitir la primera llave con las abilities nuevas (`read:services`,
 `read:events`).
+
+---
+
+## 35. El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15
+
+Origen: una consulta de arquitectura sobre cómo endurecer la separación entre clientes de
+cara a la API y a los bots. La pregunta era si convenía **un schema por cliente**. La
+respuesta fue que no, y la revisión que la sustentó destapó que la capa que ya existía
+tenía huecos.
+
+### 35.1 Por qué no un schema por cliente
+
+Cuatro razones, en orden de gravedad para este proyecto:
+
+1. **Migraciones.** Ya duele con dos schemas (`migrate:both`). Con N ISPs, cada migración
+   se multiplica por N y un fallo parcial deja tenants en versiones distintas del esquema.
+   Eso es un incidente de disponibilidad, que es la prioridad #2 declarada del producto.
+2. **El pooler.** Schema por tenant exige `SET search_path` por petición. Con pooling en
+   modo transacción el estado de sesión se filtra entre conexiones: la petición del tenant
+   B puede heredar el `search_path` del A. Es la fuga que se quería evitar, pero silenciosa.
+3. **Colisiona con `DB_SCHEMA`**, que hoy separa `ispwatch_dev` de `public`.
+4. **No ataca la causa.** El riesgo real no es que la base mezcle filas: es que una consulta
+   olvide el filtro. Con schemas, el bug equivalente es olvidar el `search_path` — misma
+   clase de falla, y sin una sola consulta capaz de auditarla.
+
+### 35.2 Lo que estaba roto
+
+**`Payment` no llevaba el global scope.** No era teórico:
+`BillingController::filteredPaymentsQuery()` arranca en `Payment::query()` sin filtro y
+alimenta a la vez el **listado de recaudos y su exportación a CSV**. Cualquier operador con
+permiso de facturación veía —y podía descargar— los pagos de todos los ISP del sistema.
+Por el mismo hueco, `Payment::findOrFail($id)` en `updatePayment`/`deletePayment` aceptaba
+el id de otro tenant: no era sólo leer plata ajena, era poder **borrarla**. Y borrar un pago
+revierte sus asignaciones (ver sección 30), así que el daño no se quedaba en la fila.
+
+**Otros diez modelos con `tenant_id` y sin frontera automática**: `CustomerDocument`,
+`ContractSignatureLink`, `Prospect`, `PaymentMethod`, `InvoiceCarryover`, `DocumentTemplate`,
+`BillingActionLog`, `ApiKeyRequestLog`, `AuditLog`. La mayoría estaba compensada con filtros
+explícitos en el controlador; el problema es que esa compensación es invisible y opcional.
+
+**`customer_profile` no tenía la columna** y **`billing.tenant_id` estaba en NULL** en las
+filas anteriores a que `RouterController` la poblara. Ninguna de las dos era una fuga —ambas
+tienen la frontera un nivel más arriba— pero las dos bloquean RLS.
+
+### 35.3 La trampa que casi introduce el arreglo
+
+Poner el scope en `ContractSignatureLink` y `CustomerDocument` estuvo a punto de romper la
+firma remota. Las rutas públicas de firma no tienen middleware de autenticación, pero
+`EnsureFrontendRequestsAreStateful` está activo: si quien abre el enlace tiene una sesión
+del panel en el mismo navegador, `auth()->check()` es `true` y el scope filtra por **ese**
+tenant. Un operador del ISP A abriendo el link del ISP B habría visto un 404 inexplicable.
+
+Peor: `ContractSigningService::existingSignedContract()` lo usan el flujo del panel y el
+público. Bajo el scope habría devuelto `null` en el flujo público, y el cliente habría
+podido **firmar dos veces el mismo contrato**. Y la revocación de links viejos al emitir uno
+nuevo (`issueLink`) habría dejado vivos dos enlaces firmables.
+
+Los tres sitios ahora derivan el tenant del **link o del cliente**, nunca de la sesión, con
+`withoutGlobalScope('tenant')` y el filtro explícito. Es la regla general: un flujo público
+no puede depender de que haya —o no haya— una sesión en el navegador de quien entra.
+
+### 35.4 Lo que impide la reincidencia
+
+`TenantScopeCoverageTest` recorre `app/Models`, mira el esquema real con `Schema::hasColumn`
+y falla si algún modelo con `tenant_id` no lleva el trait ni figura en la lista de
+excepciones justificadas. Un segundo test verifica que la lista no se pudra: si a un modelo
+excluido le ponen el trait, o le quitan la columna, la entrada pasa a mentir y CI lo dice.
+
+Las cinco excepciones (`User`, `Role`, `CustomerProfile`, `BulkProvisionRun`, `Billing`)
+están declaradas con su motivo dentro del test, no en un comentario suelto.
+
+### 35.5 Deuda consciente
+
+`Billing` recibe backfill pero **no** el scope. Su `tenant_id` pudo quedar en NULL en filas
+antiguas y activarlo antes de verificarlo escondería toda la configuración de cobro —es
+decir, pararía la facturación. El acceso ya está protegido un nivel más arriba (`Router`),
+así que la urgencia es baja y el riesgo de equivocarse, alto.
+
+### 35.6 Estado
+
+**Los tests no se ejecutaron**: la máquina donde se hizo el cambio no tiene PHP instalado
+(ni Docker ni WSL con distribución), así que la verificación fue estática. Falta correr la
+suite y `migrate:both` antes de desplegar. La capa de RLS queda pendiente y documentada en
+`MEJORAS_RECOMENDADAS.md`.

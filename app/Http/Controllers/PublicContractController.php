@@ -179,9 +179,24 @@ class PublicContractController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────
 
+    /**
+     * Resuelve el link por su token, saltándose el scope de tenant a propósito.
+     *
+     * Esta ruta es pública, pero `EnsureFrontendRequestsAreStateful` está activo:
+     * si quien abre el enlace resulta tener una sesión del panel en el mismo
+     * navegador, `auth()->check()` es true y el global scope de BelongsToTenant
+     * filtraría por el tenant de ESA sesión. Un operador del ISP A abriendo el
+     * link del ISP B vería un 404 inexplicable, y el flujo depende de que el
+     * enlace funcione igual para cualquiera que lo tenga.
+     *
+     * Saltarse el scope aquí no abre ninguna puerta: el tenant no se toma de la
+     * petición sino del propio link, y llegar hasta esta consulta exige conocer
+     * el token en claro, que sólo existe en el mensaje que recibió el cliente.
+     */
     private function resolveLink(string $token): ContractSignatureLink
     {
-        $link = ContractSignatureLink::with('document')
+        $link = ContractSignatureLink::withoutGlobalScope('tenant')
+            ->with(['document' => fn ($q) => $q->withoutGlobalScope('tenant')])
             ->where('token_hash', ContractSignatureLink::hashToken($token))
             ->first();
 

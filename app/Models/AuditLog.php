@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use App\Support\AuditContext;
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class AuditLog extends Model
 {
     use HasFactory;
+    use BelongsToTenant;
 
     protected $table = 'audit_logs';
 
