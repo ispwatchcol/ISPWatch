@@ -1152,26 +1152,26 @@ construir la captura en la interfaz.
 
 ### 📋 P-23 · Falta la R3: `support_ticket` sigue con los enums y las FK a la vez
 
-**R2 aplicada el 2026-08-14.** La aplicación ya lee y escribe por clave foránea; las
-columnas enum quedaron como **copia** que sólo se mantiene para poder revertir. Que
-ningún lector dependa ya de ellas está probado por `TicketCatalogReadPathTest`, que
+**R2 y R2.5 listas (2026-08-14/15).** La aplicación lee y escribe por clave foránea, y
+desde la R2.5 **ya no escribe la columna enum**, que queda congelada en su último valor.
+Que ningún lector dependa de ella está probado por `TicketCatalogReadPathTest`, que
 corrompe el espejo a propósito y comprueba que nadie lo mira.
 
-**Lo que falta.** R3 — eliminar los enums y sus `CHECK`. Es el punto sin retorno y
-requiere aprobación explícita.
+**Lo que falta.** R3 — eliminar los enums y sus `CHECK`, con el gate de despliegue y la
+secuencia de [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
 
-**Riesgo de alargar la convivencia.** Mientras las dos representaciones coexistan,
-cualquier escritura que NO pase por el modelo —SQL crudo, una importación, un `UPDATE`
-manual en producción— puede desincronizarlas sin que nada avise. Hoy no existe ninguna
-escritura así, pero cada semana que pasa es una oportunidad de que aparezca.
+> ⚠️ **La verificación previa NO es comparar el espejo con el catálogo.** Desde la R2.5
+> discrepan a propósito. Lo que hay que comprobar es que la clave foránea esté resuelta:
+>
+> ```sql
+> SELECT count(*) FROM support_ticket
+> WHERE status_id IS NULL OR priority_id IS NULL OR category_id IS NULL;  -- debe ser 0
+> ```
 
-**Antes de la R3, verificar que el espejo y la FK siguen coincidiendo:**
-
-```sql
-SELECT count(*) FROM support_ticket t
-JOIN ticket_status s ON s.id = t.status_id
-WHERE t.status IS DISTINCT FROM s.code;   -- debe ser 0
-```
+**Riesgo de alargar la convivencia.** La superficie que toca esas columnas está auditada
+y hoy es mínima —worker, scheduler, jobs, comandos y observers **no tocan**
+`support_ticket`—, pero cada semana entre el despliegue 2 y el 3 es una oportunidad de que
+alguien introduzca código nuevo que sí las use.
 
 ### 📋 P-24 · La pantalla de catálogos de la Fase 3 tendrá que vaciar la caché
 

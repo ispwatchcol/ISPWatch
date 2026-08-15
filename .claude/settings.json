@@ -64,7 +64,8 @@
       "PowerShell($dest = \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\docs\\\\MEJORAS_RECOMENDADAS.md\"; $frag = \"C:\\\\Users\\\\rdyja\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-rdyja-proyectos-ispwatch\\\\3542ed7e-b456-4b58-b291-91c7757dd881\\\\scratchpad\\\\mejoras_p21.md\"; $lines = [System.Collections.Generic.List[string]]::new\\(\\); [System.IO.File]::ReadAllLines\\($dest\\) | ForEach-Object { $lines.Add\\($_\\) }; $idx = $lines.IndexOf\\(\"## 8. Tabla consolidada\"\\); if \\($idx -lt 0\\) { Write-Output \"ANCLA NO ENCONTRADA\"; exit 1 }; $frl = [System.IO.File]::ReadAllLines\\($frag\\); $lines.InsertRange\\($idx, $frl\\); [System.IO.File]::WriteAllLines\\($dest, $lines, \\(New-Object System.Text.UTF8Encoding $false\\)\\); Write-Output \"Insertado antes de la linea $idx\")",
       "PowerShell($dest = \"c:\\\\Users\\\\rdyja\\\\proyectos\\\\ispwatch\\\\docs\\\\MANUAL_DESARROLLADOR.md\"; $frag = \"C:\\\\Users\\\\rdyja\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-rdyja-proyectos-ispwatch\\\\3542ed7e-b456-4b58-b291-91c7757dd881\\\\scratchpad\\\\manual_dev.md\"; $lines = [System.Collections.Generic.List[string]]::new\\(\\); [System.IO.File]::ReadAllLines\\($dest\\) | ForEach-Object { $lines.Add\\($_\\) }; $idx = $lines.IndexOf\\(\"## 11. Trampas conocidas\"\\); if \\($idx -lt 0\\) { Write-Output \"ANCLA NO ENCONTRADA\"; exit 1 }; $lines.InsertRange\\($idx, [System.IO.File]::ReadAllLines\\($frag\\)\\); [System.IO.File]::WriteAllLines\\($dest, $lines, \\(New-Object System.Text.UTF8Encoding $false\\)\\); Write-Output \"Insertado antes de la linea $idx\")",
       "Bash(python3 -)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(grep -iE \"^\\\\.do$|procfile|app\\\\.yaml|deploy\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\rdyja\\Downloads"

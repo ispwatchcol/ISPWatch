@@ -1401,15 +1401,33 @@ se desincronizaría.
 
 ### 15.4 Estado de la migración
 
-**R1 y R2 aplicadas. Falta la R3.**
+**R1, R2 y R2.5 listas en la rama. Falta la R3.**
 
 - **R1 (aditiva)** — se crearon los catálogos y las columnas de clave foránea, y se
   rellenaron hacia atrás (migración) y hacia adelante (hook del modelo).
 - **R2 (invertir la lectura)** — la clave foránea pasó a ser la fuente de verdad y el
-  enum quedó como **copia**, que se conserva sólo para poder revertir. Ningún lector de
-  la aplicación depende ya de las columnas enum.
-- **R3 (pendiente, requiere aprobación)** — eliminar los enums y sus `CHECK`. Punto sin
-  retorno.
+  enum quedó como copia sincronizada. Ningún lector depende ya de las columnas enum.
+- **R2.5 (dejar de escribir la copia)** — sólo código. Las columnas enum quedan
+  **congeladas**: siguen existiendo pero ya nadie las escribe.
+- **R3 (pendiente)** — eliminar los enums y sus `CHECK`.
+
+**Por qué existe la R2.5, que no estaba en el diseño original.** Este proyecto despliega
+con `deploy_on_push: true` y ejecuta `php artisan migrate --force` dentro del
+`run_command` del contenedor **nuevo**, que sólo después levanta Apache. Durante ese
+intervalo el contenedor **viejo** sigue atendiendo tráfico contra una base ya migrada, y
+el maintenance mode de Laravel no puede cubrirlo porque escribe en un filesystem efímero
+y no compartido.
+
+Si el código que deja de escribir el espejo entrara en el mismo despliegue que la
+migración que elimina las columnas, durante esa ventana el contenedor viejo escribiría
+columnas ya inexistentes y toda escritura de ticket fallaría. Separarlo en tres
+despliegues es lo que hace inocua la ventana.
+
+La secuencia, el gate de despliegue y el rollback manual están en
+[`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+> Desde la R2.5 **el espejo miente por diseño**. Cualquier restauración debe reconstruir
+> las columnas desde el catálogo, nunca desde su último valor guardado.
 
 ### 15.5 Cómo se lee un estado, después de la R2
 

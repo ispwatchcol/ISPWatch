@@ -3546,3 +3546,140 @@ Frontend compilado con `vite build` sin errores.
 
 **Pendiente:** la R3 (eliminar los enums y sus `CHECK`) requiere aprobación
 aparte. Es el punto sin retorno.
+
+---
+
+## 28. Reestructuración del ticket · R2.5 y auditoría del despliegue real — 2026-08-15
+
+### 28.1 De dónde sale este paso intermedio
+
+La R2.5 no estaba en el diseño original. Apareció al auditar cómo despliega este proyecto
+de verdad, y el hallazgo invalidó el plan que había sobre la mesa.
+
+**Lo que dice `.do/deploy.template.yaml`:**
+
+```yaml
+run_command: |
+  ...
+  php artisan migrate --force      ← migra
+  heroku-php-apache2 public/       ← recién aquí empieza a servir
+```
+
+Las migraciones corren en el `run_command` del contenedor **nuevo**, antes de que ese
+contenedor levante Apache. Como App Platform no le enruta tráfico hasta que responde, **el
+contenedor viejo sigue atendiendo peticiones contra una base ya migrada** durante todo ese
+intervalo. La base es compartida (Supabase), no por contenedor.
+
+Se suma que `deploy_on_push: true` está activo sobre `main` para los tres componentes:
+**mergear es desplegar**, sin punto intermedio donde intervenir.
+
+### 28.2 El maintenance mode no es una opción aquí
+
+No es que falte configurarlo: **no puede funcionar**. `php artisan down` escribe un archivo
+en `storage/framework/`, y los contenedores de App Platform tienen filesystem efímero y no
+compartido. Un `down` en el contenedor viejo no lo ve el nuevo, y viceversa. Haría falta un
+driver de mantenimiento compartido que hoy no existe.
+
+Conclusión: **la R3 tiene que ser segura sin ventana controlada.**
+
+### 28.3 Por qué dos despliegues no bastan
+
+El primer plan fue: despliegue 1 con R1+R2, despliegue 2 con R3. Pero en el despliegue 2 el
+contenedor viejo correría código R2, que **sí escribe el espejo**. Dropear las columnas
+mientras eso ocurre rompe toda escritura de ticket durante la ventana.
+
+De ahí el paso intermedio:
+
+| # | Qué entra | Por qué la convivencia es segura |
+|---|---|---|
+| 1 | R1 + R2 | Aditivo. El código viejo usa las columnas enum, que siguen ahí |
+| 2 | **R2.5** — sólo código: dejar de escribir el espejo | Viejo (R2) y nuevo (R2.5) leen por FK. Las columnas siguen, sólo quedan congeladas |
+| 3 | R3 | Todo el código vivo es R2.5, que ya no toca esas columnas |
+
+### 28.4 Qué cambia la R2.5
+
+Sólo código, ninguna migración:
+
+- El mutator escribe **únicamente** la clave foránea. Antes devolvía además `$enum => $code`.
+- El hook `saving` deja de sincronizar el espejo. Conserva sólo el rescate de una fila que
+  llegue sin clave foránea resuelta, que desaparece con la R3.
+- `status`, `priority` y `category` entran en `$appends`.
+
+Ese último punto **es preparación de la R3, y sin él la R3 rompería en silencio.** Se
+comprobó ejecutando: con una base donde las columnas ya están dropeadas, el accessor sigue
+devolviendo `'open'` si se le pide directamente, pero **la clave desaparece del JSON** —
+Laravel sólo serializa columnas reales más `$appends`. `GET /api/support/{id}` habría dejado
+de traer `status` sin dar ningún error. Declararlo ahora deja el comportamiento fijado por
+la suite antes de que la migración pueda romperlo.
+
+A partir de aquí **el espejo miente por diseño**, y eso cambia el rollback: restaurar las
+columnas con su último valor guardado devolvería datos incorrectos. Hay que reconstruirlas
+desde el catálogo. Documentado en [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+### 28.5 Auditoría: qué toca las columnas enum
+
+Se revisó toda la superficie que corre fuera del servicio web, porque `worker` y
+`scheduler` también se redespliegan con `deploy_on_push` y comparten base:
+
+| Superficie | Resultado |
+|---|---|
+| `app/Jobs/` | Sólo `ProvisionCustomerJob`. No referencia `SupportTicket` |
+| 24 comandos de consola | Ninguno referencia `SupportTicket` ni `support_ticket` |
+| 14 tareas programadas | Facturación, tráfico, VPN, contratos, llaves API. Ninguna toca tickets |
+| SQL crudo | Cero `DB::table('support_ticket')` en todo el backend |
+| Observers | `PartnerEventObserver` y `MoneyAuditObserver` cubren CustomerProfile, UserService, Plan, Payment, Invoice y Billing. **Ninguno sobre SupportTicket** |
+| `SendTicketNotification` | `extends Mailable` **sin** `ShouldQueue`: se envía en línea, nunca pasa por el worker |
+
+**Las tres columnas sólo se tocan desde el servicio web.** Worker y scheduler pueden
+reemplazarse en cualquier orden sin riesgo para la R3.
+
+### 28.6 Corrección: las migraciones «ajenas» ya estaban aplicadas
+
+En el análisis previo di por pendientes cuatro migraciones de otras ramas
+(`customer_credits`, `add_tenant_and_source_to_audit_logs`, `contract_signature_links`,
+`add_radius_to_router_table`). **Estaba equivocado**: consultando `public.migrations` se ve
+que ya corrieron —batches 81 a 83— más una quinta que ni siquiera había listado,
+`create_partner_events_table` (batch 84).
+
+El error fue deducir «pendiente» de que los archivos fueran recientes, sin comprobar el
+estado real. Con `deploy_on_push`, cada merge de otra rama a `main` ya las aplicó.
+
+Estado verificado el 2026-08-15 (sólo `SELECT`, ningún comando `migrate`):
+
+| Schema | Migraciones R1 | Tabla `ticket_status` |
+|---|---|---|
+| `public` | ausentes las 3 | no existe |
+| `ispwatch_dev` | aplicadas las 3 | existe |
+
+Volumen en producción: **14 tickets**. La migración durará milisegundos; la ventana la
+domina el arranque del contenedor, no los datos.
+
+### 28.7 Gate de despliegue para la R3
+
+`.do/deploy.template.yaml` está versionado, pero el App Spec **vivo** se administra desde el
+panel de DigitalOcean y puede haber divergido. Nadie del equipo que preparó esta fase tiene
+acceso para comprobarlo.
+
+Queda como **gate obligatorio**: antes de mergear el PR de la R3, alguien con acceso al
+panel debe confirmar que el `run_command` vivo del componente `ispwatch` sigue ejecutando
+`php artisan migrate --force` antes de `heroku-php-apache2`. Toda la secuencia depende de
+ese supuesto. Detalle en el runbook.
+
+### 28.8 Estado
+
+**811 pruebas en verde** (77 s), 62 de ellas en `tests/Feature/Support/`.
+
+Tres tests cambiaron **a propósito**, porque afirmaban justo lo que la R2.5 elimina:
+
+- `escribir_el_codigo_ya_no_toca_la_columna_enum` y
+  `escribir_la_clave_foranea_directamente_tampoco_toca_el_espejo` — antes afirmaban que el
+  espejo se sincronizaba; ahora afirman que queda congelado.
+- `el_backfill_apunta_cada_fila_heredada_a_su_codigo_exacto` — como el modelo ya no escribe
+  el espejo, el escenario de partida se construye ahora simulando explícitamente una fila
+  heredada (enum escrito, clave foránea vacía), que es lo que de verdad hay en producción
+  antes de la migración.
+
+Dos tests nuevos: que la aplicación responde bien **con el espejo obsoleto**, y que el JSON
+del ticket conserva las tres claves gracias a `$appends`.
+
+`PartnerTicketContractTest` sigue intacto y en verde: la R2.5 tampoco toca el contrato.
