@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -97,10 +98,7 @@ class TicketCatalogBackfillTest extends TestCase
      */
     private function simularFilasHeredadas(): void
     {
-        // Restaura status/priority/category y las rellena desde el catálogo.
-        (require database_path(
-            'migrations/2026_08_15_000001_drop_ticket_enum_columns_from_support_ticket.php'
-        ))->down();
+        $this->restaurarEsquemaPrevio();
 
         foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
             DB::statement("
@@ -115,9 +113,50 @@ class TicketCatalogBackfillTest extends TestCase
         ]);
     }
 
-    /** La consulta anti-join: filas con enum y sin catálogo resuelto. */
+    /**
+     * Devuelve el esquema al estado anterior a la R3 y COMPRUEBA que lo logró.
+     *
+     * La comprobación no es defensiva por gusto. Si la restauración fallara en
+     * silencio, las consultas siguientes referirían columnas inexistentes y
+     * **SQLite no protestaría**: cuando `"status"` no resuelve a una columna, la
+     * reinterpreta como el literal de cadena `'status'` (el conocido
+     * *double-quoted string misfeature*). El resultado es que
+     * `where "status" is not null` es siempre cierto y la consulta devuelve un
+     * número plausible pero falso, en vez de reventar.
+     *
+     * PostgreSQL sí lanza `column "status" does not exist`. Esa asimetría ya
+     * costó un fallo de CI que sólo aparecía en el motor real, así que aquí se
+     * corta con un mensaje claro antes de llegar a la consulta.
+     */
+    private function restaurarEsquemaPrevio(): void
+    {
+        (require database_path(
+            'migrations/2026_08_15_000001_drop_ticket_enum_columns_from_support_ticket.php'
+        ))->down();
+
+        foreach (array_keys(self::MIGRADAS) as $enum) {
+            $this->assertTrue(
+                Schema::hasColumn('support_ticket', $enum),
+                "No se pudo restaurar la columna `{$enum}` con el down() de la R3. "
+                . 'Sin ella las consultas de este test no miden nada: en SQLite pasarían '
+                . 'en falso y en PostgreSQL fallarían con «column does not exist».'
+            );
+        }
+    }
+
+    /**
+     * La consulta anti-join: filas con el espejo escrito y sin catálogo resuelto.
+     *
+     * Sólo tiene sentido con el esquema previo a la R3 restaurado. Se vuelve a
+     * comprobar aquí porque es el punto exacto donde SQLite mentiría.
+     */
     private function huerfanos(string $enum, string $columna): int
     {
+        $this->assertTrue(
+            Schema::hasColumn('support_ticket', $enum),
+            "huerfanos() se llamó sin restaurar `{$enum}`. Llama antes a restaurarEsquemaPrevio()."
+        );
+
         return DB::table('support_ticket')
             ->whereNotNull($enum)
             ->whereNull($columna)
@@ -126,17 +165,25 @@ class TicketCatalogBackfillTest extends TestCase
 
     // ── El invariante ────────────────────────────────────────────────────
 
+    /**
+     * Tras la R3 el invariante ya no puede formularse contra la columna enum
+     * —no existe—, sino contra lo único que queda: que la clave foránea esté
+     * resuelta. Es además lo que de verdad importa, porque es el dato que la
+     * migración R3 exige antes de destruir nada.
+     */
     #[Test]
-    public function ningun_ticket_queda_sin_catalogo_resuelto(): void
+    public function ningun_ticket_queda_sin_clave_foranea_resuelta(): void
     {
         $this->ticketsDeTodoElDominio();
 
         foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            $sinResolver = DB::table('support_ticket')->whereNull($columna)->count();
+
             $this->assertSame(
                 0,
-                $this->huerfanos($enum, $columna),
-                "Hay tickets con `{$enum}` sin correspondencia en `{$tabla}`. "
-                . 'El backfill quedó incompleto y en la R3 esos tickets perderían el dato.'
+                $sinResolver,
+                "Hay tickets con `{$columna}` sin resolver contra `{$tabla}`. "
+                . 'La migración R3 abortaría, y con razón: esos tickets perderían el dato.'
             );
         }
     }

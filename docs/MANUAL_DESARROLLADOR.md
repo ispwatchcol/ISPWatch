@@ -1103,6 +1103,51 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 39 | **SQLite pierde el CHECK de un `enum` si la tabla pasó por un `->change()`** | Laravel implementa `change()` en SQLite **reconstruyendo la tabla**, y el CHECK inline del enum no sobrevive a la reconstrucción (en PostgreSQL sí, porque ahí sólo se emite un `ALTER COLUMN`). Efecto: **un valor de enum inventado pasa en local y sólo revienta en el CI real**. Pasó con `customer_installations.status`, cuyo vocabulario es español (`pendiente`/`completada`/`cancelada`) y un test insertaba `'pending'` — 5 fallos en el job de PostgreSQL, verde en sqlite. Al escribir una prueba, toma el valor del enum de la migración, no de memoria |
 ---
 
+
+### Trampa: SQLite convierte una columna inexistente en una cadena literal
+
+**Síntoma.** Un test pasa en el job de SQLite y falla en el de PostgreSQL con
+`column "status" does not exist`.
+
+**Causa.** SQLite arrastra el *double-quoted string misfeature*: cuando un identificador
+entre comillas dobles **no resuelve a ninguna columna**, en vez de fallar lo reinterpreta
+como un literal de cadena. Como el query builder de Laravel entrecomilla siempre los
+nombres de columna, esto:
+
+```php
+DB::table('support_ticket')->whereNotNull('status')->count();
+```
+
+compila a `where "status" is not null`. Si `status` ya no existe, SQLite lo lee como
+`where 'status' is not null` — **siempre cierto** — y devuelve un número plausible en vez
+de reventar. PostgreSQL sí lanza el error.
+
+Comprobado sobre una tabla `t(id, fk)` sin columna `status`:
+
+```
+hasColumn(status): false
+whereNotNull('status')->whereNull('fk')->count()  →  1   (no lanza)
+SQL: select * from "t" where "status" is not null
+```
+
+**Por qué importa aquí.** Es la clase de fallo que la suite rápida no puede cazar y que
+sólo aparece en el motor real. Ya costó un CI en rojo en la R3 de la reestructuración de
+tickets: un test consultaba las columnas enum recién eliminadas, SQLite lo dejaba pasar
+en falso y PostgreSQL lo tumbaba.
+
+**Cómo protegerse.** Cuando un test manipule un esquema que cambia entre migraciones
+—restaurar columnas con un `down()`, por ejemplo— **comprueba que la restauración
+funcionó antes de consultar**:
+
+```php
+$this->assertTrue(
+    Schema::hasColumn('support_ticket', 'status'),
+    'No se pudo restaurar `status`: en SQLite la consulta pasaría en falso.'
+);
+```
+
+Un `assertTrue` con mensaje falla igual en los dos motores y dice qué pasó. Confiar en
+que la consulta reviente sólo funciona en uno de los dos.
 ## 12. Solución de problemas
 
 | Problema | Diagnóstico | Solución |

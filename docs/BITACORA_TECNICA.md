@@ -3784,3 +3784,56 @@ Ciclo `migrate → rollback → migrate` verificado ejecutándolo contra una bas
 
 `public` no ha recibido **ninguna** de las cuatro. El despliegue sigue la secuencia de
 [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+### 29.7 CI en rojo tras el PR #236: SQLite escondía una consulta imposible
+
+El PR de la R3 pasó el job de SQLite y falló el de PostgreSQL:
+`QueryException: column "status" does not exist`.
+
+**Causa raíz.** El test `ningun_ticket_queda_sin_catalogo_resuelto` seguía formulando el
+invariante contra la columna enum (`WHERE status IS NOT NULL AND status_id IS NULL`), una
+columna que la propia R3 acababa de eliminar. Lo que hacía que no saltara antes es una
+peculiaridad de SQLite: el *double-quoted string misfeature*.
+
+Cuando un identificador entre comillas dobles no resuelve a ninguna columna, SQLite lo
+reinterpreta como **literal de cadena** en vez de fallar. Como el query builder de Laravel
+entrecomilla siempre los nombres, `where "status" is not null` pasaba a ser
+`where 'status' is not null` —siempre cierto— y la consulta devolvía un número plausible.
+Comprobado sobre una tabla sin esa columna:
+
+```
+hasColumn(status): false
+whereNotNull('status')->whereNull('fk')->count()  →  1   (no lanza)
+SQL: select * from "t" where "status" is not null
+```
+
+PostgreSQL hace lo correcto y lanza. De ahí que el fallo sólo apareciera en el motor real.
+
+**Ninguna de las hipótesis de partida era la buena**: la migración sí devuelve una clase
+anónima, el `down()` sí recrea las columnas, y la ruta del archivo era correcta. El
+problema estaba en un test que ni siquiera intentaba restaurar el esquema.
+
+**Corrección.**
+
+- El invariante se reformula contra lo único que existe tras la R3 y que además es lo que
+  de verdad importa: que la clave foránea esté resuelta. Renombrado a
+  `ningun_ticket_queda_sin_clave_foranea_resuelta`.
+- La restauración del esquema se extrae a `restaurarEsquemaPrevio()`, que **comprueba con
+  `Schema::hasColumn` que las tres columnas volvieron** y falla con un mensaje explícito
+  si no. `huerfanos()` repite la comprobación en el punto exacto donde SQLite mentiría.
+- `volverAlEstadoPrevio()` del guard test pasa a verificar las tres columnas, no sólo
+  `status`, y `la_reversion_reconstruye_los_codigos_desde_el_catalogo` lo usa en vez de
+  llamar a `down()` a pelo: leer `$fila->status` de una columna inexistente daría `null`
+  en PHP sin lanzar nada, y el test habría pasado en falso.
+
+No se tocó la migración R3 ni se debilitó su protección: la guarda de claves foráneas sin
+resolver sigue igual. El fallo era del test, no del código de producción.
+
+La trampa quedó documentada en [`MANUAL_DESARROLLADOR.md`](MANUAL_DESARROLLADOR.md) § 11,
+porque es una clase de error que la suite rápida no puede cazar por definición.
+
+**Verificación.** 820 pruebas en verde sobre SQLite. **El job de PostgreSQL no se pudo
+reproducir en local**: no hay PostgreSQL ni Docker en la máquina de desarrollo, y la
+salvaguarda de `tests/TestCase.php` rechaza —correctamente— apuntar la suite a Supabase,
+porque `RefreshDatabase` ejecuta `migrate:fresh` y vaciaría la base real. Queda a cargo del
+job «PHPUnit (PostgreSQL, motor real)» del CI.

@@ -67,10 +67,20 @@ class TicketEnumDropGuardTest extends TestCase
     {
         $migracion->down();
 
-        $this->assertTrue(
-            Schema::hasColumn('support_ticket', 'status'),
-            'El down() de la R3 no restauró la columna: la reversión está rota.'
-        );
+        // Se comprueban LAS TRES, no sólo `status`: los tests de abajo escriben
+        // y leen las tres, y una restauración a medias tiene que salir aquí.
+        //
+        // Y hay que comprobarlo explícitamente porque SQLite no avisaría: si
+        // `"priority"` no resuelve a una columna, la reinterpreta como el
+        // literal de cadena `'priority'` en vez de fallar. PostgreSQL sí lanza
+        // «column does not exist», así que sin esta guarda el test pasaría en
+        // la suite rápida y reventaría en el motor real.
+        foreach (['status', 'priority', 'category'] as $columna) {
+            $this->assertTrue(
+                Schema::hasColumn('support_ticket', $columna),
+                "El down() de la R3 no restauró `{$columna}`: la reversión está rota."
+            );
+        }
     }
 
     private function ticket(array $overrides = []): SupportTicket
@@ -188,7 +198,10 @@ class TicketEnumDropGuardTest extends TestCase
         $ticket = $this->ticket(['status' => 'resolved', 'priority' => 'urgent', 'category' => 'billing']);
         $migracion = $this->migracion();
 
-        $migracion->down();
+        // Verifica de paso que las tres columnas volvieron: leer `$fila->status`
+        // de una columna inexistente daría null en PHP sin lanzar nada, y este
+        // test pasaría en falso.
+        $this->volverAlEstadoPrevio($migracion);
 
         // Reconstruye desde `ticket_status`, no desde ningún respaldo del
         // espejo — que desde la R2.5 estaría obsoleto y devolvería basura.
