@@ -105,6 +105,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `traffic_daily` | 57 | Agregado diario de tráfico |
 | `router_outage_events` | 0 | Falla masiva (append-only), consumido por Converza |
 | `script_version` | 2 | Catálogo de versiones de script |
+| `partner_events` | — | Cambios comerciales (append-only) para integradores externos; el `id` es cursor y revisión |
 > **No hay tablas `radius_*`, y es a propósito.** Cuando un router tiene
 > `radius = true`, las sesiones, la contabilidad y las órdenes de desconexión viven
 > en el sistema AAA externo, no aquí. Una versión anterior de este trabajo las

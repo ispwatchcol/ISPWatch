@@ -9,7 +9,9 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PersonalAccessToken;
 use App\Models\Plan;
+use App\Models\UserService;
 use App\Observers\MoneyAuditObserver;
+use App\Observers\PartnerEventObserver;
 use App\Policies\CustomerInstallationPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -47,7 +49,24 @@ class AppServiceProvider extends ServiceProvider
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
 
         $this->registerMoneyAudit();
+        $this->registerPartnerEvents();
         $this->configureRateLimiting();
+    }
+
+    /**
+     * Feed de cambios comerciales para integradores externos.
+     *
+     * Mismo razonamiento que la bitácora de dinero: los cambios entran por
+     * panel, API, carga masiva y consola, y solo un observer los cubre todos.
+     * Un cliente suspendido por el proceso automático de mora tiene que
+     * producir el mismo evento que uno suspendido a mano, o el integrador
+     * sincroniza una realidad a medias. Ver PartnerEventObserver.
+     */
+    protected function registerPartnerEvents(): void
+    {
+        foreach ([CustomerProfile::class, UserService::class] as $model) {
+            $model::observe(PartnerEventObserver::class);
+        }
     }
 
     /**

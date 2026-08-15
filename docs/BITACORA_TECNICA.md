@@ -3224,3 +3224,84 @@ Dos posiciones que se sostienen aunque incomoden:
   cinco comandos de verificación (`VerifyAutomaticCuts`, `ReconcileSuspensions`,
   `VerifyMonthlyBilling`, `VerifyOrphanPayments`, `VerifyVpnTunnels`) precisamente porque un
   cambio de estado no confirmado es un cambio que no ocurrió.
+
+---
+
+## 34. Partner API: feed por cursor, servicios y revisión — 2026-08-14
+
+### 34.1 Qué se construyó y por qué así
+
+Primera entrega de la capa de integración como **producto**, no como desarrollo para un
+cliente (ver § 33.5). Tres piezas: la tabla `partner_events`, el contrato de servicio
+(`/v1/partner/services`) y el feed de cambios (`/v1/partner/events`).
+
+Ninguna depende de que el integrador conteste nada. Son capacidades que cualquier ISP con
+un sistema externo va a necesitar, y por eso se publican con vocabulario propio de
+ISPWatch en vez de adoptar el del primero que las pidió.
+
+### 34.2 `revision` sale del log, no de un contador por fila
+
+El plan inicial era una columna `revision` incrementada por un observer. Se descartó al
+mirar el ejemplo del integrador (`18493` en el recurso, `18494` en el evento siguiente):
+su modelo mental es una **secuencia global monotónica**, y con razón —un contador por
+fila no sirve como cursor, porque dos recursos distintos tendrían la misma revisión y no
+habría orden entre ellos.
+
+Un timestamp tampoco alcanza: dos escrituras dentro del mismo segundo son indistinguibles
+para un cursor, y ahí se pierden cambios en silencio.
+
+Así que la revisión de un recurso es el `id` de su último evento. Un solo mecanismo en vez
+de dos que pueden divergir. Se lee con una subconsulta correlacionada y no con un
+`GROUP BY` sobre toda la tabla: `partner_events` crece sin techo y agregarla entera en cada
+listado se degradaría con el tiempo; con el índice `(tenant_id, customer_id, id)` es una
+búsqueda por índice por fila.
+
+Un test cubre el error fácil de cometer aquí: devolver el último id **del feed** en vez del
+último **del recurso**, que haría creer al integrador que todos sus clientes cambiaron cada
+vez que cambia uno.
+
+### 34.3 Feed por cursor y no webhooks
+
+Decisión de arquitectura, no de comodidad. Un webhook obliga a ISPWatch a hacer peticiones
+salientes hacia URLs que controla el integrador, y en multi-inquilino eso trae SSRF,
+secretos de firma por destino, garantías de entrega que pasan a ser nuestras y —el peor—
+**presión de cola: el endpoint caído de un integrador degradaría a los demás inquilinos**.
+
+El feed no tiene ninguno de esos efectos: no hay llamadas salientes, la contrapresión queda
+del lado del consumidor y es reproducible desde cualquier punto. Precedente ya probado en
+producción: `router_outage_events` ↔ Converza.
+
+Detalle que parece menor y no lo es: cuando no hay eventos nuevos, `next_since` devuelve el
+mismo valor recibido y **nunca cero**. Devolver cero haría que el integrador reprocesara
+todo el historial en cada ciclo vacío.
+
+### 34.4 Duplicados: se aceptan a propósito
+
+Un cambio de plan toca `customer_profile.service_id` y `user_services.service_plan_id` en
+la misma operación, así que puede emitir dos `PLAN_CHANGED`. Suprimirlos exigiría recordar
+estado entre llamadas, y en un worker de cola ese estado persiste entre trabajos — lo que
+terminaría **ocultando eventos legítimos**.
+
+Como el evento es delgado (dice qué cambió, no transporta el recurso), un duplicado le
+cuesta al consumidor una petición. Perder uno lo deja desincronizado sin saberlo. Se
+prefiere un evento de más.
+
+### 34.5 Dos hallazgos del modelo de datos
+
+**`customer_profile.service_id` no es un servicio: es el plan.** Trampa heredada del nombre.
+La API pública ya lo expone renombrado como `plan.id`, pero cualquiera que llegue al campo
+por otra vía va a correlacionar clientes contra planes sin ver ningún error.
+
+**Hay dos punteros al plan y nada garantiza que coincidan.**
+`user_services.service_plan_id` es el que usa facturación; `customer_profile.service_id`, el
+que usa aprovisionamiento. `UserService::syncForCustomer()` los alinea cuando el cambio pasa
+por el alta/edición, pero no hay restricción en base. Un camino que escriba solo uno deja al
+cliente facturado por un plan y configurado con otro. `/services` expone el de facturación,
+porque el estado comercial es la autoridad que ISPWatch conserva. Ambos quedan anotados como
+trampas 43 y 44 del manual del desarrollador.
+
+### 34.6 Estado
+
+749 tests en verde. Las migraciones **no** se aplicaron: el `.env` local apunta a producción.
+Falta `migrate:both` y emitir la primera llave con las abilities nuevas (`read:services`,
+`read:events`).
