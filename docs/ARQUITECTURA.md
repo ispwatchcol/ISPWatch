@@ -1401,11 +1401,42 @@ se desincronizaría.
 
 ### 15.4 Estado de la migración
 
-La R1 es **aditiva**: los enums `status`, `priority` y `category` siguen existiendo y
-siguen siendo la fuente de lectura de toda la aplicación. Las columnas nuevas se rellenan
-hacia atrás (migración) y hacia adelante (hook `saving` del modelo).
+**R1 y R2 aplicadas. Falta la R3.**
 
-- **R2** — la aplicación pasa a leer y escribir por catálogo. La API pública debe seguir
-  emitiendo el **código como cadena** mediante join: devolver el id sería una rotura
-  silenciosa del contrato con el integrador. Hay un test que lo fija.
-- **R3** — se eliminan los enums y sus `CHECK`. Punto sin retorno.
+- **R1 (aditiva)** — se crearon los catálogos y las columnas de clave foránea, y se
+  rellenaron hacia atrás (migración) y hacia adelante (hook del modelo).
+- **R2 (invertir la lectura)** — la clave foránea pasó a ser la fuente de verdad y el
+  enum quedó como **copia**, que se conserva sólo para poder revertir. Ningún lector de
+  la aplicación depende ya de las columnas enum.
+- **R3 (pendiente, requiere aprobación)** — eliminar los enums y sus `CHECK`. Punto sin
+  retorno.
+
+### 15.5 Cómo se lee un estado, después de la R2
+
+`$ticket->status` sigue devolviendo el **código en texto** (`'open'`) para todos sus
+consumidores —controladores, plantillas de correo, API pública—, pero ya no sale de la
+columna enum sino del catálogo, a través de un accessor. Cambió de dónde viene el dato,
+no lo que el resto de la aplicación ve, y por eso la R2 no rompió ningún contrato.
+
+`App\Support\TicketCatalogs` resuelve código ⇄ id. Es **singleton del contenedor**: una
+consulta por catálogo y por petición, y resolución en memoria a partir de ahí. No es una
+estática porque una estática sobreviviría a `RefreshDatabase` entre tests y resolvería
+ids de una base que ya no existe.
+
+Consecuencia a tener presente: dentro de una misma petición, editar un catálogo no se ve
+hasta llamar a `flush()`. En producción es irrelevante —cada petición recarga—, pero la
+pantalla de administración de catálogos de la Fase 3 tendrá que hacerlo tras guardar.
+
+### 15.6 Etiqueta y color no son lo mismo
+
+Distinción que atraviesa backend y frontend:
+
+| | Qué es | Dónde vive | Puede cambiar sin desplegar |
+|---|---|---|---|
+| **Etiqueta** | Dato de negocio | Columna `label` del catálogo | Sí |
+| **Color** | Presentación | Mapas de clases en los componentes Vue, indexados por **código** | No, ni hace falta |
+
+Por eso el frontend recibe siempre `code` **y** `label`: colorea por el primero, que es
+estable, y muestra el segundo, que no lo es. La SPA los obtiene de
+`GET /api/catalogs/ticket` mediante el composable `useTicketCatalogs()`, que sustituyó a
+los mapas de etiquetas que estaban duplicados en cinco componentes.

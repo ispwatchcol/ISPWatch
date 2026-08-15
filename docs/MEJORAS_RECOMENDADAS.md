@@ -1150,22 +1150,43 @@ para poder publicar el contrato OpenAPI una sola vez con el juego completo de ca
 propia migración (nunca en un seeder: `migrate:both` no siembra `public`), y sólo entonces
 construir la captura en la interfaz.
 
-### 📋 P-23 · La Fase 1 dejó `support_ticket` con los enums y las FK a la vez
+### 📋 P-23 · Falta la R3: `support_ticket` sigue con los enums y las FK a la vez
 
-Es el estado intencional de la R1 (expandir), no un descuido: mantener las dos
-representaciones permite revertir sin pérdida de datos. Pero es un estado transitorio y no
-debe quedarse ahí.
+**R2 aplicada el 2026-08-14.** La aplicación ya lee y escribe por clave foránea; las
+columnas enum quedaron como **copia** que sólo se mantiene para poder revertir. Que
+ningún lector dependa ya de ellas está probado por `TicketCatalogReadPathTest`, que
+corrompe el espejo a propósito y comprueba que nadie lo mira.
 
-**Lo que falta.** R2 — la aplicación pasa a leer y escribir por catálogo, el frontend deja
-de tener sus mapas de etiquetas en duro (`Support.vue`, `SupportDetail.vue`,
-`SupportEdit.vue`, `CustomerTickets.vue`), `statistics()` toma la etiqueta de la columna
-`label` en vez de generarla con `ucfirst()`, y la API pública sigue emitiendo el código
-como cadena mediante join. R3 — se eliminan los enums y sus `CHECK`, que es el punto sin
-retorno.
+**Lo que falta.** R3 — eliminar los enums y sus `CHECK`. Es el punto sin retorno y
+requiere aprobación explícita.
 
-**Riesgo de quedarse a medias.** Mientras las dos representaciones coexistan, cualquier
-escritura que no pase por el modelo (SQL crudo, una importación) puede desincronizarlas.
-Hoy no hay ninguna, pero conviene no alargar la convivencia.
+**Riesgo de alargar la convivencia.** Mientras las dos representaciones coexistan,
+cualquier escritura que NO pase por el modelo —SQL crudo, una importación, un `UPDATE`
+manual en producción— puede desincronizarlas sin que nada avise. Hoy no existe ninguna
+escritura así, pero cada semana que pasa es una oportunidad de que aparezca.
+
+**Antes de la R3, verificar que el espejo y la FK siguen coincidiendo:**
+
+```sql
+SELECT count(*) FROM support_ticket t
+JOIN ticket_status s ON s.id = t.status_id
+WHERE t.status IS DISTINCT FROM s.code;   -- debe ser 0
+```
+
+### 📋 P-24 · La pantalla de catálogos de la Fase 3 tendrá que vaciar la caché
+
+`App\Support\TicketCatalogs` cachea los catálogos **por petición** (singleton del
+contenedor). En producción eso basta y es lo correcto: la edición ocurre en una petición
+y la siguiente ya ve el cambio.
+
+**El caso que sí falla.** Editar un catálogo y volver a leerlo *dentro de la misma
+petición* devuelve el valor viejo. Hoy no ocurre porque no existe administración de
+catálogos —las únicas filas las escribió una migración—, pero la pantalla de la Fase 3
+hará exactamente eso.
+
+**Recomendación.** Llamar a `flush()` después de guardar, y subir de paso la fila
+correspondiente de `ticket_catalog_version` para que los integradores externos detecten
+el cambio.
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

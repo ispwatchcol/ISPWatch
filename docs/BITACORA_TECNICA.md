@@ -3348,3 +3348,120 @@ máquina de desarrollo; lo cubre el job «PHPUnit (PostgreSQL, motor real)» del
 existe justamente para esto.
 
 **Pendiente de despliegue:** `php artisan migrate:both` (3 migraciones).
+
+---
+
+## 27. Reestructuración del ticket · Fase 1 R2 — migrar la lectura al catálogo — 2026-08-14
+
+### 27.1 Criterio de «hecho»
+
+La R2 no consiste en que la aplicación siga funcionando con catálogos: consiste
+en que **nada dependa ya de las columnas enum**. Esa, y no otra, es la condición
+que habilita la R3, porque lo que la R3 hace es borrarlas.
+
+Así que el trabajo fue inventariar todos los lectores de `support_ticket.status`,
+`priority` y `category`, y llevarlos uno por uno a la clave foránea.
+
+### 27.2 La inversión, en una frase
+
+En la R1 se escribía el enum y la clave foránea se rellenaba a partir de él. En
+la R2 se resuelve el id contra el catálogo y **el enum queda como copia**. Se
+conserva a propósito mientras la R3 no se apruebe: es lo que permite revertir sin
+pérdida de datos.
+
+La sincronización vive en el modelo y no en un trigger de PostgreSQL, como se
+acordó: un trigger sólo existiría en el motor de producción, que es justamente
+donde no se puede probar. En el modelo lo cubre la suite.
+
+### 27.3 Lo que cambió, archivo por archivo
+
+| Dónde | Antes | Ahora |
+|---|---|---|
+| `app/Support/TicketCatalogs.php` | — | Resolución código ⇄ id. Singleton de petición: una consulta por catálogo, resolución en memoria |
+| `SupportTicket` | El enum era la fuente | Accessors/mutators: `status` sigue siendo el CÓDIGO en texto para todos sus consumidores, pero sale del catálogo. El `set` escribe FK y espejo de una vez |
+| `SupportTicket` (scopes) | `where('status', …)` | `where('status_id', …)` resolviendo el código |
+| `SupportTicketController` | Filtros sobre el enum; validación `in:` escrita a mano en 3 sitios | Filtros por FK; validación construida desde los códigos **vigentes** del catálogo |
+| `SupportTicketController::statistics()` | Etiqueta fabricada con `ucfirst(str_replace('_',' '))` | Etiqueta de `label`, más el `code` estable junto a ella |
+| `PartnerSupportController` | Leía las columnas enum | `LEFT JOIN` a los tres catálogos, emitiendo `code` |
+| `DashboardController` | `whereIn('status', […])` | `whereIn('status_id', …)` |
+| `emails/ticket_notification.blade.php` | `ucfirst($ticket->status)` | `status_label`; la clase CSS sigue yendo por código |
+| `CatalogController` | — | `GET /api/catalogs/ticket` |
+| 5 componentes Vue | Mapas de etiquetas duplicados | `useTicketCatalogs()` |
+
+### 27.4 Etiqueta y color no son lo mismo
+
+Los mapas de **etiquetas** del frontend desaparecieron; los de **color** se
+quedaron. No es incoherencia:
+
+- la etiqueta es un dato de negocio, puede cambiar sin desplegar y por eso vive
+  en el catálogo;
+- el color es presentación, se decide por CÓDIGO —que es estable— y no tiene por
+  qué viajar en la respuesta ni convertir a un ISP en diseñador.
+
+Por eso `statistics()` devuelve ahora `code` **además** de la etiqueta: el
+frontend colorea por el primero y muestra el segundo.
+
+### 27.5 Efecto secundario que vale la pena: la validación dejó de estar duplicada
+
+`in:open,in_progress,resolved,closed` estaba escrito a mano en tres puntos del
+mismo controlador. Ahora la regla se construye desde
+`codigosVigentes()`, con dos consecuencias:
+
+1. Agregar un estado ya no obliga a acordarse de tres sitios.
+2. **Retirar una fila del catálogo deja de aceptarla en la API sin desplegar**,
+   porque la vigencia es parte de la regla.
+
+### 27.6 Una trampa de Eloquent que costó un rato
+
+Un ayudante privado que devolvía `Attribute` para no repetir tres veces el mismo
+accessor hacía reventar el modelo entero con «Too few arguments».
+
+Causa: Eloquent descubre los accessors reflexionando sobre los métodos cuyo tipo
+de retorno **declarado** es `Attribute`, y los **invoca sin argumentos** para
+construir su caché de mutators. El ayudante caía en esa red.
+
+Solución: no declarar el tipo de retorno (queda en el docblock). Va comentado en
+el propio método, porque sin la explicación parece un descuido y el primero que
+pase lo «arregla» volviendo a romperlo.
+
+### 27.7 Caché por petición, y lo que implica
+
+`TicketCatalogs` es singleton **del contenedor**, no una estática. Una estática
+sobreviviría a `RefreshDatabase` entre tests y resolvería ids de una base que ya
+no existe — un fallo que sólo aparecería a partir del segundo test del archivo.
+
+La consecuencia a tener presente: dentro de una misma petición, editar un
+catálogo no se ve hasta vaciar con `flush()`. En producción es irrelevante
+(cada petición recarga), pero **la pantalla de administración de catálogos de la
+Fase 3 tendrá que llamarlo** tras guardar. Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 27.8 Cómo se probó que ya nadie lee el enum
+
+Leer el código no basta para afirmarlo. `TicketCatalogReadPathTest` **corrompe a
+propósito** la columna enum —la deja diciendo algo distinto de lo que dice la
+clave foránea, escribiendo con el query builder para saltarse el modelo— y
+comprueba que modelo, API del panel, API pública, filtros y estadísticas siguen
+respondiendo lo que dice la FK.
+
+Es un escenario imposible en producción, y ese es el punto: funciona como
+detector, no como caso de uso. Si algún camino se hubiera quedado leyendo el
+espejo, ahí saldría el valor corrupto.
+
+### 27.9 Estado
+
+**790 pruebas en verde** (81 s), 60 de ellas en `tests/Feature/Support/`:
+
+- `PartnerTicketContractTest` (8): **intacto y sin tocar una línea**. Es la
+  prueba de que la R2 no rompió el contrato con el integrador: el listado ahora
+  sale de un `LEFT JOIN` en vez de la columna enum, y el JSON es idéntico.
+- `SupportTicketModuleTest` (24): un test cambió **a propósito** —el de
+  etiquetas de `statistics()`, que ahora dice «Abierto» y «En progreso» en vez
+  de «Open» e «In progress»— y se le agregó otro que comprueba que reetiquetar
+  el catálogo cambia lo que se muestra sin tocar el código.
+- `TicketCatalogBackfillTest` (15): sin cambios.
+- `TicketCatalogReadPathTest` (13): nuevo, descrito arriba.
+
+Frontend compilado con `vite build` sin errores.
+
+**Pendiente:** la R3 (eliminar los enums y sus `CHECK`) requiere aprobación
+aparte. Es el punto sin retorno.

@@ -1567,8 +1567,37 @@ exactamente quien más necesita el aviso.
 | `GET` | `/api/catalogs/script-versions` |
 | `GET` | `/api/catalogs/type-billings` |
 | `GET` | `/api/catalogs/users` |
+| `GET` | `/api/catalogs/ticket` |
 
 Reemplazan las lecturas directas del frontend a Supabase.
+
+**`GET /api/catalogs/ticket`** devuelve los tres catálogos del ticket de soporte en un
+solo viaje (la pantalla de soporte los necesita a la vez, y son doce filas):
+
+```json
+{
+  "statuses":   [{ "code": "open", "label": "Abierto" }, "…"],
+  "priorities": [{ "code": "low",  "label": "Baja" },    "…"],
+  "categories": [{ "code": "technical", "label": "Técnica" }, "…"],
+  "versions":   { "status": 1, "priority": 1, "category": 1 }
+}
+```
+
+Sólo salen las filas **vigentes** (`valid_from` alcanzado y sin `valid_until`), ordenadas
+por `weight`: es el listado de lo que se puede elegir. Un ticket antiguo cuyo estado ya se
+retiró se sigue mostrando bien, porque su etiqueta viaja en el propio ticket
+(`status_label`, `priority_label`, `category_label`).
+
+`versions` permite a un consumidor saber si su copia cacheada sigue vigente sin volver a
+descargar el catálogo entero.
+
+> **Código y etiqueta cumplen papeles distintos.** El `code` es estable e inmutable: es
+> lo que se compara y con lo que se decide el color. El `label` es texto visible y puede
+> cambiar sin desplegar. Nunca compares contra el `label`.
+
+Desde la R2 (2026-08-14) los tickets del panel incluyen `status_label`, `priority_label`
+y `category_label` junto a sus códigos, y `GET /api/support/statistics` devuelve `code`
+además de la etiqueta en `by_status`, `by_priority` y `by_category`.
 
 **`GET /api/catalogs/users`** devuelve `id` + `name` de los usuarios del tenant.
 Con **`?staff=1`** excluye a los clientes y deja sólo al personal del ISP — es lo
@@ -1708,6 +1737,9 @@ Catálogo en `config/api_keys.php`. No existe comodín `*` a propósito.
 | `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/payments` | `read:billing` | `customer_id`, `status`, `from`, `to`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/tickets` | `read:support` | `status`, `priority`, `customer_id`, `from`, `to`, `updated_since` |
+<!-- R2 (2026-08-14): `status`, `priority` y `category` se resuelven ahora por LEFT JOIN
+     contra los catálogos, no leyendo las columnas enum. El JSON es idéntico: siguen
+     siendo el CÓDIGO en texto ("open", "high"). Fijado por PartnerTicketContractTest. -->
 | `GET` | `/api/v1/partner/installations` | `read:support` | `status`, `customer_id`, `from`, `to`, `updated_since` |
 
 `from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación

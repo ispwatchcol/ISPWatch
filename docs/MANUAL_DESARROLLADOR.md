@@ -1013,6 +1013,39 @@ fila de plataforma y un valor es fila de ese ISP. Al crear una fila con `tenant_
 **Trampa de PostgreSQL:** no intentes garantizar la unicidad con
 `UNIQUE(tenant_id, code)`. En SQL `NULL` nunca es igual a `NULL`, así que ese índice deja
 pasar dos filas globales con el mismo código. Por eso hay dos índices parciales disjuntos.
+
+**5. Después de escribir, vacía la caché**
+
+`App\Support\TicketCatalogs` cachea por petición. Si editas un catálogo y vuelves a
+leerlo en la MISMA petición, obtendrás el valor viejo:
+
+```php
+app(TicketCatalogs::class)->flush();   // o flush('ticket_status') para uno solo
+```
+
+En producción esto sólo hace falta en la petición que hace la edición; la siguiente
+recarga sola.
+
+**6. En el frontend no escribas etiquetas**
+
+Usa el composable, que pide `GET /api/catalogs/ticket` una sola vez por sesión:
+
+```js
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+
+const { statuses, cargar, statusLabel } = useTicketCatalogs()
+onMounted(() => cargar())
+```
+
+Los mapas de **color** sí se quedan en el componente, indexados por `code`. La regla:
+el color es presentación y se decide por código —que es estable—; la etiqueta es dato de
+negocio y viene del catálogo. Nunca compares contra la etiqueta.
+
+**Trampa de Eloquent (te va a morder):** si te tienta escribir un ayudante que devuelva
+`Attribute` para no repetir accessors, **no le declares el tipo de retorno**. Eloquent
+descubre los accessors reflexionando sobre los métodos cuyo tipo declarado es `Attribute`
+y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo entero con
+«Too few arguments». Está documentado en `SupportTicket::atributoDeCatalogo()`.
 ## 11. Trampas conocidas
 
 | # | Trampa | Detalle |

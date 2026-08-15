@@ -911,8 +911,12 @@ afectado), `subject`, `description`,
 Un ticket puede generar facturas de tipo `service_charge` mediante `invoices.ticket_id`.
 
 **Desde la Fase 1 R1 (2026-08-14)** el ticket lleva además las claves foráneas a los
-catálogos y `closed_at`. Los tres enums de arriba **siguen existiendo y siguen siendo la
-fuente de lectura**: la R1 es aditiva, y su eliminación es la R3.
+catálogos y `closed_at`.
+
+**Tras la R2 (mismo día) la clave foránea es la fuente de verdad** y los tres enums de
+arriba quedaron como **copia**, que se mantiene sincronizada desde el modelo únicamente
+para poder revertir. Ningún lector de la aplicación depende ya de ellos; su eliminación
+es la R3, pendiente de aprobación.
 
 | Columna | Apunta a | Nota |
 |---|---|---|

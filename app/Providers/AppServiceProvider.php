@@ -11,6 +11,7 @@ use App\Models\PersonalAccessToken;
 use App\Models\Plan;
 use App\Observers\MoneyAuditObserver;
 use App\Policies\CustomerInstallationPolicy;
+use App\Support\TicketCatalogs;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -26,7 +27,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Catálogos del ticket: una carga por petición, resolución en memoria.
+        // Singleton del contenedor y no una estática del modelo, para que cada
+        // test arranque con la caché limpia — una estática sobreviviría a
+        // RefreshDatabase y resolvería ids de una base que ya no existe.
+        $this->app->singleton(TicketCatalogs::class);
     }
 
     /**

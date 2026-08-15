@@ -6,6 +6,7 @@ use App\Models\CutType;
 use App\Models\ScriptVersion;
 use App\Models\TypeBilling;
 use App\Models\User;
+use App\Support\TicketCatalogs;
 use Illuminate\Http\Request;
 
 /**
@@ -18,6 +19,43 @@ use Illuminate\Http\Request;
  */
 class CatalogController extends Controller
 {
+    /**
+     * Catálogos del ticket de soporte, en un solo viaje.
+     *
+     * FASE 1 · R2 — sustituye a los mapas de etiquetas que estaban escritos a
+     * mano en cinco componentes de Vue. Tenerlos duplicados significaba que
+     * añadir un estado obligaba a acordarse de los cinco, y que la interfaz
+     * podía discrepar de lo que la base de datos aceptaba.
+     *
+     * Se devuelven los tres juntos y no un endpoint por catálogo porque la
+     * pantalla de soporte los necesita a la vez: tres peticiones para doce
+     * filas no compensan.
+     *
+     * Sólo salen las filas VIGENTES: es el listado de lo que se puede elegir.
+     * Un ticket antiguo con un estado ya retirado se sigue mostrando bien,
+     * porque su etiqueta viaja en el propio ticket (`status_label`).
+     */
+    public function ticketCatalogs(TicketCatalogs $catalogs)
+    {
+        $presentar = fn ($tabla) => $catalogs->vigentes($tabla)->map(fn ($fila) => [
+            'code'  => $fila->code,
+            'label' => $fila->label,
+        ])->values();
+
+        return response()->json([
+            'statuses'   => $presentar(TicketCatalogs::STATUS),
+            'priorities' => $presentar(TicketCatalogs::PRIORITY),
+            'categories' => $presentar(TicketCatalogs::CATEGORY),
+            // Para que un consumidor sepa si su copia sigue vigente sin
+            // volver a descargarla entera.
+            'versions'   => [
+                'status'   => $catalogs->version('status'),
+                'priority' => $catalogs->version('priority'),
+                'category' => $catalogs->version('category'),
+            ],
+        ]);
+    }
+
     public function cutTypes()
     {
         return response()->json(CutType::orderBy('name')->get(['id', 'name']));

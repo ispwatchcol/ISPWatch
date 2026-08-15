@@ -8,7 +8,9 @@ use App\Models\SupportTicket;
 use App\Models\SupportTicketMessage;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Support\TicketCatalogs;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -446,12 +448,19 @@ class SupportTicketModuleTest extends TestCase
     // ── Estadísticas ─────────────────────────────────────────────────────
 
     /**
-     * `statistics()` genera hoy sus etiquetas a partir del código, con
-     * `ucfirst()` y `str_replace('_', ' ')`. Al migrar a catálogos esa etiqueta
-     * debe salir de la columna `label`, y este test es el que avisa del cambio.
+     * ACTUALIZADO EN LA R2 — y el cambio es el esperado, no una regresión.
+     *
+     * Hasta la R1 este test afirmaba `['Open', 'In progress']`, porque
+     * `statistics()` fabricaba la etiqueta con `ucfirst(str_replace('_',' '))`
+     * sobre el código: texto en inglés, con la forma que impusiera el código,
+     * en una interfaz en español. Ahora la etiqueta sale de `label` del
+     * catálogo, así que dice «Abierto» y «En progreso».
+     *
+     * La respuesta trae además `code` junto a la etiqueta: el frontend colorea
+     * por código —que es estable— y muestra la etiqueta —que puede cambiar—.
      */
     #[Test]
-    public function las_estadisticas_agrupan_por_estado_prioridad_y_categoria(): void
+    public function las_estadisticas_agrupan_por_estado_y_etiquetan_desde_el_catalogo(): void
     {
         $this->ticketOf($this->tenant, $this->customer, ['status' => 'open', 'priority' => 'high']);
         $this->ticketOf($this->tenant, $this->customer, ['status' => 'open', 'priority' => 'low']);
@@ -464,9 +473,45 @@ class SupportTicketModuleTest extends TestCase
         $this->assertSame(1, $stats['in_progress_tickets']);
 
         $this->assertEqualsCanonicalizing(
-            ['Open', 'In progress'],
-            collect($stats['by_status'])->pluck('status')->all()
+            ['Abierto', 'En progreso'],
+            collect($stats['by_status'])->pluck('status')->all(),
+            'La etiqueta debe venir del catálogo, no fabricarse desde el código.'
         );
+
+        $this->assertEqualsCanonicalizing(
+            ['open', 'in_progress'],
+            collect($stats['by_status'])->pluck('code')->all(),
+            'El código estable viaja junto a la etiqueta para que el frontend coloree por él.'
+        );
+
+        $this->assertEqualsCanonicalizing(
+            ['Alta', 'Baja'],
+            collect($stats['by_priority'])->pluck('priority')->all()
+        );
+    }
+
+    /**
+     * La etiqueta se puede cambiar sin desplegar: es el punto de tener catálogo.
+     * El código no se toca, así que nada más en el sistema se entera.
+     */
+    #[Test]
+    public function reetiquetar_el_catalogo_cambia_lo_que_muestran_las_estadisticas(): void
+    {
+        $this->ticketOf($this->tenant, $this->customer, ['status' => 'open']);
+
+        DB::table('ticket_status')->where('code', 'open')->update(['label' => 'Recibido']);
+
+        // `TicketCatalogs` cachea por PETICIÓN. En producción eso basta: la
+        // edición ocurre en una petición y la siguiente ya ve el cambio. Dentro
+        // de un test el contenedor se comparte entre la preparación y la
+        // llamada, así que hay que vaciarlo a mano para reproducir el escenario
+        // real de «se editó el catálogo y llega una petición nueva».
+        app(TicketCatalogs::class)->flush();
+
+        $stats = $this->actingAs($this->staff)->getJson('/api/support/statistics')->assertOk()->json();
+
+        $this->assertSame('Recibido', $stats['by_status'][0]['status']);
+        $this->assertSame('open', $stats['by_status'][0]['code'], 'El código NO cambia al reetiquetar.');
     }
 
     #[Test]
