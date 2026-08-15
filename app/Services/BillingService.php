@@ -7,6 +7,7 @@ use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
 use App\Models\BillingActionLog;
 use App\Models\CustomerAdditionalService;
+use App\Models\CustomerCredit;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\InvoiceCarryover;
@@ -1246,11 +1247,18 @@ class BillingService
         }
 
         // Any remaining amount after all invoices are paid becomes credit for the customer.
+        //
+        // El excedente entra por el libro de movimientos (CustomerCredit), no
+        // sumándole a credit_balance a pelo: es lo que después permite anular
+        // este pago devolviendo solo la parte que ninguna factura consumió.
         if ($remainingAmount > 0) {
             $customer = CustomerProfile::where('user_id', $payment->customer_id)->first();
             if ($customer) {
-                $customer->credit_balance = (float) $customer->credit_balance + $remainingAmount;
-                $customer->save();
+                CustomerCredit::earn(
+                    $payment,
+                    $remainingAmount,
+                    "Excedente del pago #{$payment->id}"
+                );
                 Log::info("Billing: Payment {$payment->id} — \${$remainingAmount} stored as credit for customer {$payment->customer_id}.");
             }
         }
@@ -1764,6 +1772,11 @@ class BillingService
     /**
      * Apply a customer's credit balance to a single invoice, reducing both.
      * Called automatically after each new invoice is created.
+     *
+     * Deja asiento en customer_credits. Antes no lo dejaba, y eso producía el
+     * efecto que desató todo esto: una factura de $60.000 aparecía en caja por
+     * $36.000 sin una sola fila que explicara los $24.000 de diferencia, y el
+     * libro no cuadraba con lo que había entrado por caja.
      */
     protected function applyCreditToInvoice(Invoice $invoice, CustomerProfile $profile): void
     {
@@ -1777,10 +1790,110 @@ class BillingService
         $this->updateInvoiceStatus($invoice);
         $invoice->save();
 
-        $profile->credit_balance -= $apply;
-        $profile->save();
+        // Escribe el movimiento y sincroniza credit_balance: no hay que tocar
+        // el perfil aquí o el saldo se descontaría dos veces.
+        CustomerCredit::applyToInvoice($invoice, (int) $profile->user_id, $apply);
+        $profile->refresh();
 
         Log::info("Billing: Auto-applied \${$apply} credit to invoice {$invoice->id} for customer {$profile->user_id}. Remaining credit: {$profile->credit_balance}.");
+    }
+
+    /**
+     * Audita el destino del dinero recibido, cliente por cliente. NO escribe nada.
+     *
+     * La invariante que comprueba es la más simple que tiene el módulo:
+     *
+     *     todo peso que entró está aplicado a una factura, o está en el saldo a favor
+     *
+     *     sum(payments.amount) == sum(payment_allocations.amount) + credit_balance
+     *
+     * Cuando la resta da positivo hay dinero recibido que no respalda ninguna
+     * factura y tampoco figura como saldo: entró por caja y el sistema no sabe
+     * decir qué pagó. Da igual qué lo provocó —borrar una factura pagada y no
+     * reaplicar el saldo, un ajuste manual del saldo a la baja, o un pago que
+     * nunca se asignó—: el síntoma es el mismo y es el que hay que ver.
+     *
+     * Se mide por cliente y no en total porque el total se compensa solo: a un
+     * cliente le sobra lo que a otro le falta y el descuadre desaparece.
+     *
+     * @return array<int,array<string,mixed>> Una fila por cliente descuadrado,
+     *                                        de mayor a menor importe.
+     */
+    public function auditOrphanPayments(?int $tenantId = null): array
+    {
+        $entrado = DB::table('payments')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->selectRaw('customer_id, count(*) as pagos, sum(amount) as entrado')
+            ->groupBy('customer_id')
+            ->get()
+            ->keyBy('customer_id');
+
+        if ($entrado->isEmpty()) {
+            return [];
+        }
+
+        $aplicado = DB::table('payment_allocations as pa')
+            ->join('payments as p', 'p.id', '=', 'pa.payment_id')
+            ->whereIn('p.customer_id', $entrado->keys())
+            ->selectRaw('p.customer_id, sum(pa.amount) as aplicado')
+            ->groupBy('p.customer_id')
+            ->pluck('aplicado', 'customer_id');
+
+        $perfiles = DB::table('customer_profile')
+            ->whereIn('user_id', $entrado->keys())
+            ->get(['user_id', 'name', 'last_name', 'credit_balance'])
+            ->keyBy('user_id');
+
+        $filas = [];
+
+        foreach ($entrado as $customerId => $fila) {
+            $perfil = $perfiles->get($customerId);
+
+            $recibido = (float) $fila->entrado;
+            $enFacturas = (float) ($aplicado[$customerId] ?? 0);
+            $enSaldo = (float) ($perfil->credit_balance ?? 0);
+            $suelto = round($recibido - $enFacturas - $enSaldo, 2);
+
+            // Redondeo: los importes son decimal(·,2) y un céntimo suelto es
+            // ruido de coma flotante, no un descuadre que valga una alerta.
+            if ($suelto < 0.01) {
+                continue;
+            }
+
+            $filas[] = [
+                'customer_id' => (int) $customerId,
+                'cliente'     => trim(($perfil->name ?? '') . ' ' . ($perfil->last_name ?? '')) ?: "cliente #{$customerId}",
+                'pagos'       => (int) $fila->pagos,
+                'recibido'    => $recibido,
+                'en_facturas' => $enFacturas,
+                'en_saldo'    => $enSaldo,
+                'suelto'      => $suelto,
+            ];
+        }
+
+        usort($filas, fn ($a, $b) => $b['suelto'] <=> $a['suelto']);
+
+        return $filas;
+    }
+
+    /**
+     * Aplica el saldo a favor del cliente a una factura creada a mano.
+     *
+     * La generación mensual siempre terminaba con applyCreditToInvoice(); el
+     * alta manual, no. La diferencia se notaba justo en el peor momento: al
+     * borrar una factura ya pagada y crear otra en su lugar, el dinero volvía
+     * como saldo a favor y la factura nueva nacía debiendo el total, con lo que
+     * el cliente aparecía debiendo algo que ya había pagado.
+     */
+    public function applyCreditToManualInvoice(Invoice $invoice): Invoice
+    {
+        $profile = CustomerProfile::where('user_id', $invoice->customer_id)->first();
+
+        if ($profile) {
+            $this->applyCreditToInvoice($invoice, $profile);
+        }
+
+        return $invoice->refresh();
     }
 
     /**
@@ -1824,15 +1937,25 @@ class BillingService
             $allocation->delete();
         }
 
-        // Reverse any excess credit that was generated by this payment
-        $totalAllocated = $allocations->sum('amount');
-        $excess = (float) $payment->amount - (float) $totalAllocated;
-        if ($excess > 0) {
-            $customer = CustomerProfile::where('user_id', $payment->customer_id)->first();
-            if ($customer) {
-                $customer->credit_balance = max(0, (float) $customer->credit_balance - $excess);
-                $customer->save();
-            }
+        // Devolver el excedente que este pago había dejado como saldo a favor.
+        //
+        // Antes esto restaba el excedente COMPLETO del credit_balance sin mirar
+        // si alguna factura posterior ya se lo había comido, y el max(0, ...)
+        // tapaba el resultado. Con eso, anular un pago viejo borraba saldo que
+        // venía de otros pagos: dinero real desapareciendo sin dejar rastro.
+        //
+        // Ahora el libro sabe cuánto de cada excedente sigue vivo y solo se
+        // devuelve eso. Lo ya consumido se queda donde está —misma doctrina que
+        // InvoiceCarryover— porque devolverlo cobraría dos veces la factura que
+        // pagó.
+        $reversal = CustomerCredit::reverseForPayment($payment);
+
+        if ($reversal['kept'] > 0) {
+            Log::warning(
+                "Billing: al revertir el pago {$payment->id} se conservaron \${$reversal['kept']} " .
+                "de saldo a favor que ya habían pagado facturas posteriores. " .
+                "Devuelto: \${$reversal['reversed']}."
+            );
         }
     }
 
@@ -1912,15 +2035,41 @@ class BillingService
             $allocations = PaymentAllocation::where('invoice_id', $invoice->id)->get();
 
             if ($allocations->isNotEmpty()) {
-                $customer = CustomerProfile::where('user_id', $invoice->customer_id)->first();
                 foreach ($allocations as $allocation) {
-                    if ($customer) {
-                        $customer->credit_balance = (float) $customer->credit_balance + (float) $allocation->amount;
+                    // El dinero que había pagado esta factura vuelve al saldo a
+                    // favor del cliente, atado al pago que lo trajo para que una
+                    // anulación posterior de ese pago lo encuentre.
+                    $payment = Payment::find($allocation->payment_id);
+                    if ($payment) {
+                        CustomerCredit::earn(
+                            $payment,
+                            (float) $allocation->amount,
+                            "Factura {$invoice->number} eliminada: el pago #{$payment->id} vuelve a saldo a favor"
+                        );
                     }
                     $allocation->delete();
                 }
-                if ($customer) {
-                    $customer->save();
+            }
+
+            // Saldo a favor que había pagado esta factura: si la factura
+            // desaparece, el saldo tiene que volver o el cliente lo pierde sin
+            // que nadie se entere. Vuelve como ajuste y no des-consumiendo los
+            // `earned` originales: es el lado conservador (nunca destruye
+            // saldo), a costa de que anular después el pago de origen ya no
+            // arrastre esta devolución.
+            $creditApplied = CustomerCredit::where('to_invoice_id', $invoice->id)
+                ->where('type', CustomerCredit::TYPE_APPLIED)
+                ->sum('amount');
+
+            if ($creditApplied < 0) {
+                $profile = CustomerProfile::where('user_id', $invoice->customer_id)->first();
+                if ($profile) {
+                    CustomerCredit::adjust(
+                        (int) $invoice->customer_id,
+                        (float) $profile->credit_balance + abs((float) $creditApplied),
+                        (float) $profile->credit_balance,
+                        "Factura {$invoice->number} eliminada: se devuelve el saldo a favor que la había pagado"
+                    );
                 }
             }
 
@@ -2029,11 +2178,11 @@ class BillingService
                 } else {
                     // Payment also funded other invoices → keep it and park the
                     // freed amount as customer credit so nothing is lost.
-                    $customer = CustomerProfile::where('user_id', $payment->customer_id)->first();
-                    if ($customer) {
-                        $customer->credit_balance = (float) $customer->credit_balance + (float) $allocation->amount;
-                        $customer->save();
-                    }
+                    CustomerCredit::earn(
+                        $payment,
+                        (float) $allocation->amount,
+                        "Factura {$invoice->number} marcada como no pagada: el pago #{$payment->id} vuelve a saldo a favor"
+                    );
                 }
             }
 

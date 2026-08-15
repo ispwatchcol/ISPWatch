@@ -127,6 +127,13 @@ class TemplateRenderer
         ]), $template->page_size, $template->page_orientation);
     }
 
+    /**
+     * @param ?array $signatureAudit  Constancia de firma electrónica (IP, hora,
+     *        dispositivo). Llega poblada SÓLO en la firma remota por link — la
+     *        presencial la presencia un empleado y sus contratos siguen
+     *        saliendo byte a byte como antes de que existiera este parámetro.
+     *        Ver App\Services\ContractSigningService::buildAudit().
+     */
     public function renderContract(
         User $customer,
         ?CustomerProfile $profile,
@@ -134,8 +141,69 @@ class TemplateRenderer
         ?Plan $plan,
         string $signature,
         string $date,
-        ?string $contractNumber = null
+        ?string $contractNumber = null,
+        ?array $signatureAudit = null
     ) {
+        $doc = $this->contractDocument($customer, $profile, $tenant, $plan, $signature, $date, $contractNumber, $signatureAudit);
+
+        if ($doc['mode'] === 'legacy') {
+            return Pdf::loadView($doc['view'], $doc['data']);
+        }
+
+        if ($doc['mode'] === 'advanced') {
+            return $this->applyPaper(Pdf::loadHTML($doc['html']), $doc['page_size'], $doc['page_orientation']);
+        }
+
+        return $this->applyPaper(Pdf::loadView($doc['view'], $doc['data']), $doc['page_size'], $doc['page_orientation']);
+    }
+
+    /**
+     * El MISMO contrato que renderContract(), pero como HTML en vez de PDF.
+     *
+     * Lo consume la página pública de firma: el cliente abre el link en el
+     * celular y tiene que poder LEER lo que va a firmar antes de trazar nada.
+     * Un PDF embebido es exactamente lo que no sirve ahí — Safari iOS no
+     * renderiza un `data:application/pdf` dentro de un iframe y el visor de
+     * Chrome Android se abre fuera de la página, sacando al cliente del flujo
+     * a mitad de camino. El HTML se muestra en un recuadro con scroll y se lee
+     * en cualquier teléfono.
+     */
+    public function renderContractHtml(
+        User $customer,
+        ?CustomerProfile $profile,
+        Tenant $tenant,
+        ?Plan $plan,
+        string $signature,
+        string $date,
+        ?string $contractNumber = null,
+        ?array $signatureAudit = null
+    ): string {
+        $doc = $this->contractDocument($customer, $profile, $tenant, $plan, $signature, $date, $contractNumber, $signatureAudit);
+
+        if ($doc['mode'] === 'advanced') {
+            return $doc['html'];
+        }
+
+        return view($doc['view'], $doc['data'])->render();
+    }
+
+    /**
+     * Resuelve QUÉ documento le toca a este contrato — la vista legacy, el
+     * shell fijo o el HTML completo del modo avanzado — sin decidir todavía si
+     * el resultado acaba en un PDF o en la pantalla del cliente.
+     *
+     * @return array{mode:string, view:?string, data:array, html:?string, page_size:?string, page_orientation:?string}
+     */
+    private function contractDocument(
+        User $customer,
+        ?CustomerProfile $profile,
+        Tenant $tenant,
+        ?Plan $plan,
+        string $signature,
+        string $date,
+        ?string $contractNumber,
+        ?array $signatureAudit
+    ): array {
         $template = $this->activeTemplate((int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
         $legacyData = [
@@ -146,23 +214,38 @@ class TemplateRenderer
             'signature'      => $signature,
             'date'           => $date,
             'contractNumber' => $contractNumber,
+            'signatureAudit' => $signatureAudit,
         ];
 
         if (!$template) {
-            return Pdf::loadView('documents.contract_pdf', $legacyData);
+            return [
+                'mode' => 'legacy',
+                'view' => 'documents.contract_pdf',
+                'data' => $legacyData,
+                'html' => null,
+                'page_size' => null,
+                'page_orientation' => null,
+            ];
         }
 
         $scalarValues = $this->resolver->forContract($customer, $profile, $tenant, $plan, $date, $contractNumber);
-        $blockValues = $this->blockResolver->forContract($tenant, $signature);
+        $blockValues = $this->blockResolver->forContract($tenant, $signature, $signatureAudit);
 
         if ($template->is_advanced_mode) {
-            return $this->applyPaper(Pdf::loadHTML($this->compileAdvanced(
-                $template->body_html,
-                $scalarValues,
-                $blockValues,
-                (int) $tenant->id,
-                DocumentTemplate::TYPE_CONTRACT
-            )), $template->page_size, $template->page_orientation);
+            return [
+                'mode' => 'advanced',
+                'view' => null,
+                'data' => $legacyData,
+                'html' => $this->compileAdvanced(
+                    $template->body_html,
+                    $scalarValues,
+                    $blockValues,
+                    (int) $tenant->id,
+                    DocumentTemplate::TYPE_CONTRACT
+                ),
+                'page_size' => $template->page_size,
+                'page_orientation' => $template->page_orientation,
+            ];
         }
 
         // Modo seguro: la firma la sigue imprimiendo el shell fijo (fuera de
@@ -170,11 +253,14 @@ class TemplateRenderer
         // pero se resuelve igual aquí por si el tenant lo usa también.
         $body = $this->compile($template->body_html, $scalarValues, $blockValues, (int) $tenant->id, DocumentTemplate::TYPE_CONTRACT);
 
-        return $this->applyPaper(
-            Pdf::loadView('documents.shells.contract_shell', $legacyData + ['body' => $body]),
-            $template->page_size,
-            $template->page_orientation
-        );
+        return [
+            'mode' => 'shell',
+            'view' => 'documents.shells.contract_shell',
+            'data' => $legacyData + ['body' => $body],
+            'html' => null,
+            'page_size' => $template->page_size,
+            'page_orientation' => $template->page_orientation,
+        ];
     }
 
     public function renderInstallationSheet(
@@ -304,6 +390,9 @@ class TemplateRenderer
             'signature'      => $signature,
             'date'           => $date,
             'contractNumber' => $contractNumber,
+            // La vista previa del editor nunca lleva constancia: no hay firma
+            // real que constatar, sólo el borrador de la plantilla.
+            'signatureAudit' => null,
             'body'           => $body,
         ]), $pageSize, $pageOrientation);
     }

@@ -2,13 +2,21 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\NormalizesRouterControlMode;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreRouterRequest extends FormRequest
 {
+    use NormalizesRouterControlMode;
+
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->normalizeControlMode();
     }
 
     public function rules(): array
@@ -46,6 +54,9 @@ class StoreRouterRequest extends FormRequest
             'amarre' => 'nullable|boolean',
             'dhcp_leases' => 'nullable|boolean',
             'falla_general' => 'nullable|boolean',
+
+            // Sexto método de control: el AAA externo gestiona este router.
+            'radius' => 'nullable|boolean',
         ];
     }
 

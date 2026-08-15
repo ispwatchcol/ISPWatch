@@ -105,6 +105,12 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `traffic_daily` | 57 | Agregado diario de tráfico |
 | `router_outage_events` | 0 | Falla masiva (append-only), consumido por Converza |
 | `script_version` | 2 | Catálogo de versiones de script |
+> **No hay tablas `radius_*`, y es a propósito.** Cuando un router tiene
+> `radius = true`, las sesiones, la contabilidad y las órdenes de desconexión viven
+> en el sistema AAA externo, no aquí. Una versión anterior de este trabajo las
+> creaba (ISPWatch como cerebro del RADIUS); ese diseño quedó archivado en la rama
+> `spike/radius-rlm-rest` por poner a ISPWatch en el camino crítico de cada
+> autenticación. Ver [`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).
 
 ### Facturación
 
@@ -117,6 +123,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `invoice_items` | 1 166 | Ítems de factura |
 | `invoice_types` | 4 + propios | **Catálogo de tipos de factura** (4 del sistema + los del tenant) |
 | `invoice_carryovers` | 0 | **Arrastre de saldo** por abono parcial (factura vieja → factura nueva) |
+| `customer_credits` | 0 | **Libro del saldo a favor** (espejo positivo del anterior). La verdad del saldo; `customer_profile.credit_balance` es su caché |
 | `payments` | 1 086 | Pagos recibidos |
 | `payment_allocations` | 1 061 | Asignación pago → factura (N:M con importe) |
 | `payment_methods` | 16 | Formas de pago por tenant |
@@ -132,7 +139,8 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 |---|---:|---|
 | `prospects` | 9 | Clientes potenciales antes de convertirse en cliente |
 | `customer_installations` | 7 | Órdenes de instalación con acta firmada y cobro |
-| `customer_documents` | 13 | Documentos en S3 (cédula, contrato, acta) |
+| `customer_documents` | 14 | Documentos en S3 (cédula, contrato, acta) |
+| `contract_signature_links` | 19 | Enlaces de firma remota del contrato (token hasheado) |
 | `document_templates` | 0 | Plantillas HTML de factura/contrato/acta por tenant |
 | `support_ticket` | 6 | Tickets de soporte |
 | `support_ticket_message` / `_attachment` | 0 / 0 | Conversación y adjuntos |
@@ -142,7 +150,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `inventory_stock` / `_device` / `_provider` / `_branch` | 0 / 0 / 2 / 0 | Inventario de equipos |
 | `help_categories` / `help_articles` | 9 / 30 | Centro de ayuda embebido |
 | `bulk_provision_runs` | 50 | Progreso de aprovisionamiento masivo asíncrono |
-| `audit_logs` | 0 | Auditoría genérica de modelos |
+| `audit_logs` | 28 | **Bitácora de lo que mueve plata.** Alimentada por `MoneyAuditObserver`; lleva `tenant_id` y `source` (`web`/`api`/`console`/`import`/`scheduler`) |
 | ~~`activity_log`~~ | 0 | **Eliminada** por la migración `2026_07_31_000005` |
 
 ### Infraestructura Laravel
@@ -334,7 +342,26 @@ erDiagram
         numeric amount
         varchar status "pending|applied"
     }
+    customer_credits {
+        bigint id PK
+        bigint customer_id FK
+        varchar type "earned|applied|adjusted|reversed"
+        bigint from_payment_id FK "pago que dejó el excedente"
+        bigint to_invoice_id FK "factura que lo consumió"
+        numeric amount "+ suma, - consume"
+        numeric balance_after "saldo tras el movimiento"
+        numeric consumed "cuánto del earned ya se gastó"
+        varchar source "web|api|console|import|scheduler"
+    }
 ```
+
+**Invariante de `customer_credits`:**
+`SUM(amount)` de un cliente **debe** ser igual a `customer_profile.credit_balance`. Si no lo es,
+hay un bug: el extracto del cliente lo delata en pantalla y `audit:backfill-money` lo reporta.
+
+`consumed` existe para poder anular un pago sin destruir saldo ajeno. Al revertir un pago solo se
+devuelve la parte de sus `earned` que ninguna factura consumió todavía; lo ya gastado se queda
+donde está —misma doctrina que `invoice_carryovers`— porque devolverlo cobraría dos veces.
 
 ### 3.3 Comercial, soporte e inventario
 
@@ -547,6 +574,7 @@ Contiene **todos** los actores: clientes, técnicos, staff y administradores. El
 | `hotspot` | boolean | NN | `false` | **Método de control** |
 | `pppoe` | boolean | NN | `false` | **Método de control** |
 | `dhcp_leases` | boolean | NN | `false` | **Método de control** |
+| `radius` | boolean | NN | `false` | **Método de control**: el AAA externo gestiona este router e ISPWatch no le escribe. Gana el desempate por ser el único que no toca el RouterBoard |
 | `pppoe_limit_mode` | varchar(20) | NN | `dynamic` | Modo de límite PPPoE |
 | `ip_bindings` | boolean | NN | `false` | Aditivo: ARP estático |
 | `amarre` | boolean | NN | `false` | Aditivo: drop por par IP/MAC |
@@ -812,6 +840,42 @@ entre sí dentro de un índice único). El contador vive en `tenant.next_contrac
 se reserva con `lockForUpdate`, igual que el de facturas — migraciones
 `2026_08_04_120000` (esquema) y `2026_08_04_120100` (numeración retroactiva de los
 contratos ya firmados, por orden cronológico y por tenant).
+
+`content_sha256` (varchar(64), nullable — migración `2026_08_13_150000`) es la **huella
+del PDF tal como quedó almacenado**. Se calcula sobre los mismos bytes que se suben a S3,
+nunca releyendo el objeto: un hash tomado de la relectura documentaría una corrupción de
+escritura como si fuera lo que el cliente firmó. Es lo que permite demostrar años después
+que el archivo exhibido es byte a byte el firmado, y por eso **no** va impreso dentro del
+propio PDF (sería una referencia circular). Lo llenan los dos caminos de firma.
+
+### 4.14.1 `contract_signature_links` — Firma remota del contrato
+
+Un cliente firma su contrato desde un enlace, sin cuenta ni sesión (§ *Firma remota de
+contratos* en `ARQUITECTURA.md`).
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `tenant_id`, `customer_id` | bigint | Índice `(tenant_id, customer_id)` |
+| `token_hash` | varchar(64) **UK** | **SHA-256** del token; el token en claro NUNCA se persiste |
+| `expires_at` | timestamp | 72 h por defecto (`ContractSignatureLink::DEFAULT_TTL_HOURS`) |
+| `created_by` | bigint null | Empleado que lo emitió |
+| `sent_channel` / `sent_to` / `sent_at` | varchar(20) / varchar(190) / timestamp | `email`, `whatsapp`, `manual`. `sent_at` sólo se marca cuando **el servidor** envió algo (correo); un `wa.me` lo dispara el operador desde su teléfono |
+| `reminder_sent_at` | timestamp null | Un único recordatorio por enlace |
+| `opened_at` | timestamp null | **Primera** apertura, no la última |
+| `verified_at` | timestamp null | Superó la verificación de cédula |
+| `failed_attempts` | smallint | A los 5 (`MAX_FAILED_ATTEMPTS`) el enlace queda quemado |
+| `signed_at`, `signer_ip`, `signer_user_agent` | timestamp / varchar(45) / varchar(512) | Constancia de firma electrónica |
+| `document_id` | bigint null | `customer_documents` generado |
+| `revoked_at` | timestamp null | Anulado a mano o al emitir uno nuevo |
+
+Índice `(signed_at, expires_at)` para el barrido de `contracts:remind-unsigned`.
+
+**Por qué una tabla y no un signed URL de Laravel** (como el de verificación de correo):
+un contrato es un documento legal y lo que le da valor probatorio es el rastro — quién lo
+abrió, desde qué IP y cuándo, más que fuera de un solo uso y revocable. Un signed URL
+lleva la firma dentro de la propia URL: no se puede revocar sin rotar `APP_KEY` (que
+invalidaría también los correos de verificación) y no deja dónde anotar un intento
+fallido.
 
 **`document_templates`** — plantilla HTML por tenant y tipo (**UK** `(tenant_id, type)`),
 `type` ∈ {`invoice`, `contract`, `installation`}, `body_html`, `is_active`,

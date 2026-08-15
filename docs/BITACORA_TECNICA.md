@@ -4,10 +4,39 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-06 · Rama: `feat/document-templates-and-customer-purge`
+**Última actualización:** 2026-08-14 · Rama: `feat/contract-remote-signing`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El contrato obligaba a un viaje (2026-08-14, § 31):** firmar sólo se podía sobre la pantalla
+  de un empleado logueado, así que cada contrato costaba un desplazamiento y muchos clientes
+  llevaban meses instalados sin firmar. Ahora se manda un enlace personal (correo, WhatsApp o
+  copiado) y el cliente lee y firma desde el celular; el PDF remoto lleva constancia de fecha, IP
+  y dispositivo, y el token sólo se guarda hasheado.
+- **Borrar una factura pagada dejaba el dinero en el aire (2026-08-13, § 30):** el modal no
+  decía cuánto dinero soltaba, el alta manual no creaba el ítem ni aplicaba el saldo a favor, y
+  nadie auditaba que el dinero ya cobrado siguiera cuadrando. En producción: 91 clientes y
+  $5.709.350 sin respaldo. Nuevo `billing:verify-orphan-payments`.
+- **Facturación se revisaba a ciegas (2026-08-13, § 29):** la pantalla tenía un solo buscador
+  para nueve columnas, así que "qué facturas de más de $100.000 vencen esta semana y siguen
+  debiendo" sólo se podía responder exportando a Excel. Ahora hay una casilla bajo cada título,
+  títulos ordenables y tamaño de página — la misma mecánica que ya usaba Recaudos.
+- **Dos fallos que sólo el CI de PostgreSQL podía ver (2026-08-13, § 28):** un estado de
+  instalación inventado que sqlite dejaba pasar porque pierde el CHECK del enum al reconstruir la
+  tabla, y un `try` en la bitácora que daba falsa confianza: en PostgreSQL atrapar la excepción no
+  descongela la transacción, hace falta un SAVEPOINT.
+- **Túnel duplicado: la VPN "activa" que rompe la gestión (2026-08-13, § 28):** dos secrets L2TP
+  discando desde la misma IP pública se reciclan entre sí y tumban todo lo que el CORE inicia hacia
+  el router, mientras el túnel figura activo. ISPWatch no lo miraba; ahora lo detecta por
+  `caller-id` y lo dice en los tres sitios donde el operador pregunta.
+- **La lectura de interfaces WAN mentía sobre quién fallaba (2026-08-13, § 27):** un tiempo de
+  espera que phpseclib no reporta como error hacía pasar media respuesta del CORE por una
+  respuesta del router; de paso, un sondeo de túnel con falsos positivos, dos variantes de comando
+  inalcanzables y una modal que al fallar no dejaba escribir la interfaz a mano.
+- **Bitácora de flujo de caja y libro de saldo a favor (2026-08-11, § 26):** el saldo a favor deja
+  de ser un escalar suelto y pasa a tener libro de movimientos; se arregla un bug que borraba
+  dinero al anular pagos; y todo lo que mueve plata queda registrado con quién, cuándo y desde
+  dónde —incluidas las cargas masivas, que eran el camino ciego.
 - **Panel de Finanzas mensual, con gastos y balance (2026-08-06, § 24):** las cifras dejan de ser
   el acumulado histórico, se excluyen anuladas, entran los gastos y el tenant deja de viajar por
   la URL.
@@ -53,6 +82,13 @@
 22. [Las tarjetas de Inventario contaban dispositivos, no catálogos — 2026-08-06](#22-las-tarjetas-de-inventario-contaban-dispositivos-no-catálogos--2026-08-06)
 23. [Custodia de inventario, consumibles y kardex — 2026-08-06](#23-custodia-de-inventario-consumibles-y-kardex--2026-08-06)
 24. [El Panel de Finanzas era el acumulado histórico y no sabía de gastos — 2026-08-06](#24-el-panel-de-finanzas-era-el-acumulado-histórico-y-no-sabía-de-gastos--2026-08-06)
+25. [API pública de solo lectura por llave — 2026-08-07](#25-api-pública-de-solo-lectura-por-llave--2026-08-07)
+26. [El saldo a favor movía plata sin dejar asiento — 2026-08-11](#26-el-saldo-a-favor-movía-plata-sin-dejar-asiento--2026-08-11)
+27. [El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13](#27-el-botón-de-wan-culpaba-al-router-de-un-silencio-nuestro--2026-08-13)
+28. [La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13](#28-la-wan-seguía-sin-leerse-había-dos-túneles-peleándose--2026-08-13)
+28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
+29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
+30. [Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13](#30-borrar-una-factura-pagada-dejaba-el-dinero-en-el-aire--2026-08-13)
 
 ---
 
@@ -2337,6 +2373,857 @@ sigue siendo el token. Anotado en `MEJORAS_RECOMENDADAS.md`.
 
 **Pendiente de despliegue:** `php artisan migrate:both` (4 migraciones) y decidir el
 `API_KEYS_OPERATOR_TENANT_ID` real si no es el 1.
+
+---
+
+## 26. El saldo a favor movía plata sin dejar asiento — 2026-08-11
+
+### 26.1 Cómo se detectó
+
+Una clienta de Tocaima llegó a pagar y la factura le apareció en **$36.000** cuando ella paga
+**$70.000** todos los meses. No era un error: su plan cuesta $60.000, viene pagando $70.000 desde
+junio, y el sistema le venía descontando solo el saldo acumulado de la factura siguiente.
+
+Al auditarlo apareció que no era un caso aislado: **101 clientes** tenían al menos una factura
+cuyo monto a cobrar no era el precio de su plan, repartidos en las dos sedes (66 facturas en
+Tocaima, 55 en Chaguaní).
+
+### 26.2 Las causas, que eran cuatro y no una
+
+De 129 pagos con excedente:
+
+| Origen | Pagos | Clientes | Monto |
+|---|---|---|---|
+| Prepago de varios meses (múltiplo exacto del plan) — **legítimo** | 68 | 61 | $5.805.500 |
+| Residuo que no cuadra con el plan — **el problema** | 61 | 42 | $1.473.358 |
+
+Dentro del segundo grupo:
+
+1. **Cambio de precio 56.000 → 60.000 desincronizado (Tocaima), 20 clientes.** En junio el sistema
+   facturó $56.000 a 94 clientes mientras en la calle ya se cobraba $60.000. Cada uno pagó 60.000
+   contra una factura de 56.000 y quedaron **$4.000 atascados**. Como el crédito se aplica solo,
+   en julio y agosto a esos mismos clientes les siguió apareciendo $56.000 en vez de $60.000.
+2. **Pagos registrados sin factura abierta, 53 clientes, $4.639.708.** El pago entra completo a
+   saldo y la siguiente factura nace pagada.
+3. **Clientes que pagan una cifra redonda distinta a su plan.**
+4. **Errores puntuales:** un pago de $660.000 contra una factura de 60.000, un pago duplicado, y
+   saldo sobre un plan de cortesía de $0.
+
+### 26.3 El defecto estructural
+
+`applyCreditToInvoice` bajaba el `balance_due` de la factura y el `credit_balance` del cliente
+**sin crear ningún asiento**. Consecuencias medidas en producción:
+
+- 66 pagos sin una sola fila en `payment_allocations`, por $4.639.708. El libro no cuadraba con la
+  caja.
+- Facturas en estado `paid` sin ningún peso asignado.
+- Nadie podía explicarle al cliente en el mostrador de dónde salía el descuento.
+
+### 26.4 El bug de pérdida de dinero
+
+`reversePaymentAllocations` restaba el excedente **completo** del `credit_balance` al anular o
+corregir un pago, sin mirar si ese excedente ya había sido consumido por una factura posterior. El
+`max(0, ...)` tapaba el resultado.
+
+Reproducido en test: cliente con dos pagos de $70.000 sobre facturas de $60.000. El primer
+excedente ($10.000) ya se había gastado; al anular ese primer pago el saldo caía de $20.000 a
+$10.000. **$10.000 reales desaparecían sin traza**, y venían del segundo pago.
+
+### 26.5 Por qué observers y no instrumentar controladores
+
+Fue la decisión de diseño central. El precio del plan de Tocaima se cambió desde `PlanController`,
+pero los planes equivocados de Chaguaní se reasignaron en masa desde `CustomersUpdateImport`, que
+no pasa por ningún controlador de planes. Instrumentar controladores habría dejado ciega justo la
+mitad del problema.
+
+`MoneyAuditObserver` cubre las cuatro puertas: panel, API, carga masiva y consola (incluido
+tinker). Hay un test que lo comprueba por el camino del import, que es el que importaba.
+
+### 26.6 Qué se construyó
+
+- **`customer_credits`** — libro de movimientos del saldo a favor, espejo positivo de
+  `invoice_carryovers`, que ya resolvía lo mismo para los faltantes y por la misma razón: para
+  revertir con precisión hay que guardar movimientos, no un acumulado. Tipos `earned`, `applied`,
+  `adjusted`, `reversed`. El campo `consumed` de cada `earned` es lo que hace posible anular un
+  pago sin destruir saldo ajeno. `credit_balance` queda como caché denormalizada.
+- **`audit_logs` reforzado** — se le agregó `tenant_id` (sin él era imposible filtrar por sede en
+  un sistema multi-tenant) y `source` (`web`/`api`/`console`/`import`/`scheduler`), que es lo que
+  distingue "lo cambió un operador" de "lo cambió un Excel".
+- **`MoneyAuditObserver`** — lista blanca corta y deliberada por modelo. `credit_balance` queda
+  fuera a propósito: lo cubre el libro con mucho más detalle.
+- **`audit:backfill-money`** — reconstruye el histórico. **No mueve plata**: si el saldo
+  reconstruido no coincide con el real, deja el real intacto y escribe un movimiento de descuadre.
+- **Visor** en Ajustes → Auditoría y **extracto de saldo** en la ficha del cliente, que delata en
+  pantalla si el libro y la caché divergen.
+
+### 26.7 Deuda aceptada conscientemente
+
+Al borrar una factura que había sido pagada con saldo, el saldo vuelve como `adjusted` sin
+des-consumir los `earned` originales. Es el lado conservador —nunca destruye saldo— a costa de que
+anular después el pago de origen ya no arrastre esa devolución. Anotado en
+`MEJORAS_RECOMENDADAS.md`.
+
+### 26.8 Estado
+
+**667 pruebas en verde**, 23 nuevas:
+
+- `CustomerCreditLedgerTest` (7): el asiento de `earned` y `applied`, el caso real de los tres
+  meses reproducido al peso, la devolución del saldo vivo, el ajuste manual con motivo, y **el
+  test del bug** — verificado que falla con el código anterior antes de darlo por bueno.
+- `MoneyAuditTrailTest` (7): cambio de precio con valores viejo y nuevo, ruido descartado, alta y
+  baja, **la carga masiva** (el camino ciego), día de corte, autoría y origen sin sesión.
+- `BackfillMoneyAuditTest` (5): reconstrucción de excedentes y de créditos aplicados, el descuadre
+  sin tocar la plata, idempotencia y dry-run que no escribe.
+- `AuditLogApiTest` (4): permiso exigido, aislamiento entre sedes, filtro y detección de descuadre.
+
+### 26.9 Ejecución en producción — 2026-08-11
+
+`migrate:both` aplicado en `ispwatch_dev` y `public`. Backfill corrido: **117 clientes, 241
+movimientos**. Invariante `SUM(amount) == credit_balance` verificado en los **100 clientes con
+libro: 0 descuadrados**.
+
+**El backfill hubo que reescribirlo.** La primera versión reutilizaba los métodos del modelo
+cliente por cliente, que es más elegante pero eran 4-5 viajes a la base por movimiento: contra
+Supabase se tradujo en **más de 10 minutos con la conexión `idle in transaction`**, que sobre un
+pooler es la mejor forma de que te maten la conexión a medio camino. Es la misma lección que ya
+había dejado la carga masiva de clientes —nada de consultas por fila en procesos masivos— y se
+repitió igual. Ahora son tres consultas, replay en memoria e inserción por lotes de 500 en
+transacciones cortas; el dry-run no escribe nada en absoluto. Pasó de >10 min a segundos.
+
+### 26.10 Lo que destapó el backfill: pagos fuera del pipeline
+
+Aparecieron **9 clientes por $1.252.000** con una firma idéntica: el histórico reconstruye saldo
+positivo pero el `credit_balance` real es **0**.
+
+| Cliente | Reconstruido | Real | Qué se ve |
+|---|---:|---:|---|
+| 636 GABRIEL BRAVO (T19) | 567.000 | 0 | Pago de **$630.000** sin asignar, con plan de 63.000 |
+| 325 Normelys Garate (T16) | 224.000 | 0 | **Cuatro** pagos de 56.000 el 16-17 jun, todos sin asignar |
+| 336, 854, 214, 339, 228, 212, 288 | 4.000 – 120.000 | 0 | Mismo patrón |
+
+No es el bug de reversión ni dinero que el sistema haya destruido: son **pagos que entraron a la
+base sin pasar por `BillingService::registerPayment`**. Por eso no generaron asignación ni
+incrementaron el saldo. Los cuatro pagos idénticos de Normelys en dos días apuntan a carga directa
+o duplicada, no a operación de mostrador.
+
+Quedan registrados como movimiento `adjusted` de descuadre, **sin tocar el saldo de nadie**. Es
+exactamente para lo que se diseñó así: el libro dice "aquí faltan $X sin explicar" en vez de
+cuadrar cambiándole el saldo a alguien.
+
+### 26.11 Lo que solo vio PostgreSQL
+
+El CI tumbó los 5 tests de `PartnerApiIsolationTest`, **únicamente en el job de PostgreSQL**. En
+local todo estaba verde porque `.env.testing` usa SQLite. Es exactamente la clase de divergencia
+para la que ese segundo job existe, y esta vez la cobró entera.
+
+**1. `audit_logs.user_id` tiene clave foránea contra `users`, pero no todo lo que se autentica es
+un `User`.** La API pública autentica un `ApiClient`, cuyo id vive en otra tabla; estamparlo ahí
+viola la foránea. **SQLite no aplica claves foráneas por defecto**, así que el error era invisible
+en la suite rápida y habría reventado directamente en producción. `AuditContext::actorId()` ahora
+comprueba el tipo del actor.
+
+**2. Una excepción del observer se llevaba por delante la operación de negocio.** Verificado
+quitando el `try`: `Payment::create()` revienta entero si falla el log. En PostgreSQL es peor que
+perder el registro — la excepción deja la transacción **abortada** y todo lo que venga detrás falla
+en cadena con «current transaction is aborted», que es justo la firma de que cayeran los 5 tests de
+una misma clase y ninguno más. Ahora `MoneyAuditObserver::write()` traga y registra en
+`Log::error`.
+
+Las dos reglas quedaron escritas en `MANUAL_DESARROLLADOR.md`.
+
+**Pendiente:** desplegar el código. Mientras prod corra sin él, cada pago con excedente moverá
+`credit_balance` sin escribir en el libro; tras el despliegue hay que correr
+`audit:backfill-money --force` para reconstruir el intervalo.
+
+---
+
+## 27. El botón de WAN culpaba al router de un silencio nuestro — 2026-08-13
+
+### 27.1 Lo que veía el operador
+
+Modal *Configurar Interfaz WAN* sobre `CORE_SAN_ISIDRO` (172.16.17.248), dos métodos y dos
+diagnósticos, **los dos falsos**:
+
+```
+1. API directa (puerto 8728): Credenciales incorrectas en el router cliente: no_done
+2. SSH vía CORE: El router respondió pero no se pudieron leer las interfaces.
+   Respuesta del router: ISP_BEGIN
+```
+
+Ni las credenciales estaban mal, ni el router había respondido `ISP_BEGIN`.
+
+### 27.2 La causa raíz: phpseclib no lanza excepción al vencer el tiempo
+
+`SSH2::exec()` **no** lanza excepción cuando se agota el tiempo de operación. `get_channel_packet()`
+captura la `TimeoutException` y devuelve `true`, que `exec()` interpreta como "canal cerrado":
+retorna **los bytes que alcanzaron a llegar** y marca `isTimeout()`. Nadie miraba esa marca.
+
+El guion que corre en el CORE empieza con `:put "ISP_BEGIN"` y luego entra al `/system ssh-exec`
+contra el cliente. Ese `ssh-exec` tarda: es un *handshake* SSH completo contra un RouterBOARD
+pequeño al otro lado del overlay. A los 15 s (el `$this->timeout` fijo del connection manager)
+phpseclib se rendía y devolvía exactamente `"ISP_BEGIN\n"` con `success: true`. Aguas abajo:
+
+- `parseSshExecEnvelope()` veía `ISP_BEGIN` sin `ISP_END` y lo trataba como "salida legado sin
+  centinelas", devolviendo el centinela **como si fuera la respuesta del cliente**;
+- el parser no encontraba interfaces en él y el mensaje resultante le atribuía al router una frase
+  que había escrito el CORE.
+
+**15 s no es un margen apretado: es insuficiente.** Un `ssh-exec` sano por el overlay contra un
+equipo modesto pasa de 15 s con frecuencia. Es decir, el tiempo de espera no solo escondía la
+causa — muy probablemente *era* la causa en los routers lentos.
+
+### 27.3 Los otros tres defectos que salieron con el hilo
+
+1. **`no_done` reportado como credenciales.** `loginDetailed()` devolvía `no_response` cuando el
+   router no contestaba **nada** al login API, e `InterfaceReader` lo imprimía como *"Credenciales
+   incorrectas en el router cliente"*. Un socket mudo no es un `!trap`: no hubo rechazo, hubo
+   silencio. `readWord()` no distingue "palabra de longitud 0" (fin de sentencia legítimo) de "no
+   llegó nada", así que ahora se consulta `stream_get_meta_data()['timed_out']` y existe el motivo
+   `timeout`.
+
+2. **El sondeo TCP daba falsos positivos.** `tryDirectClientConnection()` hacía `fsockopen()` al
+   extremo local del `ssh -L`. Ese proceso acepta la conexión local **antes** de saber si el CORE
+   puede abrir el canal remoto; si no puede, cierra el socket después. El sondeo decía
+   "alcanzable" y el fallo reaparecía disfrazado de credenciales en el paso siguiente. Ahora se
+   espera 400 ms: *timeout* de lectura = bien (la API MikroTik nunca habla primero), EOF inmediato
+   = el canal se cayó. El stderr de ssh se traduce a causa concreta —`administratively prohibited`
+   es el CORE sin `forwarding-enabled=both`, no el cliente—.
+
+3. **Las variantes 2 y 3 eran código muerto.** El bucle `return`aba dentro de la primera iteración
+   ante una salida no parseable, así que `output_field_envelope` y `legacy_autoprint` no llegaban a
+   ejecutarse nunca. Existían justo para cubrir versiones de RouterOS que responden con otra forma.
+
+4. **La modal era un callejón sin salida.** `v-if` / `v-else-if` encadenados: al mostrarse el error
+   desaparecía la entrada manual. El propio mensaje decía "ingresa el nombre de la interfaz en el
+   campo de texto" y no había campo de texto, con *Guardar* deshabilitado.
+
+### 27.4 Qué se cambió
+
+| Archivo | Cambio |
+|---|---|
+| `MikroTikConnectionManager` | `executeSsh($cmd, $timeoutSeconds = null)`; una salida truncada por tiempo vuelve como `success: false` + `timed_out: true` en vez de éxito silencioso. `$this->timeout` configurable (`MIKROTIK_CORE_SSH_TIMEOUT`) |
+| `MikroTikConnectionManager` | Sondeo del túnel con verificación de EOF + `lastProbeError()` traducido del stderr de ssh |
+| `MikroTikApiProtocol` | `loginDetailed()` distingue `timeout` de credenciales rechazadas |
+| `InterfaceReader` | Ventana propia (`MIKROTIK_CORE_SSH_EXEC_TIMEOUT`, 25 s, acotada 10-50); estado `truncated` del sobre; mensaje de *timeout* con los tres pasos de verificación; el bucle recorre las tres variantes |
+| `Routers.vue` | El error deja de ocultar la entrada manual; botón *Reintentar lectura* |
+| `DiagnoseRouterWan` | Usa la misma ventana que producción y reporta el *timeout* aparte |
+
+**Una variante que expira corta el intento entero**: las otras dos se colgarían igual contra el
+mismo cliente mudo y tres esperas seguidas rebasarían el límite del *gateway* (~60 s). Solo se
+reintenta con otra sintaxis cuando el CORE **sí** respondió algo.
+
+### 27.5 Lo que este arreglo no puede arreglar
+
+Si `CORE_SAN_ISIDRO` sigue sin leer sus interfaces después de esto, el mensaje dirá cuál de los dos
+saltos falla y qué comprobar. Un router realmente inalcanzable seguirá siendo inalcanzable: lo que
+cambia es que ISPWatch ya no le atribuye al router palabras que nunca dijo, y que la modal siempre
+deja escribir la interfaz a mano.
+
+---
+
+## 28. Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13
+
+### 28.1 El síntoma: verde en local, rojo en el CI
+
+`php artisan test` en local: **672 pasadas, 0 fallos**, repetible. El mismo commit en CI:
+
+| Job | Resultado |
+|---|---|
+| PHPUnit (SQLite, rápido) | ✅ |
+| PHPUnit (PostgreSQL, motor real) | ❌ 6 fallos |
+
+Es exactamente el escenario para el que se creó el segundo job en la auditoría (M-2). Los seis
+fallos eran **dos defectos distintos**, ninguno visible en sqlite.
+
+### 28.2 Un estado inventado que sqlite no podía rechazar
+
+Los 5 fallos de `PartnerApiIsolationTest` eran todos el mismo `INSERT`, en el `setUp` compartido:
+
+```
+SQLSTATE[23514]: Check violation: new row for relation "customer_installations"
+violates check constraint "customer_installations_status_check"
+```
+
+`seedCustomer()` insertaba `status => 'pending'`. El vocabulario real de la columna es **español**:
+`enum('status', ['pendiente', 'completada', 'cancelada'])`, que es lo que usa todo
+`CustomerInstallationController`. El valor simplemente no existe.
+
+Lo interesante es **por qué sqlite lo aceptaba**, porque su gramática sí genera el CHECK
+(`varchar check ("status" in (...))`). Lo pierde después: la migración
+`link_installations_to_prospects` hace `customer_id` nullable, y en la rama sqlite eso se resuelve
+con `->change()`. Laravel implementa `change()` en SQLite **reconstruyendo la tabla entera**, y en
+esa reconstrucción regenera las columnas desde el tipo introspectado — el CHECK inline del enum no
+sobrevive. En PostgreSQL la misma migración sólo emite `ALTER COLUMN ... DROP NOT NULL`, así que
+ahí el CHECK sigue vivo.
+
+> Consecuencia general, no sólo de este test: **la base de pruebas local no valida los enums de
+> ninguna tabla que haya pasado por un `->change()`.** Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 28.3 Atrapar la excepción no basta: hace falta un SAVEPOINT
+
+El sexto fallo era el test que se escribió el 2026-08-12 justamente para blindar esto:
+
+```
+SQLSTATE[25P02]: In failed sql transaction: current transaction is aborted,
+commands ignored until end of transaction block
+SQL: select exists(select * from "payments" where "id" = 11 and "amount" = 60000)
+```
+
+El `try/catch` que se le puso al observer **detiene la propagación pero no descongela la
+transacción**. En PostgreSQL, cualquier sentencia que falla deja la transacción en estado abortado
+y toda consulta posterior revienta hasta que haya un `ROLLBACK`; sólo un `ROLLBACK TO SAVEPOINT`
+la recupera sin perder lo anterior. El test escribe el pago, la bitácora falla, el `catch` la
+silencia — y el `assertDatabaseHas` siguiente cae igual.
+
+**El fallo no era del test: el arreglo del día anterior estaba incompleto.** En producción la
+consecuencia es la que el propio commit decía querer evitar: si `AuditLog::log()` falla dentro de
+la transacción de registro de un pago, el pago se pierde de todos modos y el `try` sólo sirve para
+que nadie se entere.
+
+La escritura ahora va dentro de `transaction()`, que emite `SAVEPOINT` cuando ya hay una
+transacción abierta y hace `ROLLBACK TO SAVEPOINT` al fallar. El daño queda acotado a la bitácora.
+
+### 28.4 Qué se cambió
+
+| Archivo | Cambio |
+|---|---|
+| `MoneyAuditObserver::write()` | La escritura va envuelta en `transaction()` → SAVEPOINT; el `catch` sigue registrando en `Log::error` |
+| `PartnerApiIsolationTest::seedCustomer()` | `status` pasa de `'pending'` a `'pendiente'`, con nota de por qué sqlite no lo cazaba |
+
+### 28.5 La regla que deja
+
+Un `try/catch` alrededor de una escritura a base de datos **no es una red de seguridad en
+PostgreSQL** si ocurre dentro de una transacción. Si el objetivo es que un fallo accesorio (bitácora,
+métrica, notificación) no tumbe la operación principal, tiene que ir en su propio SAVEPOINT. En
+sqlite la diferencia es invisible, así que este tipo de error sólo lo caza el job de PostgreSQL.
+
+---
+
+## 28. La WAN seguía sin leerse: había dos túneles peleándose — 2026-08-13
+
+Continuación de § 27. Con los mensajes ya honestos, la modal decía la verdad —"el CORE se quedó
+esperando al router 172.16.17.248:22"— pero el operador seguía sin poder leer la WAN, y con razón:
+**el diagnóstico estaba bien, la causa era de red**.
+
+### 28.1 Lo que dijo el CORE
+
+Consultando `/ppp active` en producción, tres sesiones:
+
+| Sesión | Overlay | `caller-id` | Uptime T1 (16:43:50) | Uptime T2 (16:44:57) |
+|---|---|---|---:|---:|
+| `mL6b8SjaHa` — CORE_TOCAIMA | 172.16.16.254 | 190.14.255.110 | 1h43m15s | 1h44m21s |
+| `6hRZFLsOnM` — CORE_SAN_ISIDRO | 172.16.17.248 | **190.14.255.100** | 1m16s | 2m22s |
+| `SV5YANDeKg` — VEN_CORE_VEGA | 172.16.17.249 | **190.14.255.100** | 2m20s | **45s** |
+
+En 67 segundos `SV5YANDeKg` pasó de 2m20s a 45s: se cayó y volvió. Las dos sesiones que comparten
+la pública 190.14.255.100 reciclan cada 1-2 minutos; la que no la comparte llevaba casi dos horas
+sin moverse.
+
+`/ppp secret` confirmó de quién es cada una: `SV5YANDeKg` es *"ISPWatch - VEN_CORE_VEGA"*, perfil
+`vpn-isp-17` —el mismo tenant— y **no existe en la tabla `router`**. Es un secret huérfano cuyo
+equipo sigue discando.
+
+### 28.2 Por qué eso rompe justamente la lectura de la WAN
+
+Es la patología de los dos flujos de `ARQUITECTURA.md` en su forma peor. El router acaba con dos
+direcciones de overlay y dos rutas de vuelta al CORE. Cuando el CORE abre TCP contra .248, la
+respuesta sale por la interfaz equivocada o no sale, y a los pocos segundos la sesión recicla y se
+lleva la conexión por delante. De ahí, exactamente:
+
+- **API:** el TCP figura aceptado y el login nunca recibe respuesta.
+- **`ssh-exec`:** el CORE se queda esperando y no termina en 25 s.
+
+Y explica el *"antes funcionaba"*: funcionó hasta que un segundo equipo empezó a discar desde esa
+misma pública.
+
+### 28.3 El hueco de ISPWatch
+
+Ninguna de las dos comprobaciones que el operador tenía a mano miraba el `caller-id`:
+
+- `isVpnConnected()` devolvía el **primer** match y respondía `✅ VPN ACTIVA`.
+- `vpn:verify-tunnels` daba `UP`, porque el túnel efectivamente **no está caído**.
+- `RouterEndpointResolver` tomaba la dirección y seguía.
+
+Es decir: el sistema afirmaba que la VPN estaba bien y a continuación fallaba todo, sin nada que
+relacionara ambas cosas. Un túnel duplicado era invisible por diseño.
+
+### 28.4 Qué se construyó
+
+| Archivo | Cambio |
+|---|---|
+| `PppSecretManager` | `sessionsSharingCallerId()`; `isVpnConnected()` devuelve `caller_id` y `duplicate_tunnels` |
+| `RouterEndpointResolver` | `liveOverlayIp()` → `liveSession()` (la fila entera, no solo la IP); expone `duplicate_tunnels` y lo registra en el log |
+| `VpnService::verifyConnection` | *Verificar VPN* deja de decir "activa" a secas cuando hay otro túnel en la misma pública |
+| `RouterController::getInterfaces` | Si hay duplicado, encabeza el error: es la causa y deja sin sentido al resto de las pistas |
+| `VerifyVpnTunnels` | Estado `DUPLICADO`, distinto de `DOWN`, con su propia frase en consola y en el email |
+
+Verificado contra el CORE real: `#60 CORE_SAN_ISIDRO … DUPLICADO — otra sesión desde la misma
+pública 190.14.255.100: SV5YANDeKg (172.16.17.249)`.
+
+**Sin caller-id no se afirma nada.** Si la tabla no lo trae, no se reporta "sin duplicados": no se
+sabe, y decirlo sería inventar. Hay un test para eso.
+
+### 28.5 Lo que queda del lado de la red
+
+ISPWatch ya sabe **nombrar** el problema; no puede resolverlo solo, y no debe: quitar un
+`l2tp-client` o borrar un secret es tocar infraestructura en producción. Debe quedar **un solo
+túnel discando desde 190.14.255.100**. Si `VEN_CORE_VEGA` ya no se gestiona, se le quita la
+configuración al equipo y se borra su secret del CORE. Si son dos equipos reales en la misma sede,
+con L2TP/IPsec no pueden compartir pública: uno tiene que ir a WireGuard (necesita v7, y
+`CORE_SAN_ISIDRO` es v6) o salir por otra pública.
+
+**Observación aparte, sin acción:** `CORE_TOCAIMA` está en WireGuard (`172.18.16.2`, handshake
+fresco) y **además** mantiene una sesión L2TP viva (`mL6b8SjaHa`, 172.16.16.254). No colisiona
+—su `caller-id` es único— pero es un resto de la migración que conviene revisar.
+
+---
+
+## 29. Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13
+
+Recaudos ya tenía una casilla debajo de cada título (§ auditoría de Finanzas, fases 1-6);
+Facturación se había quedado con **un buscador general, dos selectores y el mes**. Para
+comprobar algo tan corriente como *"qué facturas de más de $100.000 vencen esta semana y
+siguen debiendo"* no había forma: había que exportar el CSV y filtrar en Excel — la propia
+pantalla no podía responderlo.
+
+### 29.1 Qué faltaba exactamente
+
+| Pregunta del operador | Antes |
+|---|---|
+| Facturas de un rango de importe | No existía |
+| Las que aún deben algo (saldo > 0) | Sólo aproximable por estado, y `partial` no cubre las emitidas con abono |
+| Lo que vence entre dos fechas | No existía: el único filtro de fecha era el **mes del periodo**, que no es el vencimiento |
+| Una factura por su número | Sólo por el buscador general, mezclado con el nombre del cliente |
+| Un cliente por cédula | El buscador no miraba `cedula` (Recaudos sí) |
+
+Además el listado estaba clavado en 20 por página sin poder cambiarlo, y no se podía ordenar
+por ninguna columna: el orden era siempre `issue_date desc`.
+
+### 29.2 Lo que se hizo
+
+Se replicó tal cual la mecánica de Recaudos, no una variante:
+
+| Capa | Cambio |
+|---|---|
+| `BillingController::validatedInvoiceFilters()` | Nuevo. Reglas de los filtros, compartidas por listado y exportación. `sort_by` es **lista blanca**: entra directo en el `ORDER BY` |
+| `BillingController::filteredInvoicesQuery()` | Pasa a recibir los filtros ya validados. Suma `number`, `customer`, `due_from/to`, `total_min/max`, `balance_min/max` |
+| `BillingController::index()` | `sort_by`/`sort_dir`/`per_page`, con desempate por `id` para cualquier columna de orden |
+| `InvoicesList.vue` | Fila de minibuscadores bajo los títulos, títulos ordenables, selector de tamaño de página, "Limpiar filtros" |
+| `InvoicesListFilterTest` | 10 casos, espejo de `PaymentsListFilterTest` |
+
+Tres detalles que no son cosméticos:
+
+**La búsqueda general pasó a las macros `whereLike`.** Tenía su propio `ilike` con escape a mano
+y un `DB::getDriverName()` en línea —justo el patrón que `SearchMacrosServiceProvider` existe para
+borrar—. De paso hereda `applyCustomerSearch()`, que ya buscaba por **cédula y nombre completo**:
+esas dos coincidencias faltaban aquí y ya funcionaban en Recaudos.
+
+**Estado y Tipo se bajaron a su columna.** Dejarlos también arriba habría puesto dos controles
+sobre el mismo filtro en la misma pantalla. Arriba se quedan el buscador general y el mes, que no
+tienen columna propia.
+
+**El mes se apaga al buscar texto.** Ya pasaba con `search`; ahora también con `number` y
+`customer`. Buscar una factura por su número teniendo el mes actual puesto por defecto devolvía
+una tabla vacía sin decir por qué. `period` tampoco lo borra "Limpiar filtros": tiene su propio
+selector a la vista y siempre tendría algo puesto.
+
+### 29.3 Lo que NO se tocó
+
+El `summary` sigue excluyendo `void`/`cancelled` y el tenant sigue saliendo del usuario
+autenticado (se quitó el `tenant` que el frontend mandaba de más, que el backend ya ignoraba
+desde la corrección de OWASP A01). La entrada por URL de Servicios Adicionales
+(`/billing/invoices?invoice_type=…&period=`) sigue funcionando igual.
+
+> **Deuda menor detectada, no corregida:** este documento tiene **dos secciones numeradas 28**
+> (`Dos fallos que sólo el CI de PostgreSQL podía ver` y `La WAN seguía sin leerse`), resultado
+> de dos ramas que añadieron sección a la vez. No se renumeran aquí para no romper las
+> referencias cruzadas de otras ramas abiertas.
+
+---
+
+## 30. Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13
+
+Un cliente preguntó qué pasa exactamente al eliminar una factura y al crear otra en su lugar.
+La respuesta, mirando el código **y los datos de producción**, resultó ser que el flujo que se
+estaba usando a diario pierde dinero por tres sitios distintos, y que ninguna auditoría lo veía.
+
+### 30.1 El caso que lo destapó
+
+Un cliente con una mensualidad de julio ya pagada (52.500, efectivo, ref 2186):
+
+| Hora | Qué pasó |
+|---|---|
+| 13-ago 17:04:09 | Un operador borra la mensualidad **de julio** — la que ya estaba pagada |
+| 13-ago 17:04:25 | 16 s después crea una factura nueva, periodo agosto, 68.000, **sin ítems** |
+| 13-ago 19:28:58 | Otro operador borra la mensualidad **de agosto** |
+| entre medias | Cuatro ajustes manuales del saldo a favor: +52.500, −52.500, +52.500, −52.500 |
+
+La intención era cambiarle el precio a agosto. Se borró la factura equivocada y, al final, el
+pago de julio no respaldaba ninguna factura ni figuraba como saldo: el cliente aparecía
+debiendo 68.000 después de haber pagado 52.500.
+
+**No era un caso aislado.** En producción, el día de la revisión: 91 clientes con
+**$5.709.350** de dinero recibido que no respalda factura ni saldo, 27 periodos con lápida y
+37 facturas sin un solo ítem. 15 borrados de factura en los siete días anteriores.
+
+### 30.2 Los tres huecos
+
+**El modal de borrado no decía cuánto dinero estaba en juego.** Decía *"si tiene pagos, el
+monto se devolverá como saldo a favor"* — en condicional y sin cifra. Quien borraba no podía
+distinguir una factura de $0 pendiente de una de $52.500 ya cobrada. Justo el dato que habría
+frenado el primer clic.
+
+**El alta manual no creaba el ítem de detalle.** `generateMonthlyInvoices()` siempre creó el
+suyo; `BillingController::store()` sólo insertaba la cabecera. Resultado: PDF con la tabla de
+detalle vacía y un total suelto al pie, en 37 facturas.
+
+**El alta manual no aplicaba el saldo a favor.** La automática termina en
+`applyCreditToInvoice()`; la manual no. Combinado con el borrado —que devuelve el dinero
+*como saldo a favor*— el resultado era el peor posible: el cliente con saldo a favor **y** con
+la factura de reemplazo debiendo entera. El dinero seguía en el sistema sin pagar nada.
+
+### 30.3 Qué se construyó
+
+| Archivo | Cambio |
+|---|---|
+| `components/billing/InvoiceDeleteWarning.vue` | Nuevo. Cuerpo del modal, compartido por listado y detalle: importe ya aplicado, mes que queda bloqueado, y las dos alternativas (ítem negativo / Cancelada) |
+| `BillingController::store()` | Crea el `invoice_item` con su concepto y aplica el saldo a favor, **todo en una transacción** |
+| `BillingService::applyCreditToManualInvoice()` | Envoltura pública de `applyCreditToInvoice()` para el alta manual |
+| `BillingService::auditOrphanPayments()` | Comprueba la invariante de caja por cliente. No escribe |
+| `billing:verify-orphan-payments` | Comando de alerta (log + email + exit-code), diario a las 08:00 |
+| `InvoicesList.vue` | Campo **Concepto** en *Nueva factura* |
+
+La invariante del comando nuevo es la más simple que tiene el módulo:
+
+```
+sum(payments.amount) == sum(payment_allocations.amount) + credit_balance
+```
+
+Todo peso que entró está aplicado a una factura o está en el saldo a favor. Se mide **por
+cliente** y no en total, porque en el total se compensa solo: a uno le sobra lo que al otro le
+falta y el descuadre desaparece. Da igual qué lo provocó —borrar una factura pagada, un ajuste
+manual a la baja, un pago que nunca se asignó—: el síntoma es el mismo y es el que hay que ver.
+
+Cubre un punto ciego real: `billing:verify-monthly` mira que las facturas se generen y
+`billing:verify-cuts` que se corte a quien debe. Que el dinero **ya cobrado** siguiera cuadrando
+no lo miraba nadie.
+
+### 30.4 Decisiones
+
+**El comando no arregla nada, sólo avisa.** Igual que las otras dos auditorías. Reasignar un
+pago o devolver un saldo exige saber qué se quiso cobrar; automatizarlo movería dinero real
+sobre una suposición. La alerta trae, por cliente, qué revisar y en qué orden.
+
+**El aviso de borrado no bloquea.** Se consideró prohibir eliminar facturas con pagos
+aplicados. Se descartó: hay casos legítimos (factura duplicada que ya recibió un abono) y una
+prohibición se acaba sorteando por la vía peor. Se da la cifra y se exige escribir `ELIMINAR`.
+
+**Los 91 clientes descuadrados NO se tocaron.** Son dinero real de clientes reales y cada caso
+necesita criterio: no es lo mismo un pago que nunca se asignó que uno cuyo saldo alguien ajustó
+a mano. Parte puede venir además del bug de anulación de pagos que arregla
+`feat/money-audit-trail`, **todavía sin desplegar**. Queda en `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 31. El contrato obligaba a un viaje: firma remota por enlace — 2026-08-14
+
+### 31.1 El problema
+
+Firmar el contrato existía desde el § 16, pero **sólo presencialmente**: el canvas vivía en
+`CustomerDocuments.vue` y `POST /customers/{id}/contract-sign` estaba detrás de `auth:sanctum` +
+`permission:edit_internet_service,add_clients`. Es decir, para que un cliente firmara hacía falta
+un empleado logueado con su pantalla delante. En la práctica eso significa un desplazamiento por
+contrato, y el resultado conocido: clientes meses instalados sin contrato firmado, que es
+exactamente el documento que hace falta el día que hay un pleito.
+
+### 31.2 Por qué una tabla y no un signed URL
+
+Laravel ya trae `URL::temporarySignedRoute` y el proyecto lo usa para la verificación de correo
+(`routes/api.php:62`). Cero migraciones, tentador. Se descartó:
+
+| | Signed URL | `contract_signature_links` |
+|---|---|---|
+| Revocar | Sólo rotando `APP_KEY` (rompería también los correos de verificación) | `revoked_at` |
+| Un solo uso | No | `signed_at` |
+| Quién lo abrió y desde dónde | No hay dónde anotarlo | `opened_at`, `signer_ip`, `signer_user_agent` |
+| Intentos fallidos | No hay dónde contarlos | `failed_attempts` |
+
+Un contrato es un documento legal y lo que le da valor probatorio **es el rastro**. Sin sitio
+donde escribirlo, el mecanismo barato no servía.
+
+### 31.3 Lo que se construyó
+
+| Archivo | Rol |
+|---|---|
+| `2026_08_13_150000_create_contract_signature_links.php` | Tabla + `customer_documents.content_sha256` |
+| `ContractSignatureLink` | Estados del enlace (`isUsable`, `unusableReason`, scope `usable`) |
+| `ContractSigningService` | **Punto único de firma**, compartido por los dos caminos, + `issueLink()` |
+| `ContractAlreadySignedException` | El candado de contrato único, como excepción de dominio |
+| `PublicContractController` | `show` / `verify` / `sign`, sin autenticación |
+| `ContractSignatureLinkController` | Emisión, historial y anulación (lado ISP) |
+| `ContractSignatureLinkMail` + vista | Envío e insistencia por correo |
+| `RemindUnsignedContracts` | Un recordatorio a las 24 h, diario a las 09:00 |
+| `PublicContractSign.vue` + `SignaturePad.vue` | Página pública y pad compartido |
+| `public-contract.js` | Cliente axios propio, sin el interceptor de sesión |
+| `signature_audit.blade.php` | Constancia de firma electrónica dentro del PDF |
+
+### 31.4 Las cinco decisiones que no son obvias
+
+**El token no se guarda, y eso mata el "reenviar".** `token_hash` es el SHA-256, igual que
+`personal_access_tokens`. Ni el servidor puede reconstruir el enlace, así que **no existe**
+endpoint de reenvío: reenviar es emitir uno nuevo, y emitirlo revoca el anterior en la misma
+transacción. Dos enlaces vivos sólo sirven para que el cliente firme por el que nadie sigue.
+Consecuencia práctica que la UI tuvo que asumir: el enlace se muestra **siempre** al generarlo,
+incluso cuando salió por correo, porque puede ser la única copia que llegue a existir.
+
+**`sign` vuelve a pedir los 4 dígitos.** El flujo es `show → verify → sign`, pero confiar en que
+se pasó por `verify` habría sido regalar el único control de identidad: un `POST` directo a
+`/sign` se lo salta sin despeinarse. La comprobación se repite en el servidor. Y un cliente **sin
+cédula registrada** queda exento — lo contrario lo encerraría fuera de su propio contrato.
+
+**La portada no filtra datos.** Antes de verificar sólo salen el nombre de pila y el del ISP.
+Un enlace reenviado por error no puede convertirse en una cosecha de cédula, dirección y plan.
+Hay un test que lo fija buscando la cédula en el cuerpo de la respuesta.
+
+**El contrato se lee en HTML, no en un PDF embebido.** Fue el hallazgo que cambió el diseño:
+Safari iOS no renderiza un `data:application/pdf` dentro de un iframe y el visor de Chrome
+Android abre el documento **fuera** de la página, sacando al cliente del flujo a mitad de camino
+— justo antes de firmar. `TemplateRenderer::renderContractHtml()` devuelve el mismo documento
+como cadena y la página lo monta en un `<iframe srcdoc>`, que además lo aísla del CSS de la
+página (el contrato trae selectores globales `* { … }` capaces de repintar los botones).
+
+`renderContract()` **no** se reescribió para pasar por ahí: sus tests de caracterización fijan
+que se llama `Pdf::loadView` con un nombre de vista concreto. La ramificación se extrajo a
+`contractDocument()` y los dos métodos la consumen, así que el camino del PDF sigue siendo
+literalmente el mismo.
+
+**El inlineado de imágenes está acotado a `public/storage`.** El HTML del preview convierte a
+data URI las imágenes que dompdf lee por ruta local (el logo), porque si no el cliente vería un
+icono roto en el encabezado del contrato que está a punto de firmar. Pero en modo avanzado **el
+HTML lo escribe el tenant**: sin esa restricción, un `<img src="/etc/passwd">` habría convertido
+la vista previa en lectura arbitraria de archivos del servidor. Se restringe por `realpath()` bajo
+`public/storage` y por extensión de imagen.
+
+### 31.5 Qué NO cambia para el flujo existente
+
+La firma presencial sale **byte a byte igual que antes**: `signatureAudit` llega `null` y el
+bloque de constancia no se imprime. Es deliberado — un empleado presenció el acto, la constancia
+es lo que suple esa ausencia en el flujo remoto. Los 4 tests de caracterización de
+`CustomerContractSignTest` (§ 16) siguen pasando sin tocar una línea, que era la prueba de que la
+extracción a `ContractSigningService` fue transparente.
+
+`content_sha256` sí se llena en **ambos** caminos: es la huella del PDF almacenado y se calcula
+sobre los bytes que se suben, no releyendo S3 (un hash de la relectura documentaría una corrupción
+de escritura como si fuera lo firmado). No va impreso dentro del PDF: sería circular.
+
+### 31.6 Alcance legal
+
+Esto es **firma electrónica simple** en el sentido de la Ley 527 de 1999 — válida por
+trazabilidad y consentimiento (la casilla de aceptación es obligatoria y explícita), no firma
+digital certificada. Si algún día se exige lo segundo hace falta una autoridad certificadora, y
+el diseño actual no lo estorba: la constancia y el hash ya están donde tienen que estar.
+
+### 31.7 Deuda aceptada
+
+Ver `MEJORAS_RECOMENDADAS.md`: envío automático por WhatsApp (hoy es un `wa.me` que dispara el
+operador) y QR del enlace para el técnico en campo.
+
+---
+
+## 32. RADIUS entra como sexto método de control — 2026-08-14
+
+### 32.1 El encargo y la decisión de forma
+
+El cliente tiene un servidor **FreeRADIUS** propio en Ubuntu y quiere gestionar desde ahí a sus
+usuarios. La pregunta de arquitectura no era "¿se puede?" sino **quién manda sobre el dato**.
+
+Se eligió **FreeRADIUS + `rlm_rest` con ISPWatch como fuente de verdad viva**: FreeRADIUS consulta
+por HTTP en cada `Access-Request` y responde con lo que diga la BD, en vez de que ISPWatch escriba
+en las tablas `radcheck`/`radreply` y las dos copias se desincronicen. También se decidió que
+**conviva** con los cinco modos actuales (bandera por router, migración gradual, sin fecha límite)
+y que el corte por mora use **CoA/Disconnect + perfil restringido** hacia el portal de pago.
+
+### 32.2 Lo que RADIUS cambia de fondo
+
+Los cinco modos existentes **empujan**: `provisionByControlMode()` abre SSH y escribe la queue, el
+secret PPPoE o el lease. RADIUS **invierte el flujo** — el router pregunta y la respuesta sale de
+Postgres. El aprovisionamiento por-cliente deja de escribir en el RouterBoard, y con eso
+desaparecen por construcción los 504 del gateway en cargas masivas y los timeouts del push PPPoE
+sincrónico. No es una optimización: es que la operación ya no toca la red.
+
+De ahí una decisión concreta en el código: la rama RADIUS de `provisionByControlMode()`
+**retorna antes** de llamar a `RouterEndpointResolver`. Resolver el endpoint abre SSH contra el
+CORE para averiguar qué IP tiene realmente el router (la deriva del pool documentada en el § 24), y
+en este modo ese dato no se usa. Dejarlo pasar habría metido 17-34 s y un punto de falla —CORE
+inalcanzable— en una operación que no necesita la red en absoluto.
+
+Por la misma razón el pre-chequeo de credenciales de gestión (`ip` + `user_rb` + `password_rb`) se
+saltea para routers RADIUS: exigirlas rechazaría clientes perfectamente aprovisionables en un
+equipo que quizá ni tenga VPN configurada todavía.
+
+### 32.3 El riesgo que asume `rlm_rest`, y cómo se desactiva
+
+Elegir `rlm_rest` mete a ISPWatch **en el camino crítico de cada autenticación**. Un despliegue, un
+pico de latencia o una caída de Postgres se traducen en clientes que no pueden conectarse. Un ISP
+tolera el panel caído diez minutos; la red no.
+
+La mitigación, que es parte del diseño y no un extra: un **snapshot SQL local** en el host del
+FreeRADIUS que ISPWatch sincroniza cada 5 minutos, consultado mediante
+
+```
+authorize { redundant { rest  sql } }
+```
+
+`redundant` cae al siguiente módulo **sólo ante `fail`**, nunca ante `reject`. Esa distinción es
+todo el diseño: un `reject` legítimo de ISPWatch (moroso) no debe caer al snapshot, o el cortado se
+reconectaría por la puerta de atrás. Es también la razón por la que la versión de FreeRADIUS no es
+un detalle de gusto — ver § 32.6.
+
+**Deuda aceptada:** un cliente cortado hace menos de 5 minutos puede reconectarse durante una caída
+de ISPWatch, porque el snapshot todavía lo tiene al día. Es el compromiso correcto (falla a favor
+de la continuidad del servicio) y queda anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 32.4 Por qué el CoA necesita un agente aparte
+
+El paquete CoA es UDP y va **de ISPWatch hacia el router**, al revés que el resto del tráfico
+RADIUS. Los MikroTik viven detrás del overlay VPN del CORE (§ 27) y **el droplet de la API no está
+dentro de ese overlay**: no los alcanza.
+
+Por eso el emisor real es un agente en el host del FreeRADIUS (que sí es par del overlay), y
+`radius_coa_commands` es el contrato entre ambos: ISPWatch encola, el agente toma, ejecuta
+`radclient` y confirma. Se reusó a propósito el patrón cola + reintentos + confirmación de
+`suspension_action_logs` (§ 12) en vez de inventar uno nuevo.
+
+Se eligió **`Disconnect` y no CoA de reemplazo**: un CoA en caliente deja el estado del cliente
+viviendo en la sesión del router; un `Disconnect` fuerza la reautenticación y el perfil correcto
+sale de ISPWatch en ese momento. Es idempotente y sobrevive a reinicios del NAS, del RADIUS y de la
+API. Cortar y reconectar recorren **la misma cola** — la reconexión al pagar no es un camino
+especial, es otra orden de desconexión.
+
+### 32.5 Dos decisiones de detalle que se apartaron del diseño original
+
+**Se eliminó la tabla `radius_nas_clients`.** El diseño la contemplaba, pero habría duplicado
+exactamente las columnas que ya viven en `router` con un join de por medio. El `clients.conf` se
+genera desde `router where radius = true`, única fuente de verdad.
+
+**La exclusividad del método de control se normaliza, no se rechaza.** La tentación era validar
+"solo uno" y devolver 422. El problema es el dato heredado: si un router quedara en BD con dos
+banderas encendidas, el formulario lo carga y lo reenvía tal cual, así que el operador tendría un
+router que **no puede guardar ni para corregirlo**. Una validación que sólo se resuelve con SQL a
+mano no es una validación, es una trampa. El trait `NormalizesRouterControlMode` deja encendido el
+de mayor prioridad —mismo orden que `resolveControlMode()` usa al leer— y de paso arregla la fila.
+
+**`radius_secret` se estrena con el contrato correcto.** Va cifrado y en `Router::$hidden`, al
+revés que `password_rb`, que viaja en claro porque el formulario lo reenvía y ocultarlo lo
+sobrescribiría con vacío (nota en `Router::$casts`). El campo nuevo no arrastra ese lastre: el
+formulario lo manda **sólo si el operador escribe uno nuevo** y `RouterController::update()`
+conserva el vigente cuando llega vacío o ausente.
+
+### 32.6 La versión de FreeRADIUS sí importa
+
+Objetivo **3.2.10** (última estable, junio 2026). La 3.0.x sólo recibe mantenimiento y la 4.0 no
+tiene release estable —y además cambia la sintaxis de configuración, incluido el bloque
+`redundant` del que depende toda la resiliencia del § 32.3.
+
+La trampa que más tiempo hace perder: `apt install freeradius` **no instala `rlm_rest`**. Va en
+`freeradius-rest`, y además hay que enlazarlo a `mods-enabled/`. Falla sin un mensaje que mencione
+la palabra "paquete". Todo el detalle operativo, con checklist de verificación, en
+[`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).
+
+### 32.7 Alcance de esta entrega (fase 1 de 6)
+
+Esquema, modelos, el modo en el dispatcher y el toggle en el formulario. **Nada de esto afecta a
+ningún cliente en producción todavía**: no hay router con `radius = true` y las tres tablas nacen
+vacías. Faltan los endpoints `/api/radius/*` (fase 2), FreeRADIUS contra un router de laboratorio
+(fase 3), el piloto en producción (fase 4) y el corte por mora con el agente CoA (fase 5).
+
+---
+
+## 33. RADIUS se reduce a un interruptor: llega la propuesta de CNO — 2026-08-14
+
+### 33.1 Qué cambió el mismo día
+
+Horas después de implementar la fase 1 del § 32, Colombia Net de Occidente (CNO) envió una
+propuesta de integración de ocho contratos. CNO **ya opera su propio FreeRADIUS 3.x** sobre
+MariaDB, con MikroTik como NAS y una plataforma propia que hace provisioning, lectura de
+sesiones y reconciliación. Su principio rector, textual:
+
+> «ISPwash no necesita escribir directamente en FreeRADIUS ni en los routers.»
+
+Eso contradice de frente el diseño `rlm_rest` elegido en el § 32, donde ISPWatch respondía
+cada `Access-Request`. **Los dos modelos son mutuamente excluyentes** para un mismo cliente:
+no puede haber dos sistemas dueños de la misma respuesta RADIUS.
+
+### 33.2 Por qué se cede la capa técnica (y por qué conviene)
+
+La decisión no se tomó por complacer al cliente, sino por lo que ISPWatch es: **un SaaS
+multi-inquilino, no un desarrollo a la medida**. Con `rlm_rest`, un despliegue de ISPWatch o
+un pico de latencia dejan **sin internet** a los abonados de ese ISP — no sin panel, sin red.
+Vender eso a cinco ISP y subiendo no es sostenible: obliga a ofrecer un SLA de red cuando el
+producto es de gestión.
+
+En el modelo de CNO esa dependencia desaparece: FreeRADIUS decide, CNO provisiona e ISPWatch
+queda fuera del camino de datos. Se pierde control y visibilidad; se gana que una caída del
+panel no sea una caída del servicio. Para un SaaS, ese canje es correcto.
+
+### 33.3 Qué quedó y qué se archivó
+
+De la fase 1 sobrevive lo que sirve **en los dos modelos**:
+
+- `MODE_RADIUS` en el dispatcher. Bajo el modelo de CNO pasa de conveniencia a **requisito**:
+  es el interruptor de «ISPWatch no escribe en este RouterBoard».
+- `router.radius` como bandera única.
+- El trait `NormalizesRouterControlMode`, que además arregla una inconsistencia previa.
+
+Se archivó en la rama `spike/radius-rlm-rest`:
+
+- Las tablas `radius_sessions`, `radius_auth_logs` y `radius_coa_commands`. Bajo este modelo
+  esos datos son del orquestador externo; mantener migraciones que nadie escribiría es deuda,
+  y peor, deuda que alguien puede aplicar por error.
+- Las columnas `radius_secret`, `radius_coa_port`, `radius_nas_identifier` y
+  `radius_walled_garden_list`: configuración del NAS, que la tiene quien opera el NAS.
+
+No se borró: el diseño completo sigue siendo válido para un ISP **sin** orquestador propio,
+donde resuelve un dolor real (se acaban los pushes SSH por cliente). Se retoma si un segundo
+ISP lo pide; sostenerlo por un solo cliente que además no lo quiere, no.
+
+### 33.4 Tres trampas encontradas al mapear los contratos
+
+**`customer_profile.service_id` NO es un servicio: es el plan** (FK a `service_plan.id`; ver
+`Plan::find($customer->service_id)`). Mapearlo al `service_id` canónico de un integrador
+correlaciona clientes contra planes y **falla en silencio**. Es la única de las tres que no
+avisa.
+
+**No hay soporte real de multi-punto por cliente.** `user_services.id` sí sirve como
+`service_id` estable y distinto del cliente, pero los atributos de red (`router_id`,
+`ip_user`, `pppoe_username`) viven en `customer_profile`. Una segunda fila de servicios no
+tendría configuración de red propia. Publicar el identificador sin aclararlo llevaría al
+integrador a construir sobre una capacidad inexistente.
+
+**La Partner API es de solo lectura por diseño**: el middleware `api_key` devuelve **405** a
+todo lo que no sea `GET` (`READ_ONLY_METHODS`). Es una invariante valiosa — una llave filtrada
+expone datos pero no cambia nada. Cualquier retorno técnico del integrador exige abrirla de
+forma acotada, nunca en general.
+
+### 33.5 Postura de producto
+
+ISPWatch publica **su** Partner API y el integrador es consumidor, no autor. La propuesta de
+CNO se usa como criterio de validación —si nuestra API cierra sus ocho contratos, está bien
+diseñada— pero no se adopta su vocabulario: con varios ISP encima, un dialecto por integrador
+es un contrato que nadie puede romper nunca.
+
+Dos posiciones que se sostienen aunque incomoden:
+
+- **Feed de cambios por cursor, no webhooks salientes.** Un webhook obliga a hacer peticiones
+  a URLs que controla el cliente: SSRF, presión de cola y un endpoint caído que degrada a los
+  demás inquilinos. El feed append-only con cursor no tiene ninguno de los tres, y ya hay
+  precedente probado (`router_outage_events` ↔ Converza).
+- **El retorno técnico del integrador es requisito nuestro, no una concesión.** Si ISPWatch
+  cede la ejecución, el corte por mora —del que depende el cobro— pasa a depender de que un
+  tercero ejecute. Sin confirmación no hay forma de saber que ocurrió. Este proyecto ya tiene
+  cinco comandos de verificación (`VerifyAutomaticCuts`, `ReconcileSuspensions`,
+  `VerifyMonthlyBilling`, `VerifyOrphanPayments`, `VerifyVpnTunnels`) precisamente porque un
+  cambio de estado no confirmado es un cambio que no ocurrió.
 
 ---
 

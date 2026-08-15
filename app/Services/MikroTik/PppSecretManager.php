@@ -139,7 +139,20 @@ class PppSecretManager
     // ==================== VPN CONNECTION CHECK ====================
 
     /**
-     * Check if specific VPN user is connected
+     * Check if specific VPN user is connected.
+     *
+     * "Conectado" no es toda la verdad. Si OTRA sesión activa entra desde la
+     * misma IP pública (`caller-id`), hay dos túneles L2TP compitiendo desde el
+     * mismo punto y **se tumban entre sí**: es la patología de los dos flujos
+     * descrita en ARQUITECTURA.md, y deja al router con dos direcciones de
+     * overlay, así que todo lo que el CORE inicie hacia él (API, ssh-exec) se
+     * cuelga a mitad de camino. Medido en producción el 2026-08-13: dos sesiones
+     * desde 190.14.255.100 reciclando cada 1-2 minutos mientras la sesión que no
+     * compartía pública llevaba 1h44m intacta.
+     *
+     * Devolver solo `connected: true` ocultaba justo eso — el botón decía
+     * "VPN ACTIVA" y la lectura de interfaces fallaba a continuación sin que
+     * nada relacionara las dos cosas.
      */
     public function isVpnConnected(string $vpnUsername): array
     {
@@ -153,15 +166,23 @@ class PppSecretManager
             ];
         }
 
-        foreach ($result['connections'] as $conn) {
+        $connections = $result['connections'] ?? [];
+
+        foreach ($connections as $conn) {
             if ($conn['name'] === $vpnUsername) {
+                $siblings = $this->sessionsSharingCallerId($connections, $conn);
+
                 return [
                     'success' => true,
                     'connected' => true,
-                    'message' => '✅ VPN ACTIVA',
+                    'message' => empty($siblings)
+                        ? '✅ VPN ACTIVA'
+                        : '⚠️ VPN ACTIVA pero con túnel duplicado desde la misma IP pública',
                     'method' => $result['method'] ?? 'unknown',
                     'assigned_ip' => $conn['address'] ?? null,
                     'uptime' => $conn['uptime'] ?? null,
+                    'caller_id' => $conn['caller_id'] ?? null,
+                    'duplicate_tunnels' => $siblings,
                 ];
             }
         }
@@ -172,6 +193,43 @@ class PppSecretManager
             'message' => '❌ VPN no conectada',
             'method' => $result['method'] ?? 'unknown',
         ];
+    }
+
+    /**
+     * Other active sessions dialling in from the same public IP as $session.
+     *
+     * @param  array<int, array<string, mixed>> $connections
+     * @param  array<string, mixed>             $session
+     * @return array<int, array{name: string, address: string, uptime: string}>
+     */
+    public function sessionsSharingCallerId(array $connections, array $session): array
+    {
+        $callerId = trim((string) ($session['caller_id'] ?? ''));
+
+        // Sin caller-id no hay nada que comparar. No lo tratamos como "sin
+        // duplicados": simplemente no lo sabemos, y afirmarlo sería peor.
+        if ($callerId === '') {
+            return [];
+        }
+
+        $siblings = [];
+
+        foreach ($connections as $other) {
+            if (($other['name'] ?? '') === ($session['name'] ?? '')) {
+                continue;
+            }
+            if (trim((string) ($other['caller_id'] ?? '')) !== $callerId) {
+                continue;
+            }
+
+            $siblings[] = [
+                'name'    => (string) ($other['name'] ?? ''),
+                'address' => (string) ($other['address'] ?? ''),
+                'uptime'  => (string) ($other['uptime'] ?? ''),
+            ];
+        }
+
+        return $siblings;
     }
 
     // ==================== PPP SECRET MANAGEMENT ====================

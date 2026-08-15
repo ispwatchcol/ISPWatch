@@ -142,6 +142,10 @@ planes de servicio → routers → usuarios base → clientes de ejemplo.
 | `MIKROTIK_CORE_API_HOST` / `_PORT` / `_USER` / `_PASS` | Acceso API (8728) |
 | `MIKROTIK_CORE_VPN_IP` | IP del CORE en el overlay |
 | `MIKROTIK_USE_CORE_TUNNEL` | `true` en producción |
+| `MIKROTIK_CORE_SSH_CONNECT_TIMEOUT` | Segundos para el *handshake* servidor→CORE (por defecto 8). Falla rápido si el CORE no responde |
+| `MIKROTIK_CORE_SSH_TIMEOUT` | Segundos de espera por la **salida** de un comando en el CORE (por defecto 15) |
+| `MIKROTIK_CORE_SSH_EXEC_TIMEOUT` | Igual, pero para los comandos que hacen al CORE abrir un SSH **anidado** al cliente (lectura de interfaces WAN). Por defecto 25, acotado a 10-50 para no rebasar el límite del *gateway* |
+| `MIKROTIK_TUNNEL_READY_TIMEOUT` | Segundos que se espera a que el `ssh -L` quede listo (por defecto 6) |
 | `MIKROTIK_VPN_PASSWORD`, `MIKROTIK_IPSEC_SECRET` | Secretos de los scripts VPN generados |
 | `PORTAL_IP` | IP del portal de pago. **La regla de firewall la deja accesible al cliente cortado** |
 
@@ -385,6 +389,7 @@ php artisan billing:verify-cuts
 | `billing:generate-monthly {period?}` | Genera facturas. Sin argumento deriva el periodo por router; `YYYY-MM` fuerza uno y **salta el gate de hora** |
 | `billing:retry-failed` | Reintenta filas `failed` con `next_retry_at` vencido |
 | `billing:verify-monthly` | Auditoría de no-show. **No escribe nada** |
+| `billing:verify-orphan-payments {--tenant=} {--min=} {--limit=} {--no-mail}` | Auditoría de caja: dinero recibido que no respalda factura ni saldo a favor. **No escribe nada** |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
 | `billing:generate-tenant {tenant} {period} {--dry-run}` | Facturación puntual por tenant |
@@ -406,6 +411,12 @@ php artisan billing:verify-cuts
 | `traffic:collect` | Muestrea contadores WAN (routers con `historial_trafico`) |
 | `traffic:prune {--days=30}` | Poda muestras finas |
 | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
+
+### Contratos
+
+| Comando | Descripción |
+|---|---|
+| `contracts:remind-unsigned [--after=24] [--dry-run]` | Un recordatorio por enlace de firma sin usar. **Emite un enlace nuevo**: el token original sólo existe hasheado, así que reenviarlo es imposible por diseño |
 
 ### Base de datos y mantenimiento
 
@@ -458,6 +469,35 @@ php artisan billing:verify-cuts
    la API directamente la evita. Añade además un caso a `ApiAuthorizationTest`.
 9. **Los permisos de LECTURA pueden llevar varios valores** (`permission:a,b`, semántica OR)
    cuando son datos de referencia que otra pantalla necesita. Los de ESCRITURA, nunca.
+10. **Un token que viaja al exterior se guarda hasheado, nunca en claro.** Vale para las
+    llaves de la API pública y para los enlaces de firma remota
+    (`contract_signature_links.token_hash`). La consecuencia hay que asumirla de frente:
+    si el token no se puede recuperar, **no puede existir un "reenviar"** — se emite uno
+    nuevo y se revoca el anterior. No inventes una columna en claro para ahorrarte ese
+    diálogo con el usuario.
+11. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
+    otra cosa que contar (`throttle:public-contract` en `AppServiceProvider`), y además un
+    techo por recurso: los 5 intentos de verificación de `ContractSignatureLink` protegen
+    un enlace concreto, el limitador protege al servidor de un barrido.
+
+### Añadir una operación que ya existe por otro camino
+
+Si una operación va a tener **dos entradas** (por ejemplo firmar un contrato: presencial
+con empleado autenticado y remota por enlace), la lógica va a un servicio compartido —
+`ContractSigningService` es el caso de referencia — y los controladores quedan como
+adaptadores de autorización. Lo que se protege no es la elegancia: la reserva del
+consecutivo y el candado de "un solo contrato vigente" duplicados en dos sitios acaban
+divergiendo, y cada divergencia es un hueco permanente en la numeración legal del ISP.
+
+En el frontend aplica lo mismo: `SignaturePad.vue` es un componente compartido porque la
+firma presencial y la remota producen el **mismo PDF** con el mismo valor legal, y una
+diferencia sutil entre ambas —la detección de tinta, sobre todo— sería un contrato firmado
+en blanco según por dónde entró el cliente.
+
+**Una página pública no usa `apiClient`.** Su interceptor de `401` borra la sesión y
+redirige a `/`; un cliente final sin sesión acabaría mirando la pantalla de acceso del
+panel sin entender qué pasó. Usa una instancia propia de axios
+(`services/api/public-contract.js` es el patrón).
 10. **Las búsquedas de texto usan `whereLike`/`orWhereLike`**, jamás `like` ni `ilike` a pelo.
 
 ### Git
@@ -857,6 +897,56 @@ Las tres reglas que hacen que funcione:
      campo está exceptuado en `bootstrap/app.php`. Si añades otro campo donde el espacio
      final signifique algo, tiene que ir en esa misma lista o nunca llegará a la base.
 
+### Ejemplo: añadir un filtro por columna a un listado
+
+Recaudos, Facturación y Gastos siguen la misma estructura de tres piezas. Cópiala; no
+inventes una variante:
+
+```php
+// 1. Reglas — compartidas por el listado Y la exportación.
+private function validatedInvoiceFilters(Request $request): array
+{
+    return $request->validate([
+        'total_min' => 'nullable|numeric',
+        'sort_by'   => 'nullable|in:issue_date,due_date,number,total,balance_due',
+        'per_page'  => 'nullable|integer|min:1|max:200',
+    ]);
+}
+
+// 2. Consulta — SIN orden ni paginación, para que el CSV no pueda divergir
+//    de lo que el usuario tiene en pantalla.
+private function filteredInvoicesQuery(Request $request, array $f)
+{
+    // Texto: SIEMPRE con las macros, nunca `like` ni `ilike` a pelo (trampa 4).
+    if (!empty($f['number'])) $query->whereLike('number', $f['number']);
+
+    // Importes: `isset`, no `!empty` — 0 es un valor válido y `!empty(0)` es false.
+    if (isset($f['total_min'])) $query->where('total', '>=', $f['total_min']);
+
+    // El tenant sale del usuario autenticado, jamás de un query param.
+    ...
+}
+
+// 3. Listado — orden con desempate estable por `id`.
+$query->orderBy($f['sort_by'] ?? 'issue_date', $f['sort_dir'] ?? 'desc')
+      ->orderBy('id', 'desc')
+      ->paginate($f['per_page'] ?? 20);
+```
+
+Cuatro reglas que no son opcionales:
+
+- **`sort_by` va en lista blanca (`in:`)**: entra directo en el `ORDER BY`. Sin la lista, el
+  parámetro es una inyección.
+- **El desempate por `id`** hace falta en cualquier columna que repita valores (`issue_date`
+  es una fecha sin hora y toda la facturación mensual comparte día): sin él, dos páginas
+  repiten u omiten filas.
+- **El `summary` se calcula sobre la MISMA consulta filtrada** (`clone $query`), no sobre la
+  página ni en un endpoint aparte: si no, la cifra y la lista pueden responder a filtros
+  distintos sin que nada lo delate.
+- **El frontend no manda los vacíos** y devuelve a la página 1 en cada cambio de filtro; los
+  campos de texto van con `debounce` de 400 ms y descartan respuestas viejas con un
+  `requestId`, o al teclear rápido la primera en llegar pinta resultados obsoletos.
+
 ---
 
 
@@ -970,6 +1060,11 @@ pasar dos filas globales con el mismo código. Por eso hay dos índices parciale
 | 35 | **Una relación NO puede llamarse igual que una columna del mismo modelo** | `customer_installations` tiene una columna `equipment` (texto libre "equipo previsto"). Al añadir la relación `equipment()` hacia `installation_equipment`, `$installation->equipment` seguía devolviendo **el string**: Eloquent resuelve primero `$attributes` y sólo cae a las relaciones si no hay atributo con ese nombre — ni siquiera un `loadMissing('equipment')` previo cambia eso, porque la relación queda cargada pero inalcanzable por la propiedad. La vista del PDF habría hecho `->count()` sobre un texto. Se llama `equipmentItems()`. Es la trampa gemela de la #30 (relación que pisa una FK), pero al revés: aquí la **columna** gana |
 | 37 | **El tenant NUNCA sale de un parámetro de la petición** | Dos casos vivos encontrados el 2026-08-06: `billing/stats` lo leía de `?tenant=` (cualquiera con `view_billing` podía pedir las finanzas de otra empresa cambiando la URL) y `routers/{id}/free-ips` de `?tenant_id=` con un `if ($tenantId)` que, al no llegar nunca desde el frontend, dejaba la consulta **sin filtro** y escondía IPs libres. Deriva siempre de `$request->user()->tenant_id`, o usa `BelongsToTenant` — y desconfía de todo `if ($tenantId)`: un filtro condicional es un filtro que algún día no se aplica |
 | 36 | **Un `whereIn` polimórfico con NULL no filtra: usa un índice único sin nulos** | En `inventory_balances` el custodio es `holder_type` + `holder_id` **NOT NULL** en vez de `branch_id`/`user_id` nulables, porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos duplicados — y en PostgreSQL **dos NULL son distintos entre sí**, así que un único sobre columnas nulables deja pasar duplicados en silencio. Si necesitas unicidad sobre "una de dos referencias", conviértelo en par tipo+id antes que en dos columnas nulables |
+| 38 | **Un `try/catch` NO protege una transacción de PostgreSQL: hace falta un SAVEPOINT** | Una sentencia que falla deja la transacción **abortada**, y desde ahí toda consulta revienta con `SQLSTATE[25P02] current transaction is aborted` aunque la excepción se haya atrapado — sólo un `ROLLBACK` la desbloquea, y sólo un `ROLLBACK TO SAVEPOINT` sin perder lo anterior. `MoneyAuditObserver::write()` tenía el `try` y aun así tumbaba el `Payment::create()` que auditaba. Toda escritura accesoria que no deba tumbar la operación principal (bitácora, métricas, notificaciones) va envuelta en `Connection::transaction()`, que emite el SAVEPOINT solo cuando ya hay transacción abierta. **En sqlite la diferencia es invisible**, así que esto sólo lo caza el job de PostgreSQL del CI. Ver `BITACORA_TECNICA.md` § 28 |
+| 40 | **El orden del método de control vive en TRES sitios y tienen que coincidir** | `CustomerProvisioningService::resolveControlMode()` decide el modo **al leer**; el trait `NormalizesRouterControlMode` decide cuál sobrevive **al escribir**; y `CONTROL_MODES` en `RouterAdd.vue`/`RouterEdit.vue` decide cuál queda encendido **en el formulario**. Si los órdenes divergen, la base guarda un modo y el aprovisionamiento ejecuta otro — sin ningún error, sólo un router que "no carga los clientes". Al agregar un modo hay que tocar los cuatro archivos |
+| 41 | **En los endpoints RADIUS `BelongsToTenant` NO rellena `tenant_id`** | El trait lo deriva de `auth()->user()`, y las rutas RADIUS son máquina-a-máquina: no hay usuario autenticado, así que ni el hook de `creating` asigna ni el scope global filtra. Toda escritura del pipeline de accounting/authorize debe fijar `tenant_id` **explícitamente desde el router registrado** — nunca desde un campo del request, que es exactamente el vector de fuga cross-tenant. Si se olvida, la fila nace con `tenant_id` null y desaparece del panel |
+| 42 | **`apt install freeradius` NO instala `rlm_rest`** | Va en el paquete aparte `freeradius-rest`, y además hay que enlazarlo a `mods-enabled/`. El servidor arranca bien y sólo falla al cargar el sitio, con un mensaje sobre un módulo desconocido que **no menciona la palabra "paquete"**. Diagnostica siempre con `freeradius -X`. Ojo: el directorio de config se llama `3.0` aunque corras 3.2.x — no es señal de versión vieja. Ver `RADIUS_FREERADIUS.md` |
+| 39 | **SQLite pierde el CHECK de un `enum` si la tabla pasó por un `->change()`** | Laravel implementa `change()` en SQLite **reconstruyendo la tabla**, y el CHECK inline del enum no sobrevive a la reconstrucción (en PostgreSQL sí, porque ahí sólo se emite un `ALTER COLUMN`). Efecto: **un valor de enum inventado pasa en local y sólo revienta en el CI real**. Pasó con `customer_installations.status`, cuyo vocabulario es español (`pendiente`/`completada`/`cancelada`) y un test insertaba `'pending'` — 5 fallos en el job de PostgreSQL, verde en sqlite. Al escribir una prueba, toma el valor del enum de la migración, no de memoria |
 ---
 
 ## 12. Solución de problemas
@@ -988,6 +1083,10 @@ pasar dos filas globales con el mismo código. Por eso hay dos índices parciale
 | **Pestaña ausente para un admin** | Permiso nuevo sin backfill | Migración de backfill, o marcar en `/roles` y re-loguear |
 | **`<connection failed> <ip>:22`** | IP obsoleta o puerto SSH distinto | `RouterEndpointResolver` + `router.puerto_ssh`. El CORE necesita `forwarding-enabled=both`. Comprueba que el puerto llegue **hasta el `ssh-exec`**: si un método intermedio no lo recibe en su firma, el `port=` se pierde y todo cae al 22 |
 | **Aprovisionamiento con éxito pero sin efecto** | `ssh-exec` con `exit-code ≠ 0` | Revisar centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END` en el log |
+| **La VPN figura activa y aun así todo lo que el CORE inicia al router se cuelga** | **Túnel duplicado**: dos secrets discando desde la misma IP pública (`caller-id`). Se reciclan entre sí y el router queda con dos direcciones de overlay | `php artisan vpn:verify-tunnels` → estado `DUPLICADO`. Deja UN solo túnel por pública: quita el `l2tp-client` al equipo que sobre y borra su secret del CORE |
+| **"Respuesta del router: `ISP_BEGIN`"** al leer la WAN | No es una respuesta del router: es media respuesta del CORE. El `ssh-exec` seguía esperando al cliente cuando venció el tiempo de espera, y `phpseclib` devuelve lo poco que llegó sin lanzar excepción | Ya se reporta como *timeout* explícito. Diagnostica con `php artisan router:diagnose-wan <id>`; si el enlace es lento pero sano, sube `MIKROTIK_CORE_SSH_EXEC_TIMEOUT` (segundos, por defecto 25) |
+| **"Credenciales incorrectas en el router cliente: `no_done`"** | Tampoco es la contraseña: el router no respondió **nada** al login API. El socket abrió pero al otro lado no había una API MikroTik escuchando | Verifica en el cliente `/ip service print` (servicio `api` habilitado y su *available from*). Hoy este caso se reporta como tiempo de espera agotado, no como credenciales |
+| **La modal de WAN falla y no deja escribir la interfaz** | Resuelto: el bloque de error ya no oculta la entrada manual | Escribe el nombre a mano, o pulsa *Reintentar lectura* |
 | **Cliente cortado sigue navegando** | Faltan reglas en el router o falta flush de conntrack | *Aplicar reglas de bloqueo* + `billing:reconcile-suspensions` |
 | **Toda la suite Feature falla** | SQL exclusivo de PostgreSQL en una migración | Protégelo por driver |
 | **Error CORS/CSRF con Vite** | Host de Vite ausente | Añádelo a `SANCTUM_STATEFUL_DOMAINS` y `CORS_ALLOWED_ORIGINS` |
@@ -1008,3 +1107,83 @@ grep "Auto-cut:"  storage/logs/laravel.log
 
 Los servicios registran con prefijos consistentes (`Billing:`, `Auto-cut:`) y los comandos
 MikroTik incluyen `variant`, `envelope_state` y `exit_code` para diagnóstico exacto.
+
+---
+
+## Auditar un cambio nuevo
+
+Todo lo que mueve plata debe quedar registrado. Hay dos mecanismos y **no son intercambiables**.
+
+### Un campo nuevo que mueve plata
+
+Agrégalo a la lista blanca de `MoneyAuditObserver::WATCHED`, con su etiqueta en español:
+
+```php
+Plan::class => [
+    'cost_product' => 'precio',
+    'mi_campo'     => 'etiqueta legible',
+],
+```
+
+Eso basta: el observer atrapa el cambio venga de donde venga —panel, API, carga masiva o
+consola—. **No instrumentes el controlador.** Es la lección del episodio del precio mal cargado:
+un cambio equivalente entró por `CustomersUpdateImport`, que no pasa por ningún controlador de
+planes, y por eso quedó sin registro.
+
+Si el valor no se lee bien en crudo (un `service_id` no le dice nada a nadie), agrégale
+traducción en `MoneyAuditObserver::readable()`.
+
+**Un modelo nuevo** se registra además en `AppServiceProvider::registerMoneyAudit()`.
+
+**Cuidado con el volumen.** La lista blanca es corta a propósito. `Invoice::balance_due` queda
+fuera porque cambia en cada pago y ya deja asiento en `payment_allocations`; `credit_balance`
+queda fuera porque lo cubre el libro con más detalle. Auditarlo todo hace la bitácora ilegible.
+
+### Tocar el saldo a favor
+
+**Nunca escribas `customer_profile.credit_balance` directamente.** Es una caché; la verdad son los
+movimientos de `customer_credits`, y escribir el escalar a pelo rompe el invariante
+`SUM(amount) == credit_balance`.
+
+Usa `CustomerCredit::earn()`, `applyToInvoice()`, `adjust()` o `reverseForPayment()` según el caso.
+Todos sincronizan la caché por su cuenta. Si después necesitas el saldo actualizado en un modelo
+que ya tenías cargado, llama `$profile->refresh()`: el libro trabaja sobre su propia instancia y la
+tuya queda vieja.
+
+Cuando escribas un test que toque saldo, afirma el invariante. Es una línea y es lo que detecta el
+tipo de error que hace desaparecer dinero:
+
+```php
+$this->assertEqualsWithDelta(
+    (float) CustomerProfile::where('user_id', $id)->value('credit_balance'),
+    CustomerCredit::ledgerBalanceFor($id),
+    0.01
+);
+```
+
+### Marcar el origen de un proceso
+
+Un proceso que escribe en nombre de otro —una importación, un comando— debe marcar sus escrituras
+para que la bitácora las distinga:
+
+```php
+AuditContext::as(AuditContext::SOURCE_IMPORT, fn () => Excel::import($import, $file));
+```
+
+Sin eso, una carga masiva lanzada desde el panel queda registrada como `web` y se vuelve
+indistinguible de un cambio hecho a mano — que es exactamente la ambigüedad que costó la auditoría
+manual del episodio 56.000 → 60.000.
+
+### Dos reglas que la bitácora aprendió a golpes
+
+**La bitácora nunca tumba la operación que audita.** `MoneyAuditObserver::write()` traga cualquier
+excepción y la manda a `Log::error`. Perder la trazabilidad de un pago es malo; perder el pago es
+peor. En PostgreSQL además no es solo el registro: una excepción dentro de la transacción la deja
+abortada y **todo lo que venga detrás revienta en cadena** con «current transaction is aborted».
+SQLite no tiene ese estado, así que un observer frágil pasa los tests en local y tumba producción.
+
+**No todo lo que se autentica es un `User`.** La API pública autentica un `ApiClient`, cuyo id vive
+en otra tabla. `audit_logs.user_id` y `customer_credits.created_by` tienen clave foránea contra
+`users`, así que `AuditContext::actorId()` comprueba el tipo antes de estampar nada. **SQLite no
+aplica claves foráneas por defecto**: este fallo es invisible en la suite rápida y solo aparece en
+el job de PostgreSQL. Si tocas algo que guarde un id de actor, pásalo por ahí.

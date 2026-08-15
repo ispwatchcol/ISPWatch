@@ -19,6 +19,21 @@ class InterfaceReader
     // Only physical ports are valid WAN candidates — no VLANs, bridges, or tunnels.
     private const ALLOWED_WAN_TYPES = ['ether', 'sfp'];
 
+    /**
+     * Seconds we let the CORE take to answer an `ssh-exec` against the client.
+     *
+     * The default operation timeout (15s) is sized for commands the CORE runs on
+     * itself. This one makes the CORE open a *nested* SSH session first: key
+     * exchange with a small RouterBOARD over the L2TP overlay routinely eats
+     * 10-20s before a single byte of interface data comes back. At 15s phpseclib
+     * gave up mid-script and returned just the `ISP_BEGIN` sentinel, which read
+     * downstream as "the router answered something unparseable".
+     *
+     * Kept well under the ~60s gateway limit: only ONE variant is allowed to
+     * consume it (see the timeout branch in getInterfacesViaCoreSsh).
+     */
+    private const CORE_SSH_EXEC_TIMEOUT_DEFAULT = 25;
+
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
 
@@ -152,9 +167,16 @@ class InterfaceReader
     private function tryDirectApi(string $clientIp, string $clientUser, string $clientPass, int $port): array
     {
         if (!$this->connectionManager->tryDirectClientConnection($clientIp, $port)) {
+            // The probe knows WHICH hop refused; repeating a generic "port
+            // unreachable" would hide it.
+            $probeError = method_exists($this->connectionManager, 'lastProbeError')
+                ? $this->connectionManager->lastProbeError()
+                : null;
+
             return [
                 'success' => false,
-                'message' => "Puerto {$port} no alcanzable a través del túnel CORE hacia {$clientIp}.",
+                'message' => "Puerto {$port} no alcanzable a través del túnel CORE hacia {$clientIp}" .
+                             ($probeError ? ": {$probeError}" : '.'),
                 'hint'    => "El túnel SSH al CORE abre, pero el TCP a {$clientIp}:{$port} no completa. " .
                              "Causas típicas: (1) servicio API del cliente deshabilitado — verifica /ip service where name=api en el cliente. " .
                              "(2) firewall del cliente bloquea {$port} en el chain input. " .
@@ -227,6 +249,23 @@ class InterfaceReader
             $loginResult = $this->apiProtocol->loginDetailed($socket, $clientUser, $clientPass);
             if (!$loginResult['success']) {
                 $this->apiProtocol->close($socket);
+
+                // A silent socket is NOT a rejected password. The router never
+                // sent a !trap (it never sent anything), so claiming "credenciales
+                // incorrectas" here has repeatedly sent operators to re-check
+                // credentials that were correct all along.
+                if (($loginResult['reason'] ?? null) === 'timeout') {
+                    return [
+                        'success' => false,
+                        'message' => 'El router aceptó la conexión TCP pero no respondió al login API (tiempo de espera agotado).',
+                        'hint'    => 'Esto NO es un problema de usuario/contraseña: el router no contestó nada. ' .
+                                     'Casi siempre significa que el puerto acepta la conexión pero al otro lado no hay una API MikroTik ' .
+                                     'escuchando (otro servicio ocupa el puerto, o el canal reenviado por el CORE murió justo después de abrirse). ' .
+                                     'Verifica en el cliente: /ip service print — el servicio api debe estar enabled y su "available from" ' .
+                                     'debe permitir la IP overlay del CORE.',
+                        'interfaces' => [],
+                    ];
+                }
 
                 if ($loginResult['reason'] === 'socket_closed') {
                     return [
@@ -352,6 +391,11 @@ class InterfaceReader
      *   - If the first attempt comes back empty (very old RouterOS or weirdness), retry with
      *     the legacy "auto-print" form that older v6 builds expect.
      *
+     * Time budget: each variant gets coreSshExecTimeout() seconds, but a variant that
+     * TIMES OUT ends the whole attempt — the next one would block on the same silent
+     * client and three of those in a row would blow past the gateway's request limit.
+     * Only an answered-but-useless variant is worth retrying with another syntax.
+     *
      * $clientSshPort tiene que llegar hasta aquí: es el puerto con el que el CORE
      * abre el ssh-exec contra el cliente. Faltaba en la firma y el cuerpo lo usaba
      * igual, así que PHP lo resolvía como variable indefinida (null) y TODOS los
@@ -371,9 +415,21 @@ class InterfaceReader
             $lastRawOutput = '';
             $lastExitCode  = null;
             $allRawOutputs = [];
+            $unparsedPayload = null;
+            $timeout = $this->coreSshExecTimeout();
 
             foreach ($variants as $variantName => $command) {
-                $sshResult = $this->connectionManager->executeSsh($command);
+                $sshResult = $this->connectionManager->executeSsh($command, $timeout);
+
+                // The CORE answered, but only partially: it was still blocked
+                // inside the nested ssh-exec when our patience ran out. Retrying
+                // with the other variants would hang exactly the same way and
+                // burn the request budget, so stop here and say what happened —
+                // this is the failure the WAN modal used to render as the
+                // meaningless "Respuesta del router: ISP_BEGIN".
+                if (!empty($sshResult['timed_out'])) {
+                    return $this->sshExecTimeoutResult($clientIp, $timeout, (string) ($sshResult['output'] ?? ''), $clientSshPort);
+                }
 
                 if (!($sshResult['success'] ?? false)) {
                     $innerMessage = $sshResult['message'] ?? 'sin respuesta del CORE';
@@ -404,7 +460,7 @@ class InterfaceReader
                     'client_ip'           => $clientIp,
                     'variant'             => $variantName,
                     'client_firmware'     => $clientFirmwareVersion,
-                    'envelope_state'      => $parsed['state'], // 'ok' | 'on_error' | 'no_markers'
+                    'envelope_state'      => $parsed['state'], // 'ok' | 'on_error' | 'truncated' | 'no_markers'
                     'exit_code'           => $exitCode,
                     'normalized_length'   => strlen($output),
                     'raw_length'          => strlen($rawSshOutput),
@@ -413,6 +469,14 @@ class InterfaceReader
 
                 $lastRawOutput = $rawSshOutput;
                 $lastExitCode  = $exitCode;
+
+                // Opening sentinel arrived, closing one never did: the script
+                // started and was cut off mid-flight. Same situation as an
+                // explicit timeout — the CORE is stuck waiting on the client —
+                // just detected from the payload instead of from phpseclib.
+                if ($parsed['state'] === 'truncated') {
+                    return $this->sshExecTimeoutResult($clientIp, $timeout, $rawSshOutput, $clientSshPort);
+                }
 
                 // CORE script ran but its on-error block fired — the inner /system ssh-exec threw.
                 // Almost always: CORE can't reach the client's SSH (port filtered, service off,
@@ -443,26 +507,42 @@ class InterfaceReader
 
                     $interfaces = $this->parseRouterOutput($output);
 
-                    if (empty($interfaces)) {
+                    if (!empty($interfaces)) {
                         return [
-                            'success' => false,
-                            'message' => 'El router respondió pero no se pudieron leer las interfaces. Respuesta del router: ' . substr($output, 0, 200),
-                            'interfaces' => [],
+                            'success' => true,
+                            'message' => 'Interfaces obtenidas via CORE SSH (' . $variantName . ')',
+                            'method'  => 'CORE_SSH_EXEC',
+                            'interfaces' => $interfaces,
                         ];
                     }
 
-                    return [
-                        'success' => true,
-                        'message' => 'Interfaces obtenidas via CORE SSH (' . $variantName . ')',
-                        'method'  => 'CORE_SSH_EXEC',
-                        'interfaces' => $interfaces,
-                    ];
+                    // Unparseable payload. NOT conclusive: each variant asks
+                    // RouterOS for the result in a different shape, and the one
+                    // that came back garbled here may be the one this CORE
+                    // version doesn't support. Bailing out on the first variant
+                    // meant the other two were dead code in practice — keep the
+                    // payload for the final diagnostic and try the next shape.
+                    $unparsedPayload ??= $output;
                 }
 
                 // Empty after normalize — fall through to the next variant (different RouterOS quirks).
             }
 
-            // All variants returned empty / unparseable. Build the most informative error we can.
+            // Every variant ran and none produced a usable interface list.
+            if ($unparsedPayload !== null) {
+                return [
+                    'success' => false,
+                    'message' => 'El router respondió pero ninguna de las ' . count($variants) . ' variantes devolvió una lista de ' .
+                                 'interfaces legible. Respuesta del router: ' . substr($unparsedPayload, 0, 200),
+                    'hint'    => 'El CORE sí habló con el cliente, pero lo que devolvió no tiene el formato de ' .
+                                 '`/interface ethernet print terse`. Comprueba desde el CORE qué contesta realmente: ' .
+                                 '/system ssh-exec address=' . $clientIp . ' user=... command="/interface ethernet print terse". ' .
+                                 'Mientras tanto puedes escribir el nombre de la interfaz a mano.',
+                    'interfaces' => [],
+                ];
+            }
+
+            // All variants returned empty. Build the most informative error we can.
             return [
                 'success' => false,
                 'message' => "El CORE recibió respuesta del ssh-exec pero la salida quedó vacía después de probar " . count($variants) . " variantes de comando" .
@@ -498,7 +578,12 @@ class InterfaceReader
      * If the markers are missing (some RouterOS 6.x builds don't run :do/:set the same way),
      * we fall back to treating the whole stdout as the output payload (legacy mode).
      *
-     * Returns: ['state' => 'ok'|'on_error'|'no_markers', 'output' => string, 'exit_code' => ?int]
+     * ISP_BEGIN without ISP_END is its own case ('truncated'): the script DID start,
+     * so this is not a legacy shape — we simply stopped listening before RouterOS
+     * finished. Treating it as a legacy payload is what produced the nonsensical
+     * "Respuesta del router: ISP_BEGIN" in the WAN modal.
+     *
+     * Returns: ['state' => 'ok'|'on_error'|'truncated'|'no_markers', 'output' => string, 'exit_code' => ?int]
      */
     private function parseSshExecEnvelope(string $raw): array
     {
@@ -508,7 +593,11 @@ class InterfaceReader
         $beginPos = strpos($clean, 'ISP_BEGIN');
         $endPos   = strpos($clean, 'ISP_END');
 
-        if ($beginPos === false || $endPos === false || $endPos < $beginPos) {
+        if ($beginPos !== false && ($endPos === false || $endPos < $beginPos)) {
+            return ['state' => 'truncated', 'output' => '', 'exit_code' => null];
+        }
+
+        if ($beginPos === false || $endPos === false) {
             // No envelope — legacy / unknown shape. Hand the whole thing back as output.
             return ['state' => 'no_markers', 'output' => trim($clean), 'exit_code' => null];
         }
@@ -526,6 +615,51 @@ class InterfaceReader
         }
 
         return ['state' => 'ok', 'output' => $payload, 'exit_code' => $exitCode];
+    }
+
+    /**
+     * How long the CORE gets to answer one ssh-exec. Overridable per deployment:
+     * a CORE that fronts slow rural links may legitimately need more.
+     */
+    private function coreSshExecTimeout(): int
+    {
+        $configured = (int) env('MIKROTIK_CORE_SSH_EXEC_TIMEOUT', self::CORE_SSH_EXEC_TIMEOUT_DEFAULT);
+
+        // Floor keeps a typo from making every read fail instantly; ceiling keeps
+        // the whole HTTP request inside the gateway's ~60s budget.
+        return max(10, min($configured, 50));
+    }
+
+    /**
+     * The CORE started the script and never finished it inside our window.
+     *
+     * Said plainly, because the operator's next move depends on knowing that the
+     * CORE is *stuck talking to the client*, not that the client sent something
+     * strange: nothing came back from the client at all.
+     */
+    private function sshExecTimeoutResult(string $clientIp, int $timeout, string $partial, ?int $clientSshPort = null): array
+    {
+        $port = ($clientSshPort && $clientSshPort > 0) ? $clientSshPort : 22;
+
+        Log::warning('[InterfaceReader] CORE ssh-exec truncado por tiempo de espera', [
+            'client_ip'       => $clientIp,
+            'client_ssh_port' => $port,
+            'timeout'         => $timeout,
+            'partial_preview' => substr($partial, 0, 300),
+        ]);
+
+        return [
+            'success' => false,
+            'message' => "El CORE se quedó esperando al router {$clientIp}:{$port} y no completó la lectura en {$timeout}s. " .
+                         'La respuesta llegó cortada, así que no hay lista de interfaces que mostrar.',
+            'hint'    => "El CORE arrancó el ssh-exec pero el router nunca terminó de contestar. Verifica, en este orden:\n" .
+                         "1) Que el router siga conectado al overlay y en esa misma IP: /ppp active print en el CORE (la IP cambia al reconectar).\n" .
+                         "2) Que el CORE pueda abrir SSH al cliente a mano: /system ssh address={$clientIp} port={$port} user=<usuario>. Si ahí también se cuelga, el problema es del enlace o del firewall del cliente, no de ISPWatch.\n" .
+                         "3) Si el enlace es lento pero funciona, sube MIKROTIK_CORE_SSH_EXEC_TIMEOUT (segundos) en el .env.\n" .
+                         'Mientras tanto puedes escribir el nombre de la interfaz WAN a mano abajo.',
+            'interfaces' => [],
+            'timed_out'  => true,
+        ];
     }
 
     /**

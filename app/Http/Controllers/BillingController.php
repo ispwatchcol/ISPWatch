@@ -30,6 +30,29 @@ class BillingController extends Controller
         $this->templateRenderer = $templateRenderer;
     }
 
+    /** Reglas de los filtros de facturas, compartidas por el listado y la exportación. */
+    private function validatedInvoiceFilters(Request $request): array
+    {
+        return $request->validate([
+            'search'       => 'nullable|string|max:255',
+            'number'       => 'nullable|string|max:100',
+            'customer'     => 'nullable|string|max:255',
+            'customer_id'  => 'nullable|integer',
+            'status'       => 'nullable|string|max:30',
+            'invoice_type' => 'nullable|string|max:50',
+            'period'       => 'nullable|string|max:20',
+            'due_from'     => 'nullable|date',
+            'due_to'       => 'nullable|date',
+            'total_min'    => 'nullable|numeric',
+            'total_max'    => 'nullable|numeric',
+            'balance_min'  => 'nullable|numeric',
+            'balance_max'  => 'nullable|numeric',
+            'sort_by'      => 'nullable|in:issue_date,due_date,number,total,balance_due,status,invoice_type',
+            'sort_dir'     => 'nullable|in:asc,desc',
+            'per_page'     => 'nullable|integer|min:1|max:200',
+        ]);
+    }
+
     /**
      * Consulta de facturas con los filtros del listado aplicados, SIN orden ni
      * paginación.
@@ -38,46 +61,79 @@ class BillingController extends Controller
      * armara sus propios filtros, acabarían divergiendo y el CSV dejaría de
      * corresponder a lo que el usuario tenía en pantalla — que es justo lo que
      * la exportación promete.
+     *
+     * Además de la búsqueda general hay un filtro por cada columna de la tabla,
+     * igual que en Recaudos: con un solo `search` la única forma de revisar las
+     * facturas emitidas era escribir en el buscador y esperar que el término
+     * cayera en el número o en el nombre.
      */
-    private function filteredInvoicesQuery(Request $request)
+    private function filteredInvoicesQuery(Request $request, array $f)
     {
         $query = Invoice::query()->with(['customer.customerProfile']);
 
-        if ($request->filled('search')) {
-            $search = str_replace(['%', '_'], ['\\%', '\\_'], $request->search);
-            // PostgreSQL's LIKE is case-sensitive, so "eliud" no coincide con
-            // "Eliud". Usamos ILIKE en pgsql; SQLite (tests) no tiene ILIKE pero
-            // su LIKE ya es insensible a mayúsculas para ASCII.
-            $likeOp = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-            $query->where(function ($q) use ($search, $likeOp) {
-                $q->where('number', $likeOp, "%$search%")
-                    ->orWhereHas('customer', function ($cq) use ($search, $likeOp) {
-                        $cq->where('user_name', $likeOp, "%$search%")
-                            ->orWhere('email', $likeOp, "%$search%")
-                            ->orWhereHas('customerProfile', function ($cpq) use ($search, $likeOp) {
-                                $cpq->where('name', $likeOp, "%$search%")
-                                    ->orWhere('last_name', $likeOp, "%$search%");
-                            });
-                    });
+        // Búsqueda general: número o cliente.
+        if (!empty($f['search'])) {
+            $search = $f['search'];
+            $query->where(function ($q) use ($search) {
+                $q->whereLike('number', $search)
+                    ->orWhereHas('customer', fn ($cq) => $this->applyCustomerSearch($cq, $search));
             });
         }
 
-        if ($request->filled('customer_id')) {
-            $query->where('customer_id', $request->customer_id);
+        // ── Filtros específicos por columna ───────────────────────────────────
+        if (!empty($f['number'])) {
+            $query->whereLike('number', $f['number']);
         }
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
+
+        if (!empty($f['customer'])) {
+            $query->whereHas('customer', fn ($cq) => $this->applyCustomerSearch($cq, $f['customer']));
         }
-        if ($request->filled('invoice_type')) {
-            $query->where('invoice_type', $request->invoice_type);
+
+        if (!empty($f['customer_id'])) {
+            $query->where('customer_id', $f['customer_id']);
         }
-        if ($request->filled('period')) {
+
+        if (!empty($f['status'])) {
+            $query->where('status', $f['status']);
+        }
+
+        if (!empty($f['invoice_type'])) {
+            $query->where('invoice_type', $f['invoice_type']);
+        }
+
+        if (!empty($f['period'])) {
             try {
-                $period = \Illuminate\Support\Carbon::parse($request->period)->format('Y-m');
+                $period = Carbon::parse($f['period'])->format('Y-m');
                 $query->where('period_start', 'like', $period . '%');
             } catch (\Exception $e) {
-                $query->where('period_start', 'like', $request->period . '%');
+                $query->where('period_start', 'like', $f['period'] . '%');
             }
+        }
+
+        if (!empty($f['due_from'])) {
+            $query->whereDate('due_date', '>=', $f['due_from']);
+        }
+
+        if (!empty($f['due_to'])) {
+            $query->whereDate('due_date', '<=', $f['due_to']);
+        }
+
+        // Ojo: 0 es un importe válido (factura en cero, saldo saldado), por eso
+        // aquí se usa isset y no !empty.
+        if (isset($f['total_min'])) {
+            $query->where('total', '>=', $f['total_min']);
+        }
+
+        if (isset($f['total_max'])) {
+            $query->where('total', '<=', $f['total_max']);
+        }
+
+        if (isset($f['balance_min'])) {
+            $query->where('balance_due', '>=', $f['balance_min']);
+        }
+
+        if (isset($f['balance_max'])) {
+            $query->where('balance_due', '<=', $f['balance_max']);
         }
 
         // SECURITY FIX (OWASP A01): Always filter by authenticated user's tenant.
@@ -93,7 +149,8 @@ class BillingController extends Controller
     // List Invoices
     public function index(Request $request)
     {
-        $query = $this->filteredInvoicesQuery($request);
+        $f     = $this->validatedInvoiceFilters($request);
+        $query = $this->filteredInvoicesQuery($request, $f);
 
         // Agregados del listado, misma convención que Gastos: clave `summary` en
         // la MISMA respuesta, calculada en SQL sobre el filtro completo. En un
@@ -106,8 +163,12 @@ class BillingController extends Controller
 
         // `issue_date` es una fecha sin hora y se repite (toda la facturación
         // mensual comparte día): sin desempate estable, dos páginas pueden
-        // repetir u omitir la misma factura.
-        $paginator = $query->orderBy('issue_date', 'desc')->orderBy('id', 'desc')->paginate(20);
+        // repetir u omitir la misma factura. Vale para cualquier columna de
+        // orden, no sólo la de por defecto.
+        $paginator = $query->orderBy($f['sort_by'] ?? 'issue_date', $f['sort_dir'] ?? 'desc')
+            ->orderBy('id', 'desc')
+            ->paginate($f['per_page'] ?? 20)
+            ->withQueryString();
 
         return response()->json($paginator->toArray() + [
             'summary' => [
@@ -126,8 +187,10 @@ class BillingController extends Controller
      */
     public function exportInvoices(Request $request)
     {
-        $query = $this->filteredInvoicesQuery($request)
-            ->orderBy('issue_date', 'desc')
+        $f = $this->validatedInvoiceFilters($request);
+
+        $query = $this->filteredInvoicesQuery($request, $f)
+            ->orderBy($f['sort_by'] ?? 'issue_date', $f['sort_dir'] ?? 'desc')
             ->orderBy('id', 'desc');
 
         $columns = [
@@ -236,11 +299,17 @@ class BillingController extends Controller
             'total'       => 'nullable|numeric|min:0',
             'notes'       => 'nullable|string',
             'invoice_type'=> ['nullable', 'string', 'max:50', $this->invoiceTypeRule($request)],
+            // Concepto de la línea de detalle. Opcional: si no viene, se deriva
+            // del tipo de factura.
+            'description' => 'nullable|string|max:255',
         ]);
 
         // Sin tipo explícito se mantiene el comportamiento histórico (la columna
         // nace con default 'monthly'), pero el formulario ya lo manda siempre.
         $data['invoice_type'] = $data['invoice_type'] ?? Invoice::TYPE_MONTHLY;
+
+        $description = trim((string) ($data['description'] ?? '')) ?: $this->defaultItemDescription($data);
+        unset($data['description']);
 
         $total = $data['total'] ?? 0;
         $data['status']      = 'issued';
@@ -249,11 +318,74 @@ class BillingController extends Controller
         $data['balance_due'] = $total;
         $data['currency']    = 'COP';
 
-        // Generate invoice number using BillingService
-        $data['number'] = $this->billingService->generateInvoiceNumber($data['tenant_id']);
+        // Todo o nada: la factura, su ítem y el saldo aplicado son un solo
+        // hecho. A medias dejaría justo los estados que este cambio viene a
+        // eliminar — una factura sin detalle, o un saldo descontado del cliente
+        // que no llegó a bajar ningún saldo.
+        $invoice = DB::transaction(function () use ($data, $total, $description) {
+            // Generate invoice number using BillingService
+            $data['number'] = $this->billingService->generateInvoiceNumber($data['tenant_id']);
 
-        $invoice = Invoice::create($data);
-        return response()->json($invoice, 201);
+            $invoice = Invoice::create($data);
+
+            // La factura nace CON su línea de detalle. Sin esto el PDF salía con
+            // la tabla de ítems vacía y un total suelto al pie: el cliente
+            // recibía un documento que no dice qué se le está cobrando. La
+            // automática siempre creó su ítem; sólo el alta manual se quedaba
+            // sin él.
+            if ($total > 0) {
+                InvoiceItem::create([
+                    'invoice_id'  => $invoice->id,
+                    'type'        => $this->itemTypeFor($data['invoice_type']),
+                    'description' => $description,
+                    'quantity'    => 1,
+                    'unit_price'  => $total,
+                    'amount'      => $total,
+                ]);
+            }
+
+            // Y consume el saldo a favor del cliente, igual que la automática.
+            // Sin esto, quien borraba una factura pagada y creaba otra en su
+            // lugar dejaba al cliente con saldo a favor Y con la factura nueva
+            // debiendo entera: el dinero seguía en el sistema pero no pagaba
+            // nada, y el cliente aparecía debiendo lo que ya había pagado.
+            return $this->billingService->applyCreditToManualInvoice($invoice);
+        });
+
+        return response()->json($invoice->fresh('items'), 201);
+    }
+
+    /**
+     * Concepto por defecto de la línea de una factura manual: el nombre del tipo
+     * en el catálogo del tenant y, si es mensual, el mes que cubre.
+     */
+    private function defaultItemDescription(array $data): string
+    {
+        $slug = $data['invoice_type'];
+
+        $nombre = \App\Models\InvoiceType::forTenant((int) $data['tenant_id'])
+            ->where('slug', $slug)
+            ->value('name') ?: ucfirst(str_replace('_', ' ', $slug));
+
+        if ($slug === Invoice::TYPE_MONTHLY && !empty($data['period_start'])) {
+            try {
+                return $nombre . ': ' . Carbon::parse($data['period_start'])->translatedFormat('F \d\e Y');
+            } catch (\Exception $e) {
+                // Fecha rara: mejor el nombre a secas que reventar el alta.
+            }
+        }
+
+        return $nombre;
+    }
+
+    /** Tipo de ítem coherente con el tipo de factura (`invoice_items.type`). */
+    private function itemTypeFor(string $invoiceType): string
+    {
+        return match ($invoiceType) {
+            Invoice::TYPE_MONTHLY => 'plan',
+            'installation'        => 'service',
+            default               => 'charge',
+        };
     }
 
     // Update Invoice
@@ -485,13 +617,18 @@ class BillingController extends Controller
         $customer = \App\Models\CustomerProfile::where('user_id', $customerId)->firstOrFail();
         $previous = (float) $customer->credit_balance;
 
-        $customer->credit_balance = $data['credit_balance'];
-        $customer->save();
+        // El ajuste entra por el libro de movimientos: queda con autor, motivo y
+        // saldo resultante. Antes solo se escribía a un Log::info de archivo,
+        // que en producción rota y se pierde — es decir, tocar el saldo a mano
+        // era la única operación de plata que no dejaba rastro recuperable.
+        \App\Models\CustomerCredit::adjust(
+            (int) $customerId,
+            (float) $data['credit_balance'],
+            $previous,
+            $data['reason'] ?? null
+        );
 
-        \Log::info("Billing: Credit balance adjusted for customer {$customerId}. " .
-            "Previous: {$previous}, New: {$data['credit_balance']}. " .
-            "Reason: " . ($data['reason'] ?? 'no reason given') . ". " .
-            "By user: " . $request->user()?->id);
+        $customer->refresh();
 
         return response()->json([
             'credit_balance' => (float) $customer->credit_balance,

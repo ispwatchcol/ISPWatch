@@ -124,12 +124,17 @@ class PartnerApiIsolationTest extends TestCase
             'priority'  => 'high',
         ]);
 
+        // El vocabulario de customer_installations.status es español
+        // ('pendiente', 'completada', 'cancelada') y en PostgreSQL lo respalda un
+        // CHECK. En sqlite ese CHECK no existe —la migración que hace nullable a
+        // customer_id reconstruye la tabla y lo pierde por el camino—, así que un
+        // valor inventado como 'pending' pasaba en local y sólo caía en el CI real.
         CustomerInstallation::create([
             'tenant_id'      => $tenant->id,
             'customer_id'    => $user->id,
             'scheduled_date' => '2026-08-02',
             'address'        => $marker . ' 123',
-            'status'         => 'pending',
+            'status'         => 'pendiente',
         ]);
 
         return $user;

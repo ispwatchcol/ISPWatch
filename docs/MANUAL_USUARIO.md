@@ -338,6 +338,38 @@ el PDF firmado. Antes de firmar verás **con qué número quedará** (por ejempl
 ese consecutivo va impreso dentro del documento y no se repite nunca. El prefijo lo
 configuras en **Configuración → Plantillas** (ver [17.4](#174-plantillas-de-documentos)).
 
+**Que lo firme el cliente desde su celular.** En esa misma zona, arriba del recuadro de
+firma, tienes tres botones para mandarle un **enlace personal** y que firme por su cuenta,
+sin que nadie tenga que desplazarse:
+
+| Botón | Qué hace |
+|---|---|
+| **Enviar por correo** | Le llega el enlace al correo de contacto del cliente. El sistema lo envía solo |
+| **Enviar por WhatsApp** | Abre WhatsApp con el mensaje ya escrito, listo para enviar desde tu teléfono |
+| **Solo copiar enlace** | Genera el enlace y lo copia; lo mandas por donde quieras |
+
+El cliente abre el enlace, le pedimos los **últimos 4 dígitos de su cédula**, lee el
+contrato completo en la pantalla, firma con el dedo, marca que acepta y listo: el PDF queda
+guardado en su ficha igual que si lo hubiera firmado en la oficina.
+
+Cosas que conviene saber:
+
+- **El enlace vence a las 72 horas y sirve una sola vez.**
+- **No se puede reenviar el mismo enlace.** Si el cliente lo perdió, genera uno nuevo — eso
+  anula el anterior automáticamente. Por eso, cuando lo generes, **cópialo si lo vas a
+  mandar por otro medio**: después no se puede volver a consultar.
+- **Puedes ver si ya lo abrió.** Debajo de los botones queda el historial de enlaces
+  enviados con su estado (Pendiente, Firmado, Vencido, Anulado) y la marca de *abierto*.
+  Sirve para saber si insistir sin tener que llamar.
+- **Puedes anularlo** con el botón *Anular*, si te equivocaste de número o el cliente
+  cambió de teléfono.
+- **A las 24 horas el sistema le manda un recordatorio** por correo, una sola vez, si el
+  enlace se envió por correo y sigue sin usarse.
+- **El contrato firmado a distancia lleva una constancia** al pie con la fecha, la hora y la
+  dirección IP desde la que se firmó. El firmado en la oficina no la lleva: ahí estabas tú.
+- Si el cliente **no tiene cédula registrada**, no se le piden los 4 dígitos (si no,
+  quedaría sin forma de entrar). Vale la pena registrarla antes de mandar el enlace.
+
 **Un solo contrato firmado por cliente.** Si el cliente ya tiene contrato, la zona de firma
 se reemplaza por un aviso: para generar uno nuevo hay que **eliminar primero el anterior**
 en *Documentos del cliente*. Es a propósito — así no se acumulan dos contratos casi iguales
@@ -611,7 +643,7 @@ ese mes* contra lo facturado ese mes. Si cobras mora de hace tres meses, ese din
 
 **Finanzas → Facturación.**
 
-Puedes filtrar por estado, cliente y fechas. Los estados son:
+Los estados son:
 
 | Estado | Significa |
 |---|---|
@@ -622,8 +654,34 @@ Puedes filtrar por estado, cliente y fechas. Los estados son:
 | **Vencida** | Pasó la fecha de pago sin pagarse |
 | **Anulada** | Sin efecto |
 
-El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido** y
-**correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
+El buscador de arriba busca a la vez por **número de factura**, **nombre**, **apellido**,
+**cédula** y **correo** del cliente. No distingue mayúsculas: `eliud` encuentra a *Eliud*.
+
+**Una casilla debajo de cada título**, igual que en Recaudos, para revisar las emitidas sin
+depender del buscador general:
+
+| Columna | Qué acepta |
+|---|---|
+| Número | Parte del número de factura (`0042` encuentra la `FAC-2026-0042`) |
+| Cliente | Nombre, apellido, **nombre completo**, cédula o correo |
+| Tipo | Lista con tus tipos de factura (incluye los desactivados: hay facturas viejas con ese tipo) |
+| Total | Dos casillas: **mínimo** y **máximo** |
+| Saldo | Dos casillas: **mínimo** y **máximo**. Con `Mín. 1` ves sólo las que aún deben algo |
+| Estado | Emitidas, parciales, pendientes, vencidas, pagadas, canceladas o anuladas |
+| Vencimiento | **Desde** y **hasta**: te deja ver todo lo que vence esta semana |
+
+**Limpiar** (al final de la fila de casillas, o arriba junto al selector de mes) quita todos
+los filtros de golpe. El **mes** no se borra con ese botón: tiene su propio selector.
+
+Los títulos **Número, Tipo, Total, Saldo, Estado y Vencimiento** ordenan la tabla: púlsalos
+una vez para ordenar y otra para invertir el sentido. La flecha indica por cuál estás
+ordenando.
+
+> Al escribir en el buscador, en **Número** o en **Cliente**, el selector de mes se apaga y
+> la búsqueda recorre **todos los meses**. Si no, el mes actual escondería las facturas del
+> cliente en cualquier otro periodo y la tabla parecería vacía.
+
+En el pie de la tabla eliges cuántas facturas ver por página (20, 50, 100 o 200).
 
 Arriba de la tabla verás dos totales: **Total facturado** y **Saldo pendiente** (lo que falta
 por cobrar). Ambos suman **todas** las facturas que cumplen el filtro, no sólo las de la página
@@ -646,8 +704,15 @@ El botón **Descargar PDF** genera la factura con el diseño y los datos de tu e
 ### 7.4 Crear una factura manual
 
 **Finanzas → Facturación → Nueva factura.** Necesitas indicar cliente, **tipo de
-factura**, fecha de emisión, fecha de vencimiento, periodo y total. El número lo asigna
-el sistema.
+factura**, **concepto**, fecha de emisión, fecha de vencimiento, periodo y total. El número
+lo asigna el sistema.
+
+El **concepto** es lo que el cliente verá como línea de detalle en la factura y en el PDF
+("Mensualidad agosto con descuento pactado"). Si lo dejas vacío se usa el nombre del tipo de
+factura y el mes.
+
+Si el cliente tiene **saldo a favor**, se aplica solo a esta factura, igual que en la
+facturación automática: la factura puede quedar como *Pago parcial* o directamente *Pagada*.
 
 ### 7.5 Servicios adicionales
 
@@ -721,16 +786,32 @@ Para crear uno:
 > El nombre se puede cambiar cuando quieras (las facturas viejas se ven con el nombre
 > nuevo). Lo que **no** cambia es el identificador interno que se creó al principio.
 
-### 7.6 Corregir una factura
+### 7.6 Corregir una factura: descuentos, cambios de precio y anulaciones
 
-- **Editar**: cambia fechas, total o notas.
-- **Marcar como no pagada**: revierte los pagos y restaura el saldo. Úsalo si registraste
-  un pago por error.
-- **Eliminar**: la borra.
+Es la duda más frecuente del módulo, y la respuesta corta es: **no borres la factura para
+crear otra.** Casi nunca es lo que hace falta y es la única acción que no se puede deshacer.
 
-> ⚠️ **Al eliminar una factura, el sistema NO la volverá a generar nunca.**
-> Deja una marca interna para ese cliente y ese mes. Si la borraste por error, tendrás que
-> crearla a mano. El mes siguiente se factura con normalidad.
+| Lo que quieres | Cómo se hace |
+|---|---|
+| **Hacer un descuento** | Abre la factura → recuadro *Ajuste manual / Adicional* → concepto (ej. `Descuento acordado`) y monto **en negativo** (`-10000`). El total y el saldo se recalculan solos y el descuento queda **como una línea visible** en el PDF |
+| **Cobrar algo extra** | Igual, pero con monto positivo |
+| **Cambiarle el precio** | El mismo ajuste: la diferencia, positiva o negativa. Así queda escrito **por qué** cambió |
+| **Dejarla sin efecto** | *Editar* → estado **Cancelada**. Sale de los totales y de la mora, conserva su número, y el mes sigue "ocupado" para que la automática no la duplique |
+| **Corregir fechas o notas** | *Editar factura* |
+| **Deshacer un pago mal registrado** | *Marcar como no pagada*: revierte los pagos y restaura el saldo |
+
+**Qué pasa realmente si eliminas una factura:**
+
+- El mes de esa factura **queda bloqueado**: la facturación automática **no la volverá a
+  generar nunca**. Los meses siguientes siguen normales.
+- Si tenía pagos, ese dinero **vuelve como saldo a favor** del cliente. El recaudo no se
+  borra, pero deja de estar aplicado a nada hasta que alguien lo use.
+- El **número se pierde**: el consecutivo salta y no se reutiliza.
+- Se borran también los ítems del detalle. **No hay papelera.**
+
+> ⚠️ Antes de confirmar, el aviso te dice **cuánto dinero** tiene esa factura ya aplicado.
+> **Si ahí aparece una cifra, párate**: casi siempre significa que estás borrando una factura
+> ya pagada — probablemente la de un mes anterior en vez de la del mes en curso.
 
 ### 7.7 Recordatorios de pago
 
@@ -885,6 +966,24 @@ puede ajustarlo manualmente si hace falta.
 No confundir con el **saldo pendiente arrastrado** (8.2.1): el saldo a favor es plata que
 el cliente pagó de más y se le descuenta; el arrastrado es plata que le falta por pagar y
 se le sumará.
+
+#### 8.5.1 «La factura dice $60.000 pero me cobran $36.000»
+
+Es la pregunta más común en el mostrador y casi siempre tiene la misma respuesta: el cliente
+tiene saldo a favor y el sistema se lo está descontando de esa factura.
+
+Pasa sobre todo con clientes que **pagan siempre la misma cifra redonda** aunque su plan valga
+otra cosa. Alguien con plan de $60.000 que paga $70.000 todos los meses acumula $10.000 cada mes,
+y el monto a cobrar le va bajando: primero $50.000, después $40.000, y así.
+
+Para verlo, botón **Ver movimientos** en el recuadro de Saldo a Favor. El extracto muestra de
+dónde salió cada peso y en qué factura se gastó, con fecha y saldo resultante.
+
+Si el extracto muestra un aviso de **descuadre**, no es un tema del mostrador: repórtalo al
+administrador. Significa que la suma de los movimientos no coincide con el saldo guardado.
+
+Cuando el cliente lleva meses pagando de más, lo que hay que resolver no es la factura sino el
+acuerdo: o el plan tiene el precio equivocado, o hay que devolverle o avisarle.
 
 ### 8.6 Formas de pago
 
@@ -1066,6 +1165,18 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 | **HotSpot** | Clientes que entran con usuario y contraseña en un portal |
 | **PPPoE** | Clientes con usuario y contraseña de conexión |
 | **DHCP Leases** | Asignación fija por dirección MAC |
+| **RADIUS (AAA)** | Tienes un servidor RADIUS que autentica a los clientes |
+
+> **RADIUS funciona al revés que los demás.** Con los otros métodos, ISPWatch entra al
+> router y escribe la configuración de cada cliente. Con RADIUS es el router el que
+> pregunta e ISPWatch responde, así que **los clientes ya no se cargan uno por uno en el
+> Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
+> por demora.
+>
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**.
+> La configuración del servidor RADIUS (secreto compartido, puertos, perfiles) se hace
+> **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para que
+> el sistema deje de escribirle configuración por su cuenta.
 
 Y dos opciones **adicionales** que se suman al método elegido:
 
@@ -1095,6 +1206,19 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 | **Verificar reglas de bloqueo** | Comprueba que las reglas siguen puestas |
 | **Generar script VPN** | Genera el texto para configurar el túnel del equipo |
 | **Verificar VPN** | Comprueba que el túnel está arriba |
+
+> **"La VPN dice que está conectada y aun así nada funciona en ese router."** Suele ser un
+> **túnel duplicado**: dos equipos (o el mismo equipo con una configuración vieja que quedó puesta)
+> marcando la VPN desde la **misma conexión a internet**. Se tumban entre sí cada pocos minutos y
+> el sistema pierde el control del router aunque lo veas "activo". Ahora **Verificar VPN** te lo
+> avisa. La solución es dejar **un solo túnel** por cada conexión a internet.
+
+> **Si "Fijar interfaz WAN" no logra leer las interfaces**, la ventana te explica cuál de los dos
+> saltos falló (el sistema al equipo central, o el equipo central al router) y **siempre te deja
+> escribir el nombre a mano** — `ether1`, `sfp1`, etc. También hay un botón **Reintentar lectura**:
+> vale la pena usarlo si el router acaba de reconectar, porque el fallo suele ser pasajero. Un
+> mensaje de *tiempo de espera agotado* significa que el router no alcanzó a contestar; **no**
+> significa que la contraseña esté mal.
 
 > ⚠️ **Antes de usar el corte automático: verifica la VPN y aplica las reglas de bloqueo.**
 > Si el túnel está caído o las reglas no están, el sistema marca al cliente como cortado pero
@@ -1707,6 +1831,32 @@ Que la llave viaja en la cabecera `Authorization: Bearer <llave>` y que empiece 
 con `GET /api/v1/partner/ping`, que le confirma que la llave funciona, desde qué IP lo
 está viendo el servidor y qué permisos tiene. La referencia completa está en
 `docs/API_REFERENCE.md`, sección 22.
+
+### 17.7 Auditoría
+
+**Configuración → Auditoría.** Requiere el permiso *Ver Bitácora de Auditoría*.
+
+Registra **todo lo que mueve plata**: precio de un plan, cambio de plan de un cliente, pagos,
+exclusión de facturación y configuración de facturación (días y horas de factura, corte y
+recordatorio). De cada cambio guarda **quién, cuándo, el valor anterior y el nuevo**.
+
+La columna **Origen** es la que más suele hacer falta:
+
+| Origen | Significa |
+|---|---|
+| Panel | Alguien lo cambió desde la pantalla |
+| Carga masiva | Entró por una importación de Excel |
+| Automático | Lo hizo el sistema (facturación, cortes) |
+| Consola | Un comando de mantenimiento |
+
+Es la diferencia entre «un operador subió el precio» y «lo cambió un archivo que alguien
+importó», que es justo lo que no se podía distinguir antes.
+
+Puedes filtrar por tipo de registro, acción, origen y rango de fechas, y buscar texto en la
+descripción. **Ver detalle** muestra los valores exactos antes y después.
+
+La bitácora es **solo lectura**: no se puede editar ni borrar desde el sistema, a propósito.
+Solo ves lo de tu sede.
 
 ---
 

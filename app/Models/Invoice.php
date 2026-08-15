@@ -75,6 +75,17 @@ class Invoice extends Model
             ->withTimestamps();
     }
 
+    /**
+     * Asignaciones de pago contra esta factura. Existe además de payments()
+     * porque para auditar hace falta sumar los montos asignados sin cargar los
+     * pagos: una factura `paid` cuya suma de asignaciones no llega al total fue
+     * saldada con saldo a favor.
+     */
+    public function allocations()
+    {
+        return $this->hasMany(PaymentAllocation::class);
+    }
+
     public function ticket()
     {
         return $this->belongsTo(SupportTicket::class, 'ticket_id');

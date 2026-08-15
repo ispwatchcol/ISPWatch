@@ -39,6 +39,14 @@ Schedule::command('billing:reconcile-suspensions')->hourly();
 // pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.
 Schedule::command('billing:verify-cuts')->dailyAt('07:00');
 
+// Auditoría de caja: comprueba que todo el dinero recibido siga respaldando una
+// factura o un saldo a favor. Cubre otro punto ciego — verify-monthly mira que
+// las facturas se generen y verify-cuts que se corte a quien debe, pero que el
+// dinero YA COBRADO siga cuadrando no lo miraba nadie. Se descuadra al eliminar
+// una factura ya pagada sin reaplicar el saldo que devuelve.
+// Tras las otras dos auditorías: si la mensual no corrió, eso se avisa primero.
+Schedule::command('billing:verify-orphan-payments')->dailyAt('08:00');
+
 // Salud del túnel por router (handshake WireGuard / sesión L2TP). Cubre el
 // punto ciego que dejó a CORE_TOCAIMA 8 días caído sin que nada avisara: el
 // failover de cortes solo ve fallos POR CLIENTE, nunca "este router no está".
@@ -57,6 +65,11 @@ Schedule::command('traffic:collect')->everyFiveMinutes()->withoutOverlapping();
 
 // Prune fine traffic samples older than 30 days (daily aggregates are kept).
 Schedule::command('traffic:prune --days=30')->daily();
+
+// Recordatorio de contratos sin firmar: UN solo aviso por link, a las 24h de
+// haberse enviado. A las 09:00 y no de madrugada porque el correo compite con
+// la atención del cliente, no con la del servidor.
+Schedule::command('contracts:remind-unsigned')->dailyAt('09:00');
 
 // Bitácora de la API pública: se conserva la ventana de auditoría configurada
 // en config/api_keys.php (90 días por defecto). Sin esta purga la tabla crece

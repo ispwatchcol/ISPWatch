@@ -659,6 +659,61 @@ siempre un PDF standalone vía `Pdf::loadHTML()`, nunca se embebe en otra págin
 guardada **antes** de este fix perdió su `id` de forma permanente en `body_html` (la sanitización
 corre una sola vez, al guardar) — requiere volver a pegar/guardar el HTML para recuperarlo.
 
+### Firma remota de contratos (`ContractSigningService` + `PublicContractController`)
+
+El cliente firma su contrato desde un enlace en el celular, sin cuenta ni sesión. Es el
+**único punto del sistema donde una petición sin autenticar escribe un documento legal**,
+así que casi todo el diseño gira alrededor de esa frase.
+
+**Un solo servicio para los dos caminos.** Existen dos entradas a la misma operación —
+firma presencial (`CustomerDocumentController::signContract`, con un empleado autenticado)
+y firma remota (`PublicContractController::sign`, autorizada por el token) — y todo lo
+delicado es común: el candado de un solo contrato vigente por cliente, la reserva del
+consecutivo con `lockForUpdate` y el orden entre reservar, renderizar y guardar.
+`ContractSigningService::sign()` es ese punto único; duplicarlo en dos controladores
+significaba, tarde o temprano, dos huecos distintos en la numeración del ISP.
+
+**El token no se guarda.** `contract_signature_links.token_hash` es el SHA-256 del token,
+igual que `personal_access_tokens`. El token en claro sólo existe en la respuesta que lo
+genera. Consecuencia directa y deliberada: **no hay "reenviar el mismo enlace"** — ni el
+servidor puede reconstruirlo. Un reenvío es siempre un enlace nuevo, y emitirlo revoca el
+anterior dentro de la misma transacción.
+
+**Tres pasos, no uno.** `show` (portada con lo mínimo: nombre de pila y del ISP) → `verify`
+(últimos 4 de la cédula; recién ahí sale el contrato completo) → `sign` (que **vuelve** a
+exigir esos 4 dígitos, porque un `POST` directo se saltaría `verify` sin despeinarse). Un
+cliente sin cédula registrada queda exento de la verificación: lo contrario lo dejaría
+encerrado fuera de su propio contrato.
+
+**Defensas por capa.** Por enlace: expiración (72 h), un solo uso, revocable y 5 intentos
+de verificación antes de quemarse. Por IP: `throttle:public-contract` (20/min, 120/h), que
+es lo único que se puede contar cuando no hay usuario.
+
+**Constancia de firma electrónica.** El PDF remoto lleva impresa la fecha, la hora, la IP y
+el dispositivo (`documents/blocks/signature_audit.blade.php`), y el SHA-256 del archivo
+queda en `customer_documents.content_sha256`. El hash **no** va dentro del PDF: se calcula
+sobre el archivo ya renderizado, así que incluirlo lo cambiaría. La firma **presencial no
+lleva constancia** — la presencia un empleado, y sus contratos siguen saliendo byte a byte
+como antes de que existiera este flujo.
+
+Esto es **firma electrónica simple** en el sentido de la Ley 527 de 1999: válida por
+trazabilidad y consentimiento (la casilla de aceptación es explícita y obligatoria), no
+firma digital certificada.
+
+**El contrato se lee en HTML, no en PDF.** `TemplateRenderer::renderContractHtml()` produce
+el mismo documento que `renderContract()` pero como cadena, y la página lo muestra en un
+`<iframe srcdoc>`. Un PDF embebido era justo lo que no servía: Safari iOS no renderiza un
+`data:application/pdf` en un iframe y el visor de Chrome Android abre el documento fuera de
+la página, sacando al cliente del flujo a mitad de camino. El iframe además aísla el CSS
+del documento, que trae selectores globales (`* { … }`) capaces de repintar la página
+entera.
+
+**Envío.** Correo (Brevo SMTP, automático) o enlace `wa.me` con el mensaje ya escrito, que
+dispara el operador desde su propio teléfono. No se usa la API de WhatsApp de Meta a
+propósito: sólo deja iniciar conversaciones con plantillas aprobadas una a una, mientras
+que `wa.me` funciona siempre y sin trámite previo. `sent_at` se marca **sólo** cuando el
+servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia del contrato.
+
 ### Managers MikroTik (`app/Services/MikroTik`)
 
 | Manager | Recurso RouterOS |
@@ -686,12 +741,14 @@ corre una sola vez, al guardar) — requiere volver a pegar/guardar el HTML para
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
+| `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
 | `vpn:verify-tunnels` | Alerta los routers sin túnel vivo contra el CORE |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:process-overdue` | Procesamiento manual de morosos |
 | `billing:simulate` | Simulador del ciclo completo |
 | `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
 | `billing:generate-tenant {tenant} {period} {--dry-run}` | Facturación puntual por tenant |
+| `contracts:remind-unsigned {--after=24} {--dry-run}` | **Un** recordatorio por enlace de firma sin usar (emite uno nuevo: el viejo no se puede reenviar) |
 | `traffic:collect` | Muestreo de contadores WAN |
 | `traffic:prune {--days=30}` | Poda de muestras finas |
 | `migrate:both` | **Aplica migraciones a `ispwatch_dev` y `public` a la vez** |
@@ -774,6 +831,29 @@ obligatoriamente las defensas equivalentes, acotadas a la IP del CORE:
 `ISPWatch-CORE-no-mark` (mangle output), `ISPWatch-CORE-no-nat` (srcnat) y
 `ISPWatch-CORE-pin` (ruta /32 por el gateway activo, para el caso ECMP).
 
+**Dos túneles desde una misma pública es la misma falla, en su forma peor.** No
+hace falta multi-WAN: basta con que **dos secrets distintos disquen desde la misma
+IP pública** —típicamente un equipo reaprovisionado cuyo `l2tp-client` viejo nunca
+se quitó, o dos equipos de la misma sede tras un solo NAT—. Se reciclan
+mutuamente y el router queda con dos direcciones de overlay, así que **todo lo
+que el CORE inicia hacia él muere a mitad de camino** mientras el túnel *figura
+activo*.
+
+Medido en producción el 2026-08-13 sobre `CORE_SAN_ISIDRO`:
+
+| Sesión | Overlay | `caller-id` | Uptime T1 | Uptime T2 (+67 s) |
+|---|---|---|---:|---:|
+| `6hRZFLsOnM` (CORE_SAN_ISIDRO) | 172.16.17.248 | 190.14.255.100 | 1m16s | 2m22s |
+| `SV5YANDeKg` (huérfano VEN_CORE_VEGA) | 172.16.17.249 | 190.14.255.100 | 2m20s | **45s** ← recicló |
+| `mL6b8SjaHa` (CORE_TOCAIMA) | 172.16.16.254 | 190.14.255.110 | 1h43m | 1h44m |
+
+La sesión que no compartía pública llevaba casi dos horas intacta. Por eso el
+`caller-id` **es** la señal: `PppSecretManager::sessionsSharingCallerId()` cruza la
+tabla y lo reportan `vpn:verify-tunnels` (estado `DUPLICADO`, distinto de `DOWN`
+porque el túnel no está caído), el botón *Verificar VPN* y la lectura de
+interfaces WAN. Antes nada lo miraba: se decía "✅ VPN ACTIVA" y la gestión
+fallaba a continuación sin que nada relacionara ambas cosas.
+
 **Las claves las acuña ISPWatch** con phpseclib (X25519), no el router. Si
 esperáramos a que el equipo nos entregara su clave pública haría falta un túnel
 previo para leerla, y un router recién instalado no tiene ninguno.
@@ -818,6 +898,39 @@ sequenceDiagram
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`
 para poder distinguir un fallo real de una salida vacía.
 
+**El tiempo de espera es parte del contrato, no un detalle.** El primer salto
+(APP→CORE) es rápido; el segundo (CORE→RB) incluye un *handshake* SSH completo
+contra un equipo pequeño al otro lado del overlay y tarda con frecuencia más de
+15 s antes de escribir el primer byte. Y `phpseclib` **no lanza excepción** al
+agotarse el tiempo: devuelve los bytes que alcanzaron a llegar y marca
+`isTimeout()`. Sin mirar esa marca, media respuesta —el `ISP_BEGIN` de un script
+todavía bloqueado dentro del `ssh-exec`— llegaba como `success: true` y el
+llamador la interpretaba como "el router contestó algo raro" cuando el router no
+había contestado nada.
+
+Por eso:
+
+- `executeSsh()` acepta un tiempo de espera por comando y devuelve
+  `timed_out: true` con `success: false` cuando la salida vino cortada.
+- `InterfaceReader` pide `MIKROTIK_CORE_SSH_EXEC_TIMEOUT` segundos (25 por
+  defecto, acotado a 10-50 para no rebasar el límite del *gateway*) y **una
+  variante que expira termina el intento**: las otras dos se colgarían igual
+  contra el mismo cliente mudo y agotarían el presupuesto de la petición.
+- `ISP_BEGIN` sin `ISP_END` es su propio estado (`truncated`), no una salida
+  legado sin centinelas: el script sí arrancó, sólo que dejamos de escuchar.
+
+**El túnel local miente si se le pregunta mal.** Para hablar API con un cliente,
+`SshTunnelManager` levanta un `ssh -L`. Ese proceso **acepta la conexión local de
+inmediato** y sólo después pide al CORE que abra el canal remoto; si el CORE no
+puede, ssh cierra el socket local. Un `fsockopen()` a secas, por tanto, daba
+"alcanzable" aunque al otro lado no hubiera nadie —y el fallo reaparecía más
+tarde disfrazado de credenciales rechazadas—. `tryDirectClientConnection()`
+espera 400 ms tras conectar: un *timeout* de lectura es la señal **buena** (la
+API MikroTik nunca habla primero) y un EOF inmediato significa que el canal se
+cayó. El motivo, traducido del stderr de ssh, queda en `lastProbeError()`
+—`administratively prohibited` es el CORE sin `/ip ssh set forwarding-enabled=both`,
+no un problema del cliente—.
+
 ### Métodos de control (excluyentes)
 
 Un router usa **uno y sólo uno** de estos modos, resuelto por
@@ -825,7 +938,9 @@ Un router usa **uno y sólo uno** de estos modos, resuelto por
 
 ```mermaid
 flowchart TD
-    R{{"Router"}} --> Q{simple_queue?}
+    R{{"Router"}} --> RA{radius?}
+    RA -- sí --> RAM["RADIUS (AAA)<br/>el router pregunta, ISPWatch responde"]
+    RA -- no --> Q{simple_queue?}
     Q -- sí --> QM["Simple Queue<br/>/queue simple"]
     Q -- no --> P{control_pcq?}
     P -- sí --> PM["PCQ + address-list"]
@@ -840,6 +955,49 @@ flowchart TD
 
 Sobre el modo elegido se pueden aplicar **aditivos**: `ip_bindings` (ARP estático) y
 `amarre` (drop por par IP/MAC), gestionados por `IpMacBindingManager`.
+
+**RADIUS es el único modo que invierte el flujo.** Los otros cinco *empujan*:
+ISPWatch abre SSH y escribe la queue, el secret o el lease en el RouterBoard.
+Con RADIUS el router *pregunta* en cada conexión y la respuesta sale de la BD,
+así que el aprovisionamiento por-cliente **no escribe nada en el equipo**.
+
+Consecuencias prácticas:
+
+| | Cinco modos clásicos | RADIUS |
+|---|---|---|
+| Alta de cliente | Sesión SSH al router (~17-34 s) | Escritura en Postgres |
+| Carga masiva | N sesiones SSH → 504 del gateway | N filas → sin red |
+| Credenciales de gestión del router | Obligatorias | No hacen falta |
+| Config en el equipo | Por cliente | Una vez por router |
+| Corte por mora | Regla de firewall + reconciliar contra el RB | Lo aplica el AAA externo; ISPWatch lo ordena y lo concilia |
+
+Por eso `provisionByControlMode()` resuelve RADIUS y **retorna antes** de
+llamar a `RouterEndpointResolver`: resolver el endpoint abre SSH contra el CORE
+para preguntar qué IP tiene realmente el router, y en este modo ese dato no se
+usa para nada.
+
+### Dónde termina la responsabilidad de ISPWatch
+
+`radius = true` es **una sola bandera, y es a propósito**. ISPWatch no guarda el
+secreto del NAS, ni el puerto de CoA, ni los perfiles; tampoco sesiones ni
+contabilidad. Todo eso vive en el servidor AAA, que lo opera quien lo tiene.
+
+La razón es de producto. Que ISPWatch respondiera cada `Access-Request` lo
+pondría en el **camino crítico de la autenticación**: un despliegue dejaría sin
+internet a los abonados de ese ISP, no sin panel. Para un SaaS multi-inquilino
+ese canje no cierra — obliga a sostener un SLA de red con un producto de gestión.
+
+El diseño completo —`rlm_rest`, cola de CoA y espejo de sesiones— quedó archivado
+en la rama `spike/radius-rlm-rest`. Sigue siendo válido para un ISP **sin**
+orquestador propio y se retoma si aparece uno que lo pida.
+
+**Contrapartida que hay que cubrir:** si el corte por mora lo ejecuta un tercero,
+ISPWatch necesita confirmación técnica de vuelta y reconciliación — o el cobro
+depende de que alguien más ejecute sin que podamos verificarlo. Ver el § 33 de
+[`BITACORA_TECNICA.md`](BITACORA_TECNICA.md).
+
+El detalle de versión y empaquetado del servidor FreeRADIUS está en
+[`RADIUS_FREERADIUS.md`](RADIUS_FREERADIUS.md).
 
 ### Bloqueo de morosos
 
@@ -891,6 +1049,8 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:send-reminders` | `withoutOverlapping`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
+| Diario 08:00 | `billing:verify-orphan-payments` | Auditoría de caja: `pagos == aplicado + saldo a favor` |
+| Diario 09:00 | `contracts:remind-unsigned` | **Un solo** aviso por enlace de firma, a las 24 h. Insistir a diario acabaría marcando como spam el dominio del ISP, y con él las facturas y los avisos de corte |
 | Cada 30 min | `vpn:verify-tunnels` | Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
 | Cada 5 min | `traffic:collect` | Sólo routers con `historial_trafico = true` |
 | Diario | `traffic:prune --days=30` | Conserva los agregados diarios |
@@ -1103,6 +1263,79 @@ comprueba además el tenant en cada acción.
 El texto plano se muestra **una sola vez**; en la base sólo queda el hash de
 Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero conserva la fila:
 un registro de auditoría que apunta a una llave borrada no sirve de nada.
+
+---
+
+## 15. Trazabilidad del flujo de caja
+
+Dos piezas separadas que resuelven dos problemas distintos: **dónde está el saldo del cliente** y
+**quién cambió qué**.
+
+### 15.1 El libro del saldo a favor (`customer_credits`)
+
+Hasta 2026-08-11 el saldo a favor vivía solo como el escalar `customer_profile.credit_balance`: se
+sumaba al recibir un pago en exceso y se restaba al aplicarlo a una factura, **sin asiento de
+ninguna de las dos operaciones**. Eso producía facturas en estado `paid` sin una sola fila en
+`payment_allocations` (66 pagos por $4.6M en producción) y hacía imposible explicar en el mostrador
+por qué una factura de $60.000 se cobraba en $36.000.
+
+`customer_credits` es el espejo positivo de `invoice_carryovers`, que ya resolvía lo mismo para los
+faltantes y con el mismo argumento: **para poder revertir hay que guardar movimientos, no un
+acumulado**. `credit_balance` queda como caché denormalizada, igual que `carried_in`/`carried_out`
+en `invoices`.
+
+Toda escritura pasa por `CustomerCredit`; escribir `credit_balance` a pelo rompe el libro:
+
+| Método | Cuándo |
+|---|---|
+| `earn()` | Un pago dejó excedente (`allocatePayment`) |
+| `applyToInvoice()` | El saldo pagó una factura (`applyCreditToInvoice`, paso 5 de la mensual) |
+| `adjust()` | Un operador corrigió el saldo a mano (`BillingController::updateCreditBalance`) |
+| `reverseForPayment()` | Se anuló o corrigió un pago (`reversePaymentAllocations`) |
+
+El campo `consumed` de cada `earned` es lo que hace correcta la reversión. Antes se restaba el
+excedente completo sin mirar si ya se había gastado, y el `max(0, ...)` tapaba la pérdida: anular
+un pago viejo borraba saldo que venía de otros pagos.
+
+### 15.2 La bitácora (`audit_logs` + `MoneyAuditObserver`)
+
+**Por qué observers y no instrumentación de controladores.** Los cambios entran por cuatro puertas
+—panel, API, carga masiva y consola— y solo el observer las cubre todas. El caso real que lo
+motivó: un precio se cambió desde `PlanController`, pero los planes equivocados de la otra sede se
+reasignaron desde `CustomersUpdateImport`, que no pasa por ningún controlador de planes.
+
+Lista blanca por modelo, deliberadamente corta —auditarlo todo haría la bitácora ilegible:
+
+| Modelo | Se vigila |
+|---|---|
+| `Plan` | `cost_product`, `name`, `is_courtesy`, primera factura |
+| `CustomerProfile` | `service_id`, `exclude_from_billing`, `service_status` |
+| `Payment` | `amount`, `payment_date`, `status`, `method` |
+| `Invoice` | `total` (no `balance_due`: cambia en cada pago y ya deja asiento) |
+| `Billing` | días y horas de facturación, corte y recordatorio; topes; política de primera factura |
+
+`credit_balance` queda **fuera** a propósito: lo cubre `customer_credits` con más detalle.
+
+`AuditContext` resuelve autor y origen. El `source` (`web`/`api`/`console`/`import`/`scheduler`) es
+lo que distingue "lo cambió un operador" de "lo cambió un Excel"; `AuditContext::as()` permite a un
+proceso marcar sus escrituras sin propagar el origen por toda la pila de llamadas.
+
+### 15.3 Reconstrucción del histórico
+
+`audit:backfill-money` replica cronológicamente los excedentes de pago y los créditos aplicados.
+**No mueve plata:** si el saldo reconstruido no coincide con el real, deja el real intacto y
+escribe un movimiento de descuadre explícito. Un libro que dice "aquí faltan $X sin explicar" vale
+más que uno que cuadra porque le cambió el saldo a alguien.
+
+Lee los tres conjuntos completos en **tres consultas**, arma el replay en memoria e inserta por
+lotes de 500 en transacciones cortas. La primera versión reutilizaba los métodos del modelo cliente
+por cliente —más elegante— pero eran 4-5 viajes a la base por movimiento: contra Supabase tardaba
+más de 10 minutos con la conexión `idle in transaction`, que sobre un pooler termina en conexión
+cortada a medio camino. La lógica FIFO de `consumed` está replicada a mano en el comando y los
+tests de `tests/Feature/Audit/` la fijan por ambos lados.
+
+Es **idempotente**: salta a los clientes que ya tienen libro. Para rehacer un intervalo —por
+ejemplo el que va entre correrlo y desplegar el código— hace falta `--force`.
 
 ---
 

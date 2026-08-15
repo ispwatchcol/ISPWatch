@@ -133,4 +133,18 @@ export default {
     signContract(id, payload) {
         return apiClient.post(`/customers/${id}/contract-sign`, payload)
     },
+
+    // ─── Firma remota (links) ───
+    // El token en claro sólo viene en la respuesta de createContractLink: no
+    // se guarda, así que no hay forma de recuperarlo después. "Reenviar" es
+    // siempre crear uno nuevo, y eso revoca el anterior.
+    getContractLinks(id) {
+        return apiClient.get(`/customers/${id}/contract-links`)
+    },
+    createContractLink(id, payload = {}) {
+        return apiClient.post(`/customers/${id}/contract-links`, payload)
+    },
+    revokeContractLink(linkId) {
+        return apiClient.delete(`/customers/contract-links/${linkId}`)
+    },
 }

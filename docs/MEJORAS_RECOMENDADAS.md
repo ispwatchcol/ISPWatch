@@ -286,6 +286,22 @@ permiso. Cubierto por 7 tests.
 suite. Es lo único que puede detectar el booleano comparado con cadena, el `LIKE` sensible a
 mayúsculas y los índices parciales.
 
+**Dos divergencias más, medidas el 2026-08-13** (§ 28 de la bitácora), que conviene tener
+presentes al escribir pruebas — ninguna se va a "arreglar", son propiedades del motor:
+
+1. **SQLite pierde el CHECK de un `enum` si la tabla pasa por un `->change()`.** Laravel
+   implementa `change()` en SQLite reconstruyendo la tabla, y el CHECK inline no sobrevive a la
+   reconstrucción. En PostgreSQL sí sobrevive. Efecto práctico: **un valor de enum inventado pasa
+   en local y sólo revienta en el CI real** — fue el caso de `customer_installations.status`, donde
+   un test insertaba `'pending'` contra un vocabulario que es `'pendiente' | 'completada' |
+   'cancelada'`. Al escribir una prueba, tomar el valor del enum de la migración, no de memoria.
+
+2. **Un `try/catch` no protege una transacción de PostgreSQL.** Una sentencia fallida deja la
+   transacción abortada y todo lo posterior revienta con `25P02`, aunque la excepción se haya
+   atrapado; sólo un `ROLLBACK TO SAVEPOINT` la recupera. Toda escritura accesoria que no deba
+   tumbar la operación principal (bitácora, métricas, notificaciones) tiene que ir envuelta en
+   `transaction()` para que emita su propio SAVEPOINT. En sqlite la diferencia es invisible.
+
 ### ✅ M-3 · `LIKE` sensible a mayúsculas sin corregir en todas partes
 
 **Aplicado.** `SearchMacrosServiceProvider` añade las macros `whereLike` y `orWhereLike`,
@@ -410,6 +426,75 @@ que cubre el flujo de acceso real.
 ---
 
 ## 7. Pendientes
+
+### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
+
+**Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.
+
+El diseño RADIUS usa `rlm_rest` con ISPWatch como fuente de verdad, lo que pone a la API en el
+camino crítico de cada autenticación. Para que una caída de ISPWatch no deje a toda la red sin
+conectar, FreeRADIUS cae a un **snapshot SQL local** que se sincroniza cada 5 minutos.
+
+La consecuencia: un cliente cortado por mora hace **menos de 5 minutos** puede reconectarse
+durante una caída de ISPWatch, porque el snapshot todavía lo tiene al día.
+
+**Por qué se acepta.** La alternativa es rechazar toda autenticación que no pueda confirmarse
+contra la BD, o sea dejar sin servicio a los clientes al día para no darle 5 minutos de gracia a
+un moroso. El compromiso está deliberadamente del lado de la continuidad del servicio.
+
+**Si alguna vez molesta**, la salida no es bajar el intervalo (multiplica la carga de sync sin
+cerrar la ventana): es que el pipeline de corte escriba el estado del moroso directo al snapshot
+además de a Postgres, para que la degradación herede el corte al instante.
+
+### 🟡 P-RADIUS-2 · Doble contabilidad de tráfico sin fuente autoritativa
+
+`radius_sessions` (octetos por sesión, vía Accounting) y el historial WAN existente
+(`traffic_samples`, contadores por interfaz) miden cosas distintas y **no van a coincidir**: uno
+cuenta tráfico de cliente autenticado, el otro todo lo que cruza la WAN del router.
+
+Antes de mostrar ambos en el panel hay que decidir cuál manda para cada pregunta, o soporte va a
+recibir llamadas por dos números distintos en dos pantallas de la misma app.
+
+### 🔴 P-00 · 91 clientes con dinero recibido que no respalda nada (producción)
+
+Detectado el 2026-08-13 con el comando nuevo `billing:verify-orphan-payments`, que comprueba
+por cliente la invariante `sum(pagos) == sum(aplicado a facturas) + saldo a favor`:
+
+| Medida | Valor |
+|---|---|
+| Clientes descuadrados | **91** |
+| Importe sin respaldo | **$5.709.350** |
+| Periodos con lápida (`suppressed`) | 27 — 8 de julio, 19 de agosto |
+| Facturas sin ningún ítem | 37 |
+
+Es dinero **recibido de verdad**: el recaudo sigue en la tabla, pero hoy no paga ninguna
+factura ni figura como saldo a favor del cliente. La causa dominante es el flujo de "borrar
+la factura y crear otra": el borrado devuelve el importe como saldo a favor y después, o se
+ajusta ese saldo a mano, o la factura de reemplazo nace sin consumirlo. Los tres huecos de
+código ya están tapados (§ 30 de la bitácora); **los datos ya descuadrados no**.
+
+**Recomendación.** No corregirlo en bloque: cada caso necesita criterio, y un script masivo
+movería dinero real sobre una suposición. Recorrer la lista por importe descendente
+(`php artisan billing:verify-orphan-payments --limit=100`) y por cada cliente decidir entre
+devolver el importe al saldo a favor o reasignar el pago a la factura que corresponda.
+
+**Antes de empezar, desplegar `feat/money-audit-trail`**: parte del descuadre puede venir del
+bug de anulación de pagos que esa rama arregla, y sin ella las correcciones no quedan
+registradas en el libro de auditoría — que es justamente lo que se necesita aquí.
+
+### 📋 P-0 · La devolución de saldo al borrar una factura no des-consume el origen
+
+Al borrar una factura que había sido pagada con saldo a favor, el saldo vuelve al cliente como un
+movimiento `adjusted`, pero **no se des-consumen los `earned` originales** que lo habían pagado.
+
+Es el lado conservador a propósito —nunca destruye saldo, que es el error caro— a costa de que
+anular después el pago de origen ya no arrastre esa devolución: se devolvería solo la parte que
+nunca se consumió, y el saldo restituido se queda con el cliente.
+
+**Recomendación.** Si algún día hace falta exactitud total, `CustomerCredit` tendría que
+des-consumir en orden LIFO los `earned` que financiaron esa factura, en vez de compensar con un
+ajuste. Hoy no compensa la complejidad: el caso es raro y el error resultante siempre favorece al
+cliente, nunca al ISP.
 
 ### 📋 P-1 · Falta un permiso `delete_clients`
 
@@ -968,6 +1053,61 @@ hizo aquí porque tocar la confianza de proxies afecta a **toda** la aplicación
 contra producción. Mientras tanto está documentado en `ARQUITECTURA.md` § 14 y en el manual
 no se promete más de lo que la allowlist da.
 
+### 📋 P-21 · El resto de los managers siguen con la ventana corta para el `ssh-exec` anidado
+
+**Detectado:** 2026-08-13, al arreglar la lectura de interfaces WAN (`BITACORA_TECNICA.md` § 27).
+
+La causa raíz de aquel fallo —15 s de espera para un comando que obliga al CORE a abrir un SSH
+**anidado** contra un RouterBOARD por el overlay— no es exclusiva de `InterfaceReader`. Es el
+mismo `$this->timeout` por defecto que usan `SuspensionManager`, `QueueManager`,
+`PppSecretManager`, `PppProfileManager`, `PcqManager`, `HotspotManager`, `DhcpLeaseManager`,
+`IpMacBindingManager` y `CustomerDeprovisionManager` cuando llaman a `executeSsh()` sin segundo
+argumento.
+
+**Lo que ya está cubierto:** desde este cambio, una salida truncada por tiempo deja de pasar por
+éxito — `executeSsh()` devuelve `success: false` con `timed_out: true`. Ninguno de esos managers
+puede volver a dar por aplicado un cambio que nunca se escribió por esta vía.
+
+**Lo que falta:** darles la ventana adecuada. Hoy, contra un router lento, esas operaciones
+fallan **correctamente pero de más**: el corte o el alta se reporta fallido cuando habría
+funcionado con unos segundos más. No se hizo aquí porque varias de ellas corren en lote
+(aprovisionamiento masivo, `billing:auto-cut`) y subir la espera por comando multiplica el
+tiempo total del lote — hay que decidir el presupuesto por lote, no solo por comando, y eso
+merece su propio cambio medido contra producción.
+
+**Mientras tanto:** `MIKROTIK_CORE_SSH_TIMEOUT` permite subir el valor por defecto de toda la
+flota sin tocar código, a costa de alargar los lotes.
+
+### P-13 · El enlace de firma no se envía solo por WhatsApp
+
+**Detectado:** 2026-08-14, al implementar la firma remota (§ 31 de `BITACORA_TECNICA.md`).
+**Prioridad:** media · **Estado:** deuda aceptada conscientemente.
+
+Hoy el botón *Enviar por WhatsApp* abre `wa.me` con el mensaje ya escrito y **el operador lo
+envía desde su teléfono**. Funciona siempre y no depende de nadie, pero no es automático: no se
+puede disparar desde el alta de un cliente ni desde el recordatorio programado, que por eso hoy
+sólo llega por correo.
+
+**Por qué no se hizo:** `WhatsAppService` usa la API de Meta, que sólo permite **iniciar**
+conversaciones con plantillas aprobadas una a una en Meta Business. Escribir el método era
+trivial; lo que no se puede escribir desde el repositorio es la plantilla aprobada, así que el
+envío habría fallado en silencio en producción — peor que no ofrecerlo.
+
+**Camino natural:** hacerlo por Converza, que ya tiene la sesión de WhatsApp abierta y ya lee
+eventos de ISPWatch por cursor de id para la falla masiva (§ *Falla masiva*). El mismo patrón
+—ISPWatch registra el evento, Converza envía— evita depender de plantillas de Meta y cierra de
+paso el recordatorio automático por WhatsApp.
+
+### P-14 · Falta el QR del enlace de firma para el técnico en campo
+
+**Detectado:** 2026-08-14 · **Prioridad:** baja · **Estado:** no implementado.
+
+Un QR en pantalla dejaría al técnico pasar el enlace al celular del cliente sin depender de que
+al cliente le llegue el WhatsApp ni de que tenga datos. Se dejó fuera porque exige una
+dependencia npm nueva (`qrcode`) para un caso que hoy cubren el `wa.me`, el correo y el botón de
+copiar — y porque el técnico que está delante del cliente tiene a mano el camino presencial, que
+ya funcionaba.
+
 
 ### 📋 P-21 · Un tenant puede pisar un código de catálogo global
 
@@ -1075,6 +1215,9 @@ Hoy no hay ninguna, pero conviene no alargar la convivencia.
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
 | **P-18** | Las plantillas guardadas antes del 2026-08-06 perdieron sus reglas `body`/`html` | El sanitizer las descartaba en silencio y sólo se guarda el HTML ya saneado: el original no existe | 🟡 Media | 📋 Pendiente (hay que repegar el HTML; sin migración posible) |
+| **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | 📋 Pendiente |
+| **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
+| **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 
 ---
 

@@ -123,6 +123,10 @@
         </div>
     </div>
 
+    @if(!empty($signatureAudit))
+        @include('documents.blocks.signature_audit', ['audit' => $signatureAudit])
+    @endif
+
     <div class="footer">
         Documento generado electrónicamente por ISPWatch — {{ $date }}
         @if($tenant->document_footer_text)

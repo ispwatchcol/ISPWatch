@@ -48,7 +48,7 @@ class BlockPlaceholderResolver
      * CustomerDocumentController::signContract() sí la capturaba y se la
      * pasaba a renderContract(); simplemente se perdía en silencio.
      */
-    public function forContract(Tenant $tenant, ?string $signature = null): array
+    public function forContract(Tenant $tenant, ?string $signature = null, ?array $signatureAudit = null): array
     {
         return [
             'empresa.logo' => $this->resolveLogo($tenant, 'empresa.logo', (int) $tenant->id),
@@ -58,6 +58,17 @@ class BlockPlaceholderResolver
                 'contrato.firma_cliente',
                 (int) $tenant->id
             ),
+            // En modo avanzado no hay shell donde imprimir la constancia de
+            // firma remota, así que es la única vía para que el contrato del
+            // tenant la lleve. Vacío en la firma presencial y en las vistas
+            // previas: el bloque desaparece en vez de imprimir un recuadro con
+            // guiones donde deberían ir la IP y la hora reales.
+            'contrato.constancia_firma' => $signatureAudit ? $this->safeRender(
+                'documents.blocks.signature_audit',
+                ['audit' => $signatureAudit],
+                'contrato.constancia_firma',
+                (int) $tenant->id
+            ) : '',
         ];
     }
 

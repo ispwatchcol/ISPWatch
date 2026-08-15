@@ -149,12 +149,21 @@ class DiagnoseRouterWan extends Command
         if (!$result['success']) {
             $this->info('[5/5] Ejecutando los 3 comandos ssh-exec en crudo para ver la respuesta literal de RouterOS...');
             $variants = $this->buildVariantsForDebug($clientIp, $router->user_rb, $router->password_rb, $sshPort);
+            // Same window InterfaceReader uses, or the raw run would time out
+            // earlier than production and show a different (shorter) picture.
+            $timeout = max(10, min((int) env('MIKROTIK_CORE_SSH_EXEC_TIMEOUT', 25), 50));
+            $this->line("  (tiempo de espera por variante: {$timeout}s)");
             foreach ($variants as $name => $cmd) {
                 $this->line('');
                 $this->line("  ── variant: {$name} ──");
                 $this->line('  comando enviado:');
                 $this->line('    ' . str_replace("\n", "\n    ", $cmd));
-                $r = $cm->executeSsh($cmd);
+                $r = $cm->executeSsh($cmd, $timeout);
+                if (!empty($r['timed_out'])) {
+                    $this->warn("  TIMEOUT: el CORE no terminó de responder en {$timeout}s — el ssh-exec se quedó esperando al cliente.");
+                    $this->line('  salida parcial recibida: ' . var_export(substr((string) ($r['output'] ?? ''), 0, 200), true));
+                    continue;
+                }
                 if (!($r['success'] ?? false)) {
                     $this->line('  ERROR ejecutando: ' . ($r['message'] ?? '(sin mensaje)'));
                     continue;

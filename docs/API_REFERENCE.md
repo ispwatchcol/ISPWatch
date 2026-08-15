@@ -483,7 +483,10 @@ contrato lo comprueba antes de reservar el consecutivo, así que un `409` no gas
 | `POST` | `/api/customers/{customer}/documents` | Sube documento (`cedula`, `instalacion`, `contrato`, `otros`) |
 | `DELETE` | `/api/customers/documents/{document}` | Elimina |
 | `GET` | `/api/customers/{customer}/contract-data` | Datos para render del contrato |
-| `POST` | `/api/customers/{customer}/contract-sign` | Firma del contrato |
+| `POST` | `/api/customers/{customer}/contract-sign` | Firma **presencial** del contrato |
+| `GET` | `/api/customers/{customer}/contract-links` | Historial de enlaces de firma remota |
+| `POST` | `/api/customers/{customer}/contract-links` | Emite un enlace de firma remota |
+| `DELETE` | `/api/customers/contract-links/{link}` | Anula un enlace |
 
 Los archivos residen en **S3 privado**. Cada documento expone un atributo `url` que es una
 **URL firmada válida 30 minutos** (`Storage::disk('s3')->temporaryUrl`).
@@ -531,6 +534,84 @@ Dos comportamientos que conviene conocer:
 El nombre del archivo **no** es el número: se deriva de él saneado a ASCII seguro
 (`ContractNumberService::fileName()`), porque una `/` en la clave de S3 crearía una carpeta
 fantasma. `CNO/00001` se guarda como `contrato_CNO-00001.pdf`.
+
+### Firma remota por enlace
+
+Emitir un enlace **revoca el que estuviera vivo** para ese cliente: dos enlaces válidos a
+la vez sólo sirven para que el cliente firme por el que nadie está siguiendo.
+
+```jsonc
+// POST /api/customers/{customer}/contract-links → 201
+// body: { "channel": "email" | "whatsapp" | "manual", "ttl_hours": 72 }
+{
+  "message": "Enlace generado y enviado por correo.",
+  "url": "https://ispwatch-crm.app/firmar/<token>",   // ÚNICA vez que aparece el token
+  "whatsapp_url": "https://wa.me/573001234567?text=...", // null si no hay teléfono
+  "mail_sent": true,
+  "mail_error": null,
+  "link": { "id": 12, "status": "pending", "expires_at": "...", "opened_at": null }
+}
+```
+
+`url` sólo se devuelve **aquí**: en la base de datos vive el SHA-256 del token, así que ni
+el servidor puede reconstruirlo. Por eso **no existe** un endpoint de "reenviar": un
+reenvío es siempre un enlace nuevo. `GET .../contract-links` nunca expone el token.
+
+Un fallo de SMTP **no** invalida el enlace ni devuelve `500`: responde `201` con
+`mail_sent: false` y `mail_error`, para que el operador copie la URL y la mande por otro
+medio. Devuelve `409` si el cliente ya tiene un contrato firmado.
+
+### Rutas públicas de firma (sin autenticación)
+
+`throttle:public-contract` — 20/min y 120/hora por IP. El token del enlace **es** la
+autorización: no hay usuario del que derivar el tenant, y el controlador parte siempre del
+enlace para saber de qué cliente habla.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/public/contract/{token}` | Portada: estado del enlace y datos mínimos |
+| `POST` | `/api/public/contract/{token}/verify` | Confirma identidad y devuelve el contrato |
+| `POST` | `/api/public/contract/{token}/sign` | Firma y genera el PDF |
+
+```jsonc
+// GET /api/public/contract/{token} → 200
+{
+  "status": "pending",            // pending | signed | expired | revoked | locked
+  "company_name": "Fibra XYZ",
+  "customer_first_name": "Juan",  // sólo el nombre de pila: ver nota
+  "requires_verification": true,
+  "expires_at": "2026-08-16T15:00:00-05:00"
+  // si status = signed, además: contract_number, document_url, signed_at
+}
+
+// POST /api/public/contract/{token}/verify  { "document_last4": "7890" } → 200
+{ "status": "verified", "customer": {...}, "plan": {...}, "contract_html": "<html>…" }
+
+// POST /api/public/contract/{token}/sign
+// { "signature": "data:image/png;base64,…", "document_last4": "7890", "accepted": true } → 201
+{ "status": "signed", "contract_number": "CTR-00042", "document_url": "https://…" }
+```
+
+Cuatro decisiones que conviene conocer:
+
+- **La portada no filtra datos personales.** Antes de verificar sólo salen el nombre de
+  pila y el del ISP — nunca cédula, dirección ni plan. Quien reciba un enlace reenviado
+  por error no puede cosechar datos del cliente.
+- **`sign` vuelve a exigir `document_last4`.** No confía en que se haya pasado por
+  `verify`: un `POST` directo se saltaría el único control de identidad del flujo. Un
+  cliente **sin cédula registrada** queda exento (`requires_verification: false`), porque
+  si no quedaría encerrado fuera de su propio contrato.
+- **`409` ≠ `404`.** `404` es token inexistente; `409` es "el enlace es válido pero ya no
+  sirve" (`signed`/`revoked`/`expired`/`locked`), que el front necesita distinguir para
+  decir "ya firmaste" en vez de "enlace inválido". Un enlace ya firmado devuelve el PDF en
+  vez de un error: es el cliente volviendo a buscar su copia.
+- **`contract_html`, no un PDF embebido.** Safari iOS no renderiza un
+  `data:application/pdf` dentro de un iframe y el visor de Chrome Android saca al cliente
+  de la página. El HTML se muestra en un `<iframe srcdoc>` que lo aísla del CSS de la
+  página y le da su propio scroll.
+
+Cinco intentos fallidos de verificación (`ContractSignatureLink::MAX_FAILED_ATTEMPTS`)
+queman el enlace de forma permanente, incluso ante los dígitos correctos.
 
 ---
 
@@ -706,10 +787,32 @@ Tres decisiones que conviene no revertir sin pensarlo:
 `total_expenses` y `balance` llegan en **`null`** —no en `0`— cuando el usuario no tiene
 `view_expenses`, para que el panel oculte esas tarjetas en vez de mostrar un balance falso.
 
-**`GET /api/billing/invoices`** — listado paginado (20 por página, orden
-`issue_date` descendente con desempate por `id`). Filtros opcionales combinables
-con `AND`: `search` (número o cliente), `customer_id`, `status`, `invoice_type`,
-`period` (`YYYY-MM` sobre `period_start`), `page`.
+**`GET /api/billing/invoices`** — listado paginado (20 por página por defecto,
+orden `issue_date` descendente con desempate por `id`). Todos los parámetros son
+opcionales y se combinan con `AND`:
+
+| Parámetro | Reglas | Filtra |
+|---|---|---|
+| `search` | texto | Búsqueda general: número **o** cliente |
+| `number` | texto | Número de factura (coincidencia parcial) |
+| `customer` | texto | Nombre, apellido, **nombre completo**, cédula, usuario o correo |
+| `customer_id` | entero | Un cliente exacto |
+| `status` | texto | Estado exacto (`issued`, `pending`, `partial`, `paid`, `overdue`, `cancelled`, `void`) |
+| `invoice_type` | texto | Slug del catálogo de tipos, incluidos los inactivos |
+| `period` | `YYYY-MM` | Mes de `period_start` |
+| `due_from`, `due_to` | fecha | Rango de `due_date`, inclusive |
+| `total_min`, `total_max` | numérico | Rango de `total`, inclusive |
+| `balance_min`, `balance_max` | numérico | Rango de `balance_due`, inclusive |
+| `sort_by` | `issue_date`\|`due_date`\|`number`\|`total`\|`balance_due`\|`status`\|`invoice_type` | Columna de orden |
+| `sort_dir` | `asc`\|`desc` | Sentido (por defecto `desc`) |
+| `per_page` | entero 1–200 | Tamaño de página |
+| `page` | entero | Página |
+
+Las búsquedas de texto son insensibles a mayúsculas en PostgreSQL y en SQLite
+(macros `whereLike`/`orWhereLike`, ver `SearchMacrosServiceProvider`).
+
+> `sort_by` es lista blanca en la validación: entra directo en el `ORDER BY`, así
+> que cualquier otro valor devuelve **422**, no una consulta con SQL ajeno.
 
 > La vista de Facturación acepta `invoice_type`, `status`, `search` y `period`
 > **también por la URL del frontend** (`/billing/invoices?invoice_type=…`). Es lo
@@ -729,6 +832,9 @@ del **filtro completo** (no de la página):
 > aparezcan en `data`: una factura anulada no es dinero facturado. Misma regla que
 > los gastos anulados. `balance_due` es lo que falta por cobrar de las facturas
 > que cumplen el filtro.
+
+> El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
+> query param se ignora.
 
 ### Exportación a CSV
 
@@ -763,9 +869,25 @@ trampa 28 en `MANUAL_DESARROLLADOR.md` antes de cambiar cualquiera de los tres.
 | `total` | numérico ≥ 0 |
 | `notes` | texto |
 | `invoice_type` | opcional, slug **activo** del catálogo del tenant (`GET /api/billing/invoice-types`). Por defecto `monthly` |
+| `description` | opcional, máx. 255. Concepto de la línea de detalle; por defecto, el nombre del tipo (y el mes, si es mensual) |
 
 El servidor fija `status = issued`, `subtotal = total = balance_due`, `currency = COP` y
 genera `number` con `BillingService::generateInvoiceNumber()` (seguro ante concurrencia).
+
+Además, **en la misma transacción**:
+
+1. Crea **un `invoice_item`** con el concepto y el importe, salvo que `total` sea 0.
+   Antes no lo hacía y el PDF salía con la tabla de detalle vacía y un total suelto al pie.
+2. Aplica el **saldo a favor** del cliente (`applyCreditToManualInvoice`), igual que la
+   generación automática. La respuesta puede por tanto llegar con `balance_due < total` y
+   `status` en `partial` o `paid`.
+
+> Esto último importa al reemplazar una factura: borrar una factura pagada devuelve el dinero
+> como saldo a favor, y hasta ahora la factura de reemplazo nacía debiendo el total **con el
+> saldo del cliente intacto al lado** — el cliente aparecía debiendo lo que ya había pagado.
+
+Lo que el alta manual **sigue sin hacer** (y la automática sí): arrastre de abonos parciales,
+servicios adicionales recurrentes y aviso al cliente.
 **Responde `201`** con la factura.
 
 > `invoice_type` se valida contra el catálogo: un slug inexistente, inactivo o de
@@ -1049,6 +1171,40 @@ Todo el bloque exige **`execute_mass_actions`**.
 `reconcile` recorre los clientes suspendidos en la base cuyo corte no quedó confirmado en el
 router y vuelve a aplicarlo. Es el mismo motor que ejecuta `billing:reconcile-suspensions`
 cada hora.
+
+### Bitácora de auditoría
+
+Solo lectura: una bitácora que se puede editar o borrar desde la aplicación no sirve como
+bitácora. La retención se maneja por fuera.
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `GET` | `/api/audit-logs` | `view_audit_log` | Cambios que mueven plata, más recientes primero |
+| `GET` | `/api/audit-logs/filters` | `view_audit_log` | Catálogo para poblar los filtros |
+| `GET` | `/api/billing/customers/{id}/credit-movements` | `view_audit_log` ∪ `view_billing` ∪ `register_payments` | Extracto del saldo a favor |
+
+**Filtros de `/api/audit-logs`** (todos opcionales, combinables):
+`model_type` (nombre corto: `Plan`, `CustomerProfile`, `Payment`, `Invoice`, `Billing`),
+`model_id`, `action` (`plan.updated`, `payment.created`…), `source`
+(`web`/`api`/`console`/`import`/`scheduler`), `user_id`, `from`, `to`, `search`, `per_page`.
+
+Siempre acotado al tenant del usuario autenticado. Los registros anteriores a la columna
+`tenant_id` no se muestran: es preferible ocultarlos a arriesgar una fuga entre sedes.
+
+**Respuesta de `credit-movements`:**
+
+```json
+{
+  "movements":      { "data": [ /* paginado */ ] },
+  "ledger_balance": 34000,
+  "cached_balance": 34000,
+  "discrepancy":    0
+}
+```
+
+`discrepancy` distinto de cero significa que el libro de movimientos y el escalar
+`customer_profile.credit_balance` divergieron — es decir, hay un bug. El extracto lo expone en
+pantalla a propósito, para que se detecte ahí y no en el mostrador.
 
 ---
 
@@ -1489,6 +1645,7 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `manage_roles` | `POST/PUT/DELETE /api/roles`, `/api/roles/permissions` |
 | `manage_tenant` | `/api/tenants/{id}`, `/api/tenant/config`, `/api/tenant/logo` |
 | `manage_document_templates` | `/api/document-templates*` |
+| `view_audit_log` | `/api/audit-logs*`; extracto de saldo por OR con `view_billing` / `register_payments` |
 | `view_settings` | `/api/settings/cache/clear`, escritura del centro de ayuda (+ `is_superadmin`) |
 | `view_expenses` / `add_expense` / `edit_expense` | Lectura / alta / edición de gastos y categorías |
 | *(sólo `staff_profile`)* | `/api/support/statistics`, mensajes, cambio de estado y cargos de ticket |

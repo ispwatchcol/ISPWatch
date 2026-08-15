@@ -341,8 +341,15 @@
               <p class="text-gray-600 dark:text-gray-300">Obteniendo interfaces del router...</p>
             </div>
 
-            <!-- Error -->
-            <div v-else-if="interfacesError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <!--
+              Error + (siempre) una salida manual.
+              Antes esto era un v-else-if encadenado con la lista y la entrada
+              manual: al fallar la lectura el modal mostraba el error y nada más,
+              con el botón Guardar deshabilitado y sin ningún campo donde escribir
+              — un callejón sin salida, justo cuando más falta hace la vía manual.
+            -->
+            <template v-else>
+            <div v-if="interfacesError" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
               <div class="flex items-start gap-3">
                 <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                 <div class="flex-1 min-w-0">
@@ -370,15 +377,24 @@
                     </ul>
                   </div>
 
-                  <p v-if="interfacesHint" class="text-xs text-red-500 dark:text-red-400/80 mt-3 italic">
+                  <p v-if="interfacesHint" class="text-xs text-red-500 dark:text-red-400/80 mt-3 italic whitespace-pre-line">
                     💡 {{ interfacesHint }}
                   </p>
+
+                  <button
+                    type="button"
+                    @click="loadInterfaces(selectedRouter)"
+                    class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                  >
+                    <icon-lucide-refresh-cw class="w-3.5 h-3.5" />
+                    Reintentar lectura
+                  </button>
                 </div>
               </div>
             </div>
 
             <!-- Lista de Interfaces -->
-            <div v-else-if="interfaces.length > 0" class="space-y-3">
+            <div v-if="interfaces.length > 0" class="space-y-3">
               <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
                 Selecciona la interfaz WAN (conexión a internet):
               </div>
@@ -439,7 +455,7 @@
 
             <!-- Sin interfaces — entrada manual -->
             <div v-else class="space-y-4">
-              <div class="text-center text-gray-500 dark:text-gray-400 text-sm">
+              <div v-if="!interfacesError" class="text-center text-gray-500 dark:text-gray-400 text-sm">
                 No se pudieron obtener las interfaces del router automáticamente.
               </div>
               <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
@@ -463,6 +479,7 @@
                 />
               </div>
             </div>
+            </template>
 
           </div>
 
@@ -1450,6 +1467,16 @@ const exportToExcel = () => {
 const openWanModal = async (routerData) => {
   selectedRouter.value = routerData
   showWanModal.value = true
+  await loadInterfaces(routerData)
+}
+
+// Lectura de interfaces — separada de openWanModal para que el botón
+// "Reintentar" del bloque de error pueda repetirla sin cerrar el modal
+// (la lectura falla a menudo por algo transitorio: el router acaba de
+// reconectar al overlay y su IP todavía no estaba resuelta).
+const loadInterfaces = async (routerData) => {
+  if (!routerData) return
+
   interfaces.value = []
   selectedWan.value = null
   currentWan.value = null
