@@ -2337,3 +2337,127 @@ sigue siendo el token. Anotado en `MEJORAS_RECOMENDADAS.md`.
 
 **Pendiente de despliegue:** `php artisan migrate:both` (4 migraciones) y decidir el
 `API_KEYS_OPERATOR_TENANT_ID` real si no es el 1.
+
+---
+
+## 26. Reestructuración del ticket · Fase 1 R1 — catálogos versionados — 2026-08-14
+
+### 26.1 Por qué
+
+Colombia Net de Occidente solicitó formalmente dos cosas: reestructurar el módulo de
+tickets y recibir un contrato OpenAPI de la API. La auditoría previa dejó claro que lo
+segundo depende de lo primero: **síntoma, causa, solución, resultado, restablecimiento y
+SLA no existen en ninguna forma**, ni en base de datos ni en la interfaz. No es un
+problema de exposición por API, es que el dato no se captura.
+
+Los tres enums del ticket (`status`, `priority`, `category`) tampoco servían como
+catálogo: sin versión, sin etiqueta editable, sin código estable separado de la etiqueta,
+y cambiar un valor exigía una migración.
+
+### 26.2 Alcance de esta entrega
+
+**R1 (expandir) únicamente.** Estrictamente aditiva: los tres enums siguen intactos y
+siguen siendo la fuente de lectura de toda la aplicación. R2 (leer y escribir por
+catálogo) y R3 (eliminar los enums) requieren aprobación aparte.
+
+### 26.3 Decisiones de diseño
+
+| Decisión | Qué se eligió | Por qué |
+|---|---|---|
+| Alcance por catálogo | 4 globales estrictos (`status`, `priority`, `category`, `result`), 3 extensibles por tenant (`symptom`, `cause`, `solution`) | La máquina de estados de la Fase 2 se define sobre `status`: estados por tenant serían una máquina de estados por tenant. `category` es el filtro de alcance del contrato con el integrador. El vocabulario técnico, en cambio, sí difiere entre un ISP de fibra y uno inalámbrico |
+| Causa sospechada vs. confirmada | **Un solo catálogo**, dos columnas | El vocabulario diagnóstico es el mismo; lo que cambia es quién lo afirma. Compartirlo es lo que permite medir si el diagnóstico automático del integrador acertó (`suspected IS DISTINCT FROM confirmed`), que es la razón de ser de la integración. Con dos catálogos haría falta una tabla de equivalencias mantenida a mano |
+| Versionado | `code` inmutable + `label` editable + retiro suave por `valid_until` | Renombrar un código no es un UPDATE: es fila nueva más retiro de la vieja. Los tickets históricos siguen apuntando por FK a la fila original y siguen diciendo el código de siempre en la API |
+| Sin `is_active` | Sólo `valid_until` | Dos columnas para lo mismo terminan divergiendo. Vigente se define una vez: `valid_from <= now() AND (valid_until IS NULL OR valid_until > now())` |
+| Sin copia del código en el ticket | Sólo la FK | Mientras los códigos sean inmutables y las filas no se borren, la FK basta. Copiar el código en cada ticket duplicaría la verdad |
+| Transiciones | **No entran en la Fase 1** | Una tabla de transiciones que nadie aplica es peor que ninguna: se lee, se confía en ella, y mientras tanto `updateStatus()` sigue aceptando cualquier cosa. Sí entran los flags que definen la semántica de cada estado (`is_initial`, `is_terminal`, `stamps_resolved_at`, `stamps_closed_at`), porque cambiar eso después, con tickets ya apuntando, sí es caro |
+| `resolved` y `closed` | **Ambos terminales** | Por eso reabrir es una transición explícita (Fase 2) y no el efecto colateral de escribir un estado cualquiera, que es lo que pasa hoy |
+
+### 26.4 Qué se creó
+
+Tres migraciones, todas reversibles:
+
+- `2026_08_14_000001_create_ticket_catalog_tables` — 7 catálogos + `ticket_catalog_version`.
+- `2026_08_14_000002_seed_ticket_catalogs` — siembra idempotente.
+- `2026_08_14_000003_add_catalog_columns_to_support_ticket` — 9 columnas + backfill + verificación.
+
+**La siembra va en una migración y no en un seeder.** `migrate:both` aplica migraciones en
+`ispwatch_dev` y en `public`, pero **nunca siembra `public`**. Un catálogo dependiente del
+seeder quedaría vacío en producción, y sin filas en `ticket_status` no se puede crear ni un
+ticket. Esa factura ya se pagó con `cut_type` (ver `2026_07_31_000001`).
+
+### 26.5 El backfill no necesitó mapeo manual
+
+Los códigos sembrados son **exactamente** los doce valores de los enums actuales, con la
+misma grafía. Eso convierte el backfill en un join por código, y su completitud es
+verificable en vez de ser una apuesta: el `CHECK` constraint del enum lleva desde 2024
+garantizando que en esas columnas no hay nada fuera de esos doce valores.
+
+La migración ejecuta la consulta anti-join y **aborta** si no da cero. Una migración de
+datos a medias que se reporta como exitosa es peor que una que falla: el problema aparece
+semanas después, ya con tickets nuevos encima.
+
+Se usa subconsulta correlacionada y no `UPDATE ... FROM` porque la primera es SQL estándar
+y corre igual en SQLite (donde se prueba) y en PostgreSQL (donde se despliega). Esa
+divergencia ya produjo un fallo en este mismo módulo con `LIKE`/`ILIKE`.
+
+### 26.6 Relleno hacia adelante
+
+El backfill cubre las filas que ya existían. Sin nada más, **todo ticket creado después de
+la migración nacería con `status_id` nulo** y el invariante se rompería el mismo día del
+despliegue. Se añadió un hook `saving` en `SupportTicket` que mantiene las tres columnas
+nuevas al día a partir del enum.
+
+Es la única modificación de código de la R1, y no invierte la dirección: el enum sigue
+siendo la fuente de verdad y nadie lee todavía por FK. Invertirla es la R2.
+
+No memoiza los ids a propósito: un caché estático sobreviviría a `RefreshDatabase` entre
+tests y devolvería ids obsoletos. Los guardados de ticket son de una fila y poco
+frecuentes; tres consultas extra no se notan.
+
+### 26.7 Vocabulario de diagnóstico: tablas sí, contenido no
+
+`ticket_symptom`, `ticket_cause`, `ticket_solution` y `ticket_result` quedan **vacíos a
+propósito**. Su vocabulario no está acordado todavía con el ISP ni con el integrador, y
+como los códigos son inmutables por diseño, inventarlos ahora significaría o cargar para
+siempre con códigos equivocados, o retirarlos en dos semanas dejando basura en el
+histórico. Hay un test que afirma que siguen vacíos.
+
+### 26.8 Un detalle de PostgreSQL que obliga a bajar a SQL
+
+`UNIQUE(tenant_id, code)` **no impide duplicados entre filas globales**, porque en SQL
+`NULL` nunca es igual a `NULL`. Sin resolverlo, dos filas de plataforma podrían compartir
+código y la unicidad sería decorativa. Se resuelve con dos índices parciales disjuntos,
+que ambos motores soportan.
+
+Lo que **no** se puede expresar en un índice: impedir que un tenant use un código que ya
+existe como global. Queda en validación de aplicación y está anotado como deuda.
+
+### 26.9 Estado
+
+**690 pruebas en verde**, 46 de ellas nuevas en `tests/Feature/Support/` — un módulo que
+hasta hoy **no tenía ni una sola**:
+
+- `PartnerTicketContractTest` (8): congela el contrato de `/api/v1/partner/tickets`.
+  `status`, `priority` y `category` deben seguir saliendo como **cadena** (el código), no
+  como entero. Escrito **antes** de tocar nada, porque el modo de fallo al migrar a FK es
+  silencioso: el `if (status === 'open')` del integrador deja de coincidir sin lanzar
+  ningún error.
+- `SupportTicketModuleTest` (23): creación, consulta, cambio de estado, actualización,
+  mensajes y estadísticas. Tres tests fijan **defectos conocidos** a propósito y van
+  marcados como `DEFECTO FIJADO`: la prioridad de creación se ignora, se admite cualquier
+  transición incluida cerrado → abierto, y `resolved_at` sobrevive a la reapertura.
+- `TicketCatalogBackfillTest` (15): la consulta anti-join como afirmación de la suite y no
+  sólo como verificación manual, en sus dos mitades (hacia atrás y hacia adelante), más
+  las reglas estructurales: no se puede borrar una fila en uso, dos filas globales no
+  comparten código, dos tenants sí pueden usar el mismo código propio, y retirar una fila
+  no la hace irresoluble para los tickets viejos.
+
+**Verificado ejecutando, no por inspección:** el `rollback` falló en el primer intento
+porque en SQLite `DROP COLUMN` no arrastra sus índices y la tabla quedaba con uno
+apuntando a una columna inexistente. Corregido soltando el índice antes que la columna.
+
+**No verificado en local:** el SQL contra PostgreSQL real. No hay PG ni Docker en la
+máquina de desarrollo; lo cubre el job «PHPUnit (PostgreSQL, motor real)» del CI, que
+existe justamente para esto.
+
+**Pendiente de despliegue:** `php artisan migrate:both` (3 migraciones).

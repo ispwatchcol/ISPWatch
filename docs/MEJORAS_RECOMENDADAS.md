@@ -968,6 +968,64 @@ hizo aquí porque tocar la confianza de proxies afecta a **toda** la aplicación
 contra producción. Mientras tanto está documentado en `ARQUITECTURA.md` § 14 y en el manual
 no se promete más de lo que la allowlist da.
 
+
+### 📋 P-21 · Un tenant puede pisar un código de catálogo global
+
+Los catálogos extensibles del ticket (`ticket_symptom`, `ticket_cause`, `ticket_solution`)
+llevan dos índices parciales que garantizan unicidad **dentro** de cada ámbito: uno para
+las filas de plataforma (`tenant_id IS NULL`) y otro por tenant. Ningún índice puede
+cruzar los dos ámbitos, así que `(NULL, 'sin_senal')` y `(7, 'sin_senal')` conviven sin
+error.
+
+**Consecuencia concreta.** Un integrador que reciba el código `sin_senal` no puede saber
+si es el síntoma de plataforma o el propio de ese ISP, y dos tenants podrían estar
+reportando cosas distintas bajo el mismo código.
+
+**Por qué no se resolvió ahora.** La R1 no expone administración de catálogos: las únicas
+filas que existen las escribió una migración. El agujero sólo se puede explotar cuando
+haya una pantalla o un endpoint que permita crear filas por tenant, que es la Fase 3.
+
+**Recomendación.** Validar en aplicación, al dar de alta una fila con `tenant_id`, que el
+código no exista ya como global. Y decidir de forma explícita en el contrato qué gana si
+llegara a pasar — lo razonable es que el código global tenga prioridad y el propio se
+rechace.
+
+### 📋 P-22 · El vocabulario de diagnóstico del ticket está sin acordar
+
+`ticket_symptom`, `ticket_cause`, `ticket_solution` y `ticket_result` existen como tablas
+pero están **vacíos a propósito**, y las cinco columnas del ticket que apuntan a ellos
+(`symptom_id`, `suspected_cause_id`, `confirmed_cause_id`, `solution_id`, `result_id`)
+son nullable y no se capturan en ninguna pantalla.
+
+**Por qué se dejó así.** Los códigos son inmutables por diseño: una vez sembrados, un
+ticket puede apuntar a ellos para siempre. Inventar el vocabulario antes de acordarlo con
+el ISP y con el integrador significaría o cargar con códigos equivocados de forma
+permanente, o retirarlos a las dos semanas dejando basura en el histórico.
+
+**Riesgo mientras tanto.** Son columnas muertas. Si el acuerdo del vocabulario se
+demorase mucho, conviene revisar si vale la pena mantenerlas declaradas — se incluyeron
+para poder publicar el contrato OpenAPI una sola vez con el juego completo de campos.
+
+**Recomendación.** Cerrar el vocabulario con el ISP y el integrador, sembrarlo en su
+propia migración (nunca en un seeder: `migrate:both` no siembra `public`), y sólo entonces
+construir la captura en la interfaz.
+
+### 📋 P-23 · La Fase 1 dejó `support_ticket` con los enums y las FK a la vez
+
+Es el estado intencional de la R1 (expandir), no un descuido: mantener las dos
+representaciones permite revertir sin pérdida de datos. Pero es un estado transitorio y no
+debe quedarse ahí.
+
+**Lo que falta.** R2 — la aplicación pasa a leer y escribir por catálogo, el frontend deja
+de tener sus mapas de etiquetas en duro (`Support.vue`, `SupportDetail.vue`,
+`SupportEdit.vue`, `CustomerTickets.vue`), `statistics()` toma la etiqueta de la columna
+`label` en vez de generarla con `ucfirst()`, y la API pública sigue emitiendo el código
+como cadena mediante join. R3 — se eliminan los enums y sus `CHECK`, que es el punto sin
+retorno.
+
+**Riesgo de quedarse a medias.** Mientras las dos representaciones coexistan, cualquier
+escritura que no pase por el modelo (SQL crudo, una importación) puede desincronizarlas.
+Hoy no hay ninguna, pero conviene no alargar la convivencia.
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

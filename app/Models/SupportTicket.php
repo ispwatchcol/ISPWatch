@@ -42,7 +42,48 @@ class SupportTicket extends Model
 
     protected $casts = [
         'resolved_at' => 'datetime',
+        'closed_at'   => 'datetime',
     ];
+
+    /**
+     * FASE 1 · R1 — relleno hacia adelante de las columnas de catálogo.
+     *
+     * Columna enum => [columna de clave foránea, tabla de catálogo].
+     *
+     * La migración R1 rellenó las filas que YA existían. Sin esto, todo ticket
+     * creado a partir de ese momento nacería con `status_id` en nulo y el
+     * invariante «ningún ticket sin catálogo» se rompería el mismo día del
+     * despliegue, dejando un agujero que habría que volver a rellenar en la R2.
+     *
+     * Ojo con lo que esto NO es: el enum sigue siendo la fuente de verdad y
+     * nadie lee todavía por clave foránea. Esto sólo mantiene la columna nueva
+     * al día mientras convive con la vieja. Invertir esa dirección —leer y
+     * escribir por catálogo— es la R2, y va aparte.
+     */
+    private const CATALOGOS_MIGRADOS = [
+        'status'   => ['status_id',   'ticket_status'],
+        'priority' => ['priority_id', 'ticket_priority'],
+        'category' => ['category_id', 'ticket_category'],
+    ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $ticket) {
+            foreach (self::CATALOGOS_MIGRADOS as $enum => [$columna, $tabla]) {
+                // Se recalcula cuando cambia el enum o cuando la columna nueva
+                // viene vacía (ticket nuevo, o fila anterior al backfill).
+                if (!$ticket->isDirty($enum) && $ticket->{$columna} !== null) {
+                    continue;
+                }
+
+                $ticket->{$columna} = $ticket->{$enum} === null
+                    ? null
+                    : \Illuminate\Support\Facades\DB::table($tabla)
+                        ->where('code', $ticket->{$enum})
+                        ->value('id');
+            }
+        });
+    }
 
     // Relationships
     public function user()

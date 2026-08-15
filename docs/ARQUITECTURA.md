@@ -1103,3 +1103,76 @@ comprueba además el tenant en cada acción.
 El texto plano se muestra **una sola vez**; en la base sólo queda el hash de
 Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero conserva la fila:
 un registro de auditoría que apunta a una llave borrada no sirve de nada.
+
+---
+
+## 15. Catálogos versionados del ticket de soporte
+
+Introducidos en la Fase 1 R1 (2026-08-14) para sustituir los tres enums de
+`support_ticket` y dar cabida al vocabulario de diagnóstico que la integración con un
+tercero exige. Ver `BITACORA_TECNICA.md` § 26 para el registro de la decisión y
+`BASE_DATOS.md` § 4.15b para el detalle de columnas.
+
+### 15.1 La regla que sostiene el diseño
+
+**El código es identidad; la etiqueta es presentación.** Es la distinción que evita romper
+el histórico, y conviene tenerla clara antes de tocar cualquier catálogo:
+
+- **`code` es inmutable, para siempre.** Renombrar `high` a `alta_prioridad` no es un
+  renombrado: es una **fila nueva** con código nuevo más el retiro suave de la vieja
+  (`valid_until = now()`). Los tickets antiguos siguen apuntando por clave foránea a la
+  fila `high`, que nunca se borra ni se muta, y siguen diciendo `high` en la API pública.
+- **`label` sí cambia, y aplica retroactivamente.** Corregir un texto visible debe verse
+  también en los tickets viejos, porque es presentación y no significado.
+
+La pregunta que decide cuál de los dos casos aplica:
+
+> ¿Cambió lo que la fila **significa**, o sólo cómo se **escribe**?
+> Significado → fila nueva. Redacción → mismo código, `label` nuevo, `revision` + 1.
+
+De ahí se sigue que **`DELETE` sobre un catálogo está prohibido**. No es una convención:
+las claves foráneas del ticket son `ON DELETE RESTRICT`, así que lo impide el motor.
+
+También se sigue que **no hace falta copiar el código dentro del ticket**. Mientras los
+códigos sean inmutables y las filas no se borren, la clave foránea basta; duplicar el
+valor crearía una segunda verdad que acabaría divergiendo.
+
+### 15.2 Alcance: qué es global y qué es de cada ISP
+
+| Catálogo | Alcance | Razón |
+|---|---|---|
+| `ticket_status` | Global estricto | La máquina de estados (Fase 2) se define sobre él. Estados por tenant serían una máquina de estados por tenant |
+| `ticket_priority` | Global estricto | Va atada a SLA; por tenant haría incomparables los tiempos de respuesta |
+| `ticket_category` | Global estricto | Es el filtro de alcance del contrato con el integrador |
+| `ticket_result` | Global estricto | Desenlace del ticket: métrica comparable entre ISPs |
+| `ticket_symptom`, `ticket_cause`, `ticket_solution` | Base global + extensión por tenant | El vocabulario técnico de un ISP de fibra no es el de uno inalámbrico |
+
+En los extensibles, `tenant_id NULL` es la fila de plataforma y un valor es la fila propia
+del ISP. La unicidad se garantiza con dos índices parciales disjuntos, no con un
+`UNIQUE(tenant_id, code)`: en SQL `NULL` nunca es igual a `NULL`, así que ese índice
+dejaría pasar dos filas globales con el mismo código.
+
+### 15.3 Causa sospechada y causa confirmada comparten catálogo
+
+`suspected_cause_id` y `confirmed_cause_id` apuntan ambas a `ticket_cause`. No es un
+atajo: el vocabulario diagnóstico es el mismo y lo que cambia es quién lo afirma —el
+sistema externo sugiere, el personal del ISP confirma—. Compartir catálogo es lo que
+permite responder la pregunta que justifica la integración entera:
+
+```sql
+WHERE suspected_cause_id IS DISTINCT FROM confirmed_cause_id
+```
+
+Con dos catálogos separados haría falta una tabla de equivalencias mantenida a mano, que
+se desincronizaría.
+
+### 15.4 Estado de la migración
+
+La R1 es **aditiva**: los enums `status`, `priority` y `category` siguen existiendo y
+siguen siendo la fuente de lectura de toda la aplicación. Las columnas nuevas se rellenan
+hacia atrás (migración) y hacia adelante (hook `saving` del modelo).
+
+- **R2** — la aplicación pasa a leer y escribir por catálogo. La API pública debe seguir
+  emitiendo el **código como cadena** mediante join: devolver el id sería una rotura
+  silenciosa del contrato con el integrador. Hay un test que lo fija.
+- **R3** — se eliminan los enums y sus `CHECK`. Punto sin retorno.
