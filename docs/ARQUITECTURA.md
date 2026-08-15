@@ -1409,7 +1409,13 @@ se desincronizaría.
   enum quedó como copia sincronizada. Ningún lector depende ya de las columnas enum.
 - **R2.5 (dejar de escribir la copia)** — sólo código. Las columnas enum quedan
   **congeladas**: siguen existiendo pero ya nadie las escribe.
-- **R3 (pendiente)** — eliminar los enums y sus `CHECK`.
+- **R3 (contraer)** — se eliminan los enums y sus `CHECK`. El catálogo queda como única
+  representación. Listo en rama, **sin aplicar en ningún schema**.
+
+Tras la R3, `status`, `priority` y `category` **ya no son columnas**: son atributos
+calculados desde `status_id`, `priority_id` y `category_id`, declarados en `$appends` del
+modelo. Esa declaración es lo único que los mantiene en el JSON — sin ella desaparecerían
+de las respuestas sin dar ningún error.
 
 **Por qué existe la R2.5, que no estaba en el diseño original.** Este proyecto despliega
 con `deploy_on_push: true` y ejecuta `php artisan migrate --force` dentro del

@@ -901,23 +901,32 @@ siguen saliendo idénticas.
 ### 4.15 `support_ticket` y derivadas
 
 `support_ticket`: `user_id` (cliente), `staff_id` (asignado), `sectorial_id` (elemento
-afectado), `subject`, `description`,
-`status` CHECK {`open`,`in_progress`,`resolved`,`closed`},
-`priority` CHECK {`low`,`medium`,`high`,`urgent`},
-`category` CHECK {`technical`,`billing`,`services`,`general`}, `resolved_at`.
+afectado), `subject`, `description`, `resolved_at`, `closed_at`.
+
+> ⚠️ **Las columnas `status`, `priority` y `category` ya no existen.** La R3 (2026-08-15)
+> las eliminó junto con sus `CHECK` {`open`,`in_progress`,`resolved`,`closed`},
+> {`low`,`medium`,`high`,`urgent`} y {`technical`,`billing`,`services`,`general`}, que se
+> dejan anotados como referencia histórica del esquema anterior a la Fase 1.
+>
+> Los tres siguen apareciendo en las respuestas de la API como **cadena con el código
+> estable**, pero son atributos calculados desde `status_id`, `priority_id` y
+> `category_id` y declarados en `$appends` del modelo.
 
 `support_ticket_message`: `ticket_id`, `user_id`, `message`, `is_internal`.
 `support_ticket_attachment`: `ticket_id`, `user_id`, `file_name`, `file_path`, `file_size`, `mime_type`.
 
 Un ticket puede generar facturas de tipo `service_charge` mediante `invoices.ticket_id`.
 
-**Desde la Fase 1 R1 (2026-08-14)** el ticket lleva además las claves foráneas a los
-catálogos y `closed_at`.
+**Desde la Fase 1** el ticket lleva las claves foráneas a los catálogos y `closed_at`.
+La clave foránea es la **única** representación de estado, prioridad y categoría.
 
-**Tras la R2 (mismo día) la clave foránea es la fuente de verdad** y los tres enums de
-arriba quedaron como **copia**, que se mantiene sincronizada desde el modelo únicamente
-para poder revertir. Ningún lector de la aplicación depende ya de ellos; su eliminación
-es la R3, pendiente de aprobación.
+La transición se hizo en cuatro releases —R1 aditiva, R2 invierte la lectura, R2.5 deja de
+escribir la copia, R3 elimina las columnas—, y el desdoblamiento no fue burocracia: el
+despliegue arranca el contenedor nuevo mientras el viejo sigue sirviendo contra la misma
+base. Ver [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+> **Ningún schema de producción tiene aplicada ninguna de las cuatro.** `public` no tiene
+> siquiera los catálogos; `ispwatch_dev` tiene R1. Verificado el 2026-08-15.
 
 | Columna | Apunta a | Nota |
 |---|---|---|

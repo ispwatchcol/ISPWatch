@@ -3683,3 +3683,157 @@ Dos tests nuevos: que la aplicación responde bien **con el espejo obsoleto**, y
 del ticket conserva las tres claves gracias a `$appends`.
 
 `PartnerTicketContractTest` sigue intacto y en verde: la R2.5 tampoco toca el contrato.
+
+---
+
+## 29. Reestructuración del ticket · R3 — eliminar los enums — 2026-08-15
+
+Último paso de la Fase 1. Con esto `support_ticket` deja de tener columnas enum y el
+catálogo queda como única representación de estado, prioridad y categoría.
+
+**Gate de infraestructura cumplido:** se confirmó desde el panel de DigitalOcean que el App
+Spec vivo coincide con `.do/deploy.template.yaml` y que nadie modificó el `run_command` a
+mano. Toda la secuencia de despliegue se apoyaba en ese supuesto.
+
+### 29.1 La comprobación previa NO es la que parecía
+
+El encargo pedía abortar la migración si el espejo (`support_ticket.status`) divergía del
+catálogo. **Habría roto el despliegue**, y de forma intermitente.
+
+Desde la R2.5 el espejo está congelado a propósito: cada cambio de estado entre aquel
+despliegue y este lo deja obsoleto. Esa divergencia es el comportamiento diseñado, no un
+síntoma. Medido el 2026-08-15 en `ispwatch_dev`: divergencia **0** en las tres columnas,
+porque allí la R2.5 nunca llegó a desplegarse. Es decir, el criterio **pasaría en
+desarrollo y podría fallar en producción**, donde sí habrá corrido.
+
+Y fallar aquí es caro: la migración se ejecuta dentro del `run_command`, antes de que el
+contenedor levante Apache. Una migración que aborta deja el contenedor nuevo sin arrancar.
+
+Lo que sí hace irrecuperable el dato es que la **clave foránea** no esté resuelta: con
+`status_id` nulo, al dropear la columna no quedaría de dónde sacar el estado. Eso es lo que
+aborta. La divergencia se cuenta igual y se registra en el log —dice cuánta actividad hubo
+entre la R2.5 y la R3— pero nunca detiene nada.
+
+### 29.2 Qué elimina
+
+| Objeto | Tipo |
+|---|---|
+| `support_ticket.status` | `varchar(255) NOT NULL DEFAULT 'open'` |
+| `support_ticket.priority` | `varchar(255) NOT NULL DEFAULT 'medium'` |
+| `support_ticket.category` | `varchar(255) NOT NULL DEFAULT 'general'` |
+| `support_ticket_status_check` · `_priority_check` · `_category_check` | CHECK |
+
+En PostgreSQL el CHECK cae solo con la columna; se suelta explícitamente de todos modos
+para no depender de esa cascada implícita. Intactas: `status_id`, `priority_id`,
+`category_id`, las cinco de diagnóstico, `closed_at`, `resolved_at` y `sectorial_id`.
+
+### 29.3 Lo único que mantiene vivas las tres claves en el JSON
+
+`$appends`. Al dejar de ser columnas dejan de estar en `$attributes`, y Eloquent sólo
+serializa columnas reales más lo declarado ahí. Sin esa línea, `status`, `priority` y
+`category` **desaparecerían de las respuestas del panel sin dar ningún error** — el
+frontend se rompería en silencio. Se declararon en la R2.5 justamente para que la R3 no
+pudiera introducir ese fallo.
+
+Se retiró además el hook `saving` (rescataba la clave foránea leyendo la columna enum) y el
+respaldo `?? $value` del accessor. `status`, `priority` y `category` **siguen en
+`$fillable`**: ya no son columnas, pero son el nombre con el que entran los datos
+(`create(['status' => 'open'])`), y el mutator los traduce. Quitarlos haría que la
+asignación masiva los descartara en silencio.
+
+### 29.4 Verificación de que nada más las tocaba
+
+La prueba no es un grep, es que **la suite completa corre contra un esquema donde esas
+columnas ya no existen**: cualquier lectura o escritura superviviente daría error de SQL.
+820 pruebas en verde lo cubren, más la auditoría de la § 28.5 (worker, scheduler, jobs,
+comandos y observers no tocan `support_ticket`).
+
+### 29.5 Tests
+
+**820 en verde**, 71 en `tests/Feature/Support/`. Dos archivos nuevos:
+
+- `TicketEnumColumnsDroppedTest` (12) — no simula el estado final, **está en él**: el
+  esquema, la serialización, el contrato de la API pública, y crear/actualizar tickets sin
+  columnas físicas.
+- `TicketEnumDropGuardTest` (6) — la guarda de la migración. Prueba que aborta con la clave
+  foránea sin resolver, que al abortar **no ha tocado el esquema** (si alguien moviera la
+  comprobación después del primer DROP, quedaría a medias), que el mensaje trae la consulta
+  de reparación, y sobre todo que **NO aborta** por divergencia del espejo congelado.
+
+Dos archivos se ajustaron, y conviene entender por qué:
+
+- `TicketCatalogReadPathTest` perdió ocho tests. Su técnica era corromper el espejo para
+  demostrar que nadie lo leía — el detector que justificó poder eliminar las columnas. Sin
+  columnas no hay espejo que corromper: la técnica se quedó sin sujeto. Su cobertura vive
+  ahora en `TicketEnumColumnsDroppedTest`. Quedan seis tests sobre vigencia, etiquetas y el
+  endpoint de catálogos.
+- `TicketCatalogBackfillTest` restaura el esquema con el `down()` de la R3 antes de montar
+  su escenario. Sigue valiendo la pena: **el esquema `public` todavía no ha corrido la R1**,
+  así que ese backfill se ejecutará de verdad allí sobre datos reales.
+
+Ciclo `migrate → rollback → migrate` verificado ejecutándolo contra una base desechable.
+
+### 29.6 Estado de la Fase 1
+
+| Release | Contenido | Estado |
+|---|---|---|
+| R1 | Catálogos + claves foráneas + backfill | ✅ en rama · aplicada en `ispwatch_dev` |
+| R2 | Lectura y escritura por clave foránea | ✅ en rama |
+| R2.5 | Deja de escribirse el espejo | ✅ en rama |
+| R3 | Se eliminan las columnas enum | ✅ en rama · **sin aplicar en ningún schema** |
+
+`public` no ha recibido **ninguna** de las cuatro. El despliegue sigue la secuencia de
+[`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+### 29.7 CI en rojo tras el PR #236: SQLite escondía una consulta imposible
+
+El PR de la R3 pasó el job de SQLite y falló el de PostgreSQL:
+`QueryException: column "status" does not exist`.
+
+**Causa raíz.** El test `ningun_ticket_queda_sin_catalogo_resuelto` seguía formulando el
+invariante contra la columna enum (`WHERE status IS NOT NULL AND status_id IS NULL`), una
+columna que la propia R3 acababa de eliminar. Lo que hacía que no saltara antes es una
+peculiaridad de SQLite: el *double-quoted string misfeature*.
+
+Cuando un identificador entre comillas dobles no resuelve a ninguna columna, SQLite lo
+reinterpreta como **literal de cadena** en vez de fallar. Como el query builder de Laravel
+entrecomilla siempre los nombres, `where "status" is not null` pasaba a ser
+`where 'status' is not null` —siempre cierto— y la consulta devolvía un número plausible.
+Comprobado sobre una tabla sin esa columna:
+
+```
+hasColumn(status): false
+whereNotNull('status')->whereNull('fk')->count()  →  1   (no lanza)
+SQL: select * from "t" where "status" is not null
+```
+
+PostgreSQL hace lo correcto y lanza. De ahí que el fallo sólo apareciera en el motor real.
+
+**Ninguna de las hipótesis de partida era la buena**: la migración sí devuelve una clase
+anónima, el `down()` sí recrea las columnas, y la ruta del archivo era correcta. El
+problema estaba en un test que ni siquiera intentaba restaurar el esquema.
+
+**Corrección.**
+
+- El invariante se reformula contra lo único que existe tras la R3 y que además es lo que
+  de verdad importa: que la clave foránea esté resuelta. Renombrado a
+  `ningun_ticket_queda_sin_clave_foranea_resuelta`.
+- La restauración del esquema se extrae a `restaurarEsquemaPrevio()`, que **comprueba con
+  `Schema::hasColumn` que las tres columnas volvieron** y falla con un mensaje explícito
+  si no. `huerfanos()` repite la comprobación en el punto exacto donde SQLite mentiría.
+- `volverAlEstadoPrevio()` del guard test pasa a verificar las tres columnas, no sólo
+  `status`, y `la_reversion_reconstruye_los_codigos_desde_el_catalogo` lo usa en vez de
+  llamar a `down()` a pelo: leer `$fila->status` de una columna inexistente daría `null`
+  en PHP sin lanzar nada, y el test habría pasado en falso.
+
+No se tocó la migración R3 ni se debilitó su protección: la guarda de claves foráneas sin
+resolver sigue igual. El fallo era del test, no del código de producción.
+
+La trampa quedó documentada en [`MANUAL_DESARROLLADOR.md`](MANUAL_DESARROLLADOR.md) § 11,
+porque es una clase de error que la suite rápida no puede cazar por definición.
+
+**Verificación.** 820 pruebas en verde sobre SQLite. **El job de PostgreSQL no se pudo
+reproducir en local**: no hay PostgreSQL ni Docker en la máquina de desarrollo, y la
+salvaguarda de `tests/TestCase.php` rechaza —correctamente— apuntar la suite a Supabase,
+porque `RefreshDatabase` ejecuta `migrate:fresh` y vaciaría la base real. Queda a cargo del
+job «PHPUnit (PostgreSQL, motor real)» del CI.
