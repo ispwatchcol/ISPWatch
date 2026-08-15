@@ -163,12 +163,23 @@ class TicketCatalogReadPathTest extends TestCase
         $this->assertSame(1, $stats['open_tickets'], 'El conteo siguió leyendo la columna enum.');
     }
 
-    // ── El espejo se mantiene al día ─────────────────────────────────────
+    // ── R2.5: el espejo deja de escribirse ───────────────────────────────
+    //
+    // ACTUALIZADOS EN LA R2.5, y el cambio es el esperado. Hasta la R2 estos dos
+    // tests afirmaban que la columna enum se mantenía sincronizada. Ahora
+    // afirman lo contrario: que NO se toca.
+    //
+    // Es el paso que hace segura la R3 bajo el despliegue de App Platform, donde
+    // el contenedor viejo sigue sirviendo mientras el nuevo ya migró. Si el
+    // código que deja de escribir el espejo entrara en el mismo despliegue que
+    // la migración que elimina las columnas, durante esa ventana el contenedor
+    // viejo escribiría columnas ya inexistentes y toda escritura fallaría.
 
     #[Test]
-    public function escribir_el_codigo_actualiza_la_fk_y_el_espejo(): void
+    public function escribir_el_codigo_ya_no_toca_la_columna_enum(): void
     {
         $ticket = $this->ticket(['status' => 'open']);
+        $espejoInicial = DB::table('support_ticket')->where('id', $ticket->id)->value('status');
 
         $ticket->update(['status' => 'resolved']);
 
@@ -176,19 +187,22 @@ class TicketCatalogReadPathTest extends TestCase
 
         $this->assertSame(
             'resolved',
-            $fila->status,
-            'El espejo dejó de mantenerse: sin él, revertir la R2 perdería el dato.'
-        );
-        $this->assertSame(
-            'resolved',
             DB::table('ticket_status')->where('id', $fila->status_id)->value('code'),
+            'La clave foránea, que es la fuente de verdad, sí debe moverse.'
+        );
+
+        $this->assertSame(
+            $espejoInicial,
+            $fila->status,
+            'La columna enum debe quedar CONGELADA. Si se movió, la R3 no es segura todavía.'
         );
     }
 
     #[Test]
-    public function escribir_la_clave_foranea_directamente_tambien_sincroniza_el_espejo(): void
+    public function escribir_la_clave_foranea_directamente_tampoco_toca_el_espejo(): void
     {
         $ticket = $this->ticket(['status' => 'open']);
+        $espejoInicial = DB::table('support_ticket')->where('id', $ticket->id)->value('status');
 
         // Camino que los accessors no ven: asignación masiva del id.
         $idCerrado = app(TicketCatalogs::class)->id(TicketCatalogs::STATUS, 'closed');
@@ -196,8 +210,49 @@ class TicketCatalogReadPathTest extends TestCase
 
         $fila = DB::table('support_ticket')->where('id', $ticket->id)->first();
 
-        $this->assertSame('closed', $fila->status, 'El hook `saving` no reconcilió el espejo.');
         $this->assertSame($idCerrado, (int) $fila->status_id);
+        $this->assertSame($espejoInicial, $fila->status, 'La columna enum debe quedar congelada.');
+    }
+
+    #[Test]
+    public function con_el_espejo_obsoleto_la_aplicacion_sigue_respondiendo_bien(): void
+    {
+        // Es la consecuencia práctica de congelar el espejo: a partir de la
+        // R2.5 la columna enum miente por diseño, y nada debe depender de ella.
+        $ticket = $this->ticket(['status' => 'open', 'priority' => 'low']);
+        $ticket->update(['status' => 'closed', 'priority' => 'urgent']);
+
+        $espejo = DB::table('support_ticket')->where('id', $ticket->id)->first();
+        $this->assertNotSame('closed', $espejo->status, 'El escenario no se preparó: el espejo no quedó obsoleto.');
+
+        $this->actingAs($this->staff)
+            ->getJson("/api/support/{$ticket->id}")
+            ->assertOk()
+            ->assertJsonPath('status', 'closed')
+            ->assertJsonPath('priority', 'urgent');
+    }
+
+    // ── Preparación de la R3: la serialización no depende de la columna ──
+
+    #[Test]
+    public function el_json_del_ticket_conserva_las_tres_claves_por_appends(): void
+    {
+        // Cuando la R3 elimine las columnas, `status` dejará de estar en
+        // `$attributes` y sin `$appends` DESAPARECERÍA del JSON sin dar ningún
+        // error — comprobado ejecutando contra una base con las columnas ya
+        // dropeadas. Declararlas en `$appends` desde la R2.5 deja ese
+        // comportamiento fijado antes de que la migración pueda romperlo.
+        $ticket = $this->ticket(['status' => 'in_progress', 'priority' => 'high', 'category' => 'billing']);
+
+        $json = $ticket->fresh()->toArray();
+
+        foreach (['status', 'priority', 'category'] as $clave) {
+            $this->assertArrayHasKey($clave, $json, "`{$clave}` desapareció del JSON del modelo.");
+        }
+
+        $this->assertSame('in_progress', $json['status']);
+        $this->assertSame('high', $json['priority']);
+        $this->assertSame('billing', $json['category']);
     }
 
     // ── La validación sale del catálogo ──────────────────────────────────

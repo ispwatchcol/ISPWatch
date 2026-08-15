@@ -81,6 +81,30 @@ class TicketCatalogBackfillTest extends TestCase
         }
     }
 
+    /**
+     * Deja las filas como estaban ANTES de la R1: con la columna enum escrita y
+     * la clave foránea vacía.
+     *
+     * Hace falta desde la R2.5 porque el modelo ya no escribe el espejo — un
+     * ticket creado hoy nace con la columna enum en su valor por defecto, que no
+     * es lo que tenía una fila heredada. Sin esto, el escenario de partida del
+     * backfill no se parecería al real y el test probaría otra cosa.
+     */
+    private function simularFilasHeredadas(): void
+    {
+        foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            DB::statement("
+                UPDATE support_ticket
+                SET {$enum} = (SELECT code FROM {$tabla} WHERE {$tabla}.id = support_ticket.{$columna})
+                WHERE {$columna} IS NOT NULL
+            ");
+        }
+
+        DB::table('support_ticket')->update([
+            'status_id' => null, 'priority_id' => null, 'category_id' => null,
+        ]);
+    }
+
     /** La consulta anti-join: filas con enum y sin catálogo resuelto. */
     private function huerfanos(string $enum, string $columna): int
     {
@@ -111,11 +135,7 @@ class TicketCatalogBackfillTest extends TestCase
     public function el_backfill_resuelve_las_filas_que_ya_existian(): void
     {
         $this->ticketsDeTodoElDominio();
-
-        // Se simula el estado previo a la migración: las columnas nuevas vacías.
-        DB::table('support_ticket')->update([
-            'status_id' => null, 'priority_id' => null, 'category_id' => null,
-        ]);
+        $this->simularFilasHeredadas();
 
         foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
             $this->assertGreaterThan(0, $this->huerfanos($enum, $columna), 'El escenario de partida no se preparó bien.');
@@ -136,14 +156,21 @@ class TicketCatalogBackfillTest extends TestCase
     }
 
     #[Test]
-    public function cada_ticket_apunta_a_la_fila_cuyo_codigo_coincide_con_su_enum(): void
+    public function el_backfill_apunta_cada_fila_heredada_a_su_codigo_exacto(): void
     {
         $this->ticketsDeTodoElDominio();
+        $this->simularFilasHeredadas();
 
-        // No basta con que haya un id: tiene que ser el id CORRECTO. Un
-        // backfill mal escrito podría asignarlos todos a la misma fila y la
-        // consulta anti-join no lo notaría.
+        // No basta con que haya un id: tiene que ser el id CORRECTO. Un backfill
+        // mal escrito podría asignarlos todos a la misma fila y la consulta
+        // anti-join no lo notaría.
         foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            DB::statement("
+                UPDATE support_ticket
+                SET {$columna} = (SELECT id FROM {$tabla} WHERE {$tabla}.code = support_ticket.{$enum})
+                WHERE {$enum} IS NOT NULL
+            ");
+
             $descuadres = DB::table('support_ticket')
                 ->join($tabla, "{$tabla}.id", '=', "support_ticket.{$columna}")
                 ->whereColumn("{$tabla}.code", '!=', "support_ticket.{$enum}")

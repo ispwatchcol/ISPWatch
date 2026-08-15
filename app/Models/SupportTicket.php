@@ -57,26 +57,45 @@ class SupportTicket extends Model
     ];
 
     /**
-     * Las etiquetas del catálogo viajan en el JSON del panel junto al código.
-     * El frontend ya no las deduce: las recibe.
+     * FASE 1 · R2.5 — `status`, `priority` y `category` se DECLARAN aquí.
+     *
+     * Hoy siguen siendo columnas reales, así que aparecerían en el JSON de todos
+     * modos y esto no cambia nada visible. Se adelanta a propósito: cuando la R3
+     * elimine esas columnas dejarán de estar en `$attributes`, y sin `$appends`
+     * **desaparecerían silenciosamente de la respuesta** —comprobado ejecutando,
+     * no por inspección—. Declararlo ahora convierte la R3 en una migración
+     * limpia, sin riesgo de serialización, y deja el comportamiento fijado por
+     * la suite desde antes.
      */
-    protected $appends = ['status_label', 'priority_label', 'category_label'];
+    protected $appends = [
+        'status', 'priority', 'category',
+        'status_label', 'priority_label', 'category_label',
+    ];
 
     /**
-     * FASE 1 · R2 — la clave foránea es la fuente de verdad; el enum es espejo.
+     * FASE 1 · R2.5 — la clave foránea es la ÚNICA representación que se escribe.
      *
      * Columna enum => [columna de clave foránea, tabla de catálogo].
      *
-     * En la R1 la dirección era la contraria: se escribía el enum y la FK se
-     * rellenaba a partir de él. Ahora se invierte —se resuelve el id y el enum
-     * se mantiene al día como COPIA— y con eso ningún lector de la aplicación
-     * necesita ya la columna enum, que es exactamente la condición que habilita
-     * la R3.
+     * Historia de las tres fases, porque el sentido de la flecha cambió dos veces:
      *
-     * El espejo se conserva a propósito mientras la R3 no se apruebe: es lo que
-     * permite revertir sin pérdida de datos. Se escribe desde el modelo y no
-     * desde un trigger de PostgreSQL para que la suite lo cubra; un trigger
-     * sólo existiría en producción, que es donde no se puede probar.
+     *   R1   se escribía el enum y la FK se rellenaba a partir de él.
+     *   R2   se invirtió: la FK pasó a mandar y el enum se mantenía como copia.
+     *   R2.5 se deja de escribir la copia. Las columnas siguen existiendo pero
+     *        quedan CONGELADAS en su último valor conocido.
+     *
+     * Por qué existe este paso intermedio y no se hizo junto con la R3: el
+     * despliegue de App Platform arranca el contenedor nuevo —que corre
+     * `migrate --force`— mientras el viejo sigue atendiendo tráfico contra la
+     * misma base. Si la migración que elimina las columnas entrara en el mismo
+     * despliegue que el código que deja de escribirlas, durante esa ventana el
+     * contenedor viejo intentaría escribir columnas ya inexistentes y toda
+     * escritura de ticket fallaría. Separándolo, cuando la R3 dropee las
+     * columnas ya no habrá código vivo que las toque.
+     *
+     * OJO CON REVERTIR: desde este punto el espejo está obsoleto y NO se puede
+     * usar para restaurar. El rollback debe reconstruirlo desde el catálogo
+     * (`UPDATE … FROM ticket_status`), como documenta el runbook de la R3.
      */
     private const CATALOGOS_MIGRADOS = [
         'status'   => ['status_id',   TicketCatalogs::STATUS],
@@ -90,22 +109,21 @@ class SupportTicket extends Model
     }
 
     /**
-     * Reconcilia ambas representaciones antes de guardar.
+     * Red de seguridad de la transición: resolver la FK de una fila que llegue
+     * sin ella.
      *
-     * Cubre el caso que los accessors no ven: escribir `status_id` directamente
-     * (una asignación masiva, una importación). Manda la FK, y el enum la sigue.
+     * No debería ocurrir —la migración R1 rellenó todo y aborta si queda algún
+     * huérfano, y desde entonces el mutator la resuelve siempre—, pero mientras
+     * la columna enum exista es un rescate gratis. Desaparece con la R3, junto
+     * con la columna de la que lee.
+     *
+     * Lo que este hook YA NO hace es escribir el espejo: esa es exactamente la
+     * diferencia entre la R2 y la R2.5.
      */
     protected static function booted(): void
     {
         static::saving(function (self $ticket) {
             foreach (self::CATALOGOS_MIGRADOS as $enum => [$columna, $tabla]) {
-                if ($ticket->isDirty($columna)) {
-                    $ticket->attributes[$enum] = self::catalogos()->code($tabla, $ticket->{$columna});
-
-                    continue;
-                }
-
-                // Fila anterior al backfill, o creada sin pasar por el mutator.
                 if ($ticket->{$columna} === null && ($ticket->attributes[$enum] ?? null) !== null) {
                     $ticket->{$columna} = self::catalogos()->id($tabla, $ticket->attributes[$enum]);
                 }
@@ -159,11 +177,11 @@ class SupportTicket extends Model
 
         return Attribute::make(
             get: fn ($value) => self::catalogos()->code($tabla, $this->attributes[$columna] ?? null) ?? $value,
-            // Devolver un array escribe las dos columnas de una sola vez: la FK
-            // (fuente de verdad) y el espejo, que es lo que mantiene viable la
-            // reversión mientras la R3 no se haya aprobado.
+            // R2.5: se escribe SÓLO la clave foránea. Antes esto devolvía además
+            // `$enum => $code` para mantener el espejo; dejar de hacerlo es todo
+            // el cambio de esta fase, y lo que permite que la R3 pueda eliminar
+            // esas columnas sin que ningún código vivo intente escribirlas.
             set: fn (?string $code) => [
-                $enum    => $code,
                 $columna => self::catalogos()->id($tabla, $code),
             ],
         );
