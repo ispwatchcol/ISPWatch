@@ -47,7 +47,9 @@ use App\Http\Controllers\PublicContractController;
 use App\Http\Controllers\ApiClientController;
 use App\Http\Controllers\Api\Partner\PartnerBillingController;
 use App\Http\Controllers\Api\Partner\PartnerCustomerController;
+use App\Http\Controllers\Api\Partner\PartnerEventController;
 use App\Http\Controllers\Api\Partner\PartnerMetaController;
+use App\Http\Controllers\Api\Partner\PartnerServiceController;
 use App\Http\Controllers\Api\Partner\PartnerSupportController;
 
 /*
@@ -649,6 +651,21 @@ Route::prefix('v1/partner')
             Route::get('/customers', [PartnerCustomerController::class, 'index']);
             Route::get('/customers/{customer}', [PartnerCustomerController::class, 'show'])
                 ->whereNumber('customer');
+        });
+
+        // Servicios contratados. Ability propia y no `read:customers`: un
+        // integrador de cartera necesita clientes y facturas, pero no tiene por
+        // qué ver la configuración de red de cada punto.
+        Route::middleware('ability:read:services')->group(function () {
+            Route::get('/services', [PartnerServiceController::class, 'index']);
+            Route::get('/services/{service}', [PartnerServiceController::class, 'show'])
+                ->whereNumber('service');
+        });
+
+        // Feed de cambios comerciales por cursor. Ver PartnerEventController
+        // para por qué es cursor y no paginación por página.
+        Route::middleware('ability:read:events')->group(function () {
+            Route::get('/events', [PartnerEventController::class, 'index']);
         });
 
         Route::middleware('ability:read:billing')->group(function () {

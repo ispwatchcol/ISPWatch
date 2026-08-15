@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Partner;
 use App\Models\CustomerProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Clientes del tenant, en solo lectura.
@@ -22,6 +23,7 @@ class PartnerCustomerController extends PartnerController
         $request->validate($this->commonRules() + [
             'service_status' => 'sometimes|string|max:30',
             'router_id'      => 'sometimes|integer',
+            'document'       => 'sometimes|string|max:40',
         ]);
 
         $tenantId = $this->tenantId($request);
@@ -32,7 +34,8 @@ class PartnerCustomerController extends PartnerController
             ->leftJoin('sectorial', 'customer_profile.sectorial_id', '=', 'sectorial.id')
             ->leftJoin('router', 'customer_profile.router_id', '=', 'router.id')
             ->where('users.tenant_id', $tenantId)
-            ->select($this->columns());
+            ->select($this->columns())
+            ->selectSub($this->revisionSubquery($tenantId), 'revision');
 
         if ($status = $request->query('service_status')) {
             $query->where('customer_profile.service_status', $status);
@@ -40,6 +43,14 @@ class PartnerCustomerController extends PartnerController
 
         if ($routerId = $request->query('router_id')) {
             $query->where('customer_profile.router_id', (int) $routerId);
+        }
+
+        // Búsqueda auxiliar por documento: sirve para el alta inicial, cuando
+        // el integrador todavía no tiene el id. Es coincidencia EXACTA a
+        // propósito — una búsqueda parcial sobre documentos convierte esta
+        // ruta en un enumerador de la base de clientes del ISP.
+        if ($document = $request->query('document')) {
+            $query->where('customer_profile.cedula', $document);
         }
 
         // `customer_profile` no tiene timestamps propios: el reloj del cliente
@@ -65,6 +76,7 @@ class PartnerCustomerController extends PartnerController
             ->where('users.tenant_id', $tenantId)
             ->where('customer_profile.user_id', $customer)
             ->select($this->columns())
+            ->selectSub($this->revisionSubquery($tenantId), 'revision')
             ->first();
 
         // 404 y no 403 cuando el cliente es de otro tenant: distinguirlos le
@@ -77,6 +89,22 @@ class PartnerCustomerController extends PartnerController
         }
 
         return response()->json(['data' => $this->present($row)]);
+    }
+
+    /**
+     * Revisión del recurso: el id de su último evento publicado.
+     *
+     * Subconsulta correlacionada y no `GROUP BY` sobre toda la tabla:
+     * `partner_events` crece sin techo, así que agregarla entera en cada
+     * listado se degrada con el tiempo. Con el índice
+     * (tenant_id, customer_id, id) esto es una búsqueda por índice por fila.
+     */
+    private function revisionSubquery(int $tenantId)
+    {
+        return DB::table('partner_events')
+            ->selectRaw('MAX(id)')
+            ->whereColumn('partner_events.customer_id', 'customer_profile.user_id')
+            ->where('partner_events.tenant_id', $tenantId);
     }
 
     /** Lista blanca de columnas. Lo que no está aquí no sale de la API. */
@@ -151,6 +179,9 @@ class PartnerCustomerController extends PartnerController
             ] : null,
             'sectorial'  => $row->sectorial_name,
             'router'     => $row->router_name,
+            // null = este cliente no ha cambiado desde que existe el feed. No
+            // es un error: significa que no hay nada nuevo que sincronizar.
+            'revision'   => $row->revision !== null ? (int) $row->revision : null,
             'created_at' => $row->created_at,
             'updated_at' => $row->updated_at,
         ];

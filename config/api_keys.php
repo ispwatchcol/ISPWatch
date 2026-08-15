@@ -34,6 +34,8 @@ return [
     */
     'abilities' => [
         'read:customers' => 'Clientes (ficha, plan, estado de servicio)',
+        'read:services'  => 'Servicios contratados (plan, estado y datos de red del punto)',
+        'read:events'    => 'Feed de cambios comerciales (altas, cortes, cambios de plan)',
         'read:billing'   => 'Facturación (facturas y pagos)',
         'read:support'   => 'Soporte (tickets e instalaciones)',
     ],
