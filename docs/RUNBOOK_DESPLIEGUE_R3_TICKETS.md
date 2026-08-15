@@ -29,6 +29,15 @@ deja de escribirlas. Este documento es la secuencia que sí es segura.
 > confirme por escrito que el App Spec vivo conserva, en el componente `ispwatch`, un
 > `run_command` que ejecuta `php artisan migrate --force` ANTES de `heroku-php-apache2`.**
 
+## ✅ GATE CUMPLIDO — 2026-08-15
+
+Confirmado desde el panel de DigitalOcean: **el App Spec activo coincide con
+`.do/deploy.template.yaml`** y no existe ninguna modificación manual del `run_command`.
+
+El gate queda cerrado para este despliegue. **Vuelve a abrirse** si alguien edita el spec
+desde el panel: cualquier cambio en el `run_command` invalida el análisis de este runbook
+y obliga a rehacerlo antes del siguiente despliegue destructivo.
+
 **Responsable:** quien tenga acceso al panel de DigitalOcean.
 
 **Cómo confirmarlo:**
@@ -69,7 +78,15 @@ resultante**. Ese es el criterio, no la comodidad.
 |---|---|---|---|---|
 | **1** | R1 (3 migraciones) + R2 (código) | Se añaden catálogos y claves foráneas. Las columnas enum siguen | El código viejo usa las columnas enum, que siguen ahí y las mantiene sincronizadas el código R2 | ✅ Listo en PR #233 |
 | **2** | **R2.5** (sólo código) | Sin cambios | Viejo (R2) y nuevo (R2.5) leen por clave foránea. Las columnas siguen existiendo, sólo quedan congeladas | ✅ Listo |
-| **3** | **R3** (1 migración + código) | Se eliminan las 3 columnas enum y sus `CHECK` | Todo el código vivo es R2.5, que ya no toca esas columnas | ⏳ Pendiente |
+| **3** | **R3** (1 migración + código) | Se eliminan las 3 columnas enum y sus `CHECK` | Todo el código vivo es R2.5, que ya no toca esas columnas | ✅ Listo en rama, sin aplicar |
+
+**R3 es el despliegue final de esta transición.** Después de él no quedan pasos
+intermedios: el catálogo es la única representación y `support_ticket` no vuelve a tener
+columnas enum.
+
+> ⚠️ **Ningún schema de producción ha recibido todavía ninguna de las cuatro releases.**
+> `public` no tiene siquiera la R1: sus catálogos no existen. `ispwatch_dev` tiene R1
+> aplicada. Verificado el 2026-08-15 consultando `migrations` en ambos schemas.
 
 **El paso 2 no es burocracia.** Sin él, en el despliegue 3 el contenedor viejo correría
 código R2 —que **sí** escribe el espejo— contra un esquema donde las columnas ya no
@@ -121,6 +138,15 @@ SELECT count(*) FROM support_ticket WHERE priority_id IS NULL OR category_id IS 
 > ⚠️ **No compares la columna enum con el catálogo.** Desde la R2.5 el espejo está
 > congelado a propósito y va a discrepar: esa discrepancia es el comportamiento correcto,
 > no un fallo. Lo único que importa es que **la clave foránea esté resuelta**.
+>
+> La migración R3 aplica exactamente este criterio: **aborta** si encuentra alguna clave
+> foránea sin resolver —eso haría irrecuperable el estado de ese ticket— y se limita a
+> **registrar en el log** el conteo de divergencia del espejo, sin detenerse. Un aborto
+> por divergencia pasaría en desarrollo (donde la R2.5 no llegó a correr) y fallaría en
+> producción sin patrón previsible, dejando el contenedor nuevo sin arrancar.
+>
+> Está fijado por `TicketEnumDropGuardTest`, que prueba ambas mitades: que aborta con la
+> clave foránea nula y que **no** aborta con el espejo divergente.
 
 Confirmar además que los catálogos existen en el schema destino:
 

@@ -1150,6 +1150,19 @@ para poder publicar el contrato OpenAPI una sola vez con el juego completo de ca
 propia migración (nunca en un seeder: `migrate:both` no siembra `public`), y sólo entonces
 construir la captura en la interfaz.
 
+### ✅ P-23 · `support_ticket` ya no tiene columnas enum (R3, 2026-08-15)
+
+**Resuelto en la rama, pendiente de desplegar.** La R3 eliminó `status`, `priority` y
+`category` con sus `CHECK`. El catálogo es la única representación; los tres siguen
+saliendo como cadena en la API mediante `$appends`.
+
+Lo que queda es **operativo, no de código**: aplicar la secuencia de tres despliegues del
+[`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md). Ningún schema de
+producción tiene aplicada todavía ninguna de las cuatro releases.
+
+<details>
+<summary>Redacción anterior (cuando la R3 estaba pendiente)</summary>
+
 ### 📋 P-23 · Falta la R3: `support_ticket` sigue con los enums y las FK a la vez
 
 **R2 y R2.5 listas (2026-08-14/15).** La aplicación lee y escribe por clave foránea, y
@@ -1172,6 +1185,8 @@ secuencia de [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.
 y hoy es mínima —worker, scheduler, jobs, comandos y observers **no tocan**
 `support_ticket`—, pero cada semana entre el despliegue 2 y el 3 es una oportunidad de que
 alguien introduzca código nuevo que sí las use.
+
+</details>
 
 ### 📋 P-24 · La pantalla de catálogos de la Fase 3 tendrá que vaciar la caché
 

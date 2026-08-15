@@ -36,6 +36,11 @@ class SupportTicket extends Model
         'tenant_id',
         'subject',
         'description',
+        // R3: estas tres ya NO son columnas. Siguen aquí porque son el nombre
+        // con el que entran los datos —`create(['status' => 'open'])` es lo que
+        // escriben el controlador y los tests—; el mutator las traduce a
+        // `status_id`. Quitarlas de `$fillable` haría que la asignación masiva
+        // las descartara en silencio y el ticket naciera sin estado.
         'status',
         'priority',
         'category',
@@ -57,15 +62,16 @@ class SupportTicket extends Model
     ];
 
     /**
-     * FASE 1 · R2.5 — `status`, `priority` y `category` se DECLARAN aquí.
+     * FASE 1 · R3 — `status`, `priority` y `category` YA NO SON COLUMNAS.
      *
-     * Hoy siguen siendo columnas reales, así que aparecerían en el JSON de todos
-     * modos y esto no cambia nada visible. Se adelanta a propósito: cuando la R3
-     * elimine esas columnas dejarán de estar en `$attributes`, y sin `$appends`
-     * **desaparecerían silenciosamente de la respuesta** —comprobado ejecutando,
-     * no por inspección—. Declararlo ahora convierte la R3 en una migración
-     * limpia, sin riesgo de serialización, y deja el comportamiento fijado por
-     * la suite desde antes.
+     * Son atributos calculados a partir de `status_id`, `priority_id` y
+     * `category_id`. Sin declararlos aquí **desaparecerían del JSON sin dar
+     * ningún error**: Eloquent sólo serializa columnas reales más `$appends`, y
+     * al dropear las columnas dejaron de estar en `$attributes`. Comprobado
+     * ejecutando contra una base ya migrada, no por inspección.
+     *
+     * Es decir: esta línea es lo único que mantiene vivas las tres claves en las
+     * respuestas del panel. Quitarla rompe el frontend en silencio.
      */
     protected $appends = [
         'status', 'priority', 'category',
@@ -73,29 +79,26 @@ class SupportTicket extends Model
     ];
 
     /**
-     * FASE 1 · R2.5 — la clave foránea es la ÚNICA representación que se escribe.
+     * FASE 1 · R3 — la clave foránea es la única representación que existe.
      *
-     * Columna enum => [columna de clave foránea, tabla de catálogo].
+     * Nombre público del atributo => [columna real, tabla de catálogo].
      *
-     * Historia de las tres fases, porque el sentido de la flecha cambió dos veces:
+     * Cómo se llegó hasta aquí, porque el sentido de la flecha cambió dos veces
+     * y el historial explica por qué el código tiene la forma que tiene:
      *
-     *   R1   se escribía el enum y la FK se rellenaba a partir de él.
-     *   R2   se invirtió: la FK pasó a mandar y el enum se mantenía como copia.
-     *   R2.5 se deja de escribir la copia. Las columnas siguen existiendo pero
-     *        quedan CONGELADAS en su último valor conocido.
+     *   R1    se escribía el enum y la clave foránea se rellenaba a partir de él.
+     *   R2    se invirtió: la clave foránea pasó a mandar, el enum quedó de copia.
+     *   R2.5  se dejó de escribir la copia; las columnas quedaron congeladas.
+     *   R3    las columnas desaparecen. Sólo queda la clave foránea.
      *
-     * Por qué existe este paso intermedio y no se hizo junto con la R3: el
-     * despliegue de App Platform arranca el contenedor nuevo —que corre
-     * `migrate --force`— mientras el viejo sigue atendiendo tráfico contra la
-     * misma base. Si la migración que elimina las columnas entrara en el mismo
-     * despliegue que el código que deja de escribirlas, durante esa ventana el
-     * contenedor viejo intentaría escribir columnas ya inexistentes y toda
-     * escritura de ticket fallaría. Separándolo, cuando la R3 dropee las
-     * columnas ya no habrá código vivo que las toque.
+     * El desdoblamiento R2.5/R3 no fue burocracia: el despliegue arranca el
+     * contenedor nuevo —que corre `migrate --force`— mientras el viejo sigue
+     * atendiendo tráfico contra la misma base. Juntar ambos pasos habría dejado
+     * al contenedor viejo escribiendo columnas ya inexistentes.
      *
-     * OJO CON REVERTIR: desde este punto el espejo está obsoleto y NO se puede
-     * usar para restaurar. El rollback debe reconstruirlo desde el catálogo
-     * (`UPDATE … FROM ticket_status`), como documenta el runbook de la R3.
+     * PARA REVERTIR no sirve ningún respaldo del espejo: estaba obsoleto desde
+     * la R2.5. Las columnas se reconstruyen DESDE EL CATÁLOGO, como hace el
+     * `down()` de la migración y documenta docs/RUNBOOK_DESPLIEGUE_R3_TICKETS.md.
      */
     private const CATALOGOS_MIGRADOS = [
         'status'   => ['status_id',   TicketCatalogs::STATUS],
@@ -108,28 +111,10 @@ class SupportTicket extends Model
         return app(TicketCatalogs::class);
     }
 
-    /**
-     * Red de seguridad de la transición: resolver la FK de una fila que llegue
-     * sin ella.
-     *
-     * No debería ocurrir —la migración R1 rellenó todo y aborta si queda algún
-     * huérfano, y desde entonces el mutator la resuelve siempre—, pero mientras
-     * la columna enum exista es un rescate gratis. Desaparece con la R3, junto
-     * con la columna de la que lee.
-     *
-     * Lo que este hook YA NO hace es escribir el espejo: esa es exactamente la
-     * diferencia entre la R2 y la R2.5.
-     */
-    protected static function booted(): void
-    {
-        static::saving(function (self $ticket) {
-            foreach (self::CATALOGOS_MIGRADOS as $enum => [$columna, $tabla]) {
-                if ($ticket->{$columna} === null && ($ticket->attributes[$enum] ?? null) !== null) {
-                    $ticket->{$columna} = self::catalogos()->id($tabla, $ticket->attributes[$enum]);
-                }
-            }
-        });
-    }
+    // R3: ya no hay hook `saving`. El que existía rescataba la clave foránea
+    // leyéndola de la columna enum, y esa columna ya no existe. Tampoco hace
+    // falta: el mutator resuelve el id en toda escritura, y la migración R3
+    // aborta si encontrara alguna fila sin resolver.
 
     // ── Código y etiqueta de catálogo ────────────────────────────────────
 
@@ -176,11 +161,10 @@ class SupportTicket extends Model
         [$columna, $tabla] = self::CATALOGOS_MIGRADOS[$enum];
 
         return Attribute::make(
-            get: fn ($value) => self::catalogos()->code($tabla, $this->attributes[$columna] ?? null) ?? $value,
-            // R2.5: se escribe SÓLO la clave foránea. Antes esto devolvía además
-            // `$enum => $code` para mantener el espejo; dejar de hacerlo es todo
-            // el cambio de esta fase, y lo que permite que la R3 pueda eliminar
-            // esas columnas sin que ningún código vivo intente escribirlas.
+            // R3: el catálogo es la ÚNICA fuente. Hasta la R2.5 esto llevaba un
+            // `?? $value` que caía a la columna enum cuando la clave foránea no
+            // estaba resuelta; esa columna ya no existe y el respaldo sobra.
+            get: fn () => self::catalogos()->code($tabla, $this->attributes[$columna] ?? null),
             set: fn (?string $code) => [
                 $columna => self::catalogos()->id($tabla, $code),
             ],

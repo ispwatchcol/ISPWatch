@@ -82,16 +82,26 @@ class TicketCatalogBackfillTest extends TestCase
     }
 
     /**
-     * Deja las filas como estaban ANTES de la R1: con la columna enum escrita y
-     * la clave foránea vacía.
+     * Deja el esquema y los datos como estaban ANTES de la R1: con las columnas
+     * enum presentes y escritas, y la clave foránea vacía.
      *
-     * Hace falta desde la R2.5 porque el modelo ya no escribe el espejo — un
-     * ticket creado hoy nace con la columna enum en su valor por defecto, que no
-     * es lo que tenía una fila heredada. Sin esto, el escenario de partida del
-     * backfill no se parecería al real y el test probaría otra cosa.
+     * Requiere restaurar el esquema porque la R3 ya eliminó esas columnas y la
+     * suite corre con todas las migraciones aplicadas. Se usa el `down()` de la
+     * propia migración R3 en vez de un `ALTER TABLE` a mano: si la reversión se
+     * rompiera, estos tests fallarían al preparar el escenario en vez de dejar
+     * el fallo escondido hasta el día que hiciera falta revertir de verdad.
+     *
+     * Esto sigue valiendo la pena aunque la R3 esté hecha: el esquema `public`
+     * de producción TODAVÍA NO ha corrido la R1, así que este backfill se va a
+     * ejecutar de verdad allí sobre datos reales.
      */
     private function simularFilasHeredadas(): void
     {
+        // Restaura status/priority/category y las rellena desde el catálogo.
+        (require database_path(
+            'migrations/2026_08_15_000001_drop_ticket_enum_columns_from_support_ticket.php'
+        ))->down();
+
         foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
             DB::statement("
                 UPDATE support_ticket
