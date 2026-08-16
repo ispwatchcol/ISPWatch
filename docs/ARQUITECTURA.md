@@ -1288,16 +1288,51 @@ de instalación.
 - El limitador general `api` pasó a llavear por `Clase:id` en vez de por `id` a
   secas, porque el usuario 7 y el `ApiClient` 7 compartían cubo.
 
-### 14.6 Emisión de llaves
+### 14.6 Emisión de llaves: dos caminos
 
-Centralizada en el **tenant operador** (`config/api_keys.php`), pestaña
-Configuración → Llaves API. El permiso `manage_api_keys` no basta por sí solo —lo
-tiene el rol Administrador de todos los tenants—, así que `ApiClientController`
-comprueba además el tenant en cada acción.
+Hay dos formas de emitir una llave, con permisos, controladores y rutas separados.
 
-El texto plano se muestra **una sola vez**; en la base sólo queda el hash de
-Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero conserva la fila:
-un registro de auditoría que apunta a una llave borrada no sirve de nada.
+**Camino del operador** — `ApiClientController`, permiso `manage_api_keys`,
+rutas `/api/api-clients/*`. Alcanza a cualquier tenant y no tiene topes. El
+permiso no basta por sí solo —lo tiene el rol Administrador de todos los
+tenants—, así que el controlador comprueba además el tenant en cada acción.
+
+**Camino de auto-servicio** — `TenantApiKeyController`, permiso
+`manage_own_api_keys`, rutas `/api/my-api-keys/*`. El ISP emite las llaves de su
+propia empresa. El `tenant_id` sale de la sesión y no existe ningún campo que lo
+transporte en la petición.
+
+Son clases distintas y no una con condicionales, porque los dos modelos de
+autorización son incompatibles: allí el permiso significa "administrar las
+llaves de CUALQUIER tenant" y aquí "las de ESTE y ninguno más". Unificarlos
+convertiría cada método en una pregunta sobre quién llama — justo el código donde
+se cuela el caso que nadie contempló.
+
+Guardarraíles del auto-servicio, todos en `config/api_keys.php → self_service`:
+
+| Guardarraíl | Por defecto | Qué evita |
+|---|---|---|
+| Subconjunto de abilities | sin `read:billing` | Que el alcance más sensible se conceda sin que nadie lo piense |
+| Vencimiento obligatorio | máx. 90 días | La llave eterna que nadie rota |
+| Prefijo mínimo de la allowlist | `/24` IPv4, `/64` IPv6 | El `0.0.0.0/0` que desarma la allowlist entera |
+| Tope de llaves vigentes | 5 | Que una llave olvidada pase inadvertida |
+| Tope de integraciones | 3 | Alta sin límite |
+| Throttle propio | 10/min, 30/h | Tantear combinaciones contra el validador |
+| Aviso al operador | correo por emisión | Que cambie qué datos salen sin que el operador se entere |
+
+El de la allowlist es el que más trabaja: cuando alguien pelea con un `403`, el
+camino de menor resistencia es ensanchar el rango hasta que funcione, y eso anula
+la única defensa que hace que una llave filtrada no sirva desde fuera.
+
+Un `{client}` ajeno responde **404**, nunca 403, y por eso esas rutas no usan
+vinculación implícita de modelo: con ella Laravel resolvería el `ApiClient` de
+cualquier tenant antes de la comprobación, y la diferencia entre 403 y 404
+permitiría enumerar las integraciones de otros ISP.
+
+En ambos caminos el texto plano se muestra **una sola vez**; en la base sólo
+queda el hash de Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero
+conserva la fila: un registro de auditoría que apunta a una llave borrada no
+sirve de nada.
 
 ---
 

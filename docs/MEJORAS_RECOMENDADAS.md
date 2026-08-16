@@ -495,6 +495,36 @@ borre: verifica que ninguna excepción listada lleve ya el trait).
 La urgencia es baja: a un `billing` sólo se llega por `router.billing_router_id` y `Router`
 sí lleva scope, así que la frontera está puesta un nivel más arriba.
 
+### 🟡 P-KEYS-1 · Riesgo residual del auto-servicio de llaves
+
+El auto-servicio (§ 36 de la bitácora) se implementó por decisión de producto, sobre una
+recomendación técnica que era abrir sólo la visibilidad. Los guardarraíles cubren lo que
+se puede cubrir en código; lo que queda es lo que el código no puede decidir:
+
+1. **La allowlist la escribe quien no sabe qué IP poner.** El tope de `/24` impide el
+   `0.0.0.0/0`, pero no impide que alguien liste un rango de su ISP doméstico. La
+   mitigación real es que el `ping` devuelve la IP de origen vista por el servidor —está
+   documentado en el manual de usuario, pero nadie lee manuales cuando pelea con un 403.
+   Si aparecen llaves con allowlists raras, el siguiente paso es un asistente de "usar la
+   IP desde la que estoy llamando" en vez de un campo de texto libre.
+
+2. **`read:billing` fuera del auto-servicio deja un camino manual.** Es deliberado, pero
+   significa que una integración tipo CNO —que sí necesita facturas y pagos— sigue
+   pasando por el operador. Si eso pasa a ser frecuente, la decisión a revisar es si el
+   ability entra al subconjunto o si se parte en algo más fino (`read:invoices` sin
+   `read:payments`, por ejemplo).
+
+3. **El aviso al operador depende de una variable de entorno.** Sin
+   `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, la emisión sólo queda en el log de la
+   aplicación y nadie se entera en el momento. Configurarla es parte del despliegue, no
+   opcional.
+
+4. **No hay revisión periódica de llaves.** Nada avisa de una llave que lleva 60 días sin
+   usarse ni de una que está por vencer. El vencimiento obligatorio de 90 días fuerza una
+   rotación, pero de la forma más brusca posible: la integración se cae. Un comando
+   `api-keys:expiring` que avise por correo con una semana de margen es trabajo pequeño y
+   evita ese corte.
+
 ### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
 
 **Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.
@@ -513,6 +543,25 @@ un moroso. El compromiso está deliberadamente del lado de la continuidad del se
 **Si alguna vez molesta**, la salida no es bajar el intervalo (multiplica la carga de sync sin
 cerrar la ventana): es que el pipeline de corte escriba el estado del moroso directo al snapshot
 además de a Postgres, para que la degradación herede el corte al instante.
+
+### 🟡 P-RADIUS-3 · No existe política de "no enviar factura" por router/grupo
+
+Detectado el 2026-08-15 al responderle a un integrador que la daba por existente.
+
+Hoy el aviso de factura se decide **por cliente** (`customer_profile.notify_invoice`); lo
+que se configura a nivel de router (`billing.notification_type`) es sólo el **canal**
+(email / WhatsApp / ambos). No hay forma de decir "a los clientes de este grupo no les
+mandes factura".
+
+El caso de uso es real: un grupo facturado por una plataforma de facturación electrónica
+externa, donde ISPWatch debe seguir siendo la fuente comercial pero **no** emitir el aviso
+al abonado, porque el documento lo manda la otra plataforma. Hoy eso obliga a apagar
+`notify_invoice` cliente por cliente, y cada alta nueva nace con el aviso encendido.
+
+**Recomendación.** Una columna en `billing` (p. ej. `send_invoice_notice`, default `true`)
+que `BillingService::notifyInvoiceCreated()` consulte antes que la del cliente, con
+precedencia grupo → cliente. Es chico, pero toca el camino de facturación: va con test que
+cubra las cuatro combinaciones.
 
 ### 🟡 P-RADIUS-2 · Doble contabilidad de tráfico sin fuente autoritativa
 

@@ -90,6 +90,7 @@
 29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
 30. [Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13](#30-borrar-una-factura-pagada-dejaba-el-dinero-en-el-aire--2026-08-13)
 35. [El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15](#35-el-aislamiento-entre-tenants-se-apoyaba-en-que-nadie-olvidara-el-where--2026-08-15)
+36. [Auto-servicio de llaves de API — 2026-08-15](#36-auto-servicio-de-llaves-de-api--2026-08-15)
 
 ---
 
@@ -3390,3 +3391,167 @@ así que la urgencia es baja y el riesgo de equivocarse, alto.
 (ni Docker ni WSL con distribución), así que la verificación fue estática. Falta correr la
 suite y `migrate:both` antes de desplegar. La capa de RLS queda pendiente y documentada en
 `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 36. Auto-servicio de llaves de API — 2026-08-15
+
+Decisión de producto del ISP: que cada empresa pueda emitir sus propias llaves sin pedirlas
+al operador. La recomendación técnica había sido abrir sólo la **visibilidad** (ver y
+revocar) y dejar la emisión centralizada; se pidió el auto-servicio completo y se
+implementó completo, con los guardarraíles que hacían falta para que la decisión sea
+sostenible.
+
+### 36.1 Qué cambia de fondo
+
+No cambia la mecánica —el token, el hash, la allowlist y el middleware son los mismos—
+sino **quién decide el alcance**. Antes lo decidía alguien que administra la plataforma;
+ahora lo decide alguien que quiere que su bot funcione. Ese cambio de perfil es todo el
+problema: el camino de menor resistencia para esa persona es marcar todos los permisos,
+escribir `0.0.0.0/0` en la allowlist y dejar la llave sin vencimiento.
+
+Por eso los límites no se sugieren en el formulario: se imponen en el servidor
+(`config/api_keys.php → self_service`) y hay pruebas que los fijan. Un tope que sólo vive
+en el frontend no es un tope.
+
+### 36.2 Dos controladores, no uno con ramas
+
+`TenantApiKeyController` es una clase aparte de `ApiClientController`. La tentación era
+añadirle un `if ($esOperador)` al que ya existía, y se descartó: los dos modelos de
+autorización son incompatibles —"cualquier tenant" contra "sólo el mío"— y unificarlos
+convierte cada método en una pregunta sobre quién llama. Ese es exactamente el código
+donde se cuela el caso que nadie contempló.
+
+La única pieza que sí se compartió es la validación de IP, extraída al trait
+`ValidatesIpAllowlist`. Tenía que ser compartida: quien decide en runtime si una IP está
+permitida es `IpUtils` desde el middleware, y dos validadores parecidos pero distintos
+producen el peor fallo posible — una llave que el formulario acepta y que después no
+autentica desde ninguna parte, sin que el error diga por qué.
+
+### 36.3 Por qué 404 y no 403 en un `{client}` ajeno
+
+Las rutas de auto-servicio **no usan vinculación implícita de modelo**. Con
+`storeKey(ApiClient $client)`, Laravel resuelve el `ApiClient` de cualquier tenant antes
+de que corra ninguna comprobación, y devolver 403 sobre un id ajeno confirma que ese id
+existe. Con el filtro dentro del controlador, un id ajeno es indistinguible de uno
+inexistente y no se puede enumerar las integraciones de la competencia.
+
+Es la trampa #15 del manual del desarrollador vista desde el otro lado: allí el problema
+era que `SubstituteBindings` corre antes que el middleware de permisos; aquí es que corre
+antes que el filtro por tenant.
+
+### 36.4 Un hallazgo colateral: tres falsos positivos de la revisión anterior
+
+Al leer `ApiClient` completo apareció que el modelo **no** usa `BelongsToTenant` — sólo lo
+nombra en un docblock. La revisión de la § 35 había contado ocurrencias de la cadena
+"BelongsToTenant" en el archivo, y eso da falso positivo con cualquier comentario que la
+mencione. Afectaba a tres modelos: `ApiClient`, `InvoiceType` y `PartnerEvent`.
+
+Ninguno estaba filtrando de más —los tres tienen filtros explícitos en sus
+controladores—, pero los tres habrían hecho fallar a `TenantScopeCoverageTest` en su
+primera ejecución. Los tres van ahora a la lista de excepciones justificadas:
+
+- **`InvoiceType`**: sus tipos de sistema viven con `tenant_id NULL` y `scopeForTenant()`
+  hace `whereNull(tenant_id) OR tenant`. El global scope los escondería y **rompería la
+  facturación**. Mismo caso que `Role`.
+- **`ApiClient`**: el operador administra los consumidores de todos los tenants desde una
+  sola pantalla; `index()` los lista sin filtrar a propósito.
+- **`PartnerEvent`**: exclusión ya documentada en el propio modelo.
+
+La lección de método: para saber si una clase usa un trait no sirve buscar su nombre en el
+archivo. Hay que buscar el `use` **dentro del cuerpo de la clase** — o preguntárselo a PHP
+con `class_uses_recursive()`, que es lo que hace el test.
+
+### 36.5 Estado
+
+**Los tests no se ejecutaron**: la máquina no tiene PHP (§ 35.6). Falta correr la suite,
+`migrate:both` (para el backfill de `manage_own_api_keys` en los roles admin existentes) y
+definir `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, sin la cual la emisión sólo queda en el log.
+
+---
+
+## 37. El interruptor no cubría los cortes — 2026-08-15
+
+### 37.1 El hueco
+
+CNO pidió confirmar formalmente que el interruptor de gestión externa detiene las
+escrituras por SSH de ISPWatch. Al ir a confirmarlo contra el código apareció que **solo
+cubría el aprovisionamiento**.
+
+`OverdueSuspensionService` no consultaba la bandera en ningún punto:
+`suspendCustomer()` llamaba a `RouterPolicyInstallerService::ensurePolicyInstalled()` y a
+`addIpToSuspendedList()`, ambos por SSH, sobre cualquier router. Es decir que un equipo
+marcado como gestionado por el orquestador seguía recibiendo intentos de escritura **en la
+operación más sensible y más frecuente de todas**: el ciclo de mora, que corre a diario.
+
+En el mejor caso esos intentos fallan y llenan el log. En el peor **funcionan** y le pisan
+la configuración a quien administra el equipo.
+
+### 37.2 Dónde va la guarda y por qué ahí
+
+En `RouterProvisioningService`, no en el llamador. A suspender/reconectar se entra por
+**seis puertas**: dos rutas del panel, el reintento manual de un log fallido, el corte
+automático por mora, el reconciliador y la reactivación al registrar un pago. Poner la
+comprobación en `OverdueSuspensionService` habría dejado descubiertas las otras cinco.
+
+### 37.3 Por qué devuelve `true` sin hacer nada
+
+No es fingir éxito. Cuando el control es externo, la responsabilidad de ISPWatch termina en
+**ordenar** el cambio comercial, y eso ya ocurrió: el cambio de `service_status` disparó el
+evento `SERVICE_SUSPENDED` que el orquestador consume. Devolver `false` marcaría el log
+como fallido y el reconciliador reintentaría para siempre contra un equipo que nunca va a
+responder.
+
+Tampoco se abre registro en `suspension_action_logs`: esa bitácora significa «intentamos
+escribir en el RouterBoard», y aquí no se intentó. Un registro exitoso inventado ensuciaría
+el panel de failover con intentos que nunca pasaron.
+
+La confirmación de que el corte se aplicó de verdad llega por otro lado — el retorno
+técnico del orquestador (contrato 7), que es exactamente el motivo por el que ese contrato
+se exige y no se concede.
+
+### 37.4 El reconciliador también
+
+`reconcileSuspensions()` recorre la cartera suspendida y re-corta lo que no esté confirmado
+en el RouterBoard. Con la guarda puesta habría contado un `reblocked_ok` por cada cliente de
+un router externo **sin haber bloqueado nada**, y ese ruido taparía justamente los cortes
+que sí fallaron. Ahora los salta y los cuenta en `skipped_external`.
+
+Los routers externos se resuelven en una sola consulta antes del bucle, no por cliente: ese
+bucle recorre toda la cartera suspendida.
+
+### 37.5 Dos campos que faltaban en la API
+
+Al mapear las confirmaciones de CNO aparecieron dos huecos:
+
+- `/customers` exponía el router **sólo por nombre**. El nombre es editable y no sirve como
+  llave; ahora también va `router_id` y `router_managed_by_external_aaa`.
+- `notify_invoice` no se exponía en ningún lado.
+
+### 37.6 Una premisa equivocada del integrador, corregida
+
+CNO daba por hecho que ISPWatch tiene una opción **por router/grupo** para decidir si se
+envía la factura al cliente, y construyó sobre eso toda su sección de facturación
+electrónica. No existe:
+
+| Campo | Alcance | Qué decide |
+|---|---|---|
+| `customer_profile.notify_invoice` | Por cliente | **Si** se avisa (`BillingService`) |
+| `billing.notification_type` | Por router | El **canal**: email, WhatsApp o ambos |
+| `customer_profile.exclude_from_billing` | Por cliente | Saca del ciclo automático completo |
+
+Lo que se configura a nivel de router es el canal, no el si. Si se quisiera la política por
+grupo, es desarrollo nuevo — anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 37.7 Semántica de estados, para el contrato
+
+CNO pidió cerrar formalmente la precedencia entre `service_status`, `is_enabled` y
+`exclude_from_billing`. Queda documentada aquí porque es la clase de cosa que un integrador
+infiere mal:
+
+- **`service_status` es la autoridad comercial de conectividad.** `activo`, `gratis` y
+  `suspendido` siguen facturando; `retirado` y `cancelado` son bajas definitivas.
+- **`is_enabled` (`customer_profile.status`) NO es autoritativo.** El corte automático lo
+  deja en `true`, así que no refleja si el cliente está cortado.
+- **`exclude_from_billing` precede a todo**: saca del ciclo automático completo (factura,
+  recordatorio, aviso y corte).

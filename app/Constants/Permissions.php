@@ -34,6 +34,15 @@ class Permissions
     const MANAGE_TENANT = 'manage_tenant';
     const MANAGE_DOCUMENT_TEMPLATES = 'manage_document_templates';
     const MANAGE_API_KEYS = 'manage_api_keys';
+
+    /**
+     * Emitir llaves de la API para el PROPIO tenant (auto-servicio).
+     *
+     * Distinto de MANAGE_API_KEYS, que es del tenant operador y alcanza a todos
+     * los tenants. Éste sólo permite administrar las llaves de la empresa a la
+     * que pertenece quien lo tiene, con los límites de config/api_keys.php.
+     */
+    const MANAGE_OWN_API_KEYS = 'manage_own_api_keys';
     const VIEW_SETTINGS = 'view_settings';
     const EXECUTE_MASS_ACTIONS = 'execute_mass_actions';
     const VIEW_AUDIT_LOG = 'view_audit_log';
@@ -109,6 +118,7 @@ class Permissions
                 self::MANAGE_TENANT => 'Gestionar Configuración de Empresa',
                 self::MANAGE_DOCUMENT_TEMPLATES => 'Gestionar Plantillas de Documentos (factura, contrato, instalación)',
                 self::MANAGE_API_KEYS => 'Gestionar Llaves de API (integraciones externas)',
+                self::MANAGE_OWN_API_KEYS => 'Emitir Llaves de API propias de la empresa (auto-servicio)',
                 self::VIEW_SETTINGS => 'Ver Ajustes del Sistema',
                 self::EXECUTE_MASS_ACTIONS => 'Ejecutar Acciones Masivas',
                 self::VIEW_AUDIT_LOG => 'Ver Bitácora de Auditoría (cambios de precio, planes, pagos y saldos)',

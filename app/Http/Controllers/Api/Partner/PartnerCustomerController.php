@@ -128,6 +128,11 @@ class PartnerCustomerController extends PartnerController
             'customer_profile.service_status',
             'customer_profile.credit_balance',
             'customer_profile.exclude_from_billing',
+            // Decide si se AVISA la factura (email/WhatsApp). Es por cliente,
+            // no por router: el router solo elige el canal. Se expone porque un
+            // integrador que emita el documento por su cuenta necesita saber a
+            // quién NO debe avisarle ISPWatch.
+            'customer_profile.notify_invoice',
             'customer_profile.is_fiber',
             'customer_profile.ip_user',
             'customer_profile.pppoe_username',
@@ -141,7 +146,11 @@ class PartnerCustomerController extends PartnerController
             'service_plan.speed_up as plan_speed_up',
             'service_plan.cost_product as plan_price',
             'sectorial.name as sectorial_name',
+            'router.id as router_id',
             'router.name as router_name',
+            // Le dice al integrador si ISPWatch ya dejó de escribir en ese
+            // equipo, o sea si la frontera técnica de ese grupo está establecida.
+            'router.radius as router_radius',
         ];
     }
 
@@ -177,8 +186,17 @@ class PartnerCustomerController extends PartnerController
                 'speed_up'    => $row->plan_speed_up,
                 'price'       => $row->plan_price,
             ] : null,
+            // El aviso de factura es por cliente; el router solo define el
+            // canal. Un integrador que emita el documento electrónico por su
+            // cuenta necesita este campo para no duplicar el aviso.
+            'notify_invoice' => (bool) $row->notify_invoice,
+
             'sectorial'  => $row->sectorial_name,
+            // `router` se mantiene como nombre por compatibilidad con quien ya
+            // lo consume; `router_id` es el identificador estable del grupo.
             'router'     => $row->router_name,
+            'router_id'  => $row->router_id ? (int) $row->router_id : null,
+            'router_managed_by_external_aaa' => (bool) $row->router_radius,
             // null = este cliente no ha cambiado desde que existe el feed. No
             // es un error: significa que no hay nada nuevo que sincronizar.
             'revision'   => $row->revision !== null ? (int) $row->revision : null,

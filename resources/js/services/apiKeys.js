@@ -44,4 +44,38 @@ export const apiKeysService = {
   },
 }
 
+/**
+ * Auto-servicio: el ISP administra las llaves de SU empresa.
+ *
+ * Rutas distintas de las de arriba, no las mismas con otro parámetro. El
+ * backend nunca acepta un `tenant_id` por aquí: lo toma de la sesión, así que
+ * no hay nada que mandarle ni forma de apuntar a otra empresa desde el cliente.
+ *
+ * `list()` devuelve además `limits`, con los topes vigentes y cuánto lleva
+ * consumido el tenant. El formulario los usa para avisar ANTES de escribir, en
+ * vez de dejar que el servidor rechace después.
+ */
+export const myApiKeysService = {
+  list() {
+    return apiClient.get('/my-api-keys').then(r => r.data)
+  },
+
+  createClient(payload) {
+    return apiClient.post('/my-api-keys/clients', payload).then(r => r.data.data)
+  },
+
+  /** Única vez que existe `plain_text_token` fuera del servidor. */
+  createKey(clientId, payload) {
+    return apiClient.post(`/my-api-keys/clients/${clientId}/keys`, payload).then(r => r.data.data)
+  },
+
+  revokeKey(clientId, tokenId) {
+    return apiClient.delete(`/my-api-keys/clients/${clientId}/keys/${tokenId}`).then(r => r.data)
+  },
+
+  logs(clientId, limit = 50) {
+    return apiClient.get(`/my-api-keys/clients/${clientId}/logs`, { params: { limit } }).then(r => r.data.data)
+  },
+}
+
 export default apiKeysService

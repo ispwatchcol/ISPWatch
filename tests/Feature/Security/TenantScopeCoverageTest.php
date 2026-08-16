@@ -63,6 +63,22 @@ class TenantScopeCoverageTest extends TestCase
             . 'quedó en NULL en las filas anteriores a que RouterController lo poblara; el '
             . 'backfill va en 2026_08_15_100100 y activar el scope antes escondería toda la '
             . 'configuración de cobro. Ver MEJORAS_RECOMENDADAS.md.',
+
+        \App\Models\InvoiceType::class =>
+            'Los tipos de factura del sistema viven con tenant_id NULL y deben verse desde '
+            . 'todos los tenants: scopeForTenant() hace whereNull(tenant_id) OR tenant. Es el '
+            . 'mismo caso que Role — el global scope los escondería y rompería la facturación.',
+
+        \App\Models\ApiClient::class =>
+            'El tenant operador administra los consumidores de API de TODOS los tenants desde '
+            . 'una sola pantalla, así que index() los lista a propósito sin filtrar. La '
+            . 'frontera la pone ApiClientController::authorizeOperator() y, en el camino de '
+            . 'auto-servicio, el filtro explícito por tenant de TenantApiKeyController.',
+
+        \App\Models\PartnerEvent::class =>
+            'Exclusión documentada en el propio modelo: el tenant lo fija siempre quien '
+            . 'registra el evento a partir del modelo que cambió, y los lectores (la API '
+            . 'pública) filtran por el tenant de la llave de forma explícita.',
     ];
 
     public function test_todo_modelo_con_tenant_id_lleva_scope_o_esta_justificado(): void

@@ -45,6 +45,7 @@ use App\Http\Controllers\DocumentTemplateController;
 use App\Http\Controllers\ContractSignatureLinkController;
 use App\Http\Controllers\PublicContractController;
 use App\Http\Controllers\ApiClientController;
+use App\Http\Controllers\TenantApiKeyController;
 use App\Http\Controllers\Api\Partner\PartnerBillingController;
 use App\Http\Controllers\Api\Partner\PartnerCustomerController;
 use App\Http\Controllers\Api\Partner\PartnerEventController;
@@ -606,11 +607,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::get('inventory-docs', [ImportController::class, 'inventoryFieldDocs']);
     });
 
-    // ─── LLAVES DE LA API PÚBLICA ───
+    // ─── LLAVES DE LA API PÚBLICA · CAMINO DEL OPERADOR ───
     // El permiso lo tiene el rol Administrador de todos los tenants, así que
     // ApiClientController vuelve a comprobar que quien llama es del tenant
-    // operador (config/api_keys.php). Emitir una llave decide qué datos salen
-    // de la plataforma: no es una preferencia auto-servicio.
+    // operador (config/api_keys.php). Este camino no tiene topes: emite para
+    // cualquier tenant, con cualquier ability y sin límite de vigencia.
     Route::middleware('permission:manage_api_keys')->group(function () {
         Route::get('/api-clients', [ApiClientController::class, 'index']);
         Route::get('/api-clients/tenants', [ApiClientController::class, 'tenants']);
@@ -620,6 +621,35 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::post('/api-clients/{apiClient}/keys', [ApiClientController::class, 'storeKey']);
         Route::delete('/api-clients/{apiClient}/keys/{tokenId}', [ApiClientController::class, 'destroyKey']);
     });
+
+    // ─── LLAVES DE LA API PÚBLICA · AUTO-SERVICIO DEL ISP ───
+    //
+    // Permiso DISTINTO al de arriba a propósito: `manage_own_api_keys` sólo
+    // alcanza al tenant de quien llama. Rutas separadas y no las mismas con un
+    // condicional dentro, porque los dos caminos tienen modelos de autorización
+    // incompatibles y mezclarlos es donde se cuela el caso que nadie contempló.
+    //
+    // Sin `{apiClient}` con vinculación implícita: el modelo se resuelve dentro
+    // del controlador filtrando por tenant. Con binding implícito, Laravel
+    // resolvería PRIMERO el ApiClient de cualquier tenant y sólo después
+    // correría la comprobación — y un id ajeno devolvería 403 en vez de 404,
+    // confirmando que existe.
+    //
+    // Los topes (abilities, número de llaves, vigencia, amplitud de la
+    // allowlist de IP) están en config/api_keys.php → self_service.
+    Route::middleware(['permission:manage_own_api_keys', 'throttle:self-service-keys'])
+        ->prefix('my-api-keys')
+        ->group(function () {
+            Route::get('/', [TenantApiKeyController::class, 'index']);
+            Route::post('/clients', [TenantApiKeyController::class, 'store']);
+            Route::get('/clients/{client}/logs', [TenantApiKeyController::class, 'logs'])
+                ->whereNumber('client');
+            Route::post('/clients/{client}/keys', [TenantApiKeyController::class, 'storeKey'])
+                ->whereNumber('client');
+            Route::delete('/clients/{client}/keys/{tokenId}', [TenantApiKeyController::class, 'destroyKey'])
+                ->whereNumber('client')
+                ->whereNumber('tokenId');
+        });
 });
 
 /*

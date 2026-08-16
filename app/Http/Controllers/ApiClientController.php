@@ -6,11 +6,11 @@ use App\Models\ApiClient;
 use App\Models\ApiKeyRequestLog;
 use App\Models\PersonalAccessToken;
 use App\Models\Tenant;
+use App\Traits\ValidatesIpAllowlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
-use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * Alta, emisión y revocación de las llaves de la API pública.
@@ -27,6 +27,11 @@ use Symfony\Component\HttpFoundation\IpUtils;
  */
 class ApiClientController extends Controller
 {
+    // El operador no tiene tope de amplitud en la allowlist: emite conociendo la
+    // plataforma y a veces necesita un bloque ancho de verdad. El auto-servicio
+    // usa la variante estrecha del mismo trait (ver TenantApiKeyController).
+    use ValidatesIpAllowlist;
+
     /**
      * Corta el acceso a quien no sea del tenant operador.
      *
@@ -275,42 +280,4 @@ class ApiClientController extends Controller
         ]);
     }
 
-    /**
-     * Valida IP suelta o rango CIDR.
-     *
-     * La regla `ip` de Laravel rechaza "190.24.7.0/24", que es justo la forma
-     * en que un ISP describe el bloque desde el que sale su servidor. Se valida
-     * con IpUtils, el mismo motor que después decide en el middleware — así no
-     * puede pasar que el panel acepte una notación que en runtime no coincida.
-     */
-    private function ipOrCidrRule(): callable
-    {
-        return function (string $attribute, mixed $value, callable $fail): void {
-            $candidate = (string) $value;
-
-            // Sonda contra una IP imposible: IpUtils devuelve false, pero sólo
-            // lanza/avisa si la notación en sí es inválida.
-            $isValid = str_contains($candidate, '/')
-                ? $this->isValidCidr($candidate)
-                : filter_var($candidate, FILTER_VALIDATE_IP) !== false;
-
-            if (!$isValid) {
-                $fail("«{$candidate}» no es una IP ni un rango CIDR válido.");
-            }
-        };
-    }
-
-    private function isValidCidr(string $candidate): bool
-    {
-        [$address, $mask] = array_pad(explode('/', $candidate, 2), 2, null);
-
-        if (filter_var($address, FILTER_VALIDATE_IP) === false || !is_numeric($mask)) {
-            return false;
-        }
-
-        $max = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false ? 32 : 128;
-
-        return (int) $mask >= 0 && (int) $mask <= $max
-            && IpUtils::checkIp($address, $candidate);
-    }
 }

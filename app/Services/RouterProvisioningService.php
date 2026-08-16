@@ -15,6 +15,37 @@ class RouterProvisioningService
     ) {}
 
     /**
+     * ¿Este router lo gestiona un AAA externo? Entonces ISPWatch NO le escribe.
+     *
+     * POR QUÉ LA GUARDA VA AQUÍ Y NO EN EL LLAMADOR
+     * ----------------------------------------------
+     * A suspender/reconectar se entra por seis puertas: el panel (dos rutas),
+     * el reintento manual de un log fallido, el corte automático por mora, el
+     * reconciliador y la reactivación al pagar. Poner la comprobación en
+     * OverdueSuspensionService habría dejado descubiertas las otras cinco, y
+     * cada una escribiría por SSH en un equipo que ya no nos corresponde.
+     *
+     * QUÉ SIGNIFICA DEVOLVER `true` SIN HACER NADA
+     * ---------------------------------------------
+     * No es fingir éxito. Cuando el control es externo, la responsabilidad de
+     * ISPWatch termina en ORDENAR el cambio comercial: eso ya ocurrió (el
+     * cambio de `service_status` disparó el evento SERVICE_SUSPENDED que el
+     * orquestador consume). Devolver false marcaría el log como fallido y el
+     * reconciliador reintentaría para siempre contra un router que nunca va a
+     * responder.
+     *
+     * La confirmación de que el corte se aplicó de verdad NO viene de aquí:
+     * viene del retorno técnico del orquestador. Por eso tampoco se abre un
+     * registro en suspension_action_logs — esa bitácora existe para «intentamos
+     * escribir en el RouterBoard», y aquí no se intentó. Inventar un log
+     * exitoso ensuciaría el panel de failover con intentos que nunca pasaron.
+     */
+    private function isExternallyManaged(?Router $router): bool
+    {
+        return (bool) $router?->usesRadius();
+    }
+
+    /**
      * Suspend a customer by adding their IP to the ISPWATCH_SUSPENDIDOS list.
      *
      * @param array $context  ['reason' => manual|auto_cut_overdue|reconcile, ...]
@@ -27,6 +58,11 @@ class RouterProvisioningService
             $router = Router::with('cutType')->find($routerId);
             if (!$router) {
                 throw new \Exception("Router {$routerId} not found");
+            }
+
+            if ($this->isExternallyManaged($router)) {
+                Log::info("Suspend delegado al AAA externo: cliente {$customerId}, router {$routerId}. ISPWatch no escribe en este equipo.");
+                return true;
             }
 
             $customer = CustomerProfile::where('user_id', $customerId)->first();
@@ -77,6 +113,11 @@ class RouterProvisioningService
             $router = Router::find($routerId);
             if (!$router) {
                 throw new \Exception("Router {$routerId} not found");
+            }
+
+            if ($this->isExternallyManaged($router)) {
+                Log::info("Unsuspend delegado al AAA externo: cliente {$customerId}, router {$routerId}. ISPWatch no escribe en este equipo.");
+                return true;
             }
 
             $customer = CustomerProfile::where('user_id', $customerId)->first();
