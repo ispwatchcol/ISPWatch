@@ -4011,9 +4011,9 @@ así que la urgencia es baja y el riesgo de equivocarse, alto.
 
 ### 36.6 Estado
 
-**Los tests no se ejecutaron**: la máquina donde se hizo el cambio no tiene PHP instalado
-(ni Docker ni WSL con distribución), así que la verificación fue estática. Falta correr la
-suite y `migrate:both` antes de desplegar. La capa de RLS queda pendiente y documentada en
+Cuando se escribió esta entrada la máquina no tenía PHP y la verificación fue estática.
+**El 2026-08-16 se corrió la suite completa: 850 pruebas en verde** (ver § 39). Falta
+`migrate:both` antes de desplegar. La capa de RLS queda pendiente y documentada en
 `MEJORAS_RECOMENDADAS.md`.
 
 ---
@@ -4088,9 +4088,10 @@ con `class_uses_recursive()`, que es lo que hace el test.
 
 ### 37.5 Estado
 
-**Los tests no se ejecutaron**: la máquina no tiene PHP (§ 36.6). Falta correr la suite,
-`migrate:both` (para el backfill de `manage_own_api_keys` en los roles admin existentes) y
-definir `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, sin la cual la emisión sólo queda en el log.
+La suite se corrió el 2026-08-16 y destapó un fallo propio de este archivo de pruebas
+(§ 39.2). Falta `migrate:both` (para el backfill de `manage_own_api_keys` en los roles admin
+existentes) y definir `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, sin la cual la emisión sólo
+queda en el log.
 
 ---
 
@@ -4179,3 +4180,55 @@ infiere mal:
   deja en `true`, así que no refleja si el cliente está cortado.
 - **`exclude_from_billing` precede a todo**: saca del ciclo automático completo (factura,
   recordatorio, aviso y corte).
+
+---
+
+## 39. La suite corrió por primera vez sobre esta rama — 2026-08-16
+
+Al traer `origin/main` para desbloquear el PR (§ 36–38 se escribieron sin poder ejecutar
+nada: la máquina no tenía PHP) se instaló PHP 8.2 y se corrió la suite entera. Quedó en
+verde —850 pruebas, 2 670 aserciones— pero antes hubo que resolver dos cosas.
+
+### 39.1 Los conflictos eran los tres documentos, no el código
+
+`docs/BASE_DATOS.md`, `docs/BITACORA_TECNICA.md` y `docs/MANUAL_DESARROLLADOR.md`. Las tres
+son listas que crecen por el final, así que dos ramas que documentan trabajo distinto
+chocan siempre — no porque se contradigan, sino porque las dos escriben en la última línea.
+Ninguno de los conflictos era una discrepancia real: se conservaron ambos lados y se
+renumeró **sólo lo de esta rama**, para no reescribir números que `main` ya publicó y a los
+que otras entradas ya apuntan. Es la regla al resolver este tipo de conflicto: el lado que
+ya está en `main` no se toca.
+
+Vale la pena anotar que ninguna de las secciones nuevas ni ninguno de los archivos de
+código chocó. Los documentos son el punto de fricción de este repositorio, no el código, y
+lo van a seguir siendo mientras las bitácoras se lleven en un archivo lineal.
+
+### 39.2 El bypass de superadmin hacía pasar por buena una prueba de permisos
+
+`TenantSelfServiceApiKeyTest` fallaba en «sin el permiso propio no se alcanza el
+autoservicio»: pedía 403 y recibía 200. No era un hueco en la API — era la prueba.
+
+`CheckPermission` trata `role_id == 1` como superadmin de plataforma y salta toda
+comprobación. Con `RefreshDatabase`, el primer rol que crea un test se lleva el id 1, así
+que el «administrador sin el permiso» que fabricaba el helper **era** el superadmin. La
+prueba que debía demostrar que el permiso cierra la puerta estaba demostrando que el bypass
+la abre, y las otras doce del archivo corrían con la comprobación de permisos desactivada
+sin que nada lo dijera.
+
+El arreglo es reservar el id 1 en `setUp()` con un rol de plataforma que nadie usa, para que
+los roles de tenant nazcan del 2 en adelante. Es preferible a quitarle el bypass al test:
+así el archivo ejercita el mismo camino que producción.
+
+Esto no lo caza ninguna aserción: una prueba de permisos que pasa por el bypass **pasa**.
+Sólo se ve cuando falla la única que espera un 403 — y si esa prueba no existiera, el
+archivo entero seguiría verde sin verificar nada. Queda como trampa #50 en
+`MANUAL_DESARROLLADOR.md`.
+
+### 39.3 Las 27 fallas restantes eran del entorno
+
+Todas venían de `The PHP GD extension is required`: dompdf necesita GD para incrustar el PNG
+de la firma, y el PHP local no la traía. No es código —el CI sí la tiene— pero conviene
+saberlo porque el síntoma no siempre nombra a GD: los tests de numeración de contratos
+fallaban con `Failed asserting that null is identical to 'CTR-00001'`, que parece un error de
+secuencia y es un 500 del render dos capas más abajo. Con `extension=gd` habilitada en
+`php.ini`, verde.

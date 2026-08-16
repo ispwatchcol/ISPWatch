@@ -41,6 +41,18 @@ class TenantSelfServiceApiKeyTest extends TestCase
         $this->ispA = Tenant::factory()->create();
         $this->ispB = Tenant::factory()->create();
 
+        // `CheckPermission` trata `role_id == 1` como superadmin de plataforma y
+        // salta toda comprobación. En una base recién migrada el primer rol que
+        // se cree se lleva ese id, así que sin esta reserva cada prueba de este
+        // archivo estaría ejercitando el bypass en vez del permiso — y la que
+        // exige 403 sin `manage_own_api_keys` recibía 200.
+        Role::create([
+            'name'        => 'Superadmin de plataforma',
+            'code'        => 'platform_admin',
+            'permissions' => [],
+            'tenant_id'   => null,
+        ]);
+
         config([
             'api_keys.self_service.enabled'             => true,
             'api_keys.self_service.abilities'           => ['read:customers', 'read:services'],
