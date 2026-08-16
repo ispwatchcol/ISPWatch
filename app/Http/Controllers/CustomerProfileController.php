@@ -298,6 +298,13 @@ class CustomerProfileController extends Controller
                 'customer_profile.user_id',
                 'customer_profile.name',
                 'customer_profile.last_name',
+                // cedula / ip_user / precinto no se dibujan en el mapa: son los
+                // campos por los que el técnico realmente busca a un cliente en
+                // el buscador del mapa (los mismos de la búsqueda global del
+                // listado). Sin ellos solo se podría buscar por nombre.
+                'customer_profile.cedula',
+                'customer_profile.ip_user',
+                'customer_profile.precinto',
                 'customer_profile.department',
                 'customer_profile.position',
                 'customer_profile.address',

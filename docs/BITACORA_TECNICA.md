@@ -3837,3 +3837,95 @@ reproducir en local**: no hay PostgreSQL ni Docker en la máquina de desarrollo,
 salvaguarda de `tests/TestCase.php` rechaza —correctamente— apuntar la suite a Supabase,
 porque `RefreshDatabase` ejecuta `migrate:fresh` y vaciaría la base real. Queda a cargo del
 job «PHPUnit (PostgreSQL, motor real)» del CI.
+
+---
+
+## 35. Buscador de clientes en el mapa: localizar, no filtrar — 2026-08-15
+
+**Petición.** «Colocar un buscador de los clientes para poderlos encontrar en el mapa».
+
+### 35.1 Por qué NO se implementó como un filtro más
+
+El camino obvio era añadir el texto de búsqueda al `computed` `filteredCustomers` de
+`CustomerMap.vue`, junto a los filtros de nodo y estado. Es el camino equivocado, y por
+cuatro razones que sólo se ven leyendo cómo se dibuja el mapa:
+
+1. **`filteredCustomers` no filtra: reconstruye.** Un `watch` sobre él dispara
+   `applyLayers()`, que destruye y vuelve a crear *todos* los marcadores, círculos de
+   cobertura y polilíneas. Buscar así significaría reconstruir el mapa entero en cada tecla.
+2. **`applyLayers()` termina en `map.fitBounds(bounds)`.** La cámara se reencuadraría en
+   cada carácter tecleado: el mapa saltando mientras el usuario escribe.
+3. **Los `bounds` incluyen las antenas.** Se unen los círculos de cobertura y los nodos, que
+   **no** están filtrados. Aunque el filtro dejara un único cliente, `fitBounds` encuadraría
+   todas las sectoriales: el mapa *no* se acercaría al cliente buscado. Filtrar, por sí solo,
+   no cumple lo que se pidió.
+4. **Los clientes van agrupados (MarkerClusterer).** A zoom bajo, el cliente «encontrado»
+   sigue escondido dentro de una burbuja de clúster.
+
+### 35.2 Lo que se hizo: un localizador
+
+El buscador **no toca `filteredCustomers`**. Es un autocompletado sobre los datos ya
+cargados en memoria (`/api/customers/map` se pide una sola vez al abrir la pantalla, así que
+no hace falta endpoint de búsqueda ni hay latencia por tecla). Al elegir un resultado,
+`locateCustomer()`:
+
+- vuela con `panTo` + `setZoom(17)` — zoom suficiente para que el clúster se abra solo;
+- abre la ficha del cliente, anclada a su marcador (o por posición si aún no existe);
+- hace rebotar el pin 1,6 s, porque en una zona densa el popup solo no dice *cuál* pin es.
+
+Los demás clientes siguen visibles: el mapa no se vacía, que es justo lo que se quiere al
+ubicar a alguien respecto de su entorno de red.
+
+### 35.3 Las dos banderas de cámara
+
+Si la capa «Clientes» está apagada no hay pin al que volar, así que `locateCustomer()` la
+enciende. Pero encenderla dispara el `watch` → `applyLayers()` → `fitBounds`, que devolvería
+la cámara al encuadre general justo después del vuelo. De ahí dos banderas de módulo:
+
+- `suppressNextFit`: salta el `fitBounds` del redibujado que provocó el propio buscador.
+- `locateGuardUntil`: ventana de 2,5 s en la que el listener `idle` de `applyLayers` no
+  aplica su tope de zoom 16 — si no, un `idle` pendiente de un `fitBounds` anterior podría
+  deshacer el acercamiento a 17.
+
+### 35.4 Normalización y memoización
+
+Se comparan cadenas normalizadas (`NFD` + `\p{Diacritic}`): nadie escribe la tilde al
+buscar, y sin esto «gomez» no encontraría a «Gómez» ni «munoz» a «Muñoz» — inaceptable con
+nombres colombianos. Se exige que **todos** los términos aparezcan, en cualquier orden, para
+que «gomez juan» funcione igual que «juan gomez».
+
+La cadena de búsqueda de cada cliente se memoiza en un `WeakMap` con el objeto cliente como
+clave. Sin caché, cada tecla normalizaría ocho campos de todos los clientes; en un tenant
+grande eso se siente como lag al escribir. Los objetos vienen de `allCustomers` y sólo se
+reemplazan al recargar el mapa, así que el `WeakMap` se vacía solo.
+
+### 35.5 Deuda evitada: «no existe» vs. «lo esconde un filtro»
+
+La búsqueda corre sobre `filteredCustomers`, no sobre `allCustomers`: ofrecer un cliente que
+los filtros dejaron fuera llevaría a un pin que no está dibujado. Pero eso crea una trampa
+propia — el usuario deja puesto «Estado: suspendido», busca a un cliente activo, ve «Sin
+resultados» y concluye que el cliente no existe en el sistema. Por eso, cuando no hay
+resultados visibles se cuentan las coincidencias ocultas por los filtros y se ofrece
+quitarlos con un clic.
+
+### 35.6 Cambio de contrato en el backend
+
+`CustomerProfileController::mapData()` no enviaba `cedula`, `ip_user` ni `precinto` — justo
+los campos por los que un técnico busca a un cliente. Se añadieron al `select` (son los
+mismos de la búsqueda global del listado, para que buscar signifique lo mismo en ambas
+pantallas). `cedula` **no** está cifrada en `customer_profile` (sólo lo están
+`pppoe_password` y `hotspot_password`) y ya se exponía en `show()` bajo el mismo permiso
+`view_clients`, así que no se amplía la superficie de datos: se reutiliza la existente.
+
+Como la búsqueda se resuelve en el navegador sobre esa respuesta, **el payload ES el
+contrato del buscador**: si un campo deja de enviarse, la búsqueda deja de encontrar por él
+en silencio y sólo en producción. `tests/Feature/Customers/CustomerMapSearchDataTest.php` lo
+fija: campos presentes, aislamiento por tenant (ahora que viaja la cédula) y exclusión de
+los clientes sin coordenadas.
+
+### 35.7 Deuda conocida que NO se tocó
+
+`applyLayers()` reencuadra con `fitBounds` en *cada* invocación, así que alternar cualquier
+capa (Clientes, Cobertura, Nodos…) devuelve la cámara al encuadre general y pierde el
+acercamiento del usuario. Es anterior a este cambio y no se corrigió aquí para no alterar un
+comportamiento del que otros flujos podrían depender. Anotado en `MEJORAS_RECOMENDADAS.md`.
