@@ -45,11 +45,9 @@
                     v-model="filters.status"
                     class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
+                    <!-- R2: las opciones salen del catálogo, no de una lista en duro -->
                     <option value="all">Todos los estados</option>
-                    <option value="open">Abierto</option>
-                    <option value="in_progress">En Progreso</option>
-                    <option value="resolved">Resuelto</option>
-                    <option value="closed">Cerrado</option>
+                    <option v-for="s in statuses" :key="s.code" :value="s.code">{{ s.label }}</option>
                 </select>
 
                 <select
@@ -57,10 +55,7 @@
                     class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                     <option value="all">Todas las prioridades</option>
-                    <option value="low">Baja</option>
-                    <option value="medium">Media</option>
-                    <option value="high">Alta</option>
-                    <option value="urgent">Urgente</option>
+                    <option v-for="p in priorities" :key="p.code" :value="p.code">{{ p.label }}</option>
                 </select>
 
                 <select
@@ -68,10 +63,7 @@
                     class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                     <option value="all">Todas las categorías</option>
-                    <option value="technical">Técnico</option>
-                    <option value="billing">Facturación</option>
-                    <option value="services">Servicios</option>
-                    <option value="general">General</option>
+                    <option v-for="c in categories" :key="c.code" :value="c.code">{{ c.label }}</option>
                 </select>
 
                 <select
@@ -249,6 +241,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { usePermissions } from '@/composables/usePermissions'
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import NotificationToast from '../components/NotificationToast.vue'
 
 const { can } = usePermissions()
@@ -351,6 +344,14 @@ const deleteTicket = async (id) => {
     }
 }
 
+// R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan aquí porque se
+// deciden por código —que es estable— y son presentación, no dato de negocio.
+const {
+    statuses, priorities, categories,
+    cargar: cargarCatalogos,
+    statusLabel, priorityLabel, categoryLabel,
+} = useTicketCatalogs()
+
 // Helper functions (Badges and Labels)
 const getStatusBadgeClass = (status) => {
     const classes = {
@@ -362,10 +363,7 @@ const getStatusBadgeClass = (status) => {
     return classes[status] || classes.open
 }
 
-const getStatusLabel = (status) => {
-    const labels = { open: 'Abierto', in_progress: 'En Progreso', resolved: 'Resuelto', closed: 'Cerrado' }
-    return labels[status] || status
-}
+const getStatusLabel = (status) => statusLabel(status)
 
 const getPriorityBadgeClass = (priority) => {
     const classes = {
@@ -377,10 +375,7 @@ const getPriorityBadgeClass = (priority) => {
     return classes[priority] || classes.medium
 }
 
-const getPriorityLabel = (priority) => {
-    const labels = { low: 'Baja', medium: 'Media', high: 'Alta', urgent: 'Urgente' }
-    return labels[priority] || priority
-}
+const getPriorityLabel = (priority) => priorityLabel(priority)
 
 const getCategoryBadgeClass = (category) => {
     const classes = {
@@ -392,10 +387,7 @@ const getCategoryBadgeClass = (category) => {
     return classes[category] || classes.general
 }
 
-const getCategoryLabel = (category) => {
-    const labels = { technical: 'Técnico', billing: 'Facturación', services: 'Servicios', general: 'General' }
-    return labels[category] || category
-}
+const getCategoryLabel = (category) => categoryLabel(category)
 
 const formatDate = (date) => {
     if (!date) return '-'
@@ -405,6 +397,7 @@ const formatDate = (date) => {
 }
 
 onMounted(() => {
+    cargarCatalogos()
     loadStaff()
     loadTickets()
 })

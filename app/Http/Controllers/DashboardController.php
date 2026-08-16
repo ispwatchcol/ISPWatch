@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use App\Models\CustomerProfile;
 use App\Models\Sectorial;
 use App\Models\SupportTicket;
+use App\Support\TicketCatalogs;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Router;
@@ -64,11 +65,17 @@ class DashboardController extends Controller
                 ->values();
 
             // Support tickets scoped to tenant
+            // R2: se consulta por clave foránea, no por la columna enum. Los
+            // códigos siguen siendo la forma de nombrar los estados aquí; el
+            // catálogo los traduce a ids.
+            $catalogs = app(TicketCatalogs::class);
+            $abiertos = $catalogs->ids(TicketCatalogs::STATUS, ['open', 'in_progress']);
+
             $openTickets = SupportTicket::where('tenant_id', $tenantId)
-                ->whereIn('status', ['open', 'in_progress'])->count();
+                ->whereIn('status_id', $abiertos)->count();
             $urgentTickets = SupportTicket::where('tenant_id', $tenantId)
-                ->where('priority', 'urgent')
-                ->whereIn('status', ['open', 'in_progress'])
+                ->where('priority_id', $catalogs->id(TicketCatalogs::PRIORITY, 'urgent'))
+                ->whereIn('status_id', $abiertos)
                 ->count();
 
             // Monthly revenue from invoices scoped to tenant

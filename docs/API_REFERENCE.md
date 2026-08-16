@@ -236,7 +236,7 @@ Recurso base: `apiResource('customers', CustomerProfileController::class)`.
 | `PUT/PATCH` | `/api/customers/{id}` | auth | Actualiza |
 | `DELETE` | `/api/customers/{id}` | auth | **Borrado completo**: filas, archivos de S3 y configuración del router (ver abajo) |
 | `GET` | `/api/customers/statistics` | auth | Estadísticas de clientes |
-| `GET` | `/api/customers/map` | auth | Datos georreferenciados para el mapa |
+| `GET` | `/api/customers/map` | `view_clients` | Datos georreferenciados para el mapa (ver abajo) |
 | `GET` | `/api/customers/used-ips` | auth | IPs ya asignadas |
 | `POST` | `/api/customers/first-invoice-preview` | auth | **Sólo calcula**, no escribe |
 | `POST` | `/api/customers/{id}/provision` | `activate_deactivate_clients` | Aprovisiona en el router |
@@ -245,6 +245,61 @@ Recurso base: `apiResource('customers', CustomerProfileController::class)`.
 | `GET` | `/api/customers/bulk-provision-status/{jobId}` | `activate_deactivate_clients` | Progreso del masivo |
 | `POST` | `/api/customers/{id}/suspend` | `activate_deactivate_clients` | Suspende el servicio |
 | `POST` | `/api/customers/{id}/activate` | `activate_deactivate_clients` | Reactiva el servicio |
+
+### `GET /api/customers/map`
+
+Devuelve **de una sola vez** todo lo que dibuja el Mapa de Clientes. No está paginado y no
+admite parámetros de búsqueda: el filtrado por nodo/estado y el **buscador de clientes** se
+resuelven en el navegador sobre esta respuesta (ver `BITACORA_TECNICA.md` § 35).
+
+Sólo se devuelven clientes con `latitude` y `longitude` no nulas — un cliente sin
+coordenadas no se puede situar en el mapa — y siempre acotados al tenant del usuario
+autenticado.
+
+**200 OK**
+
+```json
+{
+  "customers": [
+    {
+      "user_id": 42,
+      "name": "Juan",
+      "last_name": "Gómez",
+      "cedula": "1012345678",
+      "ip_user": "10.20.30.40",
+      "precinto": "PRE-001",
+      "department": "Soporte",
+      "position": null,
+      "address": "Calle 3 #4-56",
+      "city": "Tocaima",
+      "state": "Cundinamarca",
+      "country": "Colombia",
+      "latitude": "4.458429",
+      "longitude": "-74.636633",
+      "sectorial_id": 7,
+      "router_id": 3,
+      "service_status": "activo",
+      "email": "juan@example.com"
+    }
+  ],
+  "routers":    [{ "id": 3, "name": "CORE_TOCAIMA", "latitude": 4.45, "longitude": -74.63 }],
+  "sectorials": [{ "id": 7, "name": "AP Norte", "element_type": "sectorial", "type": "Access Point",
+                   "ip": "10.0.0.7", "ssid": "ISP-NORTE", "antenna_type": "sector_120",
+                   "latitude": 4.46, "longitude": -74.64, "coverage_radius_meters": 800,
+                   "frequency": "5180", "node_tower": "Torre 1" }]
+}
+```
+
+> ⚠️ **Este payload es el contrato del buscador del mapa.** `cedula`, `ip_user`, `precinto`,
+> `address`, `city` y `email` no se dibujan: existen para que la búsqueda del cliente
+> funcione por esos campos, igual que la búsqueda global del listado. Si alguno deja de
+> enviarse, la búsqueda deja de encontrar por él **en silencio y sólo en producción**.
+> Lo fija `tests/Feature/Customers/CustomerMapSearchDataTest.php`.
+
+`routers[].coordinates` y `sectorials[].coordinates` se normalizan en el controlador: la
+columna JSON guarda, según cómo se creó la fila, un objeto `{lat,lng}` o una cadena WKT
+`POINT`. Los nodos sin coordenadas legibles se omiten del arreglo en vez de viajar con
+`null`.
 
 ### `DELETE /api/customers/{id}`
 
@@ -1567,8 +1622,37 @@ exactamente quien más necesita el aviso.
 | `GET` | `/api/catalogs/script-versions` |
 | `GET` | `/api/catalogs/type-billings` |
 | `GET` | `/api/catalogs/users` |
+| `GET` | `/api/catalogs/ticket` |
 
 Reemplazan las lecturas directas del frontend a Supabase.
+
+**`GET /api/catalogs/ticket`** devuelve los tres catálogos del ticket de soporte en un
+solo viaje (la pantalla de soporte los necesita a la vez, y son doce filas):
+
+```json
+{
+  "statuses":   [{ "code": "open", "label": "Abierto" }, "…"],
+  "priorities": [{ "code": "low",  "label": "Baja" },    "…"],
+  "categories": [{ "code": "technical", "label": "Técnica" }, "…"],
+  "versions":   { "status": 1, "priority": 1, "category": 1 }
+}
+```
+
+Sólo salen las filas **vigentes** (`valid_from` alcanzado y sin `valid_until`), ordenadas
+por `weight`: es el listado de lo que se puede elegir. Un ticket antiguo cuyo estado ya se
+retiró se sigue mostrando bien, porque su etiqueta viaja en el propio ticket
+(`status_label`, `priority_label`, `category_label`).
+
+`versions` permite a un consumidor saber si su copia cacheada sigue vigente sin volver a
+descargar el catálogo entero.
+
+> **Código y etiqueta cumplen papeles distintos.** El `code` es estable e inmutable: es
+> lo que se compara y con lo que se decide el color. El `label` es texto visible y puede
+> cambiar sin desplegar. Nunca compares contra el `label`.
+
+Desde la R2 (2026-08-14) los tickets del panel incluyen `status_label`, `priority_label`
+y `category_label` junto a sus códigos, y `GET /api/support/statistics` devuelve `code`
+además de la etiqueta en `by_status`, `by_priority` y `by_category`.
 
 **`GET /api/catalogs/users`** devuelve `id` + `name` de los usuarios del tenant.
 Con **`?staff=1`** excluye a los clientes y deja sólo al personal del ISP — es lo
@@ -1717,6 +1801,9 @@ red de cada punto.
 | `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/payments` | `read:billing` | `customer_id`, `status`, `from`, `to`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/tickets` | `read:support` | `status`, `priority`, `customer_id`, `from`, `to`, `updated_since` |
+<!-- R2 (2026-08-14): `status`, `priority` y `category` se resuelven ahora por LEFT JOIN
+     contra los catálogos, no leyendo las columnas enum. El JSON es idéntico: siguen
+     siendo el CÓDIGO en texto ("open", "high"). Fijado por PartnerTicketContractTest. -->
 | `GET` | `/api/v1/partner/installations` | `read:support` | `status`, `customer_id`, `from`, `to`, `updated_since` |
 
 `from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación

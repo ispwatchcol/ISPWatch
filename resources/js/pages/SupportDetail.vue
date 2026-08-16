@@ -435,6 +435,15 @@ import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NotificationToast from '../components/NotificationToast.vue'
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+
+// R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan abajo porque
+// se deciden por código —que es estable— y son presentación.
+const {
+    statuses,
+    cargar: cargarCatalogos,
+    statusLabel, priorityLabel, categoryLabel,
+} = useTicketCatalogs()
 
 const router = useRouter()
 const route = useRoute()
@@ -705,10 +714,7 @@ const getStatusBadgeClass = (status) => {
     return classes[status] || classes.open
 }
 
-const getStatusLabel = (status) => {
-    const labels = { open: 'Abierto', in_progress: 'En Progreso', resolved: 'Resuelto', closed: 'Cerrado' }
-    return labels[status] || status
-}
+const getStatusLabel = (status) => statusLabel(status)
 
 const getPriorityBadgeClass = (priority) => {
     const classes = {
@@ -720,10 +726,7 @@ const getPriorityBadgeClass = (priority) => {
     return classes[priority] || classes.medium
 }
 
-const getPriorityLabel = (priority) => {
-    const labels = { low: 'Baja', medium: 'Media', high: 'Alta', urgent: 'Urgente' }
-    return labels[priority] || priority
-}
+const getPriorityLabel = (priority) => priorityLabel(priority)
 
 const getCategoryBadgeClass = (category) => {
     const classes = {
@@ -735,10 +738,7 @@ const getCategoryBadgeClass = (category) => {
     return classes[category] || classes.general
 }
 
-const getCategoryLabel = (category) => {
-    const labels = { technical: 'Técnico', billing: 'Facturación', services: 'Servicios', general: 'General' }
-    return labels[category] || category
-}
+const getCategoryLabel = (category) => categoryLabel(category)
 
 const formatDate = (date) => {
     if (!date) return '-'
@@ -748,6 +748,7 @@ const formatDate = (date) => {
 }
 
 onMounted(() => {
+    cargarCatalogos()
     loadTicket()
     loadCharges()
 })

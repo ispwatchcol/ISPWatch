@@ -151,13 +151,17 @@
             </div>
             <div class="info-row">
                 <span class="info-label">Categoría:</span>
-                <span class="info-value">{{ ucfirst($ticket->category) }}</span>
+                {{-- R2: la etiqueta sale del catálogo. `ucfirst($ticket->category)`
+                     producía "Technical" en un correo en español. --}}
+                <span class="info-value">{{ $ticket->category_label ?? ucfirst($ticket->category) }}</span>
             </div>
             <div class="info-row">
                 <span class="info-label">Estado:</span>
                 <span class="info-value">
+                    {{-- La clase CSS va por CÓDIGO (estable, y hay reglas
+                         `.status-open` etc. arriba); el texto, por etiqueta. --}}
                     <span class="badge status-{{ $ticket->status }}">
-                        {{ ucfirst(str_replace('_', ' ', $ticket->status)) }}
+                        {{ $ticket->status_label ?? ucfirst(str_replace('_', ' ', $ticket->status)) }}
                     </span>
                 </span>
             </div>
@@ -165,7 +169,7 @@
                 <span class="info-label">Prioridad:</span>
                 <span class="info-value">
                     <span class="badge priority-{{ $ticket->priority }}">
-                        {{ ucfirst($ticket->priority) }}
+                        {{ $ticket->priority_label ?? ucfirst($ticket->priority) }}
                     </span>
                 </span>
             </div>

@@ -3310,14 +3310,638 @@ Falta `migrate:both` y emitir la primera llave con las abilities nuevas (`read:s
 
 ---
 
-## 35. El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15
+## 26. Reestructuración del ticket · Fase 1 R1 — catálogos versionados — 2026-08-14
+
+### 26.1 Por qué
+
+Colombia Net de Occidente solicitó formalmente dos cosas: reestructurar el módulo de
+tickets y recibir un contrato OpenAPI de la API. La auditoría previa dejó claro que lo
+segundo depende de lo primero: **síntoma, causa, solución, resultado, restablecimiento y
+SLA no existen en ninguna forma**, ni en base de datos ni en la interfaz. No es un
+problema de exposición por API, es que el dato no se captura.
+
+Los tres enums del ticket (`status`, `priority`, `category`) tampoco servían como
+catálogo: sin versión, sin etiqueta editable, sin código estable separado de la etiqueta,
+y cambiar un valor exigía una migración.
+
+### 26.2 Alcance de esta entrega
+
+**R1 (expandir) únicamente.** Estrictamente aditiva: los tres enums siguen intactos y
+siguen siendo la fuente de lectura de toda la aplicación. R2 (leer y escribir por
+catálogo) y R3 (eliminar los enums) requieren aprobación aparte.
+
+### 26.3 Decisiones de diseño
+
+| Decisión | Qué se eligió | Por qué |
+|---|---|---|
+| Alcance por catálogo | 4 globales estrictos (`status`, `priority`, `category`, `result`), 3 extensibles por tenant (`symptom`, `cause`, `solution`) | La máquina de estados de la Fase 2 se define sobre `status`: estados por tenant serían una máquina de estados por tenant. `category` es el filtro de alcance del contrato con el integrador. El vocabulario técnico, en cambio, sí difiere entre un ISP de fibra y uno inalámbrico |
+| Causa sospechada vs. confirmada | **Un solo catálogo**, dos columnas | El vocabulario diagnóstico es el mismo; lo que cambia es quién lo afirma. Compartirlo es lo que permite medir si el diagnóstico automático del integrador acertó (`suspected IS DISTINCT FROM confirmed`), que es la razón de ser de la integración. Con dos catálogos haría falta una tabla de equivalencias mantenida a mano |
+| Versionado | `code` inmutable + `label` editable + retiro suave por `valid_until` | Renombrar un código no es un UPDATE: es fila nueva más retiro de la vieja. Los tickets históricos siguen apuntando por FK a la fila original y siguen diciendo el código de siempre en la API |
+| Sin `is_active` | Sólo `valid_until` | Dos columnas para lo mismo terminan divergiendo. Vigente se define una vez: `valid_from <= now() AND (valid_until IS NULL OR valid_until > now())` |
+| Sin copia del código en el ticket | Sólo la FK | Mientras los códigos sean inmutables y las filas no se borren, la FK basta. Copiar el código en cada ticket duplicaría la verdad |
+| Transiciones | **No entran en la Fase 1** | Una tabla de transiciones que nadie aplica es peor que ninguna: se lee, se confía en ella, y mientras tanto `updateStatus()` sigue aceptando cualquier cosa. Sí entran los flags que definen la semántica de cada estado (`is_initial`, `is_terminal`, `stamps_resolved_at`, `stamps_closed_at`), porque cambiar eso después, con tickets ya apuntando, sí es caro |
+| `resolved` y `closed` | **Ambos terminales** | Por eso reabrir es una transición explícita (Fase 2) y no el efecto colateral de escribir un estado cualquiera, que es lo que pasa hoy |
+
+### 26.4 Qué se creó
+
+Tres migraciones, todas reversibles:
+
+- `2026_08_14_000001_create_ticket_catalog_tables` — 7 catálogos + `ticket_catalog_version`.
+- `2026_08_14_000002_seed_ticket_catalogs` — siembra idempotente.
+- `2026_08_14_000003_add_catalog_columns_to_support_ticket` — 9 columnas + backfill + verificación.
+
+**La siembra va en una migración y no en un seeder.** `migrate:both` aplica migraciones en
+`ispwatch_dev` y en `public`, pero **nunca siembra `public`**. Un catálogo dependiente del
+seeder quedaría vacío en producción, y sin filas en `ticket_status` no se puede crear ni un
+ticket. Esa factura ya se pagó con `cut_type` (ver `2026_07_31_000001`).
+
+### 26.5 El backfill no necesitó mapeo manual
+
+Los códigos sembrados son **exactamente** los doce valores de los enums actuales, con la
+misma grafía. Eso convierte el backfill en un join por código, y su completitud es
+verificable en vez de ser una apuesta: el `CHECK` constraint del enum lleva desde 2024
+garantizando que en esas columnas no hay nada fuera de esos doce valores.
+
+La migración ejecuta la consulta anti-join y **aborta** si no da cero. Una migración de
+datos a medias que se reporta como exitosa es peor que una que falla: el problema aparece
+semanas después, ya con tickets nuevos encima.
+
+Se usa subconsulta correlacionada y no `UPDATE ... FROM` porque la primera es SQL estándar
+y corre igual en SQLite (donde se prueba) y en PostgreSQL (donde se despliega). Esa
+divergencia ya produjo un fallo en este mismo módulo con `LIKE`/`ILIKE`.
+
+### 26.6 Relleno hacia adelante
+
+El backfill cubre las filas que ya existían. Sin nada más, **todo ticket creado después de
+la migración nacería con `status_id` nulo** y el invariante se rompería el mismo día del
+despliegue. Se añadió un hook `saving` en `SupportTicket` que mantiene las tres columnas
+nuevas al día a partir del enum.
+
+Es la única modificación de código de la R1, y no invierte la dirección: el enum sigue
+siendo la fuente de verdad y nadie lee todavía por FK. Invertirla es la R2.
+
+No memoiza los ids a propósito: un caché estático sobreviviría a `RefreshDatabase` entre
+tests y devolvería ids obsoletos. Los guardados de ticket son de una fila y poco
+frecuentes; tres consultas extra no se notan.
+
+### 26.7 Vocabulario de diagnóstico: tablas sí, contenido no
+
+`ticket_symptom`, `ticket_cause`, `ticket_solution` y `ticket_result` quedan **vacíos a
+propósito**. Su vocabulario no está acordado todavía con el ISP ni con el integrador, y
+como los códigos son inmutables por diseño, inventarlos ahora significaría o cargar para
+siempre con códigos equivocados, o retirarlos en dos semanas dejando basura en el
+histórico. Hay un test que afirma que siguen vacíos.
+
+### 26.8 Un detalle de PostgreSQL que obliga a bajar a SQL
+
+`UNIQUE(tenant_id, code)` **no impide duplicados entre filas globales**, porque en SQL
+`NULL` nunca es igual a `NULL`. Sin resolverlo, dos filas de plataforma podrían compartir
+código y la unicidad sería decorativa. Se resuelve con dos índices parciales disjuntos,
+que ambos motores soportan.
+
+Lo que **no** se puede expresar en un índice: impedir que un tenant use un código que ya
+existe como global. Queda en validación de aplicación y está anotado como deuda.
+
+### 26.9 Estado
+
+**690 pruebas en verde**, 46 de ellas nuevas en `tests/Feature/Support/` — un módulo que
+hasta hoy **no tenía ni una sola**:
+
+- `PartnerTicketContractTest` (8): congela el contrato de `/api/v1/partner/tickets`.
+  `status`, `priority` y `category` deben seguir saliendo como **cadena** (el código), no
+  como entero. Escrito **antes** de tocar nada, porque el modo de fallo al migrar a FK es
+  silencioso: el `if (status === 'open')` del integrador deja de coincidir sin lanzar
+  ningún error.
+- `SupportTicketModuleTest` (23): creación, consulta, cambio de estado, actualización,
+  mensajes y estadísticas. Tres tests fijan **defectos conocidos** a propósito y van
+  marcados como `DEFECTO FIJADO`: la prioridad de creación se ignora, se admite cualquier
+  transición incluida cerrado → abierto, y `resolved_at` sobrevive a la reapertura.
+- `TicketCatalogBackfillTest` (15): la consulta anti-join como afirmación de la suite y no
+  sólo como verificación manual, en sus dos mitades (hacia atrás y hacia adelante), más
+  las reglas estructurales: no se puede borrar una fila en uso, dos filas globales no
+  comparten código, dos tenants sí pueden usar el mismo código propio, y retirar una fila
+  no la hace irresoluble para los tickets viejos.
+
+**Verificado ejecutando, no por inspección:** el `rollback` falló en el primer intento
+porque en SQLite `DROP COLUMN` no arrastra sus índices y la tabla quedaba con uno
+apuntando a una columna inexistente. Corregido soltando el índice antes que la columna.
+
+**No verificado en local:** el SQL contra PostgreSQL real. No hay PG ni Docker en la
+máquina de desarrollo; lo cubre el job «PHPUnit (PostgreSQL, motor real)» del CI, que
+existe justamente para esto.
+
+**Pendiente de despliegue:** `php artisan migrate:both` (3 migraciones).
+
+---
+
+## 27. Reestructuración del ticket · Fase 1 R2 — migrar la lectura al catálogo — 2026-08-14
+
+### 27.1 Criterio de «hecho»
+
+La R2 no consiste en que la aplicación siga funcionando con catálogos: consiste
+en que **nada dependa ya de las columnas enum**. Esa, y no otra, es la condición
+que habilita la R3, porque lo que la R3 hace es borrarlas.
+
+Así que el trabajo fue inventariar todos los lectores de `support_ticket.status`,
+`priority` y `category`, y llevarlos uno por uno a la clave foránea.
+
+### 27.2 La inversión, en una frase
+
+En la R1 se escribía el enum y la clave foránea se rellenaba a partir de él. En
+la R2 se resuelve el id contra el catálogo y **el enum queda como copia**. Se
+conserva a propósito mientras la R3 no se apruebe: es lo que permite revertir sin
+pérdida de datos.
+
+La sincronización vive en el modelo y no en un trigger de PostgreSQL, como se
+acordó: un trigger sólo existiría en el motor de producción, que es justamente
+donde no se puede probar. En el modelo lo cubre la suite.
+
+### 27.3 Lo que cambió, archivo por archivo
+
+| Dónde | Antes | Ahora |
+|---|---|---|
+| `app/Support/TicketCatalogs.php` | — | Resolución código ⇄ id. Singleton de petición: una consulta por catálogo, resolución en memoria |
+| `SupportTicket` | El enum era la fuente | Accessors/mutators: `status` sigue siendo el CÓDIGO en texto para todos sus consumidores, pero sale del catálogo. El `set` escribe FK y espejo de una vez |
+| `SupportTicket` (scopes) | `where('status', …)` | `where('status_id', …)` resolviendo el código |
+| `SupportTicketController` | Filtros sobre el enum; validación `in:` escrita a mano en 3 sitios | Filtros por FK; validación construida desde los códigos **vigentes** del catálogo |
+| `SupportTicketController::statistics()` | Etiqueta fabricada con `ucfirst(str_replace('_',' '))` | Etiqueta de `label`, más el `code` estable junto a ella |
+| `PartnerSupportController` | Leía las columnas enum | `LEFT JOIN` a los tres catálogos, emitiendo `code` |
+| `DashboardController` | `whereIn('status', […])` | `whereIn('status_id', …)` |
+| `emails/ticket_notification.blade.php` | `ucfirst($ticket->status)` | `status_label`; la clase CSS sigue yendo por código |
+| `CatalogController` | — | `GET /api/catalogs/ticket` |
+| 5 componentes Vue | Mapas de etiquetas duplicados | `useTicketCatalogs()` |
+
+### 27.4 Etiqueta y color no son lo mismo
+
+Los mapas de **etiquetas** del frontend desaparecieron; los de **color** se
+quedaron. No es incoherencia:
+
+- la etiqueta es un dato de negocio, puede cambiar sin desplegar y por eso vive
+  en el catálogo;
+- el color es presentación, se decide por CÓDIGO —que es estable— y no tiene por
+  qué viajar en la respuesta ni convertir a un ISP en diseñador.
+
+Por eso `statistics()` devuelve ahora `code` **además** de la etiqueta: el
+frontend colorea por el primero y muestra el segundo.
+
+### 27.5 Efecto secundario que vale la pena: la validación dejó de estar duplicada
+
+`in:open,in_progress,resolved,closed` estaba escrito a mano en tres puntos del
+mismo controlador. Ahora la regla se construye desde
+`codigosVigentes()`, con dos consecuencias:
+
+1. Agregar un estado ya no obliga a acordarse de tres sitios.
+2. **Retirar una fila del catálogo deja de aceptarla en la API sin desplegar**,
+   porque la vigencia es parte de la regla.
+
+### 27.6 Una trampa de Eloquent que costó un rato
+
+Un ayudante privado que devolvía `Attribute` para no repetir tres veces el mismo
+accessor hacía reventar el modelo entero con «Too few arguments».
+
+Causa: Eloquent descubre los accessors reflexionando sobre los métodos cuyo tipo
+de retorno **declarado** es `Attribute`, y los **invoca sin argumentos** para
+construir su caché de mutators. El ayudante caía en esa red.
+
+Solución: no declarar el tipo de retorno (queda en el docblock). Va comentado en
+el propio método, porque sin la explicación parece un descuido y el primero que
+pase lo «arregla» volviendo a romperlo.
+
+### 27.7 Caché por petición, y lo que implica
+
+`TicketCatalogs` es singleton **del contenedor**, no una estática. Una estática
+sobreviviría a `RefreshDatabase` entre tests y resolvería ids de una base que ya
+no existe — un fallo que sólo aparecería a partir del segundo test del archivo.
+
+La consecuencia a tener presente: dentro de una misma petición, editar un
+catálogo no se ve hasta vaciar con `flush()`. En producción es irrelevante
+(cada petición recarga), pero **la pantalla de administración de catálogos de la
+Fase 3 tendrá que llamarlo** tras guardar. Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 27.8 Cómo se probó que ya nadie lee el enum
+
+Leer el código no basta para afirmarlo. `TicketCatalogReadPathTest` **corrompe a
+propósito** la columna enum —la deja diciendo algo distinto de lo que dice la
+clave foránea, escribiendo con el query builder para saltarse el modelo— y
+comprueba que modelo, API del panel, API pública, filtros y estadísticas siguen
+respondiendo lo que dice la FK.
+
+Es un escenario imposible en producción, y ese es el punto: funciona como
+detector, no como caso de uso. Si algún camino se hubiera quedado leyendo el
+espejo, ahí saldría el valor corrupto.
+
+### 27.9 Estado
+
+**790 pruebas en verde** (81 s), 60 de ellas en `tests/Feature/Support/`:
+
+- `PartnerTicketContractTest` (8): **intacto y sin tocar una línea**. Es la
+  prueba de que la R2 no rompió el contrato con el integrador: el listado ahora
+  sale de un `LEFT JOIN` en vez de la columna enum, y el JSON es idéntico.
+- `SupportTicketModuleTest` (24): un test cambió **a propósito** —el de
+  etiquetas de `statistics()`, que ahora dice «Abierto» y «En progreso» en vez
+  de «Open» e «In progress»— y se le agregó otro que comprueba que reetiquetar
+  el catálogo cambia lo que se muestra sin tocar el código.
+- `TicketCatalogBackfillTest` (15): sin cambios.
+- `TicketCatalogReadPathTest` (13): nuevo, descrito arriba.
+
+Frontend compilado con `vite build` sin errores.
+
+**Pendiente:** la R3 (eliminar los enums y sus `CHECK`) requiere aprobación
+aparte. Es el punto sin retorno.
+
+---
+
+## 28. Reestructuración del ticket · R2.5 y auditoría del despliegue real — 2026-08-15
+
+### 28.1 De dónde sale este paso intermedio
+
+La R2.5 no estaba en el diseño original. Apareció al auditar cómo despliega este proyecto
+de verdad, y el hallazgo invalidó el plan que había sobre la mesa.
+
+**Lo que dice `.do/deploy.template.yaml`:**
+
+```yaml
+run_command: |
+  ...
+  php artisan migrate --force      ← migra
+  heroku-php-apache2 public/       ← recién aquí empieza a servir
+```
+
+Las migraciones corren en el `run_command` del contenedor **nuevo**, antes de que ese
+contenedor levante Apache. Como App Platform no le enruta tráfico hasta que responde, **el
+contenedor viejo sigue atendiendo peticiones contra una base ya migrada** durante todo ese
+intervalo. La base es compartida (Supabase), no por contenedor.
+
+Se suma que `deploy_on_push: true` está activo sobre `main` para los tres componentes:
+**mergear es desplegar**, sin punto intermedio donde intervenir.
+
+### 28.2 El maintenance mode no es una opción aquí
+
+No es que falte configurarlo: **no puede funcionar**. `php artisan down` escribe un archivo
+en `storage/framework/`, y los contenedores de App Platform tienen filesystem efímero y no
+compartido. Un `down` en el contenedor viejo no lo ve el nuevo, y viceversa. Haría falta un
+driver de mantenimiento compartido que hoy no existe.
+
+Conclusión: **la R3 tiene que ser segura sin ventana controlada.**
+
+### 28.3 Por qué dos despliegues no bastan
+
+El primer plan fue: despliegue 1 con R1+R2, despliegue 2 con R3. Pero en el despliegue 2 el
+contenedor viejo correría código R2, que **sí escribe el espejo**. Dropear las columnas
+mientras eso ocurre rompe toda escritura de ticket durante la ventana.
+
+De ahí el paso intermedio:
+
+| # | Qué entra | Por qué la convivencia es segura |
+|---|---|---|
+| 1 | R1 + R2 | Aditivo. El código viejo usa las columnas enum, que siguen ahí |
+| 2 | **R2.5** — sólo código: dejar de escribir el espejo | Viejo (R2) y nuevo (R2.5) leen por FK. Las columnas siguen, sólo quedan congeladas |
+| 3 | R3 | Todo el código vivo es R2.5, que ya no toca esas columnas |
+
+### 28.4 Qué cambia la R2.5
+
+Sólo código, ninguna migración:
+
+- El mutator escribe **únicamente** la clave foránea. Antes devolvía además `$enum => $code`.
+- El hook `saving` deja de sincronizar el espejo. Conserva sólo el rescate de una fila que
+  llegue sin clave foránea resuelta, que desaparece con la R3.
+- `status`, `priority` y `category` entran en `$appends`.
+
+Ese último punto **es preparación de la R3, y sin él la R3 rompería en silencio.** Se
+comprobó ejecutando: con una base donde las columnas ya están dropeadas, el accessor sigue
+devolviendo `'open'` si se le pide directamente, pero **la clave desaparece del JSON** —
+Laravel sólo serializa columnas reales más `$appends`. `GET /api/support/{id}` habría dejado
+de traer `status` sin dar ningún error. Declararlo ahora deja el comportamiento fijado por
+la suite antes de que la migración pueda romperlo.
+
+A partir de aquí **el espejo miente por diseño**, y eso cambia el rollback: restaurar las
+columnas con su último valor guardado devolvería datos incorrectos. Hay que reconstruirlas
+desde el catálogo. Documentado en [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+### 28.5 Auditoría: qué toca las columnas enum
+
+Se revisó toda la superficie que corre fuera del servicio web, porque `worker` y
+`scheduler` también se redespliegan con `deploy_on_push` y comparten base:
+
+| Superficie | Resultado |
+|---|---|
+| `app/Jobs/` | Sólo `ProvisionCustomerJob`. No referencia `SupportTicket` |
+| 24 comandos de consola | Ninguno referencia `SupportTicket` ni `support_ticket` |
+| 14 tareas programadas | Facturación, tráfico, VPN, contratos, llaves API. Ninguna toca tickets |
+| SQL crudo | Cero `DB::table('support_ticket')` en todo el backend |
+| Observers | `PartnerEventObserver` y `MoneyAuditObserver` cubren CustomerProfile, UserService, Plan, Payment, Invoice y Billing. **Ninguno sobre SupportTicket** |
+| `SendTicketNotification` | `extends Mailable` **sin** `ShouldQueue`: se envía en línea, nunca pasa por el worker |
+
+**Las tres columnas sólo se tocan desde el servicio web.** Worker y scheduler pueden
+reemplazarse en cualquier orden sin riesgo para la R3.
+
+### 28.6 Corrección: las migraciones «ajenas» ya estaban aplicadas
+
+En el análisis previo di por pendientes cuatro migraciones de otras ramas
+(`customer_credits`, `add_tenant_and_source_to_audit_logs`, `contract_signature_links`,
+`add_radius_to_router_table`). **Estaba equivocado**: consultando `public.migrations` se ve
+que ya corrieron —batches 81 a 83— más una quinta que ni siquiera había listado,
+`create_partner_events_table` (batch 84).
+
+El error fue deducir «pendiente» de que los archivos fueran recientes, sin comprobar el
+estado real. Con `deploy_on_push`, cada merge de otra rama a `main` ya las aplicó.
+
+Estado verificado el 2026-08-15 (sólo `SELECT`, ningún comando `migrate`):
+
+| Schema | Migraciones R1 | Tabla `ticket_status` |
+|---|---|---|
+| `public` | ausentes las 3 | no existe |
+| `ispwatch_dev` | aplicadas las 3 | existe |
+
+Volumen en producción: **14 tickets**. La migración durará milisegundos; la ventana la
+domina el arranque del contenedor, no los datos.
+
+### 28.7 Gate de despliegue para la R3
+
+`.do/deploy.template.yaml` está versionado, pero el App Spec **vivo** se administra desde el
+panel de DigitalOcean y puede haber divergido. Nadie del equipo que preparó esta fase tiene
+acceso para comprobarlo.
+
+Queda como **gate obligatorio**: antes de mergear el PR de la R3, alguien con acceso al
+panel debe confirmar que el `run_command` vivo del componente `ispwatch` sigue ejecutando
+`php artisan migrate --force` antes de `heroku-php-apache2`. Toda la secuencia depende de
+ese supuesto. Detalle en el runbook.
+
+### 28.8 Estado
+
+**811 pruebas en verde** (77 s), 62 de ellas en `tests/Feature/Support/`.
+
+Tres tests cambiaron **a propósito**, porque afirmaban justo lo que la R2.5 elimina:
+
+- `escribir_el_codigo_ya_no_toca_la_columna_enum` y
+  `escribir_la_clave_foranea_directamente_tampoco_toca_el_espejo` — antes afirmaban que el
+  espejo se sincronizaba; ahora afirman que queda congelado.
+- `el_backfill_apunta_cada_fila_heredada_a_su_codigo_exacto` — como el modelo ya no escribe
+  el espejo, el escenario de partida se construye ahora simulando explícitamente una fila
+  heredada (enum escrito, clave foránea vacía), que es lo que de verdad hay en producción
+  antes de la migración.
+
+Dos tests nuevos: que la aplicación responde bien **con el espejo obsoleto**, y que el JSON
+del ticket conserva las tres claves gracias a `$appends`.
+
+`PartnerTicketContractTest` sigue intacto y en verde: la R2.5 tampoco toca el contrato.
+
+---
+
+## 29. Reestructuración del ticket · R3 — eliminar los enums — 2026-08-15
+
+Último paso de la Fase 1. Con esto `support_ticket` deja de tener columnas enum y el
+catálogo queda como única representación de estado, prioridad y categoría.
+
+**Gate de infraestructura cumplido:** se confirmó desde el panel de DigitalOcean que el App
+Spec vivo coincide con `.do/deploy.template.yaml` y que nadie modificó el `run_command` a
+mano. Toda la secuencia de despliegue se apoyaba en ese supuesto.
+
+### 29.1 La comprobación previa NO es la que parecía
+
+El encargo pedía abortar la migración si el espejo (`support_ticket.status`) divergía del
+catálogo. **Habría roto el despliegue**, y de forma intermitente.
+
+Desde la R2.5 el espejo está congelado a propósito: cada cambio de estado entre aquel
+despliegue y este lo deja obsoleto. Esa divergencia es el comportamiento diseñado, no un
+síntoma. Medido el 2026-08-15 en `ispwatch_dev`: divergencia **0** en las tres columnas,
+porque allí la R2.5 nunca llegó a desplegarse. Es decir, el criterio **pasaría en
+desarrollo y podría fallar en producción**, donde sí habrá corrido.
+
+Y fallar aquí es caro: la migración se ejecuta dentro del `run_command`, antes de que el
+contenedor levante Apache. Una migración que aborta deja el contenedor nuevo sin arrancar.
+
+Lo que sí hace irrecuperable el dato es que la **clave foránea** no esté resuelta: con
+`status_id` nulo, al dropear la columna no quedaría de dónde sacar el estado. Eso es lo que
+aborta. La divergencia se cuenta igual y se registra en el log —dice cuánta actividad hubo
+entre la R2.5 y la R3— pero nunca detiene nada.
+
+### 29.2 Qué elimina
+
+| Objeto | Tipo |
+|---|---|
+| `support_ticket.status` | `varchar(255) NOT NULL DEFAULT 'open'` |
+| `support_ticket.priority` | `varchar(255) NOT NULL DEFAULT 'medium'` |
+| `support_ticket.category` | `varchar(255) NOT NULL DEFAULT 'general'` |
+| `support_ticket_status_check` · `_priority_check` · `_category_check` | CHECK |
+
+En PostgreSQL el CHECK cae solo con la columna; se suelta explícitamente de todos modos
+para no depender de esa cascada implícita. Intactas: `status_id`, `priority_id`,
+`category_id`, las cinco de diagnóstico, `closed_at`, `resolved_at` y `sectorial_id`.
+
+### 29.3 Lo único que mantiene vivas las tres claves en el JSON
+
+`$appends`. Al dejar de ser columnas dejan de estar en `$attributes`, y Eloquent sólo
+serializa columnas reales más lo declarado ahí. Sin esa línea, `status`, `priority` y
+`category` **desaparecerían de las respuestas del panel sin dar ningún error** — el
+frontend se rompería en silencio. Se declararon en la R2.5 justamente para que la R3 no
+pudiera introducir ese fallo.
+
+Se retiró además el hook `saving` (rescataba la clave foránea leyendo la columna enum) y el
+respaldo `?? $value` del accessor. `status`, `priority` y `category` **siguen en
+`$fillable`**: ya no son columnas, pero son el nombre con el que entran los datos
+(`create(['status' => 'open'])`), y el mutator los traduce. Quitarlos haría que la
+asignación masiva los descartara en silencio.
+
+### 29.4 Verificación de que nada más las tocaba
+
+La prueba no es un grep, es que **la suite completa corre contra un esquema donde esas
+columnas ya no existen**: cualquier lectura o escritura superviviente daría error de SQL.
+820 pruebas en verde lo cubren, más la auditoría de la § 28.5 (worker, scheduler, jobs,
+comandos y observers no tocan `support_ticket`).
+
+### 29.5 Tests
+
+**820 en verde**, 71 en `tests/Feature/Support/`. Dos archivos nuevos:
+
+- `TicketEnumColumnsDroppedTest` (12) — no simula el estado final, **está en él**: el
+  esquema, la serialización, el contrato de la API pública, y crear/actualizar tickets sin
+  columnas físicas.
+- `TicketEnumDropGuardTest` (6) — la guarda de la migración. Prueba que aborta con la clave
+  foránea sin resolver, que al abortar **no ha tocado el esquema** (si alguien moviera la
+  comprobación después del primer DROP, quedaría a medias), que el mensaje trae la consulta
+  de reparación, y sobre todo que **NO aborta** por divergencia del espejo congelado.
+
+Dos archivos se ajustaron, y conviene entender por qué:
+
+- `TicketCatalogReadPathTest` perdió ocho tests. Su técnica era corromper el espejo para
+  demostrar que nadie lo leía — el detector que justificó poder eliminar las columnas. Sin
+  columnas no hay espejo que corromper: la técnica se quedó sin sujeto. Su cobertura vive
+  ahora en `TicketEnumColumnsDroppedTest`. Quedan seis tests sobre vigencia, etiquetas y el
+  endpoint de catálogos.
+- `TicketCatalogBackfillTest` restaura el esquema con el `down()` de la R3 antes de montar
+  su escenario. Sigue valiendo la pena: **el esquema `public` todavía no ha corrido la R1**,
+  así que ese backfill se ejecutará de verdad allí sobre datos reales.
+
+Ciclo `migrate → rollback → migrate` verificado ejecutándolo contra una base desechable.
+
+### 29.6 Estado de la Fase 1
+
+| Release | Contenido | Estado |
+|---|---|---|
+| R1 | Catálogos + claves foráneas + backfill | ✅ en rama · aplicada en `ispwatch_dev` |
+| R2 | Lectura y escritura por clave foránea | ✅ en rama |
+| R2.5 | Deja de escribirse el espejo | ✅ en rama |
+| R3 | Se eliminan las columnas enum | ✅ en rama · **sin aplicar en ningún schema** |
+
+`public` no ha recibido **ninguna** de las cuatro. El despliegue sigue la secuencia de
+[`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
+
+### 29.7 CI en rojo tras el PR #236: SQLite escondía una consulta imposible
+
+El PR de la R3 pasó el job de SQLite y falló el de PostgreSQL:
+`QueryException: column "status" does not exist`.
+
+**Causa raíz.** El test `ningun_ticket_queda_sin_catalogo_resuelto` seguía formulando el
+invariante contra la columna enum (`WHERE status IS NOT NULL AND status_id IS NULL`), una
+columna que la propia R3 acababa de eliminar. Lo que hacía que no saltara antes es una
+peculiaridad de SQLite: el *double-quoted string misfeature*.
+
+Cuando un identificador entre comillas dobles no resuelve a ninguna columna, SQLite lo
+reinterpreta como **literal de cadena** en vez de fallar. Como el query builder de Laravel
+entrecomilla siempre los nombres, `where "status" is not null` pasaba a ser
+`where 'status' is not null` —siempre cierto— y la consulta devolvía un número plausible.
+Comprobado sobre una tabla sin esa columna:
+
+```
+hasColumn(status): false
+whereNotNull('status')->whereNull('fk')->count()  →  1   (no lanza)
+SQL: select * from "t" where "status" is not null
+```
+
+PostgreSQL hace lo correcto y lanza. De ahí que el fallo sólo apareciera en el motor real.
+
+**Ninguna de las hipótesis de partida era la buena**: la migración sí devuelve una clase
+anónima, el `down()` sí recrea las columnas, y la ruta del archivo era correcta. El
+problema estaba en un test que ni siquiera intentaba restaurar el esquema.
+
+**Corrección.**
+
+- El invariante se reformula contra lo único que existe tras la R3 y que además es lo que
+  de verdad importa: que la clave foránea esté resuelta. Renombrado a
+  `ningun_ticket_queda_sin_clave_foranea_resuelta`.
+- La restauración del esquema se extrae a `restaurarEsquemaPrevio()`, que **comprueba con
+  `Schema::hasColumn` que las tres columnas volvieron** y falla con un mensaje explícito
+  si no. `huerfanos()` repite la comprobación en el punto exacto donde SQLite mentiría.
+- `volverAlEstadoPrevio()` del guard test pasa a verificar las tres columnas, no sólo
+  `status`, y `la_reversion_reconstruye_los_codigos_desde_el_catalogo` lo usa en vez de
+  llamar a `down()` a pelo: leer `$fila->status` de una columna inexistente daría `null`
+  en PHP sin lanzar nada, y el test habría pasado en falso.
+
+No se tocó la migración R3 ni se debilitó su protección: la guarda de claves foráneas sin
+resolver sigue igual. El fallo era del test, no del código de producción.
+
+La trampa quedó documentada en [`MANUAL_DESARROLLADOR.md`](MANUAL_DESARROLLADOR.md) § 11,
+porque es una clase de error que la suite rápida no puede cazar por definición.
+
+**Verificación.** 820 pruebas en verde sobre SQLite. **El job de PostgreSQL no se pudo
+reproducir en local**: no hay PostgreSQL ni Docker en la máquina de desarrollo, y la
+salvaguarda de `tests/TestCase.php` rechaza —correctamente— apuntar la suite a Supabase,
+porque `RefreshDatabase` ejecuta `migrate:fresh` y vaciaría la base real. Queda a cargo del
+job «PHPUnit (PostgreSQL, motor real)» del CI.
+
+---
+
+## 35. Buscador de clientes en el mapa: localizar, no filtrar — 2026-08-15
+
+**Petición.** «Colocar un buscador de los clientes para poderlos encontrar en el mapa».
+
+### 35.1 Por qué NO se implementó como un filtro más
+
+El camino obvio era añadir el texto de búsqueda al `computed` `filteredCustomers` de
+`CustomerMap.vue`, junto a los filtros de nodo y estado. Es el camino equivocado, y por
+cuatro razones que sólo se ven leyendo cómo se dibuja el mapa:
+
+1. **`filteredCustomers` no filtra: reconstruye.** Un `watch` sobre él dispara
+   `applyLayers()`, que destruye y vuelve a crear *todos* los marcadores, círculos de
+   cobertura y polilíneas. Buscar así significaría reconstruir el mapa entero en cada tecla.
+2. **`applyLayers()` termina en `map.fitBounds(bounds)`.** La cámara se reencuadraría en
+   cada carácter tecleado: el mapa saltando mientras el usuario escribe.
+3. **Los `bounds` incluyen las antenas.** Se unen los círculos de cobertura y los nodos, que
+   **no** están filtrados. Aunque el filtro dejara un único cliente, `fitBounds` encuadraría
+   todas las sectoriales: el mapa *no* se acercaría al cliente buscado. Filtrar, por sí solo,
+   no cumple lo que se pidió.
+4. **Los clientes van agrupados (MarkerClusterer).** A zoom bajo, el cliente «encontrado»
+   sigue escondido dentro de una burbuja de clúster.
+
+### 35.2 Lo que se hizo: un localizador
+
+El buscador **no toca `filteredCustomers`**. Es un autocompletado sobre los datos ya
+cargados en memoria (`/api/customers/map` se pide una sola vez al abrir la pantalla, así que
+no hace falta endpoint de búsqueda ni hay latencia por tecla). Al elegir un resultado,
+`locateCustomer()`:
+
+- vuela con `panTo` + `setZoom(17)` — zoom suficiente para que el clúster se abra solo;
+- abre la ficha del cliente, anclada a su marcador (o por posición si aún no existe);
+- hace rebotar el pin 1,6 s, porque en una zona densa el popup solo no dice *cuál* pin es.
+
+Los demás clientes siguen visibles: el mapa no se vacía, que es justo lo que se quiere al
+ubicar a alguien respecto de su entorno de red.
+
+### 35.3 Las dos banderas de cámara
+
+Si la capa «Clientes» está apagada no hay pin al que volar, así que `locateCustomer()` la
+enciende. Pero encenderla dispara el `watch` → `applyLayers()` → `fitBounds`, que devolvería
+la cámara al encuadre general justo después del vuelo. De ahí dos banderas de módulo:
+
+- `suppressNextFit`: salta el `fitBounds` del redibujado que provocó el propio buscador.
+- `locateGuardUntil`: ventana de 2,5 s en la que el listener `idle` de `applyLayers` no
+  aplica su tope de zoom 16 — si no, un `idle` pendiente de un `fitBounds` anterior podría
+  deshacer el acercamiento a 17.
+
+### 35.4 Normalización y memoización
+
+Se comparan cadenas normalizadas (`NFD` + `\p{Diacritic}`): nadie escribe la tilde al
+buscar, y sin esto «gomez» no encontraría a «Gómez» ni «munoz» a «Muñoz» — inaceptable con
+nombres colombianos. Se exige que **todos** los términos aparezcan, en cualquier orden, para
+que «gomez juan» funcione igual que «juan gomez».
+
+La cadena de búsqueda de cada cliente se memoiza en un `WeakMap` con el objeto cliente como
+clave. Sin caché, cada tecla normalizaría ocho campos de todos los clientes; en un tenant
+grande eso se siente como lag al escribir. Los objetos vienen de `allCustomers` y sólo se
+reemplazan al recargar el mapa, así que el `WeakMap` se vacía solo.
+
+### 35.5 Deuda evitada: «no existe» vs. «lo esconde un filtro»
+
+La búsqueda corre sobre `filteredCustomers`, no sobre `allCustomers`: ofrecer un cliente que
+los filtros dejaron fuera llevaría a un pin que no está dibujado. Pero eso crea una trampa
+propia — el usuario deja puesto «Estado: suspendido», busca a un cliente activo, ve «Sin
+resultados» y concluye que el cliente no existe en el sistema. Por eso, cuando no hay
+resultados visibles se cuentan las coincidencias ocultas por los filtros y se ofrece
+quitarlos con un clic.
+
+### 35.6 Cambio de contrato en el backend
+
+`CustomerProfileController::mapData()` no enviaba `cedula`, `ip_user` ni `precinto` — justo
+los campos por los que un técnico busca a un cliente. Se añadieron al `select` (son los
+mismos de la búsqueda global del listado, para que buscar signifique lo mismo en ambas
+pantallas). `cedula` **no** está cifrada en `customer_profile` (sólo lo están
+`pppoe_password` y `hotspot_password`) y ya se exponía en `show()` bajo el mismo permiso
+`view_clients`, así que no se amplía la superficie de datos: se reutiliza la existente.
+
+Como la búsqueda se resuelve en el navegador sobre esa respuesta, **el payload ES el
+contrato del buscador**: si un campo deja de enviarse, la búsqueda deja de encontrar por él
+en silencio y sólo en producción. `tests/Feature/Customers/CustomerMapSearchDataTest.php` lo
+fija: campos presentes, aislamiento por tenant (ahora que viaja la cédula) y exclusión de
+los clientes sin coordenadas.
+
+### 35.7 Deuda conocida que NO se tocó
+
+`applyLayers()` reencuadra con `fitBounds` en *cada* invocación, así que alternar cualquier
+capa (Clientes, Cobertura, Nodos…) devuelve la cámara al encuadre general y pierde el
+acercamiento del usuario. Es anterior a este cambio y no se corrigió aquí para no alterar un
+comportamiento del que otros flujos podrían depender. Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 36. El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15
 
 Origen: una consulta de arquitectura sobre cómo endurecer la separación entre clientes de
 cara a la API y a los bots. La pregunta era si convenía **un schema por cliente**. La
 respuesta fue que no, y la revisión que la sustentó destapó que la capa que ya existía
 tenía huecos.
 
-### 35.1 Por qué no un schema por cliente
+### 36.1 Por qué no un schema por cliente
 
 Cuatro razones, en orden de gravedad para este proyecto:
 
@@ -3332,7 +3956,7 @@ Cuatro razones, en orden de gravedad para este proyecto:
    olvide el filtro. Con schemas, el bug equivalente es olvidar el `search_path` — misma
    clase de falla, y sin una sola consulta capaz de auditarla.
 
-### 35.2 Lo que estaba roto
+### 36.2 Lo que estaba roto
 
 **`Payment` no llevaba el global scope.** No era teórico:
 `BillingController::filteredPaymentsQuery()` arranca en `Payment::query()` sin filtro y
@@ -3351,7 +3975,7 @@ explícitos en el controlador; el problema es que esa compensación es invisible
 filas anteriores a que `RouterController` la poblara. Ninguna de las dos era una fuga —ambas
 tienen la frontera un nivel más arriba— pero las dos bloquean RLS.
 
-### 35.3 La trampa que casi introduce el arreglo
+### 36.3 La trampa que casi introduce el arreglo
 
 Poner el scope en `ContractSignatureLink` y `CustomerDocument` estuvo a punto de romper la
 firma remota. Las rutas públicas de firma no tienen middleware de autenticación, pero
@@ -3368,7 +3992,7 @@ Los tres sitios ahora derivan el tenant del **link o del cliente**, nunca de la 
 `withoutGlobalScope('tenant')` y el filtro explícito. Es la regla general: un flujo público
 no puede depender de que haya —o no haya— una sesión en el navegador de quien entra.
 
-### 35.4 Lo que impide la reincidencia
+### 36.4 Lo que impide la reincidencia
 
 `TenantScopeCoverageTest` recorre `app/Models`, mira el esquema real con `Schema::hasColumn`
 y falla si algún modelo con `tenant_id` no lleva el trait ni figura en la lista de
@@ -3378,14 +4002,14 @@ excluido le ponen el trait, o le quitan la columna, la entrada pasa a mentir y C
 Las cinco excepciones (`User`, `Role`, `CustomerProfile`, `BulkProvisionRun`, `Billing`)
 están declaradas con su motivo dentro del test, no en un comentario suelto.
 
-### 35.5 Deuda consciente
+### 36.5 Deuda consciente
 
 `Billing` recibe backfill pero **no** el scope. Su `tenant_id` pudo quedar en NULL en filas
 antiguas y activarlo antes de verificarlo escondería toda la configuración de cobro —es
 decir, pararía la facturación. El acceso ya está protegido un nivel más arriba (`Router`),
 así que la urgencia es baja y el riesgo de equivocarse, alto.
 
-### 35.6 Estado
+### 36.6 Estado
 
 **Los tests no se ejecutaron**: la máquina donde se hizo el cambio no tiene PHP instalado
 (ni Docker ni WSL con distribución), así que la verificación fue estática. Falta correr la
@@ -3394,7 +4018,7 @@ suite y `migrate:both` antes de desplegar. La capa de RLS queda pendiente y docu
 
 ---
 
-## 36. Auto-servicio de llaves de API — 2026-08-15
+## 37. Auto-servicio de llaves de API — 2026-08-15
 
 Decisión de producto del ISP: que cada empresa pueda emitir sus propias llaves sin pedirlas
 al operador. La recomendación técnica había sido abrir sólo la **visibilidad** (ver y
@@ -3402,7 +4026,7 @@ revocar) y dejar la emisión centralizada; se pidió el auto-servicio completo y
 implementó completo, con los guardarraíles que hacían falta para que la decisión sea
 sostenible.
 
-### 36.1 Qué cambia de fondo
+### 37.1 Qué cambia de fondo
 
 No cambia la mecánica —el token, el hash, la allowlist y el middleware son los mismos—
 sino **quién decide el alcance**. Antes lo decidía alguien que administra la plataforma;
@@ -3414,7 +4038,7 @@ Por eso los límites no se sugieren en el formulario: se imponen en el servidor
 (`config/api_keys.php → self_service`) y hay pruebas que los fijan. Un tope que sólo vive
 en el frontend no es un tope.
 
-### 36.2 Dos controladores, no uno con ramas
+### 37.2 Dos controladores, no uno con ramas
 
 `TenantApiKeyController` es una clase aparte de `ApiClientController`. La tentación era
 añadirle un `if ($esOperador)` al que ya existía, y se descartó: los dos modelos de
@@ -3428,7 +4052,7 @@ permitida es `IpUtils` desde el middleware, y dos validadores parecidos pero dis
 producen el peor fallo posible — una llave que el formulario acepta y que después no
 autentica desde ninguna parte, sin que el error diga por qué.
 
-### 36.3 Por qué 404 y no 403 en un `{client}` ajeno
+### 37.3 Por qué 404 y no 403 en un `{client}` ajeno
 
 Las rutas de auto-servicio **no usan vinculación implícita de modelo**. Con
 `storeKey(ApiClient $client)`, Laravel resuelve el `ApiClient` de cualquier tenant antes
@@ -3440,10 +4064,10 @@ Es la trampa #15 del manual del desarrollador vista desde el otro lado: allí el
 era que `SubstituteBindings` corre antes que el middleware de permisos; aquí es que corre
 antes que el filtro por tenant.
 
-### 36.4 Un hallazgo colateral: tres falsos positivos de la revisión anterior
+### 37.4 Un hallazgo colateral: tres falsos positivos de la revisión anterior
 
 Al leer `ApiClient` completo apareció que el modelo **no** usa `BelongsToTenant` — sólo lo
-nombra en un docblock. La revisión de la § 35 había contado ocurrencias de la cadena
+nombra en un docblock. La revisión de la § 36 había contado ocurrencias de la cadena
 "BelongsToTenant" en el archivo, y eso da falso positivo con cualquier comentario que la
 mencione. Afectaba a tres modelos: `ApiClient`, `InvoiceType` y `PartnerEvent`.
 
@@ -3462,17 +4086,17 @@ La lección de método: para saber si una clase usa un trait no sirve buscar su 
 archivo. Hay que buscar el `use` **dentro del cuerpo de la clase** — o preguntárselo a PHP
 con `class_uses_recursive()`, que es lo que hace el test.
 
-### 36.5 Estado
+### 37.5 Estado
 
-**Los tests no se ejecutaron**: la máquina no tiene PHP (§ 35.6). Falta correr la suite,
+**Los tests no se ejecutaron**: la máquina no tiene PHP (§ 36.6). Falta correr la suite,
 `migrate:both` (para el backfill de `manage_own_api_keys` en los roles admin existentes) y
 definir `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, sin la cual la emisión sólo queda en el log.
 
 ---
 
-## 37. El interruptor no cubría los cortes — 2026-08-15
+## 38. El interruptor no cubría los cortes — 2026-08-15
 
-### 37.1 El hueco
+### 38.1 El hueco
 
 CNO pidió confirmar formalmente que el interruptor de gestión externa detiene las
 escrituras por SSH de ISPWatch. Al ir a confirmarlo contra el código apareció que **solo
@@ -3487,14 +4111,14 @@ operación más sensible y más frecuente de todas**: el ciclo de mora, que corr
 En el mejor caso esos intentos fallan y llenan el log. En el peor **funcionan** y le pisan
 la configuración a quien administra el equipo.
 
-### 37.2 Dónde va la guarda y por qué ahí
+### 38.2 Dónde va la guarda y por qué ahí
 
 En `RouterProvisioningService`, no en el llamador. A suspender/reconectar se entra por
 **seis puertas**: dos rutas del panel, el reintento manual de un log fallido, el corte
 automático por mora, el reconciliador y la reactivación al registrar un pago. Poner la
 comprobación en `OverdueSuspensionService` habría dejado descubiertas las otras cinco.
 
-### 37.3 Por qué devuelve `true` sin hacer nada
+### 38.3 Por qué devuelve `true` sin hacer nada
 
 No es fingir éxito. Cuando el control es externo, la responsabilidad de ISPWatch termina en
 **ordenar** el cambio comercial, y eso ya ocurrió: el cambio de `service_status` disparó el
@@ -3510,7 +4134,7 @@ La confirmación de que el corte se aplicó de verdad llega por otro lado — el
 técnico del orquestador (contrato 7), que es exactamente el motivo por el que ese contrato
 se exige y no se concede.
 
-### 37.4 El reconciliador también
+### 38.4 El reconciliador también
 
 `reconcileSuspensions()` recorre la cartera suspendida y re-corta lo que no esté confirmado
 en el RouterBoard. Con la guarda puesta habría contado un `reblocked_ok` por cada cliente de
@@ -3520,7 +4144,7 @@ que sí fallaron. Ahora los salta y los cuenta en `skipped_external`.
 Los routers externos se resuelven en una sola consulta antes del bucle, no por cliente: ese
 bucle recorre toda la cartera suspendida.
 
-### 37.5 Dos campos que faltaban en la API
+### 38.5 Dos campos que faltaban en la API
 
 Al mapear las confirmaciones de CNO aparecieron dos huecos:
 
@@ -3528,7 +4152,7 @@ Al mapear las confirmaciones de CNO aparecieron dos huecos:
   llave; ahora también va `router_id` y `router_managed_by_external_aaa`.
 - `notify_invoice` no se exponía en ningún lado.
 
-### 37.6 Una premisa equivocada del integrador, corregida
+### 38.6 Una premisa equivocada del integrador, corregida
 
 CNO daba por hecho que ISPWatch tiene una opción **por router/grupo** para decidir si se
 envía la factura al cliente, y construyó sobre eso toda su sección de facturación
@@ -3543,7 +4167,7 @@ electrónica. No existe:
 Lo que se configura a nivel de router es el canal, no el si. Si se quisiera la política por
 grupo, es desarrollo nuevo — anotado en `MEJORAS_RECOMENDADAS.md`.
 
-### 37.7 Semántica de estados, para el contrato
+### 38.7 Semántica de estados, para el contrato
 
 CNO pidió cerrar formalmente la precedencia entre `service_status`, `is_enabled` y
 `exclude_from_billing`. Queda documentada aquí porque es la clase de cosa que un integrador

@@ -522,6 +522,10 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::get('/catalogs/script-versions', [CatalogController::class, 'scriptVersions']);
     Route::get('/catalogs/type-billings',   [CatalogController::class, 'typeBillings']);
     Route::get('/catalogs/users',           [CatalogController::class, 'users']);
+    // Catálogos del ticket (estados, prioridades, categorías). Sin permiso
+    // propio, como el resto de este grupo: son datos de referencia que la
+    // pantalla de soporte necesita para pintar cualquier ticket.
+    Route::get('/catalogs/ticket',          [CatalogController::class, 'ticketCatalogs']);
 
     Route::get('/roles/permissions', [RoleController::class, 'permissions'])
         ->middleware('permission:manage_roles');

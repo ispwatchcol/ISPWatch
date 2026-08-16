@@ -949,6 +949,103 @@ Cuatro reglas que no son opcionales:
 
 ---
 
+
+### Ejemplo: agregar o cambiar un código de catálogo del ticket
+
+Los catálogos del ticket (`ticket_status`, `ticket_priority`, `ticket_category`,
+`ticket_symptom`, `ticket_cause`, `ticket_solution`, `ticket_result`) tienen una regla que
+no es negociable y que conviene entender antes de tocarlos:
+
+> **`code` es inmutable. `label` no.**
+
+**1. ¿Qué cambió de verdad?**
+
+| Lo que quieres hacer | Qué es en realidad | Cómo se hace |
+|---|---|---|
+| Corregir «Alat» → «Alta» | Cambió la **redacción** | `UPDATE ... SET label = 'Alta', revision = revision + 1` sobre la misma fila. Aplica retroactivamente a todos los tickets, que es lo que quieres |
+| `high` pasa a llamarse `alta_prioridad` | Cambió el **significado** (o al menos la identidad) | Fila **nueva** con el código nuevo + `valid_until = now()` en la vieja. Nunca un `UPDATE` del código |
+| Retirar una prioridad que ya no se usa | Retiro | `valid_until = now()`. **Nunca `DELETE`** |
+
+Si intentas borrar una fila que algún ticket usa, la base de datos te lo impedirá: las FK
+son `ON DELETE RESTRICT`. Eso es deliberado — un ticket histórico tiene que poder decir
+siempre en qué estado quedó.
+
+**2. Siembra desde una migración, jamás desde un seeder**
+
+```php
+// database/migrations/AAAA_MM_DD_..._add_ticket_symptoms.php
+$existentes = DB::table('ticket_symptom')->whereNull('tenant_id')->pluck('code')->all();
+
+foreach ($nuevos as $fila) {
+    if (in_array($fila['code'], $existentes, true)) {
+        continue;  // idempotente: no toca lo que ya está
+    }
+    DB::table('ticket_symptom')->insert($fila + [
+        'valid_from' => now(), 'revision' => 1,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+}
+```
+
+`migrate:both` aplica migraciones en `ispwatch_dev` **y** en `public`, pero **nunca siembra
+`public`**. Un catálogo que dependa del seeder queda vacío en producción, y sin filas en
+`ticket_status` no se puede crear ni un ticket. Ya pasó con `cut_type` (ver
+`2026_07_31_000001`); no vuelvas a pagarlo.
+
+**3. Sube la versión del catálogo**
+
+```php
+DB::table('ticket_catalog_version')
+    ->where('catalog', 'symptom')
+    ->update(['version' => DB::raw('version + 1'), 'updated_at' => now()]);
+```
+
+Es lo que un integrador externo consulta para saber si su copia cacheada sigue vigente sin
+descargar el catálogo entero.
+
+**4. Filas propias de un ISP**
+
+En los tres catálogos extensibles (`symptom`, `cause`, `solution`), `tenant_id NULL` es
+fila de plataforma y un valor es fila de ese ISP. Al crear una fila con `tenant_id`,
+**valida en código que el código no exista ya como global**: ningún índice puede impedirlo
+(ver P-21 en `MEJORAS_RECOMENDADAS.md`).
+
+**Trampa de PostgreSQL:** no intentes garantizar la unicidad con
+`UNIQUE(tenant_id, code)`. En SQL `NULL` nunca es igual a `NULL`, así que ese índice deja
+pasar dos filas globales con el mismo código. Por eso hay dos índices parciales disjuntos.
+
+**5. Después de escribir, vacía la caché**
+
+`App\Support\TicketCatalogs` cachea por petición. Si editas un catálogo y vuelves a
+leerlo en la MISMA petición, obtendrás el valor viejo:
+
+```php
+app(TicketCatalogs::class)->flush();   // o flush('ticket_status') para uno solo
+```
+
+En producción esto sólo hace falta en la petición que hace la edición; la siguiente
+recarga sola.
+
+**6. En el frontend no escribas etiquetas**
+
+Usa el composable, que pide `GET /api/catalogs/ticket` una sola vez por sesión:
+
+```js
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+
+const { statuses, cargar, statusLabel } = useTicketCatalogs()
+onMounted(() => cargar())
+```
+
+Los mapas de **color** sí se quedan en el componente, indexados por `code`. La regla:
+el color es presentación y se decide por código —que es estable—; la etiqueta es dato de
+negocio y viene del catálogo. Nunca compares contra la etiqueta.
+
+**Trampa de Eloquent (te va a morder):** si te tienta escribir un ayudante que devuelva
+`Attribute` para no repetir accessors, **no le declares el tipo de retorno**. Eloquent
+descubre los accessors reflexionando sobre los métodos cuyo tipo declarado es `Attribute`
+y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo entero con
+«Too few arguments». Está documentado en `SupportTicket::atributoDeCatalogo()`.
 ## 11. Trampas conocidas
 
 | # | Trampa | Detalle |
@@ -1004,12 +1101,59 @@ Cuatro reglas que no son opcionales:
 | 41 | **En los endpoints RADIUS `BelongsToTenant` NO rellena `tenant_id`** | El trait lo deriva de `auth()->user()`, y las rutas RADIUS son máquina-a-máquina: no hay usuario autenticado, así que ni el hook de `creating` asigna ni el scope global filtra. Toda escritura del pipeline de accounting/authorize debe fijar `tenant_id` **explícitamente desde el router registrado** — nunca desde un campo del request, que es exactamente el vector de fuga cross-tenant. Si se olvida, la fila nace con `tenant_id` null y desaparece del panel |
 | 42 | **`apt install freeradius` NO instala `rlm_rest`** | Va en el paquete aparte `freeradius-rest`, y además hay que enlazarlo a `mods-enabled/`. El servidor arranca bien y sólo falla al cargar el sitio, con un mensaje sobre un módulo desconocido que **no menciona la palabra "paquete"**. Diagnostica siempre con `freeradius -X`. Ojo: el directorio de config se llama `3.0` aunque corras 3.2.x — no es señal de versión vieja. Ver `RADIUS_FREERADIUS.md` |
 | 39 | **SQLite pierde el CHECK de un `enum` si la tabla pasó por un `->change()`** | Laravel implementa `change()` en SQLite **reconstruyendo la tabla**, y el CHECK inline del enum no sobrevive a la reconstrucción (en PostgreSQL sí, porque ahí sólo se emite un `ALTER COLUMN`). Efecto: **un valor de enum inventado pasa en local y sólo revienta en el CI real**. Pasó con `customer_installations.status`, cuyo vocabulario es español (`pendiente`/`completada`/`cancelada`) y un test insertaba `'pending'` — 5 fallos en el job de PostgreSQL, verde en sqlite. Al escribir una prueba, toma el valor del enum de la migración, no de memoria |
+| 43 | **En `CustomerMap.vue`, filtrar NO es filtrar: es reconstruir el mapa entero** | Un `watch` sobre el `computed` `filteredCustomers` dispara `applyLayers()`, que **destruye y recrea todos** los marcadores, círculos de cobertura y polilíneas, y termina en `map.fitBounds()`. Añadir ahí un criterio que cambie por tecla (lo natural al implementar un buscador) reconstruye el mapa y **reencuadra la cámara en cada carácter**. Además los `bounds` unen los círculos y nodos, que **no** están filtrados: aunque el filtro deje un solo cliente, el encuadre abarca todas las sectoriales, así que filtrar *no* acerca a nadie. El buscador de clientes se implementó por eso como **localizador** —vuela con `panTo`/`setZoom` sin tocar `filteredCustomers`— con dos banderas (`suppressNextFit`, `locateGuardUntil`) que impiden que un redibujado le robe la cámara. Ver `BITACORA_TECNICA.md` § 35 |
+| 44 | **`/api/customers/map` es un contrato de búsqueda, no sólo de dibujo** | Varios campos del payload (`cedula`, `ip_user`, `precinto`, `address`, `city`, `email`) no se pintan en ningún sitio: existen porque el buscador del mapa filtra **en el navegador** sobre esa respuesta. Quitarlos del `select` no rompe nada visible — la búsqueda simplemente deja de encontrar por ese campo, en silencio y sólo en producción. Lo fija `tests/Feature/Customers/CustomerMapSearchDataTest.php` |
 | 46 | **Un modelo con `tenant_id` y sin `BelongsToTenant` no da NINGUNA señal** | No lanza error, no rompe pruebas y en desarrollo —con un solo tenant— se comporta igual. Simplemente devuelve de más. Así llegó `Payment` a producción: `filteredPaymentsQuery()` arranca en `Payment::query()` sin filtro y alimenta el listado **y la exportación CSV** de recaudos, así que cualquier operador con `manage_billing` podía descargar los pagos de todos los ISP; por el mismo hueco, `Payment::findOrFail($id)` aceptaba ids ajenos en `updatePayment`/`deletePayment`. Al crear un modelo con `tenant_id`, ponle el trait. Si de verdad no debe llevarlo, declara el motivo en `TenantScopeCoverageTest::EXCEPCIONES_JUSTIFICADAS` — ese test recorre `app/Models` contra el esquema real y **rompe CI** si encuentra uno suelto. No lo silencies borrando la comprobación |
 | 48 | **Para saber si un modelo usa un trait, NO busques su nombre en el archivo** | Un docblock que lo mencione da falso positivo. Pasó con `ApiClient`, `InvoiceType` y `PartnerEvent`: los tres explican `BelongsToTenant` en un comentario y ninguno lo usa, y una auditoría que contó ocurrencias de la cadena los dio por protegidos. Busca el `use` **dentro del cuerpo de la clase** (`grep -E "^\s+use [A-Za-z, ]*Trait"`) o pregúntaselo a PHP con `class_uses_recursive()`, que es lo que hace `TenantScopeCoverageTest` |
 | 49 | **La vinculación implícita de modelo resuelve ANTES de tu filtro por tenant** | Con `storeKey(ApiClient $client)`, Laravel carga el registro de **cualquier** tenant antes de que corra ninguna comprobación tuya, así que un id ajeno responde 403 en vez de 404 — y esa diferencia confirma que el id existe, que es todo lo que hace falta para enumerar los recursos de otro ISP. Las rutas de `/api/my-api-keys` declaran `{client}` como entero y resuelven el modelo dentro del controlador filtrando por tenant. Es la trampa #15 vista desde el otro lado: allí `SubstituteBindings` corre antes que el middleware de permisos, aquí antes que el filtro por tenant |
 | 47 | **Una ruta pública NO está libre del scope de tenant: `EnsureFrontendRequestsAreStateful` está activo** | Las rutas de firma remota (`/public/contract/{token}`) no tienen middleware de autenticación, pero si quien abre el enlace tiene una sesión del panel en el mismo navegador, `auth()->check()` es `true` y el global scope filtra por **ese** tenant. Un operador del ISP A abriendo el link del ISP B habría visto un 404 inexplicable — y, peor, `existingSignedContract()` habría devuelto `null` dejando **firmar dos veces** el mismo contrato, y `issueLink()` no habría revocado los enlaces viejos. En un flujo público el tenant se deriva del **recurso** (el link, el cliente), nunca de la sesión: `withoutGlobalScope('tenant')` + `where('tenant_id', $recurso->tenant_id)` explícito. Ver `PublicContractController::resolveLink()` y `ContractSigningService` |
 ---
 
+
+### Trampa: SQLite convierte una columna inexistente en una cadena literal
+
+**Síntoma.** Un test pasa en el job de SQLite y falla en el de PostgreSQL con
+`column "status" does not exist`.
+
+**Causa.** SQLite arrastra el *double-quoted string misfeature*: cuando un identificador
+entre comillas dobles **no resuelve a ninguna columna**, en vez de fallar lo reinterpreta
+como un literal de cadena. Como el query builder de Laravel entrecomilla siempre los
+nombres de columna, esto:
+
+```php
+DB::table('support_ticket')->whereNotNull('status')->count();
+```
+
+compila a `where "status" is not null`. Si `status` ya no existe, SQLite lo lee como
+`where 'status' is not null` — **siempre cierto** — y devuelve un número plausible en vez
+de reventar. PostgreSQL sí lanza el error.
+
+Comprobado sobre una tabla `t(id, fk)` sin columna `status`:
+
+```
+hasColumn(status): false
+whereNotNull('status')->whereNull('fk')->count()  →  1   (no lanza)
+SQL: select * from "t" where "status" is not null
+```
+
+**Por qué importa aquí.** Es la clase de fallo que la suite rápida no puede cazar y que
+sólo aparece en el motor real. Ya costó un CI en rojo en la R3 de la reestructuración de
+tickets: un test consultaba las columnas enum recién eliminadas, SQLite lo dejaba pasar
+en falso y PostgreSQL lo tumbaba.
+
+**Cómo protegerse.** Cuando un test manipule un esquema que cambia entre migraciones
+—restaurar columnas con un `down()`, por ejemplo— **comprueba que la restauración
+funcionó antes de consultar**:
+
+```php
+$this->assertTrue(
+    Schema::hasColumn('support_ticket', 'status'),
+    'No se pudo restaurar `status`: en SQLite la consulta pasaría en falso.'
+);
+```
+
+Un `assertTrue` con mensaje falla igual en los dos motores y dice qué pasó. Confiar en
+que la consulta reviente sólo funciona en uno de los dos.
 ## 12. Solución de problemas
 
 | Problema | Diagnóstico | Solución |

@@ -1,0 +1,414 @@
+<?php
+
+namespace Tests\Feature\Support;
+
+use App\Models\CustomerProfile;
+use App\Models\SupportTicket;
+use App\Models\Tenant;
+use App\Models\User;
+use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\TestCase;
+
+/**
+ * FASE 1 · R1 — que la migración a catálogos no deje ni un ticket huérfano.
+ *
+ * La afirmación central es la CONSULTA ANTI-JOIN: ningún ticket puede tener
+ * valor en la columna enum y quedarse sin id de catálogo resuelto. Vive en la
+ * suite y no sólo como verificación manual de despliegue, porque el modo de
+ * fallo es silencioso — un ticket sin `status_id` no rompe nada hoy, y explota
+ * en la R3, cuando el enum ya no exista para recuperarlo.
+ *
+ * Se prueban las dos mitades del invariante:
+ *   · hacia atrás — el backfill de las filas que ya existían (la migración);
+ *   · hacia adelante — el relleno de los tickets creados después (el modelo).
+ *
+ * Sin la segunda, el invariante se rompería el mismo día del despliegue.
+ */
+class TicketCatalogBackfillTest extends TestCase
+{
+    use RefreshDatabase;
+
+    /** Columna enum => [columna FK, tabla de catálogo]. Espejo de la R1. */
+    private const MIGRADAS = [
+        'status'   => ['status_id',   'ticket_status'],
+        'priority' => ['priority_id', 'ticket_priority'],
+        'category' => ['category_id', 'ticket_category'],
+    ];
+
+    private Tenant $tenant;
+    private User $customer;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->tenant = Tenant::factory()->create();
+        $this->customer = User::factory()->create(['tenant_id' => $this->tenant->id]);
+
+        CustomerProfile::create([
+            'user_id' => $this->customer->id, 'name' => 'Iván', 'last_name' => 'Rueda', 'status' => true,
+        ]);
+    }
+
+    private function ticket(array $overrides = []): SupportTicket
+    {
+        return SupportTicket::create(array_merge([
+            'tenant_id' => $this->tenant->id,
+            'user_id'   => $this->customer->id,
+            'subject'   => 'Ticket de prueba',
+            'status'    => 'open',
+            'priority'  => 'medium',
+            'category'  => 'technical',
+        ], $overrides));
+    }
+
+    /** Crea un ticket por cada valor posible de los tres enums. */
+    private function ticketsDeTodoElDominio(): void
+    {
+        foreach (['open', 'in_progress', 'resolved', 'closed'] as $estado) {
+            $this->ticket(['status' => $estado, 'subject' => 'Estado ' . $estado]);
+        }
+
+        foreach (['low', 'medium', 'high', 'urgent'] as $prioridad) {
+            $this->ticket(['priority' => $prioridad, 'subject' => 'Prioridad ' . $prioridad]);
+        }
+
+        foreach (['technical', 'billing', 'services', 'general'] as $categoria) {
+            $this->ticket(['category' => $categoria, 'subject' => 'Categoría ' . $categoria]);
+        }
+    }
+
+    /**
+     * Deja el esquema y los datos como estaban ANTES de la R1: con las columnas
+     * enum presentes y escritas, y la clave foránea vacía.
+     *
+     * Requiere restaurar el esquema porque la R3 ya eliminó esas columnas y la
+     * suite corre con todas las migraciones aplicadas. Se usa el `down()` de la
+     * propia migración R3 en vez de un `ALTER TABLE` a mano: si la reversión se
+     * rompiera, estos tests fallarían al preparar el escenario en vez de dejar
+     * el fallo escondido hasta el día que hiciera falta revertir de verdad.
+     *
+     * Esto sigue valiendo la pena aunque la R3 esté hecha: el esquema `public`
+     * de producción TODAVÍA NO ha corrido la R1, así que este backfill se va a
+     * ejecutar de verdad allí sobre datos reales.
+     */
+    private function simularFilasHeredadas(): void
+    {
+        $this->restaurarEsquemaPrevio();
+
+        foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            DB::statement("
+                UPDATE support_ticket
+                SET {$enum} = (SELECT code FROM {$tabla} WHERE {$tabla}.id = support_ticket.{$columna})
+                WHERE {$columna} IS NOT NULL
+            ");
+        }
+
+        DB::table('support_ticket')->update([
+            'status_id' => null, 'priority_id' => null, 'category_id' => null,
+        ]);
+    }
+
+    /**
+     * Devuelve el esquema al estado anterior a la R3 y COMPRUEBA que lo logró.
+     *
+     * La comprobación no es defensiva por gusto. Si la restauración fallara en
+     * silencio, las consultas siguientes referirían columnas inexistentes y
+     * **SQLite no protestaría**: cuando `"status"` no resuelve a una columna, la
+     * reinterpreta como el literal de cadena `'status'` (el conocido
+     * *double-quoted string misfeature*). El resultado es que
+     * `where "status" is not null` es siempre cierto y la consulta devuelve un
+     * número plausible pero falso, en vez de reventar.
+     *
+     * PostgreSQL sí lanza `column "status" does not exist`. Esa asimetría ya
+     * costó un fallo de CI que sólo aparecía en el motor real, así que aquí se
+     * corta con un mensaje claro antes de llegar a la consulta.
+     */
+    private function restaurarEsquemaPrevio(): void
+    {
+        (require database_path(
+            'migrations/2026_08_15_000001_drop_ticket_enum_columns_from_support_ticket.php'
+        ))->down();
+
+        foreach (array_keys(self::MIGRADAS) as $enum) {
+            $this->assertTrue(
+                Schema::hasColumn('support_ticket', $enum),
+                "No se pudo restaurar la columna `{$enum}` con el down() de la R3. "
+                . 'Sin ella las consultas de este test no miden nada: en SQLite pasarían '
+                . 'en falso y en PostgreSQL fallarían con «column does not exist».'
+            );
+        }
+    }
+
+    /**
+     * La consulta anti-join: filas con el espejo escrito y sin catálogo resuelto.
+     *
+     * Sólo tiene sentido con el esquema previo a la R3 restaurado. Se vuelve a
+     * comprobar aquí porque es el punto exacto donde SQLite mentiría.
+     */
+    private function huerfanos(string $enum, string $columna): int
+    {
+        $this->assertTrue(
+            Schema::hasColumn('support_ticket', $enum),
+            "huerfanos() se llamó sin restaurar `{$enum}`. Llama antes a restaurarEsquemaPrevio()."
+        );
+
+        return DB::table('support_ticket')
+            ->whereNotNull($enum)
+            ->whereNull($columna)
+            ->count();
+    }
+
+    // ── El invariante ────────────────────────────────────────────────────
+
+    /**
+     * Tras la R3 el invariante ya no puede formularse contra la columna enum
+     * —no existe—, sino contra lo único que queda: que la clave foránea esté
+     * resuelta. Es además lo que de verdad importa, porque es el dato que la
+     * migración R3 exige antes de destruir nada.
+     */
+    #[Test]
+    public function ningun_ticket_queda_sin_clave_foranea_resuelta(): void
+    {
+        $this->ticketsDeTodoElDominio();
+
+        foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            $sinResolver = DB::table('support_ticket')->whereNull($columna)->count();
+
+            $this->assertSame(
+                0,
+                $sinResolver,
+                "Hay tickets con `{$columna}` sin resolver contra `{$tabla}`. "
+                . 'La migración R3 abortaría, y con razón: esos tickets perderían el dato.'
+            );
+        }
+    }
+
+    #[Test]
+    public function el_backfill_resuelve_las_filas_que_ya_existian(): void
+    {
+        $this->ticketsDeTodoElDominio();
+        $this->simularFilasHeredadas();
+
+        foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            $this->assertGreaterThan(0, $this->huerfanos($enum, $columna), 'El escenario de partida no se preparó bien.');
+
+            // La MISMA subconsulta correlacionada de la migración: es SQL
+            // estándar a propósito, para que corra igual en SQLite (donde se
+            // prueba) y en PostgreSQL (donde se despliega).
+            DB::statement("
+                UPDATE support_ticket
+                SET {$columna} = (
+                    SELECT id FROM {$tabla} WHERE {$tabla}.code = support_ticket.{$enum}
+                )
+                WHERE {$enum} IS NOT NULL
+            ");
+
+            $this->assertSame(0, $this->huerfanos($enum, $columna));
+        }
+    }
+
+    #[Test]
+    public function el_backfill_apunta_cada_fila_heredada_a_su_codigo_exacto(): void
+    {
+        $this->ticketsDeTodoElDominio();
+        $this->simularFilasHeredadas();
+
+        // No basta con que haya un id: tiene que ser el id CORRECTO. Un backfill
+        // mal escrito podría asignarlos todos a la misma fila y la consulta
+        // anti-join no lo notaría.
+        foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            DB::statement("
+                UPDATE support_ticket
+                SET {$columna} = (SELECT id FROM {$tabla} WHERE {$tabla}.code = support_ticket.{$enum})
+                WHERE {$enum} IS NOT NULL
+            ");
+
+            $descuadres = DB::table('support_ticket')
+                ->join($tabla, "{$tabla}.id", '=', "support_ticket.{$columna}")
+                ->whereColumn("{$tabla}.code", '!=', "support_ticket.{$enum}")
+                ->count();
+
+            $this->assertSame(0, $descuadres, "Hay tickets apuntando a una fila de `{$tabla}` con otro código.");
+        }
+    }
+
+    #[Test]
+    public function un_ticket_creado_despues_de_la_migracion_tambien_queda_resuelto(): void
+    {
+        $ticket = $this->ticket(['status' => 'in_progress', 'priority' => 'urgent', 'category' => 'billing']);
+
+        $this->assertNotNull($ticket->status_id, 'El relleno hacia adelante no actuó al crear.');
+
+        foreach (self::MIGRADAS as $enum => [$columna, $tabla]) {
+            $this->assertSame(
+                $ticket->{$enum},
+                DB::table($tabla)->where('id', $ticket->{$columna})->value('code'),
+            );
+        }
+    }
+
+    #[Test]
+    public function cambiar_el_enum_reapunta_la_clave_foranea(): void
+    {
+        $ticket = $this->ticket(['status' => 'open']);
+        $idAbierto = $ticket->status_id;
+
+        $ticket->update(['status' => 'resolved']);
+        $ticket->refresh();
+
+        $this->assertNotSame($idAbierto, $ticket->status_id, 'La FK se quedó apuntando al estado anterior.');
+        $this->assertSame(
+            'resolved',
+            DB::table('ticket_status')->where('id', $ticket->status_id)->value('code'),
+        );
+    }
+
+    // ── Contenido del catálogo ───────────────────────────────────────────
+
+    #[Test]
+    public function los_catalogos_traen_exactamente_los_codigos_de_los_enums_actuales(): void
+    {
+        // Es lo que convierte el backfill en un join sin mapeo manual: si el
+        // catálogo trajera un código distinto, habría tickets huérfanos.
+        $esperado = [
+            'ticket_status'   => ['open', 'in_progress', 'resolved', 'closed'],
+            'ticket_priority' => ['low', 'medium', 'high', 'urgent'],
+            'ticket_category' => ['technical', 'billing', 'services', 'general'],
+        ];
+
+        foreach ($esperado as $tabla => $codigos) {
+            $this->assertEqualsCanonicalizing($codigos, DB::table($tabla)->pluck('code')->all());
+        }
+    }
+
+    #[Test]
+    public function el_vocabulario_de_diagnostico_nace_vacio_a_proposito(): void
+    {
+        // Sus códigos son inmutables una vez sembrados, así que se siembran
+        // cuando estén acordados con el ISP y el integrador, no antes.
+        foreach (['ticket_symptom', 'ticket_cause', 'ticket_solution', 'ticket_result'] as $tabla) {
+            $this->assertSame(0, DB::table($tabla)->count(), "`{$tabla}` no debería tener vocabulario inventado.");
+        }
+    }
+
+    #[Test]
+    public function hay_exactamente_un_estado_inicial_y_dos_terminales(): void
+    {
+        $inicial = DB::table('ticket_status')->where('is_initial', true)->pluck('code');
+        $this->assertSame(['open'], $inicial->all());
+
+        $terminales = DB::table('ticket_status')->where('is_terminal', true)->pluck('code');
+        $this->assertEqualsCanonicalizing(['resolved', 'closed'], $terminales->all());
+    }
+
+    #[Test]
+    public function el_sellado_de_fechas_esta_declarado_en_el_catalogo(): void
+    {
+        $this->assertSame(['resolved'], DB::table('ticket_status')->where('stamps_resolved_at', true)->pluck('code')->all());
+        $this->assertSame(['closed'], DB::table('ticket_status')->where('stamps_closed_at', true)->pluck('code')->all());
+    }
+
+    #[Test]
+    public function solo_la_categoria_tecnica_viaja_al_integrador(): void
+    {
+        $this->assertSame(
+            ['technical'],
+            DB::table('ticket_category')->where('is_integration_visible', true)->pluck('code')->all(),
+            'El alcance acordado se limita a soporte técnico de servicios existentes.'
+        );
+    }
+
+    #[Test]
+    public function todos_los_catalogos_arrancan_en_la_version_uno(): void
+    {
+        $this->assertEqualsCanonicalizing(
+            ['status', 'priority', 'category', 'symptom', 'cause', 'solution', 'result'],
+            DB::table('ticket_catalog_version')->pluck('catalog')->all(),
+        );
+
+        $this->assertSame(0, DB::table('ticket_catalog_version')->where('version', '!=', 1)->count());
+    }
+
+    // ── Reglas estructurales del diseño ──────────────────────────────────
+
+    #[Test]
+    public function no_se_puede_borrar_una_fila_de_catalogo_en_uso(): void
+    {
+        $ticket = $this->ticket(['status' => 'open']);
+
+        // ON DELETE RESTRICT: que sea la base de datos y no la disciplina de
+        // turno la que impida dejar un ticket histórico sin su estado.
+        $this->expectException(QueryException::class);
+
+        DB::table('ticket_status')->where('id', $ticket->status_id)->delete();
+    }
+
+    #[Test]
+    public function dos_filas_globales_no_pueden_compartir_codigo(): void
+    {
+        // El índice parcial que cubre el agujero de NULL != NULL en PostgreSQL:
+        // sin él, un UNIQUE(tenant_id, code) dejaría pasar este duplicado y la
+        // unicidad de los códigos de plataforma sería decorativa.
+        $this->expectException(QueryException::class);
+
+        foreach ([1, 2] as $intento) {
+            DB::table('ticket_symptom')->insert([
+                'tenant_id'  => null,
+                'code'       => 'sin_senal',
+                'label'      => 'Sin señal ' . $intento,
+                'weight'     => 0,
+                'valid_from' => now(),
+                'revision'   => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    #[Test]
+    public function dos_tenants_si_pueden_usar_el_mismo_codigo_propio(): void
+    {
+        $otro = Tenant::factory()->create();
+
+        foreach ([$this->tenant->id, $otro->id] as $tenantId) {
+            DB::table('ticket_symptom')->insert([
+                'tenant_id'  => $tenantId,
+                'code'       => 'antena_desalineada',
+                'label'      => 'Antena desalineada',
+                'weight'     => 0,
+                'valid_from' => now(),
+                'revision'   => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->assertSame(2, DB::table('ticket_symptom')->where('code', 'antena_desalineada')->count());
+    }
+
+    #[Test]
+    public function retirar_una_fila_es_ponerle_fecha_y_no_borrarla(): void
+    {
+        $ticket = $this->ticket(['priority' => 'high']);
+
+        DB::table('ticket_priority')->where('code', 'high')->update(['valid_until' => now()->subDay()]);
+
+        $vigentes = DB::table('ticket_priority')
+            ->whereNull('valid_until')
+            ->pluck('code');
+
+        $this->assertNotContains('high', $vigentes->all(), 'Una fila retirada no debe ofrecerse.');
+
+        // Pero el ticket histórico la sigue resolviendo: es justo el punto.
+        $ticket->refresh();
+        $this->assertSame(
+            'high',
+            DB::table('ticket_priority')->where('id', $ticket->priority_id)->value('code'),
+        );
+    }
+}
