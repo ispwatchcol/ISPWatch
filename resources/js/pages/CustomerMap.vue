@@ -178,73 +178,204 @@
                 </div>
             </div>
 
-            <!-- Controls: filters + layers -->
+            <!-- Controls: buscador + filters + layers -->
             <div
-                class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 p-4 mb-4 flex flex-col lg:flex-row lg:items-end gap-4"
+                class="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-100 dark:border-gray-700 p-4 mb-4"
             >
-                <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label
-                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
-                            >Filtrar por nodo</label
+                <!-- Buscador de clientes. NO filtra el mapa: localiza. Al elegir
+                     un resultado el mapa vuela hasta ese cliente y abre su ficha. -->
+                <div ref="searchBoxRef" class="relative mb-4">
+                    <label
+                        class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                        for="customer-map-search"
+                        >Buscar cliente</label
+                    >
+                    <div class="relative">
+                        <v-icon
+                            name="md-search"
+                            class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                        />
+                        <input
+                            id="customer-map-search"
+                            ref="searchInputRef"
+                            v-model="searchQuery"
+                            type="text"
+                            autocomplete="off"
+                            placeholder="Nombre, cédula, dirección, IP, precinto, correo…"
+                            class="w-full pl-9 pr-9 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            @focus="searchOpen = true"
+                            @keydown.down.prevent="moveSearchIndex(1)"
+                            @keydown.up.prevent="moveSearchIndex(-1)"
+                            @keydown.enter.prevent="confirmSearchResult"
+                            @keydown.escape="closeSearch"
+                        />
+                        <button
+                            v-if="searchQuery"
+                            type="button"
+                            title="Limpiar búsqueda"
+                            @click="clearSearch"
+                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                         >
-                        <select
-                            v-model="selectedRouterId"
-                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
-                        >
-                            <option value="all">Todos los nodos</option>
-                            <option
-                                v-for="r in routers"
-                                :key="r.id"
-                                :value="r.id"
-                            >
-                                {{ r.name }}
-                            </option>
-                            <option value="none">Sin nodo asignado</option>
-                        </select>
+                            <v-icon name="io-close" class="w-4 h-4" />
+                        </button>
                     </div>
-                    <div>
-                        <label
-                            class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
-                            >Estado del servicio</label
+
+                    <!-- Resultados -->
+                    <div
+                        v-if="searchOpen && searchTokens.length"
+                        class="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-2xl overflow-hidden"
+                    >
+                        <ul
+                            v-if="searchResults.length"
+                            class="max-h-72 overflow-y-auto py-1"
                         >
-                        <select
-                            v-model="selectedStatus"
-                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                            <li
+                                v-for="(c, idx) in searchResults"
+                                :key="c.user_id"
+                                @mouseenter="searchActiveIndex = idx"
+                                @click="locateCustomer(c)"
+                                :class="[
+                                    'px-3 py-2 cursor-pointer flex items-start gap-2.5',
+                                    searchActiveIndex === idx
+                                        ? 'bg-blue-100 dark:bg-blue-900/40'
+                                        : '',
+                                ]"
+                            >
+                                <v-icon
+                                    name="ri-map-pin-line"
+                                    class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5"
+                                />
+                                <div class="min-w-0 flex-1">
+                                    <p
+                                        class="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate"
+                                    >
+                                        {{ c.name }} {{ c.last_name }}
+                                    </p>
+                                    <p
+                                        v-if="searchResultDetail(c)"
+                                        class="text-xs text-gray-500 dark:text-gray-400 truncate"
+                                    >
+                                        {{ searchResultDetail(c) }}
+                                    </p>
+                                </div>
+                                <span
+                                    class="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5"
+                                    :style="{
+                                        backgroundColor: statusStyle(
+                                            c.service_status || 'activo'
+                                        ).bg,
+                                        color: statusStyle(
+                                            c.service_status || 'activo'
+                                        ).fg,
+                                    }"
+                                >
+                                    {{
+                                        statusStyle(c.service_status || "activo")
+                                            .label
+                                    }}
+                                </span>
+                            </li>
+                        </ul>
+
+                        <!-- Sin resultados visibles. Se distingue "no existe" de
+                             "existe pero los filtros lo esconden": si no, el
+                             usuario cree que el cliente no está en el sistema. -->
+                        <div v-else class="px-3 py-3 text-center">
+                            <p class="text-sm text-gray-400 dark:text-gray-500 italic">
+                                Sin resultados
+                            </p>
+                            <button
+                                v-if="hiddenMatchesCount"
+                                type="button"
+                                @click="clearMapFilters"
+                                class="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                                <v-icon name="ri-restart-line" class="w-3.5 h-3.5" />
+                                {{ hiddenMatchesCount }}
+                                {{
+                                    hiddenMatchesCount === 1
+                                        ? "coincidencia está oculta"
+                                        : "coincidencias están ocultas"
+                                }}
+                                por los filtros — quitar filtros
+                            </button>
+                        </div>
+
+                        <p
+                            v-if="searchResults.length && searchExtraCount"
+                            class="px-3 py-1.5 text-[11px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-600"
                         >
-                            <option value="all">Todos</option>
-                            <option value="activo">Activo</option>
-                            <option value="suspendido">Suspendido</option>
-                            <option value="cancelado">Cancelado</option>
-                            <option value="gratis">Gratis / Cortesía</option>
-                            <option value="retirado">Retirado</option>
-                        </select>
+                            +{{ searchExtraCount }} coincidencias más — afina la
+                            búsqueda
+                        </p>
                     </div>
                 </div>
 
-                <div class="flex flex-wrap gap-2">
-                    <button
-                        v-for="layer in layerToggles"
-                        :key="layer.key"
-                        type="button"
-                        :title="layer.desc"
-                        :aria-pressed="layers[layer.key]"
-                        @click="layers[layer.key] = !layers[layer.key]"
-                        :class="[
-                            'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border-2 text-sm font-medium transition-all select-none',
-                            layers[layer.key]
-                                ? layer.activeClass + ' shadow-sm'
-                                : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500',
-                        ]"
-                    >
-                        <v-icon :name="layer.icon" class="w-4 h-4 flex-shrink-0" />
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>{{ layer.label }}</span>
-                            <span class="text-[10px] font-normal opacity-70">{{
-                                layer.desc
-                            }}</span>
-                        </span>
-                    </button>
+                <div class="flex flex-col lg:flex-row lg:items-end gap-4">
+                    <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label
+                                class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                                >Filtrar por nodo</label
+                            >
+                            <select
+                                v-model="selectedRouterId"
+                                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                            >
+                                <option value="all">Todos los nodos</option>
+                                <option
+                                    v-for="r in routers"
+                                    :key="r.id"
+                                    :value="r.id"
+                                >
+                                    {{ r.name }}
+                                </option>
+                                <option value="none">Sin nodo asignado</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"
+                                >Estado del servicio</label
+                            >
+                            <select
+                                v-model="selectedStatus"
+                                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                            >
+                                <option value="all">Todos</option>
+                                <option value="activo">Activo</option>
+                                <option value="suspendido">Suspendido</option>
+                                <option value="cancelado">Cancelado</option>
+                                <option value="gratis">Gratis / Cortesía</option>
+                                <option value="retirado">Retirado</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            v-for="layer in layerToggles"
+                            :key="layer.key"
+                            type="button"
+                            :title="layer.desc"
+                            :aria-pressed="layers[layer.key]"
+                            @click="layers[layer.key] = !layers[layer.key]"
+                            :class="[
+                                'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border-2 text-sm font-medium transition-all select-none',
+                                layers[layer.key]
+                                    ? layer.activeClass + ' shadow-sm'
+                                    : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500',
+                            ]"
+                        >
+                            <v-icon :name="layer.icon" class="w-4 h-4 flex-shrink-0" />
+                            <span class="flex flex-col items-start leading-tight">
+                                <span>{{ layer.label }}</span>
+                                <span class="text-[10px] font-normal opacity-70">{{
+                                    layer.desc
+                                }}</span>
+                            </span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -763,6 +894,9 @@ let map = null;
 let infoWindow = null;
 let clusterer = null;
 let customerMarkers = [];
+// Índice user_id → marcador, para que el buscador pueda anclar el popup y
+// animar el pin del cliente localizado sin recorrer todo el array.
+let customerMarkerByUserId = new Map();
 let heatmapOverlay = null;
 let coverageCircles = [];
 let traceLines = [];
@@ -771,6 +905,13 @@ let fiberLine = null;
 let fiberMarkers = [];
 let mapClickListener = null;
 let mapReady = false;
+// applyLayers() termina reencuadrando el mapa con fitBounds. Eso es correcto al
+// cargar o al cambiar de filtro, pero pelearía con el buscador: al localizar un
+// cliente hay que encender la capa de clientes si estaba apagada, y ese cambio
+// dispara un redibujado que devolvería la cámara al encuadre general. Estas dos
+// banderas dejan que el vuelo hacia el cliente gane.
+let suppressNextFit = false;
+let locateGuardUntil = 0;
 
 const isAdmin = computed(() => authStore.isAdmin);
 
@@ -1141,6 +1282,7 @@ const clearLayers = () => {
     }
     customerMarkers.forEach((m) => m.setMap(null));
     customerMarkers = [];
+    customerMarkerByUserId.clear();
     if (heatmapOverlay) {
         heatmapOverlay.setMap(null);
         heatmapOverlay = null;
@@ -1315,6 +1457,7 @@ const applyLayers = () => {
                 infoWindow.open({ anchor: marker, map });
             });
             customerMarkers.push(marker);
+            customerMarkerByUserId.set(String(c.user_id), marker);
             bounds.extend(pos);
             hasBounds = true;
         });
@@ -1476,13 +1619,227 @@ const applyLayers = () => {
         drawSelectedTrace(g);
     }
 
-    if (hasBounds) {
+    // Reencuadre general. Se omite cuando el redibujado lo provocó el buscador
+    // (locateCustomer encendiendo la capa de clientes): ahí manda el vuelo hacia
+    // el cliente, no el encuadre de todas las antenas.
+    if (hasBounds && !suppressNextFit) {
         map.fitBounds(bounds);
         g.maps.event.addListenerOnce(map, "idle", () => {
+            // Un "idle" pendiente de un fitBounds anterior podría dispararse
+            // justo después de localizar y bajarnos el zoom de 17 a 16.
+            if (Date.now() < locateGuardUntil) return;
             if (map.getZoom() > 16) map.setZoom(16);
         });
     }
+    suppressNextFit = false;
 };
+
+// ── Buscador de clientes ───────────────────────────────────────────────────
+// Deliberadamente NO alimenta a filteredCustomers: si lo hiciera, cada tecla
+// dispararía applyLayers() (destruir y recrear todos los marcadores, círculos y
+// líneas) y el fitBounds final movería la cámara en cada carácter. Aquí el
+// buscador LOCALIZA: no esconde a los demás clientes, vuela hasta el elegido.
+const searchQuery = ref("");
+const searchOpen = ref(false);
+const searchActiveIndex = ref(-1);
+const searchBoxRef = ref(null);
+const searchInputRef = ref(null);
+
+const SEARCH_LIMIT = 8; // resultados visibles; el resto pide afinar la búsqueda
+const LOCATE_ZOOM = 17; // suficiente para que el clúster se abra y se vea el pin
+
+// Sin quitar tildes, "gomez" no encontraría a "Gómez" — y nadie escribe la
+// tilde al buscar.
+const normalizeText = (value) =>
+    String(value ?? "")
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .toLowerCase();
+
+// Todo lo que identifica a un cliente en una sola cadena. Son los mismos campos
+// de la búsqueda global del listado de clientes, para que buscar signifique lo
+// mismo en las dos pantallas.
+//
+// El resultado se memoiza por objeto cliente: sin caché, cada tecla normalizaría
+// (NFD + quitar diacríticos) los ocho campos de TODOS los clientes, y en un
+// tenant grande eso se nota como lag al escribir. Los objetos vienen de
+// allCustomers y sólo se reemplazan al recargar el mapa, así que el WeakMap se
+// vacía solo con ellos.
+const haystackCache = new WeakMap();
+const customerHaystack = (c) => {
+    const cached = haystackCache.get(c);
+    if (cached !== undefined) return cached;
+    const hay = normalizeText(
+        [
+            c.name,
+            c.last_name,
+            c.cedula,
+            c.address,
+            c.city,
+            c.ip_user,
+            c.precinto,
+            c.email,
+        ]
+            .filter(Boolean)
+            .join(" ")
+    );
+    haystackCache.set(c, hay);
+    return hay;
+};
+
+// Se exige que TODOS los términos aparezcan, en cualquier orden: así "gomez
+// juan" encuentra a "Juan Gómez" igual que "juan gomez".
+const searchTokens = computed(() =>
+    normalizeText(searchQuery.value).trim().split(/\s+/).filter(Boolean)
+);
+
+const matchesSearch = (c, tokens) => {
+    const hay = customerHaystack(c);
+    return tokens.every((t) => hay.includes(t));
+};
+
+// Se busca sobre los clientes que el mapa está dibujando: prometer un cliente
+// que los filtros de nodo/estado dejaron fuera llevaría a un pin inexistente.
+const searchMatches = computed(() => {
+    const tokens = searchTokens.value;
+    if (!tokens.length) return [];
+    return filteredCustomers.value.filter((c) => matchesSearch(c, tokens));
+});
+
+const searchResults = computed(() => searchMatches.value.slice(0, SEARCH_LIMIT));
+
+const searchExtraCount = computed(() =>
+    Math.max(0, searchMatches.value.length - SEARCH_LIMIT)
+);
+
+// Coincidencias que existen pero están ocultas por los filtros activos. Sin este
+// aviso, el usuario concluye que el cliente no existe cuando en realidad lo
+// escondió el filtro de estado o de nodo que él mismo dejó puesto.
+const hiddenMatchesCount = computed(() => {
+    const tokens = searchTokens.value;
+    if (!tokens.length || searchMatches.value.length) return 0;
+    const visibles = new Set(
+        filteredCustomers.value.map((c) => String(c.user_id))
+    );
+    return allCustomers.value.filter(
+        (c) =>
+            !visibles.has(String(c.user_id)) &&
+            Number.isFinite(Number(c.latitude)) &&
+            Number.isFinite(Number(c.longitude)) &&
+            matchesSearch(c, tokens)
+    ).length;
+});
+
+// Segunda línea del resultado: lo que distingue a dos clientes con el mismo
+// nombre (cédula y dirección), sin llenar la fila de campos vacíos.
+const searchResultDetail = (c) =>
+    [c.cedula, c.address, c.city].filter(Boolean).join(" · ");
+
+const clearMapFilters = () => {
+    selectedRouterId.value = "all";
+    selectedStatus.value = "all";
+    searchOpen.value = true;
+    searchInputRef.value?.focus();
+};
+
+const closeSearch = () => {
+    searchOpen.value = false;
+    searchActiveIndex.value = -1;
+};
+
+const clearSearch = () => {
+    searchQuery.value = "";
+    closeSearch();
+    searchInputRef.value?.focus();
+};
+
+const moveSearchIndex = (delta) => {
+    searchOpen.value = true;
+    const total = searchResults.value.length;
+    if (!total) return;
+    const next = searchActiveIndex.value + delta;
+    if (next < 0) searchActiveIndex.value = total - 1;
+    else if (next >= total) searchActiveIndex.value = 0;
+    else searchActiveIndex.value = next;
+};
+
+const confirmSearchResult = () => {
+    const idx = searchActiveIndex.value;
+    // Enter sin haber bajado con las flechas: si solo hay un candidato, es
+    // inequívoco a cuál se refiere.
+    const target =
+        idx >= 0 && idx < searchResults.value.length
+            ? searchResults.value[idx]
+            : searchResults.value.length === 1
+            ? searchResults.value[0]
+            : null;
+    if (target) locateCustomer(target);
+};
+
+// Rebote temporal del pin localizado: en una zona densa, el popup solo no
+// alcanza para saber CUÁL de los pines es.
+let bounceTimer = null;
+const bounceMarker = (marker, g) => {
+    if (bounceTimer) {
+        clearTimeout(bounceTimer);
+        bounceTimer = null;
+    }
+    if (!marker) return;
+    marker.setAnimation(g.maps.Animation.BOUNCE);
+    bounceTimer = setTimeout(() => {
+        marker.setAnimation(null);
+        bounceTimer = null;
+    }, 1600);
+};
+
+const locateCustomer = async (c) => {
+    const lat = Number(c.latitude);
+    const lng = Number(c.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    closeSearch();
+    if (!mapReady || !map || !window.google?.maps) return;
+    const g = window.google;
+
+    // Con la capa de clientes apagada no existe el pin al que volar: se enciende
+    // y se espera a que el redibujado cree los marcadores (sin reencuadrar).
+    if (!layers.value.customers) {
+        suppressNextFit = true;
+        layers.value.customers = true;
+        await nextTick();
+    }
+
+    const pos = { lat, lng };
+    // Cubre el vuelo y el "idle" que provoca, para que el clamp a zoom 16 de
+    // applyLayers no deshaga el acercamiento.
+    locateGuardUntil = Date.now() + 2500;
+    map.panTo(pos);
+    map.setZoom(LOCATE_ZOOM);
+
+    // El popup se ancla al marcador cuando existe, y si no (clúster todavía sin
+    // abrir, capa recién encendida) se abre por posición: anchor null es lo que
+    // libera un ancla previa de otro marcador.
+    const marker = customerMarkerByUserId.get(String(c.user_id)) || null;
+    infoWindow.close();
+    infoWindow.setContent(customerPopup(c));
+    infoWindow.setPosition(pos);
+    infoWindow.open({ map, anchor: marker });
+
+    bounceMarker(marker, g);
+};
+
+// Clic fuera del buscador → se cierra la lista (el texto se conserva).
+const handleSearchClickOutside = (e) => {
+    if (!searchOpen.value) return;
+    if (searchBoxRef.value?.contains(e.target)) return;
+    closeSearch();
+};
+
+// Cambiar el texto invalida la fila resaltada por teclado y reabre la lista.
+watch(searchQuery, () => {
+    searchActiveIndex.value = -1;
+    if (searchQuery.value) searchOpen.value = true;
+});
 
 // ── Trazabilidad ───────────────────────────────────────────────────────────
 // Índice de sectoriales por id para enlazar cada cliente con SU sectorial.
@@ -2000,9 +2357,15 @@ watch(traceSectorialId, () => {
 
 onMounted(() => {
     loadMapData();
+    document.addEventListener("mousedown", handleSearchClickOutside);
 });
 
 onBeforeUnmount(() => {
+    document.removeEventListener("mousedown", handleSearchClickOutside);
+    if (bounceTimer) {
+        clearTimeout(bounceTimer);
+        bounceTimer = null;
+    }
     if (mapClickListener) {
         mapClickListener.remove();
         mapClickListener = null;

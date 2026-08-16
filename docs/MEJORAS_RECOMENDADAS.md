@@ -1202,6 +1202,30 @@ hará exactamente eso.
 **Recomendación.** Llamar a `flush()` después de guardar, y subir de paso la fila
 correspondiente de `ticket_catalog_version` para que los integradores externos detecten
 el cambio.
+
+### 📋 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa
+
+`applyLayers()` (`resources/js/pages/CustomerMap.vue`) termina **siempre** con
+`map.fitBounds(bounds)`. Como un `watch` la invoca ante cualquier cambio de
+`filteredCustomers` o de `layers`, alternar una capa —Clientes, Cobertura, Nodos, Mapa de
+calor— devuelve la cámara al encuadre general y **pierde el acercamiento que el usuario
+había hecho a mano**. Encender «Zonas de cobertura» para mirar una antena concreta te saca
+de esa antena.
+
+Agrava el problema que los `bounds` unan los círculos de cobertura y los nodos, que no
+están sujetos a los filtros: aunque el filtro de nodo deje tres clientes, el encuadre
+resultante abarca todas las sectoriales del tenant.
+
+**Por qué no se corrigió con el buscador (§ 35 de la bitácora).** Es anterior a ese cambio
+y afecta a flujos que no se tocaron (trazabilidad de fibra, filtros por nodo). El buscador
+lo esquivó localmente con dos banderas (`suppressNextFit`, `locateGuardUntil`) en lugar de
+cambiar el comportamiento global.
+
+**Recomendación.** Reencuadrar sólo cuando cambie el *conjunto de clientes* (carga inicial y
+cambios de filtro), no al alternar capas; y calcular los `bounds` sólo con las capas que el
+usuario está mirando. Alternativa mínima: recordar el `zoom`/`center` y restaurarlos cuando
+el redibujado no venga de un cambio de filtro.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

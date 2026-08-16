@@ -437,6 +437,29 @@ En la lista, icono de **eliminar**. El sistema pedirá confirmación escribiendo
   antenas con su radio de cobertura.
 - **Usuarios → Estadísticas**: totales, distribución por plan y por estado.
 
+#### Buscar un cliente en el mapa
+
+Sobre el mapa hay una casilla **Buscar cliente**. Escribe lo que tengas a mano —nombre,
+apellido, **cédula**, dirección, ciudad, IP, precinto o correo— y aparecerá una lista con
+las coincidencias, cada una con su estado del servicio.
+
+Al elegir una, **el mapa se acerca hasta ese cliente**, abre su ficha y el pin rebota un
+instante para que lo distingas de los que tiene alrededor.
+
+Algunos detalles útiles:
+
+- **No hace falta escribir tildes**: «gomez» encuentra a «Gómez».
+- Puedes escribir varias palabras en cualquier orden: «gomez juan» y «juan gomez» dan lo mismo.
+- **El buscador no esconde a los demás clientes.** Sólo te lleva hasta el que elegiste; el
+  resto del mapa sigue igual, que es lo que te deja ver en qué zona y junto a qué antena está.
+- Si el cliente que buscas no aparece, mira los filtros de **nodo** y **estado del servicio**:
+  el buscador sólo ofrece clientes que el mapa esté dibujando. Cuando la causa es un filtro, la
+  propia lista te avisa («N coincidencias están ocultas por los filtros») y te deja quitarlos
+  con un clic.
+- Un cliente **sin coordenadas guardadas** no puede aparecer en el mapa ni en el buscador.
+  Edítalo y márcale la ubicación (ver § 5.1).
+- Con el teclado: **↓** y **↑** recorren la lista, **Enter** la confirma y **Esc** la cierra.
+
 ---
 
 ## 6. Prospectos e instalaciones
