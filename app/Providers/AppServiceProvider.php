@@ -126,6 +126,16 @@ class AppServiceProvider extends ServiceProvider
             Limit::perHour(5000)->by(self::apiKeyThrottleKey($request)),
         ]);
 
+        // Emisión de llaves por auto-servicio. No protege capacidad —emitir es
+        // barato— sino la lógica de topes: sin límite, un script puede probar
+        // combinaciones de allowlist y vigencia hasta dar con una que el
+        // validador deje pasar, y hacerlo más rápido de lo que nadie mira el
+        // log. Un humano registrando su integración no pasa de un puñado.
+        RateLimiter::for('self-service-keys', fn (Request $request) => [
+            Limit::perMinute(10)->by(self::throttleKey($request)),
+            Limit::perHour(30)->by(self::throttleKey($request)),
+        ]);
+
         // Firma remota del contrato: rutas SIN autenticación, así que el cubo
         // sólo puede ir por IP. El techo por token (5 intentos de verificación,
         // en ContractSignatureLink) protege un link concreto; esto protege al

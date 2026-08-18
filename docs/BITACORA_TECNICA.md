@@ -89,6 +89,8 @@
 28. [Dos fallos que sólo el CI de PostgreSQL podía ver — 2026-08-13](#28-dos-fallos-que-sólo-el-ci-de-postgresql-podía-ver--2026-08-13)
 29. [Facturación se revisaba a ciegas: un solo buscador para nueve columnas — 2026-08-13](#29-facturación-se-revisaba-a-ciegas-un-solo-buscador-para-nueve-columnas--2026-08-13)
 30. [Borrar una factura pagada dejaba el dinero en el aire — 2026-08-13](#30-borrar-una-factura-pagada-dejaba-el-dinero-en-el-aire--2026-08-13)
+35. [El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15](#35-el-aislamiento-entre-tenants-se-apoyaba-en-que-nadie-olvidara-el-where--2026-08-15)
+36. [Auto-servicio de llaves de API — 2026-08-15](#36-auto-servicio-de-llaves-de-api--2026-08-15)
 
 ---
 
@@ -3929,3 +3931,304 @@ los clientes sin coordenadas.
 capa (Clientes, Cobertura, Nodos…) devuelve la cámara al encuadre general y pierde el
 acercamiento del usuario. Es anterior a este cambio y no se corrigió aquí para no alterar un
 comportamiento del que otros flujos podrían depender. Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 36. El aislamiento entre tenants se apoyaba en que nadie olvidara el `WHERE` — 2026-08-15
+
+Origen: una consulta de arquitectura sobre cómo endurecer la separación entre clientes de
+cara a la API y a los bots. La pregunta era si convenía **un schema por cliente**. La
+respuesta fue que no, y la revisión que la sustentó destapó que la capa que ya existía
+tenía huecos.
+
+### 36.1 Por qué no un schema por cliente
+
+Cuatro razones, en orden de gravedad para este proyecto:
+
+1. **Migraciones.** Ya duele con dos schemas (`migrate:both`). Con N ISPs, cada migración
+   se multiplica por N y un fallo parcial deja tenants en versiones distintas del esquema.
+   Eso es un incidente de disponibilidad, que es la prioridad #2 declarada del producto.
+2. **El pooler.** Schema por tenant exige `SET search_path` por petición. Con pooling en
+   modo transacción el estado de sesión se filtra entre conexiones: la petición del tenant
+   B puede heredar el `search_path` del A. Es la fuga que se quería evitar, pero silenciosa.
+3. **Colisiona con `DB_SCHEMA`**, que hoy separa `ispwatch_dev` de `public`.
+4. **No ataca la causa.** El riesgo real no es que la base mezcle filas: es que una consulta
+   olvide el filtro. Con schemas, el bug equivalente es olvidar el `search_path` — misma
+   clase de falla, y sin una sola consulta capaz de auditarla.
+
+### 36.2 Lo que estaba roto
+
+**`Payment` no llevaba el global scope.** No era teórico:
+`BillingController::filteredPaymentsQuery()` arranca en `Payment::query()` sin filtro y
+alimenta a la vez el **listado de recaudos y su exportación a CSV**. Cualquier operador con
+permiso de facturación veía —y podía descargar— los pagos de todos los ISP del sistema.
+Por el mismo hueco, `Payment::findOrFail($id)` en `updatePayment`/`deletePayment` aceptaba
+el id de otro tenant: no era sólo leer plata ajena, era poder **borrarla**. Y borrar un pago
+revierte sus asignaciones (ver sección 30), así que el daño no se quedaba en la fila.
+
+**Otros diez modelos con `tenant_id` y sin frontera automática**: `CustomerDocument`,
+`ContractSignatureLink`, `Prospect`, `PaymentMethod`, `InvoiceCarryover`, `DocumentTemplate`,
+`BillingActionLog`, `ApiKeyRequestLog`, `AuditLog`. La mayoría estaba compensada con filtros
+explícitos en el controlador; el problema es que esa compensación es invisible y opcional.
+
+**`customer_profile` no tenía la columna** y **`billing.tenant_id` estaba en NULL** en las
+filas anteriores a que `RouterController` la poblara. Ninguna de las dos era una fuga —ambas
+tienen la frontera un nivel más arriba— pero las dos bloquean RLS.
+
+### 36.3 La trampa que casi introduce el arreglo
+
+Poner el scope en `ContractSignatureLink` y `CustomerDocument` estuvo a punto de romper la
+firma remota. Las rutas públicas de firma no tienen middleware de autenticación, pero
+`EnsureFrontendRequestsAreStateful` está activo: si quien abre el enlace tiene una sesión
+del panel en el mismo navegador, `auth()->check()` es `true` y el scope filtra por **ese**
+tenant. Un operador del ISP A abriendo el link del ISP B habría visto un 404 inexplicable.
+
+Peor: `ContractSigningService::existingSignedContract()` lo usan el flujo del panel y el
+público. Bajo el scope habría devuelto `null` en el flujo público, y el cliente habría
+podido **firmar dos veces el mismo contrato**. Y la revocación de links viejos al emitir uno
+nuevo (`issueLink`) habría dejado vivos dos enlaces firmables.
+
+Los tres sitios ahora derivan el tenant del **link o del cliente**, nunca de la sesión, con
+`withoutGlobalScope('tenant')` y el filtro explícito. Es la regla general: un flujo público
+no puede depender de que haya —o no haya— una sesión en el navegador de quien entra.
+
+### 36.4 Lo que impide la reincidencia
+
+`TenantScopeCoverageTest` recorre `app/Models`, mira el esquema real con `Schema::hasColumn`
+y falla si algún modelo con `tenant_id` no lleva el trait ni figura en la lista de
+excepciones justificadas. Un segundo test verifica que la lista no se pudra: si a un modelo
+excluido le ponen el trait, o le quitan la columna, la entrada pasa a mentir y CI lo dice.
+
+Las cinco excepciones (`User`, `Role`, `CustomerProfile`, `BulkProvisionRun`, `Billing`)
+están declaradas con su motivo dentro del test, no en un comentario suelto.
+
+### 36.5 Deuda consciente
+
+`Billing` recibe backfill pero **no** el scope. Su `tenant_id` pudo quedar en NULL en filas
+antiguas y activarlo antes de verificarlo escondería toda la configuración de cobro —es
+decir, pararía la facturación. El acceso ya está protegido un nivel más arriba (`Router`),
+así que la urgencia es baja y el riesgo de equivocarse, alto.
+
+### 36.6 Estado
+
+Cuando se escribió esta entrada la máquina no tenía PHP y la verificación fue estática.
+**El 2026-08-16 se corrió la suite completa: 850 pruebas en verde** (ver § 39). Falta
+`migrate:both` antes de desplegar. La capa de RLS queda pendiente y documentada en
+`MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 37. Auto-servicio de llaves de API — 2026-08-15
+
+Decisión de producto del ISP: que cada empresa pueda emitir sus propias llaves sin pedirlas
+al operador. La recomendación técnica había sido abrir sólo la **visibilidad** (ver y
+revocar) y dejar la emisión centralizada; se pidió el auto-servicio completo y se
+implementó completo, con los guardarraíles que hacían falta para que la decisión sea
+sostenible.
+
+### 37.1 Qué cambia de fondo
+
+No cambia la mecánica —el token, el hash, la allowlist y el middleware son los mismos—
+sino **quién decide el alcance**. Antes lo decidía alguien que administra la plataforma;
+ahora lo decide alguien que quiere que su bot funcione. Ese cambio de perfil es todo el
+problema: el camino de menor resistencia para esa persona es marcar todos los permisos,
+escribir `0.0.0.0/0` en la allowlist y dejar la llave sin vencimiento.
+
+Por eso los límites no se sugieren en el formulario: se imponen en el servidor
+(`config/api_keys.php → self_service`) y hay pruebas que los fijan. Un tope que sólo vive
+en el frontend no es un tope.
+
+### 37.2 Dos controladores, no uno con ramas
+
+`TenantApiKeyController` es una clase aparte de `ApiClientController`. La tentación era
+añadirle un `if ($esOperador)` al que ya existía, y se descartó: los dos modelos de
+autorización son incompatibles —"cualquier tenant" contra "sólo el mío"— y unificarlos
+convierte cada método en una pregunta sobre quién llama. Ese es exactamente el código
+donde se cuela el caso que nadie contempló.
+
+La única pieza que sí se compartió es la validación de IP, extraída al trait
+`ValidatesIpAllowlist`. Tenía que ser compartida: quien decide en runtime si una IP está
+permitida es `IpUtils` desde el middleware, y dos validadores parecidos pero distintos
+producen el peor fallo posible — una llave que el formulario acepta y que después no
+autentica desde ninguna parte, sin que el error diga por qué.
+
+### 37.3 Por qué 404 y no 403 en un `{client}` ajeno
+
+Las rutas de auto-servicio **no usan vinculación implícita de modelo**. Con
+`storeKey(ApiClient $client)`, Laravel resuelve el `ApiClient` de cualquier tenant antes
+de que corra ninguna comprobación, y devolver 403 sobre un id ajeno confirma que ese id
+existe. Con el filtro dentro del controlador, un id ajeno es indistinguible de uno
+inexistente y no se puede enumerar las integraciones de la competencia.
+
+Es la trampa #15 del manual del desarrollador vista desde el otro lado: allí el problema
+era que `SubstituteBindings` corre antes que el middleware de permisos; aquí es que corre
+antes que el filtro por tenant.
+
+### 37.4 Un hallazgo colateral: tres falsos positivos de la revisión anterior
+
+Al leer `ApiClient` completo apareció que el modelo **no** usa `BelongsToTenant` — sólo lo
+nombra en un docblock. La revisión de la § 36 había contado ocurrencias de la cadena
+"BelongsToTenant" en el archivo, y eso da falso positivo con cualquier comentario que la
+mencione. Afectaba a tres modelos: `ApiClient`, `InvoiceType` y `PartnerEvent`.
+
+Ninguno estaba filtrando de más —los tres tienen filtros explícitos en sus
+controladores—, pero los tres habrían hecho fallar a `TenantScopeCoverageTest` en su
+primera ejecución. Los tres van ahora a la lista de excepciones justificadas:
+
+- **`InvoiceType`**: sus tipos de sistema viven con `tenant_id NULL` y `scopeForTenant()`
+  hace `whereNull(tenant_id) OR tenant`. El global scope los escondería y **rompería la
+  facturación**. Mismo caso que `Role`.
+- **`ApiClient`**: el operador administra los consumidores de todos los tenants desde una
+  sola pantalla; `index()` los lista sin filtrar a propósito.
+- **`PartnerEvent`**: exclusión ya documentada en el propio modelo.
+
+La lección de método: para saber si una clase usa un trait no sirve buscar su nombre en el
+archivo. Hay que buscar el `use` **dentro del cuerpo de la clase** — o preguntárselo a PHP
+con `class_uses_recursive()`, que es lo que hace el test.
+
+### 37.5 Estado
+
+La suite se corrió el 2026-08-16 y destapó un fallo propio de este archivo de pruebas
+(§ 39.2). Falta `migrate:both` (para el backfill de `manage_own_api_keys` en los roles admin
+existentes) y definir `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, sin la cual la emisión sólo
+queda en el log.
+
+---
+
+## 38. El interruptor no cubría los cortes — 2026-08-15
+
+### 38.1 El hueco
+
+CNO pidió confirmar formalmente que el interruptor de gestión externa detiene las
+escrituras por SSH de ISPWatch. Al ir a confirmarlo contra el código apareció que **solo
+cubría el aprovisionamiento**.
+
+`OverdueSuspensionService` no consultaba la bandera en ningún punto:
+`suspendCustomer()` llamaba a `RouterPolicyInstallerService::ensurePolicyInstalled()` y a
+`addIpToSuspendedList()`, ambos por SSH, sobre cualquier router. Es decir que un equipo
+marcado como gestionado por el orquestador seguía recibiendo intentos de escritura **en la
+operación más sensible y más frecuente de todas**: el ciclo de mora, que corre a diario.
+
+En el mejor caso esos intentos fallan y llenan el log. En el peor **funcionan** y le pisan
+la configuración a quien administra el equipo.
+
+### 38.2 Dónde va la guarda y por qué ahí
+
+En `RouterProvisioningService`, no en el llamador. A suspender/reconectar se entra por
+**seis puertas**: dos rutas del panel, el reintento manual de un log fallido, el corte
+automático por mora, el reconciliador y la reactivación al registrar un pago. Poner la
+comprobación en `OverdueSuspensionService` habría dejado descubiertas las otras cinco.
+
+### 38.3 Por qué devuelve `true` sin hacer nada
+
+No es fingir éxito. Cuando el control es externo, la responsabilidad de ISPWatch termina en
+**ordenar** el cambio comercial, y eso ya ocurrió: el cambio de `service_status` disparó el
+evento `SERVICE_SUSPENDED` que el orquestador consume. Devolver `false` marcaría el log
+como fallido y el reconciliador reintentaría para siempre contra un equipo que nunca va a
+responder.
+
+Tampoco se abre registro en `suspension_action_logs`: esa bitácora significa «intentamos
+escribir en el RouterBoard», y aquí no se intentó. Un registro exitoso inventado ensuciaría
+el panel de failover con intentos que nunca pasaron.
+
+La confirmación de que el corte se aplicó de verdad llega por otro lado — el retorno
+técnico del orquestador (contrato 7), que es exactamente el motivo por el que ese contrato
+se exige y no se concede.
+
+### 38.4 El reconciliador también
+
+`reconcileSuspensions()` recorre la cartera suspendida y re-corta lo que no esté confirmado
+en el RouterBoard. Con la guarda puesta habría contado un `reblocked_ok` por cada cliente de
+un router externo **sin haber bloqueado nada**, y ese ruido taparía justamente los cortes
+que sí fallaron. Ahora los salta y los cuenta en `skipped_external`.
+
+Los routers externos se resuelven en una sola consulta antes del bucle, no por cliente: ese
+bucle recorre toda la cartera suspendida.
+
+### 38.5 Dos campos que faltaban en la API
+
+Al mapear las confirmaciones de CNO aparecieron dos huecos:
+
+- `/customers` exponía el router **sólo por nombre**. El nombre es editable y no sirve como
+  llave; ahora también va `router_id` y `router_managed_by_external_aaa`.
+- `notify_invoice` no se exponía en ningún lado.
+
+### 38.6 Una premisa equivocada del integrador, corregida
+
+CNO daba por hecho que ISPWatch tiene una opción **por router/grupo** para decidir si se
+envía la factura al cliente, y construyó sobre eso toda su sección de facturación
+electrónica. No existe:
+
+| Campo | Alcance | Qué decide |
+|---|---|---|
+| `customer_profile.notify_invoice` | Por cliente | **Si** se avisa (`BillingService`) |
+| `billing.notification_type` | Por router | El **canal**: email, WhatsApp o ambos |
+| `customer_profile.exclude_from_billing` | Por cliente | Saca del ciclo automático completo |
+
+Lo que se configura a nivel de router es el canal, no el si. Si se quisiera la política por
+grupo, es desarrollo nuevo — anotado en `MEJORAS_RECOMENDADAS.md`.
+
+### 38.7 Semántica de estados, para el contrato
+
+CNO pidió cerrar formalmente la precedencia entre `service_status`, `is_enabled` y
+`exclude_from_billing`. Queda documentada aquí porque es la clase de cosa que un integrador
+infiere mal:
+
+- **`service_status` es la autoridad comercial de conectividad.** `activo`, `gratis` y
+  `suspendido` siguen facturando; `retirado` y `cancelado` son bajas definitivas.
+- **`is_enabled` (`customer_profile.status`) NO es autoritativo.** El corte automático lo
+  deja en `true`, así que no refleja si el cliente está cortado.
+- **`exclude_from_billing` precede a todo**: saca del ciclo automático completo (factura,
+  recordatorio, aviso y corte).
+
+---
+
+## 39. La suite corrió por primera vez sobre esta rama — 2026-08-16
+
+Al traer `origin/main` para desbloquear el PR (§ 36–38 se escribieron sin poder ejecutar
+nada: la máquina no tenía PHP) se instaló PHP 8.2 y se corrió la suite entera. Quedó en
+verde —850 pruebas, 2 670 aserciones— pero antes hubo que resolver dos cosas.
+
+### 39.1 Los conflictos eran los tres documentos, no el código
+
+`docs/BASE_DATOS.md`, `docs/BITACORA_TECNICA.md` y `docs/MANUAL_DESARROLLADOR.md`. Las tres
+son listas que crecen por el final, así que dos ramas que documentan trabajo distinto
+chocan siempre — no porque se contradigan, sino porque las dos escriben en la última línea.
+Ninguno de los conflictos era una discrepancia real: se conservaron ambos lados y se
+renumeró **sólo lo de esta rama**, para no reescribir números que `main` ya publicó y a los
+que otras entradas ya apuntan. Es la regla al resolver este tipo de conflicto: el lado que
+ya está en `main` no se toca.
+
+Vale la pena anotar que ninguna de las secciones nuevas ni ninguno de los archivos de
+código chocó. Los documentos son el punto de fricción de este repositorio, no el código, y
+lo van a seguir siendo mientras las bitácoras se lleven en un archivo lineal.
+
+### 39.2 El bypass de superadmin hacía pasar por buena una prueba de permisos
+
+`TenantSelfServiceApiKeyTest` fallaba en «sin el permiso propio no se alcanza el
+autoservicio»: pedía 403 y recibía 200. No era un hueco en la API — era la prueba.
+
+`CheckPermission` trata `role_id == 1` como superadmin de plataforma y salta toda
+comprobación. Con `RefreshDatabase`, el primer rol que crea un test se lleva el id 1, así
+que el «administrador sin el permiso» que fabricaba el helper **era** el superadmin. La
+prueba que debía demostrar que el permiso cierra la puerta estaba demostrando que el bypass
+la abre, y las otras doce del archivo corrían con la comprobación de permisos desactivada
+sin que nada lo dijera.
+
+El arreglo es reservar el id 1 en `setUp()` con un rol de plataforma que nadie usa, para que
+los roles de tenant nazcan del 2 en adelante. Es preferible a quitarle el bypass al test:
+así el archivo ejercita el mismo camino que producción.
+
+Esto no lo caza ninguna aserción: una prueba de permisos que pasa por el bypass **pasa**.
+Sólo se ve cuando falla la única que espera un 403 — y si esa prueba no existiera, el
+archivo entero seguiría verde sin verificar nada. Queda como trampa #50 en
+`MANUAL_DESARROLLADOR.md`.
+
+### 39.3 Las 27 fallas restantes eran del entorno
+
+Todas venían de `The PHP GD extension is required`: dompdf necesita GD para incrustar el PNG
+de la firma, y el PHP local no la traía. No es código —el CI sí la tiene— pero conviene
+saberlo porque el síntoma no siempre nombra a GD: los tests de numeración de contratos
+fallaban con `Failed asserting that null is identical to 'CTR-00001'`, que parece un error de
+secuencia y es un 500 del render dos capas más abajo. Con `extension=gd` habilitada en
+`php.ini`, verde.

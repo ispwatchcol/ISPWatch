@@ -33,10 +33,20 @@ class ContractSigningService
     ) {
     }
 
-    /** El contrato firmado vigente del cliente, si lo tiene. */
+    /**
+     * El contrato firmado vigente del cliente, si lo tiene.
+     *
+     * El tenant sale del cliente, no de la sesión: este método lo comparten la
+     * firma del panel (autenticada) y la remota (pública, donde puede haber o
+     * no una sesión ajena en el navegador). Dejarlo al global scope haría que
+     * en el flujo público devolviera null y el cliente pudiera firmar dos veces
+     * el mismo contrato.
+     */
     public function existingSignedContract(User $customer): ?CustomerDocument
     {
-        return CustomerDocument::where('customer_id', $customer->id)
+        return CustomerDocument::withoutGlobalScope('tenant')
+            ->where('tenant_id', $customer->tenant_id)
+            ->where('customer_id', $customer->id)
             ->where('type', 'contrato')
             ->where('signed', true)
             ->first();
@@ -188,7 +198,13 @@ class ContractSigningService
         $token = ContractSignatureLink::generateToken();
 
         $link = DB::transaction(function () use ($customer, $createdBy, $ttlHours, $token) {
-            ContractSignatureLink::where('customer_id', $customer->id)
+            // Tenant explícito por la misma razón que en existingSignedContract:
+            // si el scope filtrara por una sesión ajena, la revocación no
+            // alcanzaría a los links viejos y quedarían vivos dos enlaces
+            // firmables para el mismo contrato.
+            ContractSignatureLink::withoutGlobalScope('tenant')
+                ->where('tenant_id', $customer->tenant_id)
+                ->where('customer_id', $customer->id)
                 ->usable()
                 ->update(['revoked_at' => now()]);
 

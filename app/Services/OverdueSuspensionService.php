@@ -280,6 +280,7 @@ class OverdueSuspensionService
             'reblocked_failed'  => 0,
             'skipped_backoff'   => 0,
             'skipped_exhausted' => 0,
+            'skipped_external'  => 0, // router gestionado por un AAA externo
             'would_reblock'     => 0, // dry-run only
         ];
 
@@ -304,8 +305,26 @@ class OverdueSuspensionService
             . ($routerId ? " (router #{$routerId})" : '')
             . ($dryRun ? ' [dry-run]' : ''));
 
+        // Routers cuyo control ejecuta un AAA externo. Se resuelven de una sola
+        // vez y no por cliente: este bucle recorre toda la cartera suspendida.
+        $externallyManaged = Router::withoutGlobalScopes()
+            ->where('radius', true)
+            ->pluck('id')
+            ->flip();
+
         foreach ($profiles as $profile) {
             $stats['scanned']++;
+
+            // El reconciliador existe para re-cortar en el RouterBoard lo que
+            // la BD dice cortado. En un router de AAA externo no hay nada que
+            // re-cortar: ISPWatch no escribe ahí y la confirmación llega por el
+            // retorno técnico del orquestador. Sin esta salida, cada pasada
+            // contaría un "re-bloqueo OK" que nunca ocurrió — un falso positivo
+            // que taparía justamente los cortes que sí fallaron.
+            if ($externallyManaged->has((int) $profile->router_id)) {
+                $stats['skipped_external']++;
+                continue;
+            }
 
             $latest = SuspensionActionLog::where('customer_id', $profile->user_id)
                 ->where('router_id', $profile->router_id)

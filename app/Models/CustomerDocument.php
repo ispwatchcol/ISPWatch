@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
 class CustomerDocument extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'customer_documents';
 
     public const TYPES = ['cedula', 'instalacion', 'contrato', 'otros'];

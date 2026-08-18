@@ -132,6 +132,12 @@ class AuthController extends Controller
                     // y no comparando el tenant en el front: son dos fuentes de
                     // verdad que se desincronizarían al cambiar el operador.
                     'is_api_key_operator' => (int) $user->tenant_id === (int) config('api_keys.operator_tenant_id'),
+                    // Interruptor del auto-servicio. Viaja aparte del permiso
+                    // porque son cosas distintas: el permiso dice si ESTE
+                    // usuario puede emitir, y esto dice si la plataforma lo
+                    // permite hoy. Sin él, apagar el auto-servicio dejaría la
+                    // pestaña visible devolviendo 403 al abrirla.
+                    'self_service_api_keys' => (bool) config('api_keys.self_service.enabled'),
                 ]
             ]);
 
@@ -248,6 +254,7 @@ class AuthController extends Controller
                 'has_staff_profile' => $user->staffProfile !== null,
                 'is_superadmin'    => $user->is_superadmin ?? false,
                 'is_api_key_operator' => (int) $user->tenant_id === (int) config('api_keys.operator_tenant_id'),
+                'self_service_api_keys' => (bool) config('api_keys.self_service.enabled'),
             ],
         ]);
     }

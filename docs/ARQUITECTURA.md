@@ -1023,11 +1023,46 @@ El detalle de versión y empaquetado del servidor FreeRADIUS está en
   query param como respaldo para jobs.
 - Modelos con el trait: `Router`, `Plan`, `Sectorial`, `Invoice`, `SupportTicket`,
   `Expense`, `ExpenseCategory`, `CustomerInstallation`, `InventoryStock/Device/Provider/Branch`,
-  `RouterOutageEvent`, `SectorialHistory/Note/Photo`.
-- **Excepción deliberada:** `BulkProvisionRun` **no** lleva el scope, porque los jobs en
-  cola corren sin sesión; el filtrado por tenant se hace explícito en el controlador.
+  `RouterOutageEvent`, `SectorialHistory/Note/Photo`, `Payment`, `PaymentMethod`,
+  `InvoiceCarryover`, `CustomerDocument`, `ContractSignatureLink`, `DocumentTemplate`,
+  `Prospect`, `AuditLog`, `BillingActionLog`, `ApiKeyRequestLog`.
 - `Role` usa un scope propio que incluye roles del tenant **y** roles globales
   (`tenant_id IS NULL`).
+
+**Excepciones deliberadas** (modelos con `tenant_id` y sin scope automático). Cada una
+está declarada con su motivo en `TenantScopeCoverageTest::EXCEPCIONES_JUSTIFICADAS`, y
+el test falla si alguna deja de ser cierta:
+
+| Modelo | Por qué no lleva el scope |
+|---|---|
+| `User` | El login busca por `email_tenant` **antes** de saber de qué tenant es quien entra. Con el scope puesto nadie podría autenticarse. El aislamiento se hace explícito en cada controlador. |
+| `Role` | Los roles globales viven con `tenant_id NULL` y deben verse desde todos los tenants. |
+| `CustomerProfile` | Su frontera la pone el `User`: toda lectura del perfil va precedida de `User::where('tenant_id', …)->findOrFail($id)`. Su columna `tenant_id` existe como insumo de RLS, no como filtro de aplicación. |
+| `BulkProvisionRun` | Los jobs en cola leen y escriben la corrida sin sesión; el filtrado se hace explícito en el controlador. |
+| `Billing` | Sólo se llega por `router.billing_router_id`, y `Router` sí lleva scope. Sus filas antiguas tienen `tenant_id NULL`, así que activarlo escondería la configuración de cobro. Deuda anotada. |
+
+### Por qué la frontera no puede quedarse en esta capa
+
+El aislamiento es hoy **100 % de aplicación**: si una consulta olvida el filtro, la base
+lo obedece sin protestar. La falla es silenciosa —no rompe nada visible y en desarrollo,
+con un solo tenant, funciona igual— y por eso `Payment` llegó a producción alimentando el
+listado y la exportación de recaudos sin filtro alguno.
+
+Dos guardias contra la reincidencia:
+
+1. `TenantScopeCoverageTest` recorre `app/Models`, y cualquier modelo cuya tabla tenga
+   `tenant_id` sin trait ni excepción declarada **rompe CI**.
+2. La capa que falta es **Row Level Security en PostgreSQL** (`USING` + `WITH CHECK` sobre
+   `current_setting('app.tenant_id')`, con `FORCE ROW LEVEL SECURITY` y un rol de
+   aplicación sin `BYPASSRLS`). Con ella, una consulta sin filtro devuelve cero filas en
+   vez de la base entera. Está pendiente y detallada en `MEJORAS_RECOMENDADAS.md`.
+
+> **Descartado: un schema por cliente.** Multiplica cada migración por el número de ISPs
+> (un fallo parcial deja tenants en versiones distintas del esquema), colisiona con el uso
+> actual del schema como separador dev/prod (`DB_SCHEMA`), y con pooling en modo
+> transacción el `search_path` se filtra entre conexiones — la misma fuga que se quería
+> evitar, pero invisible. Además no ataca la causa real: sustituye "olvidé el `WHERE`" por
+> "olvidé el `search_path`", y sin una sola consulta capaz de auditarlo.
 
 > ⚠️ **Trampa conocida:** si el `tenant_id` del usuario no coincide con el de su rol,
 > el scope anula el rol y se produce un falso `403 "No role assigned"`. Por eso tanto
@@ -1253,16 +1288,51 @@ de instalación.
 - El limitador general `api` pasó a llavear por `Clase:id` en vez de por `id` a
   secas, porque el usuario 7 y el `ApiClient` 7 compartían cubo.
 
-### 14.6 Emisión de llaves
+### 14.6 Emisión de llaves: dos caminos
 
-Centralizada en el **tenant operador** (`config/api_keys.php`), pestaña
-Configuración → Llaves API. El permiso `manage_api_keys` no basta por sí solo —lo
-tiene el rol Administrador de todos los tenants—, así que `ApiClientController`
-comprueba además el tenant en cada acción.
+Hay dos formas de emitir una llave, con permisos, controladores y rutas separados.
 
-El texto plano se muestra **una sola vez**; en la base sólo queda el hash de
-Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero conserva la fila:
-un registro de auditoría que apunta a una llave borrada no sirve de nada.
+**Camino del operador** — `ApiClientController`, permiso `manage_api_keys`,
+rutas `/api/api-clients/*`. Alcanza a cualquier tenant y no tiene topes. El
+permiso no basta por sí solo —lo tiene el rol Administrador de todos los
+tenants—, así que el controlador comprueba además el tenant en cada acción.
+
+**Camino de auto-servicio** — `TenantApiKeyController`, permiso
+`manage_own_api_keys`, rutas `/api/my-api-keys/*`. El ISP emite las llaves de su
+propia empresa. El `tenant_id` sale de la sesión y no existe ningún campo que lo
+transporte en la petición.
+
+Son clases distintas y no una con condicionales, porque los dos modelos de
+autorización son incompatibles: allí el permiso significa "administrar las
+llaves de CUALQUIER tenant" y aquí "las de ESTE y ninguno más". Unificarlos
+convertiría cada método en una pregunta sobre quién llama — justo el código donde
+se cuela el caso que nadie contempló.
+
+Guardarraíles del auto-servicio, todos en `config/api_keys.php → self_service`:
+
+| Guardarraíl | Por defecto | Qué evita |
+|---|---|---|
+| Subconjunto de abilities | sin `read:billing` | Que el alcance más sensible se conceda sin que nadie lo piense |
+| Vencimiento obligatorio | máx. 90 días | La llave eterna que nadie rota |
+| Prefijo mínimo de la allowlist | `/24` IPv4, `/64` IPv6 | El `0.0.0.0/0` que desarma la allowlist entera |
+| Tope de llaves vigentes | 5 | Que una llave olvidada pase inadvertida |
+| Tope de integraciones | 3 | Alta sin límite |
+| Throttle propio | 10/min, 30/h | Tantear combinaciones contra el validador |
+| Aviso al operador | correo por emisión | Que cambie qué datos salen sin que el operador se entere |
+
+El de la allowlist es el que más trabaja: cuando alguien pelea con un `403`, el
+camino de menor resistencia es ensanchar el rango hasta que funcione, y eso anula
+la única defensa que hace que una llave filtrada no sirva desde fuera.
+
+Un `{client}` ajeno responde **404**, nunca 403, y por eso esas rutas no usan
+vinculación implícita de modelo: con ella Laravel resolvería el `ApiClient` de
+cualquier tenant antes de la comprobación, y la diferencia entre 403 y 404
+permitiría enumerar las integraciones de otros ISP.
+
+En ambos caminos el texto plano se muestra **una sola vez**; en la base sólo
+queda el hash de Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero
+conserva la fila: un registro de auditoría que apunta a una llave borrada no
+sirve de nada.
 
 ---
 

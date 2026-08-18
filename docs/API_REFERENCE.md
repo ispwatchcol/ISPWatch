@@ -1846,6 +1846,24 @@ por `revision` no.
 `revision: null` significa que ese recurso no ha cambiado desde que existe el feed.
 No es un error.
 
+#### Identidad del grupo y política de aviso (en `/customers`)
+
+| Campo | Para qué |
+|---|---|
+| `router_id` | Identificador **estable** del router/grupo lógico. `router` sigue devolviendo el nombre, que es editable y no sirve como llave |
+| `router_managed_by_external_aaa` | `true` = ISPWatch ya **no escribe** en ese equipo (columna `router.radius`). Le dice al integrador si la frontera técnica de ese grupo está establecida |
+| `notify_invoice` | Si ISPWatch avisa la factura a ese cliente |
+
+**`notify_invoice` es por cliente, no por router.** Es una confusión frecuente: lo
+que se configura a nivel de router (`billing.notification_type`) es el **canal**
+—email, WhatsApp o ambos—, no el si. El interruptor de "avisar o no" vive en
+`customer_profile.notify_invoice`, y `exclude_from_billing` lo precede sacando al
+cliente del ciclo automático completo. Hoy **no existe** una política de
+"no enviar factura" a nivel de grupo.
+
+Un integrador que emita el documento electrónico por su cuenta necesita
+`notify_invoice` para no duplicarle el aviso al abonado.
+
 ### 22.5 Envoltura de respuesta
 
 ```json
@@ -1907,3 +1925,51 @@ así que `ApiClientController` vuelve a comprobar el tenant.
 | `POST` | `/api/api-clients/{apiClient}/keys` | `name`, `abilities[]`, `allowed_ips[]` (obligatorio), `expires_at?`. Devuelve `plain_text_token` **una sola vez** |
 | `DELETE` | `/api/api-clients/{apiClient}/keys/{tokenId}` | Revoca: marca `revoked_at` y rompe el hash. La fila se conserva para la auditoría |
 | `GET` | `/api/api-clients/{apiClient}/logs` | Últimas peticiones (`limit` ≤ 200) |
+
+### 22.10 Auto-servicio de llaves (panel del ISP)
+
+Camino paralelo al anterior: el ISP emite las llaves de **su propia empresa** sin pasar
+por el operador. Permiso `manage_own_api_keys` (distinto de `manage_api_keys`) más el
+interruptor `api_keys.self_service.enabled`; si está apagado, todo responde `403`.
+
+Rutas separadas y no las mismas con un condicional dentro: los dos caminos tienen
+modelos de autorización incompatibles —"cualquier tenant" contra "sólo el mío"— y
+mezclarlos en un controlador con ramas es donde se cuela el caso que nadie contempló.
+
+**El `tenant_id` no viaja en ninguna petición de este grupo.** Sale de la sesión. No hay
+campo que lo transporte, así que no hay nada que manipular.
+
+| Método | Ruta | Notas |
+|---|---|---|
+| `GET` | `/api/my-api-keys` | Integraciones propias, sus llaves, el catálogo de abilities **permitidas en auto-servicio** y `limits` con los topes vigentes y lo consumido |
+| `POST` | `/api/my-api-keys/clients` | `name`, `contact_email?`, `description?`. El tenant se toma de la sesión |
+| `POST` | `/api/my-api-keys/clients/{client}/keys` | `name`, `abilities[]`, `allowed_ips[]`, `expires_at` (**obligatorio**). Devuelve `plain_text_token` una sola vez |
+| `DELETE` | `/api/my-api-keys/clients/{client}/keys/{tokenId}` | Revoca igual que el camino del operador |
+| `GET` | `/api/my-api-keys/clients/{client}/logs` | Bitácora de peticiones de esa integración (`limit` ≤ 200) |
+
+Un `{client}` que no sea del tenant de quien llama devuelve **404**, nunca 403: un id
+ajeno tiene que ser indistinguible de uno inexistente, o la propia diferencia de códigos
+permite enumerar las integraciones de la competencia. Por eso estas rutas **no** usan
+vinculación implícita de modelo — con ella Laravel resolvería el `ApiClient` de cualquier
+tenant antes de correr la comprobación.
+
+#### Diferencias con el camino del operador
+
+| | Operador (`manage_api_keys`) | Auto-servicio (`manage_own_api_keys`) |
+|---|---|---|
+| Alcance | Cualquier tenant | Sólo el propio |
+| Abilities | Catálogo completo | Subconjunto de `self_service.abilities` (sin `read:billing` por defecto) |
+| Vencimiento | Opcional, sin techo | **Obligatorio**, máximo `max_expiration_days` (90 por defecto) |
+| Allowlist de IP | Obligatoria, cualquier amplitud | Obligatoria y **acotada**: rangos hasta `/24` (IPv4) y `/64` (IPv6) |
+| Nº de llaves | Sin tope | `max_active_keys` (5 por defecto), contando sólo las vigentes |
+| Nº de integraciones | Sin tope | `max_clients` (3 por defecto) |
+| Throttle | `api` (120/min) | `self-service-keys` (10/min, 30/hora) |
+| Aviso | — | Correo al operador en cada emisión (`self_service.notify_email`) |
+
+El límite de amplitud de la allowlist es el guardarraíl que más trabaja: sin él, el camino
+de menor resistencia para alguien peleando con un `403` es escribir `0.0.0.0/0`, y eso
+desarma la única defensa que hace que una llave filtrada no sirva desde fuera.
+
+Errores de validación de este grupo (`422`) llegan en el `errors` estándar de Laravel, con
+mensajes escritos para quien no administra la plataforma — el de la allowlist explica el
+límite en número de direcciones, no en bits de máscara.

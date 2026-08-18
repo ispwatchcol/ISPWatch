@@ -1,10 +1,13 @@
 <?php
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class PaymentMethod extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'payment_methods';
 
     protected $fillable = [

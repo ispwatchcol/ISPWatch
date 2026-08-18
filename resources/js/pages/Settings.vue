@@ -1036,6 +1036,11 @@
                     <ApiKeysSection @notify="onSectionNotify" />
                 </div>
 
+                <!-- Llaves de la API propias del ISP (auto-servicio) -->
+                <div v-if="activeTab === 'myapikeys'" class="space-y-6">
+                    <TenantApiKeysSection @notify="onSectionNotify" />
+                </div>
+
                 <!-- Bitácora de auditoría -->
                 <div v-if="activeTab === 'audit'" class="space-y-6">
                     <AuditLogSection />
@@ -1053,6 +1058,7 @@ import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.v
 import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
 import DocumentTemplatesSection from "@/components/settings/DocumentTemplatesSection.vue";
 import ApiKeysSection from "@/components/settings/ApiKeysSection.vue";
+import TenantApiKeysSection from "@/components/settings/TenantApiKeysSection.vue";
 import AuditLogSection from "@/components/settings/AuditLogSection.vue";
 import { apiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
@@ -1083,6 +1089,16 @@ const tabs = computed(() => [
     // los admins de cada ISP y todo lo que verían serían 403 del backend.
     ...(authStore.hasPermission("manage_api_keys") && authStore.isApiKeyOperator
         ? [{ id: "apikeys", label: "Llaves API", icon: "md-vpnkey" }]
+        : []),
+    // Auto-servicio: la misma etiqueta, otra pantalla. Excluyente con la de
+    // arriba — el operador ya administra las llaves de todos los tenants desde
+    // la suya, así que dos pestañas iguales sólo lo confundirían. Requiere
+    // además que el auto-servicio esté encendido en el servidor, o la pestaña
+    // aparecería para acabar mostrando un 403.
+    ...(!authStore.isApiKeyOperator &&
+    authStore.selfServiceApiKeys &&
+    authStore.hasPermission("manage_own_api_keys")
+        ? [{ id: "myapikeys", label: "Llaves API", icon: "md-vpnkey" }]
         : []),
     { id: "import", label: "Importar Datos", icon: "md-cloudupload" },
     ...(authStore.hasPermission("view_audit_log")

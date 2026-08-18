@@ -25,6 +25,7 @@ class CustomerProfile extends Model
 
     protected $fillable = [
         'user_id',
+        'tenant_id',
         'name',
         'last_name',
         'is_company',
@@ -101,6 +102,29 @@ class CustomerProfile extends Model
     public function hasBillableServiceStatus(): bool
     {
         return in_array($this->service_status ?: 'activo', self::BILLABLE_SERVICE_STATUSES, true);
+    }
+
+    /**
+     * El tenant se hereda del usuario dueño del perfil, no de la sesión.
+     *
+     * A diferencia del resto de tablas, aquí NO va el global scope de
+     * BelongsToTenant: el aislamiento de customer_profile ya lo garantiza el
+     * `User::where('tenant_id', ...)->findOrFail($id)` que precede a cada
+     * lectura del perfil en el controlador. La columna existe para que Row
+     * Level Security pueda decidir con la fila en la mano (ver la migración
+     * 2026_08_15_100000), y rellenarla desde el usuario — y no desde
+     * auth()->user() — la deja correcta también en importaciones y comandos
+     * de consola, que corren sin sesión.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $profile) {
+            if (empty($profile->tenant_id) && $profile->user_id) {
+                $profile->tenant_id = User::withoutGlobalScopes()
+                    ->whereKey($profile->user_id)
+                    ->value('tenant_id');
+            }
+        });
     }
 
     public function user()

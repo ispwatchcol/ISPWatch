@@ -399,6 +399,50 @@ class PartnerEventsAndServicesTest extends TestCase
         $this->assertSame($antes, $despues);
     }
 
+    // ─── Identidad del grupo y política de aviso ────────────────────────────
+
+    #[Test]
+    public function el_cliente_expone_el_id_estable_del_router_y_no_solo_su_nombre(): void
+    {
+        // El integrador necesita un identificador estable del grupo lógico para
+        // mapearlo contra su propia topología; el nombre es editable y no sirve
+        // como llave.
+        $tenant = Tenant::factory()->create();
+        $router = \App\Models\Router::create([
+            'name'      => 'Grupo Norte',
+            'tenant_id' => $tenant->id,
+            'status'    => 'active',
+            'radius'    => true,
+        ]);
+
+        $profile = $this->seedCustomer($this->tenantA, 'Wanda');
+        $profile->update(['router_id' => $router->id]);
+
+        $res = $this->withHeaders($this->headers())
+            ->getJson("/api/v1/partner/customers/{$profile->user_id}")
+            ->assertOk();
+
+        $this->assertSame($router->id, $res->json('data.router_id'));
+        $this->assertSame('Grupo Norte', $res->json('data.router'));
+        $this->assertTrue($res->json('data.router_managed_by_external_aaa'));
+    }
+
+    #[Test]
+    public function el_cliente_expone_si_ispwatch_le_avisa_la_factura(): void
+    {
+        // Es política POR CLIENTE, no por router: quien emita el documento
+        // electrónico por su cuenta necesita saber a quién no debe avisarle
+        // ISPWatch para no duplicar el aviso.
+        $profile = $this->seedCustomer($this->tenantA, 'Ximena');
+        $profile->update(['notify_invoice' => false]);
+
+        $res = $this->withHeaders($this->headers())
+            ->getJson("/api/v1/partner/customers/{$profile->user_id}")
+            ->assertOk();
+
+        $this->assertFalse($res->json('data.notify_invoice'));
+    }
+
     // ─── Búsqueda por documento ─────────────────────────────────────────────
 
     #[Test]

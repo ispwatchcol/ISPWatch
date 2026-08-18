@@ -427,6 +427,104 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
+### 🔴 P-RLS-1 · La frontera entre tenants sigue siendo 100 % de aplicación
+
+Tras la revisión del 2026-08-15 (§ 35 de la bitácora) todos los modelos con `tenant_id`
+llevan el global scope o una excepción justificada, y hay un test que lo mantiene así. Pero
+la base de datos **no aísla nada por su cuenta**: si una consulta olvida el filtro, Postgres
+obedece. Esa fue exactamente la falla de `Payment`, y no dio ninguna señal hasta que se
+revisó a mano.
+
+La capa que falta es **Row Level Security**, y su valor es que la protección deja de depender
+de que alguien se acuerde:
+
+```sql
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments FORCE  ROW LEVEL SECURITY;   -- sin FORCE, el dueño se salta su política
+
+CREATE POLICY tenant_isolation ON payments
+  USING      (tenant_id = current_setting('app.tenant_id', true)::bigint)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::bigint);
+```
+
+`USING` corta la lectura, `WITH CHECK` corta la escritura hacia otro tenant. Si la variable
+no está puesta, `current_setting` devuelve NULL, la comparación es NULL y **no pasa ninguna
+fila**: falla cerrado.
+
+**Tres condiciones sin las cuales esto es decoración:**
+
+1. **`FORCE`, no sólo `ENABLE`.**
+2. **La app no puede conectarse como `postgres` ni con `BYPASSRLS`.** Hoy
+   `config/database.php` usa un único usuario para todo. Hay que separar `ispwatch_web`
+   (RLS forzado, atiende HTTP) de `ispwatch_jobs` (`BYPASSRLS`, sólo el scheduler, que es
+   legítimamente cross-tenant). El tráfico de internet nunca debe tocar el rol que puede
+   saltarse la frontera.
+3. **Cuidado con el pooler.** `set_config('app.tenant_id', ?, true)` dentro de transacción
+   (ámbito transaccional, seguro con cualquier pooler), o conexión directa en modo sesión
+   con PDO no persistente. Elegir mal aquí reintroduce fuga entre peticiones.
+
+**Orden obligatorio:** primero el punto 2, después las políticas. Al revés, la app sigue
+conectándose con un rol que se las salta y RLS no protege nada — pero *parece* que sí.
+
+Prerrequisitos de datos ya resueltos: `customer_profile.tenant_id` (migración
+`2026_08_15_100000`) y el backfill de `billing.tenant_id` (`2026_08_15_100100`).
+
+### 🟡 P-RLS-2 · `Billing` sin global scope hasta verificar el backfill
+
+`Billing` es la única excepción de la lista que no es estructural, sino de datos: su
+`tenant_id` quedó en NULL en las filas anteriores a que `RouterController` lo poblara.
+Activarle el scope antes de confirmar que no quedan NULL **escondería la configuración de
+cobro y pararía la facturación**.
+
+Secuencia para cerrarlo:
+
+```sql
+-- 1. Después de correr la migración 2026_08_15_100100, confirmar que quedó en cero:
+SELECT count(*) FROM billing WHERE tenant_id IS NULL;
+
+-- 2. Si hay filas, ver si alguna está realmente en uso (las huérfanas se pueden ignorar):
+SELECT b.id FROM billing b
+ WHERE b.tenant_id IS NULL
+   AND EXISTS (SELECT 1 FROM router r WHERE r.billing_router_id = b.id);
+```
+
+Con el conteo en cero, agregar `use BelongsToTenant;` a `App\Models\Billing` y borrar su
+entrada de `TenantScopeCoverageTest::EXCEPCIONES_JUSTIFICADAS` (el propio test exige que se
+borre: verifica que ninguna excepción listada lleve ya el trait).
+
+La urgencia es baja: a un `billing` sólo se llega por `router.billing_router_id` y `Router`
+sí lleva scope, así que la frontera está puesta un nivel más arriba.
+
+### 🟡 P-KEYS-1 · Riesgo residual del auto-servicio de llaves
+
+El auto-servicio (§ 36 de la bitácora) se implementó por decisión de producto, sobre una
+recomendación técnica que era abrir sólo la visibilidad. Los guardarraíles cubren lo que
+se puede cubrir en código; lo que queda es lo que el código no puede decidir:
+
+1. **La allowlist la escribe quien no sabe qué IP poner.** El tope de `/24` impide el
+   `0.0.0.0/0`, pero no impide que alguien liste un rango de su ISP doméstico. La
+   mitigación real es que el `ping` devuelve la IP de origen vista por el servidor —está
+   documentado en el manual de usuario, pero nadie lee manuales cuando pelea con un 403.
+   Si aparecen llaves con allowlists raras, el siguiente paso es un asistente de "usar la
+   IP desde la que estoy llamando" en vez de un campo de texto libre.
+
+2. **`read:billing` fuera del auto-servicio deja un camino manual.** Es deliberado, pero
+   significa que una integración tipo CNO —que sí necesita facturas y pagos— sigue
+   pasando por el operador. Si eso pasa a ser frecuente, la decisión a revisar es si el
+   ability entra al subconjunto o si se parte en algo más fino (`read:invoices` sin
+   `read:payments`, por ejemplo).
+
+3. **El aviso al operador depende de una variable de entorno.** Sin
+   `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`, la emisión sólo queda en el log de la
+   aplicación y nadie se entera en el momento. Configurarla es parte del despliegue, no
+   opcional.
+
+4. **No hay revisión periódica de llaves.** Nada avisa de una llave que lleva 60 días sin
+   usarse ni de una que está por vencer. El vencimiento obligatorio de 90 días fuerza una
+   rotación, pero de la forma más brusca posible: la integración se cae. Un comando
+   `api-keys:expiring` que avise por correo con una semana de margen es trabajo pequeño y
+   evita ese corte.
+
 ### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
 
 **Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.
@@ -445,6 +543,25 @@ un moroso. El compromiso está deliberadamente del lado de la continuidad del se
 **Si alguna vez molesta**, la salida no es bajar el intervalo (multiplica la carga de sync sin
 cerrar la ventana): es que el pipeline de corte escriba el estado del moroso directo al snapshot
 además de a Postgres, para que la degradación herede el corte al instante.
+
+### 🟡 P-RADIUS-3 · No existe política de "no enviar factura" por router/grupo
+
+Detectado el 2026-08-15 al responderle a un integrador que la daba por existente.
+
+Hoy el aviso de factura se decide **por cliente** (`customer_profile.notify_invoice`); lo
+que se configura a nivel de router (`billing.notification_type`) es sólo el **canal**
+(email / WhatsApp / ambos). No hay forma de decir "a los clientes de este grupo no les
+mandes factura".
+
+El caso de uso es real: un grupo facturado por una plataforma de facturación electrónica
+externa, donde ISPWatch debe seguir siendo la fuente comercial pero **no** emitir el aviso
+al abonado, porque el documento lo manda la otra plataforma. Hoy eso obliga a apagar
+`notify_invoice` cliente por cliente, y cada alta nueva nace con el aviso encendido.
+
+**Recomendación.** Una columna en `billing` (p. ej. `send_invoice_notice`, default `true`)
+que `BillingService::notifyInvoiceCreated()` consulte antes que la del cliente, con
+precedencia grupo → cliente. Es chico, pero toca el camino de facturación: va con test que
+cubra las cuatro combinaciones.
 
 ### 🟡 P-RADIUS-2 · Doble contabilidad de tráfico sin fuente autoritativa
 

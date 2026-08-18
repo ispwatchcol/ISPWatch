@@ -1797,9 +1797,14 @@ Sirve para que un sistema externo —un CRM, un tablero de indicadores, un proce
 conciliación contable— pueda **leer** los datos de un ISP sin que nadie tenga que entrar
 al panel ni compartir una contraseña.
 
-> Esta pestaña sólo la ve el equipo de ISPWatch. Un administrador de un ISP no puede
-> emitirse llaves a sí mismo: quién recibe los datos y desde dónde es una decisión que
-> se toma y se registra en un solo sitio.
+Hay **dos formas** de conseguir una llave, y la pantalla que ves depende de cuál te
+corresponde:
+
+- **Si administras un ISP** → *Configuración → Llaves API* te muestra las integraciones
+  de **tu empresa** y puedes emitir tú mismo las llaves, dentro de unos límites. Salta a
+  la sección 17.5.1.
+- **Si eres del equipo de ISPWatch** (tenant operador) → la misma pestaña te muestra las
+  integraciones de **todos los ISP**, sin límites. Es lo que se describe a continuación.
 
 **Qué puede hacer una llave — y qué no**
 
@@ -1854,6 +1859,55 @@ Que la llave viaja en la cabecera `Authorization: Bearer <llave>` y que empiece 
 con `GET /api/v1/partner/ping`, que le confirma que la llave funciona, desde qué IP lo
 está viendo el servidor y qué permisos tiene. La referencia completa está en
 `docs/API_REFERENCE.md`, sección 22.
+
+#### 17.5.1 Emitir tus propias llaves (auto-servicio)
+
+Si administras un ISP, **Configuración → Llaves API** te deja crear las llaves de tu
+empresa sin pedírselas a nadie. Sólo alcanzan a tus datos: no hay forma de emitir una
+llave que vea otra empresa, ni siquiera equivocándose.
+
+Arriba de la pantalla verás cuatro contadores —llaves vigentes, integraciones, vigencia
+máxima y rango de IP más amplio—. Están ahí para que sepas los límites **antes** de
+llenar el formulario, no después de que te lo rechace.
+
+**Paso a paso**
+
+1. En *Nueva integración*, ponle nombre (por ejemplo «Bot de WhatsApp») y un correo de
+   contacto. Pulsa **Crear integración**.
+2. Pulsa **Emitir llave** y completa:
+   - **Nombre de la llave**: para distinguirla si tienes varias (`produccion-bot`).
+   - **Vence el**: obligatorio, y como máximo 90 días. Cuando venza, emites otra —es un
+     minuto de trabajo y evita que una llave siga viva cuando ya cambiaste de proveedor.
+   - **Permisos de lectura**: marca sólo lo que la integración necesite.
+   - **IPs autorizadas**: la IP pública del servidor donde corre la integración.
+3. **Copia la llave en ese momento.** Sólo se muestra una vez.
+
+**Los límites, y por qué existen**
+
+| Límite | Valor | Motivo |
+|---|---|---|
+| Vigencia | 90 días máximo | Una llave sin caducidad no la rota nadie |
+| Rango de IP | hasta `/24` | Impide dejarla abierta a todo internet |
+| Llaves vigentes | 5 | Una llave olvidada se nota al chocar con el tope |
+| Integraciones | 3 | Igual que arriba |
+| Facturación | no disponible | Ver facturas y pagos se pide al operador |
+
+> **Sobre las IPs.** Es normal pelearse con un `403` al principio, y la tentación es
+> ensanchar la lista hasta que funcione. No lo hagas: esa lista es justamente lo que
+> hace que una llave filtrada no le sirva a nadie fuera de tu servidor. Si no sabes qué
+> IP poner, llama a `GET /api/v1/partner/ping` con la llave: la respuesta te dice desde
+> qué IP te está viendo el servidor.
+
+**Ver qué está pasando**
+
+El botón **Ver peticiones** de cada integración muestra las últimas llamadas con su
+fecha, ruta, IP, código de estado y motivo del rechazo. Casi cualquier problema se
+resuelve ahí: `ip_not_allowed` es una IP que falta en la lista, y `key_expired` es una
+llave que hay que reemplazar.
+
+**Si necesitas algo fuera de estos límites** —acceso a facturación, una vigencia más
+larga o un rango de IP más ancho— pídeselo al equipo de ISPWatch, que emite esa llave
+por el otro camino.
 
 ### 17.7 Auditoría
 

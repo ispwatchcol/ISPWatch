@@ -28,6 +28,16 @@ export const useAuthStore = defineStore('auth', () => {
     // rompería en silencio el día que el operador cambie.
     const isApiKeyOperator = computed(() => user.value?.is_api_key_operator === true)
 
+    /**
+     * ¿La plataforma permite hoy que un ISP emita sus propias llaves?
+     *
+     * Es distinto del permiso: `manage_own_api_keys` dice si ESTE usuario podría
+     * emitir, y esto dice si el auto-servicio está encendido en el servidor
+     * (config/api_keys.php → self_service.enabled). Sin las dos cosas la pestaña
+     * saldría visible para acabar mostrando un 403 al abrirla.
+     */
+    const selfServiceApiKeys = computed(() => user.value?.self_service_api_keys === true)
+
     // ─── Actions ───
     function loadFromStorage() {
         const raw = localStorage.getItem('userData') || sessionStorage.getItem('userData')
@@ -122,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
         isStaffOrAdmin,
         isAdmin,
         isApiKeyOperator,
+        selfServiceApiKeys,
         // Actions
         loadFromStorage,
         setUser,

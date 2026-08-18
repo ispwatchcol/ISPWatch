@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class BillingActionLog extends Model
 {
+    use BelongsToTenant;
+
     public const ACTION_GENERATE_MONTHLY = 'generate_monthly_invoice';
 
     public const STATUS_SUCCESS   = 'success';
