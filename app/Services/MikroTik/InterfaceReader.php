@@ -36,6 +36,7 @@ class InterfaceReader
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
+    private OverlayReachabilityProbe $reachability;
 
     // Tunnel-type names that should be excluded if found as substring in either type or name
     // (these strings don't appear in normal physical-port names).
@@ -46,10 +47,15 @@ class InterfaceReader
 
     public function __construct(
         ?MikroTikConnectionManager $connectionManager = null,
-        ?MikroTikApiProtocol $apiProtocol = null
+        ?MikroTikApiProtocol $apiProtocol = null,
+        ?OverlayReachabilityProbe $reachability = null
     ) {
         $this->connectionManager = $connectionManager ?? new MikroTikConnectionManager();
         $this->apiProtocol = $apiProtocol ?? $this->connectionManager->getApiProtocol();
+        // Comparte el connection manager a propósito: la sonda tiene que salir
+        // por el MISMO CORE por el que va a salir el ssh-exec, o su veredicto
+        // no diría nada del camino que de verdad importa.
+        $this->reachability = $reachability ?? new OverlayReachabilityProbe($this->connectionManager);
     }
 
     /**
@@ -410,6 +416,23 @@ class InterfaceReader
         ?int $clientSshPort = null
     ): array {
         try {
+            // ── Sonda previa: ¿hay alguien en esa dirección? ─────────────────
+            // Tres ssh-exec contra un equipo que no existe cuestan 25s cada uno
+            // y terminan en "no completó la lectura", que suena a enlace lento y
+            // manda a revisar timeouts y firewalls. Un ping con ttl=1 cuesta 3s
+            // y, cuando contesta un tercero, prueba que el problema no está en
+            // nada de lo que ISPWatch pueda reintentar. Sólo ese caso corta:
+            // el silencio no concluye nada (ICMP puede venir filtrado) y sigue
+            // el camino de siempre.
+            $probe = $this->reachability->probe($clientIp);
+
+            if ($this->reachability->isConclusiveFailure($probe)) {
+                return $this->reachability->explain($probe, $clientIp) + [
+                    'success'    => false,
+                    'interfaces' => [],
+                ];
+            }
+
             $variants = $this->buildCoreInterfaceCommandVariants($clientIp, $clientUser, $clientPass, $clientSshPort);
 
             $lastRawOutput = '';
@@ -428,7 +451,7 @@ class InterfaceReader
                 // this is the failure the WAN modal used to render as the
                 // meaningless "Respuesta del router: ISP_BEGIN".
                 if (!empty($sshResult['timed_out'])) {
-                    return $this->sshExecTimeoutResult($clientIp, $timeout, (string) ($sshResult['output'] ?? ''), $clientSshPort);
+                    return $this->sshExecTimeoutResult($clientIp, $timeout, (string) ($sshResult['output'] ?? ''), $clientSshPort, $probe);
                 }
 
                 if (!($sshResult['success'] ?? false)) {
@@ -475,7 +498,7 @@ class InterfaceReader
                 // explicit timeout — the CORE is stuck waiting on the client —
                 // just detected from the payload instead of from phpseclib.
                 if ($parsed['state'] === 'truncated') {
-                    return $this->sshExecTimeoutResult($clientIp, $timeout, $rawSshOutput, $clientSshPort);
+                    return $this->sshExecTimeoutResult($clientIp, $timeout, $rawSshOutput, $clientSshPort, $probe);
                 }
 
                 // CORE script ran but its on-error block fired — the inner /system ssh-exec threw.
@@ -637,22 +660,40 @@ class InterfaceReader
      * CORE is *stuck talking to the client*, not that the client sent something
      * strange: nothing came back from the client at all.
      */
-    private function sshExecTimeoutResult(string $clientIp, int $timeout, string $partial, ?int $clientSshPort = null): array
-    {
+    private function sshExecTimeoutResult(
+        string $clientIp,
+        int $timeout,
+        string $partial,
+        ?int $clientSshPort = null,
+        array $probe = []
+    ): array {
         $port = ($clientSshPort && $clientSshPort > 0) ? $clientSshPort : 22;
 
         Log::warning('[InterfaceReader] CORE ssh-exec truncado por tiempo de espera', [
             'client_ip'       => $clientIp,
             'client_ssh_port' => $port,
             'timeout'         => $timeout,
+            'probe_state'     => $probe['state'] ?? null,
             'partial_preview' => substr($partial, 0, 300),
         ]);
+
+        // Lo que la sonda ya averiguó antes del ssh-exec ahorra el primer paso
+        // del diagnóstico: si el equipo tampoco contesta un ping, "se colgó la
+        // lectura" no es un problema de tiempo sino de que no hay nadie ahí.
+        $probeLine = '';
+        if (($probe['state'] ?? null) === OverlayReachabilityProbe::STATE_SILENT) {
+            $probeLine = "0) El router tampoco contesta ping desde el CORE" .
+                         (($probe['has_session'] ?? false) ? ' (aunque su sesión VPN figura activa)' : '') .
+                         ". Si su firewall no filtra ICMP a propósito, el equipo está mudo en el overlay y ningún " .
+                         "ajuste de tiempos lo va a arreglar.\n";
+        }
 
         return [
             'success' => false,
             'message' => "El CORE se quedó esperando al router {$clientIp}:{$port} y no completó la lectura en {$timeout}s. " .
                          'La respuesta llegó cortada, así que no hay lista de interfaces que mostrar.',
             'hint'    => "El CORE arrancó el ssh-exec pero el router nunca terminó de contestar. Verifica, en este orden:\n" .
+                         $probeLine .
                          "1) Que el router siga conectado al overlay y en esa misma IP: /ppp active print en el CORE (la IP cambia al reconectar).\n" .
                          "2) Que el CORE pueda abrir SSH al cliente a mano: /system ssh address={$clientIp} port={$port} user=<usuario>. Si ahí también se cuelga, el problema es del enlace o del firewall del cliente, no de ISPWatch.\n" .
                          "3) Si el enlace es lento pero funciona, sube MIKROTIK_CORE_SSH_EXEC_TIMEOUT (segundos) en el .env.\n" .

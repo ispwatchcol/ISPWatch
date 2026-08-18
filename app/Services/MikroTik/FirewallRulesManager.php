@@ -3,7 +3,7 @@
 namespace App\Services\MikroTik;
 
 use App\Services\MikroTik\Concerns\BuildsCoreSshExec;
-use Illuminate\Support\Facades\DB;
+use App\Support\RouterOsVersion;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -21,9 +21,6 @@ class FirewallRulesManager
     private const FILTER_DROP_COMMENT = 'ISPWatch-DROP-SUSPENDED';
     private const NAT_HTTP_COMMENT = 'ISPWatch-NAT-HTTP';
     private const NAT_HTTPS_COMMENT = 'ISPWatch-NAT-HTTPS';
-
-    /** @var array<string, string|null> */
-    private static array $firmwareVersionCache = [];
 
     private MikroTikConnectionManager $connectionManager;
     private MikroTikApiProtocol $apiProtocol;
@@ -681,56 +678,17 @@ class FirewallRulesManager
         return addcslashes($value, "\\\"\$");
     }
 
+    // La interpretación de firmware_version vive en RouterOsVersion: la comparten
+    // este pipeline y el del transporte VPN, y una discrepancia entre los dos
+    // significaría emitir reglas para una rama de RouterOS y el túnel para otra.
     private function resolveFirmwareVersionLabel(?string $rawValue): ?string
     {
-        if ($rawValue === null) {
-            return null;
-        }
-
-        $value = trim((string) $rawValue);
-        if ($value === '') {
-            return null;
-        }
-
-        if (!preg_match('/^\d+$/', $value)) {
-            return $value;
-        }
-
-        if (array_key_exists($value, self::$firmwareVersionCache)) {
-            return self::$firmwareVersionCache[$value];
-        }
-
-        try {
-            $resolved = DB::table('script_version')->where('id', (int) $value)->value('version');
-            self::$firmwareVersionCache[$value] = $resolved !== null ? trim((string) $resolved) : $value;
-        } catch (\Throwable $e) {
-            Log::warning('[FirewallRulesManager] No se pudo resolver firmware_version desde script_version', [
-                'firmware_value' => $value,
-                'error' => $e->getMessage(),
-            ]);
-            self::$firmwareVersionCache[$value] = $value;
-        }
-
-        return self::$firmwareVersionCache[$value];
+        return RouterOsVersion::label($rawValue);
     }
 
     private function detectRouterOsFamily(?string $rawValue): string
     {
-        $resolved = strtolower(trim((string) ($this->resolveFirmwareVersionLabel($rawValue) ?? '')));
-
-        if ($resolved === '') {
-            return 'unknown';
-        }
-
-        if (preg_match('/(^|[^0-9])6(?:[.x]|$)/', $resolved)) {
-            return 'v6';
-        }
-
-        if (preg_match('/(^|[^0-9])7(?:[.x]|$)/', $resolved)) {
-            return 'v7';
-        }
-
-        return 'unknown';
+        return RouterOsVersion::family($rawValue);
     }
 
     private function getRulesAppliedDetails(string $portalIp, string $firmwareFamily, ?string $resolvedFirmware): array

@@ -8,6 +8,12 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El túnel estaba arriba y el router no era él (2026-08-18, § 40):** sesión L2TP activa,
+  contadores subiendo y el equipo sin haberse quedado con la dirección del overlay: reenviaba
+  nuestros paquetes a su gateway. Cada camino lo reportaba como otra cosa (credenciales,
+  puertos, timeouts). Nueva `OverlayReachabilityProbe` (`/ping ttl=1`: contesta él o contesta
+  otro) y `router:probe-overlay` para sondear la flota. De regalo: un router marcado *v7*
+  recibía el script *L2TP* porque la versión sólo se sabía leer como `N.N`.
 - **El contrato obligaba a un viaje (2026-08-14, § 31):** firmar sólo se podía sobre la pantalla
   de un empleado logueado, así que cada contrato costaba un desplazamiento y muchos clientes
   llevaban meses instalados sin firmar. Ahora se manda un enlace personal (correo, WhatsApp o
@@ -4232,3 +4238,144 @@ saberlo porque el síntoma no siempre nombra a GD: los tests de numeración de c
 fallaban con `Failed asserting that null is identical to 'CTR-00001'`, que parece un error de
 secuencia y es un 500 del render dos capas más abajo. Con `extension=gd` habilitada en
 `php.ini`, verde.
+
+---
+
+## 40. El túnel estaba arriba y el router no era él — 2026-08-18
+
+### 40.1 Lo que veía el operador
+
+Modal *Configurar Interfaz WAN* sobre `CORE_SAN_ISIDRO` (tenant 16, `172.16.16.253`,
+RouterOS v6 / L2TP). Los dos métodos fallando, cada uno con su propia explicación:
+
+```
+1. API directa (puerto 8728): El router aceptó la conexión TCP pero no respondió
+   al login API (tiempo de espera agotado).
+2. SSH vía CORE: El CORE se quedó esperando al router 172.16.16.253:22 y no
+   completó la lectura en 25s.
+```
+
+Y el mismo día, el mismo botón funcionando sin un fallo sobre `CORE_TOCAIMA`
+(RouterOS 7.23.1 / WireGuard). De ahí la lectura natural —"la v7 funciona, la v6
+no"— que es la que había que verificar.
+
+### 40.2 Lo que decía el CORE
+
+Todo lo que se mira normalmente daba **verde**:
+
+| Comprobación | Resultado |
+|---|---|
+| `/ppp active print` | sesión activa, `address=172.16.16.253`, comment `ISPWatch - CORE_SAN_ISIDRO` |
+| `/interface print` | `<l2tp-sSWvc8waUn>` `DR` (dinámica, corriendo), `link-downs=0` |
+| `/ip route print` | `DAc 172.16.16.253/32` vía esa interfaz |
+| `/interface print stats` | RX 120 KB / TX 117 KB, **contadores subiendo** |
+| firewall del CORE | `chain=input action=accept src-address-list=ISPWATCH_VPN_POOLS` cubre el `/24` |
+
+Y sin embargo `/ping 172.16.16.253` desde el CORE: **100 % de pérdida**. Mientras
+`172.16.16.254` (el otro router del mismo tenant, por el **mismo** transporte L2TP)
+respondía en 73 ms. Eso ya descartaba "L2TP no sirve" y "el firmware v6 no sirve":
+el transporte funcionaba; fallaba **ese** equipo.
+
+### 40.3 La causa raíz: el paquete se va, pero no lo consume nadie
+
+Dos observaciones lo cerraron:
+
+1. Una tanda de **20 pings** subió los contadores del túnel en **~2.000 paquetes por
+   sentido** — unos 100 por ping. Eso no es un enlace lento, es un paquete rebotando
+   hasta agotar el TTL.
+2. `/ping 172.16.16.253 count=2 ttl=1` respondió **`TTL exceeded` desde `10.72.103.1`**,
+   una dirección que no es del overlay.
+
+Un paquete que se **entrega localmente** no decrementa TTL: el dueño de la dirección
+habría contestado normal. Uno que se **reenvía** sí lo decrementa, y el que lo reenvía
+se identifica. Conclusión: el equipo al otro lado del túnel **no tiene puesta la
+`172.16.16.253`**; la trata como una dirección ajena y la manda hacia su propio
+gateway. La sesión PPP existe, el CORE le asignó la dirección, y el router no se quedó
+con ella.
+
+Por eso fallaban los dos métodos y por eso ninguno lo decía: la API abría el canal
+reenviado y no recibía nada (`ssh -L` acepta el socket local **antes** de saber si el
+CORE puede entregar), y el `ssh-exec` se quedaba esperando 25 s a un equipo que nunca
+iba a contestar. Ambos síntomas apuntaban a credenciales, puertos y firewalls del
+cliente — todos correctos.
+
+**Nada de esto era un fallo de ISPWatch, y ése era exactamente el problema:** el
+sistema no sabía decir "no hay nadie en esa dirección", así que cada camino inventaba
+su propia explicación equivocada y mandaba a auditar lo que estaba bien.
+
+### 40.4 Lo que se implementó
+
+**`OverlayReachabilityProbe`** (`app/Services/MikroTik/`). Un solo viaje al CORE, ~3 s:
+
+```
+:put ("ISP_ROUTE:" . [:len [/ip route find dst-address="<ip>/32"]]);
+:put ("ISP_PPP:"   . [:len [/ppp active find address=<ip>]]);
+/ping <ip> count=2 ttl=1
+```
+
+Cuatro veredictos: `alive` (contesta la IP consultada), `foreign_hop` (contesta otra),
+`silent` (no contesta nadie), `unknown` (el CORE no respondió).
+
+**Sólo `foreign_hop` con evidencia de pertenencia al overlay** (ruta `/32` o sesión PPP)
+corta el flujo. Las otras dos decisiones son deliberadas:
+
+- **`silent` nunca corta.** El propio script de provisión de ISPWatch abre TCP
+  22/8291/8728 desde la red de gestión pero **no abre ICMP**: un cliente bien
+  configurado con *drop* por defecto en `input` no contesta ping y se administra
+  perfectamente. Cortar ahí habría roto la flota sana para arreglar un caso.
+- **`foreign_hop` sin ruta ni sesión tampoco corta.** Al preguntar por una dirección que
+  el overlay no administra, el primer salto siempre es el gateway del CORE
+  (`198.211.111.7` en producción). Sin la evidencia de pertenencia sería un falso
+  positivo garantizado para cualquier router alcanzable por fuera del túnel.
+
+Integrado en `InterfaceReader::getInterfacesViaCoreSsh()` **antes** de las tres variantes
+de `ssh-exec`, y como paso `[2/6]` de `router:diagnose-wan`. El caso real pasó de
+~75 s de esperas encadenadas y un diagnóstico falso, a 6 s y la instrucción concreta.
+
+**`router:probe-overlay`** (nuevo comando). Sondea la flota entera —o un tenant, o un
+router— y responde de una sola pasada qué equipos están de verdad al otro lado. Sobre
+producción, el 2026-08-18:
+
+```
+| 45 | CORE_TOCAIMA    | wireguard | 7.23.1 | 172.18.16.2   | RESPONDE | el equipo contesta en su dirección
+| 62 | CORE_SAN_ISIDRO | l2tp      | v6     | 172.16.16.253 | NO ES ÉL | contesta 10.72.103.1: el equipo no se quedó con la dirección
+| 60 | CORE_SAN_ISIDRO | l2tp      | v6     | 172.16.17.248 | SIN RUTA | el CORE no tiene túnel hacia esa IP (router desconectado)
+```
+
+### 40.5 Hallazgo colateral: un router marcado v7 recibía el script v6
+
+Buscando diferencias reales entre ramas apareció una que no tiene nada que ver con el
+caso anterior pero muerde igual de fuerte. `Router::firmwareSupportsWireguard()` exigía
+un patrón `N.N`:
+
+```php
+if (!preg_match('/(\d+)\.(\d+)/', (string) $version, $m)) return false;
+```
+
+Pero el formulario de routers **no escribe versiones numéricas**: su desplegable ofrece
+las filas de `script_version` y guarda su texto, `v6` o `v7`. Y filas antiguas guardaron
+el **id** de esa tabla (`2`=v7, `3`=v6). Con cualquiera de esos dos formatos la función
+devolvía `false`, así que un equipo marcado **v7 con transporte WireGuard** recibía en
+silencio el script L2TP — el operador elegía una cosa en la UI y se llevaba otra, sin un
+solo aviso. En la base había 3 routers con `v6`/`2` y sólo `CORE_TOCAIMA` con una versión
+numérica (`7.23.1`), que es justamente por qué el fallo no se había visto.
+
+La lectura se centralizó en `App\Support\RouterOsVersion` (etiqueta, familia y soporte de
+WireGuard), y `FirewallRulesManager` —que ya interpretaba los tres formatos bien por su
+cuenta— pasa por ella: dos interpretaciones distintas del mismo campo significaban poder
+emitir reglas para una rama y el túnel para la otra.
+
+### 40.6 Verificación
+
+- 863 pruebas verdes. 18 nuevas aserciones sobre la sonda y el corte anticipado, con
+  salidas de `/ping` copiadas literalmente del CORE de producción.
+- `router:diagnose-wan 45` (v7/WireGuard) sigue leyendo sus 17 interfaces por
+  `CORE_SSH_EXEC`: la sonda da `alive` y no altera el camino. La v7 se quedó quieta.
+- `router:diagnose-wan 62` (v6/L2TP) corta en el paso 2 con el diagnóstico correcto.
+
+### 40.7 Lo que sigue abierto
+
+El equipo `CORE_SAN_ISIDRO` **hay que arreglarlo en sitio**: ISPWatch no puede
+administrarlo hasta que su `l2tp-client` se quede con la dirección del overlay. La
+comprobación de que quedó bien es que `/ping 172.16.16.253 count=2 ttl=1` desde el CORE
+lo conteste él y no `10.72.103.1`.

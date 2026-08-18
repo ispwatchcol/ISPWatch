@@ -1343,6 +1343,36 @@ cambios de filtro), no al alternar capas; y calcular los `bounds` sólo con las 
 usuario está mirando. Alternativa mínima: recordar el `zoom`/`center` y restaurarlos cuando
 el redibujado no venga de un cambio de filtro.
 
+### 📋 P-26 · El script de provisión no abre ICMP desde la red de gestión
+
+`VpnService::generateL2tpScript()` y `generateWireguardScript()` instalan
+`ISPWatch-CORE-MGMT` como `action=accept protocol=tcp ... dst-port=22,8291,8728`. **Sólo
+TCP**: un cliente con *drop* por defecto en el chain `input` queda administrable pero
+**mudo al ping**.
+
+Eso deja a `OverlayReachabilityProbe` sin poder concluir nada en esos equipos (estado
+`silent`, que por diseño no corta nada) justo en el caso en que más ayudaría: distinguir
+"no responde porque filtra ICMP" de "no responde porque no hay nadie". Hoy se resuelve
+mirando si además falla el `ssh-exec`, que cuesta 25 s.
+
+**Recomendación.** Añadir una segunda regla `protocol=icmp src-address=<red de gestión>`
+al bloque `ISPWatch-CORE-MGMT`. Es tráfico acotado a la red del túnel, no expone nada a
+Internet, y convierte el `silent` ambiguo en un veredicto firme. Requiere re-aplicar el
+script en la flota, así que conviene hacerlo junto al próximo cambio que ya lo exija.
+
+### 📋 P-27 · `router.firmware_version` sigue admitiendo tres formatos
+
+La columna guarda la versión cruda (`7.23.1 (stable)`), la etiqueta de familia (`v6`/`v7`)
+y el id de `script_version` (`2`, `3`). `App\Support\RouterOsVersion` los interpreta a
+todos, así que ya no hay bug — pero el campo sigue siendo ambiguo por naturaleza: `"7"`
+puede leerse como familia v7 o como id 7, y hoy se resuelve por convención (se busca el id
+y, si no existe, se trata como etiqueta).
+
+**Recomendación.** Normalizar en dos columnas: `routeros_family` (`v6`/`v7`, lo que el
+operador elige) y `routeros_version` (lo que reporta `/system resource`, idealmente leído
+del propio equipo en vez de tecleado). Mientras tanto, **nunca** interpretar el campo a
+mano: siempre por `RouterOsVersion`.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

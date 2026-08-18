@@ -182,16 +182,73 @@ class InterfaceReaderTest extends TestCase
         $this->assertSame('ether1', $result['interfaces'][0]['name']);
     }
 
+    public function test_it_gives_up_before_the_ssh_exec_when_another_device_answers_for_the_router(): void
+    {
+        // Caso CORE_SAN_ISIDRO (2026-08-18): túnel arriba, sesión activa, pero el
+        // equipo del otro lado no tiene la dirección del overlay y reenvía los
+        // paquetes. Los tres ssh-exec se colgaban 25s cada uno para terminar
+        // culpando al firewall del cliente.
+        $variantCalls = 0;
+        $reader = $this->makeReaderWithSshResult(
+            function () use (&$variantCalls) {
+                $variantCalls++;
+                return ['success' => false, 'timed_out' => true, 'output' => "ISP_BEGIN\n"];
+            },
+            fn () => ['success' => true, 'output' => "ISP_ROUTE:1\nISP_PPP:1\n    0 10.72.103.1  84  64 83ms403us  TTL exceeded\n    sent=2 received=0 packet-loss=100%"]
+        );
+
+        $result = $reader->getRouterInterfaces('172.16.16.253', 'ispwatch', 'secret');
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(0, $variantCalls, 'con la avería probada no hay nada que reintentar por ssh-exec');
+        $this->assertStringContainsString('10.72.103.1', $result['message']);
+        $this->assertSame([], $result['interfaces']);
+    }
+
+    public function test_a_router_that_filters_icmp_still_gets_its_interfaces_read(): void
+    {
+        // La sonda calla, pero el SSH funciona: es exactamente lo que produce el
+        // propio script de ISPWatch (abre TCP de gestión, no abre ICMP). Cortar
+        // aquí sería una regresión para toda la flota bien configurada.
+        $reader = $this->makeReaderWithSshResult(
+            fn () => ['success' => true, 'output' => "ISP_BEGIN\nname=ether1|#|type=ether|#|running=true|#|disabled=false\nISP_END:0\n"],
+            fn () => ['success' => true, 'output' => "ISP_ROUTE:1\nISP_PPP:1\n    0 172.16.16.253    timeout\n    sent=2 received=0 packet-loss=100%"]
+        );
+
+        $result = $reader->getRouterInterfaces('172.16.16.253', 'ispwatch', 'secret');
+
+        $this->assertTrue($result['success'], 'got: ' . ($result['message'] ?? ''));
+        $this->assertSame('ether1', $result['interfaces'][0]['name']);
+    }
+
     private function makeReaderWithSshOutput(string $output): InterfaceReader
     {
         return $this->makeReaderWithSshResult(fn () => ['success' => true, 'output' => $output]);
     }
 
-    private function makeReaderWithSshResult(\Closure $responder): InterfaceReader
+    /**
+     * El doble responde SÓLO a los ssh-exec de interfaces. La sonda de alcance
+     * (un /ping al CORE) se contesta aparte con un router sano, para que estas
+     * pruebas sigan midiendo lo que miden: el parseo de la respuesta del router.
+     * Los casos de la sonda propiamente dicha viven en OverlayReachabilityProbeTest
+     * y en la prueba de corte anticipado de abajo.
+     */
+    private function makeReaderWithSshResult(\Closure $responder, ?\Closure $probeResponder = null): InterfaceReader
     {
-        $manager = new class($responder) extends MikroTikConnectionManager
+        $probeResponder ??= function (string $command): array {
+            preg_match('/\/ping (\S+)/', $command, $m);
+
+            return [
+                'success' => true,
+                'output'  => "ISP_ROUTE:1\nISP_PPP:1\n"
+                    . "    0 {$m[1]}    56  64 73ms656us\n"
+                    . '    sent=2 received=2 packet-loss=0%',
+            ];
+        };
+
+        $manager = new class($responder, $probeResponder) extends MikroTikConnectionManager
         {
-            public function __construct(private \Closure $responder)
+            public function __construct(private \Closure $responder, private \Closure $probeResponder)
             {
             }
 
@@ -202,6 +259,10 @@ class InterfaceReaderTest extends TestCase
 
             public function executeSsh(string $command, ?int $timeoutSeconds = null): array
             {
+                if (str_contains($command, 'ISP_ROUTE')) {
+                    return ($this->probeResponder)($command);
+                }
+
                 return ($this->responder)($command);
             }
         };

@@ -728,6 +728,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `SuspensionManager` | Alta/baja en la address-list de morosos |
 | `InterfaceReader` | Lectura robusta de interfaces WAN (multi-variante) |
 | `RouterEndpointResolver` | Resuelve la IP real del router en el overlay (en WireGuard es fija; en L2TP corrige la deriva del pool) |
+| `OverlayReachabilityProbe` | Verifica desde el CORE que el router **responda él mismo** en su dirección del overlay (`/ping ttl=1`) antes de intentar nada contra él |
 | `SshTunnel` / `SshTunnelManager` | Túnel SSH hacia el CORE |
 | `MikroTikApiProtocol` / `MikroTikConnectionManager` | Protocolo binario API |
 
@@ -756,6 +757,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `db:fix-sequences` | Repara secuencias de PostgreSQL desincronizadas |
 | `documents:migrate-to-s3 {--dry-run}` | Migra documentos locales a S3 |
 | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
+| `router:probe-overlay {id?} {--tenant=}` | Sondea la flota: ¿qué routers responden de verdad en su dirección del overlay? |
 
 ---
 
@@ -805,6 +807,14 @@ router en dos saltos.
 La columna `router.vpn_transport` decide el transporte de cada equipo. **No es una
 migración en curso, es un estado permanente**: WireGuard existe desde RouterOS 7.1
 y en v6 no lo hay.
+
+**Cómo se lee la versión (`App\Support\RouterOsVersion`).** `router.firmware_version`
+guarda tres formatos, los tres legítimos y los tres en producción: la versión cruda
+(`7.23.1 (stable)`), la etiqueta de familia que escribe el formulario de routers (`v6`,
+`v7` — el texto de la fila de `script_version`) y el id viejo de esa misma tabla (`2`=v7,
+`3`=v6). `RouterOsVersion` los normaliza en un solo sitio para que el pipeline de cortes y
+el del transporte no puedan discrepar: interpretar sólo el primero hacía que un equipo
+marcado **v7 + WireGuard** recibiera en silencio el script L2TP.
 
 | | WireGuard (v7) | L2TP/IPsec (v6) |
 |---|---|---|
@@ -892,6 +902,40 @@ sequenceDiagram
    el CORE reasigna del pool `pool-vpn-<tenant>` en cada reconexión y `router.ip`
    queda obsoleto. → `RouterEndpointResolver` lee `/ppp active` del CORE, empareja por
    `vpn_username` y **reescribe la IP en BD**.
+
+3. **Nadie tiene esa dirección.** Un túnel puede estar arriba —sesión en `/ppp active`,
+   contadores subiendo— y aun así el equipo del otro lado **no haberse quedado con la
+   dirección** que el CORE le asignó: entonces reenvía nuestros paquetes a su propio
+   gateway en vez de contestarlos. Como el síntoma es silencio, cada camino lo reporta a
+   su manera (tiempo de espera, login sin respuesta, `<connection failed>`) y ninguno
+   nombra la causa. → `OverlayReachabilityProbe`.
+
+#### `OverlayReachabilityProbe`: quién contesta, no si contesta
+
+Un solo viaje al CORE resuelve la pregunta previa a todo lo demás:
+
+```
+:put ("ISP_ROUTE:" . [:len [/ip route find dst-address="<ip>/32"]]);
+:put ("ISP_PPP:"   . [:len [/ppp active find address=<ip>]]);
+/ping <ip> count=2 ttl=1
+```
+
+El `ttl=1` es lo que lo hace concluyente. Un paquete **entregado localmente** no decrementa
+TTL, así que el dueño de la dirección contesta normal; uno **reenviado** sí lo decrementa, y
+quien lo reenvía se delata con un `TTL exceeded` desde su propia dirección:
+
+| Respuesta | Estado | Lectura |
+|---|---|---|
+| contesta la IP consultada | `alive` | el router está vivo y es él |
+| contesta **otra** dirección | `foreign_hop` | nadie tiene esa IP; el paquete se fue por otro lado |
+| no contesta nadie | `silent` | **ambiguo** — puede ser ICMP filtrado |
+| el CORE no responde | `unknown` | sin veredicto |
+
+Sólo `foreign_hop` **con** evidencia de que la dirección pertenece al overlay (ruta `/32` o
+sesión PPP) corta el flujo: eso demuestra que no hay nada que reintentar. `silent` nunca
+corta, y es deliberado — el propio script de provisión abre TCP 22/8291/8728 desde la red de
+gestión pero **no** abre ICMP, así que un cliente bien configurado con *drop* por defecto en
+el chain `input` no contesta ping y se administra sin problema.
 
 **Escapado de comandos:** el comando interno usa comillas planas `"` (no `\"`), y una
 única capa de `addslashes()` la aplica `coreSshExecCommand()`. Todo *statement* va
