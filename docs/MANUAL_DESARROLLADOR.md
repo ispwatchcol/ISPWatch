@@ -404,6 +404,36 @@ php artisan billing:verify-cuts
 | `billing:process-overdue` | Procesamiento manual de morosos |
 | `billing:reconcile-suspensions` | Re-corta a los suspendidos en BD no confirmados en el router |
 | `billing:verify-cuts` | Auditoría de no-show de cortes |
+| `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos. **Arranca en dry-run**; delega en `reactivateIfCleared()` para no duplicar reglas |
+
+#### Reconexión al pagar: las dos señales
+
+`BillingService::reactivateIfCleared()` decide si un cliente "está cortado" mirando **BD o
+router**, y le basta con una:
+
+```php
+$cutInDb     = $profile->status === false || $serviceStatus === 'suspendido';
+$cutOnRouter = $latest && $latest->action === SuspensionActionLog::ACTION_SUSPEND;
+```
+
+Ojo con `$cutOnRouter`: **no** filtra por `STATUS_SUCCESS`. Filtrarlo era el bug del § 43 de
+la bitácora — un corte que quedó en `failed` dejaba a la BD en `suspendido` y al cliente
+fuera de la reconexión, y encima `billing:reconcile-suspensions` (que barre por
+`status = false`) lo volvía a cortar tras pagar. Si vas a tocar esta condición, la prueba que
+lo ancla es `a_customer_whose_cut_log_failed_is_still_reconnected_after_paying`.
+
+Dos invariantes más que conviene no romper:
+
+- **`retirado` / `cancelado` nunca se reactivan con un pago** — se filtran con
+  `CustomerProfile::BILLABLE_SERVICE_STATUSES`, el mismo vocabulario del ciclo mensual.
+- **La BD se corrige aunque el router falle.** Deliberado: dejar `status = false` en alguien
+  que ya pagó garantiza que el reconciliador lo re-corte. El fallo se reporta en
+  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Ver **P-29** en
+  `MEJORAS_RECOMENDADAS.md`: nada lo reintenta solo todavía.
+
+El aviso previo al cobro sale de `suspensionStatusFor()`, que evalúa **las mismas dos
+señales** a propósito: si el aviso y la acción usaran criterios distintos, el panel podría
+decirle al cajero "está suspendido" y luego no reconectar (o al revés).
 
 ### Red
 

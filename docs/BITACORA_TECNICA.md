@@ -4536,3 +4536,137 @@ factura). El coste es latencia: un SMTP lento suma segundos al alta.
 tenga día de facturación, la corrida posterior no la duplica, el vencimiento respeta
 `payment_day`, y `none` / excluido / cortesía / retirado / vencido / alta retroactiva no
 facturan. Suite completa: 876 pruebas en verde.
+
+---
+
+## 43. El cliente pagaba y se quedaba cortado para siempre — 2026-08-18
+
+### 43.1 El síntoma
+
+Reporte de operación: *"WINDER VELA, si está suspendido y hacen pago de una factura se debe
+activar automáticamente, y avisar si está suspendido al registrar el pago"*.
+
+La reconexión automática al pagar ya existía desde § 20 y sus pruebas pasaban. Pero en
+producción había clientes **al día y todavía marcados `suspendido`**:
+
+| Cliente | Último pago | Facturas vencidas | `service_status` |
+|---|---|---|---|
+| #388 CRISTIAN RAMIREZ | $52.500 el 2026-08-18 | 0 | `suspendido` |
+| #394 DEIBY PEREZ | $105.000 el 2026-08-11 | 0 | `suspendido` |
+| #639 CRISTINA RAMIREZ | $63.000 el 2026-08-05 | 0 | `suspendido` |
+| #755 GABRIEL VALDERRAMA | $52.500 el 2026-07-15 | 0 | `suspendido` |
+| #985 MIRIAN STELLA GARCIA | — | 0 | `suspendido` |
+
+### 43.2 La causa raíz
+
+`reactivateIfCleared()` sólo consideraba cortado a un cliente cuyo **último
+`suspension_action_logs` fuera `SUSPEND/success`**:
+
+```php
+$currentlyCut = $latest
+    && $latest->action === SuspensionActionLog::ACTION_SUSPEND
+    && $latest->status === SuspensionActionLog::STATUS_SUCCESS;  // ← el agujero
+if (!$currentlyCut) return;
+```
+
+Los cinco clientes tenían su último log en **`SUSPEND/failed`**: el corte se ordenó, el
+router no respondió, pero la BD **sí** quedó en `status = false` / `suspendido`. Resultado:
+
+1. El cliente pagaba → `reactivateIfCleared()` salía por el `return` sin tocar nada.
+2. Quedaba marcado `suspendido` en el panel pese a no deber un peso.
+3. Y —lo peor— `billing:reconcile-suspensions` barre por `status = false`, así que
+   **lo volvía a cortar en la RB** en la siguiente pasada. El sistema peleaba contra el pago.
+
+La única salida era que alguien lo reactivara a mano. Que es exactamente lo que había pasado
+con WINDER VELA (#918): sin ningún log de suspensión y sin rastro en `audit_logs`, alguien lo
+puso en `activo` por fuera del flujo.
+
+Las pruebas no lo vieron porque el *helper* del test creaba siempre el log en
+`STATUS_SUCCESS` — el único camino feliz.
+
+### 43.3 La decisión: dos señales, no una
+
+Un corte ahora se detecta por **BD o router**, y basta con que una diga que sí:
+
+- **BD:** `status = false` **o** `service_status = 'suspendido'`.
+- **Router:** último log del par cliente+router es un `SUSPEND` en **cualquier** estado
+  (`success`, `failed`, `pending`).
+
+`failed`/`pending` entran a propósito: si el corte quedó a medias el estado real del equipo
+es incierto, y quitar la IP de `ISPWATCH_SUSPENDIDOS` es idempotente — sobra intentarlo,
+falta no intentarlo.
+
+Se excluyen `retirado` y `cancelado` reusando `CustomerProfile::BILLABLE_SERVICE_STATUSES`:
+son bajas deliberadas y pagar una deuda vieja no revive un servicio dado de baja. Antes esto
+no hacía falta porque el filtro por `SUSPEND/success` los tapaba de rebote; al ampliar la
+detección pasó a ser una condición explícita.
+
+### 43.4 Deuda aceptada: la BD se corrige aunque el router falle
+
+Antes, el estado de la BD sólo se tocaba `if ($ok && ...)`. Ahora se corrige **siempre** que
+el saldo quedó en cero. Es la decisión menos mala entre dos daños:
+
+- Dejar `status = false` en un cliente que ya pagó **garantiza** que el reconciliador lo
+  re-corte. Daño activo, recurrente y silencioso.
+- Mostrar `activo` con el equipo aún bloqueado es un daño pasivo, y no es silencioso: queda
+  el `UNSUSPEND/failed` (reintentable desde Acciones masivas) y el cajero lo ve en la
+  respuesta del pago.
+
+El coste real está anotado en `MEJORAS_RECOMENDADAS.md` (**P-29**): no existe reconciliador
+en sentido inverso, es decir, nada reintenta solo un `UNSUSPEND/failed`.
+
+### 43.5 El aviso al cajero
+
+La segunda mitad del reporte. Antes no había ninguna señal de que el cliente estuviera
+cortado en el momento de cobrarle.
+
+- **Antes de cobrar:** `GET /billing/customers/{id}/balance` ahora devuelve `suspension`
+  (`suspensionStatusFor()`, que evalúa **las mismas dos señales** para que el aviso y la
+  acción no puedan contradecirse). El front pinta un aviso ámbar al elegir al cliente, tanto
+  en *Registrar Recaudo* como en la pestaña **Facturación** de la ficha.
+- **Al cobrar:** `POST /billing/payments` devuelve la clave `reactivation`
+  (`was_suspended` / `reactivated` / `router_ok` / `message`), y la UI distingue tres
+  desenlaces: reconectado (verde), activo pero sin confirmación del router (rojo, hay que ir
+  a revisarlo) y sigue cortado por vencidas (ámbar, con el conteo).
+
+`reactivation` viaja como propiedad PHP declarada en `Payment`, **no** como atributo
+Eloquent: no existe la columna, y si entrara al array de atributos el primer `save()`
+posterior intentaría escribirla.
+
+### 43.6 El pasivo acumulado
+
+El arreglo cubre los pagos nuevos, no a los que ya estaban atrapados. Nuevo comando
+`billing:repair-paid-suspended` (`--tenant=`, `--apply`; arranca en **dry-run**), que recorre
+a los suspendidos en BD y le pasa cada uno por el mismo `reactivateIfCleared()` — mismas
+reglas, sin lógica duplicada.
+
+Un candidato debe tener **al menos una factura**. El filtro salió de revisar el dry-run:
+MIRIAN STELLA GARCIA (#985) aparecía como "al día" teniendo **cero facturas y cero pagos** —
+está marcada *no facturar*, así que nunca estuvo en mora y el barrido no tenía nada que
+reparar en ella. El filtro **no** es `exclude_from_billing`: GABRIEL VALDERRAMA (#755)
+también lo tiene puesto, pero tiene una factura pagada en su totalidad, y ése sí saldó su
+cuenta. La columna *No facturar* se muestra en la tabla para que el operador lea el matiz en
+vez de que el comando lo decida por él.
+
+Dry-run en producción (tenant #19 CNO-SEDE CHAGUANI): **4 candidatos, 12 que siguen debiendo
+y no se tocan.**
+
+Los cuatro tienen su último corte en `SUSPEND/failed` con motivo `reconcile` y el error
+*"Failed to add IP to suspended list"*, con los reintentos agotados. Es decir: **el bloqueo
+nunca llegó a aplicarse en el router**, así que lo más probable es que estos clientes
+estuvieran navegando con normalidad y el daño fuera sólo el estado falso en el panel — más
+el riesgo permanente de que una pasada del reconciliador acertara y los cortara de verdad.
+
+### 43.7 Verificación
+
+`AutoReconnectOnPaymentTest` pasó de 3 a 9 pruebas; las 6 nuevas cubren justo lo que no se
+veía: corte con log `failed`, suspendido en BD sin ningún log, fallo del router (la BD se
+corrige igual y el resultado lo reporta), retirado que **no** se reactiva, y las dos del
+aviso previo.
+
+`RepairPaidSuspendedTest` (7 pruebas) ancla el comando: el dry-run no toca nada, `--apply`
+reconecta, el que sigue debiendo se queda cortado, el retirado nunca es candidato, `--tenant`
+acota el barrido, y los dos casos que salieron del dry-run real — sin ninguna factura **no**
+es candidato (MIRIAN), *no facturar* con factura pagada **sí** lo es (GABRIEL).
+
+Suite completa: **889 pruebas en verde**; build de Vite limpio.

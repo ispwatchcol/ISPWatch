@@ -1272,66 +1272,119 @@ class BillingService
         // sees the result without depending on a queue worker being up. The
         // call is fully guarded (never throws) and runs after the transaction,
         // so a slow/failing router can't roll back or break the saved payment.
-        $this->reactivateIfCleared((int) $data['customer_id']);
+        //
+        // El resultado se cuelga del propio pago (atributo no persistido) para
+        // que el controlador se lo pueda devolver al cajero: quien registra el
+        // pago tiene que enterarse en ese momento de que el cliente estaba
+        // cortado y de si quedó reconectado o no.
+        $payment->reactivation = $this->reactivateIfCleared((int) $data['customer_id']);
 
         return $payment;
     }
 
     /**
      * Auto-reconnect a customer after a payment IF, and only if:
-     *   - they have NO overdue invoices left, AND
-     *   - they are currently cut on the router (last suspension log =
-     *     SUSPEND/success not yet followed by an UNSUSPEND).
+     *   - they are currently cut, y
+     *   - no les queda NINGUNA factura vencida sin pagar.
      *
-     * Per operator policy, ANY current cut is lifted once the balance is
-     * cleared — including manual suspensions — so paying always reconnects the
-     * customer. Lifts the block via RouterProvisioningService and mirrors the
-     * manual `activate` DB state (status=true). Never throws — a router failure
-     * must not roll back or break the payment; the reconcile/manual tools
-     * remain the safety net.
+     * "Currently cut" se mira por DOS señales, no una:
+     *
+     *   1. La BD: `status = false` o `service_status = 'suspendido'`. Es lo que
+     *      ve el operador en el panel y lo que barre `billing:reconcile-suspensions`.
+     *   2. El router: el último log del par cliente+router es un SUSPEND que
+     *      nadie levantó — en cualquier estado, incluidos failed y pending.
+     *
+     * Antes solo contaba la señal 2 y solo en SUSPEND/success. Un corte que
+     * quedó en failed (el router no respondió, pero la BD sí quedó suspendida)
+     * dejaba al cliente fuera de este camino: pagaba, seguía marcado
+     * 'suspendido' en el panel y, peor, el reconciliador —que barre por
+     * status=false— lo volvía a cortar en la RB. En producción había cuatro
+     * clientes al día en su pago y todavía en 'suspendido' por exactamente eso.
+     *
+     * Se incluyen failed/pending a propósito: si el corte quedó a medias el
+     * estado real del equipo es incierto, y sacar la IP de la lista de
+     * suspendidos es idempotente — sobra intentarlo, falta no intentarlo.
+     *
+     * Los estados terminales (retirado / cancelado) NO se levantan con un pago:
+     * son bajas definitivas, no cortes de cobranza, y pagar una deuda vieja no
+     * revive un servicio dado de baja.
+     *
+     * Nunca lanza: un fallo del router no puede revertir ni romper el pago ya
+     * guardado. El detalle vuelve al llamador para que el cajero lo vea.
+     *
+     * @return array{was_suspended:bool,reactivated:bool,router_ok:bool,message:string}
      */
-    public function reactivateIfCleared(int $customerId): void
+    public function reactivateIfCleared(int $customerId): array
     {
+        $result = [
+            'was_suspended' => false,
+            'reactivated'   => false,
+            'router_ok'     => false,
+            'message'       => '',
+        ];
+
         try {
             $profile = CustomerProfile::where('user_id', $customerId)->first();
-            if (!$profile || !$profile->router_id || !$profile->ip_user) {
-                return;
+            if (!$profile) {
+                return $result;
             }
 
-            // Still owes? Keep the cut in place.
+            // Bajas definitivas: retirado / cancelado. Mismo vocabulario que el
+            // ciclo de facturación (BILLABLE_SERVICE_STATUSES); un service_status
+            // vacío se trata como cliente normal, no como baja.
+            $serviceStatus = (string) $profile->service_status;
+            if ($serviceStatus !== ''
+                && !in_array($serviceStatus, CustomerProfile::BILLABLE_SERVICE_STATUSES, true)) {
+                return $result;
+            }
+
+            $latest = $profile->router_id
+                ? SuspensionActionLog::where('customer_id', $customerId)
+                    ->where('router_id', $profile->router_id)
+                    ->latest('id')
+                    ->first()
+                : null;
+
+            $cutInDb     = $profile->status === false || $serviceStatus === 'suspendido';
+            $cutOnRouter = $latest && $latest->action === SuspensionActionLog::ACTION_SUSPEND;
+
+            if (!$cutInDb && !$cutOnRouter) {
+                return $result; // no está cortado por ningún lado
+            }
+
+            $result['was_suspended'] = true;
+
+            // ¿Sigue debiendo? El corte se queda donde está.
             $overdue = Invoice::where('customer_id', $customerId)
                 ->where('due_date', '<', now())
                 ->where('balance_due', '>', 0)
                 ->whereNotIn('status', ['void', 'cancelled', 'paid'])
                 ->count();
             if ($overdue > 0) {
-                return;
+                $result['message'] = "El cliente sigue suspendido: aún tiene {$overdue} factura(s) vencida(s) sin pagar.";
+                return $result;
             }
 
-            // Is the customer currently cut on the router? The latest log row is
-            // the same "confirmed cut" signal the reconciler uses: a successful
-            // SUSPEND that hasn't been followed by an UNSUSPEND.
-            $latest = SuspensionActionLog::where('customer_id', $customerId)
-                ->where('router_id', $profile->router_id)
-                ->latest('id')
-                ->first();
-
-            $currentlyCut = $latest
-                && $latest->action === SuspensionActionLog::ACTION_SUSPEND
-                && $latest->status === SuspensionActionLog::STATUS_SUCCESS;
-
-            if (!$currentlyCut) {
-                return; // not cut, or already reconnected
+            // Sin router o sin IP no hay nada que desbloquear en el equipo, pero
+            // el estado de la BD sí hay que corregirlo: el cliente ya no debe.
+            $routerOk = true;
+            if ($profile->router_id && $profile->ip_user) {
+                $routerOk = app(RouterProvisioningService::class)->unsuspendCustomer(
+                    $customerId,
+                    (int) $profile->router_id,
+                    ['reason' => SuspensionActionLog::REASON_AUTO_RECONNECT]
+                );
             }
+            $result['router_ok'] = $routerOk;
 
-            $ok = app(RouterProvisioningService::class)->unsuspendCustomer(
-                $customerId,
-                (int) $profile->router_id,
-                ['reason' => SuspensionActionLog::REASON_AUTO_RECONNECT]
-            );
-
-            // Mirror the manual activate's DB state so the UI reflects reality.
-            if ($ok && $profile->status !== true) {
+            // El estado de la BD se corrige SIEMPRE que el saldo quedó en cero,
+            // haya confirmado el router o no. Dejarlo en status=false es peor que
+            // el riesgo de mostrar 'activo' con el equipo aún bloqueado:
+            // `billing:reconcile-suspensions` barre por status=false y volvería a
+            // cortar a un cliente que ya pagó. El fallo del equipo queda en su
+            // log UNSUSPEND/failed —reintentable desde Acciones masivas— y se le
+            // devuelve al cajero en la respuesta del pago.
+            if ($profile->status !== true || $serviceStatus === 'suspendido') {
                 $plan = $profile->service_id ? Plan::find($profile->service_id) : null;
                 $profile->update([
                     'status'         => true,
@@ -1339,11 +1392,73 @@ class BillingService
                 ]);
             }
 
+            $result['reactivated'] = true;
+            $result['message'] = $routerOk
+                ? 'El cliente estaba suspendido y quedó reactivado automáticamente al no tener saldo vencido.'
+                : 'El cliente quedó activo en el sistema, pero el router NO confirmó la reconexión. '
+                    . 'Revísalo en Acciones masivas → reconexiones fallidas.';
+
             Log::info("Billing: auto-reconnect customer {$customerId} after payment cleared overdue balance "
-                . "(router {$profile->router_id}). router_ok=" . ($ok ? '1' : '0'));
+                . '(router ' . ($profile->router_id ?? 'n/a') . '). router_ok=' . ($routerOk ? '1' : '0')
+                . ', cut_in_db=' . ($cutInDb ? '1' : '0')
+                . ', cut_on_router=' . ($cutOnRouter ? '1' : '0'));
         } catch (\Throwable $e) {
             Log::error("Billing: auto-reconnect after payment failed for customer {$customerId}: {$e->getMessage()}");
+            $result['message'] = 'No se pudo verificar la reconexión automática del cliente: ' . $e->getMessage();
         }
+
+        return $result;
+    }
+
+    /**
+     * Estado de corte del cliente para avisarle al cajero ANTES de que registre
+     * el pago. Se apoya en las mismas dos señales que reactivateIfCleared() —
+     * BD y último log del router — para que el aviso y la acción no se
+     * contradigan: si aquí decimos "está suspendido", allá se reconecta.
+     *
+     * @return array{is_suspended:bool,service_status:string|null,since:string|null,source:string|null}
+     */
+    public function suspensionStatusFor(int $customerId): array
+    {
+        $status = [
+            'is_suspended'   => false,
+            'service_status' => null,
+            'since'          => null,
+            'source'         => null,
+        ];
+
+        $profile = CustomerProfile::where('user_id', $customerId)->first();
+        if (!$profile) {
+            return $status;
+        }
+
+        $status['service_status'] = $profile->service_status;
+
+        $serviceStatus = (string) $profile->service_status;
+        if ($serviceStatus !== ''
+            && !in_array($serviceStatus, CustomerProfile::BILLABLE_SERVICE_STATUSES, true)) {
+            return $status; // retirado / cancelado: no es un corte de cobranza
+        }
+
+        $latest = $profile->router_id
+            ? SuspensionActionLog::where('customer_id', $customerId)
+                ->where('router_id', $profile->router_id)
+                ->latest('id')
+                ->first()
+            : null;
+
+        $cutInDb     = $profile->status === false || $serviceStatus === 'suspendido';
+        $cutOnRouter = $latest && $latest->action === SuspensionActionLog::ACTION_SUSPEND;
+
+        if (!$cutInDb && !$cutOnRouter) {
+            return $status;
+        }
+
+        $status['is_suspended'] = true;
+        $status['source']       = $cutInDb ? 'db' : 'router';
+        $status['since']        = $cutOnRouter ? optional($latest->created_at)->toDateTimeString() : null;
+
+        return $status;
     }
 
     /**

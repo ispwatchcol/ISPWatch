@@ -1390,6 +1390,29 @@ para esos routers en vez de omitirlos (informativa, sin marcar fallo el primer m
 la pantalla de Routers marque visualmente al que tiene configuración de facturación
 asignada pero sin día. Coste bajo; evita descubrir el hueco cliente por cliente.
 
+### 📋 P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido
+
+`billing:reconcile-suspensions` sólo va en **un** sentido: barre los clientes con
+`status = false` y re-corta en la RB lo que la BD dice cortado. No existe la simétrica —
+nada busca clientes activos que sigan en `ISPWATCH_SUSPENDIDOS` para volver a abrirles.
+
+Esto pasó a importar con el arreglo del § 43 de la bitácora. Ahora, cuando un cliente paga y
+el router no confirma la reconexión, la BD se corrige igual (`status = true`) porque dejarla
+en `false` haría que el reconciliador lo re-cortara. La contrapartida es que el cliente queda
+**activo en el panel y bloqueado en el equipo**, y lo único que lo delata es:
+
+- el `suspension_action_logs` en `UNSUSPEND/failed`, visible en **Acciones masivas**, y
+- el mensaje rojo que el cajero ve al registrar el pago.
+
+Ambos dependen de que **alguien mire**. Si el operador no lo hace, el cliente se queda sin
+servicio habiendo pagado, y nada lo reintenta solo.
+
+**Recomendación.** Un `billing:reconcile-reconnections` espejo del existente: candidatos =
+`status = true` con último log `UNSUSPEND` en `failed`/`pending` y `next_retry_at` vencido →
+reintentar `unsuspendCustomer()`. Reusa el backoff y `MAX_ATTEMPTS` que ya tiene
+`SuspensionActionLog`; el trabajo real es el comando y agendarlo. Prioridad media-alta: es
+justamente el caso en que el cliente ya pagó.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

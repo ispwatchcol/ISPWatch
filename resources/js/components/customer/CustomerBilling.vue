@@ -338,6 +338,18 @@
               </template>
             </p>
 
+            <!-- Cliente cortado: se avisa antes de cobrar, no después -->
+            <div v-if="isSuspended"
+              class="flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-3 mb-4">
+              <span class="text-lg leading-none">⚠</span>
+              <div class="text-sm">
+                <p class="font-semibold text-amber-800 dark:text-amber-300">Este cliente está SUSPENDIDO</p>
+                <p class="text-amber-700 dark:text-amber-400 mt-0.5">
+                  Al registrar el pago se reactivará automáticamente si queda sin saldo vencido.
+                </p>
+              </div>
+            </div>
+
             <form @submit.prevent="submitPayment" class="space-y-4">
               <!-- Monto -->
               <div>
@@ -439,6 +451,10 @@ const netBalance     = ref(0)   // what they actually owe
 // Faltante de abonos parciales cuyas facturas ya se cerraron: se cobra en la
 // próxima factura, así que NO entra en el saldo pendiente de hoy.
 const carryoverBalance = ref(0)
+// Estado de corte del cliente: se avisa antes de cobrar, porque registrar el
+// pago lo reconecta automáticamente.
+const suspension     = ref(null)
+const isSuspended    = computed(() => suspension.value?.is_suspended === true)
 const loading        = ref(true)
 const showModal      = ref(false)
 const submitting     = ref(false)
@@ -539,6 +555,7 @@ const fetchData = async () => {
     creditBalance.value = balRes.data.credit_balance ?? 0
     netBalance.value    = balRes.data.net_balance    ?? balRes.data.balance ?? 0
     carryoverBalance.value = balRes.data.carryover_balance ?? 0
+    suspension.value    = balRes.data.suspension ?? null
   } catch (e) {
     console.error('Error cargando facturación:', e)
     emit('notify', { type: 'error', title: 'Error', message: 'No se pudo cargar la facturación del cliente.' })
@@ -589,9 +606,21 @@ const submitPayment = async () => {
     if (targetInvoice.value) {
       payload.allocations = [{ invoice_id: targetInvoice.value.id, amount: payForm.value.amount }]
     }
-    await billingService.registerPayment(payload)
+    const res = await billingService.registerPayment(payload)
     showModal.value = false
-    emit('notify', { type: 'success', title: 'Pago registrado', message: 'El pago fue aplicado correctamente.' })
+
+    // Si el cliente estaba cortado, el desenlace de la reconexión es la noticia
+    // importante del recaudo — no que el pago se guardó.
+    const r = res?.data?.reactivation
+    if (r?.was_suspended && r?.reactivated && r?.router_ok) {
+      emit('notify', { type: 'success', title: 'Pago registrado y cliente reactivado', message: r.message })
+    } else if (r?.was_suspended && r?.reactivated) {
+      emit('notify', { type: 'error', title: 'Pago registrado — revisar reconexión', message: r.message })
+    } else if (r?.was_suspended) {
+      emit('notify', { type: 'warning', title: 'Pago registrado — sigue suspendido', message: r.message })
+    } else {
+      emit('notify', { type: 'success', title: 'Pago registrado', message: 'El pago fue aplicado correctamente.' })
+    }
     await fetchData()
   } catch (e) {
     modalError.value = e.response?.data?.message || 'Error al registrar el pago.'

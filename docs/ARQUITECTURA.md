@@ -777,6 +777,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
 | `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
+| `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos (arranca en dry-run) |
 | `vpn:verify-tunnels` | Alerta los routers sin túnel vivo contra el CORE |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:process-overdue` | Procesamiento manual de morosos |
@@ -1098,6 +1099,39 @@ El detalle de versión y empaquetado del servidor FreeRADIUS está en
   (`PORTAL_IP`) y `drop` incondicional para la lista.
 - Al suspender se hace además **flush de conntrack** del cliente, porque sin ello las
   conexiones ya establecidas seguían pasando.
+
+### Reconexión al pagar: por qué se miran dos señales y no una
+
+`BillingService::reactivateIfCleared()` corre después del commit de cada pago. Para decidir
+si el cliente "está cortado" mira **dos** fuentes, y le basta con que una diga que sí:
+
+| Señal | Cómo se lee | Qué representa |
+|---|---|---|
+| **BD** | `customer_profile.status = false` **o** `service_status = 'suspendido'` | Lo que ve el operador en el panel, y lo que barre `billing:reconcile-suspensions` |
+| **Router** | último `suspension_action_logs` del par cliente+router es un `SUSPEND` — en **cualquier** estado, incluidos `failed` y `pending` | Lo que se le alcanzó a ordenar al equipo |
+
+Antes sólo contaba la segunda, y sólo en `SUSPEND/success`. Eso abría un agujero cerrado:
+un corte que quedaba en `failed` (el router no respondió, pero la BD **sí** quedaba en
+`suspendido`) dejaba al cliente atrapado — pagaba, seguía marcado suspendido, y el
+reconciliador, que barre por `status = false`, **lo volvía a cortar en la RB**. La única
+salida era que alguien lo reactivara a mano.
+
+Se incluyen `failed`/`pending` a propósito: si el corte quedó a medias, el estado real del
+equipo es incierto, y sacar la IP de `ISPWATCH_SUSPENDIDOS` es idempotente — sobra
+intentarlo, falta no intentarlo.
+
+**Los estados terminales no se levantan con un pago.** `retirado` y `cancelado` son bajas
+deliberadas, no cortes de cobranza; se filtran con el mismo
+`CustomerProfile::BILLABLE_SERVICE_STATUSES` que usa el ciclo de facturación.
+
+**Si el router no confirma, la BD se corrige igual.** Es la decisión menos mala: dejar
+`status = false` en un cliente que ya pagó garantiza que el reconciliador lo re-corte, que
+es un daño activo; mostrar `activo` con el equipo aún bloqueado es un daño pasivo que
+además queda registrado (`UNSUSPEND/failed`, reintentable desde Acciones masivas) y se le
+devuelve al cajero en la respuesta del pago (`reactivation.router_ok = false`).
+
+El aviso **previo** al cobro lo sirve `suspensionStatusFor()`, que evalúa exactamente las
+mismas dos señales para que el aviso y la acción no puedan contradecirse.
 
 ---
 

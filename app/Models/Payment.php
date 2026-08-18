@@ -28,6 +28,19 @@ class Payment extends Model
         'payment_date' => 'date',
     ];
 
+    /**
+     * Resultado de la reconexión automática que dispara este pago, si estaba
+     * cortado el cliente. Ver BillingService::reactivateIfCleared().
+     *
+     * Es una propiedad PHP declarada a propósito, NO un atributo Eloquent: no
+     * existe la columna, y si entrara al array de atributos el primer `save()`
+     * posterior intentaría escribirla y reventaría. El controlador la mete a
+     * mano en el JSON de la respuesta.
+     *
+     * @var array{was_suspended:bool,reactivated:bool,router_ok:bool,message:string}|null
+     */
+    public ?array $reactivation = null;
+
     public function customer()
     {
         return $this->belongsTo(User::class, 'customer_id');
