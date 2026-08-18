@@ -8,6 +8,11 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El túnel colgaba del perfil PPP del cliente (2026-08-18, § 41):** causa raíz del § 40. El script
+  L2TP creaba el túnel con `profile=default`; en un router que además es servidor PPPoE ese perfil trae
+  `local-address`, y el túnel se quedaba con ESA dirección ignorando la del overlay. Es el caso normal, no
+  el raro, y explica de fondo el «la v7 funciona y la v6 no»: WireGuard fija la dirección, L2TP la negocia.
+  **Hay que reaprovisionar toda la flota L2TP.**
 - **El túnel estaba arriba y el router no era él (2026-08-18, § 40):** sesión L2TP activa,
   contadores subiendo y el equipo sin haberse quedado con la dirección del overlay: reenviaba
   nuestros paquetes a su gateway. Cada camino lo reportaba como otra cosa (credenciales,
@@ -4379,3 +4384,78 @@ El equipo `CORE_SAN_ISIDRO` **hay que arreglarlo en sitio**: ISPWatch no puede
 administrarlo hasta que su `l2tp-client` se quede con la dirección del overlay. La
 comprobación de que quedó bien es que `/ping 172.16.16.253 count=2 ttl=1` desde el CORE
 lo conteste él y no `10.72.103.1`.
+
+---
+
+## 41. La causa de fondo del § 40: el túnel colgaba del perfil PPP del cliente — 2026-08-18
+
+El § 40 dejó identificado el síntoma —el router no se quedaba con la dirección del overlay—
+y abierto el porqué. Con la sonda ya en producción se pudo entrar al equipo y cerrarlo.
+
+### 41.1 Cómo se llegó al equipo sin ir al sitio
+
+El `TTL exceeded` venía de `10.72.103.1`, y eso no era "su gateway": en RouterOS el error se
+emite **desde una dirección propia** del equipo que descarta el paquete. Con una ruta
+temporal en el CORE (`10.72.103.1/32` por la interfaz del túnel) el equipo respondió al ping
+en 88 ms y aceptó `ssh-exec`. Era `CORE_SAN_ISIDRO`, un **hEX con RouterOS 6.47.10**.
+
+De paso quedó descartada una hipótesis que parecía razonable: el `ssh-exec` de un CORE v7.22
+contra un cliente v6.47 **funciona sin problema**. La rama de RouterOS no tenía nada que ver.
+
+### 41.2 La causa raíz
+
+```
+/ip address print   →  30 D address=10.72.103.1/32 network=172.16.16.1 interface=ISPWatch-VPN-CORE
+/ppp profile print  →   0 * name=default local-address=10.72.103.1
+```
+
+El equipo es **servidor PPPoE de sus propios abonados**, y su perfil `default` tiene
+`local-address=10.72.103.1` — la dirección con la que los atiende. El script de ISPWatch
+creaba el túnel con `profile=default`:
+
+```
+/interface l2tp-client add name="ISPWatch-VPN-CORE" ... profile=default
+```
+
+Así que la interfaz del túnel **heredó esa `local-address`** y el router se quedó con
+`10.72.103.1` como dirección propia, ignorando la `172.16.16.253` que el CORE le asignó por
+IPCP. El CORE, que sí la tenía anotada, enrutaba `172.16.16.253/32` hacia el túnel; el
+router recibía esos paquetes, no los reconocía como suyos y los reenviaba. Cada punta creía
+que el túnel estaba perfecto.
+
+**Esto no es un caso raro: es el caso normal.** Cualquier CORE de cliente que termine PPPoE
+—la mayoría— tiene `local-address` en su perfil `default`. Y explica de raíz el "la v7
+funciona y la v6 no": el script WireGuard **fija** la dirección (`/ip address add`), no la
+negocia. Sólo L2TP la negocia, y sólo ahí puede pisarla un perfil.
+
+### 41.3 El arreglo
+
+`VpnService::generateL2tpScript()` deja de usar `default` y crea un perfil propio, sin
+direcciones:
+
+```
+/interface l2tp-client remove [find name="ISPWatch-VPN-CORE"]
+/ppp profile remove [find name="ISPWatch-VPN"]
+/ppp profile add name="ISPWatch-VPN" change-tcp-mss=yes
+/interface l2tp-client add name="ISPWatch-VPN-CORE" ... profile=ISPWatch-VPN ...
+```
+
+El orden importa y está probado: mientras el `l2tp-client` exista, el perfil está en uso y
+RouterOS rechaza el `remove`, con lo que el perfil viejo —justo el que se quiere reemplazar—
+sobreviviría. Se recrea en cada aplicación en vez de editarse, para que no arrastre una
+`local-address` puesta a mano.
+
+`OverlayReachabilityProbe::explain()` nombra ahora esta causa como primer punto a revisar,
+con el comando exacto.
+
+**Toda la flota L2TP existente hay que reaprovisionarla** (generar y aplicar el script de
+nuevo) — no sólo los equipos que fallan hoy: los que funcionan lo hacen porque su perfil
+`default` está limpio, y basta con que alguien le ponga `local-address` para tumbarlos.
+
+### 41.4 Verificación
+
+- `VpnScriptTest` (3 pruebas): el script no puede volver a decir `profile=default`, tiene que
+  crear su perfil sin direcciones, y el orden `remove interfaz → remove perfil → add` tiene
+  que mantenerse.
+- `syncPppSecret()` pasó de `private` a `protected` para poder generar el texto del script en
+  la prueba sin abrir SSH contra el CORE de producción.

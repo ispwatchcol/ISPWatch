@@ -1251,6 +1251,11 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 > cliente** (por Winbox, desde su propia red): comprobar que la interfaz `ISPWatch-VPN-CORE` esté
 > corriendo, que aparezca la dirección del túnel en su lista de direcciones IP, y que no haya otro
 > equipo usando la misma VPN. Apagar y encender esa interfaz suele bastar.
+>
+> **La causa más común de eso** es que el túnel del router esté usando el perfil PPP `default`. Si el equipo
+> también reparte internet por PPPoE a sus abonados, ese perfil tiene una dirección fija metida y el túnel se
+> queda con ella. **Se arregla volviendo a generar el script VPN desde ISPWatch y aplicándolo**: los scripts
+> nuevos ya crean un perfil propio para el túnel.
 
 > ⚠️ **Antes de usar el corte automático: verifica la VPN y aplica las reglas de bloqueo.**
 > Si el túnel está caído o las reglas no están, el sistema marca al cliente como cortado pero

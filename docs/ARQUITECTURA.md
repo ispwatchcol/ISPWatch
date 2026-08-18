@@ -841,6 +841,17 @@ obligatoriamente las defensas equivalentes, acotadas a la IP del CORE:
 `ISPWatch-CORE-no-mark` (mangle output), `ISPWatch-CORE-no-nat` (srcnat) y
 `ISPWatch-CORE-pin` (ruta /32 por el gateway activo, para el caso ECMP).
 
+**El túnel L2TP lleva perfil PPP propio, y no es opcional.** WireGuard **fija** la
+dirección del overlay (`/ip address add`); L2TP la **negocia** por IPCP, y ahí el perfil
+del cliente puede pisarla. En un router que además es servidor PPPoE —o sea, casi todos
+los CORE de cliente— el perfil `default` trae `local-address`: la IP con la que atiende a
+sus abonados. Un `l2tp-client` que use ese perfil se queda con **esa** dirección e ignora
+la del overlay, así que el túnel figura conectado en las dos puntas mientras el router
+descarta todo lo que le mandamos. Por eso el script crea `ISPWatch-VPN` —un perfil sin
+direcciones— y lo recrea en cada aplicación, **después** de quitar el `l2tp-client` (con la
+interfaz puesta, el perfil está en uso y RouterOS rechaza el `remove`). Ver § 41 de la
+bitácora: es el origen real del "la v7 funciona y la v6 no".
+
 **Dos túneles desde una misma pública es la misma falla, en su forma peor.** No
 hace falta multi-WAN: basta con que **dos secrets distintos disquen desde la misma
 IP pública** —típicamente un equipo reaprovisionado cuyo `l2tp-client` viejo nunca

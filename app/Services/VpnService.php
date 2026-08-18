@@ -473,6 +473,30 @@ TENANT;
 # Crear interfaz Cliente L2TP
 /interface l2tp-client remove [find name="ISPWatch-VPN-CORE"]
 
+# PERFIL PROPIO — NO USAR "default". ESTO NO ES COSMÉTICO.
+#
+# En un router que además es servidor PPPoE (o sea, casi todos los CORE de
+# cliente) el perfil "default" trae local-address puesta: la IP con la que
+# atiende a SUS abonados. Un l2tp-client que use ese perfil se queda con ESA
+# dirección en la interfaz del túnel e ignora la que el CORE le asigna por
+# IPCP. El túnel entonces figura conectado en las dos puntas —hay sesión en
+# /ppp active y los contadores suben— pero el router no reconoce como propia
+# la IP del overlay: reenvía a su gateway todo lo que le mandamos y ISPWatch
+# pierde el equipo entero (API, SSH, colas, cortes) sin un solo error visible.
+#
+# Medido en CORE_SAN_ISIDRO el 2026-08-18: "default" tenía
+# local-address=10.72.103.1 (su pool PPPoE) y la interfaz del túnel quedó con
+# 10.72.103.1 en vez de 172.16.16.253. Ver § 40 de BITACORA_TECNICA.
+#
+# WireGuard nunca tuvo este problema porque su script FIJA la dirección con
+# /ip address add; L2TP la negocia, y ahí es donde el perfil puede pisarla.
+#
+# Se recrea en cada aplicación para garantizar que no arrastre local-address
+# de una versión anterior. Va después del remove del l2tp-client: mientras la
+# interfaz exista, el perfil está en uso y no se puede borrar.
+/ppp profile remove [find name="ISPWatch-VPN"]
+/ppp profile add name="ISPWatch-VPN" change-tcp-mss=yes
+
 /interface l2tp-client
 add name="ISPWatch-VPN-CORE" \\
     connect-to="{$this->vpnPublicIp}" \\
@@ -480,7 +504,7 @@ add name="ISPWatch-VPN-CORE" \\
     password="{$vpnPassword}" \\
     use-ipsec=yes \\
     ipsec-secret="{$this->ipsecSecret}" \\
-    profile=default \\
+    profile=ISPWatch-VPN \\
     add-default-route=no \\
     disabled=no
 
@@ -595,7 +619,9 @@ SCRIPT;
     // ==============================
     // SYNC CREDENTIALS TO CORE
     // ==============================
-    private function syncPppSecret(string $username, string $password, string $routerName = '', string $profile = 'profile-vpn'): bool
+    // protected, no private: la prueba del script (VpnScriptTest) la sustituye
+    // para generar el texto sin abrir SSH contra el CORE de producción.
+    protected function syncPppSecret(string $username, string $password, string $routerName = '', string $profile = 'profile-vpn'): bool
     {
         try {
             Log::info("[VPN] Sincronizando secret con el CORE", [
