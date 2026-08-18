@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\RouterOsVersion;
 use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
@@ -154,21 +155,16 @@ class Router extends Model
 
     /**
      * ¿El firmware admite WireGuard? Existe desde RouterOS 7.1; en v6 no hay.
-     * Formatos que llegan de `/system resource`: "7.23.1 (stable)", "6.49.10",
-     * "7.1rc4". Ante un valor vacío o ilegible devolvemos false: preferimos
-     * dejar el router en L2TP (que funciona en ambas ramas) antes que emitirle
-     * un script que su RouterOS va a rechazar entero.
+     *
+     * El campo llega en tres formatos —"7.23.1 (stable)" de /system resource,
+     * "v7" del desplegable del formulario, "2" del id viejo de script_version—
+     * y los tres tienen que entenderse igual. La lectura vive en
+     * RouterOsVersion porque el pipeline de cortes hace exactamente la misma
+     * interpretación y no pueden discrepar.
      */
     public static function firmwareSupportsWireguard(?string $version): bool
     {
-        if (!preg_match('/(\d+)\.(\d+)/', (string) $version, $m)) {
-            return false;
-        }
-
-        $major = (int) $m[1];
-        $minor = (int) $m[2];
-
-        return $major > 7 || ($major === 7 && $minor >= 1);
+        return RouterOsVersion::supportsWireguard($version);
     }
 
     public function cutType()

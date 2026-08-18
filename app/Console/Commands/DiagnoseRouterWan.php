@@ -56,7 +56,7 @@ class DiagnoseRouterWan extends Command
         $this->newLine();
 
         // ── 1. SSH a CORE ────────────────────────────────────────────────────
-        $this->info('[1/5] Probando SSH al CORE...');
+        $this->info('[1/6] Probando SSH al CORE...');
         $sshTest = $cm->testSshConnection(10);
         $this->line('  success: ' . ($sshTest['success'] ? 'YES' : 'NO'));
         $this->line('  message: ' . ($sshTest['message'] ?? ''));
@@ -70,9 +70,35 @@ class DiagnoseRouterWan extends Command
             return self::FAILURE;
         }
 
-        // ── 2. Apertura de túnel SSH al cliente ──────────────────────────────
+        // ── 2. ¿Hay alguien en esa dirección? ────────────────────────────────
+        // Va antes que el túnel y que la API a propósito: si el equipo del otro
+        // lado no tiene esa dirección, todo lo que sigue va a fallar por razones
+        // que suenan a otra cosa (puertos, credenciales, timeouts).
+        $this->info("[2/6] Sondeando el overlay hacia {$clientIp} (ping ttl=1 desde el CORE)...");
+        $reach = new \App\Services\MikroTik\OverlayReachabilityProbe($cm);
+        $probeResult = $reach->probe($clientIp);
+        $this->line('  estado:  ' . $probeResult['state']);
+        $this->line('  ruta en el CORE: ' . ($probeResult['has_route'] ? 'sí' : 'no')
+            . ' | sesión VPN: ' . ($probeResult['has_session'] ? 'sí' : 'no'));
+        if ($probeResult['hop']) {
+            $this->warn("  quien contesta NO es el router, es {$probeResult['hop']}"
+                . ($probeResult['detail'] ? " ({$probeResult['detail']})" : ''));
+        }
+        if ($reach->isConclusiveFailure($probeResult)) {
+            $explained = $reach->explain($probeResult, $clientIp);
+            $this->newLine();
+            $this->error($explained['message']);
+            $this->line($explained['hint']);
+            $this->newLine();
+            $this->warn('Los pasos siguientes se saltan: contra un equipo que no tiene su dirección, todos fallan por la misma causa.');
+
+            return self::FAILURE;
+        }
+        $this->newLine();
+
+        // ── 3. Apertura de túnel SSH al cliente ──────────────────────────────
         $port = $endpoint['api_port'];
-        $this->info("[2/5] Abriendo túnel SSH CORE → {$clientIp}:{$port}...");
+        $this->info("[3/6] Abriendo túnel SSH CORE → {$clientIp}:{$port}...");
 
         $tunnelManager = new SshTunnelManager();
         $tunnelOpenError = null;
@@ -87,9 +113,9 @@ class DiagnoseRouterWan extends Command
         }
         $this->newLine();
 
-        // ── 3. TCP probe a través del túnel ──────────────────────────────────
+        // ── 4. TCP probe a través del túnel ──────────────────────────────────
         if ($tunnelOpened) {
-            $this->info("[3/5] Probando TCP a {$clientIp}:{$port} a través del túnel...");
+            $this->info("[4/6] Probando TCP a {$clientIp}:{$port} a través del túnel...");
             $errno = 0; $errstr = '';
             $probe = @fsockopen($tunnel->localHost(), $tunnel->localPort(), $errno, $errstr, 3);
             if ($probe) {
@@ -103,12 +129,12 @@ class DiagnoseRouterWan extends Command
             $tunnel->close();
             $this->newLine();
         } else {
-            $this->warn('[3/5] Saltado (no se pudo abrir el túnel).');
+            $this->warn('[4/6] Saltado (no se pudo abrir el túnel).');
             $this->newLine();
         }
 
-        // ── 4. Lectura de interfaces (todo el flujo completo) ────────────────
-        $this->info('[4/5] Ejecutando flujo completo getRouterInterfaces() (API directa → SSH-vía-CORE)...');
+        // ── 5. Lectura de interfaces (todo el flujo completo) ────────────────
+        $this->info('[5/6] Ejecutando flujo completo getRouterInterfaces() (API directa → SSH-vía-CORE)...');
         $sshService = new MikroTikSshService();
         $result = $sshService->getRouterInterfaces(
             $clientIp,
@@ -145,9 +171,9 @@ class DiagnoseRouterWan extends Command
         }
         $this->newLine();
 
-        // ── 5. Si todo el flujo falló, ejecuta los comandos crudos manualmente
+        // ── 6. Si todo el flujo falló, ejecuta los comandos crudos manualmente
         if (!$result['success']) {
-            $this->info('[5/5] Ejecutando los 3 comandos ssh-exec en crudo para ver la respuesta literal de RouterOS...');
+            $this->info('[6/6] Ejecutando los 3 comandos ssh-exec en crudo para ver la respuesta literal de RouterOS...');
             $variants = $this->buildVariantsForDebug($clientIp, $router->user_rb, $router->password_rb, $sshPort);
             // Same window InterfaceReader uses, or the raw run would time out
             // earlier than production and show a different (shorter) picture.

@@ -38,6 +38,14 @@ class WireguardTransportTest extends TestCase
             'v7.0 no alcanza'        => ['7.0.5', false],
             'v6 tardío'              => ['6.49.10', false],
             'v6 antiguo'             => ['6.40', false],
+            // Lo que de verdad escribe el formulario de routers: el TEXTO de la
+            // fila de script_version, no una versión numérica. Pedir "N.N" hacía
+            // que un equipo marcado v7 + WireGuard recibiera el script L2TP sin
+            // un solo aviso, que es justo el error que más caro sale.
+            'etiqueta v7 del formulario' => ['v7', true],
+            'etiqueta v6 del formulario' => ['v6', false],
+            'etiqueta suelta 7'          => ['7', true],
+            'etiqueta suelta 6'          => ['6', false],
             // Ante lo ilegible elegimos L2TP: funciona en las dos ramas, así que
             // el fallback seguro es el transporte viejo, nunca el nuevo.
             'vacío'                  => ['', false],

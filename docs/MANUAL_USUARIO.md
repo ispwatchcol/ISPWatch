@@ -1243,6 +1243,15 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 > mensaje de *tiempo de espera agotado* significa que el router no alcanzó a contestar; **no**
 > significa que la contraseña esté mal.
 
+> **"El túnel está levantado pero el equipo no tiene esa dirección."** Es un mensaje nuevo y es el
+> más importante de todos: significa que la VPN del router se conectó, pero el equipo **no se quedó
+> con la dirección** que el sistema le asignó, así que quien contesta en esa dirección es otro
+> aparato de la red del cliente. Mientras eso siga así **ningún** botón de ese router va a
+> funcionar, y no sirve de nada revisar contraseñas ni puertos. Se corrige **en el router del
+> cliente** (por Winbox, desde su propia red): comprobar que la interfaz `ISPWatch-VPN-CORE` esté
+> corriendo, que aparezca la dirección del túnel en su lista de direcciones IP, y que no haya otro
+> equipo usando la misma VPN. Apagar y encender esa interfaz suele bastar.
+
 > ⚠️ **Antes de usar el corte automático: verifica la VPN y aplica las reglas de bloqueo.**
 > Si el túnel está caído o las reglas no están, el sistema marca al cliente como cortado pero
 > el cliente sigue navegando. **Aplicar reglas de bloqueo** sirve también cuando las reglas ya
