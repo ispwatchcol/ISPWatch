@@ -1406,8 +1406,18 @@ const handleSubmit = async (pushToRouter = true) => {
         const loginEmail = res.data?.email_tenant
         const loginInfo = loginEmail ? ` Correo de acceso (login): ${loginEmail}` : ''
 
+        // Factura del servicio emitida en el acto: es el mismo prorrateo que el
+        // formulario venía mostrando en la vista previa, ya convertido en una
+        // factura real. Viene null cuando la política no cobraba este mes
+        // (modo 'none', plan de cortesía, cliente "no facturar"...).
+        const firstInvoice = res.data?.first_invoice
+        const invoiceInfo = firstInvoice
+            ? ` Se generó la factura ${firstInvoice.number} por ${money(firstInvoice.total)}.`
+            : ''
+        const extraInfo = `${loginInfo}${invoiceInfo}`
+
         if (!pushToRouter) {
-            toast.value?.success('Cliente guardado', `El cliente se guardó en la base de datos (no se cargó a la RB).${loginInfo}`)
+            toast.value?.success('Cliente guardado', `El cliente se guardó en la base de datos (no se cargó a la RB).${extraInfo}`)
             setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
             return
         }
@@ -1415,7 +1425,7 @@ const handleSubmit = async (pushToRouter = true) => {
         if (!jobId) {
             // El gate no aplicó (router sin "Agregar Cliente en Mikrotik", sin
             // plan o sin IP asignada): el cliente se creó pero no se encoló nada.
-            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${loginInfo}`)
+            toast.value?.success('Cliente creado', `El cliente fue registrado correctamente.${extraInfo}`)
             setTimeout(() => router.push(redirectTarget), loginEmail ? 3000 : 1500)
             return
         }
@@ -1431,21 +1441,21 @@ const handleSubmit = async (pushToRouter = true) => {
         if (provisionPolling.state.value === 'timeout') {
             toast.value?.warning(
                 'Cliente creado — aprovisionamiento sin confirmar',
-                `El cliente se guardó correctamente${loginInfo}, pero no se pudo confirmar la carga al router: ${provisionPolling.errorMessage.value}`,
+                `El cliente se guardó correctamente${extraInfo}, pero no se pudo confirmar la carga al router: ${provisionPolling.errorMessage.value}`,
                 { duration: 12000 }
             )
         } else if (r?.success && r.pppoeCreated) {
-            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo} Secret PPPoE creado en ${selectedRouter.value?.name}.`)
+            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${extraInfo} Secret PPPoE creado en ${selectedRouter.value?.name}.`)
         } else if (r?.success && r.pppoeSkipped) {
             toast.value?.warning('Cliente creado — PPPoE pendiente',
-                `Datos guardados.${loginInfo} ${r.pppoeMessage || 'Faltan credenciales PPPoE.'} Edita el cliente para configurarlas.`,
+                `Datos guardados.${extraInfo} ${r.pppoeMessage || 'Faltan credenciales PPPoE.'} Edita el cliente para configurarlas.`,
                 { duration: 9000 })
         } else if (r?.success) {
-            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${loginInfo}`)
+            toast.value?.success('Cliente creado', `El cliente fue registrado y cargado a la RB correctamente.${extraInfo}`)
         } else {
             toast.value?.warning(
                 'Cliente creado con advertencia',
-                `Datos guardados${loginInfo}, pero no se pudo cargar al router: ${r?.message || 'error desconocido'}`,
+                `Datos guardados${extraInfo}, pero no se pudo cargar al router: ${r?.message || 'error desconocido'}`,
                 { duration: 12000 }
             )
         }

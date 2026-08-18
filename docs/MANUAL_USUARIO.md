@@ -612,6 +612,11 @@ Los cuatro días se configuran por separado y es fácil confundirlos. Estas son 
   importar qué día se emita. Emitir el 1 o el 15 no mueve el periodo; sólo cambia la fecha de
   emisión. La única excepción es el prorrateo de la primera factura de un cliente nuevo, que
   arranca el día de la instalación.
+- **La primera factura sale al guardar el cliente**, no el día de facturación del router.
+  Es exactamente el prorrateo que el formulario te mostró antes de guardar, y el aviso de
+  "Cliente creado" te dice con qué número salió. Si el cliente quedó en **No facturar**,
+  con plan de cortesía, con la opción **Sin cobro** o el router cobra **vencido**, no sale
+  ninguna: eso es a propósito.
 - **Anticipado** = el periodo es el mes en que se emite. **Vencido** = el mes anterior.
 - **El día límite de pago no corta nada.** Sólo marca desde cuándo la factura cuenta como
   vencida. Si ese día es anterior al de emisión, el vencimiento se corre al mes siguiente.
@@ -2069,3 +2074,11 @@ resucitar facturas que un administrador decidió eliminar.
 **¿Puedo cobrar medio mes al cliente que entra a mitad de mes?**
 Sí: en su ficha, opción de primera factura **Prorrateado**. También puedes configurarlo en
 el plan para que aplique a todos los clientes que lo contraten.
+
+**Cargué al cliente y salió la factura de instalación, pero no la del servicio.**
+Le pasaba a los clientes creados antes de agosto de 2026: la del servicio esperaba al día
+de facturación del router, y si el router no tenía ese día configurado no llegaba nunca.
+Hoy la factura del servicio sale al guardar el cliente. Para los que quedaron sin ella,
+pídele a soporte que la emita (`billing:first-invoice`), y **revisa que el router tenga
+configurado el día de facturación**: sin él, ninguno de sus clientes recibirá la
+mensualidad del mes siguiente.

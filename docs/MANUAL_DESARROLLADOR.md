@@ -387,6 +387,7 @@ php artisan billing:verify-cuts
 | Comando | Descripción |
 |---|---|
 | `billing:generate-monthly {period?}` | Genera facturas. Sin argumento deriva el periodo por router; `YYYY-MM` fuerza uno y **salta el gate de hora** |
+| `billing:first-invoice {customer...}` | Emite a mano la **primera factura** (prorrateo del mes en curso) de clientes ya creados. Misma vía que el alta e **idempotente**: si el mes ya tiene mensualidad no hace nada |
 | `billing:retry-failed` | Reintenta filas `failed` con `next_retry_at` vencido |
 | `billing:verify-monthly` | Auditoría de no-show. **No escribe nada** |
 | `billing:verify-orphan-payments {--tenant=} {--min=} {--limit=} {--no-mail}` | Auditoría de caja: dinero recibido que no respalda factura ni saldo a favor. **No escribe nada** |
@@ -1164,6 +1165,7 @@ que la consulta reviente sólo funciona en uno de los dos.
 |---|---|---|
 | **No se generan facturas** | `php artisan billing:verify-monthly` | Si reporta `no_show`, el planificador no corre. Ver §7 |
 | **Un router concreto no factura** | Revisa `billing_router_id` y `create_invoice` | Asigna configuración de facturación al router |
+| **El cliente nuevo tiene factura de instalación pero no la del servicio** | ¿El router tiene `create_invoice`? Sin día de facturación la corrida mensual **salta el router entero** y `billing:verify-monthly` ni lo audita | Configura el día en el router y emite la que falta con `billing:first-invoice {id}`. Desde 2026-08 el alta la emite sola (`issueFirstInvoiceOnSignup`), pero el mes SIGUIENTE sigue dependiendo del día del router |
 | **Un cliente no recibe factura** | ¿`user_services.status = 'active'`? ¿`exclude_from_billing`? ¿plan de cortesía? ¿lápida `suppressed` en `billing_action_logs`? | Según el caso |
 | **Un cliente recibe la factura pero no el aviso por correo/WhatsApp** | ¿`customer_profile.notify_invoice = false`? | Es intencional: la factura y la mora/corte siguen igual, sólo el aviso está silenciado. Ver `notifyInvoiceCreated()` en `BillingService` y `sendDueReminders()` en `PaymentReminderService` |
 | **"El cliente abonó y no se le cortó"** | Por diseño: un abono parcial cierra la factura (`paid`, `carried_out > 0`) y saca al cliente de la mora | El faltante se cobra en la próxima factura. Ver `invoice_carryovers` (`status = pending`) |

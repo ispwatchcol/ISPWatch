@@ -335,6 +335,40 @@ acaba ignorando.
 el comando one-off `billing:generate-tenant` tiene la suya. Para que no facture de menos,
 llama a `BillingService::addRecurringExtrasTo()`, la única API pública de los adicionales.
 Esa duplicación es deuda conocida — ver **P-11** en `MEJORAS_RECOMENDADAS.md`.
+
+#### La primera factura se emite al dar de alta al cliente
+
+`BillingService::issueFirstInvoiceOnSignup()` emite, **en el mismo request del alta**, la
+mensualidad del mes en curso (el prorrateo). No es una segunda forma de facturar: es la
+misma factura que habría emitido la corrida mensual —mismo `invoice_type`, mismo periodo,
+misma fórmula (`FirstInvoicePolicy`)— sólo que adelantada al momento en que el cliente
+entra al sistema.
+
+**Por qué.** La corrida mensual sólo dispara el día `create_invoice` de cada router, y un
+router **sin ese día configurado se salta entero**: sus clientes no reciben mensualidad
+nunca. La factura de instalación, en cambio, la emite el módulo de instalaciones en el
+acto (`InstallationBillingService`). El resultado era una cuenta a medias — instalación
+cobrada, servicio no — y un prorrateo que el formulario le había mostrado al operador en
+la vista previa pero que no llegaba a existir.
+
+**Idempotencia.** No hay riesgo de doble cobro: la corrida mensual comprueba el solape de
+periodos (`monthlyInvoiceExists`) antes de crear nada, así que al llegar su día ve el mes
+ya facturado y lo salta.
+
+**Cuándo NO factura** (devuelve `null`, sin error, y deja el motivo en el log):
+
+| Motivo | Quién decide |
+|---|---|
+| `exclude_from_billing`, estado de servicio no facturable | el operador |
+| sin router, sin config de facturación, sin plan activo, plan de cortesía | los datos del cliente |
+| **cobro vencido** (`billing_mode = vencido`) | el router: ahí la primera factura sale cuando el mes ya se consumió; emitirla al alta sería cobrar por adelantado justo a quien eligió no hacerlo |
+| **alta retroactiva** (servicio iniciado en un mes anterior) | eso no es "primera factura" sino la mensualidad de siempre: la emite la corrida, con su día y su hora |
+| mes ya facturado, factura borrada a propósito, tope de morosidad | el ciclo de cobro |
+| política de primera factura `none` | el operador (es el valor por defecto) |
+
+**Nunca tumba el alta.** El cliente ya está commiteado cuando se intenta facturar; un fallo
+se registra y el cliente queda creado. `billing:first-invoice {customer}` reintenta a mano
+(misma vía, idempotente) y es lo que se usa para los clientes creados antes de esto.
 #### Consecutivo de contratos
 
 Todo contrato firmado desde la plataforma lleva un número irrepetible dentro del tenant, con

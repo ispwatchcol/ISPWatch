@@ -170,24 +170,8 @@ class BillingService
             $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
 
             // ── Determine due date from payment_day config ──────────────────
-            $dueDay = $billingConfig->payment_day
-                ? Carbon::parse($billingConfig->payment_day)->day
-                : null;
-
             $issueDate = $today->copy()->startOfDay();
-
-            if ($dueDay !== null) {
-                // Clamp due day to last day of current month
-                $lastDayOfMonth = $today->copy()->endOfMonth()->day;
-                $clampedDueDay  = min($dueDay, $lastDayOfMonth);
-                $dueDate = $today->copy()->setDay($clampedDueDay)->startOfDay();
-                // If due date is before issue date, push to next month
-                if ($dueDate->lt($issueDate)) {
-                    $dueDate = $dueDate->addMonth();
-                }
-            } else {
-                $dueDate = $issueDate->copy()->addDays(5);
-            }
+            $dueDate   = $this->resolveDueDate($billingConfig, $issueDate);
 
             // ── Tope de facturación del router (null = sin tope) ────────────
             $stopAt = $billingConfig->invoiceStopThreshold();
@@ -648,6 +632,192 @@ class BillingService
                 fullAmount:   (float) ($servicePlan->cost_product ?? 0),
                 planName:     $servicePlan->name,
             );
+    }
+
+    /**
+     * Fecha de vencimiento de una factura emitida el $issueDate, según el
+     * payment_day del router (día del mes). Sin payment_day: 5 días.
+     *
+     * El día se recorta al último del mes (un 31 configurado vence el 30 en
+     * abril) y, si ya pasó, se empuja al mes siguiente: una factura no puede
+     * nacer vencida.
+     *
+     * Vive aparte porque la usan las dos vías que emiten la mensualidad: la
+     * corrida mensual y la primera factura del alta. Duplicarla haría que la
+     * misma factura venciera en fechas distintas según quién la creó.
+     */
+    protected function resolveDueDate(Billing $billingConfig, Carbon $issueDate): Carbon
+    {
+        $dueDay = $billingConfig->payment_day
+            ? Carbon::parse($billingConfig->payment_day)->day
+            : null;
+
+        if ($dueDay === null) {
+            return $issueDate->copy()->addDays(5);
+        }
+
+        $clampedDueDay = min($dueDay, $issueDate->copy()->endOfMonth()->day);
+        $dueDate       = $issueDate->copy()->setDay($clampedDueDay)->startOfDay();
+
+        return $dueDate->lt($issueDate) ? $dueDate->addMonthNoOverflow() : $dueDate;
+    }
+
+    /**
+     * Primera factura del cliente, emitida EN EL ACTO al darlo de alta.
+     *
+     * Por qué existe: la mensualidad la emite la corrida mensual, que sólo
+     * dispara el día `create_invoice` de cada router. Un cliente instalado a
+     * mitad de mes quedaba sin su factura prorrateada hasta ese día — y si el
+     * router no tiene día de facturación configurado, la corrida lo salta
+     * entero y la factura NO llegaba nunca. Mientras tanto la de instalación sí
+     * salía (la emite el módulo de instalaciones, por otra vía), así que el
+     * operador veía media cuenta cobrada. El formulario de alta además ya le
+     * muestra el prorrateo calculado: esto hace que ese número se convierta en
+     * una factura real en el mismo momento.
+     *
+     * Es la MISMA factura que habría emitido la corrida mensual, adelantada:
+     * mismo tipo, mismo periodo y misma fórmula (FirstInvoicePolicy). Cuando la
+     * corrida llegue verá que el mes ya tiene mensualidad y no duplicará nada.
+     *
+     * Devuelve null —sin error— cuando no corresponde cobrar. Los motivos, en
+     * orden: cliente marcado "no facturar", de baja, sin router o sin config de
+     * facturación, cobro vencido (ahí la primera factura sale cuando el mes ya
+     * se consumió: emitirla al alta sería cobrar por adelantado justo al
+     * operador que eligió no hacerlo), sin plan o con plan de cortesía, alta
+     * retroactiva (el servicio arrancó en un mes anterior: eso es una
+     * mensualidad normal y la resuelve la corrida), mes ya facturado, factura
+     * borrada a propósito, tope de morosidad alcanzado, o una política de
+     * primera factura que dice no cobrar este periodo ('none').
+     *
+     * No lanza excepciones de negocio: el alta del cliente nunca debe fallar
+     * porque su factura no se pudo emitir.
+     */
+    public function issueFirstInvoiceOnSignup(CustomerProfile $profile): ?Invoice
+    {
+        $customerId = (int) $profile->user_id;
+        $skip = function (string $motivo): ?Invoice {
+            Log::info("Billing: primera factura al alta omitida — {$motivo}.");
+            return null;
+        };
+
+        if ($profile->exclude_from_billing) {
+            return $skip("cliente {$customerId} marcado como 'no facturar'");
+        }
+
+        if (!$profile->hasBillableServiceStatus()) {
+            return $skip("cliente {$customerId} con estado de servicio '{$profile->service_status}'");
+        }
+
+        if (!$profile->router_id) {
+            return $skip("cliente {$customerId} sin router asignado");
+        }
+
+        // Sin scope de tenant: esto corre también desde consola (backfill), y el
+        // aislamiento se comprueba abajo contra el tenant del propio usuario.
+        $router = Router::withoutGlobalScope('tenant')
+            ->with('billingConfig')
+            ->find($profile->router_id);
+
+        // El tenant sale de la columna del perfil (y del usuario como respaldo
+        // para filas viejas), NO de la relacion user(): esa lleva el scope
+        // global de tenant y devolveria null cuando un superadmin da de alta a
+        // un cliente de OTRO tenant, dejandolo sin factura sin decir por que.
+        $tenantId = (int) ($profile->tenant_id
+            ?: User::withoutGlobalScopes()->whereKey($customerId)->value('tenant_id'));
+
+        if (!$router || !$tenantId || (int) $router->tenant_id !== $tenantId) {
+            return $skip("cliente {$customerId}: el router {$profile->router_id} no pertenece a su tenant");
+        }
+
+        $billingConfig = $router->billingConfig;
+
+        if (!$billingConfig) {
+            return $skip("router {$router->id} sin configuración de facturación");
+        }
+
+        if (($billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO) !== Billing::MODE_ANTICIPADO) {
+            return $skip("router {$router->id} factura en modo vencido; su primera factura sale con la corrida del mes siguiente");
+        }
+
+        $userService = UserService::where('user_id', $customerId)
+            ->where('status', UserService::STATUS_ACTIVE)
+            ->first();
+
+        // Igual que arriba: el plan se busca sin el scope de tenant y su id
+        // sale del propio servicio del cliente, asi que no hay fuga posible.
+        $servicePlan = $userService?->service_plan_id
+            ? Plan::withoutGlobalScope('tenant')->find($userService->service_plan_id)
+            : null;
+
+        if (!$servicePlan) {
+            return $skip("cliente {$customerId} sin plan activo que cobrar");
+        }
+
+        if ($servicePlan->is_courtesy) {
+            return $skip("cliente {$customerId} con plan de cortesía '{$servicePlan->name}'");
+        }
+
+        $today       = now();
+        $periodStart = $today->copy()->startOfMonth()->startOfDay();
+        $periodEnd   = $today->copy()->endOfMonth()->startOfDay();
+
+        // Sólo el mes en curso. Un alta retroactiva (instalado en un mes
+        // anterior) no es "primera factura": es la mensualidad de siempre y la
+        // emite la corrida, con su día y su hora. Emitirla aquí adelantaría un
+        // cobro que el operador no pidió al cargar el cliente.
+        $serviceStart = $this->resolveServiceStart($profile, $userService);
+
+        if ($serviceStart && $serviceStart->lt($periodStart)) {
+            return $skip("cliente {$customerId}: su servicio arrancó el {$serviceStart->format('Y-m-d')}, "
+                . 'antes del mes en curso; la mensualidad la emite la corrida mensual');
+        }
+
+        if ($this->monthlyInvoiceExists($tenantId, $customerId, $periodStart, $periodEnd)) {
+            return $skip("cliente {$customerId} ya tiene mensualidad de {$periodStart->format('Y-m')}");
+        }
+
+        if ($this->isRegenerationSuppressed($tenantId, $customerId, $periodStart)) {
+            return $skip("cliente {$customerId}: la factura de {$periodStart->format('Y-m')} fue eliminada por un administrador");
+        }
+
+        $stopAt = $billingConfig->invoiceStopThreshold();
+
+        if ($stopAt !== null && $this->pendingInvoiceCount($tenantId, $customerId) >= $stopAt) {
+            return $skip("cliente {$customerId}: tope de {$stopAt} factura(s) pendientes alcanzado");
+        }
+
+        $charge = $this->resolveFirstInvoiceCharge(
+            $profile, $userService, $billingConfig, $servicePlan, $periodStart, $periodEnd
+        );
+
+        if ($charge === null) {
+            return $skip("cliente {$customerId}: la política de primera factura no cobra {$periodStart->format('Y-m')}");
+        }
+
+        $issueDate = $today->copy()->startOfDay();
+
+        $invoice = $this->createMonthlyInvoiceFor(
+            tenantId:        $tenantId,
+            customerId:      $customerId,
+            router:          $router,
+            profile:         $profile,
+            servicePlan:     $servicePlan,
+            issueDate:       $issueDate,
+            dueDate:         $this->resolveDueDate($billingConfig, $issueDate),
+            periodStart:     $charge['period_start'],
+            periodEnd:       $periodEnd,
+            billingConfig:   $billingConfig,
+            amount:          $charge['amount'],
+            itemDescription: $charge['description'],
+            free:            $charge['free'] ?? false,
+        );
+
+        $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $invoice->id);
+
+        Log::info("Billing: primera factura {$invoice->number} emitida al dar de alta al cliente {$customerId} "
+            . "(router {$router->id}, {$periodStart->format('Y-m')}).");
+
+        return $invoice;
     }
 
     /**

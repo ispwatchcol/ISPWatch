@@ -4459,3 +4459,80 @@ nuevo) — no sólo los equipos que fallan hoy: los que funcionan lo hacen porqu
   que mantenerse.
 - `syncPppSecret()` pasó de `private` a `protected` para poder generar el texto del script en
   la prueba sin abrir SSH contra el CORE de producción.
+
+## 42. Media cuenta cobrada: la factura de instalación salía, la del servicio no — 2026-08-18
+
+### 42.1 Lo que reportó el operador
+
+Un cliente cargado el 18 de agosto (router *PRUEBA OFICINA*, plan de $60.000, prorrateo
+activado) recibió su **factura de instalación** pero no la del servicio. El formulario de
+alta le había mostrado el prorrateo calculado antes de guardar; esa cifra nunca se
+convirtió en factura.
+
+### 42.2 La causa raíz: dos vías distintas, una de ellas condicionada
+
+Las dos facturas no las emite el mismo código:
+
+| Factura | Quién la emite | Cuándo |
+|---|---|---|
+| Instalación | `InstallationBillingService::upsertInstallationInvoice()` | en el acto, desde el módulo de instalaciones |
+| Servicio (mensualidad/prorrateo) | `BillingService::generateMonthlyInvoices()` | sólo el día `create_invoice` del router |
+
+El router del cliente tenía `billing.create_invoice = NULL`. Y la corrida mensual, ante un
+router sin día de facturación, hace `continue`:
+
+```php
+if ($createDay === null) {
+    Log::info("Router ... has no create_invoice day. Skipping.");
+    continue;
+}
+```
+
+No era un fallo del planificador ni de la política de primera factura (resuelta
+correctamente como `prorated`): la factura **no iba a existir nunca**, ni con un backfill
+manual, porque `billing:generate-monthly` con periodo explícito comprueba el día antes de
+resolver el periodo. Peor: `auditMonthlyBilling()` también salta esos routers
+(«no es un no-show, no hay nada que auditar»), así que `billing:verify-monthly` guardaba
+silencio sobre un router que no factura a **ninguno** de sus clientes.
+
+### 42.3 El arreglo: la primera factura se emite al dar de alta
+
+`BillingService::issueFirstInvoiceOnSignup()` emite la mensualidad del mes en curso dentro
+del propio request del alta, después del commit del cliente. No es una segunda forma de
+facturar: mismo `invoice_type`, mismo periodo y misma fórmula (`FirstInvoicePolicy`) que la
+corrida mensual — sólo adelantada al momento en que el cliente entra al sistema, que es
+cuando el operador ya vio el número en la vista previa.
+
+Decisiones que vale la pena dejar escritas:
+
+| Decisión | Por qué |
+|---|---|
+| Reutiliza `createMonthlyInvoiceFor()` | Arrastre, adicionales, saldo a favor y notificación entran igual que en la corrida. Una copia habría cobrado de menos |
+| La idempotencia ya existía (`monthlyInvoiceExists`, por **solape de periodos**) | La corrida ve el mes facturado y lo salta. No hizo falta inventar un candado nuevo |
+| **No** se emite en cobro **vencido** | Ahí la primera factura sale cuando el mes ya se consumió; adelantarla sería cambiarle el negocio a quien eligió cobrar vencido. La corrida la emite el mes siguiente, prorrateada |
+| **No** se emite en un alta **retroactiva** (servicio iniciado en un mes anterior) | Eso no es "primera factura" sino la mensualidad de siempre: emitirla al cargar el cliente sería un cobro que nadie pidió |
+| Nunca tumba el alta | El cliente ya está commiteado; un fallo se registra y queda `billing:first-invoice` para reintentar |
+| `resolveDueDate()` se extrajo a un método | Lo usan las dos vías. Duplicado, la misma factura habría vencido en fechas distintas según quién la creó |
+| El tenant y el plan se resuelven **sin** el scope global | La relación `user()` y el modelo `Plan` van tenant-scoped: con un superadmin dando de alta a un cliente de otro tenant devolvían `null` y el cliente quedaba sin factura sin decir por qué. El aislamiento se comprueba explícitamente contra el tenant del perfil |
+
+La respuesta del alta incluye `first_invoice` y el toast del formulario dice con qué número
+salió, para que el operador no tenga que ir a buscarla.
+
+### 42.4 Lo que NO arregla
+
+Sólo la **primera** factura. Si el router sigue sin `create_invoice`, la mensualidad del mes
+siguiente tampoco saldrá: hay que configurarle el día de facturación. Ver **P-28** en
+`MEJORAS_RECOMENDADAS.md` — el punto ciego de la auditoría sigue abierto.
+
+Tampoco cambia la notificación: `createMonthlyInvoiceFor()` avisa al cliente por
+correo/WhatsApp de forma **síncrona**, así que ese envío ahora ocurre dentro del request del
+alta. Es deuda aceptada a conciencia — el cliente debe enterarse de su primera factura en el
+momento, y el fallo del aviso ya está aislado en su propio `try/catch` (nunca deshace la
+factura). El coste es latencia: un SMTP lento suma segundos al alta.
+
+### 42.5 Verificación
+
+`FirstInvoiceOnSignupTest` (10 pruebas): el alta emite la prorrateada aunque el router no
+tenga día de facturación, la corrida posterior no la duplica, el vencimiento respeta
+`payment_day`, y `none` / excluido / cortesía / retirado / vencido / alta retroactiva no
+facturan. Suite completa: 876 pruebas en verde.

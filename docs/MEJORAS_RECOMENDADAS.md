@@ -1373,6 +1373,23 @@ operador elige) y `routeros_version` (lo que reporta `/system resource`, idealme
 del propio equipo en vez de tecleado). Mientras tanto, **nunca** interpretar el campo a
 mano: siempre por `RouterOsVersion`.
 
+### 📋 P-28 · Un router sin día de facturación no factura a nadie, y la auditoría no lo dice
+
+`generateMonthlyInvoices()` salta con `continue` todo router cuyo `billing.create_invoice`
+sea `NULL`, y `auditMonthlyBilling()` hace lo mismo antes de contar nada («no es un
+no-show, no hay nada que auditar»). El resultado es un router que **no le factura a ninguno
+de sus clientes** y sobre el que `billing:verify-monthly` guarda silencio. Se descubrió el
+2026-08-18 por un cliente que tenía su factura de instalación cobrada y la del servicio no
+(§ 42 de la bitácora).
+
+El alta ya emite la primera factura por su cuenta, así que el cliente nuevo no se pierde
+— pero **el mes siguiente sí**, y nada avisa.
+
+**Recomendación.** Que `auditMonthlyBilling()` devuelva una fila con estado `sin_configurar`
+para esos routers en vez de omitirlos (informativa, sin marcar fallo el primer mes), y que
+la pantalla de Routers marque visualmente al que tiene configuración de facturación
+asignada pero sin día. Coste bajo; evita descubrir el hueco cliente por cliente.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
