@@ -8,6 +8,11 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El túnel colgaba del perfil PPP del cliente (2026-08-18, § 41):** causa raíz del § 40. El script
+  L2TP creaba el túnel con `profile=default`; en un router que además es servidor PPPoE ese perfil trae
+  `local-address`, y el túnel se quedaba con ESA dirección ignorando la del overlay. Es el caso normal, no
+  el raro, y explica de fondo el «la v7 funciona y la v6 no»: WireGuard fija la dirección, L2TP la negocia.
+  **Hay que reaprovisionar toda la flota L2TP.**
 - **El túnel estaba arriba y el router no era él (2026-08-18, § 40):** sesión L2TP activa,
   contadores subiendo y el equipo sin haberse quedado con la dirección del overlay: reenviaba
   nuestros paquetes a su gateway. Cada camino lo reportaba como otra cosa (credenciales,
@@ -4379,3 +4384,155 @@ El equipo `CORE_SAN_ISIDRO` **hay que arreglarlo en sitio**: ISPWatch no puede
 administrarlo hasta que su `l2tp-client` se quede con la dirección del overlay. La
 comprobación de que quedó bien es que `/ping 172.16.16.253 count=2 ttl=1` desde el CORE
 lo conteste él y no `10.72.103.1`.
+
+---
+
+## 41. La causa de fondo del § 40: el túnel colgaba del perfil PPP del cliente — 2026-08-18
+
+El § 40 dejó identificado el síntoma —el router no se quedaba con la dirección del overlay—
+y abierto el porqué. Con la sonda ya en producción se pudo entrar al equipo y cerrarlo.
+
+### 41.1 Cómo se llegó al equipo sin ir al sitio
+
+El `TTL exceeded` venía de `10.72.103.1`, y eso no era "su gateway": en RouterOS el error se
+emite **desde una dirección propia** del equipo que descarta el paquete. Con una ruta
+temporal en el CORE (`10.72.103.1/32` por la interfaz del túnel) el equipo respondió al ping
+en 88 ms y aceptó `ssh-exec`. Era `CORE_SAN_ISIDRO`, un **hEX con RouterOS 6.47.10**.
+
+De paso quedó descartada una hipótesis que parecía razonable: el `ssh-exec` de un CORE v7.22
+contra un cliente v6.47 **funciona sin problema**. La rama de RouterOS no tenía nada que ver.
+
+### 41.2 La causa raíz
+
+```
+/ip address print   →  30 D address=10.72.103.1/32 network=172.16.16.1 interface=ISPWatch-VPN-CORE
+/ppp profile print  →   0 * name=default local-address=10.72.103.1
+```
+
+El equipo es **servidor PPPoE de sus propios abonados**, y su perfil `default` tiene
+`local-address=10.72.103.1` — la dirección con la que los atiende. El script de ISPWatch
+creaba el túnel con `profile=default`:
+
+```
+/interface l2tp-client add name="ISPWatch-VPN-CORE" ... profile=default
+```
+
+Así que la interfaz del túnel **heredó esa `local-address`** y el router se quedó con
+`10.72.103.1` como dirección propia, ignorando la `172.16.16.253` que el CORE le asignó por
+IPCP. El CORE, que sí la tenía anotada, enrutaba `172.16.16.253/32` hacia el túnel; el
+router recibía esos paquetes, no los reconocía como suyos y los reenviaba. Cada punta creía
+que el túnel estaba perfecto.
+
+**Esto no es un caso raro: es el caso normal.** Cualquier CORE de cliente que termine PPPoE
+—la mayoría— tiene `local-address` en su perfil `default`. Y explica de raíz el "la v7
+funciona y la v6 no": el script WireGuard **fija** la dirección (`/ip address add`), no la
+negocia. Sólo L2TP la negocia, y sólo ahí puede pisarla un perfil.
+
+### 41.3 El arreglo
+
+`VpnService::generateL2tpScript()` deja de usar `default` y crea un perfil propio, sin
+direcciones:
+
+```
+/interface l2tp-client remove [find name="ISPWatch-VPN-CORE"]
+/ppp profile remove [find name="ISPWatch-VPN"]
+/ppp profile add name="ISPWatch-VPN" change-tcp-mss=yes
+/interface l2tp-client add name="ISPWatch-VPN-CORE" ... profile=ISPWatch-VPN ...
+```
+
+El orden importa y está probado: mientras el `l2tp-client` exista, el perfil está en uso y
+RouterOS rechaza el `remove`, con lo que el perfil viejo —justo el que se quiere reemplazar—
+sobreviviría. Se recrea en cada aplicación en vez de editarse, para que no arrastre una
+`local-address` puesta a mano.
+
+`OverlayReachabilityProbe::explain()` nombra ahora esta causa como primer punto a revisar,
+con el comando exacto.
+
+**Toda la flota L2TP existente hay que reaprovisionarla** (generar y aplicar el script de
+nuevo) — no sólo los equipos que fallan hoy: los que funcionan lo hacen porque su perfil
+`default` está limpio, y basta con que alguien le ponga `local-address` para tumbarlos.
+
+### 41.4 Verificación
+
+- `VpnScriptTest` (3 pruebas): el script no puede volver a decir `profile=default`, tiene que
+  crear su perfil sin direcciones, y el orden `remove interfaz → remove perfil → add` tiene
+  que mantenerse.
+- `syncPppSecret()` pasó de `private` a `protected` para poder generar el texto del script en
+  la prueba sin abrir SSH contra el CORE de producción.
+
+## 42. Media cuenta cobrada: la factura de instalación salía, la del servicio no — 2026-08-18
+
+### 42.1 Lo que reportó el operador
+
+Un cliente cargado el 18 de agosto (router *PRUEBA OFICINA*, plan de $60.000, prorrateo
+activado) recibió su **factura de instalación** pero no la del servicio. El formulario de
+alta le había mostrado el prorrateo calculado antes de guardar; esa cifra nunca se
+convirtió en factura.
+
+### 42.2 La causa raíz: dos vías distintas, una de ellas condicionada
+
+Las dos facturas no las emite el mismo código:
+
+| Factura | Quién la emite | Cuándo |
+|---|---|---|
+| Instalación | `InstallationBillingService::upsertInstallationInvoice()` | en el acto, desde el módulo de instalaciones |
+| Servicio (mensualidad/prorrateo) | `BillingService::generateMonthlyInvoices()` | sólo el día `create_invoice` del router |
+
+El router del cliente tenía `billing.create_invoice = NULL`. Y la corrida mensual, ante un
+router sin día de facturación, hace `continue`:
+
+```php
+if ($createDay === null) {
+    Log::info("Router ... has no create_invoice day. Skipping.");
+    continue;
+}
+```
+
+No era un fallo del planificador ni de la política de primera factura (resuelta
+correctamente como `prorated`): la factura **no iba a existir nunca**, ni con un backfill
+manual, porque `billing:generate-monthly` con periodo explícito comprueba el día antes de
+resolver el periodo. Peor: `auditMonthlyBilling()` también salta esos routers
+(«no es un no-show, no hay nada que auditar»), así que `billing:verify-monthly` guardaba
+silencio sobre un router que no factura a **ninguno** de sus clientes.
+
+### 42.3 El arreglo: la primera factura se emite al dar de alta
+
+`BillingService::issueFirstInvoiceOnSignup()` emite la mensualidad del mes en curso dentro
+del propio request del alta, después del commit del cliente. No es una segunda forma de
+facturar: mismo `invoice_type`, mismo periodo y misma fórmula (`FirstInvoicePolicy`) que la
+corrida mensual — sólo adelantada al momento en que el cliente entra al sistema, que es
+cuando el operador ya vio el número en la vista previa.
+
+Decisiones que vale la pena dejar escritas:
+
+| Decisión | Por qué |
+|---|---|
+| Reutiliza `createMonthlyInvoiceFor()` | Arrastre, adicionales, saldo a favor y notificación entran igual que en la corrida. Una copia habría cobrado de menos |
+| La idempotencia ya existía (`monthlyInvoiceExists`, por **solape de periodos**) | La corrida ve el mes facturado y lo salta. No hizo falta inventar un candado nuevo |
+| **No** se emite en cobro **vencido** | Ahí la primera factura sale cuando el mes ya se consumió; adelantarla sería cambiarle el negocio a quien eligió cobrar vencido. La corrida la emite el mes siguiente, prorrateada |
+| **No** se emite en un alta **retroactiva** (servicio iniciado en un mes anterior) | Eso no es "primera factura" sino la mensualidad de siempre: emitirla al cargar el cliente sería un cobro que nadie pidió |
+| Nunca tumba el alta | El cliente ya está commiteado; un fallo se registra y queda `billing:first-invoice` para reintentar |
+| `resolveDueDate()` se extrajo a un método | Lo usan las dos vías. Duplicado, la misma factura habría vencido en fechas distintas según quién la creó |
+| El tenant y el plan se resuelven **sin** el scope global | La relación `user()` y el modelo `Plan` van tenant-scoped: con un superadmin dando de alta a un cliente de otro tenant devolvían `null` y el cliente quedaba sin factura sin decir por qué. El aislamiento se comprueba explícitamente contra el tenant del perfil |
+
+La respuesta del alta incluye `first_invoice` y el toast del formulario dice con qué número
+salió, para que el operador no tenga que ir a buscarla.
+
+### 42.4 Lo que NO arregla
+
+Sólo la **primera** factura. Si el router sigue sin `create_invoice`, la mensualidad del mes
+siguiente tampoco saldrá: hay que configurarle el día de facturación. Ver **P-28** en
+`MEJORAS_RECOMENDADAS.md` — el punto ciego de la auditoría sigue abierto.
+
+Tampoco cambia la notificación: `createMonthlyInvoiceFor()` avisa al cliente por
+correo/WhatsApp de forma **síncrona**, así que ese envío ahora ocurre dentro del request del
+alta. Es deuda aceptada a conciencia — el cliente debe enterarse de su primera factura en el
+momento, y el fallo del aviso ya está aislado en su propio `try/catch` (nunca deshace la
+factura). El coste es latencia: un SMTP lento suma segundos al alta.
+
+### 42.5 Verificación
+
+`FirstInvoiceOnSignupTest` (10 pruebas): el alta emite la prorrateada aunque el router no
+tenga día de facturación, la corrida posterior no la duplica, el vencimiento respeta
+`payment_day`, y `none` / excluido / cortesía / retirado / vencido / alta retroactiva no
+facturan. Suite completa: 876 pruebas en verde.

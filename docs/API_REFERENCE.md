@@ -416,6 +416,26 @@ curl -b cookies.txt -X POST https://ispwatch-crm.app/api/customers \
 | `422` | `errors.ip_user` | IP repetida en el mismo router |
 | `422` | `errors.pppoe_username` | Usuario PPPoE repetido en el mismo router |
 
+**Respuesta `201` — campos propios**
+
+| Campo | Tipo | Significado |
+|---|---|---|
+| `provision_status` | string | `queued` \| `skipped` \| `failed_to_queue` |
+| `job_id` | uuid\|null | presente sólo con `queued`; se consulta con `bulk-provision-status` |
+| `email_tenant` | string | correo de **acceso** (login) generado o recibido |
+| `first_invoice` | objeto\|null | **mensualidad del mes en curso emitida en el acto** (el prorrateo). `null` = no correspondía cobrar este mes |
+
+```json
+"first_invoice": { "id": 2601, "number": "00001571", "total": 25161, "period": "2026-08" }
+```
+
+> `first_invoice` es la misma factura que habría emitido la corrida mensual, adelantada al
+> alta: mismo `invoice_type = monthly` y misma fórmula que
+> `POST /api/customers/first-invoice-preview` mostró en el formulario. Llega `null` cuando
+> el cliente está excluido de facturación, no tiene plan cobrable, el router factura en
+> modo vencido, el alta es retroactiva o la política es `none`. **El alta nunca falla por
+> esto**: si la emisión revienta, el cliente igual se crea y el error queda en el log.
+
 ### `POST /api/customers/first-invoice-preview`
 
 Calcula qué se le cobraría al cliente en sus primeros meses **sin escribir nada**.

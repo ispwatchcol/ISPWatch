@@ -612,6 +612,11 @@ Los cuatro días se configuran por separado y es fácil confundirlos. Estas son 
   importar qué día se emita. Emitir el 1 o el 15 no mueve el periodo; sólo cambia la fecha de
   emisión. La única excepción es el prorrateo de la primera factura de un cliente nuevo, que
   arranca el día de la instalación.
+- **La primera factura sale al guardar el cliente**, no el día de facturación del router.
+  Es exactamente el prorrateo que el formulario te mostró antes de guardar, y el aviso de
+  "Cliente creado" te dice con qué número salió. Si el cliente quedó en **No facturar**,
+  con plan de cortesía, con la opción **Sin cobro** o el router cobra **vencido**, no sale
+  ninguna: eso es a propósito.
 - **Anticipado** = el periodo es el mes en que se emite. **Vencido** = el mes anterior.
 - **El día límite de pago no corta nada.** Sólo marca desde cuándo la factura cuenta como
   vencida. Si ese día es anterior al de emisión, el vencimiento se corre al mes siguiente.
@@ -1251,6 +1256,11 @@ está en [7.1](#71-cómo-funciona-esto-es-lo-más-importante-del-sistema).
 > cliente** (por Winbox, desde su propia red): comprobar que la interfaz `ISPWatch-VPN-CORE` esté
 > corriendo, que aparezca la dirección del túnel en su lista de direcciones IP, y que no haya otro
 > equipo usando la misma VPN. Apagar y encender esa interfaz suele bastar.
+>
+> **La causa más común de eso** es que el túnel del router esté usando el perfil PPP `default`. Si el equipo
+> también reparte internet por PPPoE a sus abonados, ese perfil tiene una dirección fija metida y el túnel se
+> queda con ella. **Se arregla volviendo a generar el script VPN desde ISPWatch y aplicándolo**: los scripts
+> nuevos ya crean un perfil propio para el túnel.
 
 > ⚠️ **Antes de usar el corte automático: verifica la VPN y aplica las reglas de bloqueo.**
 > Si el túnel está caído o las reglas no están, el sistema marca al cliente como cortado pero
@@ -2064,3 +2074,11 @@ resucitar facturas que un administrador decidió eliminar.
 **¿Puedo cobrar medio mes al cliente que entra a mitad de mes?**
 Sí: en su ficha, opción de primera factura **Prorrateado**. También puedes configurarlo en
 el plan para que aplique a todos los clientes que lo contraten.
+
+**Cargué al cliente y salió la factura de instalación, pero no la del servicio.**
+Le pasaba a los clientes creados antes de agosto de 2026: la del servicio esperaba al día
+de facturación del router, y si el router no tenía ese día configurado no llegaba nunca.
+Hoy la factura del servicio sale al guardar el cliente. Para los que quedaron sin ella,
+pídele a soporte que la emita (`billing:first-invoice`), y **revisa que el router tenga
+configurado el día de facturación**: sin él, ninguno de sus clientes recibirá la
+mensualidad del mes siguiente.

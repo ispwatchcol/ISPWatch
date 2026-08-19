@@ -8,6 +8,7 @@ use App\Models\CustomerProfile;
 use App\Models\Plan;
 use App\Models\Router;
 use App\Models\Sectorial;
+use App\Services\BillingService;
 use App\Services\CustomerDeletionService;
 use App\Services\CustomerProvisioningService;
 use App\Services\MikroTikSshService;
@@ -536,6 +537,30 @@ class CustomerProfileController extends Controller
 
             DB::commit();
 
+            // ── Primera factura: se emite YA, no cuando pase el día de corte ──
+            // El operador acaba de ver en el formulario cuánto se le va a
+            // cobrar a este cliente por lo que queda del mes (el prorrateo);
+            // aquí esa cifra se vuelve una factura real. Antes esperaba a la
+            // corrida mensual del router, que sólo dispara el día
+            // `create_invoice` — y si el router no tiene ese día configurado,
+            // no disparaba nunca: quedaba el cliente con su factura de
+            // instalación cobrada y la del servicio sin emitir.
+            //
+            // NUNCA tumba el alta: el cliente ya está commiteado arriba. Si la
+            // facturación falla se registra y el cliente queda creado; la
+            // corrida mensual (o `billing:first-invoice`) la recupera después.
+            $firstInvoice = null;
+
+            try {
+                $firstInvoice = app(BillingService::class)
+                    ->issueFirstInvoiceOnSignup($customer->fresh(['user']));
+            } catch (\Throwable $e) {
+                \Log::error('[CustomerProfile] No se pudo emitir la primera factura (no bloqueante)', [
+                    'customer_id' => $customer->user_id,
+                    'error'       => $e->getMessage(),
+                ]);
+            }
+
             // ── Auto-aprovisionamiento a la RB según el MÉTODO DE CONTROL ──
             // ASÍNCRONO: se encola un ProvisionCustomerJob (mismo mecanismo que
             // ya usa el bulk de la lista) en vez de llamar a RouterOS dentro de
@@ -598,6 +623,15 @@ class CustomerProfileController extends Controller
                 // 'failed_to_queue' -> el cliente SÍ se creó, pero no se pudo encolar el aprovisionamiento (reintentar desde la lista).
                 'provision_status' => $provisionStatus,
                 'job_id'           => $jobId,
+                // Factura del servicio emitida en el alta (prorrateo del mes en
+                // curso). null = no correspondía cobrar este mes; el motivo
+                // exacto queda en el log de facturación.
+                'first_invoice'    => $firstInvoice ? [
+                    'id'     => $firstInvoice->id,
+                    'number' => $firstInvoice->number,
+                    'total'  => (float) $firstInvoice->total,
+                    'period' => $firstInvoice->period_start?->format('Y-m'),
+                ] : null,
             ], 201);
         } catch (\Throwable $e) {
             DB::rollBack();
