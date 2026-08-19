@@ -1859,6 +1859,11 @@ puede escribir dentro de un archivo que no generó él.
 
 ### 17.5 Llaves de API (integraciones externas)
 
+> **La llave se emite desde la cuenta de la empresa que va a compartir sus datos.** El
+> tenant no es un campo del formulario: sale de la sesión. Si necesitas una llave para la
+> empresa X, tienes que entrar con un usuario **administrador de X** — no sirve emitirla
+> desde otra cuenta y "asignarla" después.
+
 Sirve para que un sistema externo —un CRM, un tablero de indicadores, un proceso de
 conciliación contable— pueda **leer** los datos de un ISP sin que nadie tenga que entrar
 al panel ni compartir una contraseña.
