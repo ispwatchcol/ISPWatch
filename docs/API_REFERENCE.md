@@ -1770,6 +1770,18 @@ que usa el campo "A nombre de quién" de un gasto.
 | Método | Ruta | Permiso |
 |---|---|---|
 | `POST` | `/api/settings/cache/clear` | `view_settings` |
+| `GET` | `/api/system/version` | — (cualquier usuario autenticado) |
+
+`/api/system/version` devuelve la versión del despliegue que atiende:
+
+```json
+{ "version": "1.0.0", "released_at": "2026-08-19" }
+```
+
+**Sin permiso a propósito.** Es lo primero que pregunta soporte —«¿qué versión te
+aparece?»— y exigir `view_settings` se lo negaría justamente a quien está llamando
+a pedir ayuda. Sale del servidor y no del bundle del navegador, que puede venir
+cacheado de un despliegue anterior. Fuente única: `config/version.php`.
 
 ---
 
@@ -1882,6 +1894,7 @@ red de cada punto.
 | Método | Ruta | Ability | Filtros |
 |---|---|---|---|
 | `GET` | `/api/v1/partner/ping` | — | — |
+| `GET` | `/api/v1/partner/openapi.yaml` | — | — (devuelve el contrato OpenAPI, ver § 22.8-bis) |
 | `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `document`, `updated_since`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/customers/{id}` | `read:customers` | — |
 | `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `status`, `service_status`, `updated_since`, `page`, `per_page` |
@@ -1994,10 +2007,54 @@ tenants y afirma que sólo sale el propio.
 
 ### 22.8 Ejemplo
 
+El token que devuelve la emisión tiene la forma `<id>|<secreto>` (formato de
+Sanctum) y se envía completo:
+
 ```bash
-curl -H "Authorization: Bearer ispw_xxxxxxxx" \
-     "https://app.ispwatch.co/api/v1/partner/invoices?status=issued&from=2026-08-01&per_page=100"
+curl -H "Authorization: Bearer 42|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+     -H "Accept: application/json" \
+     "https://ispwatch-crm.app/api/v1/partner/invoices?status=issued&from=2026-08-01&per_page=100"
 ```
+
+`Accept: application/json` no es decorativo: sin esa cabecera, una petición sin
+llave válida se va por el redirect de invitados (`redirectGuestsTo` en
+`bootstrap/app.php`) y devuelve **302 a `/`** en lugar de 401. Anotado como
+papercut en `MEJORAS_RECOMENDADAS.md`.
+
+### 22.8-bis Contrato OpenAPI
+
+`docs/openapi/ispwatch-partner-v1.yaml` es el **entregable oficial** para el
+integrador: OpenAPI 3.0.3 con los diez endpoints, sus filtros, el esquema de
+cada respuesta y los códigos de error.
+
+Se sirve además desde la propia API, sin ability (como `ping`):
+
+```
+GET /api/v1/partner/openapi.yaml   → application/yaml
+```
+
+Servirlo y no sólo enviarlo por correo resuelve un problema concreto: el archivo
+que tiene el integrador y el código que está corriendo se separan en cuanto
+alguien reenvía una versión vieja. Pidiéndolo a la API, lo que recibe es por
+definición el del despliegue que le responde.
+
+**3.0.3 y no 3.1** por compatibilidad de generadores de clientes, no por
+antigüedad.
+
+`tests/Feature/ApiKeys/PartnerOpenApiContractTest.php` falla si se agrega, se
+quita o se le cambia el ability a una ruta del grupo sin tocar el YAML. La
+correspondencia se verifica por la extensión `x-ability` de cada operación.
+
+Detalles del contrato que un integrador infiere mal si no se los dicen, y que
+por eso están escritos en el propio YAML:
+
+| Cosa | Realidad |
+|---|---|
+| Importes (`total`, `amount`, `credit_balance`…) | **Cadenas** (`"85000.00"`), no números. PostgreSQL entrega `numeric` como texto y no se convierte: un float binario introduce redondeo en cartera |
+| `plan.speed_down` / `speed_up` | **Texto** (`"10M"`), no un número de bits: es lo que se aplica literal en el equipo |
+| `plan.price` | Entero |
+| Fechas | ISO-8601 UTC… salvo `installation_date` (`2026-08-18`) y `created_at`/`updated_at` **de `/customers`**, que salen como `2026-07-03 18:29:20` (sin `T` ni `Z`) porque provienen de una tabla sin casts de fecha |
+| `is_enabled` | **No indica si el cliente está cortado.** El corte automático lo deja en `true` |
 
 ### 22.9 Administración de llaves (panel)
 

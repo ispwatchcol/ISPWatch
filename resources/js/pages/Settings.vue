@@ -903,7 +903,7 @@
                                 <p
                                     class="text-lg font-bold text-gray-800 dark:text-gray-200"
                                 >
-                                    v1.0.0
+                                    {{ systemVersion.version ? 'v' + systemVersion.version : '—' }}
                                 </p>
                             </div>
                             <div
@@ -931,7 +931,7 @@
                                 <p
                                     class="text-sm font-medium text-gray-800 dark:text-gray-200"
                                 >
-                                    {{ new Date().toLocaleDateString("es-CO") }}
+                                    {{ releasedAtLabel }}
                                 </p>
                             </div>
                             <div
@@ -1106,6 +1106,45 @@ const tabs = computed(() => [
         : []),
     { id: "system", label: "Sistema", icon: "md-computer" },
 ]);
+
+/**
+ * Versión del despliegue, servida por el backend (`GET /api/system/version`).
+ *
+ * No se escribe aquí a mano: hasta 2026-08-19 este panel mostraba `v1.0.0`
+ * fijo, sin relación con lo desplegado, y la "última actualización" era
+ * `new Date()` — o sea que le decía al usuario que el sistema se había
+ * actualizado hoy, cualquier día que mirara. Un panel que informa siempre lo
+ * mismo no informa nada, y es el primer dato que pide soporte.
+ */
+const systemVersion = ref({ version: null, released_at: null });
+
+const releasedAtLabel = computed(() => {
+    const fecha = systemVersion.value.released_at;
+    if (!fecha) return "—";
+
+    // Se construye con las partes y no con `new Date("2026-08-19")`, que el
+    // navegador interpreta como UTC y en Colombia (UTC-5) muestra el día
+    // anterior.
+    const [y, m, d] = String(fecha).split("-").map(Number);
+    if (!y || !m || !d) return String(fecha);
+
+    return new Date(y, m - 1, d).toLocaleDateString("es-CO", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+    });
+});
+
+const loadSystemVersion = async () => {
+    try {
+        const { data } = await apiClient.get("/system/version");
+        systemVersion.value = data;
+    } catch (e) {
+        // Que no se sepa la versión no puede romper la pantalla de ajustes:
+        // el panel queda con «—» y todo lo demás sigue funcionando.
+        console.error("No se pudo leer la versión del sistema", e);
+    }
+};
 
 const settings = ref({
     // General (from tenant)
@@ -1401,6 +1440,8 @@ onMounted(async () => {
 
     // Load tenant data from API
     await loadTenantData();
+
+    loadSystemVersion();
 
     // Load ONLY UI preferences from localStorage (not tenant data)
     const savedUIPrefs = localStorage.getItem("uiPreferences");

@@ -578,6 +578,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
     });
 
+    // Versión del despliegue. Fuera del grupo de arriba a propósito: es lo
+    // primero que pregunta soporte, y exigir `view_settings` se lo negaría
+    // justamente a quien está llamando a pedir ayuda.
+    Route::get('/system/version', [SettingsController::class, 'version']);
+
     // ─── HELP CENTER / MANUAL ───
     // La LECTURA queda abierta a cualquier autenticado: es el manual del
     // producto y la ruta /manual no exige permiso. La ESCRITURA no: hasta
@@ -680,6 +685,10 @@ Route::prefix('v1/partner')
     ->group(function () {
         // Sin `ability`: sirve para verificar la llave antes de tener permisos.
         Route::get('/ping', [PartnerMetaController::class, 'ping']);
+
+        // Contrato OpenAPI de esta misma API. Tampoco lleva `ability`: describe
+        // la forma de lo que la llave puede pedir, no datos del ISP.
+        Route::get('/openapi.yaml', [PartnerMetaController::class, 'spec']);
 
         Route::middleware('ability:read:customers')->group(function () {
             Route::get('/customers', [PartnerCustomerController::class, 'index']);

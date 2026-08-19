@@ -1439,6 +1439,88 @@ pasa la operación real.
 Mismo patrón, sin revisar: `ip_assignment.router_id` y `suspension_action_logs.router_id`
 también son `SET NULL`.
 
+### 📋 P-30 · La API partner responde 302 en vez de 401 sin `Accept: application/json`
+
+`bootstrap/app.php` declara `redirectGuestsTo('/')`, que aplica a **toda** la aplicación.
+Una petición a `/api/v1/partner/*` sin llave válida y sin la cabecera `Accept` no recibe un
+401: recibe un **302 hacia `/`**.
+
+Para un integrador esto es de los errores más caros de diagnosticar, porque su cliente HTTP
+suele seguir el redirect y terminar parseando el HTML del panel — el mensaje que ve no dice
+"credenciales", dice "respuesta inesperada". Está documentado en el contrato y en la § 22.8
+de `API_REFERENCE.md`, pero documentar un comportamiento raro no lo hace menos raro.
+
+**Por qué no se cambió aquí.** `redirectGuestsTo` es global; devolver `null` para `api/*`
+hace que el handler caiga en `route('login')`, que no existe en este proyecto, y un
+`RouteNotFoundException` convertiría un 401 legítimo en un **500**. El arreglo correcto es
+un `redirectGuestsTo` con closure que devuelva la ruta sólo fuera de `api/*` **y** un
+`shouldRenderJsonWhen` que fuerce JSON en ese prefijo — dos cambios que tocan el
+comportamiento de autenticación de toda la app y merecen su propio PR con su propia suite.
+
+### 📋 P-31 · `/customers` devuelve `created_at`/`updated_at` en un formato distinto al resto
+
+`2026-07-03 18:29:20`, sin `T` ni `Z`, mientras el resto de la API usa ISO-8601
+(`2026-08-03T22:42:07.000000Z`). La causa: esas columnas se seleccionan sobre
+`CustomerProfile`, un modelo que **no** las declara como fecha —`customer_profile` no tiene
+timestamps propios, su reloj es `users.updated_at`—, así que Eloquent no las castea.
+
+No se corrigió porque **ya hay quien consume ese contrato**: normalizarlo ahora rompería a
+cualquier integrador que esté parseando el formato actual. Queda documentado campo por campo
+en el OpenAPI, que es lo único que evita que alguien lo descubra en producción.
+
+**Recomendación.** Si algún día se emite una `v2` de la API partner, unificar ahí. Mientras
+tanto, no repetir el patrón: cualquier endpoint nuevo que exponga fechas debe pasarlas por
+un cast o formatearlas explícitamente en el presentador.
+
+### ✅ P-32 · La URL pública de producción decía dos cosas distintas (2026-08-19)
+
+El ejemplo de la § 22 de `API_REFERENCE.md` decía `app.ispwatch.co`. **Es falso**: el host
+real es `https://ispwatch-crm.app` (confirmado el 2026-08-19, y es lo que dicen
+`.env.production` y el resto del documento). Llevaba tiempo equivocado y nadie lo notó,
+porque ninguna prueba mira eso — y es el primer dato que copia un integrador.
+
+Corregido en el ejemplo y fijado como `servers` del contrato OpenAPI.
+
+Lo que **sigue sin cubrirse**: `PartnerOpenApiContractTest` impide que se cuele un
+`localhost` y exige HTTPS, pero no puede saber cuál es el host correcto. Si el dominio
+cambia, el contrato quedará mintiendo igual que mintió el ejemplo. La red de seguridad real
+sería derivarlo de `config('app.url')` al servir `/openapi.yaml`; no se hizo porque
+reescribir el YAML al vuelo obliga a parsearlo, y el proyecto no trae `symfony/yaml`.
+
+
+### 📋 P-33 · «Estado del Sistema: Operativo» no comprueba nada
+
+En **Configuración → Sistema**, junto a la versión, hay un punto verde que dice «Operativo».
+Es texto fijo en la plantilla: diría lo mismo con el planificador caído, la cola parada y la
+VPN al CORE muerta.
+
+Se dejó así al versionar el producto (§ 46 de la bitácora) porque un estado honesto no es
+cosmética: hay que decidir **qué** se comprueba. Y lo que de verdad haría falta comprobar ya
+tuvo su propio incidente — que el planificador esté corriendo. El cron de producción estuvo
+sin ejecutarse y el síntoma fue cero facturas ese mes, con el failover callado porque él sólo
+ve fallos por cliente.
+
+**Recomendación.** Que el tile refleje una señal real y barata: la marca de tiempo de la
+última ejecución del planificador (un `cache()->put('scheduler.heartbeat', now())` en un
+comando que ya corra cada hora) contra un umbral. Verde si latió hace menos de dos horas,
+ámbar si no. Es media hora de trabajo y convierte un adorno en la única alerta pasiva que
+tendría el ISP de que su facturación dejó de correr.
+
+Mientras tanto es preferible **quitar el tile** a dejarlo mintiendo: un indicador que siempre
+dice que todo está bien entrena a la gente a no mirarlo.
+
+### 📋 P-34 · El tag de git es el único eslabón del versionado que nada verifica
+
+`VersionConsistencyTest` ata `config/version.php`, `CHANGELOG.md` y lo que responde la API.
+El **tag** no: vive fuera del repo de trabajo, así que nadie impide publicar 1.1.0, moverlo
+todo, y olvidarse de `git tag`. El síntoma sería silencioso y del peor tipo — creer que
+`v1.0.0` es lo último publicado cuando hay tres versiones encima.
+
+**Recomendación.** Un job de CI que, al fusionar en `main`, compare `config('version.number')`
+con `git describe --tags --abbrev=0` y falle si el tag correspondiente no existe. Alternativa
+más simple: que el propio pipeline de despliegue cree el tag leyendo la config, con lo que
+deja de haber un paso manual que olvidar.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

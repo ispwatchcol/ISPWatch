@@ -1438,6 +1438,14 @@ class HelpCenterSeeder extends Seeder
                     ],
                 ],
             ],
+
+            // 12. INTEGRACIONES Y API
+            //
+            // El texto NO está aquí: viene del archivo compartido con la
+            // migración 2026_08_19_100000, que es la que lo lleva a producción
+            // (los seeders sólo corren en ispwatch_dev). Dos copias del mismo
+            // artículo terminan siempre con la de producción desactualizada.
+            require __DIR__ . '/content/api_publica_articles.php',
         ];
     }
 }

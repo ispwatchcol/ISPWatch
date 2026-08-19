@@ -380,6 +380,47 @@ php artisan billing:verify-cuts
 
 ---
 
+### Publicar una versión
+
+**Desde 2026-08-19 el producto está versionado.** Antes no lo estaba de verdad: el
+único tag era `v1.0.0-beta` (mayo de 2026) con 395 commits encima, y la pantalla de
+Sistema mostraba `v1.0.0` escrito a mano dentro de un `<p>`. Nadie podía responder
+«¿qué versión tiene este cliente?» sin leer el log de git.
+
+**SemVer**, con este criterio:
+
+| | Cuándo |
+|---|---|
+| **MAYOR** | El ISP tiene que hacer algo para seguir operando: se retira un endpoint público, cambia el significado de un campo que ya se consumía, o una migración exige intervención manual |
+| **MENOR** | Función nueva compatible hacia atrás. Es lo normal |
+| **PARCHE** | Corrección de un fallo, sin función nueva |
+
+**La versión del producto NO es la de la API partner.** `/api/v1/partner` tiene su
+propio contrato y su propio ciclo (`docs/openapi/`), justamente para que ISPWatch
+pueda avanzar sin romperle nada al integrador. Que el producto pase a 2.0.0 no
+convierte a la API en v2.
+
+Tres cosas se mueven **juntas** al publicar, y `VersionConsistencyTest` falla si se
+separan:
+
+```bash
+# 1. config/version.php  → number + released_at
+# 2. CHANGELOG.md        → nueva entrada "## [1.1.0] — 2026-09-04" arriba del todo
+# 3. el tag, una vez fusionado en main:
+git checkout main && git pull
+git tag -a v1.1.0 -m "ISPWatch 1.1.0"
+git push origin v1.1.0
+```
+
+El número que ve el usuario sale de `GET /api/system/version`, **no** del bundle:
+un valor escrito en la plantilla gana sobre el del servidor, nadie lo nota porque
+*parece* bien, y además el bundle puede venir cacheado de un despliegue anterior.
+Hay una prueba que rechaza cualquier `v1.2.3` escrito a mano en `Settings.vue`.
+
+Qué va en el CHANGELOG y qué no: ahí va **lo que le cambia al usuario, en su
+idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van en
+`BITACORA_TECNICA.md`, que es otro documento y mucho más largo a propósito.
+
 ## 8. Comandos Artisan
 
 ### Facturación
@@ -1128,6 +1169,8 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 37 | **El tenant NUNCA sale de un parámetro de la petición** | Dos casos vivos encontrados el 2026-08-06: `billing/stats` lo leía de `?tenant=` (cualquiera con `view_billing` podía pedir las finanzas de otra empresa cambiando la URL) y `routers/{id}/free-ips` de `?tenant_id=` con un `if ($tenantId)` que, al no llegar nunca desde el frontend, dejaba la consulta **sin filtro** y escondía IPs libres. Deriva siempre de `$request->user()->tenant_id`, o usa `BelongsToTenant` — y desconfía de todo `if ($tenantId)`: un filtro condicional es un filtro que algún día no se aplica |
 | 36 | **Un `whereIn` polimórfico con NULL no filtra: usa un índice único sin nulos** | En `inventory_balances` el custodio es `holder_type` + `holder_id` **NOT NULL** en vez de `branch_id`/`user_id` nulables, porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos duplicados — y en PostgreSQL **dos NULL son distintos entre sí**, así que un único sobre columnas nulables deja pasar duplicados en silencio. Si necesitas unicidad sobre "una de dos referencias", conviértelo en par tipo+id antes que en dos columnas nulables |
 | 38 | **Un `try/catch` NO protege una transacción de PostgreSQL: hace falta un SAVEPOINT** | Una sentencia que falla deja la transacción **abortada**, y desde ahí toda consulta revienta con `SQLSTATE[25P02] current transaction is aborted` aunque la excepción se haya atrapado — sólo un `ROLLBACK` la desbloquea, y sólo un `ROLLBACK TO SAVEPOINT` sin perder lo anterior. `MoneyAuditObserver::write()` tenía el `try` y aun así tumbaba el `Payment::create()` que auditaba. Toda escritura accesoria que no deba tumbar la operación principal (bitácora, métricas, notificaciones) va envuelta en `Connection::transaction()`, que emite el SAVEPOINT solo cuando ya hay transacción abierta. **En sqlite la diferencia es invisible**, así que esto sólo lo caza el job de PostgreSQL del CI. Ver `BITACORA_TECNICA.md` § 28 |
+| 51 | **Tocar una ruta de `v1/partner` sin tocar el OpenAPI** | `docs/openapi/ispwatch-partner-v1.yaml` es el archivo que el integrador **compila**, no que lee: con él genera su cliente y valida sus respuestas. Un endpoint nuevo sin documentar, uno documentado que ya no existe, o un `ability` que no coincide, rompen su integración semanas después y en su entorno — donde lo primero que se sospecha es su código. `PartnerOpenApiContractTest` compara rutas y `x-ability` en los dos sentidos y falla en el mismo PR |
+| 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` **borra y vuelve a sembrar todo**, y `migrate:both` corre los seeders **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
 | 43 | **`customer_profile.service_id` NO es un servicio: es el PLAN** | FK a `service_plan.id`, pese al nombre (`Plan::find($customer->service_id)` en `CustomerProvisioningService`). Cualquiera que lo mapee a un "id de servicio" —sobre todo integrando con un sistema externo que sí distingue cliente de servicio— correlaciona clientes contra planes y **no ve ningún error**. El id de servicio de verdad es `user_services.id`. La API pública ya lo expone renombrado como `plan.id` justamente para no propagar la trampa |
 | 44 | **Hay DOS punteros al plan y nada garantiza que coincidan** | `user_services.service_plan_id` es el que usa **facturación** (`BillingService` resuelve por ahí qué cobrar); `customer_profile.service_id` es el que usa **aprovisionamiento**. `UserService::syncForCustomer()` los mantiene alineados cuando el cambio pasa por el alta/edición, pero no hay restricción en base que lo imponga: un camino que escriba solo uno los desincroniza en silencio, y el cliente termina facturado por un plan y configurado con otro. Al exponer "el plan" hacia afuera, decidir explícitamente cuál — la API pública usa el de facturación en `/services` |
 | 45 | **Una actualización masiva por query builder no dispara observers** | `Modelo::where(...)->update([...])` no pasa por Eloquent, así que ni `MoneyAuditObserver` ni `PartnerEventObserver` se enteran. Hoy todos los caminos que mueven estado comercial usan instancias (`$profile->save()`, `$service->update()`), incluida la carga masiva. Si se agrega un camino masivo, hay que emitir el evento a mano: el integrador externo quedaría desincronizado **sin ninguna señal** |

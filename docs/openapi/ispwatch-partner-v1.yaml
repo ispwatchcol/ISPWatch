@@ -1,0 +1,1085 @@
+# ============================================================================
+#  ISPWatch · Partner API v1 (solo lectura)
+#  ---------------------------------------------------------------------------
+#  Contrato oficial de la API pública. Este archivo es el entregable para el
+#  integrador: describe TODO lo que la API garantiza y nada más.
+#
+#  POR QUÉ OpenAPI 3.0.3 Y NO 3.1
+#  Por compatibilidad de herramientas, no por antigüedad. 3.1 alinea el esquema
+#  con JSON Schema (`type: [string, "null"]`), pero varios generadores de
+#  clientes todavía lo leen a medias. 3.0.3 lo lee absolutamente todo, y el
+#  precio es escribir `nullable: true`. Para un contrato que otro equipo va a
+#  meter en su cadena de compilación, esa es la elección correcta.
+#
+#  POR QUÉ LOS DECIMALES SON `string`
+#  No es una imprecisión de la documentación: la API los devuelve así de verdad
+#  ("85000.00"). PostgreSQL entrega `numeric` como texto y no se convierte a
+#  propósito — pasar dinero por un float binario introduce errores de redondeo
+#  justo en cartera. El consumidor debe parsearlos con decimal, no con float.
+#
+#  MANTENIMIENTO
+#  `tests/Feature/ApiKeys/PartnerOpenApiContractTest.php` falla si se agrega,
+#  se quita o se le cambia el permiso a una ruta sin tocar este archivo.
+# ============================================================================
+openapi: 3.0.3
+
+info:
+  title: ISPWatch Partner API
+  version: "1.0.0"
+  description: |
+    API de **solo lectura** para integradores externos (CRM, facturación
+    electrónica, orquestadores AAA). Expone la autoridad comercial de ISPWatch
+    —clientes, servicios contratados, cartera, soporte— y un feed de cambios
+    para sincronizar sin re-consultar todo.
+
+    ## Autenticación
+
+    Llave de API en el header, emitida por el ISP o por el operador:
+
+    ```
+    Authorization: Bearer 42|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    La llave se muestra **una sola vez** al emitirla. Cada llave lleva:
+
+    - un **tenant** fijo: sólo ve los datos de ese ISP, y no hay parámetro que
+      lo cambie;
+    - una **allowlist de IP** obligatoria: desde otra IP responde `403`
+      `ip_not_allowed`;
+    - un conjunto de **permisos** (abilities) por área;
+    - un **vencimiento** (obligatorio si el ISP la emitió él mismo, máximo 90
+      días).
+
+    ## Reglas que no se negocian
+
+    | Regla | Consecuencia |
+    |---|---|
+    | Sólo GET | Cualquier otro verbo responde `405 method_not_allowed`, aunque la llave sea válida |
+    | Sólo HTTPS | En producción, HTTP plano responde `403 https_required` (y la llave debe considerarse comprometida) |
+    | Un tenant por llave | Un recurso de otro tenant responde `404`, nunca `403` |
+
+    ## Límites de uso
+
+    60 peticiones por minuto y 5.000 por hora, por llave. Al superarlos:
+    `429`, con `Retry-After`.
+
+    ## Empezar
+
+    1. `GET /ping` — confirma llave, permisos y **desde qué IP te ve el
+       servidor**. Es lo primero que hay que llamar cuando algo da 403.
+    2. Carga inicial: `GET /customers` y `GET /services` paginando.
+    3. Sincronización: `GET /events?since=<último>` en ciclo.
+
+    ## Formato de fechas
+
+    Casi todo viaja en ISO-8601 UTC (`2026-08-19T14:03:11.000000Z`). Hay dos
+    excepciones reales, documentadas campo por campo:
+
+    - `installation_date` es una fecha sin hora (`2026-08-18`);
+    - en `/customers`, `created_at` y `updated_at` salen como
+      `2026-07-03 18:29:20` (UTC, sin `T` ni `Z`), porque provienen de una
+      tabla que no declara esas columnas como fecha. Está así en producción
+      hoy; el consumidor debe aceptar ambas formas.
+
+    ## Lo que esta API NO hace
+
+    - **No escribe.** No suspende, no reconecta, no crea clientes ni pagos.
+    - **No entrega credenciales de red.** `pppoe_password`, `hotspot_password`
+      y `mac_address` están deliberadamente fuera del contrato.
+    - **No confirma ejecución técnica.** El retorno del orquestador hacia
+      ISPWatch es un contrato aparte, todavía no publicado.
+  contact:
+    name: Equipo técnico ISPWatch
+  license:
+    name: Uso restringido al integrador autorizado
+
+servers:
+  - url: https://ispwatch-crm.app/api/v1/partner
+    description: Producción
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Meta
+    description: Verificación de la llave y contrato.
+  - name: Clientes
+    description: Abonados y su estado comercial.
+  - name: Servicios
+    description: Servicios contratados por abonado.
+  - name: Eventos
+    description: Feed de cambios por cursor.
+  - name: Cartera
+    description: Facturas y pagos.
+  - name: Soporte
+    description: Tickets e instalaciones.
+
+paths:
+
+  # --------------------------------------------------------------------------
+  #  Meta
+  # --------------------------------------------------------------------------
+  /ping:
+    get:
+      tags: [Meta]
+      operationId: ping
+      summary: Verificar la llave
+      description: |
+        Único endpoint sin permiso: basta una llave válida. Existe para separar
+        en una sola llamada los tres 403 que se confunden entre sí —«mi IP no
+        está autorizada», «me falta el permiso», «me revocaron la llave»—
+        mientras el integrador depura.
+
+        `your_ip` es la IP de origen **tal como la ve el servidor**. Es el dato
+        que hay que pegar en la allowlist: muy a menudo no coincide con la que
+        el integrador cree tener.
+      responses:
+        "200":
+          description: Llave válida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Ping"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /openapi.yaml:
+    get:
+      tags: [Meta]
+      operationId: openapiSpec
+      summary: Descargar este contrato
+      description: |
+        Devuelve esta misma especificación, servida por el despliegue que la
+        atiende. Sirve para verificar que el archivo que tiene el integrador
+        corresponde a la versión que está corriendo, sin depender de que
+        alguien le reenvíe el archivo correcto por correo.
+      responses:
+        "200":
+          description: Especificación OpenAPI en YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # --------------------------------------------------------------------------
+  #  Clientes
+  # --------------------------------------------------------------------------
+  /customers:
+    get:
+      tags: [Clientes]
+      operationId: listCustomers
+      summary: Listar clientes
+      description: |
+        Abonados del tenant, ordenados por id ascendente.
+
+        El filtro `document` es de **coincidencia exacta**, nunca parcial: una
+        búsqueda por prefijo convertiría esta ruta en un enumerador de la base
+        de clientes del ISP.
+      x-ability: read:customers
+      security:
+        - bearerAuth: [read:customers]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - name: service_status
+          in: query
+          description: Estado comercial exacto.
+          schema: { $ref: "#/components/schemas/ServiceStatus" }
+        - name: router_id
+          in: query
+          description: Router/grupo lógico al que pertenece el cliente.
+          schema: { type: integer }
+        - name: document
+          in: query
+          description: Documento/cédula. Coincidencia exacta.
+          schema: { type: string, maxLength: 40 }
+      responses:
+        "200":
+          description: Página de clientes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Customer" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /customers/{id}:
+    get:
+      tags: [Clientes]
+      operationId: getCustomer
+      summary: Obtener un cliente
+      description: |
+        Un cliente de otro tenant devuelve **404**, no 403: distinguirlos le
+        confirmaría al integrador que ese id existe en la plataforma.
+      x-ability: read:customers
+      security:
+        - bearerAuth: [read:customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Id del cliente (`users.id`).
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Cliente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Customer" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # --------------------------------------------------------------------------
+  #  Servicios
+  # --------------------------------------------------------------------------
+  /services:
+    get:
+      tags: [Servicios]
+      operationId: listServices
+      summary: Listar servicios contratados
+      description: |
+        El `service_id` de esta API es `user_services.id`: identificador
+        estable y distinto del cliente.
+
+        **Advertencia de mapeo.** Existe otra columna llamada
+        `customer_profile.service_id` que **no es un servicio: es el plan**.
+        Mapearla como identificador de servicio rompe la integración en
+        silencio, sin ningún error visible.
+
+        Hoy un cliente tiene un solo punto de red: los atributos de red
+        (`ip`, `pppoe_username`, `router_id`) viven en la ficha del cliente,
+        no en el servicio. El identificador propio existe para que el día que
+        haya multipunto el contrato no tenga que cambiar.
+      x-ability: read:services
+      security:
+        - bearerAuth: [read:services]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/CustomerId"
+        - name: status
+          in: query
+          description: Estado del contrato de servicio.
+          schema: { $ref: "#/components/schemas/ServiceContractStatus" }
+        - name: service_status
+          in: query
+          description: Estado comercial del cliente dueño del servicio.
+          schema: { $ref: "#/components/schemas/ServiceStatus" }
+      responses:
+        "200":
+          description: Página de servicios.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Service" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /services/{id}:
+    get:
+      tags: [Servicios]
+      operationId: getService
+      summary: Obtener un servicio
+      x-ability: read:services
+      security:
+        - bearerAuth: [read:services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Id del servicio (`user_services.id`).
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Servicio.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Service" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # --------------------------------------------------------------------------
+  #  Eventos
+  # --------------------------------------------------------------------------
+  /events:
+    get:
+      tags: [Eventos]
+      operationId: listEvents
+      summary: Feed de cambios comerciales
+      description: |
+        Único endpoint que **no** pagina por página, y es a propósito: el feed
+        crece mientras se recorre, así que «la página 2» ya no contiene las
+        mismas filas y se saltan eventos sin que aparezca ningún error.
+
+        Se recorre por cursor sobre un id autoincremental:
+
+        ```
+        GET /events?since=0&limit=100
+        → { "data": [...], "meta": { "next_since": 18494, "count": 100, "has_more": true } }
+        ```
+
+        El consumidor guarda `next_since` y lo manda en la llamada siguiente.
+        Si no hubo eventos, `next_since` devuelve el mismo `since` recibido
+        —nunca cero—, para que un ciclo vacío no reprocese todo el histórico.
+
+        **El evento es delgado a propósito**: dice qué cambió y de quién, no
+        transporta el recurso. El consumidor re-consulta `/customers/{id}` o
+        `/services/{id}` para el estado definitivo. Así el feed no puede quedar
+        desactualizado, y un evento duplicado —que puede ocurrir— sólo cuesta
+        una petición.
+
+        **Entrega al menos una vez, en orden.** El orden por id es estricto y
+        no hay saltos hacia atrás, pero un mismo cambio puede aparecer dos
+        veces: el consumidor debe ser idempotente por `event_id`.
+      x-ability: read:events
+      security:
+        - bearerAuth: [read:events]
+      parameters:
+        - name: since
+          in: query
+          description: |
+            Último `event_id` ya procesado. Devuelve estrictamente los
+            posteriores. `0` (o ausente) empieza desde el principio.
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: limit
+          in: query
+          description: Tamaño del lote.
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: event_type
+          in: query
+          schema: { $ref: "#/components/schemas/EventType" }
+        - $ref: "#/components/parameters/CustomerId"
+      responses:
+        "200":
+          description: Lote de eventos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Event" }
+                  meta: { $ref: "#/components/schemas/CursorMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # --------------------------------------------------------------------------
+  #  Cartera
+  # --------------------------------------------------------------------------
+  /invoices:
+    get:
+      tags: [Cartera]
+      operationId: listInvoices
+      summary: Listar facturas
+      description: |
+        Ordenadas por fecha de emisión descendente. `from`/`to` filtran por
+        **fecha de emisión**, que es el criterio con el que se cierra un
+        periodo contable.
+      x-ability: read:billing
+      security:
+        - bearerAuth: [read:billing]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/CustomerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/InvoiceStatus" }
+      responses:
+        "200":
+          description: Página de facturas.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Invoice" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /payments:
+    get:
+      tags: [Cartera]
+      operationId: listPayments
+      summary: Listar pagos
+      description: |
+        Ordenados por fecha de pago descendente. `from`/`to` filtran por
+        **fecha de pago**.
+      x-ability: read:billing
+      security:
+        - bearerAuth: [read:billing]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/CustomerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: status
+          in: query
+          schema: { type: string, maxLength: 30, example: completed }
+      responses:
+        "200":
+          description: Página de pagos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Payment" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # --------------------------------------------------------------------------
+  #  Soporte
+  # --------------------------------------------------------------------------
+  /tickets:
+    get:
+      tags: [Soporte]
+      operationId: listTickets
+      summary: Listar tickets de soporte
+      description: |
+        `status`, `priority` y `category` viajan como **código en texto**
+        (`open`, `high`, `technical`), no como id. Es contrato congelado: el
+        día que cambió el almacenamiento interno a catálogos versionados, el
+        JSON se mantuvo idéntico a propósito.
+
+        Un ticket cuyo catálogo no resuelva sigue apareciendo con el campo en
+        `null`, en vez de desaparecer del listado.
+
+        `from`/`to` filtran por **fecha de creación**.
+      x-ability: read:support
+      security:
+        - bearerAuth: [read:support]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/CustomerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/TicketStatus" }
+        - name: priority
+          in: query
+          schema: { $ref: "#/components/schemas/TicketPriority" }
+      responses:
+        "200":
+          description: Página de tickets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Ticket" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /installations:
+    get:
+      tags: [Soporte]
+      operationId: listInstallations
+      summary: Listar instalaciones
+      description: |
+        Visitas de instalación, programadas o ejecutadas. `from`/`to` filtran
+        por **fecha programada**.
+
+        Una instalación puede pertenecer a un prospecto todavía no convertido
+        en cliente: en ese caso `customer_id` es `null` y `prospect_id` no.
+      x-ability: read:support
+      security:
+        - bearerAuth: [read:support]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/CustomerId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/InstallationStatus" }
+      responses:
+        "200":
+          description: Página de instalaciones.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Installation" }
+                  meta: { $ref: "#/components/schemas/PageMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Llave de API de ISPWatch. Formato `<id>|<secreto>`; se envía completa.
+        Los permisos listados en cada operación son los `abilities` que la
+        llave debe tener; sin ellos la respuesta es `403`.
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      description: Tope duro de 100.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    UpdatedSince:
+      name: updated_since
+      in: query
+      description: |
+        Devuelve sólo lo modificado desde esta fecha/hora. Sirve para
+        sincronización incremental barata, pero **no reemplaza a `/events`**:
+        dos escrituras en el mismo segundo son indistinguibles por reloj.
+      schema: { type: string, format: date-time }
+    CustomerId:
+      name: customer_id
+      in: query
+      schema: { type: integer }
+    From:
+      name: from
+      in: query
+      description: Límite inferior de fecha (inclusive).
+      schema: { type: string, format: date }
+    To:
+      name: to
+      in: query
+      description: Límite superior de fecha (inclusive).
+      schema: { type: string, format: date }
+
+  responses:
+    Unauthorized:
+      description: |
+        Llave ausente, inexistente, vencida, revocada, o autenticada por un
+        medio que no es una llave de API (por ejemplo una sesión del panel).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            revocada:
+              value: { error: key_revoked, message: "Esta llave de API fue revocada." }
+            vencida:
+              value: { error: key_expired, message: "Esta llave de API está vencida." }
+    Forbidden:
+      description: |
+        La llave es válida pero la petición no procede. El campo `error`
+        distingue el motivo sin necesidad de llamar por teléfono.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            ip:
+              value: { error: ip_not_allowed, message: "La IP de origen no está autorizada para esta llave." }
+            permiso:
+              summary: Falta el ability del área (respuesta de Sanctum)
+              value: { message: "Invalid ability provided." }
+            desactivado:
+              value: { error: client_disabled, message: "El cliente de API está desactivado." }
+            https:
+              value: { error: https_required, message: "La API sólo se atiende sobre HTTPS." }
+    NotFound:
+      description: |
+        Recurso inexistente **o de otro tenant**: no se distinguen a propósito.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: not_found, message: "Cliente no encontrado." }
+    ValidationError:
+      description: Parámetros inválidos.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
+    TooManyRequests:
+      description: Se superó 60/min o 5.000/hora para esta llave.
+      headers:
+        Retry-After:
+          description: Segundos a esperar antes de reintentar.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+
+    # ---- Enumeraciones -----------------------------------------------------
+
+    ServiceStatus:
+      type: string
+      description: |
+        **Autoridad comercial de conectividad.** Es el campo que decide si hay
+        servicio, y el que un integrador debe mirar.
+
+        - `activo`, `gratis`, `suspendido` → siguen facturando;
+        - `retirado`, `cancelado` → bajas definitivas.
+
+        `suspendido` significa cortado por mora y **sigue generando factura**:
+        no es una baja.
+      enum: [activo, gratis, suspendido, retirado, cancelado]
+
+    ServiceContractStatus:
+      type: string
+      description: |
+        Estado del contrato de servicio, distinto del estado comercial del
+        cliente. `gratis` es el servicio de cortesía.
+      enum: [active, gratis]
+
+    InvoiceStatus:
+      type: string
+      description: |
+        `partial` = hubo abono parcial. En ISPWatch un abono parcial **cierra**
+        la factura y arrastra el faltante al siguiente ciclo, así que un
+        `partial` no implica que el cliente siga en mora.
+      enum: [issued, partial, paid]
+
+    InvoiceType:
+      type: string
+      enum: [monthly, installation, service_charge, additional]
+
+    TicketStatus:
+      type: string
+      enum: [open, in_progress, resolved, closed]
+
+    TicketPriority:
+      type: string
+      enum: [low, medium, high, urgent]
+
+    TicketCategory:
+      type: string
+      enum: [technical, billing, services, general]
+
+    InstallationStatus:
+      type: string
+      enum: [pendiente, completada]
+
+    EventType:
+      type: string
+      description: |
+        Contrato público: se **agregan** valores nuevos, no se renombran los
+        existentes. Un consumidor debe ignorar los tipos que no conozca en vez
+        de fallar.
+      enum:
+        - SERVICE_CREATED
+        - SERVICE_ACTIVATED
+        - SERVICE_SUSPENDED
+        - SERVICE_REACTIVATED
+        - PLAN_CHANGED
+        - SERVICE_CANCELLED
+        - CUSTOMER_UPDATED
+
+    # ---- Tipos base --------------------------------------------------------
+
+    Decimal:
+      type: string
+      description: |
+        Decimal en texto, con dos posiciones (`"85000.00"`). Se transporta como
+        cadena a propósito: convertirlo a float binario introduce error de
+        redondeo en cartera. Parsear con tipo decimal.
+      example: "85000.00"
+
+    Revision:
+      type: integer
+      nullable: true
+      description: |
+        Id del último evento publicado de este recurso. Sirve para reconciliar
+        sin depender del reloj: dos escrituras en el mismo segundo son
+        indistinguibles por `updated_at`, por `revision` no.
+
+        `null` = el recurso no ha cambiado desde que existe el feed. **No es un
+        error** ni un dato faltante.
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: |
+            Código estable y legible por máquina. Los rechazos que produce
+            Sanctum (falta de ability) traen sólo `message`.
+          enum:
+            - method_not_allowed
+            - https_required
+            - invalid_credentials
+            - client_disabled
+            - tenant_missing
+            - key_revoked
+            - key_expired
+            - ip_not_allowed
+            - not_found
+        message:
+          type: string
+          description: Explicación legible por una persona.
+
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        per_page: { type: integer, example: 50 }
+        total: { type: integer, example: 137 }
+        last_page: { type: integer, example: 3 }
+
+    CursorMeta:
+      type: object
+      properties:
+        next_since:
+          type: integer
+          description: |
+            Cursor para la siguiente llamada. Si el lote vino vacío, devuelve
+            el mismo `since` recibido — nunca cero.
+          example: 18494
+        count: { type: integer, example: 100 }
+        has_more:
+          type: boolean
+          description: |
+            `true` = quedan eventos **ahora mismo**; se puede seguir pidiendo
+            sin esperar al próximo ciclo.
+
+    # ---- Recursos ----------------------------------------------------------
+
+    Ping:
+      type: object
+      properties:
+        client: { type: string, description: Nombre de la integración dueña de la llave. }
+        tenant_id: { type: integer, description: ISP al que está atada la llave. }
+        key_name: { type: string }
+        abilities:
+          type: array
+          items: { type: string }
+          example: [read:customers, read:services, read:events, read:support]
+        expires_at: { type: string, format: date-time, nullable: true }
+        your_ip:
+          type: string
+          description: IP de origen vista por el servidor. Es la que va en la allowlist.
+          example: "38.19.43.29"
+        server_time: { type: string, format: date-time }
+
+    Plan:
+      type: object
+      nullable: true
+      description: Plan comercial contratado. `null` si el cliente no tiene plan asignado.
+      properties:
+        id: { type: integer }
+        name: { type: string, example: "Internet Fibra 10MB" }
+        speed_down:
+          type: string
+          description: |
+            **Texto, no número.** Se guarda como lo escribe el ISP (`"10M"`,
+            `"10240k"`), porque es lo que se aplica literalmente en el equipo.
+          example: "10M"
+        speed_up: { type: string, example: "10M" }
+        price:
+          type: integer
+          description: Precio mensual del plan, en la moneda del ISP.
+          example: 142800
+        is_courtesy:
+          type: boolean
+          description: |
+            Plan de cortesía. Sólo presente en `/services`. Un cliente en un
+            plan de cortesía no genera cobro aunque su estado sea `activo`.
+
+    Customer:
+      type: object
+      properties:
+        id: { type: integer, description: "Id del cliente (`users.id`)." }
+        name: { type: string }
+        last_name: { type: string, nullable: true }
+        is_company: { type: boolean }
+        document: { type: string, nullable: true, description: Cédula o NIT. }
+        email:
+          type: string
+          nullable: true
+          description: Correo de contacto del abonado, no su usuario de acceso al portal.
+        phone: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        city: { type: string, nullable: true }
+        state: { type: string, nullable: true }
+        country: { type: string, nullable: true }
+        postal_code: { type: string, nullable: true }
+        latitude: { type: string, nullable: true, example: "4.45859700" }
+        longitude: { type: string, nullable: true, example: "-74.63904800" }
+        installation_date: { type: string, format: date, nullable: true, example: "2026-08-18" }
+        is_enabled:
+          type: boolean
+          description: |
+            **NO es autoritativo y no indica si el cliente está cortado.** El
+            corte automático por mora lo deja en `true`. Para saber si hay
+            servicio hay que mirar `service_status`. Se expone sólo porque
+            existe en la ficha; un integrador no debería tomar decisiones con
+            este campo.
+        service_status: { $ref: "#/components/schemas/ServiceStatus" }
+        credit_balance:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Saldo a favor del cliente.
+        excluded_from_billing:
+          type: boolean
+          description: |
+            `true` = el cliente está **fuera del ciclo automático completo**:
+            no se le emite factura, ni recordatorio, ni aviso, ni se le corta.
+            Precede a todo lo demás.
+        is_fiber: { type: boolean }
+        ip: { type: string, nullable: true, description: IP asignada en el router. }
+        pppoe_username: { type: string, nullable: true }
+        plan: { $ref: "#/components/schemas/Plan" }
+        notify_invoice:
+          type: boolean
+          description: |
+            Si ISPWatch le avisa la factura a este cliente.
+
+            **Es por cliente, no por router.** Lo que se configura a nivel de
+            router es el *canal* (email, WhatsApp o ambos), no el *si*. Hoy
+            **no existe** una política de «no avisar factura» a nivel de
+            grupo/router. Un integrador que emita el documento electrónico por
+            su cuenta necesita este campo para no duplicarle el aviso al
+            abonado.
+        sectorial: { type: string, nullable: true, description: Sector/antena o NAP de fibra. }
+        router:
+          type: string
+          nullable: true
+          description: |
+            Nombre del router. **Editable: no sirve como llave.** Se mantiene
+            por compatibilidad; para identificar el grupo use `router_id`.
+        router_id:
+          type: integer
+          nullable: true
+          description: Identificador estable del router/grupo lógico.
+        router_managed_by_external_aaa:
+          type: boolean
+          description: |
+            `true` = ISPWatch **ya no escribe** en ese equipo. Cubre el
+            aprovisionamiento, el corte por mora, la reconexión al pagar y el
+            reconciliador: con el interruptor puesto, ISPWatch ordena el cambio
+            comercial y publica el evento, pero no toca el router.
+        revision: { $ref: "#/components/schemas/Revision" }
+        created_at:
+          type: string
+          nullable: true
+          description: |
+            Formato `2026-07-03 18:29:20` (UTC, **sin `T` ni `Z`**), a
+            diferencia del resto de la API. Ver «Formato de fechas».
+          example: "2026-07-03 18:29:20"
+        updated_at:
+          type: string
+          nullable: true
+          description: Mismo formato que `created_at`.
+          example: "2026-08-18 13:54:59"
+
+    Service:
+      type: object
+      properties:
+        service_id: { type: integer, description: "`user_services.id`. Estable." }
+        customer_id: { type: integer }
+        status: { $ref: "#/components/schemas/ServiceContractStatus" }
+        service_status:
+          allOf: [{ $ref: "#/components/schemas/ServiceStatus" }]
+          description: |
+            Estado comercial del cliente dueño. **Es el que decide si hay
+            servicio**, por encima de `status`.
+        technology:
+          type: string
+          enum: [FIBER, RADIO]
+        excluded_from_billing: { type: boolean }
+        plan: { $ref: "#/components/schemas/Plan" }
+        network:
+          type: object
+          description: |
+            Atributos de red del punto. Viven en la ficha del cliente: hoy no
+            hay multipunto por abonado.
+          properties:
+            ip: { type: string, nullable: true }
+            pppoe_username: { type: string, nullable: true }
+            router_id: { type: integer, nullable: true }
+            router_name: { type: string, nullable: true }
+            managed_by_external_aaa:
+              type: boolean
+              description: Igual que `router_managed_by_external_aaa` en `/customers`.
+        start_date: { type: string, format: date-time, nullable: true }
+        end_date: { type: string, format: date-time, nullable: true }
+        installation_date: { type: string, format: date, nullable: true }
+        revision: { $ref: "#/components/schemas/Revision" }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    Event:
+      type: object
+      properties:
+        event_id: { type: integer, description: Cursor. Estrictamente creciente. }
+        event_type: { $ref: "#/components/schemas/EventType" }
+        customer_id: { type: integer }
+        service_id:
+          type: integer
+          nullable: true
+          description: Presente cuando el cambio es de un servicio concreto.
+        changes:
+          type: object
+          nullable: true
+          description: |
+            Campos que cambiaron, con valor anterior y nuevo. Es informativo:
+            el estado definitivo se obtiene re-consultando el recurso.
+          additionalProperties:
+            type: object
+            properties:
+              from: {}
+              to: {}
+          example:
+            plan_id: { from: 118, to: 136 }
+        occurred_at: { type: string, format: date-time, nullable: true }
+        revision:
+          type: integer
+          description: |
+            Igual a `event_id`. Permite comparar directamente contra el
+            `revision` que devuelven `/customers` y `/services` sin pedir nada
+            más.
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: integer }
+        customer_id: { type: integer }
+        number: { type: string, nullable: true }
+        type: { $ref: "#/components/schemas/InvoiceType" }
+        issue_date: { type: string, format: date-time, nullable: true }
+        due_date: { type: string, format: date-time, nullable: true }
+        period_start: { type: string, format: date-time, nullable: true }
+        period_end: { type: string, format: date-time, nullable: true }
+        currency: { type: string, example: COP }
+        subtotal: { $ref: "#/components/schemas/Decimal" }
+        tax: { $ref: "#/components/schemas/Decimal" }
+        total: { $ref: "#/components/schemas/Decimal" }
+        balance_due:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Saldo pendiente de esta factura.
+        status: { $ref: "#/components/schemas/InvoiceStatus" }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    Payment:
+      type: object
+      properties:
+        id: { type: integer }
+        customer_id: { type: integer }
+        amount: { $ref: "#/components/schemas/Decimal" }
+        payment_date: { type: string, format: date-time, nullable: true }
+        method: { type: string, nullable: true }
+        reference: { type: string, nullable: true }
+        status: { type: string, nullable: true, example: completed }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    Ticket:
+      type: object
+      properties:
+        id: { type: integer }
+        customer_id:
+          type: integer
+          nullable: true
+          description: "`null` en tickets que no están atados a un abonado."
+        subject: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        status:
+          allOf: [{ $ref: "#/components/schemas/TicketStatus" }]
+          nullable: true
+        priority:
+          allOf: [{ $ref: "#/components/schemas/TicketPriority" }]
+          nullable: true
+        category:
+          allOf: [{ $ref: "#/components/schemas/TicketCategory" }]
+          nullable: true
+        resolved_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    Installation:
+      type: object
+      properties:
+        id: { type: integer }
+        customer_id: { type: integer, nullable: true }
+        prospect_id:
+          type: integer
+          nullable: true
+          description: Instalación de un prospecto todavía no convertido en cliente.
+        scheduled_date: { type: string, format: date-time, nullable: true }
+        technician: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        status: { $ref: "#/components/schemas/InstallationStatus" }
+        completed_at: { type: string, format: date-time, nullable: true }
+        signed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Momento en que el abonado firmó el acta.
+        installation_cost: { $ref: "#/components/schemas/Decimal" }
+        additional_charges: { $ref: "#/components/schemas/Decimal" }
+        discount: { $ref: "#/components/schemas/Decimal" }
+        payment_received: { $ref: "#/components/schemas/Decimal" }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }

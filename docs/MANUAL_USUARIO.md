@@ -8,6 +8,10 @@
 > aplicación (**Manual → Centro de Ayuda**) es su espejo, y sale de
 > `database/seeders/HelpCenterSeeder.php`. **Si corriges algo aquí, corrígelo también allí**:
 > los dos ya se separaron una vez y el de la app acumuló información falsa durante meses.
+>
+> El contenido nuevo que además debe existir **en producción** no puede ir sólo en el
+> seeder: los seeders no corren allí. Va en `database/seeders/content/*.php` —archivo
+> compartido— y una migración lo inserta. Ver § 20.
 
 **Última actualización:** 2026-08-03
 
@@ -33,7 +37,8 @@
 16. [Personal y roles](#16-personal-y-roles)
 17. [Configuración de la empresa](#17-configuración-de-la-empresa)
 18. [Acciones masivas](#18-acciones-masivas)
-19. [Preguntas frecuentes](#19-preguntas-frecuentes)
+19. [Integraciones y API](#19-integraciones-y-api)
+20. [Preguntas frecuentes](#20-preguntas-frecuentes)
 
 ---
 
@@ -97,6 +102,11 @@ A la izquierda está el **menú lateral**. Los grupos que ves dependen de tu rol
 | **Acciones masivas** | Cargas por Excel y paneles de reintentos | Ejecutar acciones masivas |
 | **Configuración** | Datos de la empresa, plantillas, ajustes | Ver ajustes |
 | **Manual** | Centro de ayuda | Todos |
+
+**El Centro de Ayuda** tiene el índice fijo a la izquierda y el artículo se lee en la
+misma página. El buscador de arriba del índice filtra por tema y por categoría, y cada
+artículo tiene su propio enlace (`…/manual#articulo-12`), así que se le puede pasar a un
+compañero directo al tema. Al final de cada artículo están el anterior y el siguiente.
 
 > **Importante:** si necesitas ver una sección y no aparece, no es un error del sistema.
 > Pídele a un administrador que revise tu rol en **Personal → Roles**.
@@ -1965,6 +1975,16 @@ llave que hay que reemplazar.
 larga o un rango de IP más ancho— pídeselo al equipo de ISPWatch, que emite esa llave
 por el otro camino.
 
+### 17.6 Sistema: qué versión tienes
+
+**Configuración → Sistema.** El recuadro **Versión de la Aplicación** dice qué versión de
+ISPWatch está corriendo en tu instalación, y **Última Actualización** cuándo se publicó.
+
+Es el primer dato que te va a pedir soporte. Sale del servidor, así que es el número real
+—no uno guardado en tu navegador de la última vez que entraste—.
+
+Si dice `—`, es que no se pudo consultar en ese momento; recarga la página.
+
 ### 17.7 Auditoría
 
 **Configuración → Auditoría.** Requiere el permiso *Ver Bitácora de Auditoría*.
@@ -2032,7 +2052,77 @@ Los dos paneles de bitácora explicados en la [sección 9.3](#93-ver-qué-se-cor
 
 ---
 
-## 19. Preguntas frecuentes
+## 19. Integraciones y API
+
+Sirve para que **otro sistema** —un CRM, una plataforma de facturación electrónica, el
+software de un aliado— lea automáticamente los datos de tu empresa en ISPWatch, sin que
+nadie exporte archivos a mano.
+
+### 19.1 Qué puede y qué no puede hacer
+
+| Puede | No puede |
+|---|---|
+| Leer clientes, servicios, cartera, tickets e instalaciones | **Escribir cualquier cosa**: no crea clientes, no registra pagos, no corta ni reconecta |
+| Recibir el listado de cambios (altas, cortes, reconexiones, cambios de plan) | Ver contraseñas PPPoE o de hotspot, ni direcciones MAC |
+| Ver **sólo** los datos de tu empresa | Ver los datos de otro ISP de la plataforma |
+
+Esto no es una limitación temporal: la API es de solo lectura por diseño. Si un integrador
+necesita que ISPWatch ejecute algo, esa conversación es aparte.
+
+### 19.2 Emitir una llave
+
+Necesitas el permiso **Gestionar mis llaves de API**.
+
+1. **Registra la integración** (quién se conecta). Una integración puede tener varias
+   llaves: pruebas, producción, y la nueva mientras se rota la vieja.
+2. **Pide la IP pública del integrador.** Es el error más común: no es la IP de su oficina
+   ni la de su computador, sino la del **servidor** que va a llamar. Si hay dudas, que
+   consulte el chequeo de la API (`/ping`): la respuesta le dice con qué IP lo ve
+   ISPWatch. Esa es la que va en la lista.
+3. **Elige los permisos**, sólo los que necesite:
+
+   | Permiso | Da acceso a |
+   |---|---|
+   | Clientes | Ficha del abonado, plan, estado, router y sector |
+   | Servicios | Servicios contratados y su configuración de red |
+   | Cambios | El feed de novedades para sincronizar |
+   | Cartera | Facturas y pagos — **no está en el auto-servicio**, se pide al equipo de ISPWatch |
+   | Soporte | Tickets e instalaciones |
+
+4. **Guarda la llave.** Se muestra **una sola vez**; ISPWatch no la almacena en texto. Si
+   se pierde, se revoca y se emite otra. Entrégala por un medio seguro.
+
+**Vencimiento obligatorio, máximo 90 días** cuando la emites tú. Antes de que caduque hay
+que emitir la nueva y avisarle al integrador: el día del vencimiento su sistema deja de
+recibir datos.
+
+### 19.3 El integrador reporta un error
+
+| Le dice | Qué es | Qué hacer |
+|---|---|---|
+| «IP no autorizada» | Llama desde una IP que no está en la lista | Que consulte `/ping` y te pase la IP que ve el servidor |
+| «No tengo permiso» | A la llave le falta el ability de esa área | Emitir una llave nueva: **los permisos de una llave existente no se editan** |
+| «La llave no vale» | Vencida, revocada o mal copiada | Revisar en el panel si sigue activa y su fecha |
+| «Funcionaba y dejó de funcionar» | Casi siempre el vencimiento | Mirar la fecha antes que nada |
+| «Me rechaza peticiones» | Chocó contra el tope (60/min, 5.000/hora) | Suele significar que pide toda la base en vez de sólo los cambios |
+
+### 19.4 La documentación técnica que le tienes que entregar
+
+Te la va a pedir como «el OpenAPI». **No es una inteligencia artificial** —la confusión con
+OpenAI es constante—: es una **ficha técnica** en formato estándar que describe la API
+entera, para que las herramientas del integrador generen la conexión solas en vez de que
+alguien la adivine campo por campo.
+
+Se descarga desde la propia API una vez que tiene su llave
+(`GET /api/v1/partner/openapi.yaml`), así que siempre recibe la versión que está corriendo
+de verdad y no una copia vieja reenviada por correo.
+
+Antes de que empiece, acuerden cuatro cosas: qué áreas necesita leer, desde qué IP va a
+llamar, cada cuánto va a sincronizar, y quién avisa cuando la llave esté por vencer.
+
+---
+
+## 20. Preguntas frecuentes
 
 **No veo una sección del menú.**
 Tu rol no tiene el permiso. Pide a un administrador que lo revise en **Roles**.

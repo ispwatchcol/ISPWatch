@@ -4775,3 +4775,194 @@ poniendo `router_id` a NULL. Anotado como `P-FK-1` en `MEJORAS_RECOMENDADAS.md`.
 que no sobrescribe ese rechazo, fila antigua sin `service_status` contada como viva, camino de
 las bajas con y sin `force`, clientes de otro router que no estorban, y el contador de la
 lista.
+
+---
+
+## 45. El contrato de la API existía sólo en prosa — 2026-08-19
+
+### 45.1 El hueco
+
+Colombia Net de Occidente pidió formalmente, para arrancar su fase de solo lectura, el
+**OpenAPI generado/sanitizado de la API partner**. Al ir a buscarlo apareció que no existe:
+toda la especificación vivía en la § 22 de `API_REFERENCE.md`, en prosa y en español.
+
+Un humano la lee bien. El problema es que un integrador no la lee: la **compila**. Con el
+archivo, sus herramientas le generan el cliente, le validan las respuestas y le arman las
+pruebas. Sin él, cada campo se infiere, y una inferencia equivocada no falla el día que se
+escribe — falla semanas después, en el entorno del integrador, y lo primero que se pone en
+duda es su código y no nuestra documentación.
+
+### 45.2 Los tipos se verificaron contra la base, no contra el modelo
+
+Escribir el esquema leyendo los controladores habría producido un archivo verosímil y
+equivocado. Se consultaron los tipos reales que devuelve producción, y tres no eran lo que
+parecían:
+
+| Campo | Lo que parece | Lo que es |
+|---|---|---|
+| `total`, `amount`, `credit_balance`, `latitude`… | número | **cadena** (`"85000.00"`): PostgreSQL entrega `numeric` como texto |
+| `plan.speed_down` / `speed_up` | número de bits | **texto** (`"10M"`): es lo que se aplica literal en el equipo |
+| `plan.price` | decimal como los demás | **entero** — la columna es distinta |
+
+Los importes se dejan como cadena a propósito y así queda escrito en el contrato: pasar
+dinero por un float binario introduce redondeo justo en cartera.
+
+Apareció además una inconsistencia real que ahora está documentada en vez de escondida:
+**`created_at`/`updated_at` de `/customers` salen como `2026-07-03 18:29:20`**, sin `T` ni
+`Z`, mientras el resto de la API usa ISO-8601. La causa es que esas columnas se seleccionan
+sobre `CustomerProfile`, un modelo que no las declara como fecha —`customer_profile` no
+tiene timestamps propios—, así que Eloquent no las castea. Cambiar el formato ahora sería
+romperle el contrato a quien ya consume; se documenta y se anota como deuda.
+
+### 45.3 El archivo se sirve, no sólo se envía
+
+`GET /api/v1/partner/openapi.yaml`, dentro del mismo grupo y sin `ability` (como `ping`).
+
+El motivo es concreto: el archivo que tiene el integrador y el código que corre se separan
+en cuanto alguien reenvía una versión vieja por correo. Pidiéndolo a la API, lo que recibe
+es por definición el del despliegue que le está respondiendo. Sigue exigiendo llave válida,
+IP autorizada y HTTPS.
+
+Vive en `docs/openapi/` y no en `public/`: es documentación del proyecto —se revisa en el
+mismo PR que el código— y servirla desde ahí evita una segunda copia.
+
+**OpenAPI 3.0.3 y no 3.1** por compatibilidad de generadores de clientes. El precio es
+escribir `nullable: true` en vez de `type: [string, "null"]`; a cambio, cualquier
+herramienta del integrador lo lee entero.
+
+### 45.4 Lo que impide que se desincronice
+
+`PartnerOpenApiContractTest` compara las rutas reales del grupo `v1/partner` contra las que
+declara el YAML, en los dos sentidos —ninguna sin documentar, ninguna fantasma— y verifica
+que el `ability` que exige el código sea el que anuncia la extensión `x-ability`. Agregar,
+quitar o cambiarle el permiso a un endpoint sin tocar el archivo rompe el CI en el mismo PR.
+
+No se parsea el YAML completo: el proyecto no trae `symfony/yaml` y sumar una dependencia
+para leer un archivo en las pruebas es peor negocio que leerlo de forma acotada. El test es
+explícito sobre su alcance — verifica la correspondencia ruta ↔ contrato, no la validez del
+esquema entero, que se comprobó aparte al escribirlo.
+
+### 45.5 El Centro de Ayuda pasó a índice fijo
+
+Era una rejilla de once tarjetas con el artículo en un modal. Con 41 artículos eso obliga a
+barrer la pantalla para encontrar un tema, y el modal tapa el índice justo cuando uno
+quiere saltar al siguiente artículo. Ahora es índice a la izquierda —con buscador que
+filtra por artículo y por categoría— y lectura en la misma página, con anterior/siguiente y
+enlace directo por artículo (`#articulo-12`).
+
+**El contenido no se tocó.** Las 11 categorías y los 41 artículos siguen viniendo de la
+base y editándose desde el panel; lo que cambió es la navegación. Cualquier otra decisión
+habría implicado borrar contenido que alguien escribió.
+
+De paso se registraron cuatro iconos que se usaban sin estar dados de alta en `app.js`
+(`hi-folder`, `bi-shield-exclamation`, `bi-clipboard-check`, `bi-plug`): renderizaban vacío,
+y en el diseño anterior casi no se notaba porque el icono de categoría era decorativo.
+
+### 45.6 Contenido nuevo en el Centro de Ayuda: por qué migración y no seeder
+
+Se agregó la categoría **Integraciones y API** con cinco artículos, en lenguaje de usuario:
+qué es la API, cómo emitir una llave, qué ve cada permiso, qué revisar cuando el integrador
+reporta un error, y qué documentación entregarle.
+
+El problema de fondo es que el Centro de Ayuda se puebla por dos caminos incompatibles:
+`HelpCenterSeeder` **borra y vuelve a sembrar todo**, y los seeders sólo corren en
+`ispwatch_dev`. Escribir el contenido en el seeder lo habría dejado fuera de producción,
+que es el único sitio donde un ISP lo lee; escribirlo sólo en una migración lo habría hecho
+desaparecer la próxima vez que alguien re-sembrara en desarrollo.
+
+La salida es un archivo compartido —`database/seeders/content/api_publica_articles.php`—
+que alimenta a los dos. La migración es **idempotente por título y no sobrescribe**: si
+alguien editó el texto desde el panel, su versión manda. Fijado por
+`ApiPublicaHelpContentTest`, que comprueba los dos caminos.
+
+### 45.7 Estado
+
+Suite completa en verde: **894 pruebas, 2 795 aserciones**. Build de Vite limpio.
+
+El host de producción quedó confirmado el mismo día: **`https://ispwatch-crm.app`**. El
+ejemplo de la § 22 de `API_REFERENCE.md` decía `app.ispwatch.co` y era falso — el resto del
+documento y `.env.production` siempre dijeron lo correcto. Nadie lo notó porque ninguna
+prueba mira eso, y es el primer dato que copia un integrador.
+
+Pendiente al desplegar: `migrate:both`, por la migración del Centro de Ayuda.
+
+---
+
+## 46. El producto no estaba versionado: la pantalla decía v1.0.0 desde mayo — 2026-08-19
+
+### 46.1 Lo que había
+
+Tres fuentes, ninguna de acuerdo con las otras:
+
+| Dónde | Qué decía |
+|---|---|
+| Único tag de git | `v1.0.0-beta`, del 2026-05-18 — con **395 commits** encima |
+| `Settings.vue` → Sistema | `v1.0.0`, escrito a mano dentro de un `<p>` |
+| `package.json` / `composer.json` | nada |
+
+O sea que a la pregunta con la que empieza cualquier diagnóstico —«¿qué versión tiene este
+cliente?»— sólo se podía responder leyendo el log de git y adivinando qué había llegado al
+droplet. Un número de versión en el que nadie confía es peor que no tener número: convierte
+la primera pregunta de soporte en ruido.
+
+En la misma pantalla, **«Última Actualización» era `new Date()`**: le decía al usuario que
+el sistema se actualizó hoy, cualquier día que mirara. Un panel que informa siempre lo mismo
+no informa; simula.
+
+### 46.2 Dónde vive el número
+
+`config/version.php` — `number` + `released_at`. No un archivo `VERSION` suelto ni el campo
+`version` de `composer.json`: como config, entra en `config:cache` con todo lo demás y se lee
+igual desde el controlador, el test y una consola.
+
+El frontend **no lo trae escrito**: lo pide a `GET /api/system/version`. Dos razones, y la
+segunda es la que importa: un valor escrito en la plantilla gana sobre el del servidor y
+nadie lo nota, porque *parece* bien; y el bundle puede venir cacheado de un despliegue
+anterior, o sea que el navegador podría estar mostrando la versión de la semana pasada
+mientras el backend ya corre otra.
+
+El endpoint va **sin permiso**. Exigir `view_settings` le negaría la respuesta justamente a
+quien está llamando a soporte, que no siempre es administrador.
+
+### 46.3 Qué impide que se quede quieto
+
+El modo de fallo del versionado no es fallar: es **no moverse**. Alguien publica, se olvida
+de subir el número, y durante meses todo el mundo cree que corre algo que no corre. Es
+exactamente lo que pasó entre mayo y agosto.
+
+`VersionConsistencyTest` ata las tres cosas que se mueven juntas:
+
+- la versión configurada es SemVer válida;
+- la **primera entrada del `CHANGELOG.md` es esa misma versión, con esa misma fecha**;
+- la API la devuelve a cualquier autenticado, y no sin sesión;
+- **no hay ningún `v1.2.3` escrito a mano en `Settings.vue`** — la regresión concreta que
+  este archivo existe para impedir.
+
+Lo que ninguna prueba puede atar es el tag de git: vive fuera del repo de trabajo. Queda
+como paso manual documentado en el manual del desarrollador.
+
+### 46.4 Dos versionados que no se deben confundir
+
+La versión del producto **no** es la de la API partner. `/api/v1/partner` tiene su propio
+contrato y su propio ciclo de vida (§ 45), justamente para que ISPWatch pueda avanzar sin
+romperle nada al integrador. Que el producto pase a 2.0.0 no convierte a la API en v2, y una
+`v2` de la API no obliga a un mayor del producto.
+
+Está escrito en los tres sitios donde alguien podría asumir lo contrario: el encabezado de
+`config/version.php`, el del `CHANGELOG.md` y la sección de publicación del manual del
+desarrollador.
+
+### 46.5 Por qué 1.0.0 y no 1.0.0-final o 2.0.0
+
+Porque `v1.0.0-beta` ya existía y la plataforma lleva meses cobrando y cortando en
+producción: seguir llamándola beta era la mentira contraria. 1.0.0 es la primera versión
+numerada de verdad, y **no "añade" todo lo que lista su entrada del CHANGELOG** — le pone
+nombre a lo que ya estaba funcionando y abre el registro de aquí en adelante. Está dicho así
+en el propio CHANGELOG para que nadie lo lea como una entrega.
+
+### 46.6 Lo que queda fuera
+
+En la misma pantalla, **«Estado del Sistema: Operativo»** sigue siendo un texto fijo con un
+punto verde: no comprueba nada. Se dejó como estaba porque un estado honesto exige
+verificaciones reales —y la que de verdad haría falta es si el planificador corrió, que ya
+tuvo su propio incidente—. Anotado como P-33.
