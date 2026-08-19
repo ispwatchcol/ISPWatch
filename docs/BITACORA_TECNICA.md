@@ -4803,7 +4803,9 @@ alguien editó el texto desde el panel, su versión manda. Fijado por
 
 Suite completa en verde: **894 pruebas, 2 795 aserciones**. Build de Vite limpio.
 
-Pendiente al desplegar: `migrate:both` (la migración del Centro de Ayuda) y confirmar que
-el `servers` del contrato —`https://ispwatch-crm.app`, tomado de `.env.production`— es el
-host que el integrador debe usar. El ejemplo que había en `API_REFERENCE.md` decía
-`app.ispwatch.co`, que no corresponde a ningún despliegue conocido.
+El host de producción quedó confirmado el mismo día: **`https://ispwatch-crm.app`**. El
+ejemplo de la § 22 de `API_REFERENCE.md` decía `app.ispwatch.co` y era falso — el resto del
+documento y `.env.production` siempre dijeron lo correcto. Nadie lo notó porque ninguna
+prueba mira eso, y es el primer dato que copia un integrador.
+
+Pendiente al desplegar: `migrate:both`, por la migración del Centro de Ayuda.

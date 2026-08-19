@@ -1446,17 +1446,20 @@ en el OpenAPI, que es lo único que evita que alguien lo descubra en producción
 tanto, no repetir el patrón: cualquier endpoint nuevo que exponga fechas debe pasarlas por
 un cast o formatearlas explícitamente en el presentador.
 
-### 📋 P-32 · La URL pública de producción no está confirmada en ningún sitio revisable
+### ✅ P-32 · La URL pública de producción decía dos cosas distintas (2026-08-19)
 
-El `servers` del contrato OpenAPI dice `https://ispwatch-crm.app`, tomado de
-`.env.production`. El ejemplo que había en `API_REFERENCE.md` decía `app.ispwatch.co`, que
-no corresponde a ningún despliegue conocido — o sea que **uno de los dos llevaba tiempo
-equivocado** y nadie lo notó, porque ninguna prueba mira eso.
+El ejemplo de la § 22 de `API_REFERENCE.md` decía `app.ispwatch.co`. **Es falso**: el host
+real es `https://ispwatch-crm.app` (confirmado el 2026-08-19, y es lo que dicen
+`.env.production` y el resto del documento). Llevaba tiempo equivocado y nadie lo notó,
+porque ninguna prueba mira eso — y es el primer dato que copia un integrador.
 
-Es el primer dato que copia un integrador. `PartnerOpenApiContractTest` ahora al menos
-impide que se cuele un `localhost`, pero no puede saber cuál es el host correcto.
-Confirmarlo y dejarlo escrito en un solo lugar es trabajo de cinco minutos que evita una
-tarde perdida del otro lado.
+Corregido en el ejemplo y fijado como `servers` del contrato OpenAPI.
+
+Lo que **sigue sin cubrirse**: `PartnerOpenApiContractTest` impide que se cuele un
+`localhost` y exige HTTPS, pero no puede saber cuál es el host correcto. Si el dominio
+cambia, el contrato quedará mintiendo igual que mintió el ejemplo. La red de seguridad real
+sería derivarlo de `config('app.url')` al servir `/openapi.yaml`; no se hizo porque
+reescribir el YAML al vuelo obliga a parsearlo, y el proyecto no trae `symfony/yaml`.
 
 ## 8. Tabla consolidada
 
