@@ -1521,6 +1521,36 @@ con `git describe --tags --abbrev=0` y falle si el tag correspondiente no existe
 más simple: que el propio pipeline de despliegue cree el tag leyendo la config, con lo que
 deja de haber un paso manual que olvidar.
 
+### 🟠 P-35 · El tenant operador de las llaves de API no existe: ese camino lleva meses muerto
+
+`config/api_keys.php` toma `operator_tenant_id` de `API_KEYS_OPERATOR_TENANT_ID`, **por
+defecto `1`**. En producción esa variable no está definida y **el tenant 1 no existe** (los
+que hay son 16, 17, 19 y 22). Consecuencia: el camino centralizado de emisión de llaves
+—`ApiClientController`, rutas `/api/api-clients/*`, el único que puede emitir para
+cualquier tenant y sin tope de vigencia— **es inalcanzable para todo el mundo**.
+
+Detectado el 2026-08-19 al ir a emitir la llave read-only de CNO sobre el tenant 19.
+
+Lo que lo hace difícil de ver: **no falla, desaparece**. `Settings.vue` calcula
+`isApiKeyOperator` comparando el tenant de la sesión con el configurado; como nunca
+coincide, la pestaña simplemente no se dibuja y en su lugar aparece la de auto-servicio.
+Nadie ve un error. La funcionalidad existe, está probada, y no hay forma de llegar a ella.
+
+El auto-servicio sí funciona, así que la emisión no está bloqueada — pero con sus topes:
+**vencimiento obligatorio de 90 días** y sin `read:billing`. Para una integración de
+partner que no se quiere renovar cada trimestre, eso importa.
+
+**Recomendación.** Definir `API_KEYS_OPERATOR_TENANT_ID` con un tenant real (el 17,
+«ISPWATCH PRUEBAS», es el que tiene al único usuario `is_superadmin`) y redesplegar. Y en
+el código, que la ausencia del tenant operador **se note**: hoy un id inexistente y un id
+válido producen exactamente el mismo comportamiento visual. Un aviso al arrancar, o que la
+pestaña se muestre deshabilitada explicando por qué, evita que la próxima función
+configurable se pierda del mismo modo.
+
+Relacionado: `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL` sigue sin definir (§ 37.5 de la
+bitácora), así que hoy **nadie se entera** cuando un ISP emite una llave: sólo queda la
+línea en el log de la aplicación.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
