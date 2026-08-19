@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-19 · Rama: `fix/l2tp-tunnel-profile-local-address`
+**Última actualización:** 2026-08-19 · Rama: `docs/api-keys-operator-tenant-missing`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Las llaves de API y la auditoría se veían rotas en modo oscuro (2026-08-19, § 47):** `.input`/`.label`
+  viven `scoped` en `Settings.vue` y no bajan a los componentes hijos, así que los campos salían con el
+  estilo nativo del navegador — cajas blancas sobre tarjeta oscura. Además `md-vpnkey` y `md-history`
+  nunca se registraron en `addIcons()`, dejando sin icono las pestañas *Llaves API* y *Auditoría*.
 - **Borrar un core se llevaba por delante a sus clientes (2026-08-19, § 44):** el DELETE devolvía
   200 y la FK `ON DELETE SET NULL` dejaba a los abonados sin router — fuera de facturación, de
   cortes y de falla masiva, y sin rastro de a qué core pertenecían. Ahora la API rechaza con 409;
@@ -4966,3 +4970,146 @@ En la misma pantalla, **«Estado del Sistema: Operativo»** sigue siendo un text
 punto verde: no comprueba nada. Se dejó como estaba porque un estado honesto exige
 verificaciones reales —y la que de verdad haría falta es si el planificador corrió, que ya
 tuvo su propio incidente—. Anotado como P-33.
+
+---
+
+## 47. Las llaves de API y la auditoría se veían rotas en modo oscuro — 2026-08-19
+
+### 47.1 El síntoma
+
+En *Configuración → Llaves API*, los campos del formulario aparecían como **cajas blancas sin
+relleno** sobre la tarjeta oscura, con la etiqueta pegada a la izquierda en la misma línea en vez
+de encima. La pantalla entera se leía como una cuadrícula de recuadros sueltos. En *Auditoría*,
+los filtros salían con el marco fino y el texto pegado al borde que dibuja el navegador por su
+cuenta. Y las pestañas *Llaves API* y *Auditoría* no tenían icono, mientras sus vecinas
+—*Importar Datos*, *Sistema*— sí.
+
+### 47.2 Tres causas distintas, ninguna con señal
+
+**1. `.input` y `.label` son `scoped`.** `Settings.vue` las define en su propio `<style scoped>`,
+así que sólo aplican dentro de esa plantilla. `ApiKeysSection.vue` y `TenantApiKeysSection.vue`
+—que salieron de ahí como componentes aparte— las usan en cada campo y **no reciben nada**: un
+`class="input"` que no resuelve a ninguna regla deja el control con el estilo por defecto del
+navegador, que en un tema oscuro es blanco. No falla el build, no hay warning y en modo claro
+apenas se nota. Ese es el motivo de que llegara a producción.
+
+**2. Los filtros de auditoría llevaban `border-gray-300` sin `border`.** En Tailwind el color del
+borde no crea el borde; sin `border` ni `px`/`py`, el `<select>` y los `<input type="date">` se
+quedan con el estilo nativo. Se veía «casi bien», que es peor que verse mal: nadie lo reporta.
+
+**3. `md-vpnkey`, `md-history` y `md-personadd` nunca se registraron.** `oh-vue-icons` sólo dibuja
+los iconos pasados a `addIcons()` en `resources/js/app.js`. Con un nombre no registrado **renderiza
+un hueco vacío y no dice nada** — ni error de consola, ni advertencia de build. Las tres pestañas
+nuevas se añadieron con nombres de icono correctos y sin el `import` correspondiente.
+
+### 47.3 Qué se hizo
+
+- **Iconos.** `MdVpnkey`, `MdHistory` y `MdPersonadd` importados y registrados; se sumaron
+  `MdContentcopy` y `MdRefresh`, que ahora usan los botones de copiar y actualizar.
+- **Formularios.** Cada sección declara sus `.label`/`.input` en su propio `<style scoped>`, con
+  fondo `gray-900/60` y foco anillado. No se movieron a `app.css` ni se activó
+  `@tailwindcss/forms` —que está instalado pero **no** en los `plugins` de la config— porque eso
+  normaliza todos los controles nativos de la aplicación de golpe y merece su propio PR. Queda
+  anotado como P-36.
+- **Menos marcos.** Los recuadros con borde se sustituyeron por superficies con fondo suave
+  (`tile`, `panel`): era la acumulación de bordes lo que producía el efecto de cuadrícula.
+- **Llaves API.** Los cuatro contadores de cuota llevan barra de progreso; la vigencia tiene
+  atajos de 30/60/máximo; los permisos son tarjetas seleccionables en vez de casillas sueltas; las
+  IPs escritas se muestran como etiquetas a medida que se teclean; y la columna de vencimiento se
+  volvió **Estado** — *Vigente · N d*, *Vence en N d* en ámbar desde una semana antes, *Vencida*,
+  *Revocada*—, porque una fecha suelta obliga a hacer la resta mental justo cuando importa.
+- **Auditoría.** El buscador filtra solo con 400 ms de espera y los demás filtros se aplican al
+  elegirlos; el panel se pliega, pero lo aplicado queda a la vista como fichas que se quitan una
+  por una. El detalle de cada movimiento pasó del volcado JSON a una tabla *campo / antes /
+  después*.
+
+### 47.4 Lo que esto deja dicho
+
+Un componente que se extrae de una pantalla grande **se lleva las clases y deja atrás los
+estilos**. Es una regresión silenciosa por construcción: el marcado sigue siendo válido, el build
+pasa y las pruebas —que no miran píxeles— también. Mientras `.input` y `.label` sigan definidas
+siete veces en siete archivos, va a volver a pasar; el arreglo de fondo es un `@layer components`
+compartido, y está propuesto en `MEJORAS_RECOMENDADAS.md` P-36.
+
+Quedó registrado además como trampa #53 y #54 del manual del desarrollador: los estilos `scoped`
+que no bajan al hijo, y el `<v-icon>` con un nombre sin registrar que no se ve y no avisa.
+
+---
+
+## 47. La API era usable y nadie sabía cómo — 2026-08-19
+
+### 47.1 El hueco
+
+Horas después de publicar el contrato OpenAPI (§ 45), el operador emitió su primera llave y
+la pregunta fue inmediata: *«no veo una documentación pública en producción que me diga qué
+comandos debo usar»*.
+
+Tenía razón, y el hueco era exactamente el que el § 45 no cubría. El OpenAPI resuelve el
+problema del **integrador**, que lo compila. No resuelve el del **ISP**, que acaba de pulsar
+«emitir» y se queda mirando una cadena de sesenta caracteres sin saber qué hacer con ella.
+Lo que había sobre la API estaba en el Centro de Ayuda —cómo emitir, qué ve cada permiso—
+pero nada decía cómo hacer la primera llamada.
+
+Diagnóstico del estado real en ese momento: la llave estaba bien configurada (4 permisos
+correctos, allowlist puesta, vence en 90 días) y `api_key_request_logs` tenía **cero filas**.
+La API no estaba fallando; nadie había podido llamarla.
+
+### 47.2 Dónde va la documentación: donde está el usuario
+
+Un artículo nuevo del Centro de Ayuda —«Probar la API: primeros comandos, Postman y curl»—
+con la dirección base, el formato de la llave, la cabecera `Accept`, el orden de prueba, la
+importación del contrato en Postman y la tabla de errores en lenguaje de operador.
+
+Pero el artículo por sí solo repite el problema en menor escala: está a tres clics y una
+búsqueda de distancia de donde el usuario está parado. Por eso el cambio que de verdad
+cierra el hueco es el otro: **al emitir la llave, el panel muestra el comando de prueba ya
+armado con esa llave**, con botón de copiar, junto a la advertencia de que no se vuelve a
+mostrar. Convierte «ya tengo la llave» en «ya la probé», que es donde se descubre si la IP
+quedó bien.
+
+La URL base no está escrita a mano ni viene de una variable del frontend: sale de
+`window.location.origin`. El panel se sirve del mismo despliegue que atiende la API, así que
+el origen actual **es** la respuesta correcta y no puede quedarse viejo si cambia el dominio.
+
+### 47.3 El consejo que dábamos no funcionaba
+
+La documentación decía —y el propio `ping` está diseñado para eso— que ante un problema de
+allowlist el integrador consulte `/ping` para ver con qué IP lo ve el servidor.
+
+**No funciona en el caso para el que existe.** La comprobación de allowlist vive en
+`EnsureApiKeyRequest`, o sea en el middleware, *antes* del controlador: con la IP mal, la
+respuesta es `403 ip_not_allowed` y nunca se llega a `ping`. El remedio documentado sólo
+sirve cuando ya no hace falta.
+
+El camino que sí funciona existía y no estaba dicho: la bitácora de peticiones del panel
+(*Ver peticiones*) registra la IP de origen y el motivo del rechazo **también** en las
+llamadas denegadas. Queda escrito en el artículo y en el propio panel.
+
+Agravante que lo vuelve caro: **la allowlist de una llave emitida no se puede editar** —no
+hay ruta de actualización, sólo crear y revocar—, así que equivocarse de IP cuesta emitir
+otra llave. Por eso el aviso ahora aparece antes de que ocurra.
+
+### 47.4 Dos escapes de barra invertida que sí rompieron cosas
+
+Al armar el comando de ejemplo, la misma trampa mordió dos veces en lenguajes distintos:
+
+- en JavaScript, una barra invertida al final de línea **dentro de un template literal** es
+  continuación de línea: desaparece, y el comando se copiaba en una sola línea sin las barras
+  que curl espera. Se arma por líneas con `join`, que no admite ambigüedad;
+- el mismo carácter, escribiendo el artículo con un script de Python, colapsó el bloque
+  `<pre>` del HTML por la misma razón.
+
+Nada de esto lo detecta una prueba: el resultado es un comando que *parece* bien y que, en el
+primer caso, hasta funciona al pegarlo. Se verificó imprimiendo la cadena final.
+
+### 47.5 Por qué una migración nueva y no editar la del § 45.6
+
+La 2026_08_19_100000 ya había corrido en producción (lote 88, aplicada por el despliegue
+automático al fusionar el PR). Laravel no la vuelve a ejecutar, así que agregar el artículo
+al archivo compartido no lo habría llevado a ningún sitio donde alguien lo lea.
+
+Editar una migración ya aplicada es peor: funciona en las bases nuevas y deja fuera
+exactamente a la que importa. El artículo entra por una migración propia, con el mismo bucle
+idempotente. El bucle se duplica a conciencia — una migración es un registro histórico, y
+extraerlo a una clase compartida significa que cambiarla dentro de seis meses cambia también
+lo que hicieron las migraciones ya ejecutadas.

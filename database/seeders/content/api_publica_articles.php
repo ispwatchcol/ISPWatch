@@ -161,5 +161,69 @@ HTML,
 HTML,
         'tips'    => 'Si el integrador insiste en que necesita escribir en ISPWatch (crear clientes, marcar pagos, cortar), eso hoy no existe en la API pública y no es un olvido: es una decisión de diseño. Consúltanos antes de comprometer una fecha.',
     ],
+    [
+        'title'   => 'Probar la API: primeros comandos, Postman y curl',
+        'display_order' => 6,
+        'is_published'  => true,
+        'content' => <<<'HTML'
+<h2>Lo mínimo para hacer la primera llamada</h2>
+<p>Necesitas tres cosas: la <strong>dirección base</strong>, la <strong>llave</strong> y una <strong>cabecera</strong> que casi todo el mundo olvida.</p>
+
+<h3>1. La dirección base</h3>
+<p>Es la misma dirección con la que entras al panel, seguida de la ruta de la API:</p>
+<pre>https://TU-DIRECCION/api/v1/partner</pre>
+<p>Si entras a ISPWatch por <code>https://ispwatch-crm.app</code>, la base es <code>https://ispwatch-crm.app/api/v1/partner</code>.</p>
+
+<h3>2. La llave</h3>
+<p>Va en una cabecera, no en la dirección. Se manda <strong>completa</strong>, incluida la parte antes de la barra vertical:</p>
+<pre>Authorization: Bearer 42|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</pre>
+<p>Nunca la pongas en la URL: quedaría escrita en el historial del navegador, en los registros de cualquier equipo intermedio y en cualquier captura de pantalla.</p>
+
+<h3>3. La cabecera que evita una hora perdida</h3>
+<pre>Accept: application/json</pre>
+<p><strong>No es opcional en la práctica.</strong> Sin ella, una llamada con la llave mal copiada no responde "no autorizado": responde con una redirección a la pantalla de inicio de sesión. Tu programa la sigue, recibe el HTML del panel, y el error que ves no menciona la llave por ningún lado. Con la cabecera, el error dice exactamente qué pasó.</p>
+
+<h2>La primera llamada</h2>
+<p>Empieza <strong>siempre</strong> por <code>/ping</code>. Es el único punto que no exige permisos y responde tres cosas de una sola vez: si la llave sirve, qué permisos tiene y <strong>desde qué dirección IP te ve el servidor</strong>.</p>
+<pre>curl -H "Authorization: Bearer TU-LLAVE" \
+     -H "Accept: application/json" \
+     https://TU-DIRECCION/api/v1/partner/ping</pre>
+<p>Al emitir una llave nueva, el panel te muestra este mismo comando ya armado con tu llave: sólo hay que copiarlo y pegarlo.</p>
+
+<h2>Desde Postman (o Insomnia)</h2>
+<p>No armes la colección a mano. La API publica su propio <strong>contrato</strong> y esos programas lo leen solos:</p>
+<ol>
+  <li>Descarga el contrato con tu llave, desde <code>https://TU-DIRECCION/api/v1/partner/openapi.yaml</code></li>
+  <li>En Postman: <strong>File → Import</strong> y suelta ese archivo.</li>
+  <li>Te crea la colección entera con todas las consultas, sus filtros y sus respuestas de ejemplo.</li>
+  <li>En la colección → <strong>Authorization</strong> → tipo <em>Bearer Token</em> → pega la llave. La heredan todas las peticiones.</li>
+  <li>En la colección → <strong>Headers</strong> → agrega <code>Accept: application/json</code>.</li>
+</ol>
+
+<h2>Orden recomendado de prueba</h2>
+<ol>
+  <li><code>GET /ping</code> — confirma llave, permisos e IP.</li>
+  <li><code>GET /customers?per_page=5</code> — primera página real.</li>
+  <li><code>GET /customers/{id}</code> — el detalle de uno de los anteriores.</li>
+  <li><code>GET /services?customer_id={id}</code> — sus servicios.</li>
+  <li><code>GET /events?since=0&amp;limit=50</code> — el listado de cambios. Guarda el valor <code>next_since</code> que viene en la respuesta.</li>
+  <li><code>GET /events?since=NEXT_SINCE</code> — debe volver vacío y devolverte el mismo número.</li>
+</ol>
+<p>Ese último paso es el que de verdad vale: así se comprueba que el integrador puede pedir sólo lo que cambió, en vez de descargarse toda tu base de clientes cada vez.</p>
+
+<h2>Si algo responde con error</h2>
+<table>
+  <tr><td><strong>IP no autorizada</strong></td><td>Estás llamando desde una dirección que no está en la lista de la llave. <strong>La lista de una llave ya emitida no se puede cambiar</strong>: hay que revocarla y emitir otra. Para saber qué IP llegó de verdad, entra a <em>Ver peticiones</em> en la integración: la bitácora muestra la dirección exacta y el motivo del rechazo.</td></tr>
+  <tr><td><strong>Sin permiso</strong></td><td>La llave es válida pero le falta el permiso de esa área. Los permisos tampoco se editan: se emite una llave nueva.</td></tr>
+  <tr><td><strong>Llave no válida</strong></td><td>Vencida, revocada, o copiada con un espacio de más. Revisa en el panel si sigue activa.</td></tr>
+  <tr><td><strong>Sólo se admite GET</strong></td><td>Se intentó crear o modificar algo. Esta API únicamente lee, y no hay permiso que lo cambie.</td></tr>
+  <tr><td><strong>Demasiadas peticiones</strong></td><td>Se superaron las 60 por minuto o las 5.000 por hora de esa llave. Suele significar que el programa pide toda la base cada pocos minutos en vez de pedir sólo los cambios.</td></tr>
+</table>
+
+<h2>Cuidado al probar con herramientas gráficas</h2>
+<p>La función de "ejecutar toda la colección" de Postman lanza decenas de peticiones seguidas y choca contra el límite por minuto enseguida. Para probar, lanza las consultas de una en una.</p>
+HTML,
+        'tips'    => 'Si la llave la vas a pegar en un chat, un correo o un ticket para pasársela a alguien, dala por comprometida: revócala y emite otra. Se muestra una sola vez justamente para que no ande circulando.',
+    ],
     ],
 ];

@@ -1939,7 +1939,8 @@ llave que vea otra empresa, ni siquiera equivocándose.
 
 Arriba de la pantalla verás cuatro contadores —llaves vigentes, integraciones, vigencia
 máxima y rango de IP más amplio—. Están ahí para que sepas los límites **antes** de
-llenar el formulario, no después de que te lo rechace.
+llenar el formulario, no después de que te lo rechace. Los dos primeros llevan una barra
+que se pone ámbar cuando ya estás en el tope.
 
 **Paso a paso**
 
@@ -1947,11 +1948,20 @@ llenar el formulario, no después de que te lo rechace.
    contacto. Pulsa **Crear integración**.
 2. Pulsa **Emitir llave** y completa:
    - **Nombre de la llave**: para distinguirla si tienes varias (`produccion-bot`).
-   - **Vence el**: obligatorio, y como máximo 90 días. Cuando venza, emites otra —es un
-     minuto de trabajo y evita que una llave siga viva cuando ya cambiaste de proveedor.
-   - **Permisos de lectura**: marca sólo lo que la integración necesite.
-   - **IPs autorizadas**: la IP pública del servidor donde corre la integración.
-3. **Copia la llave en ese momento.** Sólo se muestra una vez.
+   - **Vence el**: obligatorio, y como máximo 90 días. Viene propuesto con el máximo, y
+     debajo tienes atajos (*30 días*, *60 días*, *90 días (máx.)*) para no pelearte con el
+     calendario. Cuando venza, emites otra —es un minuto de trabajo y evita que una llave
+     siga viva cuando ya cambiaste de proveedor.
+   - **Permisos de lectura**: cada permiso es una tarjeta que se marca al pulsarla y queda
+     resaltada. Marca sólo lo que la integración necesite.
+   - **IPs autorizadas**: la IP pública del servidor donde corre la integración. A medida
+     que escribes, debajo aparece cada IP como una etiqueta suelta: si una no aparece, es
+     que está mal separada.
+3. **Copia la llave en ese momento** con el botón **Copiar**. Sólo se muestra una vez.
+
+En la tabla de llaves, la columna **Estado** te dice de un vistazo si la llave está
+*Vigente* (con los días que le quedan), *Vence en N d* —en ámbar, desde una semana antes—,
+*Vencida* o *Revocada*, sin que tengas que restar fechas.
 
 **Los límites, y por qué existen**
 
@@ -2010,8 +2020,14 @@ La columna **Origen** es la que más suele hacer falta:
 Es la diferencia entre «un operador subió el precio» y «lo cambió un archivo que alguien
 importó», que es justo lo que no se podía distinguir antes.
 
-Puedes filtrar por tipo de registro, acción, origen y rango de fechas, y buscar texto en la
-descripción. **Ver detalle** muestra los valores exactos antes y después.
+**Los filtros.** El buscador está siempre a la vista y filtra solo, sin pulsar nada: escribe
+y espera un instante. El botón **Filtros** despliega el resto —tipo de registro, acción,
+origen y rango de fechas—, que se aplican en cuanto los eliges. Debajo queda una ficha por
+cada filtro puesto: púlsala para quitar ese y sólo ese, o usa **Limpiar** para quitarlos
+todos. El número junto a **Filtros** dice cuántos hay activos aunque el panel esté plegado.
+
+**Ver detalle** muestra los valores exactos antes y después, campo por campo y en columnas
+—no el volcado técnico que había antes—.
 
 La bitácora es **solo lectura**: no se puede editar ni borrar desde el sistema, a propósito.
 Solo ves lo de tu sede.
@@ -2111,7 +2127,22 @@ recibir datos.
 | «Funcionaba y dejó de funcionar» | Casi siempre el vencimiento | Mirar la fecha antes que nada |
 | «Me rechaza peticiones» | Chocó contra el tope (60/min, 5.000/hora) | Suele significar que pide toda la base en vez de sólo los cambios |
 
-### 19.4 La documentación técnica que le tienes que entregar
+### 19.4 Probar la llave apenas la emites
+
+Al terminar de emitir una llave, el panel muestra —debajo del token— **el comando de prueba
+ya armado con tu llave**. Cópialo, pégalo en una terminal y sabrás en el acto si quedó bien.
+
+Responde tres cosas de una sola vez: si la llave sirve, qué permisos tiene y **desde qué IP
+te ve el servidor**. Ese último dato es el que resuelve el error más común.
+
+El paso a paso completo —incluida la importación en Postman— está en
+**Manual → Integraciones y API → Probar la API**.
+
+> **Cuidado con dónde pega esa llave.** Si la mandas por chat, correo o un ticket para
+> pasársela a alguien, dala por comprometida: revócala y emite otra. Se muestra una sola vez
+> justamente para que no ande circulando.
+
+### 19.5 La documentación técnica que le tienes que entregar
 
 Te la va a pedir como «el OpenAPI». **No es una inteligencia artificial** —la confusión con
 OpenAI es constante—: es una **ficha técnica** en formato estándar que describe la API
