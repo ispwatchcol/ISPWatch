@@ -1360,6 +1360,25 @@ correo** los que encuentre caídos. Sólo mira y avisa: no toca nada ni intenta 
 o cuando *Verificar VPN* da caído y el equipo sí tiene internet. Ojo: el script se aplica **en el
 router**, no desde ISPWatch — el botón sólo te da el texto para pegarlo.
 
+### 11.8 Eliminar un router
+
+**Un router con clientes encima no se puede eliminar.** Si intentas borrarlo, el sistema te
+dice cuántos clientes dependen de él y no te deja seguir.
+
+No es una molestia burocrática: esos clientes quedarían **sin router**, y un cliente sin
+router se cae de todo lo que funciona por router — no se le factura, no se le corta, no entra
+en los avisos de falla masiva y no se puede volver a cargar al equipo. Y no queda registro de
+en qué router estaba, así que tampoco se puede deshacer.
+
+**Qué hacer antes de eliminarlo:** entra a cada cliente y cámbiale el router (o dalo de baja
+si ya no es cliente). Cuando no quede ninguno, el botón funciona.
+
+> **Caso aparte: routers viejos con puros clientes retirados.** Si de ese router sólo cuelgan
+> clientes **retirados o cancelados**, el sistema te avisa de que vas a perder el dato de a qué
+> router estuvieron conectados y te deja confirmar con **Eliminar de todas formas**. Con
+> clientes activos, suspendidos o gratis **no hay confirmación que valga**: primero se
+> reasignan.
+
 ---
 
 ## 12. Sectoriales y fibra óptica

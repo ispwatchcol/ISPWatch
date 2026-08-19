@@ -13,8 +13,11 @@ export default {
     update(id, data) {
         return apiClient.put(`/routers/${id}`, data)
     },
-    delete(id) {
-        return apiClient.delete(`/routers/${id}`)
+    // `force` solo sirve para routers que ya no tienen clientes vivos y cuyo
+    // unico vinculo son bajas (retirado/cancelado). Un router con clientes
+    // activos lo rechaza el backend pase lo que pase.
+    delete(id, { force = false } = {}) {
+        return apiClient.delete(`/routers/${id}`, force ? { params: { force: 1 } } : undefined)
     },
     getInterfaces(id) {
         return apiClient.get(`/routers/${id}/interfaces`)
