@@ -1551,6 +1551,67 @@ Relacionado: `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL` sigue sin definir (§ 37.5 de 
 bitácora), así que hoy **nadie se entera** cuando un ISP emite una llave: sólo queda la
 línea en el log de la aplicación.
 
+### 📋 P-36 · Las clases de formulario se copian en cada componente, y `@tailwindcss/forms` está instalado sin usar
+
+`.input` y `.label` están definidas siete veces —`Settings.vue`, `CustomerAdd`,
+`CustomerEdit`, `RouterAdd`, `RouterEdit`, `InventoryForm`, `DocumentTemplatesSection`— y
+cada copia vive en un `<style scoped>`, así que **no alcanza a ningún componente hijo**.
+`ApiKeysSection.vue` y `TenantApiKeysSection.vue` usaban esas clases sin declararlas y sus
+campos salían con el estilo nativo del navegador: cajas blancas sobre tarjeta oscura
+(§ 47 de la bitácora). Se arreglaron declarándolas también ahí — o sea, con una copia más.
+
+El fallo no da ninguna señal: compila, no hay warning, y en modo claro pasa por un campo
+feo en vez de por un error. Cualquier sección nueva que salga de un archivo grande hacia su
+propio componente lo repite.
+
+Encima, `@tailwindcss/forms` está en `package.json` pero **no está en los `plugins` de
+`tailwind.config.js`**, así que hoy no hace nada: se paga la dependencia sin recibir el
+único mecanismo que evitaría el problema de raíz.
+
+**Recomendación.** Mover `.label`/`.input` (y las variantes de botón que ya se repiten:
+`btn-primary`, `btn-ghost`, `chip`) a un `@layer components` de `resources/css/app.css` y
+borrar las copias `scoped`. Activar `@tailwindcss/forms` es la otra mitad, pero **no es
+gratis**: normaliza todos los controles nativos de la aplicación de golpe, así que exige
+revisar pantalla por pantalla y va en su propio PR, no colado en otro.
+
+### 🟠 P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona
+
+Cuando una llave se usa desde una IP no autorizada, la respuesta es:
+
+```json
+{ "error": "ip_not_allowed", "message": "La IP de origen no está autorizada para esta llave." }
+```
+
+No dice **cuál** IP llegó. Y el remedio que documentábamos —«consulta `/ping`, que te
+devuelve la IP con la que te ve el servidor»— **no sirve en este caso**: la comprobación de
+allowlist vive en el middleware, antes del controlador, así que con la IP mal nunca se llega
+a `ping`. El único endpoint pensado para diagnosticar esto es inalcanzable exactamente
+cuando hace falta.
+
+Hoy el dato existe, pero sólo del lado del ISP: la bitácora de peticiones registra la IP y el
+motivo del rechazo también en las denegadas. O sea que resolverlo exige que el integrador
+llame por teléfono al ISP, que el ISP entre al panel y le lea la IP. Y como **la allowlist de
+una llave emitida no se puede editar**, el desenlace es revocar y emitir otra.
+
+**Recomendación.** Incluir la IP observada en el propio 403:
+
+```json
+{ "error": "ip_not_allowed", "message": "…", "your_ip": "38.19.43.120" }
+```
+
+No es una fuga: quien llama ya conoce su propia IP de salida —es suya—, y el resto de la
+respuesta no revela nada del ISP. Convierte una llamada de soporte en un arreglo de treinta
+segundos. Es un cambio de tres líneas en `EnsureApiKeyRequest`; se deja anotado y no aplicado
+porque toca la respuesta de un endpoint público, y eso merece entrar como cambio de contrato
+—con su nota en el OpenAPI— y no colado dentro de otro trabajo.
+
+**Aparte, evaluar si la allowlist debería ser editable.** Hoy no lo es, y hay un argumento
+sólido a favor: cambiarla altera desde dónde vale una llave viva, que es justo lo que un
+atacante con acceso al panel querría hacer. Pero el coste es que el error más común y más
+inocente —tecleé mal mi IP— sólo se arregla emitiendo una llave nueva y coordinando el
+cambio con el integrador. Una edición **auditada** de la allowlist, sin tocar permisos ni
+vigencia, probablemente sea el equilibrio correcto.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

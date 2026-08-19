@@ -170,6 +170,11 @@ import {
   BiShieldExclamation,
   BiClipboardCheck,
   BiPlug,
+  MdVpnkey,
+  MdHistory,
+  MdPersonadd,
+  MdContentcopy,
+  MdRefresh,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -332,6 +337,11 @@ addIcons(
   BiShieldExclamation,
   BiClipboardCheck,
   BiPlug,
+  MdVpnkey,
+  MdHistory,
+  MdPersonadd,
+  MdContentcopy,
+  MdRefresh,
 );
 
 // -------------------------------
