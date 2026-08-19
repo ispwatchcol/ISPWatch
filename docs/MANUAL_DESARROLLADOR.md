@@ -380,6 +380,47 @@ php artisan billing:verify-cuts
 
 ---
 
+### Publicar una versión
+
+**Desde 2026-08-19 el producto está versionado.** Antes no lo estaba de verdad: el
+único tag era `v1.0.0-beta` (mayo de 2026) con 395 commits encima, y la pantalla de
+Sistema mostraba `v1.0.0` escrito a mano dentro de un `<p>`. Nadie podía responder
+«¿qué versión tiene este cliente?» sin leer el log de git.
+
+**SemVer**, con este criterio:
+
+| | Cuándo |
+|---|---|
+| **MAYOR** | El ISP tiene que hacer algo para seguir operando: se retira un endpoint público, cambia el significado de un campo que ya se consumía, o una migración exige intervención manual |
+| **MENOR** | Función nueva compatible hacia atrás. Es lo normal |
+| **PARCHE** | Corrección de un fallo, sin función nueva |
+
+**La versión del producto NO es la de la API partner.** `/api/v1/partner` tiene su
+propio contrato y su propio ciclo (`docs/openapi/`), justamente para que ISPWatch
+pueda avanzar sin romperle nada al integrador. Que el producto pase a 2.0.0 no
+convierte a la API en v2.
+
+Tres cosas se mueven **juntas** al publicar, y `VersionConsistencyTest` falla si se
+separan:
+
+```bash
+# 1. config/version.php  → number + released_at
+# 2. CHANGELOG.md        → nueva entrada "## [1.1.0] — 2026-09-04" arriba del todo
+# 3. el tag, una vez fusionado en main:
+git checkout main && git pull
+git tag -a v1.1.0 -m "ISPWatch 1.1.0"
+git push origin v1.1.0
+```
+
+El número que ve el usuario sale de `GET /api/system/version`, **no** del bundle:
+un valor escrito en la plantilla gana sobre el del servidor, nadie lo nota porque
+*parece* bien, y además el bundle puede venir cacheado de un despliegue anterior.
+Hay una prueba que rechaza cualquier `v1.2.3` escrito a mano en `Settings.vue`.
+
+Qué va en el CHANGELOG y qué no: ahí va **lo que le cambia al usuario, en su
+idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van en
+`BITACORA_TECNICA.md`, que es otro documento y mucho más largo a propósito.
+
 ## 8. Comandos Artisan
 
 ### Facturación

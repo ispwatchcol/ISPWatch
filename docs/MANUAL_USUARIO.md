@@ -1975,6 +1975,16 @@ llave que hay que reemplazar.
 larga o un rango de IP más ancho— pídeselo al equipo de ISPWatch, que emite esa llave
 por el otro camino.
 
+### 17.6 Sistema: qué versión tienes
+
+**Configuración → Sistema.** El recuadro **Versión de la Aplicación** dice qué versión de
+ISPWatch está corriendo en tu instalación, y **Última Actualización** cuándo se publicó.
+
+Es el primer dato que te va a pedir soporte. Sale del servidor, así que es el número real
+—no uno guardado en tu navegador de la última vez que entraste—.
+
+Si dice `—`, es que no se pudo consultar en ese momento; recarga la página.
+
 ### 17.7 Auditoría
 
 **Configuración → Auditoría.** Requiere el permiso *Ver Bitácora de Auditoría*.

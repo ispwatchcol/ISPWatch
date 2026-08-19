@@ -4885,3 +4885,84 @@ documento y `.env.production` siempre dijeron lo correcto. Nadie lo notó porque
 prueba mira eso, y es el primer dato que copia un integrador.
 
 Pendiente al desplegar: `migrate:both`, por la migración del Centro de Ayuda.
+
+---
+
+## 46. El producto no estaba versionado: la pantalla decía v1.0.0 desde mayo — 2026-08-19
+
+### 46.1 Lo que había
+
+Tres fuentes, ninguna de acuerdo con las otras:
+
+| Dónde | Qué decía |
+|---|---|
+| Único tag de git | `v1.0.0-beta`, del 2026-05-18 — con **395 commits** encima |
+| `Settings.vue` → Sistema | `v1.0.0`, escrito a mano dentro de un `<p>` |
+| `package.json` / `composer.json` | nada |
+
+O sea que a la pregunta con la que empieza cualquier diagnóstico —«¿qué versión tiene este
+cliente?»— sólo se podía responder leyendo el log de git y adivinando qué había llegado al
+droplet. Un número de versión en el que nadie confía es peor que no tener número: convierte
+la primera pregunta de soporte en ruido.
+
+En la misma pantalla, **«Última Actualización» era `new Date()`**: le decía al usuario que
+el sistema se actualizó hoy, cualquier día que mirara. Un panel que informa siempre lo mismo
+no informa; simula.
+
+### 46.2 Dónde vive el número
+
+`config/version.php` — `number` + `released_at`. No un archivo `VERSION` suelto ni el campo
+`version` de `composer.json`: como config, entra en `config:cache` con todo lo demás y se lee
+igual desde el controlador, el test y una consola.
+
+El frontend **no lo trae escrito**: lo pide a `GET /api/system/version`. Dos razones, y la
+segunda es la que importa: un valor escrito en la plantilla gana sobre el del servidor y
+nadie lo nota, porque *parece* bien; y el bundle puede venir cacheado de un despliegue
+anterior, o sea que el navegador podría estar mostrando la versión de la semana pasada
+mientras el backend ya corre otra.
+
+El endpoint va **sin permiso**. Exigir `view_settings` le negaría la respuesta justamente a
+quien está llamando a soporte, que no siempre es administrador.
+
+### 46.3 Qué impide que se quede quieto
+
+El modo de fallo del versionado no es fallar: es **no moverse**. Alguien publica, se olvida
+de subir el número, y durante meses todo el mundo cree que corre algo que no corre. Es
+exactamente lo que pasó entre mayo y agosto.
+
+`VersionConsistencyTest` ata las tres cosas que se mueven juntas:
+
+- la versión configurada es SemVer válida;
+- la **primera entrada del `CHANGELOG.md` es esa misma versión, con esa misma fecha**;
+- la API la devuelve a cualquier autenticado, y no sin sesión;
+- **no hay ningún `v1.2.3` escrito a mano en `Settings.vue`** — la regresión concreta que
+  este archivo existe para impedir.
+
+Lo que ninguna prueba puede atar es el tag de git: vive fuera del repo de trabajo. Queda
+como paso manual documentado en el manual del desarrollador.
+
+### 46.4 Dos versionados que no se deben confundir
+
+La versión del producto **no** es la de la API partner. `/api/v1/partner` tiene su propio
+contrato y su propio ciclo de vida (§ 45), justamente para que ISPWatch pueda avanzar sin
+romperle nada al integrador. Que el producto pase a 2.0.0 no convierte a la API en v2, y una
+`v2` de la API no obliga a un mayor del producto.
+
+Está escrito en los tres sitios donde alguien podría asumir lo contrario: el encabezado de
+`config/version.php`, el del `CHANGELOG.md` y la sección de publicación del manual del
+desarrollador.
+
+### 46.5 Por qué 1.0.0 y no 1.0.0-final o 2.0.0
+
+Porque `v1.0.0-beta` ya existía y la plataforma lleva meses cobrando y cortando en
+producción: seguir llamándola beta era la mentira contraria. 1.0.0 es la primera versión
+numerada de verdad, y **no "añade" todo lo que lista su entrada del CHANGELOG** — le pone
+nombre a lo que ya estaba funcionando y abre el registro de aquí en adelante. Está dicho así
+en el propio CHANGELOG para que nadie lo lea como una entrega.
+
+### 46.6 Lo que queda fuera
+
+En la misma pantalla, **«Estado del Sistema: Operativo»** sigue siendo un texto fijo con un
+punto verde: no comprueba nada. Se dejó como estaba porque un estado honesto exige
+verificaciones reales —y la que de verdad haría falta es si el planificador corrió, que ya
+tuvo su propio incidente—. Anotado como P-33.

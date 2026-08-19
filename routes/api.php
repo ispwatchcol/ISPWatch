@@ -578,6 +578,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::post('/settings/cache/clear', [SettingsController::class, 'clearCache']);
     });
 
+    // Versión del despliegue. Fuera del grupo de arriba a propósito: es lo
+    // primero que pregunta soporte, y exigir `view_settings` se lo negaría
+    // justamente a quien está llamando a pedir ayuda.
+    Route::get('/system/version', [SettingsController::class, 'version']);
+
     // ─── HELP CENTER / MANUAL ───
     // La LECTURA queda abierta a cualquier autenticado: es el manual del
     // producto y la ruta /manual no exige permiso. La ESCRITURA no: hasta

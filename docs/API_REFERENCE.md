@@ -1770,6 +1770,18 @@ que usa el campo "A nombre de quién" de un gasto.
 | Método | Ruta | Permiso |
 |---|---|---|
 | `POST` | `/api/settings/cache/clear` | `view_settings` |
+| `GET` | `/api/system/version` | — (cualquier usuario autenticado) |
+
+`/api/system/version` devuelve la versión del despliegue que atiende:
+
+```json
+{ "version": "1.0.0", "released_at": "2026-08-19" }
+```
+
+**Sin permiso a propósito.** Es lo primero que pregunta soporte —«¿qué versión te
+aparece?»— y exigir `view_settings` se lo negaría justamente a quien está llamando
+a pedir ayuda. Sale del servidor y no del bundle del navegador, que puede venir
+cacheado de un despliegue anterior. Fuente única: `config/version.php`.
 
 ---
 

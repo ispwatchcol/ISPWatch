@@ -1488,6 +1488,39 @@ sería derivarlo de `config('app.url')` al servir `/openapi.yaml`; no se hizo po
 reescribir el YAML al vuelo obliga a parsearlo, y el proyecto no trae `symfony/yaml`.
 
 
+### 📋 P-33 · «Estado del Sistema: Operativo» no comprueba nada
+
+En **Configuración → Sistema**, junto a la versión, hay un punto verde que dice «Operativo».
+Es texto fijo en la plantilla: diría lo mismo con el planificador caído, la cola parada y la
+VPN al CORE muerta.
+
+Se dejó así al versionar el producto (§ 46 de la bitácora) porque un estado honesto no es
+cosmética: hay que decidir **qué** se comprueba. Y lo que de verdad haría falta comprobar ya
+tuvo su propio incidente — que el planificador esté corriendo. El cron de producción estuvo
+sin ejecutarse y el síntoma fue cero facturas ese mes, con el failover callado porque él sólo
+ve fallos por cliente.
+
+**Recomendación.** Que el tile refleje una señal real y barata: la marca de tiempo de la
+última ejecución del planificador (un `cache()->put('scheduler.heartbeat', now())` en un
+comando que ya corra cada hora) contra un umbral. Verde si latió hace menos de dos horas,
+ámbar si no. Es media hora de trabajo y convierte un adorno en la única alerta pasiva que
+tendría el ISP de que su facturación dejó de correr.
+
+Mientras tanto es preferible **quitar el tile** a dejarlo mintiendo: un indicador que siempre
+dice que todo está bien entrena a la gente a no mirarlo.
+
+### 📋 P-34 · El tag de git es el único eslabón del versionado que nada verifica
+
+`VersionConsistencyTest` ata `config/version.php`, `CHANGELOG.md` y lo que responde la API.
+El **tag** no: vive fuera del repo de trabajo, así que nadie impide publicar 1.1.0, moverlo
+todo, y olvidarse de `git tag`. El síntoma sería silencioso y del peor tipo — creer que
+`v1.0.0` es lo último publicado cuando hay tres versiones encima.
+
+**Recomendación.** Un job de CI que, al fusionar en `main`, compare `config('version.number')`
+con `git describe --tags --abbrev=0` y falle si el tag correspondiente no existe. Alternativa
+más simple: que el propio pipeline de despliegue cree el tag leyendo la config, con lo que
+deja de haber un paso manual que olvidar.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
