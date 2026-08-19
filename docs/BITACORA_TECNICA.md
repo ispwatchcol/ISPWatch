@@ -4670,3 +4670,27 @@ acota el barrido, y los dos casos que salieron del dry-run real — sin ninguna 
 es candidato (MIRIAN), *no facturar* con factura pagada **sí** lo es (GABRIEL).
 
 Suite completa: **889 pruebas en verde**; build de Vite limpio.
+
+### 41.5 Aplicado en producción — 2026-08-18
+
+Sobre `CORE_SAN_ISIDRO` (hEX 6.47.10), sin desplazamiento al sitio. Se llegó al equipo con
+una ruta temporal `10.72.103.1/32` por su túnel en el CORE (borrada al terminar):
+
+```
+/ppp profile add name=ISPWatch-VPN change-tcp-mss=yes
+/interface l2tp-client set [find name=ISPWatch-VPN-CORE] profile=ISPWatch-VPN
+```
+
+El `set` reinicia la interfaz, así que la renegociación fue inmediata; **no hizo falta
+tocar el `disable/enable`**, que es lo único que podía dejar el equipo incomunicado.
+
+| | antes | después |
+|---|---|---|
+| dirección del túnel en el cliente | `10.72.103.1/32` | `172.16.16.253/32` |
+| `/ping 172.16.16.253 ttl=1` desde el CORE | `TTL exceeded` de `10.72.103.1` | contesta él, 0 % pérdida |
+| `router:probe-overlay 62` | `NO ES ÉL` | `RESPONDE` |
+| lectura de interfaces WAN | fallaba por los dos caminos | 5 interfaces por `CORE_SSH_EXEC` |
+
+De paso quedó descartada la última hipótesis que circulaba —"es el usuario"—: el `/user print`
+que devolvió `ispwatch group=full` lo ejecutó **ese mismo usuario** con `exit-code: 0`. La
+credencial nunca estuvo mal; lo que fallaba era que sus paquetes no llegaban.
