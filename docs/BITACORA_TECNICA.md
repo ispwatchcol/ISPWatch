@@ -4694,3 +4694,116 @@ tocar el `disable/enable`**, que es lo único que podía dejar el equipo incomun
 De paso quedó descartada la última hipótesis que circulaba —"es el usuario"—: el `/user print`
 que devolvió `ispwatch group=full` lo ejecutó **ese mismo usuario** con `exit-code: 0`. La
 credencial nunca estuvo mal; lo que fallaba era que sus paquetes no llegaban.
+
+---
+
+## 45. El contrato de la API existía sólo en prosa — 2026-08-19
+
+> El § 44 se escribió en paralelo, en la rama `fix/l2tp-tunnel-profile-local-address`, que
+> el 2026-08-19 todavía no estaba fusionada en `main`. Este trabajo salió de `main`, así que
+> se numeró 45 para no chocar con aquél: dos secciones con el mismo número habrían
+> convertido la fusión en un conflicto con dos § 44 distintos y nada que dijera cuál era cuál.
+
+### 45.1 El hueco
+
+Colombia Net de Occidente pidió formalmente, para arrancar su fase de solo lectura, el
+**OpenAPI generado/sanitizado de la API partner**. Al ir a buscarlo apareció que no existe:
+toda la especificación vivía en la § 22 de `API_REFERENCE.md`, en prosa y en español.
+
+Un humano la lee bien. El problema es que un integrador no la lee: la **compila**. Con el
+archivo, sus herramientas le generan el cliente, le validan las respuestas y le arman las
+pruebas. Sin él, cada campo se infiere, y una inferencia equivocada no falla el día que se
+escribe — falla semanas después, en el entorno del integrador, y lo primero que se pone en
+duda es su código y no nuestra documentación.
+
+### 45.2 Los tipos se verificaron contra la base, no contra el modelo
+
+Escribir el esquema leyendo los controladores habría producido un archivo verosímil y
+equivocado. Se consultaron los tipos reales que devuelve producción, y tres no eran lo que
+parecían:
+
+| Campo | Lo que parece | Lo que es |
+|---|---|---|
+| `total`, `amount`, `credit_balance`, `latitude`… | número | **cadena** (`"85000.00"`): PostgreSQL entrega `numeric` como texto |
+| `plan.speed_down` / `speed_up` | número de bits | **texto** (`"10M"`): es lo que se aplica literal en el equipo |
+| `plan.price` | decimal como los demás | **entero** — la columna es distinta |
+
+Los importes se dejan como cadena a propósito y así queda escrito en el contrato: pasar
+dinero por un float binario introduce redondeo justo en cartera.
+
+Apareció además una inconsistencia real que ahora está documentada en vez de escondida:
+**`created_at`/`updated_at` de `/customers` salen como `2026-07-03 18:29:20`**, sin `T` ni
+`Z`, mientras el resto de la API usa ISO-8601. La causa es que esas columnas se seleccionan
+sobre `CustomerProfile`, un modelo que no las declara como fecha —`customer_profile` no
+tiene timestamps propios—, así que Eloquent no las castea. Cambiar el formato ahora sería
+romperle el contrato a quien ya consume; se documenta y se anota como deuda.
+
+### 45.3 El archivo se sirve, no sólo se envía
+
+`GET /api/v1/partner/openapi.yaml`, dentro del mismo grupo y sin `ability` (como `ping`).
+
+El motivo es concreto: el archivo que tiene el integrador y el código que corre se separan
+en cuanto alguien reenvía una versión vieja por correo. Pidiéndolo a la API, lo que recibe
+es por definición el del despliegue que le está respondiendo. Sigue exigiendo llave válida,
+IP autorizada y HTTPS.
+
+Vive en `docs/openapi/` y no en `public/`: es documentación del proyecto —se revisa en el
+mismo PR que el código— y servirla desde ahí evita una segunda copia.
+
+**OpenAPI 3.0.3 y no 3.1** por compatibilidad de generadores de clientes. El precio es
+escribir `nullable: true` en vez de `type: [string, "null"]`; a cambio, cualquier
+herramienta del integrador lo lee entero.
+
+### 45.4 Lo que impide que se desincronice
+
+`PartnerOpenApiContractTest` compara las rutas reales del grupo `v1/partner` contra las que
+declara el YAML, en los dos sentidos —ninguna sin documentar, ninguna fantasma— y verifica
+que el `ability` que exige el código sea el que anuncia la extensión `x-ability`. Agregar,
+quitar o cambiarle el permiso a un endpoint sin tocar el archivo rompe el CI en el mismo PR.
+
+No se parsea el YAML completo: el proyecto no trae `symfony/yaml` y sumar una dependencia
+para leer un archivo en las pruebas es peor negocio que leerlo de forma acotada. El test es
+explícito sobre su alcance — verifica la correspondencia ruta ↔ contrato, no la validez del
+esquema entero, que se comprobó aparte al escribirlo.
+
+### 45.5 El Centro de Ayuda pasó a índice fijo
+
+Era una rejilla de once tarjetas con el artículo en un modal. Con 41 artículos eso obliga a
+barrer la pantalla para encontrar un tema, y el modal tapa el índice justo cuando uno
+quiere saltar al siguiente artículo. Ahora es índice a la izquierda —con buscador que
+filtra por artículo y por categoría— y lectura en la misma página, con anterior/siguiente y
+enlace directo por artículo (`#articulo-12`).
+
+**El contenido no se tocó.** Las 11 categorías y los 41 artículos siguen viniendo de la
+base y editándose desde el panel; lo que cambió es la navegación. Cualquier otra decisión
+habría implicado borrar contenido que alguien escribió.
+
+De paso se registraron cuatro iconos que se usaban sin estar dados de alta en `app.js`
+(`hi-folder`, `bi-shield-exclamation`, `bi-clipboard-check`, `bi-plug`): renderizaban vacío,
+y en el diseño anterior casi no se notaba porque el icono de categoría era decorativo.
+
+### 45.6 Contenido nuevo en el Centro de Ayuda: por qué migración y no seeder
+
+Se agregó la categoría **Integraciones y API** con cinco artículos, en lenguaje de usuario:
+qué es la API, cómo emitir una llave, qué ve cada permiso, qué revisar cuando el integrador
+reporta un error, y qué documentación entregarle.
+
+El problema de fondo es que el Centro de Ayuda se puebla por dos caminos incompatibles:
+`HelpCenterSeeder` **borra y vuelve a sembrar todo**, y los seeders sólo corren en
+`ispwatch_dev`. Escribir el contenido en el seeder lo habría dejado fuera de producción,
+que es el único sitio donde un ISP lo lee; escribirlo sólo en una migración lo habría hecho
+desaparecer la próxima vez que alguien re-sembrara en desarrollo.
+
+La salida es un archivo compartido —`database/seeders/content/api_publica_articles.php`—
+que alimenta a los dos. La migración es **idempotente por título y no sobrescribe**: si
+alguien editó el texto desde el panel, su versión manda. Fijado por
+`ApiPublicaHelpContentTest`, que comprueba los dos caminos.
+
+### 45.7 Estado
+
+Suite completa en verde: **894 pruebas, 2 795 aserciones**. Build de Vite limpio.
+
+Pendiente al desplegar: `migrate:both` (la migración del Centro de Ayuda) y confirmar que
+el `servers` del contrato —`https://ispwatch-crm.app`, tomado de `.env.production`— es el
+host que el integrador debe usar. El ejemplo que había en `API_REFERENCE.md` decía
+`app.ispwatch.co`, que no corresponde a ningún despliegue conocido.

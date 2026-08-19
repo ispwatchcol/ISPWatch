@@ -166,6 +166,10 @@ import {
   BiGraphUp,
   BiCashCoin,
   MdCancelOutlined,
+  HiFolder,
+  BiShieldExclamation,
+  BiClipboardCheck,
+  BiPlug,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
@@ -324,6 +328,10 @@ addIcons(
   BiGraphUp,
   BiCashCoin,
   MdCancelOutlined,
+  HiFolder,
+  BiShieldExclamation,
+  BiClipboardCheck,
+  BiPlug,
 );
 
 // -------------------------------

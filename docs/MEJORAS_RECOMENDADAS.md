@@ -1413,6 +1413,51 @@ reintentar `unsuspendCustomer()`. Reusa el backoff y `MAX_ATTEMPTS` que ya tiene
 `SuspensionActionLog`; el trabajo real es el comando y agendarlo. Prioridad media-alta: es
 justamente el caso en que el cliente ya pagó.
 
+### 📋 P-30 · La API partner responde 302 en vez de 401 sin `Accept: application/json`
+
+`bootstrap/app.php` declara `redirectGuestsTo('/')`, que aplica a **toda** la aplicación.
+Una petición a `/api/v1/partner/*` sin llave válida y sin la cabecera `Accept` no recibe un
+401: recibe un **302 hacia `/`**.
+
+Para un integrador esto es de los errores más caros de diagnosticar, porque su cliente HTTP
+suele seguir el redirect y terminar parseando el HTML del panel — el mensaje que ve no dice
+"credenciales", dice "respuesta inesperada". Está documentado en el contrato y en la § 22.8
+de `API_REFERENCE.md`, pero documentar un comportamiento raro no lo hace menos raro.
+
+**Por qué no se cambió aquí.** `redirectGuestsTo` es global; devolver `null` para `api/*`
+hace que el handler caiga en `route('login')`, que no existe en este proyecto, y un
+`RouteNotFoundException` convertiría un 401 legítimo en un **500**. El arreglo correcto es
+un `redirectGuestsTo` con closure que devuelva la ruta sólo fuera de `api/*` **y** un
+`shouldRenderJsonWhen` que fuerce JSON en ese prefijo — dos cambios que tocan el
+comportamiento de autenticación de toda la app y merecen su propio PR con su propia suite.
+
+### 📋 P-31 · `/customers` devuelve `created_at`/`updated_at` en un formato distinto al resto
+
+`2026-07-03 18:29:20`, sin `T` ni `Z`, mientras el resto de la API usa ISO-8601
+(`2026-08-03T22:42:07.000000Z`). La causa: esas columnas se seleccionan sobre
+`CustomerProfile`, un modelo que **no** las declara como fecha —`customer_profile` no tiene
+timestamps propios, su reloj es `users.updated_at`—, así que Eloquent no las castea.
+
+No se corrigió porque **ya hay quien consume ese contrato**: normalizarlo ahora rompería a
+cualquier integrador que esté parseando el formato actual. Queda documentado campo por campo
+en el OpenAPI, que es lo único que evita que alguien lo descubra en producción.
+
+**Recomendación.** Si algún día se emite una `v2` de la API partner, unificar ahí. Mientras
+tanto, no repetir el patrón: cualquier endpoint nuevo que exponga fechas debe pasarlas por
+un cast o formatearlas explícitamente en el presentador.
+
+### 📋 P-32 · La URL pública de producción no está confirmada en ningún sitio revisable
+
+El `servers` del contrato OpenAPI dice `https://ispwatch-crm.app`, tomado de
+`.env.production`. El ejemplo que había en `API_REFERENCE.md` decía `app.ispwatch.co`, que
+no corresponde a ningún despliegue conocido — o sea que **uno de los dos llevaba tiempo
+equivocado** y nadie lo notó, porque ninguna prueba mira eso.
+
+Es el primer dato que copia un integrador. `PartnerOpenApiContractTest` ahora al menos
+impide que se cuele un `localhost`, pero no puede saber cuál es el host correcto.
+Confirmarlo y dejarlo escrito en un solo lugar es trabajo de cinco minutos que evita una
+tarde perdida del otro lado.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

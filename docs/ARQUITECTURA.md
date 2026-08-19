@@ -1457,6 +1457,36 @@ queda el hash de Sanctum. Revocar marca `revoked_at` **y** rompe el hash, pero
 conserva la fila: un registro de auditoría que apunta a una llave borrada no
 sirve de nada.
 
+### 14.7 El contrato OpenAPI
+
+**Añadido:** 2026-08-19 · `docs/openapi/ispwatch-partner-v1.yaml`
+
+Es el entregable para el integrador y la respuesta a "mándenme la documentación
+de la API": OpenAPI 3.0.3 con los diez endpoints, sus filtros, el esquema de cada
+respuesta y los códigos de error.
+
+```
+docs/openapi/ispwatch-partner-v1.yaml      ← el contrato (fuente única)
+        │
+        ├── GET /api/v1/partner/openapi.yaml       PartnerMetaController::spec()
+        │        (mismo grupo, sin ability, como /ping)
+        │
+        └── PartnerOpenApiContractTest             rutas ↔ x-ability, en los dos sentidos
+```
+
+Tres decisiones y su motivo:
+
+| Decisión | Por qué |
+|---|---|
+| Vive en `docs/`, no en `public/` | Es documentación del proyecto: se revisa en el mismo PR que el código. Servirla desde ahí evita una segunda copia que se desincroniza |
+| Se sirve por la API, no sólo por correo | El archivo del integrador y el código que corre se separan en cuanto alguien reenvía una versión vieja. Pedirlo a la API garantiza que corresponde al despliegue que responde |
+| 3.0.3 y no 3.1 | Compatibilidad de generadores de clientes. El precio es `nullable: true` en vez de `type: [string, "null"]` |
+
+Los tipos del esquema se verificaron **contra la base de producción**, no contra
+los modelos: los importes son cadenas (`"85000.00"`, PostgreSQL entrega `numeric`
+como texto), `plan.speed_down` es texto (`"10M"`) y `plan.price` es entero. Un
+esquema escrito leyendo los controladores habría sido verosímil y equivocado.
+
 ---
 
 ## 15. Trazabilidad del flujo de caja

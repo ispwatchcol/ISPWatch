@@ -1018,7 +1018,7 @@ Agregado permanente.
 | `expense_categories` | `name` por tenant |
 | `bulk_provision_runs` | **PK uuid**. `status`, `total`, `processed`, `success_count`, `fail_count`, `pppoe_skipped_count`, `results` (json), `finished_at` |
 | `audit_logs` | `user_id`, `action`, `model_type`, `model_id`, `old_values`/`new_values` (json), `ip_address`, `user_agent` |
-| `help_categories` / `help_articles` | Centro de ayuda: `title`, `content`, `tips`, `is_published`, `display_order` |
+| `help_categories` / `help_articles` | Centro de ayuda: `title`, `content`, `tips`, `is_published`, `display_order`. **Globales, sin `tenant_id`**: el contenido es del producto, lo ven todos los ISP. Se pueblan por dos caminos: `HelpCenterSeeder` (borra y re-siembra, sólo `ispwatch_dev`) y migraciones de contenido idempotentes por título, que son las que llegan a producción — ver migración `2026_08_19_100000` |
 | `role` | `name`, `code`, `permissions` (json array), `tenant_id` (`NULL` = rol global) |
 
 ---

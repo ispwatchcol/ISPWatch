@@ -681,6 +681,10 @@ Route::prefix('v1/partner')
         // Sin `ability`: sirve para verificar la llave antes de tener permisos.
         Route::get('/ping', [PartnerMetaController::class, 'ping']);
 
+        // Contrato OpenAPI de esta misma API. Tampoco lleva `ability`: describe
+        // la forma de lo que la llave puede pedir, no datos del ISP.
+        Route::get('/openapi.yaml', [PartnerMetaController::class, 'spec']);
+
         Route::middleware('ability:read:customers')->group(function () {
             Route::get('/customers', [PartnerCustomerController::class, 'index']);
             Route::get('/customers/{customer}', [PartnerCustomerController::class, 'show'])
