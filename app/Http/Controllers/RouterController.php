@@ -9,6 +9,7 @@ use App\Http\Requests\StoreRouterRequest;
 use App\Http\Requests\UpdateRouterRequest;
 use App\Models\Router;
 use App\Models\Billing;
+use App\Models\CustomerProfile;
 use App\Services\VpnService;
 use App\Services\MikroTikSshService;
 use App\Services\MikroTik\SshTunnelManager;
@@ -50,7 +51,14 @@ class RouterController extends Controller
             'status',
             'falla_general',
             'created_at'
-        )->get();
+        )
+            // Cuantos clientes vivos cuelgan de cada router. La lista lo usa
+            // para avisar (y bloquear) antes de que alguien intente borrar un
+            // core que todavia da servicio; el rechazo real vive en destroy().
+            ->withCount(['customers as active_customers_count' => function ($q) {
+                $q->billableServiceStatus();
+            }])
+            ->get();
 
         return response()->json($routers);
     }
@@ -147,14 +155,77 @@ class RouterController extends Controller
 
     /**
      * Remove the specified router from storage.
+     *
+     * Un core NO se borra si todavía tiene clientes colgando. La FK de
+     * customer_profile.router_id es ON DELETE SET NULL, así que el borrado
+     * "salía bien" y dejaba a los abonados sin router: fuera del ciclo de
+     * facturación por-router, invisibles para los cortes y para la falla
+     * masiva, e imposibles de reaprovisionar. Daño silencioso y prácticamente
+     * irreversible, porque el vínculo original ya no queda en ninguna parte.
+     *
+     * Dos niveles, porque no todo cliente pesa igual:
+     *  - Con clientes vivos (activo/gratis/suspendido, más las filas viejas sin
+     *    service_status) el borrado se rechaza sin excepción: primero hay que
+     *    reasignarlos a otro router.
+     *  - Si solo lo referencian bajas (retirado/cancelado), lo único que se
+     *    pierde es el histórico de a qué core estuvieron conectados. Se permite,
+     *    pero exigiendo `force` para que sea una decisión consciente.
      */
-    public function destroy(Router $router)
+    public function destroy(Request $request, Router $router)
     {
+        $dependents = $this->dependentCustomerCounts($router);
+
+        if ($dependents['active'] > 0) {
+            $n = $dependents['active'];
+
+            return response()->json([
+                'message' => "No se puede eliminar el router \"{$router->name}\": tiene {$n} "
+                    . ($n === 1 ? 'cliente asignado' : 'clientes asignados')
+                    . '. Reasígnalos a otro router antes de eliminarlo.',
+                'active_customers'   => $dependents['active'],
+                'inactive_customers' => $dependents['inactive'],
+            ], 409);
+        }
+
+        if ($dependents['inactive'] > 0 && !$request->boolean('force')) {
+            $n = $dependents['inactive'];
+
+            return response()->json([
+                'message' => "El router \"{$router->name}\" no tiene clientes activos, pero {$n} "
+                    . ($n === 1 ? 'cliente dado de baja lo referencia' : 'clientes dados de baja lo referencian')
+                    . '. Si lo eliminas, esos registros perderán la referencia al router.',
+                'active_customers'   => 0,
+                'inactive_customers' => $dependents['inactive'],
+                'requires_force'     => true,
+            ], 409);
+        }
+
         $router->delete();
 
         return response()->json([
             'message' => 'Router eliminado exitosamente. ✅',
         ]);
+    }
+
+    /**
+     * Clientes que dependen de este router, separados en vivos y bajas.
+     *
+     * customer_profile no lleva el global scope de tenant (ver el comentario en
+     * el modelo), pero no hace falta: el router que llega ya viene filtrado por
+     * tenant y aquí se filtra por su id.
+     */
+    private function dependentCustomerCounts(Router $router): array
+    {
+        $total  = CustomerProfile::where('router_id', $router->id)->count();
+        $active = CustomerProfile::where('router_id', $router->id)
+            ->billableServiceStatus()
+            ->count();
+
+        return [
+            'total'    => $total,
+            'active'   => $active,
+            'inactive' => $total - $active,
+        ];
     }
 
     /**

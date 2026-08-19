@@ -1413,6 +1413,32 @@ reintentar `unsuspendCustomer()`. Reusa el backoff y `MAX_ATTEMPTS` que ya tiene
 `SuspensionActionLog`; el trabajo real es el comando y agendarlo. Prioridad media-alta: es
 justamente el caso en que el cliente ya pagó.
 
+### 🟡 P-FK-1 · El borrado de un router se protege en la aplicación, no en el esquema
+
+Desde el § 44 de la bitácora, `RouterController::destroy()` rechaza con 409 el borrado de un
+router con clientes vivos. Pero la FK sigue siendo:
+
+```sql
+customer_profile.router_id REFERENCES router(id) ON DELETE SET NULL
+```
+
+Es decir: la base de datos **sigue aceptando** dejar huérfanos a los clientes. Cualquier
+`DELETE FROM router` por SQL directo —una limpieza manual, un script de mantenimiento, una
+consola de Supabase— reproduce el problema entero sin pasar por la validación.
+
+**Recomendación.** Pasar esa FK a `ON DELETE RESTRICT`. El esquema haría estructuralmente
+imposible el borrado huérfano y la validación de la aplicación quedaría como lo que debe ser:
+un mensaje legible, no la única defensa.
+
+**Lo que hay que resolver antes:** con `RESTRICT`, el camino `force` (borrar un router que
+sólo referencian bajas) deja de funcionar — la BD rechazaría también ese caso. Habría que
+poner `router_id = NULL` en esas filas dentro de la misma transacción, antes del `DELETE`.
+Mientras tanto la protección de aplicación cubre el 100 % del tráfico HTTP, que es por donde
+pasa la operación real.
+
+Mismo patrón, sin revisar: `ip_assignment.router_id` y `suspension_action_logs.router_id`
+también son `SET NULL`.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

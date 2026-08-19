@@ -912,7 +912,30 @@
 
           <!-- Content -->
           <div class="space-y-4">
-            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <!-- Un router con clientes colgando no se borra. El rechazo real lo
+                 hace la API; esto es para no gastarle el clic a nadie. -->
+            <div
+              v-if="deleteBlockedByCustomers"
+              class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4"
+            >
+              <div class="flex items-start gap-3">
+                <icon-lucide-users class="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 class="font-medium text-amber-800 dark:text-amber-300">Este router tiene clientes</h4>
+                  <p class="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                    <strong>{{ routerToDelete?.active_customers_count }}</strong>
+                    {{ routerToDelete?.active_customers_count === 1 ? 'cliente depende' : 'clientes dependen' }}
+                    de <strong>"{{ routerToDelete?.name }}"</strong>. Si lo eliminas se quedarían sin router:
+                    fuera de la facturación, de los cortes y de los avisos de falla masiva.
+                  </p>
+                  <p class="text-sm text-amber-700 dark:text-amber-400 mt-2">
+                    Reasígnalos a otro router (o dálos de baja) antes de eliminarlo.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
               <div class="flex items-start gap-3">
                 <icon-lucide-alert-triangle class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                 <div>
@@ -922,6 +945,14 @@
                   </p>
                 </div>
               </div>
+            </div>
+
+            <!-- Motivo devuelto por la API cuando rechaza el borrado -->
+            <div
+              v-if="deleteError"
+              class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-800 dark:text-amber-300"
+            >
+              {{ deleteError }}
             </div>
           </div>
 
@@ -934,13 +965,14 @@
               Cancelar
             </button>
             <button
+              v-if="!deleteBlockedByCustomers"
               @click="confirmDelete"
               :disabled="deletingRouter"
               class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <icon-lucide-loader-2 v-if="deletingRouter" class="w-4 h-4 animate-spin" />
               <icon-lucide-trash v-else class="w-4 h-4" />
-              {{ deletingRouter ? 'Eliminando...' : 'Eliminar' }}
+              {{ deletingRouter ? 'Eliminando...' : (deleteRequiresForce ? 'Eliminar de todas formas' : 'Eliminar') }}
             </button>
           </div>
         </div>
@@ -1127,6 +1159,8 @@ const showBlockRulesWarning = ref(false)
 const showDeleteModal = ref(false)
 const routerToDelete = ref(null)
 const deletingRouter = ref(false)
+const deleteError = ref('')            // motivo del rechazo devuelto por la API
+const deleteRequiresForce = ref(false) // solo quedan bajas: borrar pierde el historico
 
 // Estados del modal Detalles
 const showDetailsModal = ref(false)
@@ -1319,11 +1353,19 @@ onMounted(loadRouters)
 // FUNCIONES MODAL ELIMINAR ROUTER
 // ==============================
 
+// ¿Hay clientes vivos colgando de este router? Con el contador que trae la
+// lista alcanza para bloquear el botón; la API vuelve a comprobarlo igual.
+const deleteBlockedByCustomers = computed(
+  () => (routerToDelete.value?.active_customers_count ?? 0) > 0
+)
+
 // Abrir modal de confirmación para eliminar
 const deleteRouter = (id) => {
   const routerData = routers.value.find(r => r.id === id)
   if (routerData) {
     routerToDelete.value = routerData
+    deleteError.value = ''
+    deleteRequiresForce.value = false
     showDeleteModal.value = true
   }
 }
@@ -1332,23 +1374,41 @@ const deleteRouter = (id) => {
 const closeDeleteModal = () => {
   showDeleteModal.value = false
   routerToDelete.value = null
+  deleteError.value = ''
+  deleteRequiresForce.value = false
 }
 
 // Confirmar eliminación
 const confirmDelete = async () => {
   if (!routerToDelete.value) return
-  
+
   deletingRouter.value = true
-  
+  deleteError.value = ''
+
   try {
-    await api.routers.delete(routerToDelete.value.id)
+    await api.routers.delete(routerToDelete.value.id, { force: deleteRequiresForce.value })
 
     routers.value = routers.value.filter(r => r.id !== routerToDelete.value.id)
     closeDeleteModal()
     toast.value?.success('Router eliminado', 'El router ha sido eliminado correctamente')
   } catch (error) {
-    console.error('Error:', error)
-    toast.value?.error('Error', 'Ocurrió un error inesperado')
+    // 409 = la API se niega porque todavía hay clientes apuntando al router.
+    // No es un fallo inesperado: hay que explicarlo dentro del modal, no
+    // esconderlo detrás de un toast genérico.
+    const status = error?.response?.status
+    const data = error?.response?.data ?? {}
+
+    if (status === 409) {
+      deleteError.value = data.message || 'El router todavía tiene clientes asignados.'
+      deleteRequiresForce.value = Boolean(data.requires_force)
+      // Refresca el contador por si la lista estaba desactualizada.
+      if (typeof data.active_customers === 'number') {
+        routerToDelete.value.active_customers_count = data.active_customers
+      }
+    } else {
+      console.error('Error:', error)
+      toast.value?.error('Error', 'Ocurrió un error inesperado')
+    }
   } finally {
     deletingRouter.value = false
   }

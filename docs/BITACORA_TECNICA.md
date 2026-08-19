@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-14 · Rama: `feat/contract-remote-signing`
+**Última actualización:** 2026-08-19 · Rama: `fix/l2tp-tunnel-profile-local-address`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Borrar un core se llevaba por delante a sus clientes (2026-08-19, § 44):** el DELETE devolvía
+  200 y la FK `ON DELETE SET NULL` dejaba a los abonados sin router — fuera de facturación, de
+  cortes y de falla masiva, y sin rastro de a qué core pertenecían. Ahora la API rechaza con 409;
+  si sólo quedan bajas, exige `force` explícito.
 - **El túnel colgaba del perfil PPP del cliente (2026-08-18, § 41):** causa raíz del § 40. El script
   L2TP creaba el túnel con `profile=default`; en un router que además es servidor PPPoE ese perfil trae
   `local-address`, y el túnel se quedaba con ESA dirección ignorando la del overlay. Es el caso normal, no
@@ -4694,3 +4698,80 @@ tocar el `disable/enable`**, que es lo único que podía dejar el equipo incomun
 De paso quedó descartada la última hipótesis que circulaba —"es el usuario"—: el `/user print`
 que devolvió `ispwatch group=full` lo ejecutó **ese mismo usuario** con `exit-code: 0`. La
 credencial nunca estuvo mal; lo que fallaba era que sus paquetes no llegaban.
+
+---
+
+## 44. Borrar un core dejaba a sus clientes huérfanos — 2026-08-19
+
+### 44.1 El síntoma
+
+Reporte de operación: *"cuando voy a borrar un core me deja sin problema, eso no se puede hacer
+si hay clientes que dependen de un core"*.
+
+El `DELETE /api/routers/{id}` devolvía **200** con cualquier cantidad de clientes encima.
+
+### 44.2 La causa raíz
+
+`RouterController::destroy()` era literalmente `$router->delete()`, y la FK creada en
+`2026_01_08_003450_add_router_id_to_customer_profile_table` es:
+
+```php
+$table->foreign('router_id')->references('id')->on('router')->onDelete('set null');
+```
+
+`SET NULL` **no falla**: obedece en silencio. No hay excepción que atrapar ni 500 que
+investigar; el borrado "sale bien" y deja el daño repartido por todo el sistema:
+
+| Qué depende de `customer_profile.router_id` | Qué pasa con `router_id = NULL` |
+|---|---|
+| Facturación mensual | El ciclo se lee del router (§ *billing is router-driven*): sin router, no factura |
+| Corte y reconexión por mora | No hay equipo al que mandar la orden |
+| Falla masiva | El cliente no entra en la audiencia del aviso |
+| Aprovisionamiento / reaprovisionamiento | El botón exige router, plan e IP |
+| Recuperación | **Ninguna**: el vínculo original no queda registrado en ninguna parte |
+
+Es la peor forma de pérdida de datos: silenciosa, masiva y sin traza para revertirla.
+
+### 44.3 La decisión: dos niveles, no uno
+
+Bloquear todo borrado con clientes referenciados era la respuesta obvia, y es la equivocada:
+un core retirado hace años conserva las filas de sus clientes **dados de baja**, que nunca se
+van a reasignar. Ese router quedaría imposible de borrar para siempre.
+
+Se separa por `service_status`, reusando `CustomerProfile::BILLABLE_SERVICE_STATUSES` para no
+inventar una definición paralela de "cliente vivo":
+
+| Situación | Respuesta |
+|---|---|
+| Clientes vivos (`activo`/`gratis`/`suspendido`, o `NULL`) | `409` **incondicional** — `?force=1` no lo salta |
+| Sólo bajas (`retirado`/`cancelado`) | `409` con `requires_force`; se borra repitiendo con `?force=1` |
+| Sin clientes | `200` |
+
+`suspendido` cuenta como vivo **a propósito**: un cortado por mora sigue facturando y se
+reconecta al pagar (§ 20, § 43). Las filas con `service_status = NULL` también: son anteriores
+a la columna y en la práctica son clientes normales — el mismo criterio que usa el ciclo
+mensual.
+
+`force` sólo perdona la pérdida del *histórico* de a qué core estuvo conectado alguien que ya
+no es cliente. Nunca perdona dejar sin servicio a alguien que sí lo es.
+
+### 44.4 Que el usuario no llegue a pulsar el botón
+
+`GET /api/routers` devuelve ahora `active_customers_count` (un `withCount` con el mismo scope
+`billableServiceStatus`). `Routers.vue` lo usa para sustituir el "¿Estás seguro?" por el conteo
+de clientes y **esconder el botón de borrar**. El rechazo real sigue estando en la API: el
+contador de la lista puede venir viejo, la validación del servidor no.
+
+El `catch` del modal distinguía sólo entre éxito y *"Ocurrió un error inesperado"*. Un 409 no
+es inesperado — es la respuesta correcta — así que se muestra el mensaje del servidor dentro
+del modal, con el contador refrescado con lo que acaba de decir la API.
+
+### 44.5 Lo que queda fuera
+
+La garantía es **de aplicación**, no de base de datos: un `DELETE` por SQL directo sigue
+poniendo `router_id` a NULL. Anotado como `P-FK-1` en `MEJORAS_RECOMENDADAS.md`.
+
+`tests/Feature/Router/RouterDeletionTest.php` — 6 pruebas: rechazo con clientes vivos, `force`
+que no sobrescribe ese rechazo, fila antigua sin `service_status` contada como viva, camino de
+las bajas con y sin `force`, clientes de otro router que no estorban, y el contador de la
+lista.
