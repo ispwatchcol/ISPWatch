@@ -698,7 +698,7 @@ queman el enlace de forma permanente, incluso ante los dígitos correctos.
 | `POST` | `/api/routers` | auth | Crea |
 | `GET` | `/api/routers/{id}` | auth | Detalle |
 | `PUT` | `/api/routers/{id}` | auth | Actualiza |
-| `DELETE` | `/api/routers/{id}` | auth | Elimina |
+| `DELETE` | `/api/routers/{id}` | auth | Elimina — **409 si tiene clientes** (ver abajo) |
 | `GET` | `/api/routers/{router}/free-ips` | auth | IPs libres del rango |
 | `GET` | `/api/routers/{router}/interfaces` | auth | Interfaces leídas del equipo |
 | `GET` | `/api/routers/{router}/traffic` | auth | Historial de tráfico WAN |
@@ -714,6 +714,38 @@ queman el enlace de forma permanente, incluso ante los dígitos correctos.
 
 > Nota de seguridad presente en el código: la variante `GET` de `test-secret-sync` exige
 > **el mismo permiso** que la `POST`; de lo contrario sería un bypass de autorización por método.
+
+### `GET /api/routers` — campo calculado
+
+Cada fila incluye `active_customers_count`: clientes con `service_status` en
+`activo`/`gratis`/`suspendido` (o `NULL`, filas antiguas) apuntando a ese router. La lista
+lo usa para bloquear el botón *Eliminar* antes de gastar el viaje al servidor.
+
+### `DELETE /api/routers/{id}` — borrado protegido
+
+La FK `customer_profile.router_id` es `ON DELETE SET NULL`: borrar el router **no** falla,
+deja a los abonados sin router (fuera de facturación, cortes y falla masiva) y sin rastro de
+a qué core pertenecían. Por eso el endpoint valida antes de borrar.
+
+| Situación | Respuesta |
+|---|---|
+| Tiene clientes vivos (`activo`/`gratis`/`suspendido`/`NULL`) | `409` — no hay override posible |
+| Solo lo referencian bajas (`retirado`/`cancelado`) | `409` con `requires_force: true`; se borra repitiendo con `?force=1` |
+| Sin clientes | `200` |
+
+Cuerpo del `409`:
+
+```json
+{
+  "message": "No se puede eliminar el router \"CORE_TOCAIMA\": tiene 42 clientes asignados. Reasígnalos a otro router antes de eliminarlo.",
+  "active_customers": 42,
+  "inactive_customers": 3,
+  "requires_force": true
+}
+```
+
+`requires_force` solo aparece en el segundo caso. `?force=1` **nunca** habilita el borrado
+de un router con clientes vivos: ahí el rechazo es incondicional.
 
 ### `POST /api/routers` — cuerpo (`StoreRouterRequest`)
 

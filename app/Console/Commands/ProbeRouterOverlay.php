@@ -55,10 +55,13 @@ class ProbeRouterOverlay extends Command
 
         $this->newLine();
 
-        $probe = new OverlayReachabilityProbe($connection);
-        $rows  = [];
-        $roto  = 0;
-        $mudo  = 0;
+        $probe   = new OverlayReachabilityProbe($connection);
+        $rows    = [];
+        $roto    = 0;
+        $mudo    = 0;
+        $sinRuta = 0;
+        $ilegible = 0;
+        $vivos   = 0;
 
         foreach ($routers as $router) {
             // La dirección buena es la que el CORE está usando ahora mismo, no la
@@ -76,10 +79,20 @@ class ProbeRouterOverlay extends Command
             $result = $probe->probe($ip);
             [$estado, $detalle] = $this->verdict($result, $ip);
 
+            // Cada estado se cuenta por separado. Contar sólo las averías probadas
+            // dejaba fuera a los routers SIN RUTA —que son los que ni siquiera
+            // tienen túnel— y el resumen acababa cantando "todos responden" con
+            // cinco equipos desconectados en la misma tabla.
             if ($probe->isConclusiveFailure($result)) {
                 $roto++;
             } elseif ($result['state'] === OverlayReachabilityProbe::STATE_SILENT) {
                 $mudo++;
+            } elseif ($result['state'] === OverlayReachabilityProbe::STATE_FOREIGN_HOP) {
+                $sinRuta++;
+            } elseif ($result['state'] === OverlayReachabilityProbe::STATE_ALIVE) {
+                $vivos++;
+            } else {
+                $ilegible++;
             }
 
             $rows[] = [
@@ -95,15 +108,30 @@ class ProbeRouterOverlay extends Command
 
         $this->table(['id', 'router', 'transporte', 'fw', 'ip overlay', 'estado', 'detalle'], $rows);
 
+        $this->newLine();
+        $this->line(sprintf(
+            'Resumen: %d responden · %d sin túnel · %d mudos · %d con la dirección tomada por otro · %d sin lectura',
+            $vivos, $sinRuta, $mudo, $roto, $ilegible
+        ));
+
         if ($roto > 0) {
             $this->error("{$roto} router(es) NO responden en su dirección: ISPWatch no puede administrarlos hasta corregirlo en el equipo.");
+        }
+
+        if ($sinRuta > 0) {
+            $this->warn("{$sinRuta} router(es) no tienen túnel vivo contra el CORE. No es una avería del equipo: sencillamente no están conectados (o su fila en la BD quedó obsoleta).");
         }
 
         if ($mudo > 0) {
             $this->warn("{$mudo} router(es) no contestan ping. Puede ser ICMP filtrado a propósito — verifica con router:diagnose-wan <id> si además falla la lectura.");
         }
 
-        if ($roto === 0 && $mudo === 0) {
+        if ($ilegible > 0) {
+            $this->warn("{$ilegible} router(es) sin veredicto: el CORE no devolvió una respuesta legible.");
+        }
+
+        // El "todo bien" sólo se canta cuando de verdad TODOS contestaron.
+        if ($vivos === count($rows)) {
             $this->info('Todos los routers responden en su dirección del overlay.');
         }
 
