@@ -497,7 +497,14 @@ class BillingController extends Controller
             ], 500);
         }
 
-        return response()->json($payment->load(['allocations', 'creator:id,name,user_name,user_lastname']), 201);
+        // `reactivation` sale del servicio (no es una columna): le dice al cajero
+        // si el cliente estaba cortado y si quedó reconectado. Se agrega como
+        // clave suelta del JSON para no tocar la forma que ya consume el front
+        // (allocations, creator, …).
+        $body = $payment->load(['allocations', 'creator:id,name,user_name,user_lastname'])->toArray();
+        $body['reactivation'] = $payment->reactivation;
+
+        return response()->json($body, 201);
     }
 
     // Update Payment
@@ -650,11 +657,16 @@ class BillingController extends Controller
         // verlo: es plata que le va a llegar en la próxima factura.
         $pendingCarryover = \App\Models\InvoiceCarryover::pendingTotalFor((int) $customerId);
 
+        // Estado de corte: el cajero tiene que saber ANTES de cobrar que el
+        // cliente está suspendido, y que registrar el pago lo va a reconectar.
+        $suspension = $this->billingService->suspensionStatusFor((int) $customerId);
+
         return response()->json([
             'balance'          => $balance,
             'credit_balance'   => $creditBalance,
             'net_balance'      => $netBalance,
             'carryover_balance'=> $pendingCarryover,
+            'suspension'       => $suspension,
         ]);
     }
 

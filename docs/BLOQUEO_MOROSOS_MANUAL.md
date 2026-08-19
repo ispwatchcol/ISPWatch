@@ -117,9 +117,45 @@ Cuando ISPWatch corta a un cliente (manual o automáticamente por billing):
 
 Cuando el cliente paga:
 
-1. ISPWatch llama a `SuspensionManager::removeSuspendedIpViaCore()`
-2. Se remueve del address-list: `/ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address=<IP>]`
-3. Próximo paquete del cliente ya no matchea el drop → navega normalmente
+1. `BillingService::reactivateIfCleared()` corre justo después de guardar el pago y comprueba
+   que no le queden **facturas vencidas**. Si aún debe, el corte se queda.
+2. ISPWatch llama a `SuspensionManager::removeSuspendedIpViaCore()`
+3. Se remueve del address-list: `/ip firewall address-list remove [find list=ISPWATCH_SUSPENDIDOS address=<IP>]`
+4. Próximo paquete del cliente ya no matchea el drop → navega normalmente
+
+### Qué cuenta como "cortado"
+
+Basta con **una** de estas dos señales (ver § 43 de la bitácora):
+
+- **BD:** `customer_profile.status = false` o `service_status = 'suspendido'`.
+- **Router:** el último `suspension_action_logs` del par cliente+router es un `SUSPEND`, en
+  **cualquier** estado — también `failed` y `pending`.
+
+La segunda incluye los fallidos a propósito. Un corte que no llegó a confirmarse deja la BD
+en `suspendido` igual, y si sólo mirásemos `SUSPEND/success` el cliente pagaría y se quedaría
+cortado: `billing:reconcile-suspensions` barre por `status = false` y lo re-cortaría en la RB.
+Quitar la IP de la lista es idempotente, así que sobra intentarlo y falta no intentarlo.
+
+`retirado` y `cancelado` **no** se reactivan pagando: son bajas definitivas.
+
+### Si el router no confirma la reconexión
+
+El cliente queda `activo` en la BD igual (si no, el reconciliador lo re-corta), pero el
+desbloqueo real quedó pendiente. Lo delatan dos cosas:
+
+- el log `UNSUSPEND/failed`, reintentable desde **Acciones masivas**;
+- el mensaje rojo *"Pago registrado — revisar reconexión"* que ve el cajero.
+
+Nada lo reintenta solo todavía (**P-29** en `MEJORAS_RECOMENDADAS.md`): hay que mirarlo.
+
+### Clientes que quedaron atrapados
+
+Para los que pagaron antes de este arreglo y siguen marcados suspendidos:
+
+```bash
+php artisan billing:repair-paid-suspended            # dry-run: sólo informa
+php artisan billing:repair-paid-suspended --apply    # ejecuta
+```
 
 ---
 

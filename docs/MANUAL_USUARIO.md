@@ -904,11 +904,29 @@ Esto ocurre solo, sin que hagas nada más:
 2. Si sobra dinero, queda como **saldo a favor** del cliente y se usará en la próxima factura.
 3. Si **falta** dinero (abono parcial), la factura **queda pagada igual** y lo que faltó
    pasa a la próxima factura. Ver 8.2.1.
-4. **Si el cliente queda al día y estaba cortado por mora, el sistema le devuelve el
-   internet automáticamente.**
+4. **Si el cliente queda al día y estaba cortado, el sistema le devuelve el internet
+   automáticamente.**
 
-> La reconexión automática **sólo aplica a cortes por facturación**. Si el cliente fue
-> suspendido a mano, hay que reactivarlo a mano.
+> Se levanta **cualquier corte vigente**, no sólo los de facturación: también los que
+> hiciste a mano. Lo único que no revive con un pago son las **bajas definitivas**
+> (*retirado* y *cancelado*) — ésas se reactivan a mano desde la ficha del cliente.
+
+#### Aviso de cliente suspendido
+
+Al elegir un cliente que está cortado, **antes** de cobrarle, aparece un aviso ámbar:
+
+> ⚠ **Este cliente está SUSPENDIDO** — Al registrar el pago se reactivará automáticamente
+> si queda sin saldo vencido.
+
+Y al guardar el recaudo te dice cómo terminó:
+
+| Mensaje | Qué significa | Qué hacer |
+|---|---|---|
+| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router confirmó la reconexión | Nada |
+| 🔴 *Pago registrado — revisar reconexión* | Quedó activo en el sistema, pero el **router no confirmó** | Ir a **Acciones masivas → reconexiones fallidas** y reintentar |
+| 🟠 *Pago registrado — sigue suspendido* | Le quedan facturas **vencidas** sin pagar | Cobrar el resto; el mensaje dice cuántas faltan |
+
+El mismo aviso sale en la pestaña **Facturación** de la ficha del cliente.
 
 ### 8.2.1 Abonos parciales: el saldo pasa a la próxima factura
 
@@ -2041,9 +2059,19 @@ de ISPWatch quedaron debajo de una que deja pasar el tráfico, nunca se ejecutan
 **Aplicar reglas de bloqueo** — las sube de nuevo al primer lugar. Es seguro repetirlo.
 
 **El cliente pagó y sigue cortado.**
-La reconexión automática sólo funciona con cortes por facturación y sólo si el cliente quedó
-**completamente** al día. Si aún debe una factura anterior, sigue cortado. Revisa su saldo
-en la pestaña **Facturación** de su ficha.
+La reconexión automática exige que el cliente quede **completamente** al día: si aún debe una
+factura vencida anterior, sigue cortado — y el mensaje que sale al guardar el recaudo te dice
+cuántas le faltan. Revisa su saldo en la pestaña **Facturación** de su ficha.
+
+Si quedó al día y **aun así** aparece suspendido, mira el mensaje que salió al registrar el
+pago: si fue el rojo (*revisar reconexión*), el sistema ya lo dio por activo pero el router no
+confirmó — reintenta desde **Acciones masivas → reconexiones fallidas**.
+
+> Hasta agosto de 2026 existía un caso en el que esto fallaba solo: si el corte original no
+> había podido confirmarse en el router, el cliente pagaba y se quedaba marcado como
+> suspendido para siempre. Ya está corregido. Para los clientes que quedaron atrapados por
+> ese error, el técnico puede correr una reparación de una sola pasada
+> (`billing:repair-paid-suspended`).
 
 **No encuentro un cliente al buscarlo.**
 Ya no es problema de mayúsculas: eso se corrigió. Revisa que estés buscando por un campo que

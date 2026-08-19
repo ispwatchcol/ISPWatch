@@ -29,6 +29,9 @@ const netBalance       = ref(0)
 // Abonos parciales anteriores que ya cerraron su factura y se cobrarán en la
 // próxima: no se deben hoy, pero el cajero tiene que saber que existen.
 const carryoverBalance = ref(0)
+// Estado de corte del cliente seleccionado. Se pinta ANTES de cobrar: el cajero
+// tiene que saber que está suspendido y que el pago lo va a reconectar.
+const suspension       = ref(null)
 const showPaymentModal = ref(false)
 const showCreditModal  = ref(false)
 const creditSubmitting = ref(false)
@@ -61,12 +64,46 @@ const modalMessage = computed(() => {
     const diff    = Number(Math.abs(form.value.amount - netBalance.value)).toLocaleString('es-CO')
     if (paymentType.value === 'excess') {
         return `El monto ingresado ($${amt}) supera el saldo pendiente ($${bal}). El excedente de $${diff} quedará registrado como saldo a favor del cliente y se aplicará automáticamente a la próxima factura.`
+            + reconnectNotice.value
     }
     if (paymentType.value === 'partial') {
         return `El abono ($${amt}) no cubre el saldo pendiente ($${bal}). La factura quedará marcada como PAGADA y los $${diff} restantes pasarán como saldo pendiente a la próxima factura del cliente. `
             + 'Ojo: al quedar sin saldo vencido, el cliente sale de mora y, si estaba cortado, se reconecta.'
+            + reconnectNotice.value
     }
     return ''
+})
+
+const isSuspended = computed(() => suspension.value?.is_suspended === true)
+
+// Resultado de la reconexión que devuelve el backend junto con el pago.
+const reactivation = computed(() => successInfo.value?.reactivation ?? null)
+
+// Tres desenlaces posibles, cada uno con su color: reconectado (verde), activo
+// en el sistema pero sin confirmación del router (rojo: hay que ir a revisarlo),
+// y sigue cortado porque le quedan vencidas (ámbar).
+const reactivationClasses = computed(() => {
+    const r = reactivation.value
+    if (!r) return ''
+    if (r.reactivated && r.router_ok) return 'bg-emerald-100/60 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300'
+    if (r.reactivated)                return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+    return 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300'
+})
+
+const reactivationIcon = computed(() => {
+    const r = reactivation.value
+    if (r?.reactivated && r?.router_ok) return 'bi-wifi'
+    return 'bi-exclamation-triangle-fill'
+})
+
+// Aviso de reconexión que se suma al modal de confirmación cuando el cliente
+// está cortado: pagar lo reconecta, y el cajero lo confirma sabiéndolo.
+const reconnectNotice = computed(() => {
+    if (!isSuspended.value) return ''
+    const amt = Number(form.value.amount)
+    return amt >= netBalance.value
+        ? ' El cliente está SUSPENDIDO: al quedar sin saldo vencido se reactivará automáticamente.'
+        : ' El cliente está SUSPENDIDO: al salir de mora con este abono se reactivará automáticamente.'
 })
 
 const customerLabel = (c) => `${c.name} ${c.last_name}`
@@ -100,12 +137,14 @@ const getBalance = async () => {
     creditBalance.value   = 0
     netBalance.value      = 0
     carryoverBalance.value = 0
+    suspension.value      = null
     try {
         const res = await billingService.getBalance(form.value.customer_id)
         customerBalance.value  = res.data.balance           ?? 0
         creditBalance.value    = res.data.credit_balance    ?? 0
         netBalance.value       = res.data.net_balance       ?? res.data.balance ?? 0
         carryoverBalance.value = res.data.carryover_balance ?? 0
+        suspension.value       = res.data.suspension        ?? null
     } catch (e) {
         // ignore
     }
@@ -195,6 +234,20 @@ onMounted(() => {
                                     search-placeholder="Buscar por nombre..."
                                     :required="true"
                                 />
+                                <!-- Aviso de cliente cortado: se muestra al seleccionarlo, antes de cobrar -->
+                                <Transition name="fade">
+                                    <div v-if="isSuspended"
+                                        class="mt-3 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-2xl px-4 py-3">
+                                        <v-icon name="bi-exclamation-triangle-fill" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                                        <div class="text-sm">
+                                            <p class="font-medium text-amber-800 dark:text-amber-300">Este cliente está SUSPENDIDO</p>
+                                            <p class="text-amber-700 dark:text-amber-400 mt-0.5">
+                                                Al registrar el pago se reactivará automáticamente si queda sin saldo vencido.
+                                                <span v-if="suspension?.since"> Cortado desde {{ suspension.since }}.</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </Transition>
                             </div>
 
                             <!-- Amount -->
@@ -278,6 +331,14 @@ onMounted(() => {
                                 <h4 class="font-medium text-emerald-800 dark:text-emerald-400 text-lg">Pago Registrado</h4>
                                 <p class="text-emerald-700 dark:text-emerald-500 text-sm">Se aplicó abono a {{ successInfo.allocations?.length }} facturas.</p>
                             </div>
+                        </div>
+
+                        <!-- Resultado de la reconexión automática -->
+                        <div v-if="reactivation?.was_suspended"
+                            class="mt-4 flex items-start gap-3 rounded-2xl px-4 py-3 border"
+                            :class="reactivationClasses">
+                            <v-icon :name="reactivationIcon" class="w-5 h-5 shrink-0 mt-0.5" />
+                            <p class="text-sm">{{ reactivation.message }}</p>
                         </div>
                     </div>
                 </div>

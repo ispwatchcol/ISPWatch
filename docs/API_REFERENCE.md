@@ -1048,11 +1048,38 @@ del **filtro completo** (no de la página):
    `invoice_carryovers` (`status = pending`) para cobrarse en la **siguiente factura
    mensual**. Ver "Arrastre de saldo" más abajo.
 4. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **lo reconecta
-   automáticamente en el router** — sólo si el corte fue de facturación. Como el punto 3
+   automáticamente en el router**. Se levanta cualquier corte vigente (de facturación o
+   manual); las bajas definitivas (`retirado`, `cancelado`) **no** se tocan. Como el punto 3
    deja la factura sin saldo vencido, **un abono parcial también reconecta**.
 
-**201** con el pago y sus `allocations`. **500** con
-`{"message":"No se pudo registrar el pago: ..."}` ante fallo del servicio.
+**201** con el pago, sus `allocations` y la clave suelta **`reactivation`**:
+
+```json
+{
+  "id": 1911, "amount": "60000.00", "allocations": [ ... ],
+  "reactivation": {
+    "was_suspended": true,    // estaba cortado al llegar el pago
+    "reactivated":   true,    // se levantó el corte
+    "router_ok":     false,   // el router NO confirmó el desbloqueo
+    "message":       "El cliente quedó activo en el sistema, pero el router NO confirmó..."
+  }
+}
+```
+
+`reactivation` **no es una columna**: la calcula el servicio y el controlador la agrega al
+JSON (`Payment::$reactivation` es una propiedad PHP declarada, no un atributo Eloquent —
+si entrara al array de atributos, el primer `save()` posterior intentaría escribirla).
+
+Los tres desenlaces que el front distingue:
+
+| `was_suspended` | `reactivated` | `router_ok` | Significado |
+|---|---|---|---|
+| `false` | — | — | No estaba cortado; nada que hacer |
+| `true` | `true` | `true` | Reconectado y confirmado por el router |
+| `true` | `true` | `false` | Activo en BD, **el router no confirmó** → revisar `UNSUSPEND/failed` |
+| `true` | `false` | `false` | Sigue cortado: le quedan facturas vencidas (`message` dice cuántas) |
+
+**500** con `{"message":"No se pudo registrar el pago: ..."}` ante fallo del servicio.
 
 **`GET /api/billing/customers/{customerId}/balance`**
 
@@ -1061,12 +1088,22 @@ del **filtro completo** (no de la página):
   "balance": 50000,            // suma de balance_due de sus facturas
   "credit_balance": 0,         // saldo A FAVOR del cliente (pagos de más)
   "net_balance": 50000,        // lo que debe hoy = balance − crédito
-  "carryover_balance": 20000   // deuda arrastrada: se cobra en la PRÓXIMA factura
+  "carryover_balance": 20000,  // deuda arrastrada: se cobra en la PRÓXIMA factura
+  "suspension": {
+    "is_suspended":   true,        // está cortado (BD o router)
+    "service_status": "suspendido",
+    "since":          "2026-07-22 21:03:25",  // null si no hay log de corte
+    "source":         "db"         // "db" | "router": qué señal lo delató
+  }
 }
 ```
 
 `carryover_balance` **no** se suma a `net_balance`: hoy el cliente no lo debe y no
 cuenta para la mora ni para el corte. Es informativo para el cajero.
+
+`suspension` lo produce `BillingService::suspensionStatusFor()` con **las mismas dos
+señales** que usa `reactivateIfCleared()`, para que el aviso previo y la acción posterior no
+se contradigan: si aquí dice `is_suspended`, al registrar el pago se reconecta.
 
 ### Arrastre de saldo por abono parcial
 
