@@ -4,6 +4,9 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Deja constancia de que el planificador sigue vivo.
@@ -29,7 +32,7 @@ class RecordSchedulerHeartbeat extends Command
 {
     protected $signature = 'system:heartbeat';
 
-    protected $description = 'Registra que el planificador está vivo. Lo consulta /health/deep para alertar por silencio.';
+    protected $description = 'Registra que el planificador está vivo. Lo consulta /health para alertar por silencio.';
 
     public function handle(): int
     {
@@ -40,8 +43,43 @@ class RecordSchedulerHeartbeat extends Command
         // como caído durante la ventana intermedia.
         $ttl = ((int) config('health.scheduler.max_silence_seconds')) * 2;
 
+        // Primero el latido local. Si esto falla —la base de datos es el almacén
+        // del caché— la excepción sube, el comando se marca como fallido y NO se
+        // envía el ping externo. Es la semántica correcta: el aviso hacia afuera
+        // significa «sigo vivo y además funciono», no sólo «este proceso existe».
         Cache::put($key, now()->getTimestamp(), $ttl);
 
+        $this->pingExterno();
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Avisa a Healthchecks.io de que el planificador sigue corriendo.
+     *
+     * La alarma salta por AUSENCIA: si estos avisos dejan de llegar, Healthchecks
+     * notifica. Es lo contrario de un monitor que pregunta desde fuera, y por eso
+     * detecta un caso que el otro no puede — el planificador muerto dentro de un
+     * contenedor que la plataforma sigue viendo sano.
+     *
+     * Un fallo de red aquí NO hace fallar el comando. Si el ping no sale, el
+     * propio Healthchecks lo notará por el silencio; hacer fallar la tarea cada
+     * minuto por un blip de red sólo llenaría el log de errores que no lo son.
+     */
+    private function pingExterno(): void
+    {
+        $url = config('health.scheduler.ping_url');
+
+        if (blank($url)) {
+            return;
+        }
+
+        try {
+            // Timeout corto: el planificador tiene que seguir con lo suyo. Este
+            // aviso es lo menos urgente que hará en todo el minuto.
+            Http::timeout(5)->get($url);
+        } catch (Throwable $e) {
+            Log::warning('No se pudo avisar a Healthchecks: ' . $e->getMessage());
+        }
     }
 }

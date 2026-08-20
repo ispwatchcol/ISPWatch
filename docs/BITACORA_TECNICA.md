@@ -13,7 +13,7 @@
   una función: fallaron todas. El manejador de errores respondía con `redirect()->back()`, que sin
   sesión apunta a la raíz → bucle infinito de redirecciones. Nadie se enteró porque `/up` devolvió
   **200 las quince horas**: es el chequeo por defecto de Laravel y no toca la base de datos. Ahora hay
-  `/health/deep`, un 503 honesto en vez del bucle, y un latido del planificador que alerta por silencio.
+  `/health`, un 503 honesto en vez del bucle, y un latido del planificador que alerta por silencio.
 - **Las llaves de API y la auditoría se veían rotas en modo oscuro (2026-08-19, § 47):** `.input`/`.label`
   viven `scoped` en `Settings.vue` y no bajan a los componentes hijos, así que los campos salían con el
   estilo nativo del navegador — cajas blancas sobre tarjeta oscura. Además `md-vpnkey` y `md-history`
@@ -5202,7 +5202,7 @@ con `Retry-After`, y una vista estática sin sesión ni assets compilados
 mantiene el 422 y el `redirect()->back()` de siempre, que ahí sí es seguro porque la
 sesión existe.
 
-**`GET /health/deep`** — chequeo profundo: base de datos, caché (escribe y relee, porque
+**`GET /health`** — chequeo profundo: base de datos, caché (escribe y relee, porque
 un `get` a secas no distingue «funciona» de «devuelve null para todo»), cola
 (profundidad y **edad** del trabajo más viejo), latido del planificador y migraciones
 pendientes. Devuelve 503 si algo falla, con el detalle por componente.
@@ -5212,7 +5212,7 @@ No es descuido: el grupo `web` abre sesión y el grupo `api` aplica throttle, y 
 dependen de la base de datos. Con cualquiera de los dos, el chequeo se caería junto con
 aquello que debe diagnosticar.
 
-**`system:heartbeat`** — el planificador escribe un latido cada minuto y `/health/deep`
+**`system:heartbeat`** — el planificador escribe un latido cada minuto y `/health`
 alerta cuando deja de llegar. Es un *dead man's switch*, y resuelve la clase de fallo
 que ningún verificador interno puede detectar: **que el sistema no haya corrido**. Ya
 había pasado con la facturación mensual (§ 26) y volvió a pasar aquí.
@@ -5224,7 +5224,7 @@ relanza antes del catch genérico.
 ### 48.7 Una trampa que costó encontrar
 
 El catch-all del SPA en `routes/web.php` (`/{any}` con `.*`) se registra **antes** que
-las rutas del callback `then`, así que atendía `/health/deep` y devolvía el HTML del
+las rutas del callback `then`, así que atendía `/health` y devolvía el HTML del
 panel con un **200**. Las primeras pruebas del chequeo pasaban en verde siendo falsos
 positivos — que es exactamente el fallo que este trabajo intenta eliminar, reproducido
 dentro de su propio arreglo. El catch-all excluye ahora el prefijo `health/`.
@@ -5244,8 +5244,117 @@ dentro de su propio arreglo. El catch-all excluye ahora el prefijo `health/`.
 ### 48.9 Lo que queda pendiente
 
 Sacar `migrate --force` del `run_command` hacia un job `PRE_DEPLOY`; contratar el
-centinela externo que consulte `/health/deep`; activar las alertas `RESTART_COUNT` en
+centinela externo que consulte `/health`; activar las alertas `RESTART_COUNT` en
 App Platform; y separar desarrollo de producción, que hoy comparten la misma base de
 datos de Supabase distinguidas sólo por *schema* — el motivo de fondo por el que las
 credenciales de producción viven en el portátil de cada desarrollador y acabaron
 circulando por WhatsApp. Ver `MEJORAS_RECOMENDADAS.md` § 7.
+
+### 48.10 El planificador sí existe, y corre de una forma que puede morir en silencio
+
+Durante la fase 1 se revisó la lista de componentes en App Platform y sólo aparecían
+`ispwatch` y `worker`. La conclusión inmediata —«no hay planificador, no se está
+facturando»— era **falsa**, y conviene dejar registrado por qué, porque el modo real es
+más interesante que el imaginado.
+
+El `run_command` del `worker` es:
+
+```bash
+composer install --no-dev --optimize-autoloader
+mkdir -p storage/keys
+if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then ... fi
+php artisan schedule:work --no-interaction &
+exec php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600
+```
+
+O sea que el planificador **sí corre**, de fondo, dentro del contenedor de la cola. La
+facturación, los cortes y los recordatorios llevan funcionando todo este tiempo. Funciona,
+pero arrastra tres problemas:
+
+**1. Un fallo del planificador es invisible.** `exec` hace que `queue:work` se convierta en
+el proceso principal del contenedor. Si el `schedule:work` de fondo muere, el contenedor
+sigue vivo, App Platform lo ve sano y no reinicia nada — y deja de ocurrir *todo* el ciclo
+automático sin una sola señal. Es exactamente la misma forma del incidente que motivó este
+capítulo: un supervisor que informa «sano» mientras lo que importa está muerto.
+
+Esto convierte el latido de `system:heartbeat` (§ 48.6) de conveniencia en **requisito**.
+Es el único mecanismo capaz de detectar ese fallo.
+
+**2. `composer install` en el `run_command`.** Sobra: ya está en el `build_command`. Y como
+`--max-time=3600` hace que la cola termine cada hora y el contenedor se reinicie, esa
+instalación se repite **cada hora**, alargando cada arranque y añadiendo una dependencia de
+red en el camino crítico. Si Packagist falla en ese momento, el contenedor no levanta.
+
+**3. Dos procesos en un contenedor con 0,5 GB.** Compiten por memoria, y un pico de la cola
+puede llevarse por delante al planificador. La especificación ya define un componente
+`scheduler` separado precisamente para esto.
+
+**Decisión:** no se toca ahora. El sistema funciona y separar los procesos en mitad de una
+respuesta a incidente añade riesgo sin urgencia. Queda anotado en `MEJORAS_RECOMENDADAS.md`,
+y con el latido desplegado el fallo silencioso deja de serlo — que era lo grave.
+
+### 48.11 Un secreto, un sitio
+
+La causa inmediata del incidente fue una contraseña desactualizada. La causa
+mecánica —la que hacía el error probable en vez de improbable— era que **cada
+componente llevaba su propia copia de las variables compartidas**: 37 claves
+duplicadas, 13 de ellas secretos, la mayoría repetidas en los tres componentes.
+
+Con esa estructura, rotar `DB_PASSWORD` exigía tres ediciones y nada impedía
+hacer una sola. Se hizo una sola. El servicio web quedó bien, el `worker` se
+quedó con la vieja, la aplicación siguió caída y el arreglo correcto pareció
+equivocado — que fue lo que más tiempo costó del día.
+
+El runbook ya decía «actualizar en los tres componentes». El paso estaba escrito
+y no se siguió. **La conclusión no es escribirlo más grande: es que un
+procedimiento que depende de la disciplina para no romper producción es un
+procedimiento mal diseñado.** Si el sistema permite quedarse a medias, alguien
+se quedará a medias.
+
+App Platform admite un bloque `envs` a nivel de app que heredan todos los
+componentes. La plantilla se reestructuró así:
+
+| | Antes | Después |
+|---|---|---|
+| Variables a nivel de app | 0 | 37 |
+| Duplicadas entre componentes | 37 | 0 |
+| Sitios donde vive `DB_PASSWORD` | 3 | 1 |
+| Sombreadas a propósito | — | 1 (`LOG_LEVEL`, `info` en el planificador) |
+
+**La trampa al aplicarlo**, y es importante: una variable declarada dentro de un
+componente **tiene precedencia** sobre la del nivel de app. Añadir el bloque sin
+borrar las copias viejas deja las copias mandando, y una rotación aparentemente
+correcta no surte ningún efecto, sin un solo mensaje de error. Hay que borrarlas.
+
+De paso salió un fallo latente: **el `worker` no tenía ninguna variable
+`MAIL_*`**, y es quien procesa la cola —o sea quien enviaría un correo encolado—.
+Sin esas variables, `config/mail.php` cae a su valor por defecto, el canal `log`,
+y el mensaje se escribe en el registro en vez de enviarse: sin error y sin rastro.
+Hoy no hay ningún mailable encolado en uso (`CustomVerifyEmail`, la que se usa de
+verdad, se envía de forma síncrona desde el servicio web; `VerifyEmailNotification`,
+que sí lleva `ShouldQueue`, es código muerto), así que era una trampa armada y no
+un fallo activo. Subir `MAIL_*` al nivel de app la desarma.
+
+### 48.12 Segundo proveedor: alerta por silencio
+
+`system:heartbeat` ahora, además del latido local, avisa a Healthchecks.io si hay
+`HEALTHCHECKS_PING_URL` configurada.
+
+No es redundancia por gusto. UptimeRobot consulta `/health` desde fuera y eso
+cubre «la aplicación no responde», pero deja dos huecos: no avisa de su propio
+silencio —nadie vigila al vigilante— y sólo puede ver un planificador muerto
+mientras el servicio web siga vivo para contarlo.
+
+Healthchecks invierte la dirección: en vez de que alguien pregunte desde fuera,
+es el planificador quien avisa, y la alarma salta por **ausencia** de avisos. Dos
+proveedores independientes, señales viajando en sentidos opuestos.
+
+Dos decisiones de diseño:
+
+- **El ping va DESPUÉS del latido local.** Si la escritura en caché falla —la base
+  de datos es el almacén— la excepción sube, el comando falla y no se envía nada.
+  Semántica correcta: el aviso hacia afuera significa «sigo vivo y además
+  funciono», no sólo «este proceso existe».
+- **Un fallo de red al pingar NO hace fallar el comando.** Si el aviso no sale, el
+  propio Healthchecks lo detecta por el silencio; romper la tarea cada minuto por
+  un blip de red sólo llenaría el log de errores que no lo son.

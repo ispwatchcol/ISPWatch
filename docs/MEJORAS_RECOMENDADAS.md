@@ -427,14 +427,22 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
-### 🔴 P-MON-1 · No hay centinela externo que consulte `/health/deep`
+### 🔴 P-MON-1 · No hay centinela externo que consulte `/health`
 
 El endpoint existe desde el 2026-08-20 (§ 48 de la bitácora) y reporta correctamente,
 pero **nadie lo está consultando**. Un chequeo de salud que nadie mira no es monitoreo:
 es un archivo de log con URL.
 
-Falta contratar el servicio —Better Stack, UptimeRobot o Healthchecks.io, todos con plan
-gratuito suficiente— apuntando a `https://ispwatch-crm.app/health/deep` cada 60 segundos.
+**Decidido el 2026-08-20:** UptimeRobot en plan gratuito, monitor de tipo *Keyword* sobre
+`https://ispwatch-crm.app/health`. El alta está automatizada en
+`CONVERZA-CRM/deploy/monitoring-setup.php`, que crea también el de Converza.
+
+> **Corrección al plan original.** Este apartado pedía «cada 60 segundos, con plan gratuito
+> suficiente». Son dos condiciones incompatibles: el mínimo gratuito de UptimeRobot son 300
+> segundos y el minuto exige plan de pago. Se acepta el intervalo de **5 minutos**: la
+> distancia entre uno y cinco minutos es despreciable frente a las quince horas que duró el
+> incidente. Bajar a un minuto tendrá sentido el día que cuatro minutos extra de caída
+> cuesten más que la suscripción.
 
 **Dos condiciones sin las cuales esto no sirve:**
 
@@ -447,9 +455,44 @@ gratuito suficiente— apuntando a `https://ispwatch-crm.app/health/deep` cada 6
    `"status":"ok"` en el cuerpo. Un monitor que sólo mira el 200 repite exactamente el
    error de `/up`.
 
+**Dos huecos que el plan gratuito deja abiertos**, anotados para no fingir que están
+cubiertos:
+
+- **No hay escalado.** Avisa a todos los contactos a la vez y ahí termina. Si quien recibe
+  la alerta duerme o está sin señal, nadie más se entera: la persona pasa a ser el punto
+  único de fallo. El plan pedía escalar a un segundo contacto a los 10 minutos, y eso es
+  gestión de guardia — exige plan de pago o Better Stack. Revisar cuando el equipo crezca.
+- **Nadie vigila al vigilante.** UptimeRobot no avisa si deja de funcionar. *Resuelto en
+  código el 2026-08-20* (§ 48.12): `system:heartbeat` avisa a Healthchecks.io si hay
+  `HEALTHCHECKS_PING_URL`. **Falta crear la cuenta** y poner la URL en el componente del
+  planificador — sin eso el código no hace nada.
+
 Pendiente también en el mismo frente: activar las alertas `RESTART_COUNT` y
 `MEM_UTILIZATION` por componente en App Platform. El `worker` estuvo reiniciándose en
 bucle durante el incidente y eso sólo se vio como un badge *Degraded* que nadie miraba.
+(`RESTART_COUNT` ya quedó declarada en `.do/deploy.template.yaml`; falta aplicar el spec.)
+
+### 🟠 P-PROC-1 · El planificador corre de fondo dentro del `worker`
+
+Descubierto el 2026-08-20 (§ 48.10). El `run_command` del `worker` lanza
+`php artisan schedule:work &` y acto seguido `exec php artisan queue:work`. Funciona —la
+facturación lleva meses saliendo— pero con tres costes:
+
+1. **Un fallo del planificador es invisible.** `exec` deja a `queue:work` como proceso
+   principal. Si el `schedule:work` de fondo muere, el contenedor sigue vivo, App Platform
+   lo ve sano, y deja de ocurrir todo el ciclo automático sin una sola señal. Mismo patrón
+   que el incidente: un supervisor que informa «sano» mientras lo que importa está muerto.
+   *Mitigado* por el latido de `system:heartbeat`, que lo delata en cinco minutos.
+2. **`composer install` está en el `run_command`**, además de en el `build_command`. Con
+   `--max-time=3600` el contenedor se recicla cada hora, así que esa instalación se repite
+   cada hora: alarga el arranque y mete una dependencia de red en el camino crítico. Si
+   Packagist falla en ese momento, el contenedor no levanta. **Quitarlo es gratis y
+   conviene hacerlo pronto.**
+3. **Dos procesos en 0,5 GB.** Compiten por memoria; un pico de la cola puede llevarse por
+   delante al planificador.
+
+El componente `scheduler` ya está definido en `.do/deploy.template.yaml`. Separarlo es el
+arreglo de fondo, sin urgencia una vez que el latido está desplegado.
 
 ### 🔴 P-DEPLOY-1 · `migrate --force` corre dentro del arranque del contenedor
 
@@ -467,6 +510,27 @@ en paralelo sobre la misma base.
 
 Corresponde un job `kind: PRE_DEPLOY` en la especificación de App Platform. Separa el
 resultado de migrar del resultado de arrancar, que son dos preguntas distintas.
+
+### 🟢 P-SECRET-1 · Un secreto vivía en tres sitios — *resuelto en la plantilla, falta aplicar*
+
+Cada componente llevaba su copia de las variables compartidas: 37 duplicadas, 13 secretos.
+Rotar `DB_PASSWORD` exigía tres ediciones y nada impedía hacer una sola — es la causa
+mecánica de que la caída del § 48 durase quince horas.
+
+`.do/deploy.template.yaml` ya está reestructurado con un bloque `envs` a nivel de app:
+37 variables compartidas en un solo sitio, cero duplicadas entre componentes, y una única
+sobrescritura deliberada (`LOG_LEVEL` a `info` en el planificador).
+
+**Falta aplicarlo a la especificación viva**, y hay una trampa: una variable declarada
+dentro de un componente **tiene precedencia** sobre la de nivel de app. Añadir el bloque
+sin borrar las copias viejas deja mandando a las copias, y una rotación aparentemente
+correcta no surte efecto, sin ningún mensaje de error. Comprobación después de migrar,
+desde la consola de cada componente:
+
+```bash
+echo $DB_PASSWORD       # los tres deben coincidir
+curl -s https://ispwatch-crm.app/health
+```
 
 ### 🔴 P-ENV-1 · Desarrollo y producción comparten la misma base de datos
 

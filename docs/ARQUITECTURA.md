@@ -1724,14 +1724,14 @@ Hay dos endpoints y la división es deliberada:
 | Endpoint | Pregunta | Quién lo consulta |
 |---|---|---|
 | `GET /up` | ¿Está vivo el proceso PHP? | El orquestador, para decidir reinicios |
-| `GET /health/deep` | ¿Funciona el sistema? | Humanos y el centinela externo |
+| `GET /health` | ¿Funciona el sistema? | Humanos y el centinela externo |
 
 **`/up` se queda superficial a propósito.** La tentación es hacerlo verificar la base de
 datos, y sería un error: App Platform reinicia el contenedor cuando el chequeo falla, y
 reiniciar no arregla una contraseña equivocada. Se obtendría un ciclo de reinicios en vez
 de un servicio degradado que al menos puede explicar qué le pasa.
 
-`/health/deep` informa; no dispara reinicios. Devuelve 503 y el detalle por componente para
+`/health` informa; no dispara reinicios. Devuelve 503 y el detalle por componente para
 que un humano sepa dónde mirar sin entrar al panel.
 
 ### 16.3 Por qué el chequeo profundo va sin middleware
@@ -1749,7 +1749,7 @@ contiene secretos, los chequeos son baratos y se puede exigir `HEALTH_CHECK_TOKE
 
 **Trampa relacionada:** el catch-all del SPA en `routes/web.php` se registra antes que el
 callback `then`, y Laravel resuelve por orden. Sin excluir el prefijo `health/`, el catch-all
-atiende `/health/deep` y devuelve el HTML del panel con un **200** — la respuesta que haría
+atiende `/health` y devuelve el HTML del panel con un **200** — la respuesta que haría
 inútil al chequeo.
 
 ### 16.4 Alertar por silencio
@@ -1792,10 +1792,39 @@ De afuera hacia adentro. Las dos primeras son las que faltaban por completo:
 
 | Capa | Qué es | Estado |
 |---|---|---|
-| 0 · Centinela externo | Servicio de terceros que consulta `/health/deep` desde internet | **Pendiente** (P-MON-1) |
-| 1 · Chequeo profundo | `GET /health/deep` | Implementado |
+| 0a · Centinela externo | UptimeRobot, monitor *Keyword* sobre `/health` cada 5 min | Activo |
+| 0b · Alerta por silencio | Healthchecks.io, `system:heartbeat` avisa cada minuto | Código listo; falta la cuenta |
+| 1 · Chequeo profundo | `GET /health` | Implementado |
 | 2 · Alertas de plataforma | `DEPLOYMENT_FAILED`, `DOMAIN_FAILED`; faltan `RESTART_COUNT` y memoria | Parcial |
 | 3 · Invariantes de negocio | Los cinco comandos `Verify*` | Implementado |
 
 La capa 0 es la única que sobrevive a una caída de la base de datos, y por eso es la única
 que puede detectarla. Sin ella, las otras tres son diagnóstico, no detección.
+
+Va partida en dos a propósito, y con **proveedores distintos**. UptimeRobot pregunta desde
+fuera: cubre «la aplicación no responde». Healthchecks espera a que le avisen: cubre «el
+planificador dejó de correr» y, sobre todo, cubre el hueco que ningún monitor tapa por sí
+solo — **que el propio monitor deje de funcionar**. Un servicio no avisa de su propio
+silencio. Dos servicios independientes, con la señal viajando en sentidos opuestos, sí.
+
+### 16.7 Un secreto, un sitio
+
+La estructura de las variables de entorno es parte de la fiabilidad, no de la comodidad.
+
+Hasta el 2026-08-20 cada componente llevaba su copia de las compartidas: 37 claves
+duplicadas, 13 de ellas secretos. Rotar `DB_PASSWORD` exigía tres ediciones coordinadas y
+nada impedía hacer una sola — y hacer una sola fue exactamente lo que convirtió una
+contraseña desactualizada en quince horas de caída.
+
+El runbook ya decía «actualizar en los tres componentes». El paso estaba escrito y no se
+siguió. La conclusión no es escribirlo más grande: **un procedimiento que depende de la
+disciplina para no romper producción está mal diseñado**. Si el sistema permite quedarse a
+medias, alguien se quedará a medias.
+
+Ahora lo compartido vive en el bloque `envs` a nivel de app y los componentes heredan.
+Sólo baja al componente lo que es genuinamente suyo: la sesión y el CORS son del servicio
+web, `LOG_LEVEL=info` y la URL de Healthchecks son del planificador.
+
+**Precedencia:** una variable declarada en un componente gana sobre la de nivel de app. Es
+útil para la excepción deliberada del `LOG_LEVEL`, y es una trampa para todo lo demás —
+una copia vieja olvidada dentro de un componente sombrea silenciosamente al valor bueno.

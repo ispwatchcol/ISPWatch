@@ -19,12 +19,15 @@ Route::middleware('web')->group(function () {
 
 // SPA catch-all route (must be last)
 //
-// `health/` queda excluido: las rutas de `routes/health.php` se registran DESPUÉS
+// `health` queda excluido: las rutas de `routes/health.php` se registran DESPUÉS
 // de este archivo (van en el callback `then` de bootstrap/app.php, para quedar
 // sin middleware), y Laravel resuelve por orden de registro. Sin esta exclusión
-// el catch-all atiende `/health/deep` y devuelve el HTML del SPA con un 200
-// —que es justo la respuesta que haría inútil al chequeo: un monitor externo
-// vería 200 y nunca alertaría.
+// el catch-all atiende `/health` y devuelve el HTML del SPA con un 200 —que es
+// justo la respuesta que haría inútil al chequeo: un monitor externo vería 200 y
+// nunca alertaría. Ocurrió de verdad y hay una prueba que lo fija.
+//
+// El patrón excluye `health` exacto y todo lo que cuelgue de `health/`, pero no
+// toca rutas del SPA que sólo empiecen igual (`/healthcare` sigue funcionando).
 Route::get('/{any}', function () {
     return view('app');
-})->where('any', '(?!health/).*');
+})->where('any', '(?!health$|health/).*');

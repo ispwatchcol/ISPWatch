@@ -102,7 +102,13 @@ Actualizar `VITE_SUPABASE_ANON_KEY`.
 ### 3.4 Base de datos
 
 Panel de Supabase → Settings → Database → cambiar la contraseña del usuario.
-Actualizar `DB_PASSWORD` en `ispwatch`, `worker` y `scheduler`.
+Actualizar `DB_PASSWORD` en **un solo sitio**: las variables compartidas viven a nivel
+de app y los tres componentes heredan de ahí (ver `ARQUITECTURA.md` § 16.7).
+
+> **Mientras la especificación viva no esté migrada** (P-SECRET-1), `DB_PASSWORD` sigue
+> existiendo tres veces, una por componente, y hay que cambiarla en las tres. Comprueba
+> primero, en el panel, si aparece bajo *App-Level Environment Variables* o dentro de cada
+> componente. Esa diferencia es la que costó quince horas el 2026-08-20.
 
 **Verificar:** `php artisan migrate:status` desde la consola de la app.
 
@@ -136,7 +142,7 @@ php artisan migrate:status # el error crudo, sin el mensaje genérico encima
 **Verificación final, obligatoria en toda rotación:**
 
 ```bash
-curl -s https://ispwatch-crm.app/health/deep | grep -o '"status":"[a-z]*"' | head -1
+curl -s https://ispwatch-crm.app/health | grep -o '"status":"[a-z]*"' | head -1
 ```
 
 Debe responder `"status":"ok"`. Ese endpoint comprueba base de datos, caché, cola,
@@ -203,7 +209,7 @@ confiar en la rotación. Es aceptable **sólo si los pasos 3.1 a 3.5 están comp
 - [ ] **El despliegue posterior terminó en verde** (pestaña *Activity*) — un despliegue
       fallido revierte las variables junto con el resto
 - [ ] **`echo $DB_PASSWORD` en la consola de cada componente** devuelve el valor nuevo
-- [ ] **`/health/deep` responde `"status":"ok"`**
+- [ ] **`/health` responde `"status":"ok"`**
 - [ ] Decisión sobre el historial de Git tomada y registrada
 - [ ] `test-core-connection` y `test-ssh-connection` verificados
 - [ ] Un correo de prueba enviado correctamente

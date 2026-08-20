@@ -38,7 +38,7 @@ class HealthController extends Controller
     private const OK = 'ok';
     private const FAIL = 'fail';
 
-    public function deep(Request $request): JsonResponse
+    public function check(Request $request): JsonResponse
     {
         if (! $this->tokenIsValid($request)) {
             // 404 y no 403: si el endpoint está protegido, tampoco conviene
@@ -167,6 +167,14 @@ class HealthController extends Controller
      * llegar, algo se rompió aunque nadie haya reportado un error.
      *
      * Lo escribe `system:heartbeat`, agendado cada minuto en `routes/console.php`.
+     *
+     * IMPRESCINDIBLE CON EL DESPLIEGUE ACTUAL. En producción el planificador no
+     * es un componente propio: corre de fondo dentro del `worker`, arrancado con
+     * `php artisan schedule:work &` justo antes de que `exec queue:work` tome el
+     * proceso principal. Si ese proceso de fondo muere, el contenedor sigue vivo
+     * —el principal es la cola—, App Platform lo ve sano y NADA del ciclo
+     * automático vuelve a ejecutarse: ni facturas, ni recordatorios, ni cortes.
+     * Sin latido, ese fallo es invisible hasta fin de mes.
      */
     private function checkScheduler(): array
     {
@@ -181,7 +189,7 @@ class HealthController extends Controller
             if ($last === null) {
                 return [
                     'status' => self::FAIL,
-                    'error'  => 'nunca ha latido: el componente scheduler no está desplegado, o no ha corrido desde el último despliegue',
+                    'error'  => 'nunca ha latido: el planificador no está corriendo, o no ha llegado a hacerlo desde el último despliegue',
                 ];
             }
 

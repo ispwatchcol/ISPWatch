@@ -14,7 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__ . '/../routes/api.php',
         commands: __DIR__ . '/../routes/console.php',
         health: '/up',
-        // `/health/deep` va sin middleware a propósito: el grupo `web` abre
+        // `/health` va sin middleware a propósito: el grupo `web` abre
         // sesión y el grupo `api` aplica throttle, y ambos dependen de la base
         // de datos. Con cualquiera de los dos, el chequeo se caería junto con lo
         // que debe diagnosticar. Ver routes/health.php.
