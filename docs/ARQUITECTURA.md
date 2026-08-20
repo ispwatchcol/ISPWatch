@@ -1792,7 +1792,7 @@ De afuera hacia adentro. Las dos primeras son las que faltaban por completo:
 
 | Capa | Qué es | Estado |
 |---|---|---|
-| 0 · Centinela externo | Servicio de terceros que consulta `/health/deep` desde internet | **Pendiente** (P-MON-1) |
+| 0 · Centinela externo | UptimeRobot, monitor *Keyword* sobre `/health/deep` cada 5 min | **Por dar de alta** (P-MON-1) |
 | 1 · Chequeo profundo | `GET /health/deep` | Implementado |
 | 2 · Alertas de plataforma | `DEPLOYMENT_FAILED`, `DOMAIN_FAILED`; faltan `RESTART_COUNT` y memoria | Parcial |
 | 3 · Invariantes de negocio | Los cinco comandos `Verify*` | Implementado |

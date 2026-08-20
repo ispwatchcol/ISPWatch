@@ -433,8 +433,16 @@ El endpoint existe desde el 2026-08-20 (§ 48 de la bitácora) y reporta correct
 pero **nadie lo está consultando**. Un chequeo de salud que nadie mira no es monitoreo:
 es un archivo de log con URL.
 
-Falta contratar el servicio —Better Stack, UptimeRobot o Healthchecks.io, todos con plan
-gratuito suficiente— apuntando a `https://ispwatch-crm.app/health/deep` cada 60 segundos.
+**Decidido el 2026-08-20:** UptimeRobot en plan gratuito, monitor de tipo *Keyword* sobre
+`https://ispwatch-crm.app/health/deep`. El alta está automatizada en
+`CONVERZA-CRM/deploy/monitoring-setup.php`, que crea también el de Converza.
+
+> **Corrección al plan original.** Este apartado pedía «cada 60 segundos, con plan gratuito
+> suficiente». Son dos condiciones incompatibles: el mínimo gratuito de UptimeRobot son 300
+> segundos y el minuto exige plan de pago. Se acepta el intervalo de **5 minutos**: la
+> distancia entre uno y cinco minutos es despreciable frente a las quince horas que duró el
+> incidente. Bajar a un minuto tendrá sentido el día que cuatro minutos extra de caída
+> cuesten más que la suscripción.
 
 **Dos condiciones sin las cuales esto no sirve:**
 
@@ -447,9 +455,22 @@ gratuito suficiente— apuntando a `https://ispwatch-crm.app/health/deep` cada 6
    `"status":"ok"` en el cuerpo. Un monitor que sólo mira el 200 repite exactamente el
    error de `/up`.
 
+**Dos huecos que el plan gratuito deja abiertos**, anotados para no fingir que están
+cubiertos:
+
+- **No hay escalado.** Avisa a todos los contactos a la vez y ahí termina. Si quien recibe
+  la alerta duerme o está sin señal, nadie más se entera: la persona pasa a ser el punto
+  único de fallo. El plan pedía escalar a un segundo contacto a los 10 minutos, y eso es
+  gestión de guardia — exige plan de pago o Better Stack. Revisar cuando el equipo crezca.
+- **Nadie vigila al vigilante.** UptimeRobot no avisa si deja de funcionar. La contramedida
+  barata es un segundo proveedor independiente: Healthchecks.io con un *dead man's switch*
+  al que `system:heartbeat` haga ping. Dos proveedores cubriéndose mutuamente, ambos
+  gratuitos. **Es el siguiente paso natural** y reutiliza el comando que ya existe.
+
 Pendiente también en el mismo frente: activar las alertas `RESTART_COUNT` y
 `MEM_UTILIZATION` por componente en App Platform. El `worker` estuvo reiniciándose en
 bucle durante el incidente y eso sólo se vio como un badge *Degraded* que nadie miraba.
+(`RESTART_COUNT` ya quedó declarada en `.do/deploy.template.yaml`; falta aplicar el spec.)
 
 ### 🔴 P-DEPLOY-1 · `migrate --force` corre dentro del arranque del contenedor
 
