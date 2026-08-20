@@ -163,6 +163,86 @@ sugería falsamente que el cliente puede elegir su propio tenant.
 | `POST` | `/api/register/send-code` | Envía código de verificación al correo |
 | `GET` | `/api/verify-email/{id}/{hash}` | Verifica el correo (**URL firmada**) |
 | `POST` | `/api/verify-email/resend` | Reenvía el correo de verificación |
+| `GET` | `/health/deep` | Chequeo de salud profundo (**sin prefijo `/api`**) |
+
+### `GET /health/deep`
+
+Estado real del sistema, para que lo consulte un monitor **externo**. Sin prefijo `/api`
+y **sin ningún middleware**: el grupo `web` abre sesión y el grupo `api` aplica throttle,
+y ambos dependen de la base de datos, así que con cualquiera de los dos el chequeo se
+caería junto con lo que debe diagnosticar.
+
+No confundir con `GET /up`, que es el chequeo de Laravel: responde 200 mientras el proceso
+PHP siga vivo y no toca ninguna dependencia. Durante la caída del 2026-08-20 devolvió 200
+las quince horas que el sistema estuvo inutilizable. La división es deliberada — el
+orquestador usa `/up` para decidir reinicios, y reiniciar un contenedor no arregla una
+contraseña equivocada.
+
+**Autenticación**
+
+Ninguna por defecto: la respuesta no contiene secretos, sólo nombres de componente y
+números. Si se define `HEALTH_CHECK_TOKEN`, hay que enviarlo en la cabecera
+`X-Health-Token` o como `?token=`; sin él la respuesta es **404** (no 403: si el endpoint
+está protegido, tampoco conviene confirmar que existe).
+
+**200 OK** — todo operativo
+
+```json
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "timestamp": "2026-08-20T14:31:07-05:00",
+  "failing": [],
+  "checks": {
+    "database":   { "status": "ok", "latency_ms": 14 },
+    "cache":      { "status": "ok", "store": "database", "latency_ms": 9 },
+    "queue":      { "status": "ok", "pending": 0, "failed": 0, "latency_ms": 6 },
+    "scheduler":  { "status": "ok", "last_run_seconds_ago": 23, "latency_ms": 3 },
+    "migrations": { "status": "ok", "pending": 0, "latency_ms": 11 }
+  }
+}
+```
+
+**503 Service Unavailable** — algo está caído
+
+```json
+{
+  "status": "degraded",
+  "failing": ["scheduler"],
+  "checks": {
+    "scheduler": {
+      "status": "fail",
+      "error": "nunca ha latido: el componente scheduler no está desplegado, o no ha corrido desde el último despliegue"
+    }
+  }
+}
+```
+
+**Estados por componente**
+
+| Estado | Significado |
+|---|---|
+| `ok` | Verificado y operativo |
+| `fail` | Caído. Pone el conjunto en `degraded` y la respuesta en 503 |
+| `skipped` | No aplica en este entorno (la cola no usa `database`, o la base ya está caída y el resto no diría nada útil) |
+
+**Qué verifica cada uno**
+
+| Chequeo | Cómo |
+|---|---|
+| `database` | `select 1`. No depende de que ninguna tabla exista |
+| `cache` | Escribe una llave y la relee. Un `get` a secas no distingue «funciona» de «devuelve null para todo» |
+| `queue` | Trabajos pendientes, **edad** del más viejo y fallidos. La edad importa más: mil trabajos moviéndose es carga, uno solo esperando quince minutos es un worker muerto |
+| `scheduler` | Latido de `system:heartbeat`, escrito cada minuto. Alerta por **silencio** |
+| `migrations` | Migraciones sin aplicar. Un despliegue con migraciones pendientes es código esperando columnas que no existen |
+
+**Configuración:** `config/health.php`. Umbrales por variable de entorno
+(`HEALTH_SCHEDULER_MAX_SILENCE`, `HEALTH_QUEUE_MAX_PENDING`, `HEALTH_QUEUE_MAX_AGE`).
+
+> **Para el centinela externo:** debe validar el **contenido**, no sólo el código HTTP.
+> Configúralo para exigir `"status":"ok"` en el cuerpo — de lo contrario un cambio futuro
+> que devuelva 200 con estado `degraded` pasaría desapercibido, que es exactamente el modo
+> de fallo que este endpoint existe para eliminar.
 
 ### `POST /api/login`
 

@@ -76,3 +76,13 @@ Schedule::command('contracts:remind-unsigned')->dailyAt('09:00');
 // sin techo, porque se escribe una fila por petición atendida o rechazada.
 Schedule::command('api-keys:prune-logs')->dailyAt('03:30');
 
+// Latido del planificador. Cada minuto, y a propósito lo primero que se agenda
+// en importancia: es lo único que permite detectar que ESTE proceso dejó de
+// correr. Sin él, un scheduler caído solo se descubre a fin de mes, cuando no
+// hay facturas. Lo consulta /health/deep y, a través suyo, el centinela externo.
+//
+// Sin withoutOverlapping: el bloqueo vive en el caché (que es la base de datos),
+// y un latido que necesita adquirir un lock para latir se pierde justo cuando la
+// base empieza a ir mal — que es cuando más falta hace saberlo.
+Schedule::command('system:heartbeat')->everyMinute();
+

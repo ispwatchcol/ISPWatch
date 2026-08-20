@@ -4,7 +4,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Route;
 use App\Helpers\ErrorMessages;
+use App\Support\DatabaseFailure;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,6 +14,13 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__ . '/../routes/api.php',
         commands: __DIR__ . '/../routes/console.php',
         health: '/up',
+        // `/health/deep` va sin middleware a propósito: el grupo `web` abre
+        // sesión y el grupo `api` aplica throttle, y ambos dependen de la base
+        // de datos. Con cualquiera de los dos, el chequeo se caería junto con lo
+        // que debe diagnosticar. Ver routes/health.php.
+        then: function (): void {
+            Route::middleware([])->group(__DIR__ . '/../routes/health.php');
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust all proxies (required for DigitalOcean App Platform)
@@ -59,14 +68,46 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         // Handle database exceptions with user-friendly messages
         $exceptions->render(function (QueryException $e, $request) {
-            // Log the original error for debugging
-            \Log::error('Database error: ' . $e->getMessage(), [
-                'sql' => $e->getSql(),
-                'bindings' => $e->getBindings(),
-                'code' => $e->errorInfo[0] ?? null,
-            ]);
+            $infrastructure = DatabaseFailure::isInfrastructure($e);
 
-            // Return user-friendly error message
+            \Log::error(
+                ($infrastructure ? 'Database unavailable: ' : 'Database error: ') . $e->getMessage(),
+                [
+                    'sql' => $e->getSql(),
+                    'bindings' => $e->getBindings(),
+                    'code' => $e->errorInfo[0] ?? null,
+                    'infrastructure' => $infrastructure,
+                ]
+            );
+
+            // ── La base de datos no responde ────────────────────────────────
+            // 503 y NUNCA una redirección. Sin base de datos no hay sesión, y
+            // `redirect()->back()` sin sesión ni Referer apunta a la raíz del
+            // sitio: cada intento reproduce el error y vuelve a redirigir. Eso
+            // es exactamente el ERR_TOO_MANY_REDIRECTS del 2026-08-20.
+            //
+            // El código también importa: un 422 afirma que los datos enviados
+            // están mal, y mandó el diagnóstico en la dirección equivocada
+            // durante horas. Un 503 dice la verdad —el servidor no puede
+            // atender— y es lo que el centinela externo sabe interpretar.
+            if ($infrastructure) {
+                $body = [
+                    'success' => false,
+                    'message' => 'El servicio no está disponible en este momento. Estamos trabajando para restablecerlo; intenta de nuevo en unos minutos.',
+                ];
+
+                if ($request->expectsJson() || $request->is('api/*')) {
+                    return response()->json($body, 503)->header('Retry-After', '60');
+                }
+
+                return response()
+                    ->view('errors.database-unavailable', [], 503)
+                    ->header('Retry-After', '60');
+            }
+
+            // ── Error de datos: la base está viva ───────────────────────────
+            // Una restricción violada, una columna que falta. La sesión existe,
+            // así que redirigir es seguro y 422 describe bien el problema.
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json([
                     'success' => false,
@@ -74,7 +115,6 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 422);
             }
 
-            // For web requests, you can redirect back with error
             return redirect()->back()
                 ->withErrors(['error' => ErrorMessages::getDatabaseErrorMessage($e)])
                 ->withInput();

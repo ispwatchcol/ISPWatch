@@ -427,6 +427,63 @@ que cubre el flujo de acceso real.
 
 ## 7. Pendientes
 
+### 🔴 P-MON-1 · No hay centinela externo que consulte `/health/deep`
+
+El endpoint existe desde el 2026-08-20 (§ 48 de la bitácora) y reporta correctamente,
+pero **nadie lo está consultando**. Un chequeo de salud que nadie mira no es monitoreo:
+es un archivo de log con URL.
+
+Falta contratar el servicio —Better Stack, UptimeRobot o Healthchecks.io, todos con plan
+gratuito suficiente— apuntando a `https://ispwatch-crm.app/health/deep` cada 60 segundos.
+
+**Dos condiciones sin las cuales esto no sirve:**
+
+1. **Debe vivir fuera de DigitalOcean y de Supabase.** Una alarma no puede compartir
+   infraestructura con lo que vigila. Ése fue el fallo estructural del incidente: los
+   cinco comandos `Verify*` no pudieron avisar porque el planificador que los dispara, la
+   base que consultan y la cola por la que sale el correo eran la misma cosa que estaba
+   caída.
+2. **Debe validar el contenido, no sólo el código HTTP.** Configurar la aserción sobre
+   `"status":"ok"` en el cuerpo. Un monitor que sólo mira el 200 repite exactamente el
+   error de `/up`.
+
+Pendiente también en el mismo frente: activar las alertas `RESTART_COUNT` y
+`MEM_UTILIZATION` por componente en App Platform. El `worker` estuvo reiniciándose en
+bucle durante el incidente y eso sólo se vio como un badge *Degraded* que nadie miraba.
+
+### 🔴 P-DEPLOY-1 · `migrate --force` corre dentro del arranque del contenedor
+
+El `run_command` del servicio web ejecuta las migraciones antes de levantar Apache. Dos
+consecuencias, ambas verificadas en producción:
+
+- **Cualquier problema de base de datos se convierte en un despliegue fallido**, en vez de
+  un despliegue exitoso con una función degradada.
+- **El rollback revierte también las variables de entorno.** Durante el incidente se podía
+  corregir `DB_PASSWORD` indefinidamente sin efecto: el despliegue que la aplicaba se caía
+  y App Platform restauraba el valor viejo junto con el resto del despliegue anterior.
+
+Y una tercera latente: si algún día `instance_count` sube de 1, dos contenedores migrarían
+en paralelo sobre la misma base.
+
+Corresponde un job `kind: PRE_DEPLOY` en la especificación de App Platform. Separa el
+resultado de migrar del resultado de arrancar, que son dos preguntas distintas.
+
+### 🔴 P-ENV-1 · Desarrollo y producción comparten la misma base de datos
+
+Sólo los separa el *schema* (`ispwatch_dev` y `public`) dentro de la misma instancia de
+Supabase. Tres consecuencias:
+
+- **Cada portátil del equipo guarda credenciales de producción** en su `.env`. Es la razón
+  de fondo por la que esas credenciales acabaron circulando por WhatsApp y necesitando una
+  rotación de urgencia — la que provocó el incidente del § 48.
+- Un `migrate:fresh` o un `DROP` mal apuntado toca producción. Lo único que lo evita hoy
+  es que nadie se equivoque de variable.
+- El límite de conexiones del pooler es compartido: una prueba de carga en desarrollo
+  puede agotar las conexiones de producción.
+
+Es prerrequisito real de P-RLS-1: separar roles de base de datos no significa nada mientras
+el mismo usuario atienda los dos entornos.
+
 ### 🔴 P-RLS-1 · La frontera entre tenants sigue siendo 100 % de aplicación
 
 Tras la revisión del 2026-08-15 (§ 35 de la bitácora) todos los modelos con `tenant_id`

@@ -17,6 +17,44 @@ y explicada en el [manual del desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
+## [1.1.0] — 2026-08-20
+
+Versión de resiliencia. El 20 de agosto la plataforma estuvo quince horas
+inaccesible y **nadie recibió una alerta**, porque el chequeo de salud respondía
+«todo bien» sin comprobar nada. Esto cierra ese hueco.
+
+### Añadido
+
+- **Chequeo de salud real.** `GET /health/deep` verifica de verdad la base de
+  datos, el caché, la cola, el planificador y las migraciones pendientes, y
+  devuelve el detalle por componente. Está pensado para que lo consulte un
+  monitor externo cada minuto: si algo se cae, ahora se sabe en minutos y no al
+  día siguiente. El chequeo anterior (`/up`) sigue existiendo, pero sólo dice si
+  el proceso está vivo.
+- **Aviso por silencio del planificador.** El planificador deja una señal de vida
+  cada minuto. Si deja de hacerlo, el chequeo lo reporta como caído. Es la única
+  forma de detectar que las tareas automáticas —facturar, cortar, recordar— no se
+  están ejecutando, algo que hasta ahora sólo se notaba a fin de mes al ver que
+  no había facturas.
+
+### Corregido
+
+- **La página quedaba dando vueltas cuando la base de datos no respondía.** El
+  navegador entraba en un bucle infinito de redirecciones y mostraba
+  «te ha redirigido demasiadas veces», sin ninguna pista de qué pasaba ni nada que
+  el usuario pudiera hacer. Ahora aparece una página clara que explica que el
+  servicio no está disponible, que no se perdió nada de lo guardado y que el
+  equipo técnico ya fue avisado.
+- **Los errores de conexión se reportaban como si fueran datos mal escritos.**
+  Cuando la base de datos no respondía, el sistema contestaba «Ocurrió un error al
+  procesar tu solicitud», el mismo mensaje que para un campo mal llenado. Ahora
+  distingue las dos situaciones.
+- **Entrar sin llenar todos los campos daba «Error interno del servidor».** Un
+  olvido en el formulario de acceso se mostraba como una falla del sistema en vez
+  de indicar qué campo faltaba.
+
+---
+
 ## [1.0.0] — 2026-08-19
 
 Primera versión numerada. La plataforma llevaba en producción desde mayo de 2026

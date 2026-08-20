@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use App\Models\User;
 
 class AuthController extends Controller
@@ -141,6 +142,13 @@ class AuthController extends Controller
                 ]
             ]);
 
+        } catch (ValidationException $e) {
+            // Se relanza para que Laravel la convierta en el 422 con el detalle
+            // por campo. Sin esto la atrapaba el `catch (\Exception)` de abajo y
+            // un «falta el campo contraseña» salía como 500 «Error interno del
+            // servidor»: el usuario no sabía qué corregir y el log se llenaba de
+            // errores internos que no lo eran.
+            throw $e;
         } catch (\Exception $e) {
             // Log the full error for debugging (internamente, nunca al usuario)
             Log::error('Login error', [

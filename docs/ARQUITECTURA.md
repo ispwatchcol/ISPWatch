@@ -1687,3 +1687,115 @@ Por eso el frontend recibe siempre `code` **y** `label`: colorea por el primero,
 estable, y muestra el segundo, que no lo es. La SPA los obtiene de
 `GET /api/catalogs/ticket` mediante el composable `useTicketCatalogs()`, que sustituyó a
 los mapas de etiquetas que estaban duplicados en cinco componentes.
+
+---
+
+## 16. Observabilidad y dominios de fallo
+
+Añadido tras la caída del 2026-08-20 (§ 48 de la bitácora), donde el sistema estuvo quince
+horas inutilizable sin que ninguna alarma se disparara.
+
+### 16.1 El principio
+
+**Una alarma no puede compartir infraestructura con lo que vigila.**
+
+Suena obvio y sin embargo era exactamente lo que pasaba. ISPWatch tenía —y conserva— cinco
+comandos `Verify*` que auditan invariantes de negocio: que la facturación mensual ocurrió,
+que los cortes se ejecutaron, que no hay pagos huérfanos, que los túneles VPN responden. Es
+buena arquitectura y detecta cosas que ningún monitor externo puede ver.
+
+Pero todos viven dentro del radio de la falla:
+
+| Pieza | De qué depende |
+|---|---|
+| Comandos `Verify*` | Consultan la base para decidir si alertar |
+| El planificador que los dispara | Usa la base para sus bloqueos (`withoutOverlapping`) |
+| El correo de alerta | `QUEUE_CONNECTION=database` |
+| Converza por WhatsApp | Lee `router_outage_events` de la misma base |
+| El panel donde se vería | Sesión en base, caché en base |
+
+Cuando Postgres dejó de responder, el aparato entero de detección murió con lo que debía
+detectar. El silencio resultante es indistinguible de que todo esté bien.
+
+### 16.2 Las dos preguntas del chequeo de salud
+
+Hay dos endpoints y la división es deliberada:
+
+| Endpoint | Pregunta | Quién lo consulta |
+|---|---|---|
+| `GET /up` | ¿Está vivo el proceso PHP? | El orquestador, para decidir reinicios |
+| `GET /health/deep` | ¿Funciona el sistema? | Humanos y el centinela externo |
+
+**`/up` se queda superficial a propósito.** La tentación es hacerlo verificar la base de
+datos, y sería un error: App Platform reinicia el contenedor cuando el chequeo falla, y
+reiniciar no arregla una contraseña equivocada. Se obtendría un ciclo de reinicios en vez
+de un servicio degradado que al menos puede explicar qué le pasa.
+
+`/health/deep` informa; no dispara reinicios. Devuelve 503 y el detalle por componente para
+que un humano sepa dónde mirar sin entrar al panel.
+
+### 16.3 Por qué el chequeo profundo va sin middleware
+
+`routes/health.php` se registra desde el callback `then` de `bootstrap/app.php` con
+`Route::middleware([])`. Sin sesión, sin CSRF, sin throttle.
+
+No es descuido, es el punto entero: el grupo `web` arranca la sesión (`SESSION_DRIVER=database`)
+y el grupo `api` aplica `throttleApi()` (limitador sobre `CACHE_STORE=database`). Cualquiera
+de los dos revienta **antes** de llegar al controlador cuando Postgres no responde — es decir,
+justo en el único momento en que el endpoint tiene algo que decir.
+
+El precio es que no hay limitador de peticiones. Se acepta a conciencia: la respuesta no
+contiene secretos, los chequeos son baratos y se puede exigir `HEALTH_CHECK_TOKEN`.
+
+**Trampa relacionada:** el catch-all del SPA en `routes/web.php` se registra antes que el
+callback `then`, y Laravel resuelve por orden. Sin excluir el prefijo `health/`, el catch-all
+atiende `/health/deep` y devuelve el HTML del panel con un **200** — la respuesta que haría
+inútil al chequeo.
+
+### 16.4 Alertar por silencio
+
+Hay una clase de fallo que ningún verificador interno puede detectar: **que el sistema no
+haya corrido**. Un comando que audita la facturación no puede reportar que el planificador
+jamás lo ejecutó, porque para reportarlo tendría que estar corriendo.
+
+Ya ocurrió dos veces: el componente `scheduler` no existía en producción y no se generó
+ninguna factura del mes (§ 26), y volvió a ocurrir en el § 48.
+
+La solución invierte la lógica. `system:heartbeat` escribe una marca de tiempo cada minuto y
+`HealthController::checkScheduler()` alerta cuando **deja de llegar**. Es un *dead man's
+switch*: el fallo se manifiesta como ausencia, no como error.
+
+### 16.5 Fallo de infraestructura contra error de datos
+
+`app/Support/DatabaseFailure.php` clasifica cada `QueryException` en dos categorías con
+respuestas opuestas:
+
+| | Error de datos | Fallo de infraestructura |
+|---|---|---|
+| Ejemplo | Clave duplicada, columna obligatoria | Sin conexión, contraseña inválida, sin conexiones libres |
+| SQLSTATE | Clase 23, 42 | Clase 08, 28, 53, 57 |
+| De quién es el problema | De la petición | Del servidor |
+| Respuesta | 422 y `redirect()->back()` | **503** y vista estática |
+| ¿Se puede redirigir? | Sí, la sesión existe | **Nunca** |
+
+La última fila es la que produjo el incidente. Sin base de datos no hay sesión, y
+`redirect()->back()` sin sesión ni `Referer` cae a `UrlGenerator::previous()`, que devuelve
+la raíz del sitio. Cada intento reproducía el error y volvía a redirigir: bucle infinito.
+
+La clase 42 (tabla o columna inexistente) queda deliberadamente del lado de «error de datos»:
+una migración que falta es un despliegue incompleto, no una caída, y responder 503 lo
+escondería detrás de «vuelve más tarde» en lugar de delatarlo.
+
+### 16.6 Las cuatro capas
+
+De afuera hacia adentro. Las dos primeras son las que faltaban por completo:
+
+| Capa | Qué es | Estado |
+|---|---|---|
+| 0 · Centinela externo | Servicio de terceros que consulta `/health/deep` desde internet | **Pendiente** (P-MON-1) |
+| 1 · Chequeo profundo | `GET /health/deep` | Implementado |
+| 2 · Alertas de plataforma | `DEPLOYMENT_FAILED`, `DOMAIN_FAILED`; faltan `RESTART_COUNT` y memoria | Parcial |
+| 3 · Invariantes de negocio | Los cinco comandos `Verify*` | Implementado |
+
+La capa 0 es la única que sobrevive a una caída de la base de datos, y por eso es la única
+que puede detectarla. Sin ella, las otras tres son diagnóstico, no detección.
