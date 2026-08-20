@@ -108,6 +108,41 @@ Actualizar `DB_PASSWORD` en `ispwatch`, `worker` y `scheduler`.
 
 > Hay corte de servicio entre el cambio y el redespliegue. Hazlo en horario de baja carga.
 
+#### Tres formas de creer que ya lo hiciste
+
+El 2026-08-20 este paso se ejecutó a medias y costó quince horas de caída total (§ 48 de
+la bitácora). El procedimiento de arriba era correcto y estaba escrito; lo que faltó fue
+saber cómo se ve un paso incompleto. Se ve así:
+
+**1. Editar la variable no la aplica.** Sólo existe cuando un despliegue *aterriza*. Y si
+ese despliegue falla —por ejemplo, porque `migrate --force` corre en el arranque y tampoco
+puede conectar— App Platform revierte **incluyendo la variable que acabas de corregir**. Se
+puede editar diez veces seguidas sin ningún efecto. Confirma siempre en la pestaña
+*Activity* que el despliegue terminó en verde.
+
+**2. Corregir un componente no corrige los demás.** Cada componente tiene su propio bloque
+de variables y no hereda nada. Si sólo actualizas `ispwatch`, el `worker` sigue reiniciándose
+en bucle, la app queda en *Degraded*, el sitio sigue sin funcionar — y el arreglo correcto
+parece equivocado, que es lo que más tiempo hace perder.
+
+**3. El panel no dice lo que está corriendo.** Muestra la especificación, no el contenedor
+vivo. Para ver la verdad, pestaña *Console* del componente:
+
+```bash
+echo $DB_PASSWORD          # ¿es la nueva, o el rollback dejó la vieja?
+php artisan migrate:status # el error crudo, sin el mensaje genérico encima
+```
+
+**Verificación final, obligatoria en toda rotación:**
+
+```bash
+curl -s https://ispwatch-crm.app/health/deep | grep -o '"status":"[a-z]*"' | head -1
+```
+
+Debe responder `"status":"ok"`. Ese endpoint comprueba base de datos, caché, cola,
+planificador y migraciones pendientes: si la rotación quedó a medias en cualquier
+componente, lo dice. No des por cerrada una rotación sin esta línea en verde.
+
 ### 3.5 `APP_KEY` — procedimiento especial
 
 **No se puede rotar cambiando la variable sin más.** `APP_KEY` cifra
@@ -165,6 +200,10 @@ confiar en la rotación. Es aceptable **sólo si los pasos 3.1 a 3.5 están comp
 - [ ] `DB_PASSWORD` rotada
 - [ ] `APP_KEY` rotada con re-cifrado de `tenant.google_maps_api_key`
 - [ ] Variables actualizadas en los **tres** componentes de App Platform
+- [ ] **El despliegue posterior terminó en verde** (pestaña *Activity*) — un despliegue
+      fallido revierte las variables junto con el resto
+- [ ] **`echo $DB_PASSWORD` en la consola de cada componente** devuelve el valor nuevo
+- [ ] **`/health/deep` responde `"status":"ok"`**
 - [ ] Decisión sobre el historial de Git tomada y registrada
 - [ ] `test-core-connection` y `test-ssh-connection` verificados
 - [ ] Un correo de prueba enviado correctamente

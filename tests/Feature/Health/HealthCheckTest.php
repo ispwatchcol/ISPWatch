@@ -1,0 +1,158 @@
+<?php
+
+namespace Tests\Feature\Health;
+
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\TestCase;
+
+/**
+ * `/health/deep`, el chequeo que faltó.
+ *
+ * Durante la caída del 2026-08-20 el endpoint de salud (`/up`) devolvió 200 las
+ * quince horas que el sistema estuvo inutilizable, porque no toca la base de
+ * datos. Nadie recibió una alerta. Estas pruebas fijan las tres propiedades que
+ * hacen útil al reemplazo:
+ *
+ *   1. Reporta el estado por componente, no un sí/no global.
+ *   2. Devuelve 503 —no 200— cuando algo está mal, que es lo que un monitor
+ *      externo sabe interpretar.
+ *   3. Vive fuera de todo middleware, para poder informar sobre la base de
+ *      datos sin depender de ella.
+ */
+class HealthCheckTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Por defecto, un planificador sano. Cada prueba que quiera romperlo lo
+        // hace explícito.
+        $this->latidoReciente();
+    }
+
+    #[Test]
+    public function reporta_ok_con_todo_sano(): void
+    {
+        $this->getJson('/health/deep')
+            ->assertOk()
+            ->assertJsonPath('status', 'ok')
+            ->assertJsonPath('failing', [])
+            ->assertJsonPath('checks.database.status', 'ok')
+            ->assertJsonPath('checks.cache.status', 'ok')
+            ->assertJsonPath('checks.migrations.status', 'ok')
+            ->assertJsonPath('checks.scheduler.status', 'ok');
+    }
+
+    #[Test]
+    public function informa_la_version_desplegada(): void
+    {
+        // Permite verificar desde fuera QUÉ quedó desplegado, sin entrar al panel.
+        $this->getJson('/health/deep')
+            ->assertOk()
+            ->assertJsonPath('version', config('version.number'));
+    }
+
+    #[Test]
+    public function devuelve_503_cuando_el_planificador_dejo_de_latir(): void
+    {
+        Cache::put(
+            config('health.scheduler.cache_key'),
+            now()->subHour()->getTimestamp(),
+            3600
+        );
+
+        $this->getJson('/health/deep')
+            ->assertStatus(503)
+            ->assertJsonPath('status', 'degraded')
+            ->assertJsonPath('failing', ['scheduler'])
+            ->assertJsonPath('checks.scheduler.status', 'fail');
+    }
+
+    #[Test]
+    public function devuelve_503_cuando_el_planificador_nunca_ha_latido(): void
+    {
+        // Este es el estado real de producción mientras el componente
+        // `scheduler` no esté desplegado: no falla nada visible, simplemente no
+        // ocurre nada. El chequeo tiene que gritarlo.
+        Cache::forget(config('health.scheduler.cache_key'));
+
+        $this->getJson('/health/deep')
+            ->assertStatus(503)
+            ->assertJsonPath('checks.scheduler.status', 'fail');
+    }
+
+    #[Test]
+    public function el_planificador_puede_declararse_no_esperado(): void
+    {
+        config(['health.scheduler.expected' => false]);
+        Cache::forget(config('health.scheduler.cache_key'));
+
+        $this->getJson('/health/deep')
+            ->assertOk()
+            ->assertJsonPath('checks.scheduler.status', 'skipped');
+    }
+
+    #[Test]
+    public function el_comando_de_latido_deja_el_planificador_en_ok(): void
+    {
+        Cache::forget(config('health.scheduler.cache_key'));
+
+        $this->artisan('system:heartbeat')->assertSuccessful();
+
+        $this->getJson('/health/deep')
+            ->assertOk()
+            ->assertJsonPath('checks.scheduler.status', 'ok');
+    }
+
+    #[Test]
+    public function exige_el_token_cuando_esta_configurado(): void
+    {
+        config(['health.token' => 'un-token-secreto']);
+
+        // 404 y no 403: si está protegido, tampoco conviene confirmar que existe.
+        $this->getJson('/health/deep')->assertNotFound();
+
+        $this->getJson('/health/deep?token=incorrecto')->assertNotFound();
+
+        $this->getJson('/health/deep?token=un-token-secreto')->assertOk();
+
+        $this->withHeader('X-Health-Token', 'un-token-secreto')
+            ->getJson('/health/deep')
+            ->assertOk();
+    }
+
+    #[Test]
+    public function responde_sin_autenticacion(): void
+    {
+        // El centinela externo no tiene sesión ni token de Sanctum. Si este
+        // endpoint exigiera autenticación, no serviría para nada.
+        $this->getJson('/health/deep')->assertOk();
+    }
+
+    #[Test]
+    public function no_filtra_credenciales_en_la_respuesta(): void
+    {
+        $respuesta = $this->getJson('/health/deep')->assertOk()->getContent();
+
+        foreach ([config('database.connections.pgsql.password'), 'DB_PASSWORD', 'pooler.supabase.com'] as $secreto) {
+            if (blank($secreto)) {
+                continue;
+            }
+
+            $this->assertStringNotContainsString((string) $secreto, $respuesta);
+        }
+    }
+
+    private function latidoReciente(): void
+    {
+        Cache::put(
+            config('health.scheduler.cache_key'),
+            now()->getTimestamp(),
+            600
+        );
+    }
+}

@@ -161,6 +161,16 @@ de arranque la materializa en `storage/keys/mikrotik_core_id_ed25519` con permis
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_USE_PATH_STYLE_ENDPOINT` | S3 |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID` | WhatsApp Cloud API. **Sin ellas, el servicio registra un aviso y devuelve error controlado** |
 
+### Chequeo de salud (`config/health.php`)
+
+| Clave | Descripción |
+|---|---|
+| `HEALTH_CHECK_TOKEN` | Opcional. Si se define, `/health/deep` lo exige en `X-Health-Token` o `?token=`; sin él responde 404. Sin definir, el endpoint queda abierto: no revela secretos |
+| `HEALTH_SCHEDULER_EXPECTED` | `true` por defecto. En `false`, la ausencia de planificador no cuenta como fallo. **Déjalo en `true` en producción**: un scheduler no desplegado es precisamente el fallo silencioso que esto delata |
+| `HEALTH_SCHEDULER_MAX_SILENCE` | Segundos sin latido antes de reportar fallo. `300` por defecto |
+| `HEALTH_QUEUE_MAX_PENDING` | Trabajos encolados que se toleran. `500` |
+| `HEALTH_QUEUE_MAX_AGE` | Segundos que puede esperar el trabajo más viejo. `900`. Importa más que la cantidad: mil trabajos moviéndose es carga, uno solo esperando quince minutos es un worker muerto |
+
 ### Frontend (Vite)
 
 | Clave | Descripción |
@@ -498,6 +508,22 @@ decirle al cajero "está suspendido" y luego no reconectar (o al revés).
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences [--table=] [--all]` | Repara secuencias |
 | `documents:migrate-to-s3 [--dry-run]` | Migra documentos locales a S3 |
+
+### Observabilidad
+
+| Comando | Descripción |
+|---|---|
+| `system:heartbeat` | Deja constancia de que el planificador está vivo. Agendado **cada minuto**; lo lee `/health/deep` para alertar **por silencio**. No lo llames a mano salvo para probar: su valor está en que lo ejecute el planificador |
+
+Para ver el estado completo del sistema no hay comando: es un endpoint, porque tiene que
+poder consultarse desde fuera cuando la aplicación no está bien.
+
+```bash
+curl -s https://ispwatch-crm.app/health/deep | python -m json.tool
+```
+
+Devuelve 200 con `"status":"ok"`, o **503** con `"status":"degraded"` y la lista de
+componentes en `failing`. Ver `ARQUITECTURA.md` § 16 y `API_REFERENCE.md` § 3.
 
 ### Permisos
 
@@ -1257,6 +1283,11 @@ que la consulta reviente sólo funciona en uno de los dos.
 | **"Credenciales incorrectas en el router cliente: `no_done`"** | Tampoco es la contraseña: el router no respondió **nada** al login API. El socket abrió pero al otro lado no había una API MikroTik escuchando | Verifica en el cliente `/ip service print` (servicio `api` habilitado y su *available from*). Hoy este caso se reporta como tiempo de espera agotado, no como credenciales |
 | **La modal de WAN falla y no deja escribir la interfaz** | Resuelto: el bloque de error ya no oculta la entrada manual | Escribe el nombre a mano, o pulsa *Reintentar lectura* |
 | **Cliente cortado sigue navegando** | Faltan reglas en el router o falta flush de conntrack | *Aplicar reglas de bloqueo* + `billing:reconcile-suspensions` |
+| **`ERR_TOO_MANY_REDIRECTS` en todo el sitio** | La base de datos no responde. Comprueba `curl -s .../health/deep`. Antes del 2026-08-20 el manejador de `QueryException` hacía `redirect()->back()`, que sin sesión cae a la raíz y se redirige a sí mismo | Ya no ocurre: un fallo de infraestructura devuelve **503** con vista estática. Si vuelve a verse, es que algún otro punto redirige sin sesión disponible. **Borrar cookies no es un paso de diagnóstico:** el bucle lo genera el servidor |
+| **Todo devuelve `422` con «Ocurrió un error al procesar tu solicitud»** | Es el manejador de `QueryException`, no una validación. Casi siempre la base no responde | `php artisan migrate:status` desde la consola del contenedor da el error crudo. Desde 1.1.0 los fallos de conexión son 503 y sólo los errores de datos siguen siendo 422 |
+| **`/up` responde 200 y aun así nada funciona** | Es el chequeo por defecto de Laravel: no toca ninguna dependencia. Por diseño | Usa `/health/deep`, que sí las verifica. Ver `ARQUITECTURA.md` § 16.2 |
+| **`/health/deep` devuelve el HTML del panel** | El catch-all del SPA está atendiendo la ruta: las de `routes/health.php` se registran después | El `where` del catch-all en `routes/web.php` debe excluir `health/` |
+| **`checks.scheduler.status = fail`** | El componente `scheduler` no está desplegado, o murió. Nada del ciclo automático está corriendo | Desplegarlo (está en `.do/deploy.template.yaml`). Verifica con `php artisan system:heartbeat` seguido de una consulta a `/health/deep` |
 | **Toda la suite Feature falla** | SQL exclusivo de PostgreSQL en una migración | Protégelo por driver |
 | **Error CORS/CSRF con Vite** | Host de Vite ausente | Añádelo a `SANCTUM_STATEFUL_DOMAINS` y `CORS_ALLOWED_ORIGINS` |
 | **`504` al importar** | Consultas por fila | Precargar modelos en bloque |

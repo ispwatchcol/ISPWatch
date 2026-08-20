@@ -4,10 +4,16 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-19 · Rama: `docs/api-keys-operator-tenant-missing`
+**Última actualización:** 2026-08-20 · Rama: `feat/health-deep-and-db-failure-handling`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Caída total de quince horas sin una sola alerta (2026-08-20, § 48):** se rotó la contraseña de
+  Supabase y no se actualizó en DigitalOcean. Como sesión, caché y cola viven en esa base, no falló
+  una función: fallaron todas. El manejador de errores respondía con `redirect()->back()`, que sin
+  sesión apunta a la raíz → bucle infinito de redirecciones. Nadie se enteró porque `/up` devolvió
+  **200 las quince horas**: es el chequeo por defecto de Laravel y no toca la base de datos. Ahora hay
+  `/health/deep`, un 503 honesto en vez del bucle, y un latido del planificador que alerta por silencio.
 - **Las llaves de API y la auditoría se veían rotas en modo oscuro (2026-08-19, § 47):** `.input`/`.label`
   viven `scoped` en `Settings.vue` y no bajan a los componentes hijos, así que los campos salían con el
   estilo nativo del navegador — cajas blancas sobre tarjeta oscura. Además `md-vpnkey` y `md-history`
@@ -5113,3 +5119,133 @@ exactamente a la que importa. El artículo entra por una migración propia, con 
 idempotente. El bucle se duplica a conciencia — una migración es un registro histórico, y
 extraerlo a una clase compartida significa que cambiarla dentro de seis meses cambia también
 lo que hicieron las migraciones ya ejecutadas.
+
+---
+
+## 48. Caída total: el chequeo de salud decía 200 — 2026-08-20
+
+Quince horas de indisponibilidad completa. Cero alertas. Es el incidente más largo
+registrado y el que menos código requirió para producirse: una contraseña.
+
+### 48.1 Qué pasó
+
+La noche del 19 se rotó la contraseña de Supabase como parte de un saneamiento de
+credenciales filtradas (estaban en texto plano en `backup/*.rsc` y en el historial de
+Git). La rotación fue correcta y necesaria. Lo que no ocurrió fue actualizar
+`DB_PASSWORD` en DigitalOcean.
+
+Producción usa la base de datos para tres cosas más allá de los datos:
+
+```
+CACHE_STORE=database   SESSION_DRIVER=database   QUEUE_CONNECTION=database
+```
+
+Sin base de datos no hay sesión, ni caché, ni cola. No falla una función: fallan todas.
+
+### 48.2 Por qué fue un bucle infinito y no una página de error
+
+El manejador de `QueryException` en `bootstrap/app.php` respondía a las peticiones web
+con `redirect()->back()`. `back()` busca el `Referer`; si no hay, busca la URL previa
+**en la sesión** — que vivía en la base caída. Cae entonces al último recurso de
+`UrlGenerator::previous()`, línea 174: `return $this->to('/')`.
+
+Es decir: la raíz del sitio. El navegador iba a `/`, la petición volvía a reventar,
+el manejador volvía a redirigir a `/`. `ERR_TOO_MANY_REDIRECTS`.
+
+El mensaje al usuario tampoco ayudaba: toda `QueryException` devolvía **422** con
+«Ocurrió un error al procesar tu solicitud». Un 422 afirma que los datos enviados están
+mal. Durante horas el diagnóstico buscó un problema de validación mientras la base de
+datos simplemente no respondía.
+
+### 48.3 Por qué nadie se enteró
+
+`GET /up` devolvió **200 durante las quince horas**. Es el chequeo por defecto de
+Laravel: comprueba que el proceso PHP está vivo y no toca ninguna dependencia.
+DigitalOcean lo consultaba, lo veía sano, y no marcó nada.
+
+Los cinco comandos `Verify*` que auditan invariantes de negocio tampoco podían avisar,
+y el motivo es estructural: **la vigilancia vivía dentro de lo vigilado.** El
+planificador que los dispara usa la base para sus bloqueos; los comandos consultan la
+base para decidir; el correo de alerta sale por una cola que es la base; y Converza lee
+los eventos de esa misma base. Todo el aparato de detección murió con lo que debía
+detectar.
+
+### 48.4 El círculo vicioso del rollback
+
+El despliegue automático de las 08:27 falló porque `run_command` ejecuta
+`php artisan migrate --force` **antes** de levantar Apache, y `migrate` tampoco podía
+conectar. App Platform revirtió al despliegue anterior.
+
+Aquí está la trampa: **el rollback revierte también las variables de entorno.** Se podía
+corregir `DB_PASSWORD` diez veces seguidas sin efecto alguno, porque el despliegue que
+la aplicaba se caía y devolvía el valor viejo.
+
+### 48.5 Y por qué el arreglo pareció no funcionar
+
+Se corrigió la contraseña en el servicio web y el sitio siguió caído. Las variables de
+entorno en App Platform son **por componente**: `worker` tiene su propio bloque y no
+hereda nada del servicio web. Siguió reiniciándose en bucle, la app siguió en
+*Degraded*, y el arreglo correcto pareció equivocado. El servicio se restableció al
+aplicar el mismo cambio en el segundo componente.
+
+### 48.6 Qué se hizo
+
+**`app/Support/DatabaseFailure.php`** — distingue un fallo de infraestructura (SQLSTATE
+de clase 08, 28, 53, 57, o el texto del driver cuando no hay código utilizable) de un
+error de datos. Deliberadamente NO incluye la clase 42: una tabla que falta es un
+despliegue incompleto, no una caída, y responder 503 lo escondería detrás de «vuelve
+más tarde».
+
+**El manejador de `QueryException`** ahora bifurca. Fallo de infraestructura → **503**
+con `Retry-After`, y una vista estática sin sesión ni assets compilados
+(`errors/database-unavailable.blade.php`). Nunca una redirección. Error de datos → se
+mantiene el 422 y el `redirect()->back()` de siempre, que ahí sí es seguro porque la
+sesión existe.
+
+**`GET /health/deep`** — chequeo profundo: base de datos, caché (escribe y relee, porque
+un `get` a secas no distingue «funciona» de «devuelve null para todo»), cola
+(profundidad y **edad** del trabajo más viejo), latido del planificador y migraciones
+pendientes. Devuelve 503 si algo falla, con el detalle por componente.
+
+Va registrado **sin ningún middleware**, desde el callback `then` de `bootstrap/app.php`.
+No es descuido: el grupo `web` abre sesión y el grupo `api` aplica throttle, y ambos
+dependen de la base de datos. Con cualquiera de los dos, el chequeo se caería junto con
+aquello que debe diagnosticar.
+
+**`system:heartbeat`** — el planificador escribe un latido cada minuto y `/health/deep`
+alerta cuando deja de llegar. Es un *dead man's switch*, y resuelve la clase de fallo
+que ningún verificador interno puede detectar: **que el sistema no haya corrido**. Ya
+había pasado con la facturación mensual (§ 26) y volvió a pasar aquí.
+
+**`AuthController::login`** — el `catch (\Exception)` se tragaba las `ValidationException`
+y convertía «falta el campo contraseña» en un 500 «Error interno del servidor». Se
+relanza antes del catch genérico.
+
+### 48.7 Una trampa que costó encontrar
+
+El catch-all del SPA en `routes/web.php` (`/{any}` con `.*`) se registra **antes** que
+las rutas del callback `then`, así que atendía `/health/deep` y devolvía el HTML del
+panel con un **200**. Las primeras pruebas del chequeo pasaban en verde siendo falsos
+positivos — que es exactamente el fallo que este trabajo intenta eliminar, reproducido
+dentro de su propio arreglo. El catch-all excluye ahora el prefijo `health/`.
+
+### 48.8 Lo que esto deja dicho
+
+- Un 200 en el chequeo de salud significa que el chequeo respondió. Nada más.
+- Una variable de entorno no existe hasta que un despliegue **aterriza**; si falla, el
+  rollback también la revierte.
+- Las variables son por componente. Cambiar uno no cambia los demás.
+- Rotar un secreto es una operación de dos lados: cambiarlo en el servicio y
+  actualizarlo en la plataforma son el mismo paso, no dos tareas.
+- Una alarma no puede compartir infraestructura con lo que vigila. Si la base cae y la
+  alarma la necesita para avisar, no hay alarma: hay silencio, indistinguible de que
+  todo esté bien.
+
+### 48.9 Lo que queda pendiente
+
+Sacar `migrate --force` del `run_command` hacia un job `PRE_DEPLOY`; contratar el
+centinela externo que consulte `/health/deep`; activar las alertas `RESTART_COUNT` en
+App Platform; y separar desarrollo de producción, que hoy comparten la misma base de
+datos de Supabase distinguidas sólo por *schema* — el motivo de fondo por el que las
+credenciales de producción viven en el portátil de cada desarrollador y acabaron
+circulando por WhatsApp. Ver `MEJORAS_RECOMENDADAS.md` § 7.

@@ -26,9 +26,23 @@
 #   scheduler  planificador de tareas  ← sin él NO se factura ni se corta
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Las alertas de plataforma son la capa 2 de la observabilidad (ver
+# docs/ARQUITECTURA.md § 16.6). RESTART_COUNT es la que faltaba: durante la caída
+# del 2026-08-20 el componente `worker` estuvo reiniciándose en bucle y eso sólo
+# se manifestó como un badge «Degraded» que nadie estaba mirando.
+#
+# Ninguna de estas alertas sustituye al CENTINELA EXTERNO. Todas las emite la
+# misma plataforma que aloja la aplicación; la capa 0 —un servicio de terceros
+# que consulte https://ispwatch-crm.app/health/deep cada 60 s y valide que el
+# CUERPO trae "status":"ok"— sigue pendiente. Es la única que sobrevive a una
+# caída de la base de datos, y por eso la única que puede detectarla.
 alerts:
 - rule: DEPLOYMENT_FAILED
 - rule: DOMAIN_FAILED
+- rule: RESTART_COUNT
+  operator: GREATER_THAN
+  value: 3
+  window: FIVE_MINUTES
 egress:
   type: DEDICATED_IP
 features:
@@ -261,6 +275,19 @@ services:
   - key: CORS_ALLOWED_ORIGINS
     scope: RUN_AND_BUILD_TIME
     value: https://ispwatch-crm.app
+  # Chequeo de salud profundo. El token es OPCIONAL: la respuesta de
+  # /health/deep no contiene secretos, sólo nombres de componente y números.
+  # Definirlo obliga a enviarlo en la cabecera X-Health-Token o en ?token=.
+  - key: HEALTH_CHECK_TOKEN
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:HEALTH_CHECK_TOKEN>>>
+  # true en producción, siempre. Con el componente `scheduler` desplegado esto
+  # vale ok; sin él, /health/deep responde 503 — que es exactamente lo que debe
+  # hacer, porque sin planificador no se factura ni se corta a nadie.
+  - key: HEALTH_SCHEDULER_EXPECTED
+    scope: RUN_AND_BUILD_TIME
+    value: "true"
   github:
     branch: main
     deploy_on_push: true
