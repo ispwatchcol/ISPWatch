@@ -170,6 +170,7 @@ de arranque la materializa en `storage/keys/mikrotik_core_id_ed25519` con permis
 | `HEALTH_SCHEDULER_MAX_SILENCE` | Segundos sin latido antes de reportar fallo. `300` por defecto |
 | `HEALTH_QUEUE_MAX_PENDING` | Trabajos encolados que se toleran. `500` |
 | `HEALTH_QUEUE_MAX_AGE` | Segundos que puede esperar el trabajo más viejo. `900`. Importa más que la cantidad: mil trabajos moviéndose es carga, uno solo esperando quince minutos es un worker muerto |
+| `HEALTHCHECKS_PING_URL` | URL de «sigo vivo» de Healthchecks.io (`https://hc-ping.com/<uuid>`). La llama `system:heartbeat` cada minuto; si los avisos dejan de llegar, Healthchecks alerta. Va **sólo en el componente del planificador**. Sin definir, no se envía nada y el latido local sigue igual |
 
 ### Frontend (Vite)
 

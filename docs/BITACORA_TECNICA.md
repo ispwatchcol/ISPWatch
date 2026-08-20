@@ -5292,3 +5292,69 @@ puede llevarse por delante al planificador. La especificación ya define un comp
 **Decisión:** no se toca ahora. El sistema funciona y separar los procesos en mitad de una
 respuesta a incidente añade riesgo sin urgencia. Queda anotado en `MEJORAS_RECOMENDADAS.md`,
 y con el latido desplegado el fallo silencioso deja de serlo — que era lo grave.
+
+### 48.11 Un secreto, un sitio
+
+La causa inmediata del incidente fue una contraseña desactualizada. La causa
+mecánica —la que hacía el error probable en vez de improbable— era que **cada
+componente llevaba su propia copia de las variables compartidas**: 37 claves
+duplicadas, 13 de ellas secretos, la mayoría repetidas en los tres componentes.
+
+Con esa estructura, rotar `DB_PASSWORD` exigía tres ediciones y nada impedía
+hacer una sola. Se hizo una sola. El servicio web quedó bien, el `worker` se
+quedó con la vieja, la aplicación siguió caída y el arreglo correcto pareció
+equivocado — que fue lo que más tiempo costó del día.
+
+El runbook ya decía «actualizar en los tres componentes». El paso estaba escrito
+y no se siguió. **La conclusión no es escribirlo más grande: es que un
+procedimiento que depende de la disciplina para no romper producción es un
+procedimiento mal diseñado.** Si el sistema permite quedarse a medias, alguien
+se quedará a medias.
+
+App Platform admite un bloque `envs` a nivel de app que heredan todos los
+componentes. La plantilla se reestructuró así:
+
+| | Antes | Después |
+|---|---|---|
+| Variables a nivel de app | 0 | 37 |
+| Duplicadas entre componentes | 37 | 0 |
+| Sitios donde vive `DB_PASSWORD` | 3 | 1 |
+| Sombreadas a propósito | — | 1 (`LOG_LEVEL`, `info` en el planificador) |
+
+**La trampa al aplicarlo**, y es importante: una variable declarada dentro de un
+componente **tiene precedencia** sobre la del nivel de app. Añadir el bloque sin
+borrar las copias viejas deja las copias mandando, y una rotación aparentemente
+correcta no surte ningún efecto, sin un solo mensaje de error. Hay que borrarlas.
+
+De paso salió un fallo latente: **el `worker` no tenía ninguna variable
+`MAIL_*`**, y es quien procesa la cola —o sea quien enviaría un correo encolado—.
+Sin esas variables, `config/mail.php` cae a su valor por defecto, el canal `log`,
+y el mensaje se escribe en el registro en vez de enviarse: sin error y sin rastro.
+Hoy no hay ningún mailable encolado en uso (`CustomVerifyEmail`, la que se usa de
+verdad, se envía de forma síncrona desde el servicio web; `VerifyEmailNotification`,
+que sí lleva `ShouldQueue`, es código muerto), así que era una trampa armada y no
+un fallo activo. Subir `MAIL_*` al nivel de app la desarma.
+
+### 48.12 Segundo proveedor: alerta por silencio
+
+`system:heartbeat` ahora, además del latido local, avisa a Healthchecks.io si hay
+`HEALTHCHECKS_PING_URL` configurada.
+
+No es redundancia por gusto. UptimeRobot consulta `/health` desde fuera y eso
+cubre «la aplicación no responde», pero deja dos huecos: no avisa de su propio
+silencio —nadie vigila al vigilante— y sólo puede ver un planificador muerto
+mientras el servicio web siga vivo para contarlo.
+
+Healthchecks invierte la dirección: en vez de que alguien pregunte desde fuera,
+es el planificador quien avisa, y la alarma salta por **ausencia** de avisos. Dos
+proveedores independientes, señales viajando en sentidos opuestos.
+
+Dos decisiones de diseño:
+
+- **El ping va DESPUÉS del latido local.** Si la escritura en caché falla —la base
+  de datos es el almacén— la excepción sube, el comando falla y no se envía nada.
+  Semántica correcta: el aviso hacia afuera significa «sigo vivo y además
+  funciono», no sólo «este proceso existe».
+- **Un fallo de red al pingar NO hace fallar el comando.** Si el aviso no sale, el
+  propio Healthchecks lo detecta por el silencio; romper la tarea cada minuto por
+  un blip de red sólo llenaría el log de errores que no lo son.

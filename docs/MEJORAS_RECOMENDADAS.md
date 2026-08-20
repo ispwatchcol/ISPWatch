@@ -462,10 +462,10 @@ cubiertos:
   la alerta duerme o está sin señal, nadie más se entera: la persona pasa a ser el punto
   único de fallo. El plan pedía escalar a un segundo contacto a los 10 minutos, y eso es
   gestión de guardia — exige plan de pago o Better Stack. Revisar cuando el equipo crezca.
-- **Nadie vigila al vigilante.** UptimeRobot no avisa si deja de funcionar. La contramedida
-  barata es un segundo proveedor independiente: Healthchecks.io con un *dead man's switch*
-  al que `system:heartbeat` haga ping. Dos proveedores cubriéndose mutuamente, ambos
-  gratuitos. **Es el siguiente paso natural** y reutiliza el comando que ya existe.
+- **Nadie vigila al vigilante.** UptimeRobot no avisa si deja de funcionar. *Resuelto en
+  código el 2026-08-20* (§ 48.12): `system:heartbeat` avisa a Healthchecks.io si hay
+  `HEALTHCHECKS_PING_URL`. **Falta crear la cuenta** y poner la URL en el componente del
+  planificador — sin eso el código no hace nada.
 
 Pendiente también en el mismo frente: activar las alertas `RESTART_COUNT` y
 `MEM_UTILIZATION` por componente en App Platform. El `worker` estuvo reiniciándose en
@@ -510,6 +510,27 @@ en paralelo sobre la misma base.
 
 Corresponde un job `kind: PRE_DEPLOY` en la especificación de App Platform. Separa el
 resultado de migrar del resultado de arrancar, que son dos preguntas distintas.
+
+### 🟢 P-SECRET-1 · Un secreto vivía en tres sitios — *resuelto en la plantilla, falta aplicar*
+
+Cada componente llevaba su copia de las variables compartidas: 37 duplicadas, 13 secretos.
+Rotar `DB_PASSWORD` exigía tres ediciones y nada impedía hacer una sola — es la causa
+mecánica de que la caída del § 48 durase quince horas.
+
+`.do/deploy.template.yaml` ya está reestructurado con un bloque `envs` a nivel de app:
+37 variables compartidas en un solo sitio, cero duplicadas entre componentes, y una única
+sobrescritura deliberada (`LOG_LEVEL` a `info` en el planificador).
+
+**Falta aplicarlo a la especificación viva**, y hay una trampa: una variable declarada
+dentro de un componente **tiene precedencia** sobre la de nivel de app. Añadir el bloque
+sin borrar las copias viejas deja mandando a las copias, y una rotación aparentemente
+correcta no surte efecto, sin ningún mensaje de error. Comprobación después de migrar,
+desde la consola de cada componente:
+
+```bash
+echo $DB_PASSWORD       # los tres deben coincidir
+curl -s https://ispwatch-crm.app/health
+```
 
 ### 🔴 P-ENV-1 · Desarrollo y producción comparten la misma base de datos
 

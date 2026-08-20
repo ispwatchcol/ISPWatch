@@ -36,6 +36,10 @@ inaccesible y **nadie recibió una alerta**, porque el chequeo de salud respond�
   forma de detectar que las tareas automáticas —facturar, cortar, recordar— no se
   están ejecutando, algo que hasta ahora sólo se notaba a fin de mes al ver que
   no había facturas.
+- **Segundo vigilante independiente.** Esa misma señal se puede enviar además a un
+  servicio externo distinto del que vigila la página. Sirve para lo que ningún
+  monitor cubre por su cuenta: enterarse de que el propio monitor dejó de
+  funcionar.
 
 ### Corregido
 

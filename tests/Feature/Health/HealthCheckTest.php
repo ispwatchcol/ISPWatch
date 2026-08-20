@@ -4,6 +4,7 @@ namespace Tests\Feature\Health;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -147,6 +148,45 @@ class HealthCheckTest extends TestCase
 
             $this->assertStringNotContainsString((string) $secreto, $respuesta);
         }
+    }
+
+    #[Test]
+    public function el_latido_avisa_a_healthchecks_cuando_hay_url(): void
+    {
+        config(['health.scheduler.ping_url' => 'https://hc-ping.com/uuid-de-prueba']);
+        Http::fake();
+
+        $this->artisan('system:heartbeat')->assertSuccessful();
+
+        Http::assertSent(fn ($request): bool => $request->url() === 'https://hc-ping.com/uuid-de-prueba');
+    }
+
+    #[Test]
+    public function sin_url_configurada_no_sale_ninguna_peticion(): void
+    {
+        config(['health.scheduler.ping_url' => null]);
+        Http::fake();
+
+        $this->artisan('system:heartbeat')->assertSuccessful();
+
+        Http::assertNothingSent();
+    }
+
+    #[Test]
+    public function un_fallo_de_red_no_tumba_el_latido(): void
+    {
+        // Si el ping fallara el comando, el planificador registraría un error cada
+        // minuto por cualquier blip de red. El silencio ya lo detecta Healthchecks
+        // por su cuenta: no hace falta romper la tarea para enterarse.
+        config(['health.scheduler.ping_url' => 'https://hc-ping.com/uuid-de-prueba']);
+        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException('sin red'));
+
+        $this->artisan('system:heartbeat')->assertSuccessful();
+
+        // Y el latido local sí quedó escrito, que es lo que de verdad importa.
+        $this->getJson('/health')
+            ->assertOk()
+            ->assertJsonPath('checks.scheduler.status', 'ok');
     }
 
     private function latidoReciente(): void

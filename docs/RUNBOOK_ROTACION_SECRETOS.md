@@ -102,7 +102,13 @@ Actualizar `VITE_SUPABASE_ANON_KEY`.
 ### 3.4 Base de datos
 
 Panel de Supabase → Settings → Database → cambiar la contraseña del usuario.
-Actualizar `DB_PASSWORD` en `ispwatch`, `worker` y `scheduler`.
+Actualizar `DB_PASSWORD` en **un solo sitio**: las variables compartidas viven a nivel
+de app y los tres componentes heredan de ahí (ver `ARQUITECTURA.md` § 16.7).
+
+> **Mientras la especificación viva no esté migrada** (P-SECRET-1), `DB_PASSWORD` sigue
+> existiendo tres veces, una por componente, y hay que cambiarla en las tres. Comprueba
+> primero, en el panel, si aparece bajo *App-Level Environment Variables* o dentro de cada
+> componente. Esa diferencia es la que costó quince horas el 2026-08-20.
 
 **Verificar:** `php artisan migrate:status` desde la consola de la app.
 

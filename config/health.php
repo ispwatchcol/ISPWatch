@@ -56,6 +56,28 @@ return [
         'max_silence_seconds' => env('HEALTH_SCHEDULER_MAX_SILENCE', 300),
 
         'cache_key' => 'health:scheduler:last_run',
+
+        /*
+        | URL de «sigo vivo» de Healthchecks.io (https://hc-ping.com/<uuid>).
+        |
+        | POR QUÉ UN SEGUNDO PROVEEDOR Y NO MÁS DE LO MISMO
+        | El centinela de UptimeRobot consulta `/health` desde fuera, y eso cubre
+        | «la aplicación no responde». Pero no cubre dos cosas:
+        |
+        |   1. Que UptimeRobot deje de funcionar. No avisa de su propio silencio;
+        |      nadie vigila al vigilante.
+        |   2. Que el planificador muera mientras la web sigue en pie. Ahí
+        |      `/health` responde 503 y UptimeRobot sí lo ve — pero sólo mientras
+        |      el servicio web esté vivo para contarlo.
+        |
+        | Healthchecks invierte la dirección: en vez de que alguien pregunte desde
+        | fuera, es el planificador quien avisa. Si deja de avisar, salta la
+        | alarma. Son dos proveedores independientes cubriéndose mutuamente, y la
+        | señal viaja por caminos opuestos.
+        |
+        | Sin definir, no se envía nada y el latido local sigue funcionando igual.
+        */
+        'ping_url' => env('HEALTHCHECKS_PING_URL'),
     ],
 
     'queue' => [
