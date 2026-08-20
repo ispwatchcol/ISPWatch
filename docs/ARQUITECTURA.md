@@ -1724,14 +1724,14 @@ Hay dos endpoints y la división es deliberada:
 | Endpoint | Pregunta | Quién lo consulta |
 |---|---|---|
 | `GET /up` | ¿Está vivo el proceso PHP? | El orquestador, para decidir reinicios |
-| `GET /health/deep` | ¿Funciona el sistema? | Humanos y el centinela externo |
+| `GET /health` | ¿Funciona el sistema? | Humanos y el centinela externo |
 
 **`/up` se queda superficial a propósito.** La tentación es hacerlo verificar la base de
 datos, y sería un error: App Platform reinicia el contenedor cuando el chequeo falla, y
 reiniciar no arregla una contraseña equivocada. Se obtendría un ciclo de reinicios en vez
 de un servicio degradado que al menos puede explicar qué le pasa.
 
-`/health/deep` informa; no dispara reinicios. Devuelve 503 y el detalle por componente para
+`/health` informa; no dispara reinicios. Devuelve 503 y el detalle por componente para
 que un humano sepa dónde mirar sin entrar al panel.
 
 ### 16.3 Por qué el chequeo profundo va sin middleware
@@ -1749,7 +1749,7 @@ contiene secretos, los chequeos son baratos y se puede exigir `HEALTH_CHECK_TOKE
 
 **Trampa relacionada:** el catch-all del SPA en `routes/web.php` se registra antes que el
 callback `then`, y Laravel resuelve por orden. Sin excluir el prefijo `health/`, el catch-all
-atiende `/health/deep` y devuelve el HTML del panel con un **200** — la respuesta que haría
+atiende `/health` y devuelve el HTML del panel con un **200** — la respuesta que haría
 inútil al chequeo.
 
 ### 16.4 Alertar por silencio
@@ -1792,8 +1792,8 @@ De afuera hacia adentro. Las dos primeras son las que faltaban por completo:
 
 | Capa | Qué es | Estado |
 |---|---|---|
-| 0 · Centinela externo | UptimeRobot, monitor *Keyword* sobre `/health/deep` cada 5 min | **Por dar de alta** (P-MON-1) |
-| 1 · Chequeo profundo | `GET /health/deep` | Implementado |
+| 0 · Centinela externo | UptimeRobot, monitor *Keyword* sobre `/health` cada 5 min | **Por dar de alta** (P-MON-1) |
+| 1 · Chequeo profundo | `GET /health` | Implementado |
 | 2 · Alertas de plataforma | `DEPLOYMENT_FAILED`, `DOMAIN_FAILED`; faltan `RESTART_COUNT` y memoria | Parcial |
 | 3 · Invariantes de negocio | Los cinco comandos `Verify*` | Implementado |
 

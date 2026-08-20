@@ -163,9 +163,9 @@ sugería falsamente que el cliente puede elegir su propio tenant.
 | `POST` | `/api/register/send-code` | Envía código de verificación al correo |
 | `GET` | `/api/verify-email/{id}/{hash}` | Verifica el correo (**URL firmada**) |
 | `POST` | `/api/verify-email/resend` | Reenvía el correo de verificación |
-| `GET` | `/health/deep` | Chequeo de salud profundo (**sin prefijo `/api`**) |
+| `GET` | `/health` | Chequeo de salud profundo (**sin prefijo `/api`**) |
 
-### `GET /health/deep`
+### `GET /health`
 
 Estado real del sistema, para que lo consulte un monitor **externo**. Sin prefijo `/api`
 y **sin ningún middleware**: el grupo `web` abre sesión y el grupo `api` aplica throttle,

@@ -25,7 +25,7 @@ inaccesible y **nadie recibió una alerta**, porque el chequeo de salud respond�
 
 ### Añadido
 
-- **Chequeo de salud real.** `GET /health/deep` verifica de verdad la base de
+- **Chequeo de salud real.** `GET /health` verifica de verdad la base de
   datos, el caché, la cola, el planificador y las migraciones pendientes, y
   devuelve el detalle por componente. Está pensado para que lo consulte un
   monitor externo cada minuto: si algo se cae, ahora se sabe en minutos y no al

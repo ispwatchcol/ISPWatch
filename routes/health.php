@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
 | revienta ANTES de llegar al controlador cuando Postgres no responde — es
 | decir, justo en el único momento en que este endpoint tiene algo que decir.
 |
-| Sin middleware, `/health/deep` puede reportar «la base de datos está caída» en
+| Sin middleware, `/health` puede reportar «la base de datos está caída» en
 | lugar de caerse con ella.
 |
 | El precio es que no hay limitador de peticiones. Se acepta a conciencia: la
@@ -26,5 +26,5 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get('/health/deep', [HealthController::class, 'deep'])
-    ->name('health.deep');
+Route::get('/health', [HealthController::class, 'check'])
+    ->name('health');

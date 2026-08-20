@@ -136,7 +136,7 @@ php artisan migrate:status # el error crudo, sin el mensaje genérico encima
 **Verificación final, obligatoria en toda rotación:**
 
 ```bash
-curl -s https://ispwatch-crm.app/health/deep | grep -o '"status":"[a-z]*"' | head -1
+curl -s https://ispwatch-crm.app/health | grep -o '"status":"[a-z]*"' | head -1
 ```
 
 Debe responder `"status":"ok"`. Ese endpoint comprueba base de datos, caché, cola,
@@ -203,7 +203,7 @@ confiar en la rotación. Es aceptable **sólo si los pasos 3.1 a 3.5 están comp
 - [ ] **El despliegue posterior terminó en verde** (pestaña *Activity*) — un despliegue
       fallido revierte las variables junto con el resto
 - [ ] **`echo $DB_PASSWORD` en la consola de cada componente** devuelve el valor nuevo
-- [ ] **`/health/deep` responde `"status":"ok"`**
+- [ ] **`/health` responde `"status":"ok"`**
 - [ ] Decisión sobre el historial de Git tomada y registrada
 - [ ] `test-core-connection` y `test-ssh-connection` verificados
 - [ ] Un correo de prueba enviado correctamente

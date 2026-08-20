@@ -8,7 +8,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
- * `/health/deep`, el chequeo que faltó.
+ * `/health`, el chequeo que faltó.
  *
  * Durante la caída del 2026-08-20 el endpoint de salud (`/up`) devolvió 200 las
  * quince horas que el sistema estuvo inutilizable, porque no toca la base de
@@ -37,7 +37,7 @@ class HealthCheckTest extends TestCase
     #[Test]
     public function reporta_ok_con_todo_sano(): void
     {
-        $this->getJson('/health/deep')
+        $this->getJson('/health')
             ->assertOk()
             ->assertJsonPath('status', 'ok')
             ->assertJsonPath('failing', [])
@@ -51,7 +51,7 @@ class HealthCheckTest extends TestCase
     public function informa_la_version_desplegada(): void
     {
         // Permite verificar desde fuera QUÉ quedó desplegado, sin entrar al panel.
-        $this->getJson('/health/deep')
+        $this->getJson('/health')
             ->assertOk()
             ->assertJsonPath('version', config('version.number'));
     }
@@ -65,7 +65,7 @@ class HealthCheckTest extends TestCase
             3600
         );
 
-        $this->getJson('/health/deep')
+        $this->getJson('/health')
             ->assertStatus(503)
             ->assertJsonPath('status', 'degraded')
             ->assertJsonPath('failing', ['scheduler'])
@@ -75,12 +75,14 @@ class HealthCheckTest extends TestCase
     #[Test]
     public function devuelve_503_cuando_el_planificador_nunca_ha_latido(): void
     {
-        // Este es el estado real de producción mientras el componente
-        // `scheduler` no esté desplegado: no falla nada visible, simplemente no
-        // ocurre nada. El chequeo tiene que gritarlo.
+        // El modo de fallo real del despliegue actual: el planificador corre de
+        // fondo dentro del `worker` (`schedule:work &` antes de `exec queue:work`).
+        // Si ese proceso muere, el contenedor sigue vivo porque el principal es la
+        // cola, la plataforma lo ve sano, y simplemente deja de ocurrir todo el
+        // ciclo automático. No falla nada visible. El chequeo tiene que gritarlo.
         Cache::forget(config('health.scheduler.cache_key'));
 
-        $this->getJson('/health/deep')
+        $this->getJson('/health')
             ->assertStatus(503)
             ->assertJsonPath('checks.scheduler.status', 'fail');
     }
@@ -91,7 +93,7 @@ class HealthCheckTest extends TestCase
         config(['health.scheduler.expected' => false]);
         Cache::forget(config('health.scheduler.cache_key'));
 
-        $this->getJson('/health/deep')
+        $this->getJson('/health')
             ->assertOk()
             ->assertJsonPath('checks.scheduler.status', 'skipped');
     }
@@ -103,7 +105,7 @@ class HealthCheckTest extends TestCase
 
         $this->artisan('system:heartbeat')->assertSuccessful();
 
-        $this->getJson('/health/deep')
+        $this->getJson('/health')
             ->assertOk()
             ->assertJsonPath('checks.scheduler.status', 'ok');
     }
@@ -114,14 +116,14 @@ class HealthCheckTest extends TestCase
         config(['health.token' => 'un-token-secreto']);
 
         // 404 y no 403: si está protegido, tampoco conviene confirmar que existe.
-        $this->getJson('/health/deep')->assertNotFound();
+        $this->getJson('/health')->assertNotFound();
 
-        $this->getJson('/health/deep?token=incorrecto')->assertNotFound();
+        $this->getJson('/health?token=incorrecto')->assertNotFound();
 
-        $this->getJson('/health/deep?token=un-token-secreto')->assertOk();
+        $this->getJson('/health?token=un-token-secreto')->assertOk();
 
         $this->withHeader('X-Health-Token', 'un-token-secreto')
-            ->getJson('/health/deep')
+            ->getJson('/health')
             ->assertOk();
     }
 
@@ -130,13 +132,13 @@ class HealthCheckTest extends TestCase
     {
         // El centinela externo no tiene sesión ni token de Sanctum. Si este
         // endpoint exigiera autenticación, no serviría para nada.
-        $this->getJson('/health/deep')->assertOk();
+        $this->getJson('/health')->assertOk();
     }
 
     #[Test]
     public function no_filtra_credenciales_en_la_respuesta(): void
     {
-        $respuesta = $this->getJson('/health/deep')->assertOk()->getContent();
+        $respuesta = $this->getJson('/health')->assertOk()->getContent();
 
         foreach ([config('database.connections.pgsql.password'), 'DB_PASSWORD', 'pooler.supabase.com'] as $secreto) {
             if (blank($secreto)) {

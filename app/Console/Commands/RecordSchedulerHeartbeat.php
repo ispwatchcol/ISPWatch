@@ -29,7 +29,7 @@ class RecordSchedulerHeartbeat extends Command
 {
     protected $signature = 'system:heartbeat';
 
-    protected $description = 'Registra que el planificador está vivo. Lo consulta /health/deep para alertar por silencio.';
+    protected $description = 'Registra que el planificador está vivo. Lo consulta /health para alertar por silencio.';
 
     public function handle(): int
     {

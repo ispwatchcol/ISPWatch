@@ -33,7 +33,7 @@
 #
 # Ninguna de estas alertas sustituye al CENTINELA EXTERNO. Todas las emite la
 # misma plataforma que aloja la aplicación; la capa 0 —un servicio de terceros
-# que consulte https://ispwatch-crm.app/health/deep cada 60 s y valide que el
+# que consulte https://ispwatch-crm.app/health cada 5 min y valide que el
 # CUERPO trae "status":"ok"— sigue pendiente. Es la única que sobrevive a una
 # caída de la base de datos, y por eso la única que puede detectarla.
 alerts:
@@ -276,14 +276,14 @@ services:
     scope: RUN_AND_BUILD_TIME
     value: https://ispwatch-crm.app
   # Chequeo de salud profundo. El token es OPCIONAL: la respuesta de
-  # /health/deep no contiene secretos, sólo nombres de componente y números.
+  # /health no contiene secretos, sólo nombres de componente y números.
   # Definirlo obliga a enviarlo en la cabecera X-Health-Token o en ?token=.
   - key: HEALTH_CHECK_TOKEN
     scope: RUN_AND_BUILD_TIME
     type: SECRET
     value: <<<CAMBIAR:HEALTH_CHECK_TOKEN>>>
   # true en producción, siempre. Con el componente `scheduler` desplegado esto
-  # vale ok; sin él, /health/deep responde 503 — que es exactamente lo que debe
+  # vale ok; sin él, /health responde 503 — que es exactamente lo que debe
   # hacer, porque sin planificador no se factura ni se corta a nadie.
   - key: HEALTH_SCHEDULER_EXPECTED
     scope: RUN_AND_BUILD_TIME
