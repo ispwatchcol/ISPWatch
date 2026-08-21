@@ -39,7 +39,7 @@ class RegistrationController extends Controller
             $seconds = RateLimiter::availableIn($rateLimitKey);
 
             Log::warning('Registration rate limit exceeded', [
-                'ip' => $request->ip(),
+                'ip' => $request->realIp(),
                 'retry_after' => $seconds,
             ]);
 
@@ -99,7 +99,7 @@ class RegistrationController extends Controller
                 RateLimiter::hit($rateLimitKey, self::DECAY_MINUTES * 60);
 
                 Log::alert('Suspicious registration attempt detected', [
-                    'ip' => $request->ip(),
+                    'ip' => $request->realIp(),
                     'field' => $field,
                     'user_agent' => $request->userAgent(),
                 ]);
@@ -215,7 +215,7 @@ class RegistrationController extends Controller
                 'user_id' => $user->id,
                 'tenant_id' => $tenant->id,
                 'email' => $sanitizedData['email'],
-                'ip' => $request->ip(),
+                'ip' => $request->realIp(),
             ]);
 
 
@@ -237,7 +237,7 @@ class RegistrationController extends Controller
 
             Log::error('Registration failed', [
                 'error' => $e->getMessage(),
-                'ip' => $request->ip(),
+                'ip' => $request->realIp(),
                 'email' => $sanitizedData['email'] ?? 'unknown',
             ]);
 
@@ -253,7 +253,7 @@ class RegistrationController extends Controller
      */
     private function getRateLimitKey(Request $request): string
     {
-        return 'register_attempt:' . $request->ip();
+        return 'register_attempt:' . $request->realIp();
     }
 
     /**

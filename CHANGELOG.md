@@ -17,6 +17,23 @@ y explicada en el [manual del desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
+## [1.1.1] — 2026-08-21
+
+### Corregido
+
+- **La lista de direcciones IP autorizadas de una llave de API no funcionaba
+  contra tráfico real.** Cualquier llamada externa a la API pública era
+  rechazada con «IP no autorizada», sin importar qué tan bien estuviera
+  configurada la llave. La aplicación estaba comparando contra la dirección
+  del proveedor que enruta el tráfico, no contra la del que realmente llama.
+  Se descubrió al emitir la primera llave real para un integrador y
+  confirmarse con la primera llamada de prueba. El mismo arreglo corrige,
+  además, el conteo de intentos de inicio de sesión, de registro y de firma
+  remota de contrato, y el registro de auditoría: todos dependían del mismo
+  dato.
+
+---
+
 ## [1.1.0] — 2026-08-20
 
 Versión de resiliencia. El 20 de agosto la plataforma estuvo quince horas
