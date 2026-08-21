@@ -1,0 +1,129 @@
+Asunto: Solicitud 2A — Entrega de contrato oficial API/OpenAPI para tickets de soporte e integración con CNO
+
+Cordial saludo,
+
+Colombia Net de Occidente S.A.S., sede Chaguaní, está estructurando dos frentes vinculados con ISPwash:
+
+1. La reestructuración funcional del módulo de tickets, exclusivamente para soporte técnico de servicios existentes.
+2. La integración por API con nuestra plataforma técnica ColombiaNetDiagnostico (CNO).
+
+Para evitar suponer rutas, campos, estados, permisos o comportamientos del proveedor, solicitamos como subfase 2A la documentación oficial y sanitizada de la API actualmente disponible. Esta entrega puede evaluarse en paralelo con la reestructuración funcional; la integración operativa 2B se diseñará únicamente después de revisar el contrato oficial y aprobar la versión funcional del ticket.
+
+PRINCIPIOS DEL MODELO
+
+- ISPwash continuará siendo el único sistema maestro del cliente, servicio y ticket de soporte: consecutivo, SLA, asignación, estado y cierre.
+- CNO aportará correlación técnica, contexto PPPoE/RADIUS, infraestructura, diagnósticos y evidencias.
+- No se creará un ticket maestro paralelo en CNO.
+- El alcance excluye instalaciones, traslados, retiros, ventas, cartera, facturación y solicitudes administrativas.
+- No solicitamos acceso directo a bases de datos internas de ISPwash.
+- La primera habilitación será de laboratorio y solo lectura.
+
+ENTREGABLES SOLICITADOS
+
+1. Contrato OpenAPI oficial
+   - Formato JSON UTF-8.
+   - OpenAPI 3.0.x o 3.1.x.
+   - Versión, fecha de vigencia y política de cambios.
+   - Paths, métodos, operationId, parámetros, request bodies, respuestas, esquemas, códigos HTTP y mecanismos de seguridad.
+   - Archivo sanitizado, sin credenciales ni datos personales reales.
+   - Preferiblemente un archivo de hasta 2 MiB; si es mayor, agradeceremos coordinar una entrega segmentada o un ajuste controlado.
+
+2. Diccionario de datos
+   - Identificadores únicos y estables de cliente/abonado, servicio o punto instalado, ticket y router lógico/NAS.
+   - Nombre oficial, tipo, obligatoriedad, nulabilidad, longitud, formato y semántica de cada campo.
+   - Enumeraciones y códigos estables de estados, prioridades, SLA, síntomas, causas, soluciones, resultados e incidentes.
+   - Campos personalizados disponibles y forma de exponerlos por API.
+   - Diferenciación entre campos de solo lectura, escritura, sistema y calculados.
+   - Historial y versionamiento de valores cuando aplique.
+
+3. Capacidades reales para clientes y servicios
+   - Consulta por identificador estable.
+   - Relación cliente–servicio–contrato–plan–router lógico/NAS.
+   - Estado comercial y estado técnico disponible.
+   - Usuario PPPoE e IP, sin incluir contraseñas.
+   - Paginación, filtros y consulta incremental de cambios.
+
+4. Capacidades reales del ticket de soporte
+   - Crear, consultar, listar, filtrar y actualizar, indicando qué operaciones existen hoy.
+   - Estados y transiciones permitidas.
+   - Asignación, prioridad, SLA, causa, solución, resultado, restablecimiento, cierre y reapertura.
+   - Comentarios, intervenciones, evidencias o adjuntos.
+   - Historial completo y auditoría.
+   - Incidentes padre y relación con tickets individuales, si está disponible.
+   - Forma de consultar por fecha de actualización, cursor o versión del recurso.
+
+5. Eventos y sincronización
+   - Webhooks disponibles y eventos emitidos.
+   - Autenticación o firma, reintentos, orden, duplicados y retención.
+   - Alternativa oficial de polling o consulta incremental.
+   - Procedimiento de reconciliación después de fallas.
+
+6. Autenticación y seguridad
+   - Método oficial de autenticación máquina a máquina.
+   - Scopes o permisos mínimos.
+   - Expiración, renovación, rotación y revocación.
+   - Restricción por IP, si aplica.
+   - Encabezados obligatorios y manejo seguro de secretos.
+   - Separación de credenciales entre sandbox y producción.
+
+7. Operación y resiliencia
+   - Rate limits y encabezados relacionados.
+   - Timeouts recomendados.
+   - Códigos y estructura de errores.
+   - Idempotencia en operaciones de escritura.
+   - Control de concurrencia o versión del recurso.
+   - Política de reintentos, mantenimiento y deprecación.
+
+8. Sandbox y pruebas
+   - Ambiente o tenant de prueba.
+   - Diferencias frente a producción.
+   - Credenciales ficticias o procedimiento para obtenerlas por canal seguro.
+   - Datos de prueba para cliente, servicio, ticket, adjunto e incidente.
+
+9. Ejemplos sanitizados
+   - Cliente/abonado y servicio.
+   - Router lógico/NAS.
+   - Ticket abierto, actualizado y cerrado.
+   - Historial del ticket.
+   - Comentario y adjunto.
+   - Errores de validación, autorización, no encontrado, conflicto, duplicado y límite de consumo.
+
+10. Condiciones comerciales y de soporte
+    - Plan o licencia requerida.
+    - Capacidades disponibles actualmente, configurables o sujetas a desarrollo.
+    - Costos, dependencias y restricciones.
+    - Contacto técnico y canal de soporte de la integración.
+
+REGLAS DE SANITIZACIÓN
+
+No incluir:
+- tokens, contraseñas, secretos compartidos o llaves privadas;
+- cookies de sesión;
+- datos reales de clientes;
+- URL con credenciales;
+- ejemplos con valores productivos sensibles.
+
+Conservar:
+- nombres oficiales de paths, operationId, parámetros, esquemas y propiedades;
+- tipos, obligatoriedad, enums, formatos y límites;
+- códigos HTTP y mecanismos de seguridad;
+- relaciones entre entidades;
+- versión y fecha de vigencia.
+
+ALCANCE DE ESTA ENTREGA
+
+Esta solicitud 2A busca únicamente obtener y analizar el contrato oficial. No solicita todavía habilitar llamadas productivas, sincronización de tickets, credenciales reales ni permisos de escritura. Cualquier activación se tramitará posteriormente como subfase 2B, con sandbox aprobado, mapeo humano versionado, pruebas de contrato, controles de idempotencia, auditoría y autorización explícita de Colombia Net.
+
+Agradecemos responder cada punto como:
+- Disponible actualmente.
+- Disponible mediante configuración.
+- Requiere desarrollo.
+- No soportado.
+- Alternativa propuesta.
+
+Atentamente,
+
+Joseh
+Gerente Regional – Sede Chaguaní
+Colombia Net de Occidente S.A.S.
+Línea centralizada: 322 268 4955
