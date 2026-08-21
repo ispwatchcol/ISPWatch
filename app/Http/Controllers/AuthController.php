@@ -28,7 +28,7 @@ class AuthController extends Controller
                 $seconds = RateLimiter::availableIn($rateLimitKey);
 
                 Log::warning('Rate limit exceeded for login', [
-                    'ip' => $request->ip(),
+                    'ip' => $request->realIp(),
                     'email_tenant' => $request->email_tenant ?? 'unknown',
                     'retry_after' => $seconds,
                 ]);
@@ -52,7 +52,7 @@ class AuthController extends Controller
             // Detectar patrones sospechosos
             if ($this->detectSuspiciousInput($emailTenant)) {
                 Log::alert('Suspicious login attempt detected', [
-                    'ip' => $request->ip(),
+                    'ip' => $request->realIp(),
                     'raw_input' => $request->email_tenant,
                     'sanitized_input' => $emailTenant,
                     'user_agent' => $request->userAgent(),
@@ -109,7 +109,7 @@ class AuthController extends Controller
             Log::info('Successful login', [
                 'user_id' => $user->id,
                 'email_tenant' => $user->email_tenant,
-                'ip' => $request->ip(),
+                'ip' => $request->realIp(),
             ]);
 
             $user->load(['role' => fn($q) => $q->withoutGlobalScope('tenant')]);
@@ -171,7 +171,7 @@ class AuthController extends Controller
      */
     private function getRateLimitKey(Request $request): string
     {
-        return 'login_attempt:' . $request->ip() . ':' . Str::lower($request->email_tenant ?? '');
+        return 'login_attempt:' . $request->realIp() . ':' . Str::lower($request->email_tenant ?? '');
     }
 
     /**
@@ -182,7 +182,7 @@ class AuthController extends Controller
         RateLimiter::hit($rateLimitKey, self::DECAY_MINUTES * 60);
 
         Log::warning('Failed login attempt', [
-            'ip' => $request->ip(),
+            'ip' => $request->realIp(),
             'email_tenant' => $emailTenant,
             'attempts_remaining' => self::MAX_ATTEMPTS - RateLimiter::attempts($rateLimitKey),
             'user_agent' => $request->userAgent(),

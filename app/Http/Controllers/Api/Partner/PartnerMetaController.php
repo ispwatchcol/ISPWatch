@@ -40,7 +40,7 @@ class PartnerMetaController extends PartnerController
                 'key_name'   => $token->name,
                 'abilities'  => $token->abilities ?? [],
                 'expires_at' => $token->expires_at,
-                'your_ip'    => $request->ip(),
+                'your_ip'    => $request->realIp(),
                 'server_time' => now()->toIso8601String(),
             ],
         ]);

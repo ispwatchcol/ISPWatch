@@ -143,8 +143,8 @@ class AppServiceProvider extends ServiceProvider
         // 20/min deja margen de sobra al cliente real —abrir, verificar,
         // firmar son 3 peticiones— y no a un barrido.
         RateLimiter::for('public-contract', fn (Request $request) => [
-            Limit::perMinute(20)->by('public-contract|' . $request->ip()),
-            Limit::perHour(120)->by('public-contract|' . $request->ip()),
+            Limit::perMinute(20)->by('public-contract|' . $request->realIp()),
+            Limit::perHour(120)->by('public-contract|' . $request->realIp()),
         ]);
     }
 
@@ -161,7 +161,7 @@ class AppServiceProvider extends ServiceProvider
 
         return $user
             ? class_basename($user) . ':' . $user->getKey()
-            : 'ip:' . $request->ip();
+            : 'ip:' . $request->realIp();
     }
 
     /** Cubo por token; si aún no hay token resuelto, por IP de origen. */
@@ -171,6 +171,6 @@ class AppServiceProvider extends ServiceProvider
 
         return $token && $token->getKey()
             ? 'token:' . $token->getKey()
-            : 'ip:' . $request->ip();
+            : 'ip:' . $request->realIp();
     }
 }

@@ -5042,9 +5042,14 @@ que no bajan al hijo, y el `<v-icon>` con un nombre sin registrar que no se ve y
 
 ---
 
-## 47. La API era usable y nadie sabía cómo — 2026-08-19
+## 49. La API era usable y nadie sabía cómo — 2026-08-19
 
-### 47.1 El hueco
+> Numeración fuera de orden a propósito: esta sección y la § 50 se escribieron en una
+> rama que partió de antes de que la § 48 (`feat/health-deep-and-db-failure-handling`)
+> se fusionara en `main`. Se numeraron después de fusionar, así que quedaron por encima
+> de una fecha anterior. El orden real de los hechos es el que dice cada título.
+
+### 49.1 El hueco
 
 Horas después de publicar el contrato OpenAPI (§ 45), el operador emitió su primera llave y
 la pregunta fue inmediata: *«no veo una documentación pública en producción que me diga qué
@@ -5060,7 +5065,7 @@ Diagnóstico del estado real en ese momento: la llave estaba bien configurada (4
 correctos, allowlist puesta, vence en 90 días) y `api_key_request_logs` tenía **cero filas**.
 La API no estaba fallando; nadie había podido llamarla.
 
-### 47.2 Dónde va la documentación: donde está el usuario
+### 49.2 Dónde va la documentación: donde está el usuario
 
 Un artículo nuevo del Centro de Ayuda —«Probar la API: primeros comandos, Postman y curl»—
 con la dirección base, el formato de la llave, la cabecera `Accept`, el orden de prueba, la
@@ -5077,7 +5082,7 @@ La URL base no está escrita a mano ni viene de una variable del frontend: sale 
 `window.location.origin`. El panel se sirve del mismo despliegue que atiende la API, así que
 el origen actual **es** la respuesta correcta y no puede quedarse viejo si cambia el dominio.
 
-### 47.3 El consejo que dábamos no funcionaba
+### 49.3 El consejo que dábamos no funcionaba
 
 La documentación decía —y el propio `ping` está diseñado para eso— que ante un problema de
 allowlist el integrador consulte `/ping` para ver con qué IP lo ve el servidor.
@@ -5095,7 +5100,7 @@ Agravante que lo vuelve caro: **la allowlist de una llave emitida no se puede ed
 hay ruta de actualización, sólo crear y revocar—, así que equivocarse de IP cuesta emitir
 otra llave. Por eso el aviso ahora aparece antes de que ocurra.
 
-### 47.4 Dos escapes de barra invertida que sí rompieron cosas
+### 49.4 Dos escapes de barra invertida que sí rompieron cosas
 
 Al armar el comando de ejemplo, la misma trampa mordió dos veces en lenguajes distintos:
 
@@ -5108,7 +5113,7 @@ Al armar el comando de ejemplo, la misma trampa mordió dos veces en lenguajes d
 Nada de esto lo detecta una prueba: el resultado es un comando que *parece* bien y que, en el
 primer caso, hasta funciona al pegarlo. Se verificó imprimiendo la cadena final.
 
-### 47.5 Por qué una migración nueva y no editar la del § 45.6
+### 49.5 Por qué una migración nueva y no editar la del § 45.6
 
 La 2026_08_19_100000 ya había corrido en producción (lote 88, aplicada por el despliegue
 automático al fusionar el PR). Laravel no la vuelve a ejecutar, así que agregar el artículo
@@ -5358,3 +5363,100 @@ Dos decisiones de diseño:
 - **Un fallo de red al pingar NO hace fallar el comando.** Si el aviso no sale, el
   propio Healthchecks lo detecta por el silencio; romper la tarea cada minuto por
   un blip de red sólo llenaría el log de errores que no lo son.
+
+---
+
+## 50. El allowlist de la API partner llevaba semanas fallando contra tráfico real, sin que nadie lo notara — 2026-08-21
+
+### 50.1 El síntoma
+
+Se emitió la primera llave read-only real para un integrador (Colombia Net de Occidente):
+allowlist correcta, permisos correctos, verificada dos veces contra la IP pública del ISP.
+La primera llamada —`GET /ping` desde curl— respondió `403 ip_not_allowed`.
+
+### 50.2 El diagnóstico
+
+`api_key_request_logs` tenía **cero filas en total** antes de este intento. Nunca antes
+había llegado una petición real y externa a `/api/v1/partner/*` en producción — toda la
+cobertura de pruebas fija `allowed_ips = ['127.0.0.1']` y llama desde el kernel de pruebas
+de Laravel, que no pasa por ningún proxy. El mecanismo de allowlist **nunca se había
+validado de punta a punta contra tráfico real**.
+
+Con la bitácora de peticiones del panel se vio la IP que había quedado registrada:
+`104.22.86.188`, en los cinco intentos, en dos días distintos, sin relación con la IP
+pública real del ISP. `104.16.0.0/13` es un rango publicado de **Cloudflare**.
+
+### 50.3 La causa
+
+El sitio está detrás de Cloudflare. `bootstrap/app.php` tiene `trustProxies(at: '*')`
+—necesario para DigitalOcean App Platform, según su propio comentario—, que hace que
+Symfony recorra la cadena `X-Forwarded-For` confiando en cualquier salto. El problema es
+anterior a eso: **DigitalOcean App Platform no conserva la cadena `X-Forwarded-For` que
+Cloudflare arma**. Genera la suya propia a partir de con quién habló directamente —
+Cloudflare—, y el dato original del visitante se pierde ahí, antes de que Laravel vea la
+petición. Ninguna configuración de proxies de confianza del lado de Laravel puede
+recuperar un dato que ya no está en la petición que le llega.
+
+### 50.4 El alcance real: no era sólo la API partner
+
+Al buscar `$request->ip()` en toda la aplicación aparecieron **30 usos en 10 archivos**,
+todos ciegos al mismo problema:
+
+| Archivo | Qué decidía con la IP equivocada |
+|---|---|
+| `EnsureApiKeyRequest` | El propio allowlist de la API partner |
+| `PartnerMetaController` | `your_ip` en `/ping` — el dato que el integrador copia a su allowlist. Estaba **mintiendo** |
+| `AppServiceProvider` | Cubo de rate limit de login, registro y firma de contrato cuando no hay usuario/token resuelto |
+| `AuthController` | Bitácora de intentos de login sospechosos/fallidos, clave del throttle de login |
+| `RegistrationController` | Bitácora de registro sospechoso, clave del throttle de registro |
+| `PublicContractController` | `signerIp` grabado junto a la firma remota del contrato |
+| `AuditContext` | La IP que queda en **la auditoría de todo lo que mueve plata** |
+| `ApiClientController` / `DenyApiClients` | Bitácora de administración de llaves y de intentos bloqueados |
+| `InputSanitizer` | Bitácora de entradas sospechosas |
+
+El más grave de los que no son la API partner: el límite de **5 intentos de verificación**
+sobre un enlace de firma remota de contrato (`ContractSignatureLink`) protege por token,
+pero el techo de 20/min "por IP" que evita que alguien barra tokens al azar desde un mismo
+origen estaba, de hecho, limitando por el borde de Cloudflare — miles de visitantes reales
+comparten un puñado de IPs de borde, así que ese límite llevaba tiempo siendo casi inútil
+como defensa y, en el sentido contrario, con potencial de agotarse por tráfico legítimo
+ajeno que compartiera el mismo borde.
+
+### 50.5 La corrección: una macro, no diez parches
+
+`RequestMacrosServiceProvider` (nuevo, mismo patrón que `SearchMacrosServiceProvider`)
+registra `Request::macro('realIp', …)`: usa la cabecera `CF-Connecting-IP` —el visitante
+real según Cloudflare, un solo valor, no una lista que recorrer— cuando está presente y es
+una IP válida; si no, cae a `$request->ip()`.
+
+Los 30 sitios cambian `->ip()` por `->realIp()`. Una macro centralizada y no diez arreglos
+locales, por lo mismo que ya vale para el resto del proyecto: la próxima vez que alguien
+necesite la IP del visitante, `grep realIp` encuentra el patrón correcto de una vez, en vez
+de que cada archivo nuevo reintroduzca el mismo bug de una forma ligeramente distinta.
+
+### 50.6 Lo que la corrección deja abierto, a propósito
+
+`realIp()` confía en `CF-Connecting-IP` sin comprobar que la petición **de verdad** pasó por
+Cloudflare. Quien alcance el origen de DigitalOcean directamente puede mandar esa cabecera
+él mismo y suplantar cualquier IP, incluida una que esté en un allowlist.
+
+No se cerró en el mismo cambio porque la corrección completa es de **infraestructura**
+—firewallear el origen para que sólo acepte los rangos de Cloudflare, o activar
+*Authenticated Origin Pulls*— y no de código de aplicación. Queda anotado como `P-38` en
+`MEJORAS_RECOMENDADAS.md`. Mientras tanto, `realIp()` es estrictamente mejor que el estado
+anterior: hoy el allowlist fallaba contra el 100 % del tráfico real de Cloudflare; con la
+corrección, el riesgo pasa de "nadie puede usar la API" a "alguien que descubra y alcance el
+origen sin pasar por Cloudflare podría suplantar una IP" — un ataque más estrecho y que exige
+conocer una dirección que hoy no está publicada en ningún sitio del proyecto.
+
+### 50.7 Estado
+
+`RequestRealIpTest` fija el contrato de la macro (con/sin cabecera, cabecera inválida,
+IPv6). `PartnerApiCloudflareIpTest` reproduce el incidente exacto —cabecera de Cloudflare
+simulada, allowlist real, y el propio `/ping`— y comprueba que acepta la IP real, rechaza
+cuando la real no está autorizada, y que `your_ip` deja de mentir. Suite completa corrida
+tras el cambio.
+
+Pendiente y fuera del alcance de este cambio: confirmar si el dominio
+`.ondigitalocean.app` del despliegue es alcanzable hoy sin pasar por Cloudflare, y
+cerrarlo si lo es (P-38).

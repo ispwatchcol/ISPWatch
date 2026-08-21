@@ -32,13 +32,13 @@
 
 return [
 
-    'number' => '1.1.0',
+    'number' => '1.1.1',
 
     /*
     | Fecha de publicación de `number`. Es lo que la pantalla de Sistema muestra
     | como "última actualización" — antes ese campo era `new Date()`, o sea que
     | le decía al usuario que el sistema se actualizó hoy, todos los días.
     */
-    'released_at' => '2026-08-20',
+    'released_at' => '2026-08-21',
 
 ];

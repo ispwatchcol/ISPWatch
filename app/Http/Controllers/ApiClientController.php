@@ -47,7 +47,7 @@ class ApiClientController extends Controller
             Log::warning('Intento de gestionar llaves de API desde un tenant no operador', [
                 'user_id'   => $request->user()->id ?? null,
                 'tenant_id' => $request->user()->tenant_id ?? null,
-                'ip'        => $request->ip(),
+                'ip'        => $request->realIp(),
             ]);
 
             abort(403, 'Sólo el tenant operador puede administrar llaves de API.');

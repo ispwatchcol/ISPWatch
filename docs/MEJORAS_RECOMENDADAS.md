@@ -1733,6 +1733,36 @@ inocente —tecleé mal mi IP— sólo se arregla emitiendo una llave nueva y co
 cambio con el integrador. Una edición **auditada** de la allowlist, sin tocar permisos ni
 vigencia, probablemente sea el equilibrio correcto.
 
+### 🔴 P-38 · El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare
+
+`RequestMacrosServiceProvider::realIp()` (2026-08-21) corrige que la aplicación vea la IP
+del borde de Cloudflare en vez de la del visitante real, para todo control basado en IP:
+allowlist de la API partner, límites de login/registro/firma de contrato, auditoría. Pero
+confía en la cabecera `CF-Connecting-IP` **sin verificar que la petición realmente pasó por
+Cloudflare** — no valida que el conector inmediato esté en los rangos publicados de
+Cloudflare.
+
+**Consecuencia:** quien alcance el origen de DigitalOcean directamente —sin pasar por
+`ispwatch-crm.app`— puede mandar su propia `CF-Connecting-IP` y suplantar cualquier
+dirección, incluida una que sí esté en un allowlist. Rompería exactamente el control que
+`realIp()` acaba de arreglar, por otra puerta.
+
+No se cerró en el mismo cambio porque es una decisión de **infraestructura**, no de código
+de aplicación: exige o bien firewallear el origen de DO para que sólo acepte los rangos de
+Cloudflare (opción recomendada — es el patrón estándar de Cloudflare+DO, y no depende de
+mantener una lista de rangos dentro del código), o bien activar Cloudflare *Authenticated
+Origin Pulls* (el origen exige un certificado que sólo Cloudflare presenta).
+
+**Mientras tanto**, `realIp()` sigue siendo estrictamente mejor que el estado anterior: hoy
+el allowlist falla contra tráfico real de Cloudflare al 100 % de las veces (así se descubrió
+esto — cero peticiones registradas antes del incidente, primera llamada real rechazada). El
+riesgo que queda es "alguien descubre y alcanza el origen sin pasar por Cloudflare", no
+"nadie puede usar la API en absoluto".
+
+**Recomendación inmediata:** confirmar si el dominio `.ondigitalocean.app` del despliegue es
+públicamente alcanzable hoy. Si lo es, cerrarlo es la prioridad — no requiere tocar código,
+sólo configuración de la app en DigitalOcean.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |

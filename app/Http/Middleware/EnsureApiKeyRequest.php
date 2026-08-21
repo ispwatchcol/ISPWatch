@@ -159,18 +159,18 @@ class EnsureApiKeyRequest
             return ['key_expired', 401, 'Esta llave de API está vencida.'];
         }
 
-        if (!$token->allowsIp($request->ip())) {
+        if (!$token->allowsIp($request->realIp())) {
             Log::warning('API key usada desde una IP no autorizada', [
                 'token_id'  => $token->getKey(),
                 'client_id' => $client->getKey(),
                 'tenant_id' => $client->tenant_id,
-                'ip'        => $request->ip(),
+                'ip'        => $request->realIp(),
             ]);
 
             return ['ip_not_allowed', 403, 'La IP de origen no está autorizada para esta llave.'];
         }
 
-        $this->rememberSourceIp($token, $request->ip());
+        $this->rememberSourceIp($token, $request->realIp());
 
         return null;
     }
@@ -219,7 +219,7 @@ class EnsureApiKeyRequest
                 'tenant_id'     => $client instanceof ApiClient ? $client->tenant_id : null,
                 'method'        => substr($request->getMethod(), 0, 10),
                 'path'          => substr($request->path(), 0, 255),
-                'ip'            => substr((string) $request->ip(), 0, 45),
+                'ip'            => substr((string) $request->realIp(), 0, 45),
                 'status_code'   => $status,
                 'duration_ms'   => (int) round((microtime(true) - $startedAt) * 1000),
                 'denied_reason' => $reason ? substr($reason, 0, 50) : null,

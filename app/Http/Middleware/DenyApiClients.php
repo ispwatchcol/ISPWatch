@@ -30,7 +30,7 @@ class DenyApiClients
                 'client_id' => $request->user()->getKey(),
                 'tenant_id' => $request->user()->tenant_id,
                 'path'      => $request->path(),
-                'ip'        => $request->ip(),
+                'ip'        => $request->realIp(),
             ]);
 
             return response()->json([

@@ -173,7 +173,7 @@ trait InputSanitizer
     {
         Log::channel('security')->warning("Security Event: {$type}", array_merge([
             'timestamp' => now()->toIso8601String(),
-            'ip' => request()->ip(),
+            'ip' => request()->realIp(),
             'user_agent' => request()->userAgent(),
             'url' => request()->fullUrl(),
             'method' => request()->method(),

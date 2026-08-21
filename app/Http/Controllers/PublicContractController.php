@@ -155,7 +155,7 @@ class PublicContractController extends Controller
                 $data['signature'],
                 uploadedBy: null,
                 link: $link,
-                signerIp: $request->ip(),
+                signerIp: $request->realIp(),
                 signerUserAgent: $request->userAgent(),
             );
         } catch (ContractAlreadySignedException $e) {

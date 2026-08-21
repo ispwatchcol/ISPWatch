@@ -83,7 +83,7 @@ class AuditContext
 
     public static function ip(): ?string
     {
-        return app()->runningInConsole() ? null : request()->ip();
+        return app()->runningInConsole() ? null : request()->realIp();
     }
 
     public static function userAgent(): ?string
