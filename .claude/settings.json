@@ -75,7 +75,10 @@
       "Bash(node \"C:/Users/rdyja/AppData/Local/Temp/claude/c--Users-rdyja-proyectos-ispwatch/fdcbaeec-0644-4ee8-8fef-beff8b5323fe/scratchpad/reindent.mjs\")",
       "Bash(echo \"=== EXIT: $? ===\")",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(echo \"BUILD_EXIT=$?\")"
+      "Bash(echo \"BUILD_EXIT=$?\")",
+      "Bash(ls -la C:/Users/rdyja/AppData/Local/Temp/claude/c--Users-rdyja-proyectos-ispwatch/3542ed7e-b456-4b58-b291-91c7757dd881/scratchpad/cno_req/Paquete_Solicitud_ISPwash_CNO_V1_1_Validado)",
+      "Bash(echo \"NO EXTRAIDO\")",
+      "Bash(rm -rf cno_req)"
     ],
     "additionalDirectories": [
       "C:\\Users\\rdyja\\Downloads"

@@ -1,0 +1,43 @@
+PAQUETE FORMAL PARA ISPWASH — COLOMBIA NET DE OCCIDENTE
+Versión 1.1 · 10 de agosto de 2026
+
+PROPÓSITO
+Este paquete presenta dos solicitudes vinculadas y con entregables separados:
+
+1. Reestructuración del módulo de tickets de soporte técnico.
+2. Integración por API con ColombiaNetDiagnostico.
+
+La Solicitud 2 se divide, a su vez, en:
+
+2A. Entrega y revisión del contrato oficial API/OpenAPI.
+2B. Integración operativa, posterior a la aprobación y versionamiento del modelo de ticket.
+
+ARCHIVOS
+1. Solicitud_Maestra_ISPwash_CNO_V1_1.docx
+   Documento funcional y técnico principal. Solicita respuesta y cotización separadas para la reestructuración y la integración.
+
+2. Solicitud_2A_Contrato_OpenAPI_ISPwash_CNO_V1_1.txt
+   Mensaje técnico inmediato para solicitar la documentación oficial y sanitizada de la API.
+
+3. Anexo_Tecnico_Contrato_API_ISPwash_CNO_V1_1.md
+   Evidencias mínimas, reglas de sanitización, fronteras de responsabilidad y criterios de aceptación del contrato.
+
+4. Checklist_Entrega_Contrato_ISPwash_CNO_V1_1.csv
+   Matriz para controlar la respuesta y los archivos entregados por ISPwash.
+
+5. Registro_Cambios_V1_1.txt
+   Resumen de los ajustes incorporados después de validar el estado real de ColombiaNetDiagnostico.
+
+6. MANIFIESTO_SHA256.txt
+   Huellas de integridad de los archivos del paquete.
+
+SECUENCIA RECOMENDADA
+- ISPwash puede evaluar desde ahora la reestructuración funcional y entregar el contrato OpenAPI en paralelo.
+- No debe implementarse un mapeo operativo sobre nombres de endpoints, campos, estados o eventos no confirmados oficialmente.
+- La integración inicial será de laboratorio y solo lectura.
+- Las escrituras sobre tickets, comentarios, diagnósticos o estados se habilitarán únicamente en una fase posterior, con contrato aprobado, sandbox, idempotencia, auditoría y autorización explícita.
+
+SEGURIDAD
+- No enviar credenciales de producción, tokens, contraseñas, cookies, secretos, llaves privadas ni datos reales de clientes dentro del OpenAPI o los ejemplos.
+- La entrega debe hacerse por un canal seguro acordado entre las partes.
+- Este paquete no contiene direcciones internas, credenciales ni accesos a la infraestructura de Colombia Net.

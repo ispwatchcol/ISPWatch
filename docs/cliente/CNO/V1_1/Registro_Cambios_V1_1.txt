@@ -1,0 +1,30 @@
+REGISTRO DE CAMBIOS — V1.1
+
+La versión 1.1 fue ajustada después de validar el estado real del desarrollo de ColombiaNetDiagnostico.
+
+1. Se conserva la estructura principal de dos solicitudes:
+   - reestructuración del ticket de soporte;
+   - integración por API.
+
+2. La Solicitud 2 se divide en:
+   - 2A: recepción y análisis del contrato oficial API/OpenAPI;
+   - 2B: integración operativa posterior.
+
+3. Se establece que la subfase 2A puede avanzar en paralelo con el diseño funcional de la Solicitud 1, pero la integración 2B requiere que campos, catálogos, estados y reglas queden aprobados y versionados.
+
+4. Se reemplazan los endpoints ilustrativos por capacidades equivalentes. No se asumen rutas, operationId, campos, webhooks ni semántica de ISPwash.
+
+5. Se solicita expresamente el diccionario de datos y la exposición API de los nuevos campos del ticket, para evitar que la reestructuración quede limitada a la interfaz gráfica.
+
+6. Se prioriza un piloto de solo lectura. Las escrituras de tickets, comentarios, diagnósticos, estados o abonados quedan como habilitaciones posteriores e independientes.
+
+7. Se incorporan identificadores estables de cliente, servicio, ticket y router lógico/NAS, además de versionamiento, catálogos, auditoría, idempotencia y concurrencia.
+
+8. Se precisa la recepción de OpenAPI JSON UTF-8 3.0.x/3.1.x, preferiblemente hasta 2 MiB; para archivos mayores se coordinará un mecanismo controlado.
+
+9. Se elimina del paquete externo cualquier URL, dirección IP o procedimiento interno de Colombia Net.
+
+10. Se conserva la regla permanente:
+    - ISPwash es el único sistema maestro del ticket;
+    - CNO aporta contexto técnico y diagnóstico;
+    - no existen tickets maestros paralelos.
