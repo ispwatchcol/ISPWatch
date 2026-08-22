@@ -114,6 +114,24 @@ planes de servicio → routers → usuarios base → clientes de ejemplo.
 > `DB_URL` **no debe definirse.** `ConfigurationUrlParser` la mezcla en *cualquier* conexión
 > que se resuelva, incluida `sqlite`, y podría redirigir los tests a la base real.
 > `config/database.php` omite la clave `url` en `sqlite` justamente por eso.
+>
+> **Esto ya pasó** (2026-08-21, `BITACORA_TECNICA.md` §51). Con `DB_URL` presente en `.env`,
+> exportar `DB_HOST` y `DB_DATABASE` en la terminal para apuntar a una base desechable **no
+> tuvo ningún efecto**: la URL gana sobre todas las demás claves, en silencio, y un
+> `php artisan migrate` acabó escribiendo en el esquema `public` de producción.
+>
+> Antes de cualquier `migrate`, `db:seed` o `tinker` que escriba, comprueba la conexión
+> **resuelta**, no la que crees haber configurado:
+>
+> ```bash
+> php artisan tinker --execute="\$c=config('database.connections.pgsql'); \
+>   echo \$c['host'].' / '.\$c['database'].' / schema='.\$c['schema'] \
+>   .' / url='.(empty(\$c['url'])?'(vacia)':'DEFINIDA — ANULA EL RESTO').PHP_EOL;"
+> ```
+>
+> Ojo también con `DB_SCHEMA`: si no está definida, `config/database.php` toma `public`
+> —**producción**—, no `ispwatch_dev`. La salvaguarda de `tests/TestCase.php` sólo protege
+> la suite de pruebas; los comandos de consola no pasan por ella (deuda **P-39**).
 
 ### Sesión, cache y cola
 

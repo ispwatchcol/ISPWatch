@@ -286,14 +286,27 @@ class TicketCatalogBackfillTest extends TestCase
         }
     }
 
+    /**
+     * RETIRADO EN EL PR #1, y el cambio es el esperado.
+     *
+     * Hasta aquí este test afirmaba que los cuatro catálogos de diagnóstico
+     * estaban VACÍOS. Era correcto mientras el vocabulario no estuviera
+     * acordado: sembrar códigos inventados los habría dejado inmutables para
+     * siempre.
+     *
+     * El Anexo A de la Solicitud Maestra aportó los códigos oficiales, así que
+     * la condición que este test protegía —no inventar— se cumple sembrándolos,
+     * no dejándolos vacíos. Su cobertura vive ahora en
+     * `TicketDiagnosticCatalogSeedTest`, que además verifica que no se haya
+     * colado ninguna subcausa con código improvisado.
+     */
     #[Test]
-    public function el_vocabulario_de_diagnostico_nace_vacio_a_proposito(): void
+    public function el_vocabulario_de_diagnostico_proviene_del_anexo_del_cliente(): void
     {
-        // Sus códigos son inmutables una vez sembrados, así que se siembran
-        // cuando estén acordados con el ISP y el integrador, no antes.
-        foreach (['ticket_symptom', 'ticket_cause', 'ticket_solution', 'ticket_result'] as $tabla) {
-            $this->assertSame(0, DB::table($tabla)->count(), "`{$tabla}` no debería tener vocabulario inventado.");
-        }
+        $this->assertGreaterThan(0, DB::table('ticket_symptom')->count());
+        $this->assertGreaterThan(0, DB::table('ticket_cause')->count());
+        $this->assertGreaterThan(0, DB::table('ticket_solution')->count());
+        $this->assertGreaterThan(0, DB::table('ticket_result')->count());
     }
 
     #[Test]
@@ -323,15 +336,29 @@ class TicketCatalogBackfillTest extends TestCase
         );
     }
 
+    /**
+     * AJUSTADO EN EL PR #1. Lo que este test protege es que los SIETE catálogos
+     * estén registrados —incluidos los que en su día nacieron vacíos—, para que
+     * un integrador pueda preguntar por cualquiera y recibir una lista, aunque
+     * esté vacía, en vez de un 404.
+     *
+     * La afirmación de que todos valían exactamente 1 caducó: sembrar el Anexo A
+     * sube la versión de `symptom`, `cause`, `solution` y `result`, que es
+     * justamente para lo que sirve el contador.
+     */
     #[Test]
-    public function todos_los_catalogos_arrancan_en_la_version_uno(): void
+    public function los_siete_catalogos_estan_registrados_y_versionados(): void
     {
         $this->assertEqualsCanonicalizing(
             ['status', 'priority', 'category', 'symptom', 'cause', 'solution', 'result'],
             DB::table('ticket_catalog_version')->pluck('catalog')->all(),
         );
 
-        $this->assertSame(0, DB::table('ticket_catalog_version')->where('version', '!=', 1)->count());
+        $this->assertSame(
+            0,
+            DB::table('ticket_catalog_version')->where('version', '<', 1)->count(),
+            'Ninguna versión puede ser inferior a 1.',
+        );
     }
 
     // ── Reglas estructurales del diseño ──────────────────────────────────
