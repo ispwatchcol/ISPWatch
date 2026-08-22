@@ -38,6 +38,20 @@ class TicketCatalogs
     public const PRIORITY = 'ticket_priority';
     public const CATEGORY = 'ticket_category';
 
+    /** Vocabulario de diagnóstico (Anexo A del requerimiento del cliente). */
+    public const SYMPTOM  = 'ticket_symptom';
+    public const CAUSE    = 'ticket_cause';
+    public const SOLUTION = 'ticket_solution';
+    public const RESULT   = 'ticket_result';
+
+    /**
+     * Catálogos que admiten filas propias de un ISP además de las de plataforma.
+     *
+     * Sólo estos tienen columna `tenant_id`; pedirla en los demás rompería la
+     * consulta. De ahí que la lista viva aquí y no se deduzca sobre la marcha.
+     */
+    private const EXTENSIBLES = [self::SYMPTOM, self::CAUSE, self::SOLUTION];
+
     /** @var array<string, Collection<int, object>> tabla => filas ya cargadas */
     private array $cargados = [];
 
@@ -145,11 +159,38 @@ class TicketCatalogs
         unset($this->cargados[$tabla]);
     }
 
+    /**
+     * Filas vigentes visibles para un tenant concreto.
+     *
+     * Devuelve las de PLATAFORMA (`tenant_id IS NULL`, comunes a todos los ISP)
+     * más las propias de ese tenant. Nunca las de otro: el vocabulario que un
+     * ISP añada es suyo, y filtrarlo aquí es lo que impide que se filtre por el
+     * endpoint de catálogos.
+     *
+     * En los catálogos globales estrictos no hay `tenant_id` y devuelve todo.
+     */
+    public function vigentesParaTenant(string $tabla, ?int $tenantId): Collection
+    {
+        $vigentes = $this->vigentes($tabla);
+
+        if (!in_array($tabla, self::EXTENSIBLES, true)) {
+            return $vigentes;
+        }
+
+        return $vigentes
+            ->filter(fn ($fila) => $fila->tenant_id === null || (int) $fila->tenant_id === $tenantId)
+            ->values();
+    }
+
     /** Carga perezosa: una consulta por catálogo y por petición. */
     private function filas(string $tabla): Collection
     {
-        return $this->cargados[$tabla] ??= DB::table($tabla)
-            ->select('id', 'code', 'label', 'weight', 'valid_from', 'valid_until')
-            ->get();
+        $columnas = ['id', 'code', 'label', 'description', 'weight', 'valid_from', 'valid_until'];
+
+        if (in_array($tabla, self::EXTENSIBLES, true)) {
+            $columnas[] = 'tenant_id';
+        }
+
+        return $this->cargados[$tabla] ??= DB::table($tabla)->select($columnas)->get();
     }
 }

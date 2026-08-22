@@ -111,7 +111,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 |---|---|---|---|---|---|
 | **F1-01** | Ticket asociado a cliente **y servicio específico** | 🔴 Bloqueado | `support_ticket.user_id`; `customer_profile` con PK = `user_id` | Definir modelo de servicio | **Decisión D-01** |
 | **F1-02** | Alcance exclusivo soporte; excluir facturación | ⚠️ **Contradicción** | `routes/api.php:368-369` — `POST /support/{id}/charge` | No tocar; escalar | **Decisión D-02** |
-| **F1-03** | Síntoma, causa sospechada, causa confirmada, acción y resultado | 🟡 Parcial | 5 columnas en `support_ticket`; catálogos con **0 filas** | **PR #1** + **PR #2** | Anexo A ya aporta códigos |
+| **F1-03** | Síntoma, causa sospechada, causa confirmada, acción y resultado | 🟡 **Parcial** | 5 columnas en `support_ticket`; **catálogos sembrados con el Anexo A** (16+7+20+15) y expuestos en `GET /api/catalogs/ticket` — **sin captura en UI** | **PR #2** | Subcausas sin código: **D-06** |
 | **F1-04** | Estados y transiciones con timestamps e historial | 🟡 Parcial | 4 estados vs 9 + 9 auxiliares (Maestra L139-149); `resolved_at`, `closed_at` | **PR #4** | **Decisión D-03** |
 | **F1-05** | Campos condicionales radio / FTTH | ⚪ Pendiente | No existe | Diseño posterior | Tras PR #2 |
 | **F1-06** | Asociación zona, nodo, AP/OLT, PON, CPE/ONU | 🟡 Parcial | `support_ticket.sectorial_id` | Ampliar jerarquía | — |
@@ -144,8 +144,8 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F2-12** | Errores estructurados, rate limits, reintentos | 🟢 Cumplido | 11 códigos estables; 60/min + 5 000/h | — |
 | **F2-13** | Auditoría de operaciones API | 🟢 Cumplido | `api_key_request_logs` | — |
 | **F2-16** | Credenciales separadas sandbox / producción | ⚪ Pendiente | No existe sandbox | Decisión de infraestructura |
-| **F2-17** | Diccionario de campos, enums y códigos estables por API | 🟡 Parcial | `GET /api/catalogs/ticket` (`routes/api.php:528`); catálogos de diagnóstico vacíos | **PR #1** |
-| **F2-18** | Los campos nuevos no quedan sólo en UI | 🟡 Parcial | Columnas existen, sin exposición | **PR #1** + **PR #2** |
+| **F2-17** | Diccionario de campos, enums y códigos estables por API | 🟡 Parcial | `GET /api/catalogs/ticket` ya sirve los 4 catálogos de diagnóstico con código, etiqueta y versión — pero es endpoint **del panel**, no de la API de socios | Exponer catálogos al integrador: **D-07** |
+| **F2-18** | Los campos nuevos no quedan sólo en UI | 🟡 Parcial | Vocabulario disponible por API interna; los campos del ticket aún no se capturan ni se exponen a socios | **PR #2** + D-07 |
 
 ---
 
@@ -248,13 +248,33 @@ local.
 | Campo | Detalle |
 |---|---|
 | **Objetivo** | Sembrar el vocabulario de diagnóstico y exponerlo por API |
-| **Cubre** | F1-03 (parcial), F2-17, F2-18 |
-| **Alcance** | Migración de siembra idempotente con los códigos del Anexo A: síntomas `S01`-`S16`, familias de causa `RF`/`FO`/`CL`/`AA`/`RE`/`EX`/`NF` con subcausas, acciones `AC01`-`AC20`, resultados `R01`-`R15`. Ampliar `CatalogController::ticketCatalogs()` y el OpenAPI. **Sin UI.** |
-| **Dependencias** | Ninguna técnica. Los códigos vienen del cliente |
-| **Pruebas** | Los códigos sembrados coinciden exactamente con el Anexo A; el endpoint los devuelve ordenados; la versión del catálogo sube; los catálogos siguen sin filas inventadas |
-| **Aceptación** | `GET /api/catalogs/ticket` devuelve 16 síntomas, las 7 familias de causa, 20 acciones y 15 resultados con los códigos literales del Anexo A |
-| **Estado** | ⚪ Listo para iniciar |
-| **Riesgo** | Los códigos son **inmutables** al sembrarse. Si el cliente los cambia en la reunión de la sección 40, habría que retirarlos y crear nuevos. Mientras ningún ticket los referencie el coste es cero — por eso este PR **no** incluye captura |
+| **Cubre** | F1-03 (parcial), F2-17 (parcial), F2-18 (parcial) |
+| **Alcance** | Migración idempotente con los códigos del Anexo A: **16** síntomas `S01`-`S16`, **7** familias de causa `RF`/`FO`/`CL`/`AA`/`RE`/`EX`/`NF`, **20** acciones `AC01`-`AC20`, **15** resultados `R01`-`R15`. Ampliación aditiva de `CatalogController::ticketCatalogs()`. **Sin UI, sin estados nuevos, sin cambios de permisos.** |
+| **Dependencias** | Ninguna técnica |
+| **Pruebas** | `tests/Feature/Support/TicketDiagnosticCatalogSeedTest.php` — 22 pruebas: conteos, códigos exactos, etiquetas literales, idempotencia, no pisar etiquetas editadas, no tocar tickets, versión, endpoint, **forma exacta de la respuesta**, autorización, **rechazo de llave de socio**, retiro y **aislamiento entre tenants** |
+| **Aceptación** | ✅ `GET /api/catalogs/ticket` devuelve 16 síntomas, 7 familias, 20 acciones y 15 resultados con los códigos literales del Anexo A |
+| **Estado** | 🟠 **Implementado en local — sin commit, pendiente de revisión y de CI.** No está desplegado ni cumplido. Aplicado en el esquema de **desarrollo** (`ispwatch_dev`, 58 filas); `public` sigue en 0 filas y sin la migración registrada. Verificado en SQLite (suite completa) y la migración además en PostgreSQL real; la suite sobre PostgreSQL sólo puede correrla el CI (ver más abajo) |
+| **Riesgo asumido** | Los códigos son **inmutables** al sembrarse. Si el cliente los cambia en la reunión de la sección 40 habría que retirarlos y crear nuevos; mientras ningún ticket los referencie el coste es cero — por eso este PR **no** incluye captura |
+
+**No cierra F2-17/F2-18.** El endpoint ampliado es el del **panel** (`auth:sanctum` +
+`deny_api_clients`), no la API de socios. El integrador todavía no puede leer los catálogos.
+Exponerlos requiere una ruta nueva bajo `/v1/partner` y su entrada en el OpenAPI: es un
+cambio del contrato público y se registra como **D-07**, no se decide aquí.
+
+**Nota de nomenclatura.** El cliente llama «Acción» (Anexo A.3) a lo que el esquema guarda
+en `ticket_solution` / `support_ticket.solution_id`. Los códigos son los oficiales
+(`AC01`…`AC20`) y el endpoint los publica bajo la clave `actions`, alineada con el
+requerimiento; la tabla conserva el nombre que le puso la R1. Renombrarla tocaría el
+esquema de una fase ya desplegada. Registrado como **D-08**.
+
+**Alcance de la validación en PostgreSQL.** La *migración* sí se ejecutó contra PostgreSQL
+real (18.3 local, base desechable): ciclo `migrate → rollback → migrate`, 58 filas sin
+duplicados, acentos íntegros y el índice parcial rechazando un código de plataforma
+repetido mientras admite el mismo código para un tenant. Lo que **no** puede correrse en
+local es la *suite* sobre PostgreSQL: `migrate` completo exige PostGIS
+(`sectorial.coordinates`) y el servidor local no lo tiene — el CI usa la imagen
+`postgis/postgis:16-3.4` justamente por eso. **PostgreSQL no queda validado en local para
+las 22 pruebas; eso lo cierra el job «PHPUnit (PostgreSQL, motor real)».**
 
 ### PR #2 · Captura del diagnóstico
 
@@ -343,6 +363,9 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-03** | **Autoridad para excepciones de cierre.** Quién puede cerrar sin causa confirmada y bajo qué registro | Es una regla operativa y de responsabilidad, no técnica | F1-10, PR #4 |
 | **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
 | **D-05** | **Acceso, retención y protección de adjuntos.** Hoy se guardan en disco público sin autenticación ni hash | Implica política de datos personales y evidencia probatoria | F1-11 |
+| **D-06** | **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
+| **D-07** | **¿Se exponen los catálogos al integrador?** El PR #1 amplió el endpoint del panel; la API de socios sigue sin catálogos | Añadir una ruta bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI | F2-17, F2-18 |
+| **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
 
 ---
 
@@ -358,7 +381,10 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-14 | Catálogos de diagnóstico **vacíos** hasta acordar vocabulario | Diseño Fase 1 | Evita códigos inmutables equivocados | ✅ Aplicada (R1) · **revisable con el Anexo A** |
 | 2026-08-15 | Despliegue en 3 pasos (R1+R2 → R2.5 → R3) | Auditoría del pipeline App Platform | Evita romper el contenedor viejo durante el despliegue | ✅ Aplicada |
 | 2026-08-15 | La migración R3 **no aborta** por divergencia del espejo, sólo por FK sin resolver | Auditoría R3 | Un aborto por divergencia habría fallado sólo en producción | ✅ Aplicada (R3) |
-| 2026-08-21 | El Anexo A se adopta como fuente del vocabulario de diagnóstico | `Solicitud_Maestra` Anexo A | Desbloquea PR #1 | 🟡 Propuesta — requiere confirmación del cliente |
+| 2026-08-21 | El Anexo A se adopta como fuente del vocabulario de diagnóstico | `Solicitud_Maestra` Anexo A | Desbloquea PR #1 | ✅ Aplicada (PR #1) — **pendiente de confirmación del cliente** |
+| 2026-08-21 | **No se inventan códigos de subcausa.** Se siembran las 7 familias; las subcausas quedan como texto de referencia | Anexo A.2 no les asigna código | Evita fijar contrato improvisado e inmutable | ✅ Aplicada (PR #1) · abre **D-06** |
+| 2026-08-21 | Los síntomas se siembran con `category_id` en NULL | El Anexo A no relaciona síntomas con las categorías de ISPWatch | Evita embeber una decisión que depende de D-02 | ✅ Aplicada (PR #1) |
+| 2026-08-21 | Insertar-si-falta en vez de upsert | La etiqueta es editable por diseño (R1) | Un upsert borraría un reetiquetado legítimo en cada despliegue | ✅ Aplicada (PR #1) |
 
 ---
 
@@ -385,6 +411,9 @@ Ninguna debe resolverse por iniciativa propia.
 | Fecha | Qué se validó | Resultado | Quién |
 |---|---|---|---|
 | 2026-08-20 | Esquema `public`: enums eliminados, catálogos presentes | ✅ 3 columnas ausentes; `ticket_status/priority/category` con 4 filas; catálogos de diagnóstico en 0 | — |
+| 2026-08-21 | **Incidente**: la migración del PR #1 se aplicó por error al esquema `public` y se revirtió el mismo día | ✅ Revertido y verificado: 0 filas de vocabulario, versiones en 1, migración no registrada, `batch` máx. 89, 19 tickets intactos. Ver `BITACORA_TECNICA.md` §51 | — |
+| 2026-08-21 | Causa raíz confirmada: **`DB_SCHEMA` comentado** en el `.env` local, que `config/database.php` resuelve por defecto a `public`. Corregido a `ispwatch_dev` | ✅ Verificado en tres niveles: `.env`, configuración resuelta y sesión viva (`current_schema() = ispwatch_dev`) | David Gómez |
+| 2026-08-21 | Separación de esquemas tras el arreglo | ✅ `ispwatch_dev`: PR #1 aplicada, 58 filas · `public`: PR #1 **no** aplicada, **0 filas**, versiones en 1. Única migración divergente: la del PR #1, en desarrollo | — |
 | *(pendiente)* | Flujo completo crear → cerrar en interfaz | | |
 | *(pendiente)* | `GET /v1/partner/tickets` con llave real: códigos como cadena | | |
 
@@ -407,4 +436,7 @@ Ninguna debe resolverse por iniciativa propia.
 
 | Fecha | Cambio | Responsable | Commit / PR |
 |---|---|---|---|
-| 2026-08-21 | Creación del documento. Auditoría documental, verificación de hashes (6/6), matriz F1-01..F1-20 y F2 aplicables, backlog PR #1-#7, decisiones D-01..D-05 | — | *(sin commit)* |
+| 2026-08-21 | Creación del documento. Auditoría documental, verificación de hashes (6/6), matriz F1-01..F1-20 y F2 aplicables, backlog PR #1-#7, decisiones D-01..D-05 | — | PR #248 |
+| 2026-08-21 | **PR #1 implementado**: vocabulario de diagnóstico del Anexo A sembrado (58 códigos) y expuesto en el endpoint del panel. F1-03 sigue **parcial** —falta captura—. Nuevas decisiones D-06, D-07 y D-08 | — | *(sin commit)* |
+| 2026-08-21 | Revisión final del PR #1: transcripción cotejada por programa contra el `.docx` (58/58 literales, 48 subcausas), 2 pruebas nuevas (forma de la respuesta y rechazo de llave de socio), migración validada en PostgreSQL real. Estado del PR #1 corregido a **implementado en local / pendiente de CI**. Registrado el incidente de aplicación accidental en `public` y su reversión | — | *(sin commit)* |
+| 2026-08-21 | Verificación final: causa raíz confirmada en `DB_SCHEMA`, esquema local resuelto a `ispwatch_dev`, `public` intacto (0 filas, PR #1 sin registrar), brecha de migraciones entre esquemas cerrada. PR #1 listo para commit | David Gómez | *(sin commit)* |

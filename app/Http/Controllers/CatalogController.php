@@ -35,23 +35,49 @@ class CatalogController extends Controller
      * Un ticket antiguo con un estado ya retirado se sigue mostrando bien,
      * porque su etiqueta viaja en el propio ticket (`status_label`).
      */
-    public function ticketCatalogs(TicketCatalogs $catalogs)
+    public function ticketCatalogs(Request $request, TicketCatalogs $catalogs)
     {
         $presentar = fn ($tabla) => $catalogs->vigentes($tabla)->map(fn ($fila) => [
             'code'  => $fila->code,
             'label' => $fila->label,
         ])->values();
 
+        // El vocabulario de diagnóstico (Anexo A) se filtra por tenant: salen las
+        // filas de plataforma más las propias de este ISP, nunca las de otro.
+        // `description` sólo lleva contenido en las familias de causa, donde
+        // arrastra el texto de subcausas de referencia del Anexo A.
+        $tenantId = $request->user()?->tenant_id;
+
+        $presentarDiagnostico = fn ($tabla) => $catalogs
+            ->vigentesParaTenant($tabla, $tenantId)
+            ->map(fn ($fila) => [
+                'code'        => $fila->code,
+                'label'       => $fila->label,
+                'description' => $fila->description,
+            ])->values();
+
         return response()->json([
             'statuses'   => $presentar(TicketCatalogs::STATUS),
             'priorities' => $presentar(TicketCatalogs::PRIORITY),
             'categories' => $presentar(TicketCatalogs::CATEGORY),
+
+            // Añadidos por el PR #1. Son ADITIVOS: las tres claves de arriba no
+            // cambian de forma, así que el frontend existente sigue funcionando.
+            'symptoms'   => $presentarDiagnostico(TicketCatalogs::SYMPTOM),
+            'causes'     => $presentarDiagnostico(TicketCatalogs::CAUSE),
+            'actions'    => $presentarDiagnostico(TicketCatalogs::SOLUTION),
+            'results'    => $presentarDiagnostico(TicketCatalogs::RESULT),
+
             // Para que un consumidor sepa si su copia sigue vigente sin
             // volver a descargarla entera.
             'versions'   => [
                 'status'   => $catalogs->version('status'),
                 'priority' => $catalogs->version('priority'),
                 'category' => $catalogs->version('category'),
+                'symptom'  => $catalogs->version('symptom'),
+                'cause'    => $catalogs->version('cause'),
+                'solution' => $catalogs->version('solution'),
+                'result'   => $catalogs->version('result'),
             ],
         ]);
     }
