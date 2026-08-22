@@ -1763,6 +1763,57 @@ riesgo que queda es "alguien descubre y alcanza el origen sin pasar por Cloudfla
 públicamente alcanzable hoy. Si lo es, cerrarlo es la prioridad — no requiere tocar código,
 sólo configuración de la app en DigitalOcean.
 
+
+### 🔴 P-39 · Nada impide que un `php artisan migrate` local escriba en producción
+
+La suite de pruebas tiene una salvaguarda seria: `tests/TestCase.php` inspecciona la
+conexión **ya resuelta** y aborta si no es SQLite en memoria o un PostgreSQL desechable.
+Se escribió precisamente porque «un `DB_URL` perdido puede reescribir driver y host de una
+conexión llamada "sqlite" sin que el nombre cambie».
+
+**Esa salvaguarda sólo cubre las pruebas.** `php artisan migrate`, `db:seed`, `tinker` y
+cualquier otro comando de consola no pasan por ella. Y el `.env` de desarrollo apunta a
+Supabase con `DB_SCHEMA` sin definir, que `config/database.php` resuelve por defecto a
+`public` — el esquema de **producción**.
+
+El 2026-08-21 esto dejó de ser hipotético: una migración sin revisar se aplicó al esquema
+`public` mientras se intentaba validarla contra una base desechable local. Las variables
+exportadas en la terminal no surtieron efecto porque `DB_URL` tiene precedencia sobre
+`DB_HOST`/`DB_DATABASE`. Se revirtió el mismo día sin pérdida de datos —la migración era
+puramente aditiva y ningún ticket referenciaba las filas nuevas—, pero el margen fue el
+que fue: `ON DELETE RESTRICT` habría hecho la reversión imposible en cuanto un solo ticket
+usara uno de esos códigos. Detalle completo en `BITACORA_TECNICA.md` §51.
+
+**Qué se hizo:** comentar `DB_URL` en el `.env` local y dejar escrito el aviso de que
+`DB_HOST` sigue apuntando a Supabase.
+
+**Qué falta**, por orden de valor:
+
+1. **Una salvaguarda para los comandos de consola.** Un `AppServiceProvider::boot()` o un
+   hook en `Command::class` que, fuera de producción, exija confirmación explícita cuando
+   la conexión resuelta apunte a un host de Supabase. La comprobación tiene que hacerse
+   sobre `config('database.connections.pgsql')` —la configuración resuelta—, nunca sobre
+   `env()`, que es justo lo que engañó aquí.
+2. **`DB_SCHEMA=ispwatch_dev` explícito en el `.env` de desarrollo.** Cambia qué datos ve
+   la aplicación en local, así que requiere acuerdo previo; hoy el desarrollo trabaja
+   contra producción por omisión.
+3. **Que `config/database.php` no acepte `public` por defecto.** Un valor por defecto que
+   apunta a producción es una trampa: es preferible fallar sin `DB_SCHEMA` que acertar en
+   silencio contra el esquema equivocado.
+
+**Aclaración (2026-08-21):** el factor decisivo fue **`DB_SCHEMA`**, no `DB_URL`. Supabase
+aloja `ispwatch_dev` y `public` en la misma base; lo único que separa desarrollo de
+producción es esa clave, y `config/database.php` la resuelve como `env('DB_SCHEMA',
+'public')`. Con la línea comentada, el destino por defecto era producción. Ya está
+descomentada como `ispwatch_dev`. `DB_URL` **no** puede anular `DB_SCHEMA` —
+`ConfigurationUrlParser` sólo alimenta driver, host, puerto, base, usuario y contraseña—,
+así que el punto 3 de la lista de arriba es el que de verdad queda pendiente.
+
+**Nota aparte, ya resuelta:** los dos esquemas estuvieron desalineados —`public` con 173
+migraciones e `ispwatch_dev` con 172, faltando
+`2026_08_19_110000_seed_help_center_api_testing_article` en desarrollo—. El `migrate` sobre
+`ispwatch_dev` del 2026-08-21 cerró la brecha.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -1815,6 +1866,7 @@ sólo configuración de la app en DigitalOcean.
 | **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | 📋 Pendiente |
 | **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
+| **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 
 ---
 

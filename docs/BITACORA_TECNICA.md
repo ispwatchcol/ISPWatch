@@ -5460,3 +5460,149 @@ tras el cambio.
 Pendiente y fuera del alcance de este cambio: confirmar si el dominio
 `.ondigitalocean.app` del despliegue es alcanzable hoy sin pasar por Cloudflare, y
 cerrarlo si lo es (P-38).
+
+---
+
+## 51. `DB_URL` mandaba sobre todo lo demás, y una migración sin revisar acabó en producción — 2026-08-21
+
+### Qué pasó
+
+Durante la revisión final del PR #1 (vocabulario de diagnóstico del Anexo A) se quiso
+validar la migración contra PostgreSQL real. Se creó una base desechable local
+(`ispwatch_pr1_test`), se exportaron `DB_HOST`, `DB_DATABASE`, `DB_USERNAME`… y se lanzó
+`php artisan migrate --force`.
+
+La migración **no** corrió contra la base desechable. Corrió contra **Supabase, esquema
+`public`** — producción. Quedó registrada como `batch = 90`, insertó las 58 filas del
+vocabulario y subió cuatro contadores de `ticket_catalog_version` de 1 a 2.
+
+### Causa raíz
+
+`.env` definía `DB_URL` con la cadena completa de conexión a Supabase.
+
+En Laravel, `config/database.php` pasa la clave `url` al conector, y **`DB_URL` tiene
+precedencia sobre `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD`**:
+la URL se parsea y sobrescribe todas las demás. Exportar variables en la terminal no tenía
+ningún efecto observable — la conexión seguía yendo al mismo sitio, en silencio y sin
+ningún aviso.
+
+El riesgo estaba **documentado desde antes** en dos sitios, y aun así se materializó:
+
+- `tests/TestCase.php` lo advierte explícitamente: *«un `DB_URL` perdido puede reescribir
+  driver y host de una conexión llamada "sqlite" sin que el nombre cambie»*.
+- `.env.testing.example` declara `DB_URL=` vacío justo por esta razón.
+
+La salvaguarda de `TestCase` **no** protegió aquí porque sólo actúa en la suite de pruebas;
+`php artisan migrate` no pasa por ella.
+
+#### Aclaración confirmada el 2026-08-21 — el factor decisivo fue `DB_SCHEMA`, no `DB_URL`
+
+La redacción inicial de esta entrada cargaba la culpa en `DB_URL`. Es sólo la mitad, y no la
+que importa. Conviene separar los dos efectos, porque llevan a remedios distintos:
+
+| Variable | Qué provocó |
+|---|---|
+| `DB_URL` | Que las variables exportadas en la terminal (`DB_HOST=127.0.0.1`…) no surtieran efecto y la conexión fuera a **Supabase** en vez de a la base desechable local |
+| **`DB_SCHEMA` ausente** | Que dentro de Supabase se escribiera en **`public` — producción** — en lugar de `ispwatch_dev` |
+
+Supabase aloja **los dos esquemas en la misma base**. `DB_HOST` apuntando a Supabase no es,
+por sí solo, un problema: es la configuración normal de desarrollo. **Lo único que separa
+desarrollo de producción es `DB_SCHEMA`**, y `config/database.php` lo resuelve como
+`env('DB_SCHEMA', 'public')`. Al estar la clave comentada, el valor por defecto era
+`public`.
+
+Dicho de otro modo: aun sin `DB_URL`, el `migrate` habría acabado igualmente en producción.
+Y con `DB_SCHEMA=ispwatch_dev` puesto, el peor caso de `DB_URL` habría sido escribir en
+**desarrollo** — molesto, no grave.
+
+Hay un matiz que conviene dejar escrito porque es contraintuitivo: **`DB_URL` no puede
+anular `DB_SCHEMA`.** `ConfigurationUrlParser` sólo alimenta `driver`, `host`, `port`,
+`database`, `username` y `password`; `schema` es una clave independiente que se lee
+directamente de `env('DB_SCHEMA')`. Reactivar `DB_URL` no volvería a romper el esquema.
+
+**Remedio aplicado:** `DB_SCHEMA=ispwatch_dev` descomentado en el `.env` local. Verificado a
+tres niveles — `.env`, configuración resuelta y sesión viva (`current_schema()` =
+`ispwatch_dev`) — y comprobado en la práctica: las migraciones del PR #1 se aplicaron en
+`ispwatch_dev` (58 filas) y `public` siguió en 0 filas, con el PR #1 **sin registrar**.
+`DB_URL` queda además comentado, que no estorba.
+
+El valor por defecto `public` en `config/database.php` sigue siendo la trampa de fondo:
+omitir la clave no deja el entorno «sin configurar», lo deja apuntando a producción. Anotado
+en `MEJORAS_RECOMENDADAS.md` como **P-39**.
+
+### Alcance real
+
+| | |
+|---|---|
+| Migraciones aplicadas | 1 (`2026_08_21_000001_seed_ticket_diagnostic_catalogs`), batch 90 |
+| DDL | **ninguno** — la migración sólo hace INSERT/UPDATE |
+| Filas insertadas | 58, todas de plataforma (`tenant_id IS NULL`) |
+| Filas existentes modificadas o borradas | **ninguna** (las tablas estaban vacías) |
+| Tickets afectados | 0 de 19 — los cuatro FK de diagnóstico seguían en NULL |
+| Efecto en la app desplegada | ninguno: el código en producción todavía no lee esos catálogos |
+
+Daño funcional: nulo. El problema fue de **proceso** — se saltó la revisión y el gate de
+despliegue— y dejó `public` por delante de `ispwatch_dev`, que `migrate:both` mantiene
+alineados justamente para evitar eso.
+
+### La consecuencia que no se ve
+
+Que la migración quedara **registrada** era lo más caro. `migrate --force` la habría
+saltado en el despliegue real, así que cualquier cambio posterior al PR durante la revisión
+—una etiqueta corregida, o D-06 resolviéndose y entrando las subcausas— **nunca habría
+llegado a producción**, y sin ningún error visible.
+
+### Reversión
+
+Se revirtió el mismo día, en una transacción única, con comprobación previa de que ningún
+ticket referenciaba el vocabulario (`ON DELETE RESTRICT` habría hecho el borrado imposible
+en cuanto un solo ticket lo usara):
+
+1. `DELETE` de las 58 filas, restringido a `tenant_id IS NULL` y a los códigos exactos del
+   Anexo A — nunca un `DELETE` a ciegas.
+2. Los cuatro contadores de `ticket_catalog_version` devueltos a 1.
+3. La fila de `public.migrations` eliminada.
+4. Aborto y `ROLLBACK` automáticos si las cifras no eran exactamente 58 / 4 / 1.
+
+Estado verificado tras la reversión: 0 filas de vocabulario, versiones en 1, migración no
+registrada, `batch` máximo de vuelta en 89, 19 tickets intactos y los dos esquemas otra vez
+alineados en 0 filas.
+
+### Qué se cambió para que no se repita
+
+Dos cambios en el `.env` local, por orden de importancia:
+
+1. **`DB_SCHEMA=ispwatch_dev` descomentado.** Es el arreglo de fondo: separa desarrollo de
+   producción dentro de la misma base de Supabase. Junto a la línea queda una nota de que
+   **comentarla no deja el entorno sin configurar, lo deja apuntando a producción**.
+2. **`DB_URL` comentado**, con la explicación de que anula `DB_HOST`/`DB_DATABASE`/…
+   —aunque **no** `DB_SCHEMA`— y de por qué está desactivado.
+
+Comprobación recomendada antes de cualquier comando que escriba:
+
+```bash
+php artisan tinker --execute="echo config('database.connections.pgsql.schema');"
+```
+
+### Deuda que queda abierta
+
+- **La salvaguarda vive sólo en la suite de pruebas.** No hay ninguna barrera equivalente
+  para `php artisan migrate`, `db:seed` ni `tinker`. Anotado en `MEJORAS_RECOMENDADAS.md`
+  como **P-39**. Con `DB_SCHEMA=ispwatch_dev` puesto el riesgo baja mucho —el peor caso es
+  escribir en desarrollo—, pero sigue dependiendo de que nadie borre esa línea.
+- **`config/database.php` acepta `public` por defecto.** Es la trampa de fondo: omitir
+  `DB_SCHEMA` no deja el entorno sin configurar, lo deja apuntando a producción.
+
+**Resuelto — antes figuraba aquí como deriva preexistente:** `public` tenía 173 migraciones
+e `ispwatch_dev` 172; faltaba `2026_08_19_110000_seed_help_center_api_testing_article` en
+desarrollo. El `migrate` sobre `ispwatch_dev` del 2026-08-21 la aplicó y cerró la brecha.
+Hoy la única diferencia entre esquemas es
+`2026_08_21_000001_seed_ticket_diagnostic_catalogs`, presente sólo en `ispwatch_dev` — que
+es exactamente lo que corresponde a un PR sin fusionar.
+
+### Lección
+
+Verificar la configuración *resuelta* antes de escribir, no la que uno cree haber puesto.
+`config('database.connections.pgsql')` habría enseñado el host real de Supabase en un
+segundo, antes de tocar nada. La variable exportada era una intención; la configuración
+resuelta era el hecho.
