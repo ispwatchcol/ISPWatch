@@ -25,7 +25,17 @@ import { apiClient } from '../services/api'
 const statuses = ref([])
 const priorities = ref([])
 const categories = ref([])
+
+// PR #2 — vocabulario de diagnóstico del Anexo A. Llega en la misma respuesta
+// que los tres de arriba: la pantalla de soporte los necesita a la vez y
+// partirlo en dos peticiones no compensa para sesenta filas.
+const symptoms = ref([])
+const causes = ref([])
+const actions = ref([])
+const results = ref([])
+
 const cargado = ref(false)
+const error = ref(false)
 
 // Se guarda la promesa en vuelo, no sólo el flag: si dos componentes se montan
 // a la vez —la lista de tickets y la ficha del cliente, por ejemplo— sin esto
@@ -36,19 +46,34 @@ async function cargar(forzar = false) {
     if (cargado.value && !forzar) return
     if (enVuelo) return enVuelo
 
+    error.value = false
+
     enVuelo = apiClient.get('/catalogs/ticket')
         .then(({ data }) => {
             statuses.value = data.statuses ?? []
             priorities.value = data.priorities ?? []
             categories.value = data.categories ?? []
+            symptoms.value = data.symptoms ?? []
+            causes.value = data.causes ?? []
+            actions.value = data.actions ?? []
+            results.value = data.results ?? []
             cargado.value = true
         })
         .catch(() => {
             // Sin catálogo, `etiqueta()` devuelve el propio código. La pantalla
             // se ve peor pero sigue siendo usable, que es mejor que romperla.
+            //
+            // El diagnóstico es distinto: sus desplegables se quedarían VACÍOS y
+            // sin explicación, así que se marca el error para que la pantalla
+            // pueda decir por qué no hay opciones en vez de fingir que no las hay.
             statuses.value = []
             priorities.value = []
             categories.value = []
+            symptoms.value = []
+            causes.value = []
+            actions.value = []
+            results.value = []
+            error.value = true
         })
         .finally(() => { enVuelo = null })
 
@@ -66,11 +91,20 @@ export function useTicketCatalogs() {
         statuses,
         priorities,
         categories,
+        symptoms,
+        causes,
+        actions,
+        results,
         cargado,
+        error,
         cargar,
 
         statusLabel: (code) => etiqueta(statuses, code),
         priorityLabel: (code) => etiqueta(priorities, code),
         categoryLabel: (code) => etiqueta(categories, code),
+        symptomLabel: (code) => etiqueta(symptoms, code),
+        causeLabel: (code) => etiqueta(causes, code),
+        actionLabel: (code) => etiqueta(actions, code),
+        resultLabel: (code) => etiqueta(results, code),
     }
 }

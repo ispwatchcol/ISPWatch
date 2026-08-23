@@ -101,6 +101,16 @@
                     </select>
                 </div>
 
+                <!-- Diagnóstico técnico (PR #2) -->
+                <div class="mb-6">
+                    <TicketDiagnosisFields
+                        v-model="diagnostico"
+                        :errores="errors"
+                        :cargando="!catalogosCargados && !catalogosConError"
+                        @reintentar="cargarCatalogos(true)"
+                    />
+                </div>
+
                 <!-- Botones -->
                 <div class="flex gap-3">
                     <button
@@ -132,10 +142,17 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
+import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 
 // R2: estados, prioridades y categorías salen del catálogo del backend.
-const { statuses, priorities, categories, cargar: cargarCatalogos } = useTicketCatalogs()
+// PR #2: de la misma respuesta sale el vocabulario de diagnóstico.
+const {
+    statuses, priorities, categories,
+    cargado: catalogosCargados,
+    error: catalogosConError,
+    cargar: cargarCatalogos,
+} = useTicketCatalogs()
 
 const router = useRouter()
 const route = useRoute()
@@ -147,6 +164,17 @@ const form = ref({
     category: '',
     priority: '',
     status: ''
+})
+
+// PR #2. Separado de `form` a propósito: el diagnóstico se envía sólo si el
+// ticket lo tiene o el usuario lo toca, y mezclarlo obligaría a distinguir
+// «vacío porque no se cargó» de «vacío porque se borró» dentro del mismo objeto.
+const diagnostico = ref({
+    symptom: null,
+    suspected_cause: null,
+    confirmed_cause: null,
+    solution: null,
+    result: null,
 })
 
 const staffList = ref([])
@@ -181,6 +209,18 @@ const loadTicket = async () => {
             status: ticket.status,
             staff_id: ticket.staff_id || ''
         }
+
+        // El backend devuelve { code, label } o null por campo. Al formulario
+        // sólo le sirve el código; la etiqueta la resuelve el desplegable.
+        // El `?? {}` cubre un ticket servido por una respuesta anterior al PR #2.
+        const d = ticket.diagnosis ?? {}
+        diagnostico.value = {
+            symptom: d.symptom?.code ?? null,
+            suspected_cause: d.suspected_cause?.code ?? null,
+            confirmed_cause: d.confirmed_cause?.code ?? null,
+            solution: d.solution?.code ?? null,
+            result: d.result?.code ?? null,
+        }
     } catch (err) {
         console.error('Error al cargar ticket:', err)
         toast.value?.error('Error', 'Error al cargar los detalles del ticket.')
@@ -210,7 +250,10 @@ const handleSubmit = async () => {
     try {
         submitting.value = true
 
-        await api.support.update(ticketId, form.value)
+        // El diagnóstico va en el mismo PUT: es parte del ticket, no un recurso
+        // aparte, y separarlo dejaría la pantalla con dos guardados que pueden
+        // quedar a medias.
+        await api.support.update(ticketId, { ...form.value, ...diagnostico.value })
 
         toast.value?.success('Éxito', 'Ticket actualizado correctamente.')
         setTimeout(() => router.push(`/support/${ticketId}`), 1500)

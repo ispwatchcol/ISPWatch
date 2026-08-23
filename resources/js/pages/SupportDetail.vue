@@ -54,6 +54,46 @@
                         <p class="text-gray-600 dark:text-gray-300">{{ ticket.description || 'Sin descripción' }}</p>
                     </div>
 
+                    <!-- Diagnóstico técnico (PR #2) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Diagnóstico técnico</h2>
+
+                        <!-- Vacío: se dice que falta, no se esconde la sección.
+                             Un ticket sin diagnosticar es información, no un hueco. -->
+                        <p
+                            v-if="!tieneDiagnostico"
+                            class="text-gray-500 dark:text-gray-400 text-sm"
+                        >
+                            Sin diagnóstico registrado todavía.
+                            <router-link
+                                v-if="canEdit"
+                                :to="`/support/${ticket.id}/edit`"
+                                class="text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                                Registrarlo
+                            </router-link>
+                        </p>
+
+                        <dl v-else class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                            <div v-for="campo in camposDeDiagnostico" :key="campo.clave">
+                                <dt class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                    {{ campo.etiqueta }}
+                                </dt>
+                                <dd class="mt-1 text-gray-800 dark:text-gray-100">
+                                    <template v-if="campo.valor">
+                                        <span class="inline-flex items-center gap-2">
+                                            <code class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-mono">
+                                                {{ campo.valor.code }}
+                                            </code>
+                                            <span>{{ campo.valor.label }}</span>
+                                        </span>
+                                    </template>
+                                    <span v-else class="text-gray-400 dark:text-gray-500 italic">Sin definir</span>
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+
                     <!-- Bitácora de Trabajo (Notas del Staff) -->
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
@@ -453,6 +493,28 @@ const authStore = useAuthStore()
 const canEdit = computed(() => authStore.hasPermission('view_support'))
 
 const ticket = ref({})
+
+// ── Diagnóstico técnico (PR #2) ──
+//
+// El backend ya envía código Y etiqueta en `diagnosis`, así que esta pantalla no
+// necesita el catálogo: para MOSTRAR basta lo que trae el ticket. Sólo la
+// pantalla de edición carga los catálogos, porque es la única que ofrece a elegir.
+const camposDeDiagnostico = computed(() => {
+    const d = ticket.value.diagnosis ?? {}
+
+    return [
+        { clave: 'symptom', etiqueta: 'Síntoma reportado', valor: d.symptom },
+        { clave: 'suspected_cause', etiqueta: 'Causa sospechada', valor: d.suspected_cause },
+        { clave: 'confirmed_cause', etiqueta: 'Causa confirmada', valor: d.confirmed_cause },
+        { clave: 'solution', etiqueta: 'Acción realizada', valor: d.solution },
+        { clave: 'result', etiqueta: 'Resultado del cierre', valor: d.result },
+    ]
+})
+
+const tieneDiagnostico = computed(
+    () => camposDeDiagnostico.value.some((campo) => campo.valor),
+)
+
 const loading = ref(true)
 const selectedFiles = ref([])
 const updating = ref(false)
