@@ -145,6 +145,59 @@ class TicketCatalogs
     }
 
     /**
+     * Id de un código RESUELTO EN EL ÁMBITO DE UN TENANT.
+     *
+     * PR #2 — `id()` busca en el catálogo entero y eso basta mientras el código
+     * sea único en toda la tabla. En los catálogos extensibles NO lo es: los
+     * índices parciales de la R1 permiten a propósito que el ISP 7 y el ISP 12
+     * tengan ambos un `Z01` propio. Un `firstWhere('code', 'Z01')` devolvería el
+     * primero que salga de la consulta, que puede ser el del otro ISP — y el
+     * ticket quedaría apuntando a vocabulario ajeno sin ningún error visible.
+     *
+     * Se resuelve, por orden: la fila propia del tenant y, si no la hay, la de
+     * plataforma. La propia gana porque es la más específica; que un tenant
+     * pueda reutilizar un código global sigue siendo la deuda consciente que
+     * anotó la R1, pero al menos aquí se decide de forma determinista.
+     */
+    public function idParaTenant(string $tabla, ?string $code, ?int $tenantId): ?int
+    {
+        if ($code === null || $code === '') {
+            return null;
+        }
+
+        if (!in_array($tabla, self::EXTENSIBLES, true)) {
+            return $this->id($tabla, $code);
+        }
+
+        $candidatas = $this->filas($tabla)->where('code', $code);
+
+        $propia = $candidatas->first(fn ($fila) => $fila->tenant_id !== null
+            && (int) $fila->tenant_id === $tenantId);
+
+        if ($propia) {
+            return (int) $propia->id;
+        }
+
+        $plataforma = $candidatas->first(fn ($fila) => $fila->tenant_id === null);
+
+        return $plataforma ? (int) $plataforma->id : null;
+    }
+
+    /**
+     * Códigos que este tenant puede elegir: los suyos más los de plataforma.
+     *
+     * Alimenta las reglas de validación del diagnóstico. Usar `codigosVigentes()`
+     * ahí aceptaría el vocabulario privado de otro ISP, que es justo lo que
+     * `vigentesParaTenant()` impide mostrar en el endpoint de catálogos.
+     *
+     * @return array<int, string>
+     */
+    public function codigosVigentesParaTenant(string $tabla, ?int $tenantId): array
+    {
+        return $this->vigentesParaTenant($tabla, $tenantId)->pluck('code')->all();
+    }
+
+    /**
      * Vacía lo cargado. Sólo hace falta cuando algo modifica un catálogo
      * dentro de la misma petición —hoy, únicamente los tests.
      */

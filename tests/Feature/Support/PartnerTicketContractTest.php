@@ -160,6 +160,35 @@ class PartnerTicketContractTest extends TestCase
     }
 
     #[Test]
+    public function el_diagnostico_del_pr2_no_se_filtra_al_integrador(): void
+    {
+        // El PR #2 añadió la captura del diagnóstico en el PANEL. Exponerlo a
+        // socios amplía el contrato público y obliga a tocar el OpenAPI: es la
+        // decisión D-07, todavía sin tomar. Este test fija que no ocurra por
+        // descuido — el modelo trae `diagnosis` en `$appends`, así que basta un
+        // `->get()` mal puesto en el controlador de socios para publicarlo.
+        $this->ticket([
+            'symptom'         => 'S02',
+            'suspected_cause' => 'RF',
+            'confirmed_cause' => 'CL',
+            'solution'        => 'AC07',
+            'result'          => 'R02',
+        ]);
+
+        $fila = $this->getJson('/api/v1/partner/tickets', $this->headers())
+            ->assertOk()
+            ->json('data.0');
+
+        foreach (['diagnosis', 'symptom', 'suspected_cause', 'confirmed_cause', 'solution', 'result'] as $clave) {
+            $this->assertArrayNotHasKey(
+                $clave,
+                $fila,
+                "`{$clave}` no forma parte del contrato con el integrador (D-07).",
+            );
+        }
+    }
+
+    #[Test]
     public function los_cuatro_estados_y_las_cuatro_prioridades_viajan_como_codigo(): void
     {
         foreach (['open', 'in_progress', 'resolved', 'closed'] as $estado) {

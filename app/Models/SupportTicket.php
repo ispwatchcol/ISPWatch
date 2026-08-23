@@ -52,6 +52,15 @@ class SupportTicket extends Model
         'confirmed_cause_id',
         'solution_id',
         'result_id',
+        // PR #2: los nombres públicos del diagnóstico, que entran como CÓDIGO y
+        // el mutator traduce a la clave foránea de arriba. Van aquí por lo mismo
+        // que `status`/`priority`/`category`: sin ellos la asignación masiva los
+        // descartaría en silencio y el diagnóstico no se guardaría.
+        'symptom',
+        'suspected_cause',
+        'confirmed_cause',
+        'solution',
+        'result',
         'resolved_at',
         'closed_at',
     ];
@@ -76,6 +85,8 @@ class SupportTicket extends Model
     protected $appends = [
         'status', 'priority', 'category',
         'status_label', 'priority_label', 'category_label',
+        // PR #2 — el diagnóstico viaja agrupado, no como diez claves sueltas.
+        'diagnosis',
     ];
 
     /**
@@ -104,6 +115,30 @@ class SupportTicket extends Model
         'status'   => ['status_id',   TicketCatalogs::STATUS],
         'priority' => ['priority_id', TicketCatalogs::PRIORITY],
         'category' => ['category_id', TicketCatalogs::CATEGORY],
+    ];
+
+    /**
+     * PR #2 · Captura del diagnóstico — nombre público => [columna FK, catálogo].
+     *
+     * Estas cinco columnas existen desde la R1 pero nadie las escribía: no había
+     * vocabulario que poner en ellas hasta que el PR #1 sembró el Anexo A.
+     *
+     * Se exponen con la MISMA forma que `status`/`priority`/`category`: el nombre
+     * público es el CÓDIGO en texto (`S01`, `RF`, `AC07`, `R02`) y la columna es
+     * la clave foránea. No se inventa un contrato nuevo por id porque el módulo
+     * entero —controlador, scopes, API pública, tests— ya habla por código, y
+     * mezclar las dos formas obligaría a saber cuál toca en cada campo.
+     *
+     * `ticket_cause` sirve a la vez a la causa SOSPECHADA y a la CONFIRMADA: el
+     * vocabulario es el mismo, lo que cambia es quién lo afirma. Compartir
+     * catálogo es lo que permite medir si el diagnóstico inicial acertó.
+     */
+    private const CATALOGOS_DIAGNOSTICO = [
+        'symptom'         => ['symptom_id',          TicketCatalogs::SYMPTOM],
+        'suspected_cause' => ['suspected_cause_id',  TicketCatalogs::CAUSE],
+        'confirmed_cause' => ['confirmed_cause_id',  TicketCatalogs::CAUSE],
+        'solution'        => ['solution_id',         TicketCatalogs::SOLUTION],
+        'result'          => ['result_id',           TicketCatalogs::RESULT],
     ];
 
     private static function catalogos(): TicketCatalogs
@@ -169,6 +204,112 @@ class SupportTicket extends Model
                 $columna => self::catalogos()->id($tabla, $code),
             ],
         );
+    }
+
+    // ── Diagnóstico (PR #2) ──────────────────────────────────────────────
+
+    protected function symptom(): Attribute
+    {
+        return $this->atributoDeDiagnostico('symptom');
+    }
+
+    protected function suspectedCause(): Attribute
+    {
+        return $this->atributoDeDiagnostico('suspected_cause');
+    }
+
+    protected function confirmedCause(): Attribute
+    {
+        return $this->atributoDeDiagnostico('confirmed_cause');
+    }
+
+    protected function solution(): Attribute
+    {
+        return $this->atributoDeDiagnostico('solution');
+    }
+
+    protected function result(): Attribute
+    {
+        return $this->atributoDeDiagnostico('result');
+    }
+
+    /**
+     * Igual que `atributoDeCatalogo`, con dos diferencias que importan.
+     *
+     * 1. El `set` resuelve el código EN EL ÁMBITO DEL TENANT del ticket. Los
+     *    catálogos de síntoma, causa y acción admiten filas propias de cada ISP,
+     *    y dos ISP pueden tener el mismo código; resolver sin tenant devolvería
+     *    el primero que saliera de la consulta, que puede ser el del otro.
+     * 2. Un código vacío guarda NULL en vez de dejar el campo intacto. Es lo que
+     *    permite BORRAR un diagnóstico desde el formulario: sin esto, elegir la
+     *    opción «— sin definir —» no tendría forma de deshacer lo anterior.
+     *
+     * Sobre la ausencia de `: Attribute` en la firma, ver la nota de
+     * `atributoDeCatalogo()`: es el mismo motivo, y omitirlo no es un descuido.
+     *
+     * @return Attribute
+     */
+    private function atributoDeDiagnostico(string $campo)
+    {
+        [$columna, $tabla] = self::CATALOGOS_DIAGNOSTICO[$campo];
+
+        return Attribute::make(
+            get: fn () => self::catalogos()->code($tabla, $this->attributes[$columna] ?? null),
+            set: fn (?string $code) => [
+                $columna => self::catalogos()->idParaTenant($tabla, $code, $this->tenantParaResolver()),
+            ],
+        );
+    }
+
+    /**
+     * Tenant contra el que resolver un código de diagnóstico.
+     *
+     * No basta con leer `$this->attributes['tenant_id']`: en un `create()` el
+     * mutator corre durante `fill()`, y `fill()` recorre el array EN EL ORDEN EN
+     * QUE LLEGAN LAS CLAVES. Si el diagnóstico va antes que `tenant_id` —o si
+     * quien crea el ticket confía en que el hook `creating` de BelongsToTenant lo
+     * rellene, que corre después—, el tenant todavía no existe y un código propio
+     * del ISP no resolvería.
+     *
+     * El respaldo es el usuario autenticado, exactamente la misma fuente que usa
+     * `BelongsToTenant`, así que no introduce una segunda verdad.
+     */
+    private function tenantParaResolver(): ?int
+    {
+        $tenantId = $this->attributes['tenant_id'] ?? auth()->user()?->tenant_id;
+
+        return $tenantId === null ? null : (int) $tenantId;
+    }
+
+    /**
+     * El diagnóstico completo, con código y etiqueta legible.
+     *
+     * Se devuelve agrupado y no como diez claves sueltas en la raíz del ticket
+     * porque son un bloque conceptual: o se está diagnosticando o no. Agrupar
+     * también deja sitio para que el PR #3 cuelgue aquí la trazabilidad sin
+     * volver a cambiar la forma de la respuesta.
+     *
+     * Cada campo es `null` cuando no hay diagnóstico —el caso normal de un
+     * ticket recién abierto—, nunca un objeto con claves vacías: distinguir
+     * «sin diagnosticar» de «diagnosticado en blanco» importa para las métricas
+     * del PR #7.
+     *
+     * @return array<string, array{code: string, label: ?string}|null>
+     */
+    public function getDiagnosisAttribute(): array
+    {
+        $salida = [];
+
+        foreach (self::CATALOGOS_DIAGNOSTICO as $campo => [$columna, $tabla]) {
+            $id = $this->attributes[$columna] ?? null;
+
+            $salida[$campo] = $id === null ? null : [
+                'code'  => self::catalogos()->code($tabla, (int) $id),
+                'label' => self::catalogos()->label($tabla, (int) $id),
+            ];
+        }
+
+        return $salida;
     }
 
     public function getStatusLabelAttribute(): ?string

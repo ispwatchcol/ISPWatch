@@ -50,6 +50,95 @@ class SupportTicketController extends Controller
     }
 
     /**
+     * PR #2 · campo de la petición => catálogo que lo valida.
+     *
+     * Que cada campo se valide contra SU catálogo es lo que impide asignar una
+     * causa donde va un síntoma: `Rule::in` sólo acepta los códigos de la tabla
+     * que le corresponde, así que un `RF` enviado como `symptom` se rechaza con
+     * un 422 y nunca llega al modelo.
+     */
+    private const CATALOGOS_DIAGNOSTICO = [
+        'symptom'         => TicketCatalogs::SYMPTOM,
+        'suspected_cause' => TicketCatalogs::CAUSE,
+        'confirmed_cause' => TicketCatalogs::CAUSE,
+        'solution'        => TicketCatalogs::SOLUTION,
+        'result'          => TicketCatalogs::RESULT,
+    ];
+
+    /**
+     * Reglas del diagnóstico, acotadas al vocabulario visible para este ISP.
+     *
+     * Se usa `codigosVigentesParaTenant` y no `codigosVigentes` a propósito: el
+     * segundo devuelve también las filas privadas de OTROS ISP, y aceptarlas
+     * dejaría un ticket apuntando a vocabulario que su dueño no puede ni ver en
+     * el desplegable. El aislamiento tiene que valer en la escritura, no sólo en
+     * la lectura.
+     *
+     * `nullable` en los cinco: un ticket puede existir sin diagnóstico y se
+     * diagnostica más tarde. El PR #2 no impone obligatoriedad — eso son las
+     * reglas de cierre del PR #4.
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    private function reglasDeDiagnostico(?int $tenantId, string $presencia = 'sometimes'): array
+    {
+        $reglas = [];
+
+        foreach (self::CATALOGOS_DIAGNOSTICO as $campo => $tabla) {
+            $reglas[$campo] = [
+                $presencia,
+                'nullable',
+                'string',
+                Rule::in($this->catalogs->codigosVigentesParaTenant($tabla, $tenantId)),
+            ];
+        }
+
+        return $reglas;
+    }
+
+    /**
+     * Sólo los campos de diagnóstico presentes en la petición.
+     *
+     * Se filtra por presencia y no por valor: enviar `result: null` es una orden
+     * de BORRAR el resultado, y confundirla con «no lo mandó» haría imposible
+     * deshacer un diagnóstico desde el formulario.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, string|null>
+     */
+    private function diagnosticoDe(array $data): array
+    {
+        return array_intersect_key($data, self::CATALOGOS_DIAGNOSTICO);
+    }
+
+    /**
+     * Mensajes en español para los cinco campos.
+     *
+     * El mensaje por defecto de `in` («The selected symptom is invalid») no dice
+     * nada útil a quien diligencia, y la pantalla es de personal técnico.
+     *
+     * @return array<string, string>
+     */
+    private function mensajesDeDiagnostico(): array
+    {
+        $nombres = [
+            'symptom'         => 'El síntoma',
+            'suspected_cause' => 'La causa sospechada',
+            'confirmed_cause' => 'La causa confirmada',
+            'solution'        => 'La acción',
+            'result'          => 'El resultado',
+        ];
+
+        $mensajes = [];
+
+        foreach ($nombres as $campo => $nombre) {
+            $mensajes["{$campo}.in"] = "{$nombre} no pertenece al catálogo vigente.";
+        }
+
+        return $mensajes;
+    }
+
+    /**
      * Display a listing of support tickets.
      */
     public function index(Request $request)
@@ -97,6 +186,8 @@ class SupportTicketController extends Controller
      */
     public function store(Request $request)
     {
+        $tenantId = $request->user()?->tenant_id;
+
         $data = $request->validate([
             'subject' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -105,7 +196,9 @@ class SupportTicketController extends Controller
             'staff_id' => 'nullable|exists:users,id',
             'sectorial_id' => 'nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
-        ]);
+            // PR #2: el diagnóstico se puede capturar ya desde el alta, aunque lo
+            // habitual sea rellenarlo después de la visita.
+        ] + $this->reglasDeDiagnostico($tenantId), $this->mensajesDeDiagnostico());
 
         DB::beginTransaction();
 
@@ -113,16 +206,19 @@ class SupportTicketController extends Controller
             // Crear el ticket
             // SECURITY FIX (OWASP A01): Derive tenant_id from authenticated user
             $ticket = SupportTicket::create([
+                // `tenant_id` va PRIMERO: los mutators del diagnóstico resuelven
+                // el código en el ámbito del tenant, y `fill()` recorre el array
+                // en orden. Ver `SupportTicket::tenantParaResolver()`.
+                'tenant_id' => $request->user()?->tenant_id ?? 1,
                 'user_id' => $data['user_id'],
                 'staff_id' => $data['staff_id'] ?? null,
                 'sectorial_id' => $data['sectorial_id'] ?? null,
-                'tenant_id' => $request->user()?->tenant_id ?? 1,
                 'subject' => $data['subject'],
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'] ?? 'general',
                 'priority' => SupportTicket::PRIORITY_MEDIUM,
                 'status' => SupportTicket::STATUS_OPEN,
-            ]);
+            ] + $this->diagnosticoDe($data));
 
             if (!empty($data['sectorial_id'])) {
                 \App\Models\SectorialHistory::log(
@@ -212,7 +308,11 @@ class SupportTicketController extends Controller
             'staff_id' => 'sometimes|nullable|exists:users,id',
             'sectorial_id' => 'sometimes|nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
-        ]);
+            // PR #2. El tenant sale del ticket y no del usuario: `findOrFail` ya
+            // pasó por el scope global de BelongsToTenant, así que el ticket es
+            // forzosamente del ISP de quien pide, y usar su tenant deja el
+            // vocabulario admitido alineado con el dueño del dato.
+        ] + $this->reglasDeDiagnostico($ticket->tenant_id), $this->mensajesDeDiagnostico());
 
         if ($validator->fails()) {
             \Log::warning('Validation failed for ticket update:', [

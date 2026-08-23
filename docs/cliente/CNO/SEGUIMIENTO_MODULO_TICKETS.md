@@ -9,7 +9,8 @@
 | **Inicio del seguimiento** | 2026-08-21 |
 | **Requerimiento analizado** | CNO-ISPWASH-ST-API · **V1.1** · 2026-08-10 |
 | **Fuente documental** | [`docs/cliente/CNO/V1_1/`](V1_1/) — 6 archivos, integridad verificada |
-| **Commit de preservación documental** | `7275e0f` — *«add: Documentación de los requerimientos del cliente…»* ⚠️ **no integrado en `main`** |
+| **Commit de preservación documental** | `7275e0f` — *«add: Documentación de los requerimientos del cliente…»* ✅ integrado en `main` vía PR **#248** |
+| **PR #1 · catálogos del Anexo A** | PR **#250** (merge `79b3501`) — desplegado y validado en producción |
 | **R1 · catálogos versionados** | `acd00c9` · PR **#233** (merge `0bca163`) |
 | **R2 · lectura/escritura por FK** | `195bbaf` · PR **#233** (merge `0bca163`) |
 | **R2.5 · desacoplar escritura de enums** | `9bb760e` · PR **#235** (merge `d989154`) |
@@ -36,9 +37,9 @@ Observaciones, registradas sin corregir:
 
 1. `MANIFIESTO_SHA256.txt` no se lista a sí mismo. **Es lo esperado** —un manifiesto no se
    auto-verifica— y no constituye discrepancia.
-2. El commit de preservación `7275e0f` **no está en `main`**: vive sólo en la rama local
-   `david-module-support-tickets` y no se ha empujado. La preservación existe, pero todavía
-   no es visible para el resto del equipo.
+2. ~~El commit de preservación `7275e0f` **no está en `main`**.~~ **Resuelto**: se integró
+   en `main` con el PR **#248** el 2026-08-21. La documentación del cliente ya es visible
+   para todo el equipo.
 3. Las releases R1-R3 se desarrollaron en la rama `david-support-ticket-module`; el trabajo
    actual ocurre en `david-module-support-tickets`. Nombres distintos, no confundir al
    rastrear historia.
@@ -58,16 +59,20 @@ La **infraestructura de datos** del ticket reestructurado está desplegada y val
   representación. `status`, `priority` y `category` siguen viajando como **cadena con el
   código estable** en todas las respuestas.
 - Cinco columnas de diagnóstico creadas: `symptom_id`, `suspected_cause_id`,
-  `confirmed_cause_id`, `solution_id`, `result_id`. **Sus catálogos están vacíos.**
+  `confirmed_cause_id`, `solution_id`, `result_id`. Sus catálogos traen el **vocabulario
+  oficial del Anexo A** — 58 códigos — desde el PR #250, validado en producción.
 - `closed_at` separado de `resolved_at`.
 - Contrato **OpenAPI 3.0.3** oficial publicado y servido en `GET /v1/partner/openapi.yaml`.
 
 ### Parcialmente implementado
 
-Existe **estructura** pero no **funcionalidad operativa**: las columnas de diagnóstico no
-se capturan en ninguna pantalla ni se exponen por API; los adjuntos existen pero sin hash
-ni control de acceso; las estadísticas calculan promedio pero no percentiles; la
-asociación con infraestructura llega sólo hasta `sectorial_id`.
+El diagnóstico **ya es funcionalidad operativa** desde el PR #2: se captura en el alta y la
+edición, se valida contra el catálogo vigente del operador y se lee con código y etiqueta.
+Lo que sigue parcial es su exposición a **socios** (**D-07**).
+
+Queda con estructura pero sin funcionalidad completa: los adjuntos existen pero sin hash ni
+control de acceso; las estadísticas calculan promedio pero no percentiles; la asociación
+con infraestructura llega sólo hasta `sectorial_id`.
 
 ### Pendiente
 
@@ -77,12 +82,15 @@ incidentes padre, duplicados, reincidencias y exportación.
 
 ### Lo que NO debe declararse completado todavía
 
-> **Ningún requisito F1 está cumplido en su criterio de aceptación.**
+> **Sólo F1-03 está cumplido en su criterio de aceptación** (PR #2). El resto, no.
 
 Concretamente, **no** debe reportarse como cumplido:
 
-- **F1-03** por existir las cinco columnas. El criterio exige campos *capturables y
-  consultables*; hoy son columnas vacías sin UI ni API.
+- ~~**F1-03** por existir las cinco columnas. El criterio exige campos *capturables y
+  consultables*; hoy son columnas vacías sin UI ni API.~~ **Resuelto por el PR #2**: los
+  cinco campos se capturan en el alta y la edición, se validan contra el catálogo vigente
+  y se leen con código y etiqueta. Queda como decisión aparte si se exponen al integrador
+  (**D-07**), que no forma parte del criterio de F1-03.
 - **F1-04** por existir `resolved_at` y `closed_at`. El criterio exige estados,
   transiciones **e historial**.
 - **F1-11** por existir la tabla de adjuntos. El criterio exige metadatos, y hoy no hay
@@ -111,7 +119,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 |---|---|---|---|---|---|
 | **F1-01** | Ticket asociado a cliente **y servicio específico** | 🔴 Bloqueado | `support_ticket.user_id`; `customer_profile` con PK = `user_id` | Definir modelo de servicio | **Decisión D-01** |
 | **F1-02** | Alcance exclusivo soporte; excluir facturación | ⚠️ **Contradicción** | `routes/api.php:368-369` — `POST /support/{id}/charge` | No tocar; escalar | **Decisión D-02** |
-| **F1-03** | Síntoma, causa sospechada, causa confirmada, acción y resultado | 🟡 **Parcial** | 5 columnas en `support_ticket`; **catálogos sembrados con el Anexo A** (16+7+20+15) y expuestos en `GET /api/catalogs/ticket` — **sin captura en UI** | **PR #2** | Subcausas sin código: **D-06** |
+| **F1-03** | Síntoma, causa sospechada, causa confirmada, acción y resultado | 🟢 **Cumplido** | 5 columnas en `support_ticket`; catálogos del Anexo A (16+7+20+15); **captura en alta y edición**, validación por catálogo y por tenant, y lectura con código y etiqueta en el detalle y en la API del panel | — | Subcausas sin código: **D-06**. Exposición a socios: **D-07** (no forma parte de F1-03) |
 | **F1-04** | Estados y transiciones con timestamps e historial | 🟡 Parcial | 4 estados vs 9 + 9 auxiliares (Maestra L139-149); `resolved_at`, `closed_at` | **PR #4** | **Decisión D-03** |
 | **F1-05** | Campos condicionales radio / FTTH | ⚪ Pendiente | No existe | Diseño posterior | Tras PR #2 |
 | **F1-06** | Asociación zona, nodo, AP/OLT, PON, CPE/ONU | 🟡 Parcial | `support_ticket.sectorial_id` | Ampliar jerarquía | — |
@@ -145,7 +153,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F2-13** | Auditoría de operaciones API | 🟢 Cumplido | `api_key_request_logs` | — |
 | **F2-16** | Credenciales separadas sandbox / producción | ⚪ Pendiente | No existe sandbox | Decisión de infraestructura |
 | **F2-17** | Diccionario de campos, enums y códigos estables por API | 🟡 Parcial | `GET /api/catalogs/ticket` ya sirve los 4 catálogos de diagnóstico con código, etiqueta y versión — pero es endpoint **del panel**, no de la API de socios | Exponer catálogos al integrador: **D-07** |
-| **F2-18** | Los campos nuevos no quedan sólo en UI | 🟡 Parcial | Vocabulario disponible por API interna; los campos del ticket aún no se capturan ni se exponen a socios | **PR #2** + D-07 |
+| **F2-18** | Los campos nuevos no quedan sólo en UI | 🟡 Parcial | El PR #2 los persiste en columnas propias con clave foránea y los sirve por la API del panel — **no quedan sólo en la interfaz**. Lo que falta es exponerlos a **socios** | **D-07** |
 
 ---
 
@@ -281,12 +289,36 @@ las 22 pruebas; eso lo cierra el job «PHPUnit (PostgreSQL, motor real)».**
 | Campo | Detalle |
 |---|---|
 | **Objetivo** | Que el operador registre síntoma, causa sospechada, causa confirmada, acción y resultado |
-| **Cubre** | F1-03 (completa), F2-18 |
-| **Alcance** | Bloque «Diagnóstico» en `SupportDetail.vue` y `SupportEdit.vue`; validación contra catálogo vigente; exposición en la API de socios |
-| **Dependencias** | **PR #1** + visto bueno del cliente sobre los códigos |
-| **Pruebas** | Se registran y leen los cinco campos; se rechaza un código retirado; la API los devuelve como código estable |
-| **Aceptación** | Un ticket puede registrar los cinco campos por separado y consultarse por cada uno |
-| **Estado** | 🔒 Bloqueado por PR #1 |
+| **Cubre** | **F1-03 (completa)** — captura, persistencia, validación y lectura |
+| **Alcance** | Componente `TicketDiagnosisFields.vue` reutilizado en creación y edición; bloque de sólo lectura en `SupportDetail.vue`; validación por catálogo y por tenant en `SupportTicketController`; `diagnosis` con código y etiqueta en la respuesta del panel |
+| **Dependencias** | PR #1 ✅ (desplegado como PR #250) |
+| **Pruebas** | `tests/Feature/Support/TicketDiagnosisCaptureTest.php` — 28 pruebas: alta con y sin diagnóstico, edición campo a campo, borrado con `null`, lectura, tickets antiguos, código inexistente, catálogo equivocado, subcausa inventada, fila retirada, aislamiento entre ISPs, permisos y no regresión de la R3. Más una prueba nueva en `PartnerTicketContractTest` |
+| **Aceptación** | Un ticket puede registrar los cinco campos por separado, borrarlos, y consultarlos con código y etiqueta legible |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Migraciones** | **Ninguna.** Las cinco columnas existen desde la R1 |
+
+**No toca la API de socios.** El alcance original decía «exposición en la API de socios»; se
+retiró de este PR de forma deliberada. El repositorio **no** demuestra que el contrato
+vigente exija esos campos: `PartnerSupportController` publica diez claves congeladas desde
+la R2 y el OpenAPI no menciona diagnóstico. Añadirlo amplía el contrato público y es la
+decisión **D-07**, todavía sin tomar. Hay un test que fija que no se filtre por descuido —
+el modelo trae `diagnosis` en `$appends`, así que bastaría un `->get()` mal puesto.
+
+**Las 48 subcausas siguen sin ser seleccionables.** La interfaz las muestra como texto de
+referencia bajo el desplegable de causa, tomado de `description`. Ninguna es una opción
+codificada (**D-06**).
+
+**Ejemplos de diagnóstico válido** (códigos del Anexo A):
+
+| Caso | Síntoma | Causa sospechada | Causa confirmada | Acción | Resultado |
+|---|---|---|---|---|---|
+| Intermitencia resuelta en visita | `S02` | `RF` | `CL` | `AC07` | `R02` |
+| Corte por fibra cortada | `S01` | `FO` | `FO` | `AC13` | `R03` |
+| Sin falla encontrada | `S03` | `CL` | `NF` | `AC01` | `R07` |
+| Diagnóstico parcial (aún abierto) | `S05` | `RE` | *(sin definir)* | *(sin definir)* | *(sin definir)* |
+
+El último caso es legal a propósito: el PR #2 **no** impone obligatoriedad ni reglas de
+cierre. Eso es el PR #4.
 
 ### PR #3 · Historial y auditoría del ticket
 
@@ -364,7 +396,7 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
 | **D-05** | **Acceso, retención y protección de adjuntos.** Hoy se guardan en disco público sin autenticación ni hash | Implica política de datos personales y evidencia probatoria | F1-11 |
 | **D-06** | **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
-| **D-07** | **¿Se exponen los catálogos al integrador?** El PR #1 amplió el endpoint del panel; la API de socios sigue sin catálogos | Añadir una ruta bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI | F2-17, F2-18 |
+| **D-07** | **¿Se expone el diagnóstico al integrador?** Abarca dos cosas: los catálogos (PR #1) y ahora también los cinco campos del ticket (PR #2). Ambos viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
 
 ---
@@ -385,6 +417,11 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-21 | **No se inventan códigos de subcausa.** Se siembran las 7 familias; las subcausas quedan como texto de referencia | Anexo A.2 no les asigna código | Evita fijar contrato improvisado e inmutable | ✅ Aplicada (PR #1) · abre **D-06** |
 | 2026-08-21 | Los síntomas se siembran con `category_id` en NULL | El Anexo A no relaciona síntomas con las categorías de ISPWatch | Evita embeber una decisión que depende de D-02 | ✅ Aplicada (PR #1) |
 | 2026-08-21 | Insertar-si-falta en vez de upsert | La etiqueta es editable por diseño (R1) | Un upsert borraría un reetiquetado legítimo en cada despliegue | ✅ Aplicada (PR #1) |
+| 2026-08-21 | El diagnóstico entra y sale **por código**, no por id | El módulo entero ya habla por código desde la R2 | Mezclar las dos formas obligaría a saber cuál toca en cada campo | ✅ Aplicada (PR #2) |
+| 2026-08-21 | La validación usa el vocabulario **visible para el tenant**, no el catálogo completo | `codigosVigentes()` incluye filas privadas de otros ISP | El aislamiento tiene que valer al escribir, no sólo al listar | ✅ Aplicada (PR #2) |
+| 2026-08-21 | Un código repetido entre ISPs resuelve a la fila **propia** | Los índices parciales de la R1 permiten el duplicado a propósito | Sin esto un ticket podía apuntar a vocabulario ajeno sin error visible | ✅ Aplicada (PR #2) |
+| 2026-08-21 | El diagnóstico **no** se expone a socios en el PR #2 | El contrato vigente no lo exige y el OpenAPI no lo menciona | Ampliar el contrato público es decisión separada | ✅ Aplicada (PR #2) · **D-07** |
+| 2026-08-21 | Los cinco campos siguen siendo **opcionales** | El PR #2 es captura, no reglas de cierre | Imponer obligatoriedad ahora bloquearía tickets en curso | ✅ Aplicada (PR #2) · se revisa en PR #4 |
 
 ---
 
@@ -397,7 +434,8 @@ Ninguna debe resolverse por iniciativa propia.
 | R1 + R2 | #233 | `https://github.com/ispwatchcol/ISPWatch/pull/233` | ✅ SQLite + PostgreSQL |
 | R2.5 | #235 | `https://github.com/ispwatchcol/ISPWatch/pull/235` | *(pendiente de registrar)* |
 | R3 | #236 | `https://github.com/ispwatchcol/ISPWatch/pull/236` | ✅ tras `03136bd` |
-| PR #1 | — | *(pendiente)* | — |
+| PR #1 | #250 | `https://github.com/ispwatchcol/ISPWatch/pull/250` | ✅ Mergeado y desplegado |
+| PR #2 | *(por asignar)* | *(abierto para revisión)* | — |
 
 ### Resultados de CI
 
@@ -440,3 +478,5 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-21 | **PR #1 implementado**: vocabulario de diagnóstico del Anexo A sembrado (58 códigos) y expuesto en el endpoint del panel. F1-03 sigue **parcial** —falta captura—. Nuevas decisiones D-06, D-07 y D-08 | — | *(sin commit)* |
 | 2026-08-21 | Revisión final del PR #1: transcripción cotejada por programa contra el `.docx` (58/58 literales, 48 subcausas), 2 pruebas nuevas (forma de la respuesta y rechazo de llave de socio), migración validada en PostgreSQL real. Estado del PR #1 corregido a **implementado en local / pendiente de CI**. Registrado el incidente de aplicación accidental en `public` y su reversión | — | *(sin commit)* |
 | 2026-08-21 | Verificación final: causa raíz confirmada en `DB_SCHEMA`, esquema local resuelto a `ispwatch_dev`, `public` intacto (0 filas, PR #1 sin registrar), brecha de migraciones entre esquemas cerrada. PR #1 listo para commit | David Gómez | *(sin commit)* |
+| 2026-08-21 | **PR #1 mergeado y desplegado** (PR #250). Validado en producción: 16 síntomas, 7 familias, 20 acciones, 15 resultados y las cuatro versiones en 2 | David Gómez | PR #250 |
+| 2026-08-21 | **PR #2 implementado**: captura del diagnóstico en alta, edición y detalle; validación por catálogo y por tenant; `diagnosis` con código y etiqueta. **F1-03 pasa a cumplido.** Sin migraciones. La API de socios no se toca (D-07). D-06 y D-08 siguen abiertas | — | *(PR abierto)* |

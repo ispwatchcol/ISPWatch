@@ -100,6 +100,16 @@
                         </div>
                     </div>
 
+                    <!-- Card: Diagnóstico técnico (PR #2) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <TicketDiagnosisFields
+                            v-model="diagnostico"
+                            :errores="errors"
+                            :cargando="!catalogosCargados && !catalogosConError"
+                            @reintentar="cargarCatalogos(true)"
+                        />
+                    </div>
+
                     <!-- Card: Cargo opcional -->
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex items-center justify-between mb-2">
@@ -285,14 +295,34 @@ import { useRouter } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
+import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 
 const router = useRouter()
+
+// PR #2 — el vocabulario del Anexo A para los desplegables de diagnóstico.
+const {
+    cargado: catalogosCargados,
+    error: catalogosConError,
+    cargar: cargarCatalogos,
+} = useTicketCatalogs()
 
 const form = ref({
     user_id: '',
     staff_id: '',
     subject: '',
     description: ''
+})
+
+// Lo habitual es abrir el ticket sin diagnóstico y completarlo tras la visita,
+// pero quien atiende por teléfono a veces ya sabe el síntoma. Se ofrece, no se
+// exige: las reglas de obligatoriedad son del PR #4.
+const diagnostico = ref({
+    symptom: null,
+    suspected_cause: null,
+    confirmed_cause: null,
+    solution: null,
+    result: null,
 })
 
 const customers = ref([])
@@ -358,11 +388,19 @@ const handleSubmit = async () => {
     try {
         submitting.value = true
 
+        // Sólo se envían los campos de diagnóstico REALMENTE elegidos: mandar
+        // los cinco en null obligaría al backend a distinguir «no diagnosticado»
+        // de «diagnosticado y borrado» en un alta, donde no hay nada que borrar.
+        const diagnosticoElegido = Object.fromEntries(
+            Object.entries(diagnostico.value).filter(([, code]) => code),
+        )
+
         const ticketRes = await api.support.create({
             user_id: form.value.user_id,
             staff_id: form.value.staff_id || null,
             subject: form.value.subject,
-            description: form.value.description
+            description: form.value.description,
+            ...diagnosticoElegido,
         })
 
         const newTicketId = ticketRes.data?.id || ticketRes.data?.ticket?.id
@@ -439,6 +477,7 @@ const loadStaff = async () => {
 onMounted(() => {
     loadCustomers()
     loadStaff()
+    cargarCatalogos()
 })
 </script>
 
