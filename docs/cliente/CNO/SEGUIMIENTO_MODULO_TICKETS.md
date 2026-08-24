@@ -11,6 +11,7 @@
 | **Fuente documental** | [`docs/cliente/CNO/V1_1/`](V1_1/) — 6 archivos, integridad verificada |
 | **Commit de preservación documental** | `7275e0f` — *«add: Documentación de los requerimientos del cliente…»* ✅ integrado en `main` vía PR **#248** |
 | **PR #1 · catálogos del Anexo A** | PR **#250** (merge `79b3501`) — desplegado y validado en producción |
+| **PR #2 · captura del diagnóstico** | PR **#251** (merge `9044731`) — desplegado; **cumple F1-03** |
 | **R1 · catálogos versionados** | `acd00c9` · PR **#233** (merge `0bca163`) |
 | **R2 · lectura/escritura por FK** | `195bbaf` · PR **#233** (merge `0bca163`) |
 | **R2.5 · desacoplar escritura de enums** | `9bb760e` · PR **#235** (merge `d989154`) |
@@ -70,9 +71,10 @@ El diagnóstico **ya es funcionalidad operativa** desde el PR #2: se captura en 
 edición, se valida contra el catálogo vigente del operador y se lee con código y etiqueta.
 Lo que sigue parcial es su exposición a **socios** (**D-07**).
 
-Queda con estructura pero sin funcionalidad completa: los adjuntos existen pero sin hash ni
-control de acceso; las estadísticas calculan promedio pero no percentiles; la asociación
-con infraestructura llega sólo hasta `sectorial_id`.
+Queda con estructura pero sin funcionalidad completa: los adjuntos ya tienen control de
+acceso y almacenamiento persistente, pero **sin hash de integridad ni política de
+retención**; las estadísticas calculan promedio pero no percentiles; la asociación con
+infraestructura llega sólo hasta `sectorial_id`.
 
 ### Pendiente
 
@@ -93,8 +95,9 @@ Concretamente, **no** debe reportarse como cumplido:
   (**D-07**), que no forma parte del criterio de F1-03.
 - **F1-04** por existir `resolved_at` y `closed_at`. El criterio exige estados,
   transiciones **e historial**.
-- **F1-11** por existir la tabla de adjuntos. El criterio exige metadatos, y hoy no hay
-  hash ni protección de acceso.
+- **F1-11** por existir la tabla de adjuntos. La **protección de acceso ya está resuelta**
+  (endpoint autenticado con verificación de tenant, disco privado), pero **siguen faltando
+  el hash de integridad y la política de retención**, así que el criterio no se cumple.
 - **F1-17** por existir `view_support`. El criterio exige modelo de roles **y auditoría no
   editable**, que no existe.
 - **F1-19** por existir un tablero. El criterio exige mediana, P90 y P95.
@@ -127,7 +130,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-08** | Varias intervenciones por ticket | ⚪ Pendiente | `support_ticket_message` son comentarios | **PR #5** | — |
 | **F1-09** | Pruebas iniciales y finales estructuradas | ⚪ Pendiente | No existe | Tras PR #5 | — |
 | **F1-10** | Reglas de cierre y excepciones auditadas | ⚪ Pendiente | Cualquier transición permitida | **PR #4** | **Decisión D-03** |
-| **F1-11** | Adjuntos y evidencia con metadatos | 🟡 Parcial | `support_ticket_attachment`; disco `public` (`SupportTicketController.php:143,251`) | Revisar acceso y hash | **Decisión D-05** |
+| **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
 | **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones | **PR #5** | — |
 | **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
@@ -320,6 +323,75 @@ codificada (**D-06**).
 El último caso es legal a propósito: el PR #2 **no** impone obligatoriedad ni reglas de
 cierre. Eso es el PR #4.
 
+### Endurecimiento posterior al PR #2 · Notas y adjuntos
+
+El humo en producción sobre el ticket #25 destapó dos fallos **ajenos al diagnóstico** que
+ya existían antes. Se corrigen en un PR aparte para no mezclarlos con la entrega funcional.
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Que guardar una nota funcione y que la evidencia adjunta se vea y se descargue |
+| **Cubre** | Ninguna F nueva. Desbloquea parte de **F1-11** (acceso) sin cumplirlo |
+| **Migraciones** | Ninguna |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Fallo 1 — guardar una nota devolvía HTTP 422.**
+
+La interfaz mandaba el **autor** en el cuerpo (`user_id`), leyéndolo del almacenamiento del
+navegador. Pero la sesión sólo queda en `localStorage` si se marcó «recordarme»; en
+cualquier otro caso vive en `sessionStorage`. Sin ese dato, el componente caía al literal
+`user_id: 1` — un usuario que **no existe** en producción — y la regla `exists:users,id`
+rechazaba cada intento.
+
+Arreglar la lectura del almacenamiento habría tapado el síntoma. El problema de fondo era
+que la **autoría la decidía el cliente**: cualquiera podía firmar una nota en nombre de otro
+cambiando el payload. El autor sale ahora de la sesión y el campo ya no se acepta.
+
+- **Endpoint**: `POST /api/support/{ticket}/message` *(singular, no `messages`)*
+- **Payload correcto**: `{ "message": "…", "is_internal": true }` — **sin `user_id`**
+- Nota vacía → 422 con *«La nota no puede estar vacía.»*, que la interfaz ahora muestra tal cual
+- Reenviar la misma nota en menos de 10 s devuelve la existente en vez de duplicarla
+
+**Fallo 2 — la vista previa del adjunto salía rota.**
+
+Dos causas encadenadas, ambas estructurales:
+
+1. Los adjuntos se guardaban en el **disco local** y se servían por `asset('storage/…')`. El
+   `run_command` del despliegue **no ejecuta `storage:link`**, así que esa ruta no existía.
+2. Aunque existiera, el sistema de archivos de App Platform es **efímero y por instancia**:
+   el archivo subido desaparece en el siguiente despliegue. `sp1.jpg` se subió antes de
+   desplegar el PR #2 y se fue con el contenedor — por eso la fila seguía en la lista y la
+   imagen no cargaba.
+
+Había además un tercer problema que nadie había reportado: esa URL era **pública**. Las
+rutas son adivinables (`support_attachments/{ticket}/…`), así que cualquiera podía leer la
+evidencia de otro ISP sin sesión.
+
+**Política de acceso a adjuntos** (implementada):
+
+| Aspecto | Decisión |
+|---|---|
+| Almacenamiento | Disco `s3` privado, el mismo que ya usan los documentos de cliente |
+| Vista previa | `GET /api/support/{ticket}/attachments/{attachment}` — `Content-Disposition: inline` |
+| Descarga | `…/attachments/{attachment}/download` — `Content-Disposition: attachment` |
+| Autorización | `auth:sanctum` + `permission:view_support`; el ticket pasa por el scope de tenant y el adjunto se busca **dentro** del ticket |
+| Fuera de alcance | **404**, nunca 403: no se confirma que el recurso exista |
+| Tipos servibles en línea | Lista blanca: JPEG, PNG, GIF, WebP, PDF. Todo lo demás se descarga |
+| Por qué lista blanca | `mime_type` se guardó al subir y no se revalida; servir en línea lo que diga esa columna permitiría un `text/html` desde nuestro dominio, es decir XSS almacenado |
+| Cabeceras | `Cache-Control: private, no-store` y `X-Content-Type-Options: nosniff` |
+| Archivo ausente | 404 con *«El archivo adjunto ya no está disponible.»*, y la interfaz lo explica en vez de mostrar un icono roto |
+
+**F1-11 sigue parcial.** El acceso está resuelto; **el hash de integridad y la política de
+retención no** (**D-05**).
+
+**Hallazgo colateral, corregido aquí.** Un usuario del panel con sesión abierta que
+navegara a una URL de `/v1/partner` recibía **HTTP 500** en vez de 401: el limitador de
+peticiones llamaba `getKey()` sobre un `TransientToken`, que no lo implementa.
+
+**Los adjuntos anteriores a este cambio no se recuperan.** Sus archivos ya no existen en
+ningún disco. Las filas se conservan —son parte del histórico del ticket— y el endpoint
+responde 404 con mensaje claro.
+
 ### PR #3 · Historial y auditoría del ticket
 
 | Campo | Detalle |
@@ -394,7 +466,7 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-02** | **Separación soporte / facturación.** El módulo excluye facturación pero hoy el ticket genera facturas | Funcionalidad viva que otros tenants podrían usar; retirarla es decisión de producto | F1-02 |
 | **D-03** | **Autoridad para excepciones de cierre.** Quién puede cerrar sin causa confirmada y bajo qué registro | Es una regla operativa y de responsabilidad, no técnica | F1-10, PR #4 |
 | **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
-| **D-05** | **Acceso, retención y protección de adjuntos.** Hoy se guardan en disco público sin autenticación ni hash | Implica política de datos personales y evidencia probatoria | F1-11 |
+| **D-05** | **Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 (disco privado `s3`, endpoint autenticado por tenant y ticket). Sigue sin definirse cuánto se conservan y si llevan hash de integridad | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
 | **D-06** | **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
 | **D-07** | **¿Se expone el diagnóstico al integrador?** Abarca dos cosas: los catálogos (PR #1) y ahora también los cinco campos del ticket (PR #2). Ambos viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
@@ -435,7 +507,8 @@ Ninguna debe resolverse por iniciativa propia.
 | R2.5 | #235 | `https://github.com/ispwatchcol/ISPWatch/pull/235` | *(pendiente de registrar)* |
 | R3 | #236 | `https://github.com/ispwatchcol/ISPWatch/pull/236` | ✅ tras `03136bd` |
 | PR #1 | #250 | `https://github.com/ispwatchcol/ISPWatch/pull/250` | ✅ Mergeado y desplegado |
-| PR #2 | *(por asignar)* | *(abierto para revisión)* | — |
+| PR #2 | #251 | `https://github.com/ispwatchcol/ISPWatch/pull/251` | ✅ Mergeado y desplegado |
+| Endurecimiento notas/adjuntos | *(por asignar)* | *(abierto para revisión)* | — |
 
 ### Resultados de CI
 
@@ -480,3 +553,5 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-21 | Verificación final: causa raíz confirmada en `DB_SCHEMA`, esquema local resuelto a `ispwatch_dev`, `public` intacto (0 filas, PR #1 sin registrar), brecha de migraciones entre esquemas cerrada. PR #1 listo para commit | David Gómez | *(sin commit)* |
 | 2026-08-21 | **PR #1 mergeado y desplegado** (PR #250). Validado en producción: 16 síntomas, 7 familias, 20 acciones, 15 resultados y las cuatro versiones en 2 | David Gómez | PR #250 |
 | 2026-08-21 | **PR #2 implementado**: captura del diagnóstico en alta, edición y detalle; validación por catálogo y por tenant; `diagnosis` con código y etiqueta. **F1-03 pasa a cumplido.** Sin migraciones. La API de socios no se toca (D-07). D-06 y D-08 siguen abiertas | — | *(PR abierto)* |
+| 2026-08-23 | **PR #2 mergeado y desplegado** (PR #251). Humo en producción sobre el ticket #25: el diagnóstico funciona; aparecen dos regresiones previas ajenas a él | David Gómez | PR #251 |
+| 2026-08-23 | **Endurecimiento posterior al PR #2**: corregido el 422 al guardar notas (el autor lo ponía el cliente) y la vista previa rota de adjuntos (disco efímero, sin `storage:link`, URL pública). Adjuntos movidos a `s3` y servidos por endpoint autenticado con verificación de tenant. Corregido de paso un 500 en `/v1/partner` con sesión del panel. **F1-11 sigue parcial**: falta hash y retención (D-05) | — | *(PR abierto)* |

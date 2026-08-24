@@ -180,13 +180,18 @@
                                 <div class="flex items-center gap-3">
                                     <button 
                                         v-if="isImage(attachment.file_name)"
-                                        @click="openImage(attachment.url)"
+                                        @click="openImage(attachment)"
                                         class="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
                                     >
                                         <v-icon name="fa-eye" class="w-4 h-4" />
                                         Ver
                                     </button>
-                                    <a :href="attachment.url" target="_blank" download
+                                    <!-- `download_url` fuerza Content-Disposition:
+                                         attachment en el servidor. El atributo
+                                         `download` de HTML no basta: sólo se
+                                         respeta en el mismo origen y el navegador
+                                         acabaría abriendo la imagen en la pestaña. -->
+                                    <a :href="attachment.download_url" target="_blank"
                                        class="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white text-sm flex items-center gap-1">
                                         <v-icon name="md-download" class="w-4 h-4" />
                                         Descargar
@@ -220,14 +225,31 @@
                               </button>
                             </div>
                             
-                            <div class="p-0 bg-gray-50 dark:bg-gray-900/50 flex justify-center items-center">
-                                <img :src="lightboxImage" class="max-w-full max-h-[80vh] rounded-none shadow-sm" alt="Vista previa" />
+                            <div class="p-0 bg-gray-50 dark:bg-gray-900/50 flex justify-center items-center min-h-[8rem]">
+                                <!-- Si el archivo ya no está en el almacenamiento, el
+                                     endpoint responde 404 y el <img> mostraría el icono
+                                     roto sin decir por qué. Se sustituye por un aviso. -->
+                                <div v-if="lightboxError" class="p-8 text-center">
+                                    <p class="text-gray-700 dark:text-gray-200 font-medium">
+                                        No se pudo cargar la vista previa.
+                                    </p>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                        El archivo ya no está disponible en el almacenamiento.
+                                    </p>
+                                </div>
+                                <img
+                                    v-else
+                                    :src="lightboxImage"
+                                    @error="lightboxError = true"
+                                    class="max-w-full max-h-[80vh] rounded-none shadow-sm"
+                                    alt="Vista previa"
+                                />
                             </div>
 
                             <div class="p-6 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-end gap-3">
-                               <a 
-                                :href="lightboxImage" 
-                                download 
+                               <a
+                                v-if="!lightboxError"
+                                :href="lightboxDownload"
                                 target="_blank"
                                 class="px-5 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-sm transition-colors flex items-center gap-2"
                               >
@@ -624,8 +646,12 @@ const noteContent = ref('')
 const savingNote = ref(false)
 const editingNoteId = ref(null)
 
-const userData = JSON.parse(localStorage.getItem('userData')) || {}
-const currentUserId = userData.id || 1
+// Se eliminó `currentUserId`, que leía la sesión del almacenamiento del
+// navegador a mano. Dos motivos: la sesión vive en `sessionStorage` cuando no se
+// marca «recordarme» —así que el valor era casi siempre el `1` por defecto— y,
+// sobre todo, la identidad del autor no es cosa del cliente. Si alguna pantalla
+// necesita el usuario en curso, el sitio es `useAuthStore()`, que ya consulta
+// los dos almacenamientos.
 
 const editNote = (note) => {
     editingNoteId.value = note.id
@@ -648,16 +674,31 @@ const saveNote = async () => {
             await api.support.updateMessage(editingNoteId.value, noteContent.value)
             toast.value?.success('Nota actualizada', 'La nota se ha actualizado correctamente.')
         } else {
-            // isInternal = true for work log notes, userId from current session
-            await api.support.addMessage(ticketId, noteContent.value, true, currentUserId)
+            // `is_internal: true` — son notas de bitácora interna.
+            //
+            // Ya NO se manda el autor. Antes iba `currentUserId`, leído de
+            // `localStorage.userData`, que sólo existe si se marcó «recordarme»;
+            // en cualquier otra sesión caía al literal 1, un usuario que no
+            // existe, y el backend respondía 422. El autor lo pone el servidor a
+            // partir de la sesión, que además evita firmar notas en nombre ajeno.
+            await api.support.addMessage(ticketId, noteContent.value, true)
             toast.value?.success('Nota guardada', 'La nota ha sido agregada a la bitácora.')
         }
-        
+
         cancelNote()
         loadTicket() // Refresh ticket to see new messages
     } catch (err) {
         console.error('Error al guardar nota:', err)
-        toast.value?.error('Error', 'No se pudo guardar la nota en la bitácora.')
+
+        // Se muestra el mensaje que devuelve el backend en vez de un texto
+        // genérico: si la nota se rechaza por vacía o por larga, quien la
+        // escribe necesita saber cuál de las dos cosas pasó.
+        const validacion = err.response?.data?.errors?.message?.[0]
+        const detalle = validacion
+            || err.response?.data?.message
+            || 'No se pudo guardar la nota en la bitácora.'
+
+        toast.value?.error('Error', detalle)
     } finally {
         savingNote.value = false
     }
@@ -691,6 +732,8 @@ const loadTicket = async () => {
 }
 
 const lightboxImage = ref(null)
+const lightboxDownload = ref(null)
+const lightboxError = ref(false)
 
 const isImage = (filename) => {
     if (!filename) return false
@@ -698,8 +741,17 @@ const isImage = (filename) => {
     return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
 }
 
-const openImage = (url) => {
-    lightboxImage.value = url
+/**
+ * Recibe el adjunto entero, no sólo una URL.
+ *
+ * Ver y descargar son ahora dos endpoints distintos: el primero responde
+ * `inline` para que el <img> lo pinte, el segundo `attachment`. Con una sola
+ * URL no se puede tener las dos cosas.
+ */
+const openImage = (attachment) => {
+    lightboxError.value = false
+    lightboxImage.value = attachment.url
+    lightboxDownload.value = attachment.download_url
 }
 
 const handleFileChange = (event) => {
