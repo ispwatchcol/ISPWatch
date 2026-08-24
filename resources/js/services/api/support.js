@@ -24,11 +24,14 @@ export default {
     getStatistics() {
         return apiClient.get('/support/statistics')
     },
-    addMessage(ticketId, message, isInternal = false, userId = 1) {
+    // El AUTOR no viaja en el cuerpo. Lo ponía el cliente leyéndolo de
+    // localStorage —donde la sesión sólo está si se marcó «recordarme»— y sin
+    // ese dato mandaba `user_id: 1`, que no existe: 422 en cada nota. Lo decide
+    // el servidor a partir de la sesión, que además impide firmar por otro.
+    addMessage(ticketId, message, isInternal = false) {
         return apiClient.post(`/support/${ticketId}/message`, {
             message,
             is_internal: isInternal,
-            user_id: userId,
         })
     },
     updateMessage(messageId, message) {

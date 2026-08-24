@@ -5606,3 +5606,113 @@ Verificar la configuración *resuelta* antes de escribir, no la que uno cree hab
 `config('database.connections.pgsql')` habría enseñado el host real de Supabase en un
 segundo, antes de tocar nada. La variable exportada era una intención; la configuración
 resuelta era el hecho.
+
+---
+
+## 52. El cliente decidía quién firmaba la nota, y los adjuntos vivían en un disco que se borra solo — 2026-08-23
+
+Dos fallos que el humo del PR #2 sacó a la luz sobre el ticket #25. Ninguno tenía que ver
+con el diagnóstico: los dos llevaban ahí desde antes y comparten la misma raíz — **se
+confiaba en el cliente para algo que decide el servidor**.
+
+### A · Guardar una nota devolvía 422
+
+`SupportDetail.vue` mandaba el autor en el cuerpo de la petición:
+
+```js
+const userData = JSON.parse(localStorage.getItem('userData')) || {}
+const currentUserId = userData.id || 1
+await api.support.addMessage(ticketId, noteContent.value, true, currentUserId)
+```
+
+Y el controlador lo aceptaba: `'user_id' => 'sometimes|nullable|exists:users,id'`.
+
+**Causa raíz.** `useAuthStore().setUser()` escribe la sesión en `localStorage` **sólo si se
+marcó «recordarme»**; si no, la escribe en `sessionStorage`. El store lo sabe y lee de los
+dos (`auth.js:43`), pero esta pantalla leía `localStorage` a pelo. En cualquier sesión sin
+«recordarme» el valor era `undefined`, caía al `|| 1`, y en producción **el usuario 1 no
+existe** — verificado también en `ispwatch_dev`, donde el id más bajo es 34. `exists:users,id`
+rechazaba, y salía 422 en cada nota.
+
+Lo interesante es por dónde NO estaba el fallo: la ruta era correcta (`/message`, singular),
+el método correcto, y `message` e `is_internal` viajaban bien. Sólo fallaba el campo que la
+interfaz no tenía por qué estar mandando.
+
+**Por qué no se arregló leyendo el storage correcto.** Habría tapado el síntoma dejando el
+agujero: mientras el autor venga del cliente, cualquiera puede firmar una nota en nombre de
+otro cambiando el payload. `user_id` ya no se acepta; el autor sale de `$request->user()`.
+
+Se añadió además una guardia contra reenvíos: la misma nota, del mismo autor, en el mismo
+ticket y dentro de 10 segundos devuelve la que ya existe en vez de crear una gemela. La
+ventana es corta a propósito — repetir la misma frase pasados unos segundos es una nota
+nueva legítima.
+
+### B · La vista previa del adjunto salía rota
+
+`sp1.jpg` aparecía en la lista y la descarga parecía disponible, pero la imagen no cargaba.
+
+**Causa raíz, en dos capas encadenadas:**
+
+1. Los adjuntos se guardaban con `storeAs(..., 'public')` y se servían con
+   `asset('storage/'.$file_path)`. El `run_command` del despliegue **no ejecuta
+   `storage:link`**, así que `public/storage` no existe y esa ruta devuelve 404.
+2. Aunque el enlace existiera, el sistema de archivos de App Platform es **efímero y por
+   instancia**. `sp1.jpg` se subió antes de desplegar el PR #2 y se fue con el contenedor.
+   Ningún enlace simbólico arregla eso.
+
+Por eso la fila seguía en la base —la lista la pinta desde ahí— mientras el archivo ya no
+estaba en ningún sitio.
+
+**Tercer problema, que nadie había reportado:** esa URL era **pública y sin sesión**. Las
+rutas son adivinables (`support_attachments/{ticket}/…`), así que cualquiera podía leer la
+evidencia de otro ISP. Es el mismo patrón que `CustomerDocument` ya había resuelto —bucket
+privado, acceso controlado— y que aquí se había quedado sin migrar.
+
+**Solución.** Los adjuntos pasan al disco `s3`, el mismo que ya usan los documentos de
+cliente, y se sirven por `SupportTicketAttachmentController`, que comprueba en cada
+petición que el ticket es del tenant de quien pide y que el adjunto cuelga de ese ticket.
+
+Dos detalles que no son evidentes:
+
+- **Vista previa y descarga son endpoints distintos.** Una URL firmada de Supabase habría
+  bastado para descargar —es lo que hace `CustomerDocument`— pero no permite decidir el
+  `Content-Disposition`, y un `<img>` necesita `inline`. Pasar los bytes por la aplicación
+  cuesta algo más y deja las cabeceras donde se pueden razonar.
+- **Lista blanca de tipos, no `image/*`.** `mime_type` se guarda al subir y no se
+  revalida. Devolver en línea lo que diga esa columna permitiría servir `text/html` desde
+  nuestro propio dominio: XSS almacenado. Lo que no esté en la lista se descarga.
+
+El endpoint mira `s3` primero y `public` después, para no romper los adjuntos antiguos que
+en desarrollo sí siguen existiendo. En producción ya no existen: se responde 404 con
+mensaje, y la interfaz lo explica en vez de mostrar un icono roto.
+
+### Hallazgo colateral · 500 en `/v1/partner` con sesión del panel
+
+Apareció al escribir el test de no regresión del contrato de socios.
+
+`AppServiceProvider::apiKeyThrottleKey()` hacía `$request->user()?->currentAccessToken()->getKey()`.
+Con una llave de API eso es un `PersonalAccessToken` y funciona. Pero un usuario del panel
+con sesión abierta que pegue una URL de `/v1/partner` en el navegador manda su cookie, y
+entonces `currentAccessToken()` devuelve un **`TransientToken`**, que no representa ninguna
+fila y **no implementa `getKey()`**. Error fatal → 500 donde correspondía un 401.
+
+Severidad baja —no expone datos— pero es un crash en una ruta pensada para rechazar. Ahora
+se comprueba que el token sea un modelo antes de pedirle la clave.
+
+### Deuda que queda abierta
+
+- **`SectorialPhoto` sigue con `asset('storage/…')`**, exactamente el mismo patrón que aquí
+  se retiró: URL pública y disco efímero. No se tocó por no ampliar el alcance de un PR de
+  corrección, pero está roto por las mismas dos razones.
+- **Los adjuntos anteriores no se recuperan.** Sus archivos no existen en ningún disco. Las
+  filas se conservan porque son parte del histórico del ticket.
+- **F1-11 sigue sin cumplirse.** El acceso está resuelto; el hash de integridad y la
+  política de retención no (**D-05** en el seguimiento del cliente).
+- **El despliegue sigue sin `storage:link`.** Ya no hace falta para adjuntos de tickets,
+  pero cualquier otro uso del disco `public` seguirá fallando en silencio.
+
+### Lección
+
+Las dos causas se leen igual: el servidor delegaba en el cliente algo que sólo él puede
+saber —quién eres— o confiaba en una infraestructura que no existe —un disco que persiste—.
+El 422 y la imagen rota eran síntomas distintos del mismo hábito.

@@ -18,7 +18,7 @@ class SupportTicketAttachment extends Model
         'mime_type'
     ];
 
-    protected $appends = ['url'];
+    protected $appends = ['url', 'download_url'];
 
     public function ticket()
     {
@@ -30,9 +30,26 @@ class SupportTicketAttachment extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Helper para obtener URL pública
-    public function getUrlAttribute()
+    /**
+     * Vista previa, por endpoint autenticado.
+     *
+     * Antes esto era `asset('storage/'.$file_path)`: una URL PÚBLICA. Cualquiera
+     * con la ruta —que es adivinable, `support_attachments/{ticket}/…`— leía el
+     * adjunto de otro ISP sin sesión. Y encima no funcionaba: App Platform no
+     * ejecuta `storage:link` y su disco es efímero, así que la imagen salía rota.
+     *
+     * El endpoint comprueba el tenant en cada petición. El navegador manda la
+     * cookie de sesión solo con poner la URL en un `<img src>`, porque el cliente
+     * de la SPA ya trabaja con `withCredentials`.
+     */
+    public function getUrlAttribute(): string
     {
-        return asset('storage/' . $this->file_path);
+        return url("/api/support/{$this->ticket_id}/attachments/{$this->id}");
+    }
+
+    /** Misma autorización, pero forzando descarga. */
+    public function getDownloadUrlAttribute(): string
+    {
+        return url("/api/support/{$this->ticket_id}/attachments/{$this->id}/download");
     }
 }

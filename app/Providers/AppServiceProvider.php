@@ -15,6 +15,7 @@ use App\Observers\PartnerEventObserver;
 use App\Policies\CustomerInstallationPolicy;
 use App\Support\TicketCatalogs;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -164,13 +165,26 @@ class AppServiceProvider extends ServiceProvider
             : 'ip:' . $request->realIp();
     }
 
-    /** Cubo por token; si aún no hay token resuelto, por IP de origen. */
+    /**
+     * Cubo por token; si aún no hay token resuelto, por IP de origen.
+     *
+     * `currentAccessToken()` no siempre devuelve una fila. Una sesión del PANEL
+     * —cookie de Sanctum— devuelve un `TransientToken`, que no representa
+     * ninguna fila y **no implementa `getKey()`**. Llamarlo lanzaba un Error
+     * fatal, así que un usuario del panel que abriera una URL de `/v1/partner`
+     * en su navegador recibía un 500 en vez del 401 que le corresponde.
+     *
+     * Por eso se comprueba que sea un modelo antes de pedirle la clave, en vez
+     * de confiar en que exista el método.
+     */
     protected static function apiKeyThrottleKey(Request $request): string
     {
         $token = $request->user()?->currentAccessToken();
 
-        return $token && $token->getKey()
-            ? 'token:' . $token->getKey()
+        $id = $token instanceof Model ? $token->getKey() : null;
+
+        return $id
+            ? 'token:' . $id
             : 'ip:' . $request->realIp();
     }
 }

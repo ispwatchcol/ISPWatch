@@ -1814,6 +1814,43 @@ migraciones e `ispwatch_dev` con 172, faltando
 `2026_08_19_110000_seed_help_center_api_testing_article` en desarrollo—. El `migrate` sobre
 `ispwatch_dev` del 2026-08-21 cerró la brecha.
 
+
+### 🟠 P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero
+
+El endurecimiento posterior al PR #2 (2026-08-23) retiró este patrón de los adjuntos de
+tickets, pero `SectorialPhoto` lo conserva intacto:
+
+```php
+// app/Models/SectorialPhoto.php:42
+return asset('storage/' . ltrim($this->file_path, '/'));
+```
+
+Está roto por las mismas dos razones, ya comprobadas en producción con `sp1.jpg`:
+
+1. **La ruta no existe.** El `run_command` del despliegue no ejecuta `php artisan
+   storage:link`, así que `public/storage` no está y la URL devuelve 404.
+2. **El archivo tampoco.** El sistema de archivos de App Platform es efímero y por
+   instancia: lo subido desaparece en el siguiente despliegue.
+
+Y expone un tercer problema que en tickets sí se cerró: esa URL es **pública y sin sesión**.
+Las rutas son adivinables, así que las fotos de infraestructura de un ISP son legibles por
+cualquiera que acierte la ruta.
+
+**Qué hacer**, siguiendo lo ya implementado en `SupportTicketAttachmentController`:
+
+1. Subir al disco `s3` en vez de `public`.
+2. Servir por endpoint autenticado que verifique el tenant del sectorial.
+3. Lista blanca de tipos servibles en línea; el resto, descarga.
+4. Mantener un respaldo a `public` mientras queden filas antiguas que aún existan en
+   desarrollo.
+
+No se corrigió junto con los tickets para no ampliar el alcance de un PR de corrección, pero
+es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde producción.
+
+**Nota relacionada:** mientras el despliegue no ejecute `storage:link`, **cualquier** uso
+del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
+`run_command` o si se prohíbe ese disco por convención.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -1867,6 +1904,7 @@ migraciones e `ispwatch_dev` con 172, faltando
 | **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
+| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 
 ---
 

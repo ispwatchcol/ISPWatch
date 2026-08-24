@@ -16,6 +16,7 @@ use App\Http\Controllers\SectorialPhotoController;
 use App\Http\Controllers\SectorialNoteController;
 use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
+use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
@@ -458,6 +459,16 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
 
     // Soporte
     Route::middleware('permission:view_support')->group(function () {
+        // Adjuntos. Van ANTES del apiResource porque `support/{support}` casaría
+        // con `support/{id}/attachments/...` si se declararan después.
+        //
+        // Se sirven por aquí y no por `asset('storage/…')`: esa URL era pública
+        // —cualquiera con la ruta leía el adjunto de otro ISP— y además no
+        // funciona en App Platform, que no ejecuta `storage:link` y tiene disco
+        // efímero. Ver SupportTicketAttachmentController.
+        Route::get('/support/{ticket}/attachments/{attachment}', [SupportTicketAttachmentController::class, 'show']);
+        Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download']);
+
         Route::apiResource('support', SupportTicketController::class);
     });
 

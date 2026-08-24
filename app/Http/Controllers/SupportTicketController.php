@@ -231,23 +231,7 @@ class SupportTicketController extends Controller
 
             // Subir archivos adjuntos si existen
             if ($request->hasFile('attachments')) {
-                foreach ($request->file('attachments') as $file) {
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $filePath = $file->storeAs(
-                        "support_attachments/{$ticket->id}",
-                        $fileName,
-                        'public'
-                    );
-
-                    SupportTicketAttachment::create([
-                        'ticket_id' => $ticket->id,
-                        'user_id' => $data['user_id'] ?? 1,
-                        'file_name' => $file->getClientOriginalName(),
-                        'file_path' => $filePath,
-                        'file_size' => $file->getSize(),
-                        'mime_type' => $file->getMimeType(),
-                    ]);
-                }
+                $this->guardarAdjuntos($request, $ticket, $data['user_id'] ?? $request->user()?->id);
             }
 
             DB::commit();
@@ -343,23 +327,7 @@ class SupportTicketController extends Controller
 
             // Subir archivos adjuntos si existen en update
             if ($request->hasFile('attachments')) {
-                foreach ($request->file('attachments') as $file) {
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $filePath = $file->storeAs(
-                        "support_attachments/{$ticket->id}",
-                        $fileName,
-                        'public'
-                    );
-
-                    SupportTicketAttachment::create([
-                        'ticket_id' => $ticket->id,
-                        'user_id' => Auth::id() ?? 1,
-                        'file_name' => $file->getClientOriginalName(),
-                        'file_path' => $filePath,
-                        'file_size' => $file->getSize(),
-                        'mime_type' => $file->getMimeType(),
-                    ]);
-                }
+                $this->guardarAdjuntos($request, $ticket, $request->user()?->id);
             }
 
             DB::commit();
@@ -394,6 +362,43 @@ class SupportTicketController extends Controller
                     'line' => $e->getLine()
                 ]
             ], 500);
+        }
+    }
+
+    /**
+     * Guarda los adjuntos de una petición en el disco remoto.
+     *
+     * POR QUÉ `s3` Y NO EL DISCO LOCAL
+     *
+     * El disco de App Platform es EFÍMERO y por instancia: lo que se sube vive
+     * hasta el siguiente despliegue. Así se perdió `sp1.jpg` — la fila seguía en
+     * la base, la lista lo mostraba, y la imagen salía rota. Además el
+     * `run_command` del despliegue no ejecuta `storage:link`, así que la ruta
+     * `/storage/…` con la que se servían no existía siquiera.
+     *
+     * `s3` es el mismo disco donde ya viven los documentos de cliente
+     * (`CustomerDocumentController`), así que no se introduce infraestructura
+     * nueva: se deja de usar la que no funciona.
+     *
+     * El nombre se limpia como en documentos de cliente. `time()` a secas
+     * colisionaba entre archivos subidos en el mismo segundo; con `uniqid` no.
+     */
+    private function guardarAdjuntos(Request $request, SupportTicket $ticket, ?int $autorId): void
+    {
+        foreach ($request->file('attachments') as $file) {
+            $nombreLimpio = preg_replace('/[^A-Za-z0-9._-]/', '_', $file->getClientOriginalName());
+            $fileName = time() . '_' . uniqid() . '_' . $nombreLimpio;
+
+            $filePath = $file->storeAs("support_attachments/{$ticket->id}", $fileName, 's3');
+
+            SupportTicketAttachment::create([
+                'ticket_id' => $ticket->id,
+                'user_id'   => $autorId,
+                'file_name' => $file->getClientOriginalName(),
+                'file_path' => $filePath,
+                'file_size' => $file->getSize(),
+                'mime_type' => $file->getMimeType(),
+            ]);
         }
     }
 
@@ -524,18 +529,53 @@ class SupportTicketController extends Controller
     {
         $ticket = SupportTicket::findOrFail($id);
 
+        // `user_id` YA NO SE ACEPTA. Antes venía en el cuerpo, lo mandaba
+        // SupportDetail.vue leyéndolo de `localStorage.userData` — donde la
+        // sesión sólo está si se marcó «recordarme»; si no, vive en
+        // `sessionStorage`. Sin ese dato la interfaz caía al literal `1`, que en
+        // producción no corresponde a ningún usuario, y `exists:users,id`
+        // devolvía 422 en cada intento de guardar una nota.
+        //
+        // Arreglar la lectura del storage habría tapado el síntoma. El problema
+        // de fondo es que la AUTORÍA la decidía el cliente: cualquiera podía
+        // firmar una nota en nombre de otro cambiando el payload. El autor sale
+        // ahora de la sesión, que es la única fuente que no se puede falsificar.
         $data = $request->validate([
-            'message' => 'required|string',
-            'is_internal' => 'boolean',
-            'user_id' => 'sometimes|nullable|exists:users,id',
+            'message'     => 'required|string|max:5000',
+            'is_internal' => 'sometimes|boolean',
+        ], [
+            'message.required' => 'La nota no puede estar vacía.',
+            'message.max'      => 'La nota no puede superar los 5000 caracteres.',
         ]);
+
+        $autor = $request->user()->id;
+
+        // Reenvío accidental (doble clic, o el usuario que reintenta al ver la
+        // pantalla quieta). Se devuelve la nota que ya existe en vez de crear
+        // una gemela. La ventana es corta a propósito: repetir literalmente la
+        // misma frase pasados unos segundos es una nota nueva legítima.
+        $reciente = SupportTicketMessage::where('ticket_id', $ticket->id)
+            ->where('user_id', $autor)
+            ->where('message', $data['message'])
+            ->where('created_at', '>=', now()->subSeconds(10))
+            ->latest('id')
+            ->first();
+
+        if ($reciente) {
+            $reciente->load('user');
+
+            return response()->json([
+                'message'        => 'La nota ya estaba guardada.',
+                'ticket_message' => $reciente,
+            ]);
+        }
 
         DB::beginTransaction();
 
         try {
             $message = SupportTicketMessage::create([
                 'ticket_id' => $ticket->id,
-                'user_id' => $data['user_id'] ?? Auth::id() ?? 1,
+                'user_id' => $autor,
                 'message' => $data['message'],
                 'is_internal' => $data['is_internal'] ?? false,
             ]);
