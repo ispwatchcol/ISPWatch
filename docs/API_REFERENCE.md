@@ -1573,10 +1573,53 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `PATCH` | `/api/support/{id}/status` | `staff_profile` | Cambia el estado |
 | `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
 | `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
+| `GET` | `/api/support/{ticket}/attachments/{attachment}` | `view_support` | Vista previa del adjunto (`inline`) |
+| `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `view_support` | Descarga del adjunto (`attachment`) |
+| `GET` | `/api/support/{ticket}/history` | `view_support` | **Historial inalterable** del ticket, paginado y descendente |
 
 Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `priority` ∈ {`low`,`medium`,`high`,`urgent`};
 `category` ∈ {`technical`,`billing`,`services`,`general`}.
+
+**Diagnóstico** (PR #251). `POST /api/support` y `PUT /api/support/{id}` aceptan `symptom`,
+`suspected_cause`, `confirmed_cause`, `solution` y `result` como **código** del Anexo A;
+`null` borra el campo. El detalle y el listado devuelven `diagnosis` con `code` y `label` por
+campo, o `null` si no hay diagnóstico.
+
+**Historial** (PR #3). `GET /api/support/{ticket}/history` devuelve la paginación estándar de
+Laravel con los eventos más recientes primero. Acepta `per_page` (máx. 100).
+
+```json
+{
+  "data": [
+    {
+      "id": 412,
+      "support_ticket_id": 25,
+      "actor_user_id": 47,
+      "actor": { "id": 47, "user_name": "Juan", "user_lastname": "Restrepo" },
+      "event_type": "confirmed_cause_changed",
+      "field": "confirmed_cause",
+      "old_value": null,
+      "new_value": "RF",
+      "metadata": { "new_label": "Radiofrecuencia" },
+      "source": "web",
+      "created_at": "2026-08-25T14:02:11.000000Z"
+    }
+  ],
+  "current_page": 1
+}
+```
+
+> **Sólo lectura.** No existen `POST`, `PUT` ni `DELETE` sobre el historial, y el modelo lanza
+> si algún código intenta modificar o borrar un evento: el requerimiento exige que la
+> auditoría no sea editable desde la operación ordinaria.
+>
+> `old_value`/`new_value` llevan el **código estable**, no ids internos. La etiqueta que se
+> muestra viaja congelada en `metadata`, porque las etiquetas del catálogo son editables y el
+> historial debe seguir diciendo lo que el operador vio ese día.
+
+> **Nada de esto está en `/v1/partner`.** Catálogos, diagnóstico e historial viven sólo en la
+> API del panel; exponerlos al integrador es una decisión abierta (D-07).
 
 ---
 

@@ -46,6 +46,11 @@ export default {
     generateCharge(ticketId, data) {
         return apiClient.post(`/support/${ticketId}/charge`, data)
     },
+    // PR #3 · Historial inalterable. Sólo lectura: no hay create/update/delete
+    // aquí ni en el backend, y el modelo lanza si alguien lo intenta.
+    getHistory(ticketId, page = 1) {
+        return apiClient.get(`/support/${ticketId}/history`, { params: { page } })
+    },
     getCharges(ticketId) {
         return apiClient.get(`/support/${ticketId}/charges`)
     },

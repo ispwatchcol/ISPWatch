@@ -9,9 +9,11 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PersonalAccessToken;
 use App\Models\Plan;
+use App\Models\SupportTicket;
 use App\Models\UserService;
 use App\Observers\MoneyAuditObserver;
 use App\Observers\PartnerEventObserver;
+use App\Observers\SupportTicketHistoryObserver;
 use App\Policies\CustomerInstallationPolicy;
 use App\Support\TicketCatalogs;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -56,6 +58,7 @@ class AppServiceProvider extends ServiceProvider
 
         $this->registerMoneyAudit();
         $this->registerPartnerEvents();
+        SupportTicket::observe(SupportTicketHistoryObserver::class);
         $this->configureRateLimiting();
     }
 

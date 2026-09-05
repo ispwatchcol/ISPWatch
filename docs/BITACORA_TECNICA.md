@@ -5716,3 +5716,115 @@ se comprueba que el token sea un modelo antes de pedirle la clave.
 Las dos causas se leen igual: el servidor delegaba en el cliente algo que sólo él puede
 saber —quién eres— o confiaba en una infraestructura que no existe —un disco que persiste—.
 El 422 y la imagen rota eran síntomas distintos del mismo hábito.
+
+---
+
+## 53. El ticket cambiaba de manos sin dejar rastro — 2026-08-25
+
+Hasta ahora un ticket podía pasar de abierto a cerrado, cambiar de técnico tres veces y
+cambiar de causa confirmada, sin que quedara constancia de quién hizo qué ni cuándo. El
+requerimiento del cliente es explícito (`Solicitud_Maestra`, sección 18):
+
+> «Cada cambio debe conservar fecha/hora, usuario o aplicación, estado anterior/nuevo, campo
+> modificado y valores anteriores/nuevos. La auditoría no debe ser editable desde la
+> operación ordinaria.»
+
+Ese párrafo dicta la forma de la tabla: una fila **por cambio de campo**, con `field`,
+`old_value` y `new_value`. No un volcado del ticket.
+
+### Por qué una tabla nueva y no `audit_logs`
+
+`audit_logs` existe desde mayo y funciona, pero resuelve otro problema:
+
+- Guarda `old_values`/`new_values` como **JSON del modelo entero**. Preguntar «¿quién cambió
+  la causa confirmada y cuándo?» obliga a recorrer JSON en la aplicación, o a operadores JSON
+  de PostgreSQL que SQLite no tiene — y la suite corre en los dos motores.
+- Vive detrás de `view_audit_log`, un permiso de administración. El historial del ticket lo
+  tiene que ver quien atiende el ticket, que sólo tiene `view_support`. Aflojar `audit_logs`
+  para esto abriría de paso la bitácora de facturación y de clientes.
+- Su clave es `model_type` + `model_id`: no hay clave foránea que garantice que el evento
+  apunta a un ticket real.
+
+Se siguió el patrón de `sectorial_history`, que ya había resuelto esto mismo para
+infraestructura y que el módulo de tickets ya usaba al vincular un sectorial.
+
+### Observer, no controlador
+
+La decisión menos obvia y la que más importa.
+
+La pantalla de edición reenvía **el formulario entero** en cada guardado. Si el historial se
+escribiera desde el controlador a partir del payload recibido, cada «Actualizar» dejaría un
+evento por campo —«el estado cambió de abierto a abierto»— y en tres guardados el historial
+sería ilegible.
+
+El observer ve `getChanges()`, es decir el cambio **real** contra la base. Guardar sin
+cambiar nada no produce ningún evento, y hay un test que lo fija.
+
+Como efecto secundario, cubre puertas que el controlador no: si mañana un comando o un job
+mueve un ticket, queda auditado sin acordarse de nada. Es el mismo razonamiento documentado
+en `MoneyAuditObserver` y `PartnerEventObserver`, con el mismo límite conocido — un
+`where(...)->update([...])` por query builder no dispara Eloquent y habría que registrar el
+evento a mano. Hoy ningún camino de tickets hace eso.
+
+### Un detalle que SQLite no habría enseñado
+
+El observer compara el id anterior con el nuevo para decidir si hubo cambio. En PostgreSQL,
+PDO devuelve los enteros como **cadena**: un `status_id` que pasa de `"3"` a `3` cuenta como
+cambio para Eloquent y no lo es para nadie más. Sin normalizar a entero, cada guardado sobre
+PostgreSQL podía dejar eventos fantasma que la suite en SQLite no reproduce. Se comprobó
+contra PostgreSQL 18 real, junto con el JSON de `metadata`, las claves foráneas y los
+`ON DELETE`.
+
+### Qué se guarda y qué no
+
+- **Códigos, no ids.** `open`, `S02`, `AC07`. Un id no significa nada fuera de esta
+  instalación y dejaría el histórico ilegible si el catálogo se resembrara. La excepción es
+  el técnico: la identidad de una persona **es** su id.
+- **La etiqueta del momento se congela** en `metadata`. Las etiquetas del catálogo son
+  editables por diseño desde la R1, así que resolverlas al leer haría que reetiquetar
+  reescribiera el pasado. El historial tiene que decir lo que el operador vio ese día.
+- **Referencias, no copias.** De una nota se guarda su id, no el texto: la nota es editable y
+  el historial no, así que copiarla dejaría dos versiones que divergen. De un adjunto, el
+  nombre visible y **nunca la ruta del bucket** —el historial se pinta en pantalla, y
+  publicarla anularía el endpoint autenticado que se acaba de montar—. De un cargo, el número
+  de factura y no el importe, que cambia cuando se anula o se paga.
+
+### Inalterabilidad
+
+Se aplica en el modelo: `updating` y `deleting` lanzan. Y en el enrutado: no existen rutas de
+edición ni de borrado, y hay un test que lo comprueba verbo por verbo.
+
+No se puso un trigger de PostgreSQL a propósito. La suite corre también sobre SQLite, y una
+garantía que sólo existe en un motor da falsa cobertura — el mismo razonamiento que llevó a
+sincronizar catálogos en el modelo y no con trigger en la R2.
+
+Corregir un evento equivocado se hace añadiendo otro, como en cualquier libro contable.
+
+### Hallazgo colateral: el catch-all del SPA se traga las rutas de API inexistentes
+
+Apareció al escribir el test de que no hay historial en `/v1/partner`. Se esperaba un 404 y
+llegó un **200 con el HTML del SPA**: `routes/web.php` tiene un catch-all
+`Route::get('/{any}')` que sólo excluye `/health`, así que cualquier `/api/...` no enrutada
+cae ahí.
+
+Para un integrador esto significa que pedir una ruta mal escrita devuelve HTML y código 200
+en vez de un 404 en JSON. No se tocó —cambiarlo afecta a toda la API y no es el alcance de
+este PR— y el test se reescribió para comprobar sobre el enrutador, que es lo que de verdad
+se quiere afirmar. Anotado como **P-41**.
+
+### Lo que este PR no hace
+
+- **No completa F1-17.** El requisito es «Roles, permisos **y** auditoría», y la sección 18
+  define cinco roles —Recepción/N1, N2, Técnico de campo, Supervisor, Auditor/gerencia— que
+  el sistema no tiene: sólo existe `view_support`, que además hoy habilita lectura y
+  escritura por igual. Registrado como **D-09** en el seguimiento del cliente.
+- **No reconstruye el pasado.** Los tickets anteriores al despliegue arrancan sin historial,
+  y la pantalla lo dice. Inventar eventos retroactivos sería falsificar una auditoría.
+- **No expone el historial a socios.** Es del panel; abrirlo es la decisión **D-07**.
+
+### Lección
+
+El párrafo del cliente ya traía el esquema dentro: «campo modificado y valores anteriores/
+nuevos» es literalmente `field`, `old_value`, `new_value`. Buena parte del diseño consistió en
+leer el requisito con cuidado en vez de inventar un modelo de eventos y después intentar
+encajarlo.

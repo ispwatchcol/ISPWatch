@@ -1851,6 +1851,32 @@ es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde prod
 del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
 `run_command` o si se prohíbe ese disco por convención.
 
+### 🟡 P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes
+
+`routes/web.php` cierra con un catch-all que sirve el SPA:
+
+```php
+Route::get('/{any}', ...)->where('any', '(?!health$|health/).*');
+```
+
+Excluye `/health` —se añadió cuando el chequeo de salud devolvía 200 sirviendo el HTML del
+SPA, incidente §48— pero **no excluye `/api`**. Cualquier ruta de API no registrada cae ahí y
+devuelve el HTML del panel con código **200**.
+
+Para el integrador esto es un problema concreto: pedir una ruta mal escrita o de una versión
+que no existe no da un 404 en JSON, da HTML y un 200. Un cliente que compruebe el código de
+estado concluye que la llamada funcionó.
+
+Se descubrió el 2026-08-25 escribiendo un test del PR #3 que esperaba 404 en una ruta de
+socios inexistente.
+
+**Qué hacer:** extender la exclusión del catch-all a `api/` y dejar que el manejador de
+excepciones devuelva el 404 JSON que ya produce para el resto de rutas de API. Es un cambio
+de una línea, pero afecta a **toda** la API y merece su propio PR con pruebas de que ninguna
+ruta legítima queda fuera — la expresión regular actual ya demostró ser delicada.
+
+No se corrigió en el PR #3 por no ampliar el alcance de una entrega funcional.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -1905,6 +1931,7 @@ del disco `public` seguirá fallando en silencio. Conviene decidir si se añade 
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
+| **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
 
 ---
 

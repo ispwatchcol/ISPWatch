@@ -469,6 +469,12 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::get('/support/{ticket}/attachments/{attachment}', [SupportTicketAttachmentController::class, 'show']);
         Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download']);
 
+        // PR #3 · Historial inalterable (F1-17). Sólo lectura: no hay ruta de
+        // edición ni de borrado, y el modelo lanza si alguien lo intenta por
+        // código. El requerimiento exige que la auditoría no sea editable
+        // desde la operación ordinaria, y eso empieza por no ofrecer la puerta.
+        Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history']);
+
         Route::apiResource('support', SupportTicketController::class);
     });
 
