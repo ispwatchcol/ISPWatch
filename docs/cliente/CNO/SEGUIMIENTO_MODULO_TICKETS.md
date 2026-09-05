@@ -98,8 +98,10 @@ Concretamente, **no** debe reportarse como cumplido:
 - **F1-11** por existir la tabla de adjuntos. La **protección de acceso ya está resuelta**
   (endpoint autenticado con verificación de tenant, disco privado), pero **siguen faltando
   el hash de integridad y la política de retención**, así que el criterio no se cumple.
-- **F1-17** por existir `view_support`. El criterio exige modelo de roles **y auditoría no
-  editable**, que no existe.
+- **F1-17** por tener ya la auditoría. El PR #3 resuelve la **mitad de auditoría** —historial
+  inalterable con actor, campo, valor anterior y valor nuevo—, pero el criterio exige además
+  el **modelo de roles** de la sección 18 (Recepción/N1, N2, Técnico de campo, Supervisor,
+  Auditor/gerencia), y hoy sólo existe `view_support`.
 - **F1-19** por existir un tablero. El criterio exige mediana, P90 y P95.
 
 La distinción que se aplica en toda la matriz:
@@ -136,7 +138,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`; `router_outage_events` es base parcial | **PR #6** | — |
 | **F1-16** | Servicios afectados y minutos-cliente (P1) | ⚪ Pendiente | No existe | Tras PR #6 | — |
-| **F1-17** | Roles, permisos y auditoría | 🟡 Parcial | Sólo `view_support` (`Permissions.php:26`); **0 referencias a `AuditLog`** en `SupportTicketController` | **PR #3** | — |
+| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**: `support_ticket_history` inalterable con actor, campo, valor anterior/nuevo, origen y fecha; visible en el detalle. **Falta el modelo de roles** de la sección 18: sólo existe `view_support` | Roles N1/N2/campo/supervisor/auditor | Depende de **D-09** |
 | **F1-18** | Exportación completa y filtros por infraestructura | ⚪ Pendiente | Sin export de tickets | **PR #7** | Tras F1-06 |
 | **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟡 Parcial | Sólo `avg_resolution_time` (`SupportTicketController.php:411`); 0 percentiles | **PR #7** | — |
 | **F1-20** | Zona horaria America/Bogota | 🟡 Parcial | `config/app.php:70` → `UTC` (almacenamiento correcto); presentación sin fijar | **PR #7** | — |
@@ -149,7 +151,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F2-02** | OAuth2 o token restringido rotatorio | 🟢 Cumplido (alternativa) | Sanctum + abilities + expiración + allowlist IP | Declarar como alternativa |
 | **F2-03** | IDs estables cliente / servicio / router lógico | 🟡 Parcial | `/customers`, `/services`; router lógico sin id expuesto | Exponer `router_id` |
 | **F2-04** | Consulta incremental cursor / `updated_since` | 🟢 Cumplido | `updated_since` en `/tickets`; `/events` con cursor | — |
-| **F2-05** | Lectura de tickets **e historial** | 🟡 Parcial | `GET /v1/partner/tickets` (`routes/api.php:720`); sin detalle ni historial | **PR #3** habilita historial |
+| **F2-05** | Lectura de tickets **e historial** | 🟡 Parcial | `GET /v1/partner/tickets` sirve el listado. El historial **ya existe y es consultable** desde el PR #3, pero sólo por el panel: la API de socios no lo expone | **D-07** |
 | **F2-07** | Comentarios, intervenciones y adjuntos por API | ⚪ Pendiente | Tablas existen, no expuestas | Tras PR #5 |
 | **F2-09** | Webhooks firmados o incremental confiable | 🟢 Cumplido (alternativa) | Feed `/events` | Documentar como alternativa |
 | **F2-12** | Errores estructurados, rate limits, reintentos | 🟢 Cumplido | 11 códigos estables; 60/min + 5 000/h | — |
@@ -397,13 +399,66 @@ responde 404 con mensaje claro.
 | Campo | Detalle |
 |---|---|
 | **Objetivo** | Trazabilidad no editable de todo cambio |
-| **Cubre** | F1-17 (auditoría), F2-05 (historial) |
-| **Alcance** | Registro de cambios con actor, fecha, campo, valor anterior y nuevo; endpoint de historial |
+| **Cubre** | **F1-17 (mitad de auditoría)**. No cubre el modelo de roles, ni cierra F2-05 |
+| **Alcance** | Tabla `support_ticket_history` append-only; observer sobre `SupportTicket`; eventos de nota, adjunto y cargo; endpoint paginado de sólo lectura; sección «Historial» en el detalle |
 | **Dependencias** | Ninguna |
-| **Pruebas** | Todo cambio de estado, prioridad, asignación y diagnóstico deja traza; la traza no es editable desde la operación |
-| **Aceptación** | Consultando un ticket se obtiene su cronología completa con actor y valores previos |
-| **Estado** | ⚪ Listo para iniciar |
-| **Nota** | Principio del cliente «historial inalterable» (Maestra L89). No es reconstruible retroactivamente |
+| **Migraciones** | `2026_08_25_000001_create_support_ticket_history_table` |
+| **Pruebas** | `tests/Feature/Support/TicketHistoryTest.php` — 31 pruebas |
+| **Aceptación** | Consultando un ticket se obtiene su cronología con actor, campo, valor anterior y nuevo, y no existe forma de editarla desde la operación |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Criterio literal que cumple** (`Solicitud_Maestra`, sección 18):
+
+> «Cada cambio debe conservar fecha/hora, usuario o aplicación, estado anterior/nuevo, campo
+> modificado y valores anteriores/nuevos. La auditoría no debe ser editable desde la
+> operación ordinaria.»
+
+| Exigencia | Cómo se cumple |
+|---|---|
+| fecha/hora | `created_at`, mostrada en la interfaz en **America/Bogota** |
+| usuario **o aplicación** | `actor_user_id` + `source`; sin actor humano el origen es `system` y la interfaz dice «Sistema» |
+| campo modificado | Columna `field` |
+| valores anterior/nuevo | `old_value` / `new_value`, con **código estable** (`open`, `S02`, `AC07`), no ids internos |
+| no editable | El modelo lanza en `updating` y `deleting`; no existen rutas de edición ni de borrado |
+
+**Eventos que registra:** alta del ticket · estado · prioridad · categoría · técnico asignado ·
+los cinco campos de diagnóstico · nota agregada · adjunto agregado · cargo generado.
+
+**Ejemplos de evento**
+
+| Evento | `field` | `old_value` | `new_value` | Cómo se lee en pantalla |
+|---|---|---|---|---|
+| `status_changed` | `status` | `open` | `in_progress` | «Cambió el estado: Abierto → En proceso» |
+| `confirmed_cause_changed` | `confirmed_cause` | *(vacío)* | `RF` | «Cambió la causa confirmada: sin definir → Radiofrecuencia» |
+| `staff_changed` | `staff_id` | *(vacío)* | `47` | «Cambió el técnico asignado: sin definir → Juan Restrepo» |
+| `attachment_added` | — | — | — | «Se adjuntó el archivo «sp1.jpg»» |
+| `note_added` | — | — | — | «Se agregó una nota interna» |
+
+**Decisiones de diseño que conviene conocer**
+
+- **Se registra el cambio real, no el payload.** Va por observer y no por controlador: la
+  pantalla de edición reenvía el formulario entero en cada guardado, y registrar lo recibido
+  dejaría un evento por campo cada vez, volviendo el historial ilegible.
+- **Códigos, no ids.** Un id no significa nada fuera de esta instalación. La **etiqueta del
+  momento** se congela en `metadata`: las etiquetas del catálogo son editables por diseño
+  (R1), y el historial debe seguir diciendo lo que el operador vio ese día.
+- **Referencias, no copias.** De una nota se guarda su id, no el texto —vive en la bitácora
+  de trabajo, que sí es editable, y duplicarlo dejaría dos versiones que divergen—. De un
+  adjunto, el nombre visible y **nunca la ruta del bucket**. De un cargo, el número de
+  factura y no el importe, que cambia cuando se anula o se paga.
+- **Tabla propia y no `audit_logs`.** Aquélla guarda JSON del modelo entero, está detrás de
+  `view_audit_log` —permiso de administración, no de soporte— y no tiene clave foránea al
+  ticket. Se sigue el patrón de `sectorial_history`, que ya resolvió esto para infraestructura.
+
+**Lo que este PR NO hace**
+
+- **No completa F1-17.** Falta el **modelo de roles** de la sección 18 (Recepción/N1, N2,
+  Técnico de campo, Supervisor, Auditor/gerencia); hoy sólo existe `view_support`. Es
+  **D-09**.
+- **No cierra F2-05.** El historial es del panel; el integrador no lo ve. Es **D-07**.
+- **No reconstruye el pasado.** Los tickets anteriores al despliegue arrancan sin historial,
+  y así se dice en pantalla. Inventar eventos retroactivos sería falsificar una auditoría.
+- No toca estados, reglas de cierre, subcausas, intervenciones, duplicados ni métricas.
 
 ### PR #4 · Ciclo de vida y reglas de cierre
 
@@ -468,8 +523,9 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
 | **D-05** | **Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 (disco privado `s3`, endpoint autenticado por tenant y ticket). Sigue sin definirse cuánto se conservan y si llevan hash de integridad | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
 | **D-06** | **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
-| **D-07** | **¿Se expone el diagnóstico al integrador?** Abarca dos cosas: los catálogos (PR #1) y ahora también los cinco campos del ticket (PR #2). Ambos viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
+| **D-07** | **¿Se expone al integrador?** Abarca ya tres cosas: los catálogos (PR #1), los cinco campos de diagnóstico (PR #2) y el historial del ticket (PR #3). Los tres viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
+| **D-09** | **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
 
 ---
 
@@ -494,6 +550,12 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-21 | Un código repetido entre ISPs resuelve a la fila **propia** | Los índices parciales de la R1 permiten el duplicado a propósito | Sin esto un ticket podía apuntar a vocabulario ajeno sin error visible | ✅ Aplicada (PR #2) |
 | 2026-08-21 | El diagnóstico **no** se expone a socios en el PR #2 | El contrato vigente no lo exige y el OpenAPI no lo menciona | Ampliar el contrato público es decisión separada | ✅ Aplicada (PR #2) · **D-07** |
 | 2026-08-21 | Los cinco campos siguen siendo **opcionales** | El PR #2 es captura, no reglas de cierre | Imponer obligatoriedad ahora bloquearía tickets en curso | ✅ Aplicada (PR #2) · se revisa en PR #4 |
+| 2026-08-25 | El historial se escribe por **observer**, no desde el controlador | La pantalla de edición reenvía el formulario entero en cada guardado | Registrar el payload dejaría un evento por campo cada vez y el historial sería ilegible | ✅ Aplicada (PR #3) |
+| 2026-08-25 | Los valores se guardan como **código estable**, no como id interno | Un id no significa nada fuera de esta instalación | El histórico sigue siendo legible aunque se resiembre el catálogo | ✅ Aplicada (PR #3) |
+| 2026-08-25 | La **etiqueta del momento** se congela en `metadata` | Las etiquetas del catálogo son editables por diseño (R1) | Reetiquetar un catálogo no reescribe lo que el operador vio ese día | ✅ Aplicada (PR #3) |
+| 2026-08-25 | De notas, adjuntos y cargos se guarda **referencia, no copia** | La nota es editable, el importe cambia y la ruta del adjunto es interna | Evita dos versiones divergentes y no filtra rutas del bucket | ✅ Aplicada (PR #3) |
+| 2026-08-25 | **Tabla propia** en vez de `audit_logs` | `audit_logs` guarda JSON del modelo, está tras `view_audit_log` y no tiene FK al ticket | Consulta por campo sin recorrer JSON y visible para quien atiende el ticket | ✅ Aplicada (PR #3) |
+| 2026-08-25 | **No se reconstruye historial retroactivo** | No existen los datos de lo ocurrido antes | Inventar eventos pasados sería falsificar una auditoría | ✅ Aplicada (PR #3) |
 
 ---
 
@@ -508,7 +570,8 @@ Ninguna debe resolverse por iniciativa propia.
 | R3 | #236 | `https://github.com/ispwatchcol/ISPWatch/pull/236` | ✅ tras `03136bd` |
 | PR #1 | #250 | `https://github.com/ispwatchcol/ISPWatch/pull/250` | ✅ Mergeado y desplegado |
 | PR #2 | #251 | `https://github.com/ispwatchcol/ISPWatch/pull/251` | ✅ Mergeado y desplegado |
-| Endurecimiento notas/adjuntos | *(por asignar)* | *(abierto para revisión)* | — |
+| Endurecimiento notas/adjuntos | #252 | `https://github.com/ispwatchcol/ISPWatch/pull/252` | ✅ Mergeado y desplegado |
+| PR #3 · historial | *(por asignar)* | *(abierto para revisión)* | — |
 
 ### Resultados de CI
 
@@ -555,3 +618,5 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-21 | **PR #2 implementado**: captura del diagnóstico en alta, edición y detalle; validación por catálogo y por tenant; `diagnosis` con código y etiqueta. **F1-03 pasa a cumplido.** Sin migraciones. La API de socios no se toca (D-07). D-06 y D-08 siguen abiertas | — | *(PR abierto)* |
 | 2026-08-23 | **PR #2 mergeado y desplegado** (PR #251). Humo en producción sobre el ticket #25: el diagnóstico funciona; aparecen dos regresiones previas ajenas a él | David Gómez | PR #251 |
 | 2026-08-23 | **Endurecimiento posterior al PR #2**: corregido el 422 al guardar notas (el autor lo ponía el cliente) y la vista previa rota de adjuntos (disco efímero, sin `storage:link`, URL pública). Adjuntos movidos a `s3` y servidos por endpoint autenticado con verificación de tenant. Corregido de paso un 500 en `/v1/partner` con sesión del panel. **F1-11 sigue parcial**: falta hash y retención (D-05) | — | *(PR abierto)* |
+| 2026-08-25 | **Endurecimiento mergeado y desplegado** (PR #252) | David Gómez | PR #252 |
+| 2026-08-25 | **PR #3 implementado**: historial inalterable `support_ticket_history` con actor, campo, valor anterior/nuevo, origen y fecha; observer sobre el ticket; eventos de nota, adjunto y cargo; endpoint paginado de sólo lectura y sección «Historial» en el detalle (hora de Bogotá). **F1-17 sigue parcial**: falta el modelo de roles de la sección 18, registrado como **D-09**. F2-05 sigue parcial (D-07) | — | *(PR abierto)* |

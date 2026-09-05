@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketMessage;
 use App\Models\SupportTicketAttachment;
+use App\Models\SupportTicketHistory;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Support\TicketCatalogs;
@@ -391,7 +392,7 @@ class SupportTicketController extends Controller
 
             $filePath = $file->storeAs("support_attachments/{$ticket->id}", $fileName, 's3');
 
-            SupportTicketAttachment::create([
+            $adjunto = SupportTicketAttachment::create([
                 'ticket_id' => $ticket->id,
                 'user_id'   => $autorId,
                 'file_name' => $file->getClientOriginalName(),
@@ -399,6 +400,23 @@ class SupportTicketController extends Controller
                 'file_size' => $file->getSize(),
                 'mime_type' => $file->getMimeType(),
             ]);
+
+            // PR #3 · La RUTA DE ALMACENAMIENTO NO ENTRA en el historial. Es un
+            // dato interno del bucket privado y el historial se muestra en
+            // pantalla; publicarla anularía lo que se acaba de cerrar al mover
+            // los adjuntos a `s3` con endpoint autenticado. Van el nombre que
+            // ve el usuario, el tamaño y el id, con el que se arma la URL
+            // autorizada si hace falta.
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::ATTACHMENT_ADDED,
+                metadata: [
+                    'attachment_id' => $adjunto->id,
+                    'file_name'     => $adjunto->file_name,
+                    'file_size'     => $adjunto->file_size,
+                    'mime_type'     => $adjunto->mime_type,
+                ],
+            );
         }
     }
 
@@ -580,6 +598,20 @@ class SupportTicketController extends Controller
                 'is_internal' => $data['is_internal'] ?? false,
             ]);
 
+            // PR #3 · Se registra QUE se anotó, no el contenido: la nota ya se
+            // lee entera en la bitácora de trabajo, justo encima del historial.
+            // Duplicarla aquí la volvería inmutable por la puerta de atrás —el
+            // historial no se puede editar y la nota sí— y dejaría dos copias
+            // que pueden divergir.
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::NOTE_ADDED,
+                metadata: [
+                    'note_id'     => $message->id,
+                    'is_internal' => (bool) $message->is_internal,
+                ],
+            );
+
             DB::commit();
 
             $message->load('user');
@@ -720,6 +752,20 @@ class SupportTicketController extends Controller
                 'notes'       => $data['notes'] ?? "Cargo por ticket #{$ticket->id}: {$ticket->subject}",
             ]);
 
+            // PR #3 · Referencia, no copia. El importe y el detalle viven en la
+            // factura y allí se mantienen —se anulan, se pagan—; duplicarlos en
+            // un registro inmutable dejaría una cifra que envejece y que alguien
+            // acabaría leyendo como buena. Va el número, que es lo que permite
+            // ir a buscarla.
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::CHARGE_CREATED,
+                metadata: array_filter([
+                    'invoice_id'     => $invoice->id ?? null,
+                    'invoice_number' => $invoice->invoice_number ?? null,
+                ], fn ($v) => $v !== null),
+            );
+
             return response()->json([
                 'message' => 'Cargo generado correctamente. ✅',
                 'invoice' => $invoice,
@@ -736,6 +782,34 @@ class SupportTicketController extends Controller
     /**
      * List all charge invoices linked to this ticket.
      */
+    /**
+     * Historial inalterable del ticket. PR #3 · F1-17.
+     *
+     * SÓLO LECTURA, y no por omisión: no existe endpoint de edición ni de
+     * borrado, y el modelo lanza si alguien lo intenta por código. El
+     * requerimiento pide que «la auditoría no sea editable desde la operación
+     * ordinaria», y eso incluye no ofrecer la puerta.
+     *
+     * Paginado porque un ticket vivo acumula decenas de eventos y la pantalla
+     * los carga bajo demanda. Orden descendente: lo último es lo que interesa.
+     *
+     * El aislamiento sale de `findOrFail` —que pasa por el scope de tenant— y
+     * además se filtra por `tenant_id` en la propia consulta: un evento con el
+     * tenant mal estampado no debe poder colarse porque el ticket sí sea visible.
+     */
+    public function history(Request $request, $id)
+    {
+        $ticket = SupportTicket::findOrFail($id);
+
+        $eventos = SupportTicketHistory::with('actor:id,user_name,user_lastname,email')
+            ->where('support_ticket_id', $ticket->id)
+            ->where('tenant_id', $ticket->tenant_id)
+            ->orderByDesc('id')
+            ->paginate(min((int) $request->query('per_page', 25), 100));
+
+        return response()->json($eventos);
+    }
+
     public function getCharges($id)
     {
         $ticket  = SupportTicket::findOrFail($id);

@@ -94,6 +94,55 @@
                         </dl>
                     </div>
 
+                    <!-- Historial inalterable (PR #3 · F1-17) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="flex justify-between items-center mb-1">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Historial</h2>
+                            <span class="text-xs text-gray-400 dark:text-gray-500">Registro no editable</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                            Horas en Colombia (America/Bogota).
+                        </p>
+
+                        <div v-if="historialCargando && !historial.length" class="flex items-center gap-3 py-4 text-gray-500 dark:text-gray-400">
+                            <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></div>
+                            <span class="text-sm">Cargando historial…</span>
+                        </div>
+
+                        <p v-else-if="historialError" class="text-sm text-amber-700 dark:text-amber-300">
+                            No se pudo cargar el historial.
+                            <button type="button" @click="cargarHistorial(1)" class="underline font-medium">Reintentar</button>
+                        </p>
+
+                        <p v-else-if="!historial.length" class="text-sm text-gray-500 dark:text-gray-400">
+                            Todavía no hay movimientos registrados en este ticket.
+                        </p>
+
+                        <ol v-else class="relative border-l border-gray-200 dark:border-gray-700 ml-2 space-y-5">
+                            <li v-for="evento in historial" :key="evento.id" class="ml-5">
+                                <span class="absolute -left-[5px] w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+
+                                <p class="text-sm text-gray-800 dark:text-gray-100">
+                                    {{ etiquetaDeEvento(evento) }}
+                                </p>
+
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {{ actorDe(evento) }} · {{ formatDateBogota(evento.created_at) }}
+                                </p>
+                            </li>
+                        </ol>
+
+                        <button
+                            v-if="historialHayMas"
+                            type="button"
+                            @click="cargarHistorial(historialPagina + 1)"
+                            :disabled="historialCargando"
+                            class="mt-5 text-sm text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                        >
+                            {{ historialCargando ? 'Cargando…' : 'Ver movimientos anteriores' }}
+                        </button>
+                    </div>
+
                     <!-- Bitácora de Trabajo (Notas del Staff) -->
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
@@ -861,10 +910,120 @@ const formatDate = (date) => {
     })
 }
 
+// ── Historial inalterable (PR #3 · F1-17) ──
+//
+// Sólo lectura. No hay acciones de editar ni de borrar aquí, y no debe haberlas:
+// el requerimiento pide que la auditoría no sea editable desde la operación
+// ordinaria, y el backend lanza si alguien lo intenta por código.
+
+const historial = ref([])
+const historialPagina = ref(0)
+const historialHayMas = ref(false)
+const historialCargando = ref(false)
+const historialError = ref(false)
+
+/**
+ * Fecha en hora de Colombia, no en la del navegador.
+ *
+ * El servidor guarda en UTC y `formatDate` deja que cada equipo la interprete a
+ * su antojo. Para una bitácora de auditoría eso es un problema: dos personas
+ * mirando el mismo evento leerían horas distintas y no habría forma de
+ * referirse a «las 3 de la tarde» sin ambigüedad.
+ */
+const formatDateBogota = (fecha) => {
+    if (!fecha) return '-'
+    return new Date(fecha).toLocaleString('es-CO', {
+        timeZone: 'America/Bogota',
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    })
+}
+
+const NOMBRE_DE_CAMPO = {
+    status: 'el estado',
+    priority: 'la prioridad',
+    category: 'la categoría',
+    staff_id: 'el técnico asignado',
+    symptom: 'el síntoma',
+    suspected_cause: 'la causa sospechada',
+    confirmed_cause: 'la causa confirmada',
+    solution: 'la acción realizada',
+    result: 'el resultado',
+}
+
+/** Etiqueta guardada en el evento; si no la hay, el código; si tampoco, «sin definir». */
+const valorLegible = (evento, lado) => {
+    const etiqueta = evento.metadata?.[`${lado}_label`]
+    if (etiqueta) return etiqueta
+
+    const valor = lado === 'old' ? evento.old_value : evento.new_value
+    return valor || 'sin definir'
+}
+
+/**
+ * Frase en español para un evento.
+ *
+ * Se prefiere la etiqueta que quedó CONGELADA en el evento sobre el catálogo
+ * actual: las etiquetas son editables por diseño, y el historial tiene que
+ * seguir diciendo lo que el operador vio ese día.
+ */
+const etiquetaDeEvento = (evento) => {
+    const meta = evento.metadata || {}
+
+    switch (evento.event_type) {
+        case 'ticket_created':
+            return 'Se creó el ticket'
+        case 'note_added':
+            return meta.is_internal ? 'Se agregó una nota interna' : 'Se agregó una nota'
+        case 'attachment_added':
+            // El nombre que ve el usuario, nunca la ruta del almacenamiento.
+            return `Se adjuntó el archivo «${meta.file_name || 'sin nombre'}»`
+        case 'charge_created':
+            return meta.invoice_number
+                ? `Se generó el cargo ${meta.invoice_number}`
+                : 'Se generó un cargo'
+        default: {
+            const campo = NOMBRE_DE_CAMPO[evento.field] || evento.field || 'un campo'
+            return `Cambió ${campo}: ${valorLegible(evento, 'old')} → ${valorLegible(evento, 'new')}`
+        }
+    }
+}
+
+/** «Sistema» cuando no hubo persona: el requerimiento pide distinguir usuario de aplicación. */
+const actorDe = (evento) => {
+    if (!evento.actor_user_id) return 'Sistema'
+
+    const a = evento.actor
+    if (!a) return 'Usuario dado de baja'
+
+    const nombre = `${a.user_name || ''} ${a.user_lastname || ''}`.trim()
+    return nombre || a.email || 'Usuario'
+}
+
+const cargarHistorial = async (pagina = 1) => {
+    try {
+        historialCargando.value = true
+        historialError.value = false
+
+        const { data } = await api.support.getHistory(ticketId, pagina)
+
+        // Página 1 reemplaza; las siguientes acumulan hacia atrás en el tiempo.
+        historial.value = pagina === 1 ? data.data : [...historial.value, ...data.data]
+        historialPagina.value = data.current_page
+        historialHayMas.value = Boolean(data.next_page_url)
+    } catch (err) {
+        console.error('Error al cargar el historial:', err)
+        historialError.value = true
+    } finally {
+        historialCargando.value = false
+    }
+}
+
 onMounted(() => {
     cargarCatalogos()
     loadTicket()
     loadCharges()
+    cargarHistorial(1)
 })
 </script>
 

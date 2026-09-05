@@ -146,7 +146,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `support_ticket` | 6 | Tickets de soporte |
 | `support_ticket_message` / `_attachment` | 0 / 0 | Conversación y adjuntos |
 | `ticket_status` / `_priority` / `_category` | 4 / 4 / 4 | **Catálogos versionados** que sustituyen a los enums del ticket (Fase 1 R1) |
-| `ticket_symptom` / `_cause` / `_solution` / `_result` | 0 / 0 / 0 / 0 | Vocabulario de diagnóstico. Vacíos a propósito hasta acordarlo con el ISP y el integrador |
+| `ticket_symptom` / `_cause` / `_solution` / `_result` | 16 / 7 / 20 / 15 | Vocabulario de diagnóstico del **Anexo A** del cliente. Las 48 subcausas no tienen código y viajan como texto en `description` (D-06) |
 | `ticket_catalog_version` | 7 | Versión de cada catálogo, para que un integrador sepa si su copia sigue vigente |
 | `inventory_stock` / `_device` / `_provider` / `_branch` | 0 / 0 / 2 / 0 | Inventario de equipos |
 | `help_categories` / `help_articles` | 9 / 30 | Centro de ayuda embebido |
@@ -925,19 +925,51 @@ escribir la copia, R3 elimina las columnas—, y el desdoblamiento no fue burocr
 despliegue arranca el contenedor nuevo mientras el viejo sigue sirviendo contra la misma
 base. Ver [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md).
 
-> **Ningún schema de producción tiene aplicada ninguna de las cuatro.** `public` no tiene
-> siquiera los catálogos; `ispwatch_dev` tiene R1. Verificado el 2026-08-15.
+> **Las cuatro están desplegadas en producción** desde el 2026-08-20, y el vocabulario del
+> Anexo A (58 códigos) desde el PR #250. Verificado sobre `public` el 2026-08-23.
 
 | Columna | Apunta a | Nota |
 |---|---|---|
 | `status_id`, `priority_id`, `category_id` | `ticket_status`, `ticket_priority`, `ticket_category` | Rellenadas por la migración y mantenidas al día por un hook `saving` del modelo |
-| `symptom_id` | `ticket_symptom` | Nullable, sin captura en la interfaz todavía |
+| `symptom_id` | `ticket_symptom` | Nullable. Se captura en el alta y la edición desde el PR #251 |
 | `suspected_cause_id`, `confirmed_cause_id` | **ambas** a `ticket_cause` | Comparten catálogo para poder medir si el diagnóstico sugerido acertó |
 | `solution_id`, `result_id` | `ticket_solution`, `ticket_result` | Nullable |
 | `closed_at` | — | Nace vacía incluso en tickets ya cerrados: no existe registro de cuándo se cerraron y rellenarla con `updated_at` sería inventar el dato |
 
 Todas las FK son **`ON DELETE RESTRICT`**: perder una fila de catálogo dejaría un ticket
 histórico sin poder decir en qué estado quedó.
+
+### 4.15a `support_ticket_history` — auditoría inalterable
+
+Añadida por el PR #3 para el requisito **F1-17**, cuyo criterio es literal: «cada cambio debe
+conservar fecha/hora, usuario o aplicación, estado anterior/nuevo, campo modificado y valores
+anteriores/nuevos. La auditoría no debe ser editable desde la operación ordinaria».
+
+| Columna | Nota |
+|---|---|
+| `tenant_id` | Estampado desde el ticket, no desde la sesión. Permite filtrar sin join |
+| `support_ticket_id` | FK **CASCADE**: el expediente muere con el ticket |
+| `actor_user_id` | FK **SET NULL**. `NULL` = lo hizo el sistema. Dar de baja a un empleado no puede borrar la auditoría de lo que hizo |
+| `event_type` | `ticket_created`, `status_changed`, …, `note_added`, `attachment_added`, `charge_created` |
+| `field` | Campo afectado; `NULL` en eventos que no son cambio de campo |
+| `old_value` / `new_value` | **Código estable** (`open`, `S02`, `AC07`), nunca id interno. Para `staff_id` va el id, que sí es la identidad |
+| `metadata` | JSON. Etiqueta del momento, nombre del archivo, id de la nota. **Nunca** rutas de almacenamiento, credenciales ni datos personales de más |
+| `source` | `web`, `api`, `import`… o `system` cuando no hubo actor humano |
+
+**Es append-only, y se hace cumplir en el modelo:** `SupportTicketHistory` lanza en
+`updating` y `deleting`, y no existen rutas de edición ni de borrado. No se usó un trigger de
+PostgreSQL porque la suite corre también sobre SQLite y una garantía que sólo existe en un
+motor da falsa cobertura — el mismo razonamiento que llevó a sincronizar catálogos en el
+modelo y no con trigger en la R2.
+
+`updated_at` existe por convención de la tabla pero por construcción nunca difiere de
+`created_at`: si difirieran, alguien habría editado el histórico.
+
+**Por qué no `audit_logs`:** aquélla guarda el modelo entero como JSON —consultar por campo
+obliga a recorrerlo, y los operadores JSON de PostgreSQL no existen en SQLite—, vive tras el
+permiso `view_audit_log` de administración cuando el historial lo tiene que ver quien atiende
+el ticket con `view_support`, y su clave es `model_type`+`model_id` sin FK al ticket. Se
+sigue el patrón de `sectorial_history`.
 
 ### 4.15b Catálogos del ticket
 
@@ -1132,6 +1164,9 @@ Agregado permanente.
 | `support_ticket.user_id` | `users.id` | SET NULL |
 | `support_ticket_attachment.ticket_id` | `support_ticket.id` | CASCADE |
 | `support_ticket_attachment.user_id` | `users.id` | CASCADE |
+| `support_ticket_history.tenant_id` | `tenant.id` | CASCADE |
+| `support_ticket_history.support_ticket_id` | `support_ticket.id` | CASCADE |
+| `support_ticket_history.actor_user_id` | `users.id` | **SET NULL** — borrar al empleado no borra su auditoría |
 | `support_ticket_message.ticket_id` | `support_ticket.id` | CASCADE |
 | `support_ticket_message.user_id` | `users.id` | CASCADE |
 | `suspension_action_logs.customer_id` | `users.id` | CASCADE |
