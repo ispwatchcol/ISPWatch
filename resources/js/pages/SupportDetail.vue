@@ -192,10 +192,16 @@
                                 <div class="flex justify-between items-start mb-2">
                                     <div class="flex items-center gap-2">
                                         <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
-                                            {{ message.user?.user_name?.charAt(0) }}
+                                            {{ (message.author_label || '?').charAt(0) }}
                                         </div>
                                         <div>
-                                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ message.user?.user_name }}</p>
+                                            <!-- `author_label` lo resuelve el backend: usuario vivo,
+                                                 si no el nombre congelado al escribir, si no
+                                                 «Usuario eliminado». Nunca se accede a
+                                                 `user.user_name` directamente, porque `user_id`
+                                                 puede ser NULL desde que dar de baja a un cliente
+                                                 dejó de borrar sus notas (H-6). -->
+                                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ message.author_label }}</p>
                                             <p class="text-[10px] text-gray-500 dark:text-gray-400">{{ formatDate(message.created_at) }}</p>
                                         </div>
                                     </div>
@@ -224,7 +230,12 @@
                                  class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                                 <div class="flex items-center gap-3">
                                     <v-icon name="bi-file-earmark" class="w-5 h-5 text-gray-500" />
-                                    <span class="text-sm text-gray-800 dark:text-white">{{ attachment.file_name }}</span>
+                                    <div>
+                                        <span class="text-sm text-gray-800 dark:text-white">{{ attachment.file_name }}</span>
+                                        <p class="text-[10px] text-gray-500 dark:text-gray-400">
+                                            Subido por {{ attachment.author_label }}
+                                        </p>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-3">
                                     <button 
@@ -334,7 +345,7 @@
                             <div class="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm">
                                 <v-icon name="bi-person" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                 <span class="text-gray-600 dark:text-gray-300">Se cobrará a:</span>
-                                <strong class="text-gray-800 dark:text-white">{{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}</strong>
+                                <strong class="text-gray-800 dark:text-white">{{ nombreDelCliente }}</strong>
                             </div>
                             <div class="space-y-3">
                                 <datalist id="ticket-charge-unit-options">
@@ -515,14 +526,19 @@
                         <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Cliente</h3>
                         <div class="space-y-2">
                             <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Nombre:</span> {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
+                                <span class="font-semibold">Nombre:</span> {{ nombreDelCliente }}
                             </p>
-                            <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Email:</span> {{ ticket.user?.email }}
-                            </p>
-                            <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Teléfono:</span> {{ ticket.user?.tel }}
-                            </p>
+                            <!-- Correo y teléfono sólo si el cliente sigue existiendo. Un
+                                 ticket cuyo cliente se dio de baja conserva el expediente,
+                                 pero ya no tiene ficha de contacto que mostrar. -->
+                            <template v-if="ticket.user">
+                                <p class="text-sm text-gray-600 dark:text-gray-300">
+                                    <span class="font-semibold">Email:</span> {{ ticket.user.email }}
+                                </p>
+                                <p class="text-sm text-gray-600 dark:text-gray-300">
+                                    <span class="font-semibold">Teléfono:</span> {{ ticket.user.tel }}
+                                </p>
+                            </template>
                         </div>
                     </div>
                     <!-- Staff asignado  -->
@@ -580,6 +596,22 @@ const camposDeDiagnostico = computed(() => {
         { clave: 'solution', etiqueta: 'Acción realizada', valor: d.solution },
         { clave: 'result', etiqueta: 'Resultado del cierre', valor: d.result },
     ]
+})
+
+/**
+ * Nombre del cliente del ticket, resistente a que se haya dado de baja.
+ *
+ * `support_ticket.user_id` es `SET NULL` desde 2024: el ticket sobrevive a la
+ * baja del cliente, pero hasta ahora la ficha quedaba en blanco sin explicar
+ * por qué. No hay nombre congelado para el cliente —el snapshot del H-6 cubre
+ * autores de notas y adjuntos—, así que se dice lo que se sabe.
+ */
+const nombreDelCliente = computed(() => {
+    const u = ticket.value.user
+    if (!u) return 'Cliente eliminado'
+
+    const nombre = `${u.user_name || ''} ${u.user_lastname || ''}`.trim()
+    return nombre || u.email || 'Cliente sin nombre'
 })
 
 const tieneDiagnostico = computed(

@@ -498,6 +498,41 @@ funcionalidad nueva con un correctivo de seguridad retrasa el correctivo.
 **`tenant_id` del historial sigue en CASCADE**: dar de baja a un ISP se lleva su auditoría. Es
 una decisión distinta, documentada y **no tomada** aquí.
 
+### PR H-6 · El expediente sobrevive a la baja del cliente
+
+Correctivo de integridad detectado al auditar el PR A.
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Que dar de baja a un cliente no vacíe el expediente de sus tickets |
+| **Cubre** | Ningún requisito F nuevo. **Protege** F1-11 (evidencia) y F1-17 (auditoría) |
+| **Migraciones** | `2026_08_29_000001_preserve_ticket_notes_and_attachments_on_user_deletion` |
+| **Pruebas** | `tests/Feature/Support/TicketExpedientSurvivesUserDeletionTest.php` — 16 pruebas |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**El agujero.** `support_ticket_message.user_id` y `support_ticket_attachment.user_id` se
+declararon en 2025 con `ON DELETE CASCADE` sobre `users`, y `CustomerDeletionService` termina
+con `$user->delete()`. Dar de baja a un cliente **borraba las notas y los adjuntos** de todos
+sus tickets. El ticket sobrevivía —su `user_id` ya era `SET NULL`— pero quedaba vaciado por
+dentro, y el historial del PR #3 apuntaba a filas inexistentes.
+
+Afectaba al cliente y no sólo al personal porque, al crear un ticket, los adjuntos se atribuyen
+al **cliente** y no a quien los sube.
+
+**Qué cambia.** Las dos claves foráneas pasan a **`SET NULL`** —alineadas con
+`support_ticket.user_id` y `support_ticket_history.actor_user_id`— y las columnas a nullable.
+Se añade **`author_name`**, el nombre visible congelado al escribir, **sólo el nombre**: el
+expediente necesita saber quién escribió, no conservar la ficha de quien pidió su baja.
+
+**Los archivos del bucket nunca se borraron y siguen sin borrarse.**
+`collectFilePaths()` sólo recoge documentos de cliente y firmas de instalación, así que el
+efecto anterior era el peor posible: desaparecía la fila y el objeto quedaba huérfano en S3.
+La retención sigue siendo **D-05**.
+
+**Queda abierto `invoices.customer_id`**, todavía en `CASCADE`: dar de baja a un cliente borra
+su histórico de facturación, incluidos los cargos de ticket. Es contabilidad, no expediente
+del ticket, y merece su propio análisis (**P-43**).
+
 ### PR #4 · Ciclo de vida y reglas de cierre
 
 | Campo | Detalle |
@@ -614,7 +649,8 @@ Ninguna debe resolverse por iniciativa propia.
 | PR #2 | #251 | `https://github.com/ispwatchcol/ISPWatch/pull/251` | ✅ Mergeado y desplegado |
 | Endurecimiento notas/adjuntos | #252 | `https://github.com/ispwatchcol/ISPWatch/pull/252` | ✅ Mergeado y desplegado |
 | PR #3 · historial | #253 | `https://github.com/ispwatchcol/ISPWatch/pull/253` | ✅ Mergeado y desplegado |
-| PR A · impedir borrado físico | *(por asignar)* | *(abierto para revisión)* | — |
+| PR A · impedir borrado físico | #254 | `https://github.com/ispwatchcol/ISPWatch/pull/254` | ✅ Mergeado y desplegado |
+| PR H-6 · preservar expediente | *(por asignar)* | *(abierto para revisión)* | — |
 
 ### Resultados de CI
 
@@ -666,3 +702,5 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-27 | **PR #3 mergeado y desplegado** (PR #253) | David Gómez | PR #253 |
 | 2026-08-27 | **Auditoría de permisos y borrado**: seis hallazgos (H-1 a H-6). Diseño completo en `DISENO_PERMISOS_Y_ARCHIVADO.md` con matriz de roles §18, 20 permisos propuestos, comparación de enfoques de archivado y división en PRs A-E. Nuevas decisiones **D-10 a D-13** | — | *(sin commit)* |
 | 2026-08-27 | **PR A implementado**: retirado el borrado físico de tickets (ruta 403, guard en el modelo y clave foránea `RESTRICT` en el historial); corregidos H-3 y H-4; botón «Eliminar» retirado de la interfaz. **H-6 queda abierto** (borrar un cliente destruye notas y adjuntos de sus tickets) como **P-42** | — | *(PR abierto)* |
+| 2026-08-29 | **PR A mergeado y desplegado** (PR #254). Borrado físico de tickets bloqueado y FK del historial en `RESTRICT`, validado en producción | David Gómez | PR #254 |
+| 2026-08-29 | **H-6 corregido**: `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan de `CASCADE` a `SET NULL`; se añade `author_name` con el nombre congelado del autor. Dar de baja a un cliente ya no vacía el expediente. **Queda abierto `invoices.customer_id`** (P-43), que sigue borrando el histórico de facturación | — | *(PR abierto)* |
