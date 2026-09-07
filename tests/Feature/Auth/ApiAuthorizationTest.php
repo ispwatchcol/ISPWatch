@@ -117,7 +117,9 @@ class ApiAuthorizationTest extends TestCase
         return [
             'listar clientes'      => ['get',    '/api/customers',   'view_clients'],
             'crear cliente'        => ['post',   '/api/customers',   'add_clients'],
-            'borrar cliente'       => ['delete', '/api/customers/1', 'edit_internet_service'],
+            // Permiso propio desde 2026-08-31: borrar un cliente arrastra sus
+            // facturas y pagos, y `edit_internet_service` lo tenían 20 roles.
+            'borrar cliente'       => ['delete', '/api/customers/1', 'delete_customers'],
             'listar routers'       => ['get',    '/api/routers',     'manage_routers'],
             'crear router'         => ['post',   '/api/routers',     'manage_routers'],
             'listar planes'        => ['get',    '/api/plans',       'view_plans'],

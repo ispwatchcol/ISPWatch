@@ -1297,12 +1297,72 @@ class CustomerProfileController extends Controller
      * borrado SIGUIENDO NAVEGANDO— y las filas de las tres tablas que tienen
      * columna de cliente pero no clave foránea.
      */
-    public function destroy($id, CustomerDeletionService $deletion)
+    public function destroy(Request $request, $id, CustomerDeletionService $deletion)
     {
         $tenantId = $this->authTenantId();
         // Tenant-scoped lookups: a cross-tenant id resolves to 404, never deletes.
         $user = User::where('tenant_id', $tenantId)->findOrFail($id);
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+
+        // MOTIVO OBLIGATORIO, validado en el servidor.
+        //
+        // La interfaz ya exige escribir «ELIMINAR», pero eso es una barrera
+        // contra el clic distraído, no contra una petición hecha a mano. El
+        // motivo se exige aquí porque es lo único que queda después: dentro de
+        // seis meses, cuando alguien pregunte por qué no está ese abonado, la
+        // respuesta tiene que estar escrita.
+        //
+        // `min:10` sobre el valor ya recortado: `TrimStrings` convierte una
+        // cadena de espacios en vacía, así que «   » no pasa `required`.
+        $datos = $request->validate([
+            'reason'  => ['required', 'string', 'min:10', 'max:500'],
+            'confirm' => ['required', 'in:ELIMINAR'],
+        ], [
+            'reason.required' => 'Debes indicar el motivo de la eliminación.',
+            'reason.min'      => 'El motivo debe tener al menos 10 caracteres.',
+            'reason.max'      => 'El motivo no puede superar los 500 caracteres.',
+            'confirm.in'      => 'Falta la confirmación explícita de la eliminación.',
+        ]);
+
+        // AUDITORÍA ANTES DE DESTRUIR, y si no se puede escribir, no se destruye.
+        //
+        // El orden importa: una vez borrado el cliente ya no hay de dónde sacar
+        // su nombre, su documento ni cuántas facturas tenía. Auditar después
+        // sería auditar lo que se recuerde.
+        //
+        // Va FUERA de la transacción del borrado a propósito. Si compartieran
+        // transacción, un fallo al borrar revertiría también el registro de que
+        // se intentó — y un intento fallido de destruir el histórico de un
+        // abonado es justo lo que hay que poder revisar después.
+        try {
+            $auditoria = \App\Models\AuditLog::log([
+                'tenant_id'   => $tenantId,
+                'action'      => 'customer_deleted',
+                'model_type'  => CustomerProfile::class,
+                'model_id'    => (int) $user->id,
+                'old_values'  => $this->resumenParaAuditoria($user, $customer),
+                'new_values'  => [
+                    'reason'         => $datos['reason'],
+                    'correlation_id' => $correlacion = (string) Str::uuid(),
+                ],
+                'description' => "Eliminación física del cliente {$customer->name} {$customer->last_name}.",
+            ]);
+
+            if (!$auditoria || !$auditoria->exists) {
+                throw new \RuntimeException('El registro de auditoría no quedó persistido.');
+            }
+        } catch (\Throwable $e) {
+            \Log::error('[CustomerProfile] No se pudo auditar la eliminación; se aborta', [
+                'customer_id' => $id,
+                'error'       => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'No se pudo registrar la auditoría de la eliminación. '
+                    . 'La operación se canceló y el cliente NO fue eliminado.',
+                'error'   => 'audit_write_failed',
+            ], 500);
+        }
 
         try {
             $result = $deletion->delete($user, $customer);
@@ -1330,9 +1390,70 @@ class CustomerProfileController extends Controller
                 . ' Revísalo a mano o el servicio seguirá activo.';
 
         return response()->json([
-            'message' => $message,
-            'cleanup' => $result,
+            'message'        => $message,
+            'cleanup'        => $result,
+            // Permite atar la respuesta con su fila de `audit_logs` cuando haya
+            // que reconstruir qué pasó.
+            'correlation_id' => $correlacion,
         ]);
+    }
+
+    /**
+     * Qué se va a destruir, en cifras. Se escribe ANTES de borrar.
+     *
+     * CONTEOS, NO CONTENIDO. Nada de contraseñas, tokens, datos de pago,
+     * documentos ni adjuntos: la auditoría tiene que decir el ALCANCE de lo que
+     * se destruyó, no conservar una copia de lo destruido. Copiarlo aquí
+     * convertiría `audit_logs` en el sitio donde sobreviven precisamente los
+     * datos que alguien pidió eliminar.
+     *
+     * Del cliente se guardan sólo nombre y documento, que son lo mínimo para
+     * identificar de quién se habla en una revisión posterior; ya están en las
+     * facturas emitidas.
+     *
+     * @return array<string, mixed>
+     */
+    private function resumenParaAuditoria(User $user, CustomerProfile $customer): array
+    {
+        $id = (int) $user->id;
+
+        $contar = function (string $tabla, string $columna) use ($id): int {
+            try {
+                return (int) DB::table($tabla)->where($columna, $id)->count();
+            } catch (\Throwable) {
+                // Una tabla ausente no puede impedir la auditoría.
+                return -1;
+            }
+        };
+
+        return [
+            'customer' => [
+                'user_id'   => $id,
+                'name'      => trim("{$customer->name} {$customer->last_name}"),
+                'cedula'    => $customer->cedula,
+                'tenant_id' => (int) $user->tenant_id,
+            ],
+            // Lo que la cascada se llevará por delante. `invoices` y `payments`
+            // siguen en CASCADE: es la deuda P-43, sin resolver. Dejar el conteo
+            // escrito es lo único que hoy permite saber cuánto se perdió.
+            'se_eliminan' => [
+                'invoices'                    => $contar('invoices', 'customer_id'),
+                'payments'                    => $contar('payments', 'customer_id'),
+                'invoice_carryovers'          => $contar('invoice_carryovers', 'customer_id'),
+                'customer_credits'            => $contar('customer_credits', 'customer_id'),
+                'customer_documents'          => $contar('customer_documents', 'customer_id'),
+                'user_services'               => $contar('user_services', 'user_id'),
+                'customer_installations'      => $contar('customer_installations', 'customer_id'),
+                'billing_action_logs'         => $contar('billing_action_logs', 'customer_id'),
+                'suspension_action_logs'      => $contar('suspension_action_logs', 'customer_id'),
+            ],
+            // Lo que SOBREVIVE, para que la revisión sepa dónde seguir mirando.
+            'se_conservan' => [
+                'support_ticket'          => $contar('support_ticket', 'user_id'),
+                'support_ticket_message'  => $contar('support_ticket_message', 'user_id'),
+                'support_ticket_attachment' => $contar('support_ticket_attachment', 'user_id'),
+            ],
+        ];
     }
 
     /**

@@ -48,6 +48,24 @@
                             />
                         </div>
 
+                        <!-- Motivo obligatorio. El backend lo exige (10-500
+                             caracteres); aquí sólo se adelanta el aviso. -->
+                        <div v-if="confirmDialog.requireReason" class="mb-5">
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">
+                                Motivo de la eliminación <span class="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                v-model="confirmReasonText"
+                                rows="3"
+                                maxlength="500"
+                                placeholder="Explica por qué se elimina este cliente. Quedará registrado en la auditoría."
+                                class="w-full px-3 py-2 text-sm rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                            ></textarea>
+                            <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                                {{ confirmReasonText.trim().length }}/500 · mínimo 10 caracteres
+                            </p>
+                        </div>
+
                         <!-- Buttons -->
                         <div class="flex gap-3">
                             <button
@@ -58,7 +76,8 @@
                             </button>
                             <button
                                 @click="acceptConfirm"
-                                :disabled="!!confirmDialog.requireText && confirmInputText !== confirmDialog.requireText"
+                                :disabled="(!!confirmDialog.requireText && confirmInputText !== confirmDialog.requireText)
+                                    || (confirmDialog.requireReason && confirmReasonText.trim().length < 10)"
                                 :class="confirmBtnClass"
                                 class="flex-1 px-4 py-2.5 rounded-xl text-white font-medium transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                             >
@@ -334,7 +353,7 @@
                             <icon-lucide-play-circle class="w-3.5 h-3.5" /> Activar
                         </button>
 
-                        <button v-if="can('activate_deactivate_clients')" @click="deleteCustomer(customer)"
+                        <button v-if="can('delete_customers')" @click="deleteCustomer(customer)"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
                                 bg-red-50 text-red-700 border border-red-200
                                 hover:bg-red-100 hover:scale-[1.03] transition-all
@@ -421,7 +440,7 @@
                         <icon-lucide-play-circle class="w-3.5 h-3.5" /> Activar
                     </button>
 
-                    <button v-if="can('activate_deactivate_clients')" @click="deleteCustomer(customer)"
+                    <button v-if="can('delete_customers')" @click="deleteCustomer(customer)"
                         class="px-3 py-2 text-xs font-medium rounded-lg flex items-center gap-1
                             bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-all
                             dark:bg-red-900/30 dark:text-red-300 dark:border-red-800">
@@ -514,9 +533,11 @@ const confirmDialog = ref({
     message: '',
     confirmLabel: 'Confirmar',
     requireText: null,
+    requireReason: false,
     resolve: null,
 })
 const confirmInputText = ref('')
+const confirmReasonText = ref('')
 
 const confirmIconBg = computed(() => ({
     'bg-green-100  dark:bg-green-900/30':  confirmDialog.value.type === 'info',
@@ -542,15 +563,21 @@ const openConfirm = (options) =>
     })
 
 const acceptConfirm = () => {
-    confirmDialog.value.resolve(true)
+    // Se resuelve con el motivo cuando se pidió, para que el llamador no tenga
+    // que leer el estado del diálogo después de cerrarlo.
+    confirmDialog.value.resolve(
+        confirmDialog.value.requireReason ? { ok: true, reason: confirmReasonText.value.trim() } : true
+    )
     confirmDialog.value.show = false
     confirmInputText.value = ''
+    confirmReasonText.value = ''
 }
 
 const cancelConfirm = () => {
     confirmDialog.value.resolve(false)
     confirmDialog.value.show = false
     confirmInputText.value = ''
+    confirmReasonText.value = ''
 }
 
 // ── Router filter helpers ────────────────────────────────────────────────────
@@ -962,14 +989,21 @@ const deleteCustomer = async (customer) => {
         type: 'danger',
         icon: 'md-deleteforever',
         title: 'Eliminar cliente',
-        message: `Estás a punto de eliminar a ${customer.name} ${customer.last_name} junto con todas sus facturas, pagos, documentos y fotos, y se le quitará la configuración de su router. Esta acción no se puede deshacer.`,
+        message: `Estás a punto de eliminar a ${customer.name} ${customer.last_name} junto con todas sus facturas, pagos, documentos y fotos, y se le quitará la configuración de su router. Sus tickets de soporte se conservan. Esta acción NO se puede deshacer y quedará registrada en la auditoría con tu usuario y el motivo que escribas.`,
         confirmLabel: 'Eliminar',
         requireText: 'ELIMINAR',
+        requireReason: true,
     })
     if (!confirmed) return
 
     try {
-        const { data } = await api.customers.delete(customer.user_id)
+        // El motivo y la confirmación los valida el BACKEND: esto sólo los
+        // transporta. Ocultar el botón o exigir el texto aquí no protege nada
+        // frente a una petición hecha a mano.
+        const { data } = await api.customers.delete(customer.user_id, {
+            reason: confirmed.reason,
+            confirm: 'ELIMINAR',
+        })
         // El borrado NO se revierte si falla la limpieza del router (un router
         // caído dejaría clientes imposibles de eliminar), pero el operador
         // tiene que enterarse: la configuración sigue en el equipo y el

@@ -205,6 +205,65 @@ autenticado. Esa inconsistencia es la razón de que la baja de un cliente barrie
 real. Cambiarla altera a quién «pertenece» un adjunto, que es una decisión semántica no
 solicitada, así que se documenta y no se toca.
 
+## 4ter. P-43 · Controles de la eliminación de clientes
+
+**Implementado parcialmente.** Este PR **no** resuelve P-43: facturas, pagos, créditos y
+arrastres se siguen borrando en cascada. Lo que hace es que la operación deje de ser
+silenciosa y esté al alcance de mucha menos gente.
+
+### Lo que se cerró
+
+| Antes | Ahora |
+|---|---|
+| Autorizado por `edit_internet_service` — lo tenían **20 roles**, incluido `Tecnico` con 7 permisos | Permiso propio **`delete_customers`**, concedido sólo a los roles con `code = 'admin'` (**5 roles**) |
+| Sin motivo | Motivo **obligatorio** en el servidor: 10–500 caracteres, no sólo espacios |
+| Confirmación sólo en la interfaz | El backend exige además `confirm: "ELIMINAR"`; no confía en el navegador |
+| **Sin ninguna traza** en `audit_logs` | Evento `customer_deleted` con actor, tenant, motivo, id de correlación y **conteo de lo que se destruirá** |
+| Si la auditoría fallaba, daba igual | Si no se puede escribir la auditoría, **se aborta y no se borra nada** |
+| Enlaces de firma huérfanos | Se **desvinculan y revocan**, como `prospects.converted_user_id` |
+
+### Roles afectados
+
+La migración `2026_08_31_000001` concede `delete_customers` **sólo a `code = 'admin'`**. Se
+usa el `code` y no el nombre ni el id porque los roles son por tenant: el id varía y el nombre
+es editable. Es el mismo criterio de `CheckStaffProfile`.
+
+**Quince roles pierden la capacidad**: `Staff`, `Contabilidad` y `Tecnico` de los cinco
+tenants. Es el objetivo, no un efecto colateral: **no se concede por arrastre** a todo el que
+tenga `edit_internet_service`, porque eso dejaría el agujero abierto.
+
+### Qué guarda y qué no la auditoría
+
+Guarda **conteos, no contenido**: cuántas facturas, pagos, créditos, documentos e
+instalaciones se van a destruir, y cuántos tickets, notas y adjuntos **sobreviven**. Del
+cliente sólo nombre y cédula — lo mínimo para saber de quién se habla en una revisión, y que
+ya figura en las facturas emitidas.
+
+**Nunca** contraseñas, tokens, datos de pago, documentos ni contenido de adjuntos. Copiarlos
+convertiría `audit_logs` en el sitio donde sobreviven precisamente los datos que alguien pidió
+eliminar.
+
+El registro se escribe **antes** de destruir y **fuera** de la transacción del borrado: si
+compartieran transacción, un fallo al borrar revertiría también la constancia de que se
+intentó, y un intento fallido de destruir el histórico de un abonado es justo lo que hay que
+poder revisar después.
+
+### Qué pasa con documentos y firmas
+
+- `customer_documents`: se borran las filas **y sus objetos de S3**. Es el comportamiento
+  actual desde 2026-08-06 y está cubierto por `CustomerDeletionCleanupTest`. **No se cambió.**
+- Firmas de instalación (`customer_signature_path`, `technician_signature_path`): igual, se
+  borran de S3 con la instalación. **No se cambió.**
+- `contract_signature_links`: **no se borran.** Se desvinculan (`customer_id = NULL`) y se
+  revocan. Un enlace es un token de acceso efímero, no evidencia; el contrato firmado vive en
+  `customer_documents`. No era un agujero de seguridad —`PublicContractController::customerOf()`
+  ya devolvía 404 con el cliente ausente— pero sí una referencia colgante.
+
+### Lo que sigue abierto
+
+**P-43 no está resuelta.** Sigue faltando decidir **D-14** a **D-18** (§9). Mientras tanto, el
+daño está acotado a cinco roles administrativos y queda escrito cuánto se destruyó.
+
 ## 5. La clave foránea del historial
 
 `support_ticket_history.support_ticket_id` se creó en el PR #3 con **`ON DELETE CASCADE`**.
@@ -241,6 +300,7 @@ correcto para una baja de cliente, pero es una decisión distinta y **no se tom�
 |---|---|---|---|---|
 | **A · Impedir el borrado físico** | Retirar el `DELETE`, guard en el modelo, FK a `RESTRICT`, corregir H-3 y H-4, quitar el botón | **No** | Sí (FK) | ✅ **Implementado** |
 | **H-6 · Preservar el expediente** | Las dos FK a `SET NULL`, `author_name` congelado, UI resistente al autor ausente | **No** | Sí (FK + columna) | ✅ **Implementado** |
+| **P-43a · Controles de eliminación de clientes** | Permiso propio, motivo, auditoría previa, enlaces de firma | **No** | Sí (datos + columna) | ✅ **Implementado** |
 | **B · Permisos granulares** | Los 20 permisos, middleware por ruta, **backfill que preserva el comportamiento** | **No** | Sí (datos) | ⚪ Listo para iniciar |
 | **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas | Parcialmente | Sí (esquema) | 🔒 Requiere D-10 |
 | **D · UI de archivados** | Vista, filtro, doble confirmación, restauración | No | No | 🔒 Depende de C |

@@ -420,8 +420,12 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         ->middleware('permission:add_clients');
     Route::match(['put', 'patch'], '/customers/{customer}', [CustomerProfileController::class, 'update'])
         ->middleware('permission:edit_internet_service');
+    // Permiso PROPIO y no `edit_internet_service`: borrar un cliente arrastra en
+    // cascada sus facturas, pagos, créditos y documentos. Con el permiso de
+    // edición podían hacerlo 20 roles, incluido `Tecnico`. Ver la migración
+    // 2026_08_31_000001 y docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md.
     Route::delete('/customers/{customer}', [CustomerProfileController::class, 'destroy'])
-        ->middleware('permission:edit_internet_service');
+        ->middleware('permission:delete_customers');
 
     // Routers
     Route::middleware('permission:manage_routers,view_clients,add_clients,view_billing,execute_mass_actions')

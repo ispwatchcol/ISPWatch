@@ -197,6 +197,23 @@ class CustomerDeletionService
             ->where('converted_user_id', $customerId)
             ->update(['converted_user_id' => null]);
 
+        // Los enlaces de firma se REVOCAN y se DESVINCULAN, misma estrategia que
+        // el prospecto. La tabla no tiene clave foránea, así que antes quedaban
+        // apuntando a un cliente inexistente y nadie los limpiaba nunca.
+        //
+        // No es un agujero de seguridad —`PublicContractController::customerOf()`
+        // ya responde 404 si el cliente no aparece— pero revocar lo hace
+        // explícito en vez de depender de ese efecto colateral. Un enlace es un
+        // token de acceso efímero; el contrato firmado vive en
+        // `customer_documents` y se borra aparte, con su objeto de S3.
+        $links = DB::table('contract_signature_links')
+            ->where('customer_id', $customerId)
+            ->update([
+                'customer_id' => null,
+                'revoked_at'  => DB::raw('COALESCE(revoked_at, ' . $this->ahoraSql() . ')'),
+                'updated_at'  => now(),
+            ]);
+
         $profile->delete();
         $user->delete();
 
@@ -205,7 +222,20 @@ class CustomerDeletionService
             'documentos_instalacion' => (int) $documents,
             'ejecuciones_alta'       => (int) $runs,
             'prospectos_desligados'  => (int) $prospects,
+            'enlaces_firma_revocados' => (int) $links,
         ];
+    }
+
+    /**
+     * Expresión de «ahora» válida en los dos motores.
+     *
+     * `now()` existe en PostgreSQL; SQLite usa `CURRENT_TIMESTAMP`. Se necesita
+     * SQL crudo y no un valor de PHP porque va dentro de un `COALESCE`, para no
+     * pisar la fecha de un enlace que ya estaba revocado.
+     */
+    private function ahoraSql(): string
+    {
+        return DB::getDriverName() === 'sqlite' ? "CURRENT_TIMESTAMP" : 'now()';
     }
 
     /**

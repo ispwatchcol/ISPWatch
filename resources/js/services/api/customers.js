@@ -13,8 +13,11 @@ export default {
     update(id, data) {
         return apiClient.put(`/customers/${id}`, data)
     },
-    delete(id) {
-        return apiClient.delete(`/customers/${id}`)
+    // El borrado exige motivo y confirmación explícita, validados en el
+    // servidor. Van en el cuerpo porque un DELETE con payload es la forma menos
+    // mala de mandarlos sin inventar un verbo nuevo para una ruta ya existente.
+    delete(id, payload = {}) {
+        return apiClient.delete(`/customers/${id}`, { data: payload })
     },
     getStatistics() {
         return apiClient.get('/customers/statistics')

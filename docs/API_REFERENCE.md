@@ -314,7 +314,7 @@ Recurso base: `apiResource('customers', CustomerProfileController::class)`.
 | `POST` | `/api/customers` | auth | Crea cliente (+ aprovisionamiento opcional) |
 | `GET` | `/api/customers/{id}` | auth | Detalle |
 | `PUT/PATCH` | `/api/customers/{id}` | auth | Actualiza |
-| `DELETE` | `/api/customers/{id}` | auth | **Borrado completo**: filas, archivos de S3 y configuración del router (ver abajo) |
+| `DELETE` | `/api/customers/{id}` | **`delete_customers`** | **Borrado completo**: filas, archivos de S3 y configuración del router. Exige motivo y confirmación (ver abajo) |
 | `GET` | `/api/customers/statistics` | auth | Estadísticas de clientes |
 | `GET` | `/api/customers/map` | `view_clients` | Datos georreferenciados para el mapa (ver abajo) |
 | `GET` | `/api/customers/used-ips` | auth | IPs ya asignadas |
@@ -384,7 +384,34 @@ columna JSON guarda, según cómo se creó la fila, un objeto `{lat,lng}` o una 
 ### `DELETE /api/customers/{id}`
 
 Borrado **completo**, no sólo de la fila. Orquestado por `App\Services\CustomerDeletionService`
-(ver `BITACORA_TECNICA.md` § 19 para el porqué del orden de las operaciones):
+(ver `BITACORA_TECNICA.md` § 19 para el porqué del orden de las operaciones).
+
+> **Requiere el permiso `delete_customers`** desde 2026-08-31. Antes bastaba
+> `edit_internet_service`, que tienen 20 roles incluido `Tecnico`. El permiso se concedió sólo
+> a los roles con `code = 'admin'`. Ver `BITACORA_TECNICA.md` §56.
+
+**Cuerpo obligatorio** — validado en el servidor, no basta con que la interfaz lo pida:
+
+```json
+{
+  "reason":  "Cliente duplicado creado por error en el alta.",
+  "confirm": "ELIMINAR"
+}
+```
+
+| Campo | Regla |
+|---|---|
+| `reason` | Requerido, 10–500 caracteres. Una cadena de espacios no pasa |
+| `confirm` | Requerido, literalmente `"ELIMINAR"` |
+
+Falta o incumplimiento → **422** con `errors.reason` / `errors.confirm`.
+
+Antes de destruir nada se escribe un evento **`customer_deleted`** en `audit_logs` con el
+actor, el tenant, el motivo, un `correlation_id` y el **conteo** de lo que se va a perder y de
+lo que sobrevive. Si ese registro no se puede persistir, la operación **se aborta** con
+**500** y `error: "audit_write_failed"`, y el cliente **no** se elimina.
+
+Pasos que ejecuta:
 
 1. Se limpia la configuración del cliente en su router — secret y sesión PPPoE, simple queue,
    usuario y sesión de HotSpot, lease DHCP, entradas de address-list, ARP estático y regla de
@@ -403,10 +430,18 @@ Borrado **completo**, no sólo de la fila. Orquestado por `App\Services\Customer
   "cleanup": {
     "router":  { "success": true, "statements": 11, "message": "Configuración del cliente eliminada del router." },
     "files":   { "deleted": 4, "failed": 0 },
-    "records": { "instalaciones": 1, "documentos_instalacion": 3, "ejecuciones_alta": 2, "prospectos_desligados": 1 }
-  }
+    "records": { "instalaciones": 1, "documentos_instalacion": 3, "ejecuciones_alta": 2, "prospectos_desligados": 1, "enlaces_firma_revocados": 1 }
+  },
+  "correlation_id": "9f1c2b7e-..."
 }
 ```
+
+`correlation_id` permite atar la respuesta con su fila de `audit_logs`.
+
+> ⚠️ **Los tickets del cliente sobreviven** (notas, adjuntos e historial incluidos) desde el
+> correctivo de H-6. **Sus facturas y pagos NO**: `invoices.customer_id` y
+> `payments.customer_id` siguen en `ON DELETE CASCADE`. Es la deuda **P-43**, sin resolver; el
+> conteo queda en la auditoría, pero los datos se pierden.
 
 > **Un fallo al limpiar el router NO revierte el borrado** — un router caído dejaría clientes
 > imposibles de eliminar — pero la respuesta sigue siendo `200` con
