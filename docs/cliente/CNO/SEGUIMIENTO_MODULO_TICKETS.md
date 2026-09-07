@@ -460,6 +460,44 @@ los cinco campos de diagnóstico · nota agregada · adjunto agregado · cargo g
   y así se dice en pantalla. Inventar eventos retroactivos sería falsificar una auditoría.
 - No toca estados, reglas de cierre, subcausas, intervenciones, duplicados ni métricas.
 
+### PR A · Impedir el borrado físico del ticket
+
+Correctivo urgente de seguridad e integridad, **independiente** de las decisiones pendientes
+del cliente. Nace de la auditoría recogida en
+[`DISENO_PERMISOS_Y_ARCHIVADO.md`](DISENO_PERMISOS_Y_ARCHIVADO.md).
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Que nadie —lectura, técnico, staff o administrador— pueda destruir un ticket, su auditoría, sus adjuntos o su trazabilidad contable |
+| **Cubre** | Ningún requisito F nuevo. **Protege** F1-17 (auditoría) y F1-11 (evidencia) ya entregados |
+| **Migraciones** | `2026_08_27_000001_restrict_delete_on_support_ticket_history` |
+| **Pruebas** | `tests/Feature/Support/TicketDeletionBlockedTest.php` — 17 pruebas |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**El agujero que cierra.** `DELETE /api/support/{id}` estaba tras `permission:view_support` —el
+**mismo permiso que leer**, que tienen los roles `Tecnico` y `Staff` de todos los ISP— y
+borraba de verdad. Desde el PR #3, `support_ticket_history` cuelga del ticket con
+`ON DELETE CASCADE`: **un clic se llevaba el ticket y su auditoría entera**. La única barrera
+era un `confirm()` del navegador.
+
+Además borraba los adjuntos de `Storage::disk('public')`, un disco donde ya no viven desde el
+PR #252: no borraba el objeto del bucket y sí la fila que decía dónde estaba. Y
+`invoices.ticket_id` es `nullOnDelete()`, así que un cargo facturado quedaba sin expediente.
+
+**Tres defensas independientes**, para que reactivar una no reabra el agujero:
+
+| Capa | Qué hace | Qué cubre |
+|---|---|---|
+| Ruta | `DELETE` responde **403** sin tocar la base | El endpoint y la interfaz |
+| Modelo | `SupportTicket` lanza en `deleting` | Cualquier camino de Eloquent: controlador, comando, job, acción masiva futura |
+| Base de datos | `ON DELETE RESTRICT` en el historial | `where(...)->delete()`, que no pasa por Eloquent |
+
+**No introduce el archivado.** Es el PR C del diseño y depende de **D-10**. Mezclar una
+funcionalidad nueva con un correctivo de seguridad retrasa el correctivo.
+
+**`tenant_id` del historial sigue en CASCADE**: dar de baja a un ISP se lleva su auditoría. Es
+una decisión distinta, documentada y **no tomada** aquí.
+
 ### PR #4 · Ciclo de vida y reglas de cierre
 
 | Campo | Detalle |
@@ -526,6 +564,10 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-07** | **¿Se expone al integrador?** Abarca ya tres cosas: los catálogos (PR #1), los cinco campos de diagnóstico (PR #2) y el historial del ticket (PR #3). Los tres viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
 | **D-09** | **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
+| **D-10** | **¿Debe existir el archivado de tickets?** El documento no lo pide en ninguna parte; al contrario, trata el ticket como un expediente que se revisa «sin alterar». El PR A retiró el borrado físico; falta decidir si se sustituye por archivado reversible o por nada | Requiere confirmar quién archiva y quién restaura | PR C y PR D del diseño |
+| **D-11** | **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
+| **D-12** | **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
+| **D-13** | **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
 
 ---
 
@@ -571,7 +613,8 @@ Ninguna debe resolverse por iniciativa propia.
 | PR #1 | #250 | `https://github.com/ispwatchcol/ISPWatch/pull/250` | ✅ Mergeado y desplegado |
 | PR #2 | #251 | `https://github.com/ispwatchcol/ISPWatch/pull/251` | ✅ Mergeado y desplegado |
 | Endurecimiento notas/adjuntos | #252 | `https://github.com/ispwatchcol/ISPWatch/pull/252` | ✅ Mergeado y desplegado |
-| PR #3 · historial | *(por asignar)* | *(abierto para revisión)* | — |
+| PR #3 · historial | #253 | `https://github.com/ispwatchcol/ISPWatch/pull/253` | ✅ Mergeado y desplegado |
+| PR A · impedir borrado físico | *(por asignar)* | *(abierto para revisión)* | — |
 
 ### Resultados de CI
 
@@ -620,3 +663,6 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-23 | **Endurecimiento posterior al PR #2**: corregido el 422 al guardar notas (el autor lo ponía el cliente) y la vista previa rota de adjuntos (disco efímero, sin `storage:link`, URL pública). Adjuntos movidos a `s3` y servidos por endpoint autenticado con verificación de tenant. Corregido de paso un 500 en `/v1/partner` con sesión del panel. **F1-11 sigue parcial**: falta hash y retención (D-05) | — | *(PR abierto)* |
 | 2026-08-25 | **Endurecimiento mergeado y desplegado** (PR #252) | David Gómez | PR #252 |
 | 2026-08-25 | **PR #3 implementado**: historial inalterable `support_ticket_history` con actor, campo, valor anterior/nuevo, origen y fecha; observer sobre el ticket; eventos de nota, adjunto y cargo; endpoint paginado de sólo lectura y sección «Historial» en el detalle (hora de Bogotá). **F1-17 sigue parcial**: falta el modelo de roles de la sección 18, registrado como **D-09**. F2-05 sigue parcial (D-07) | — | *(PR abierto)* |
+| 2026-08-27 | **PR #3 mergeado y desplegado** (PR #253) | David Gómez | PR #253 |
+| 2026-08-27 | **Auditoría de permisos y borrado**: seis hallazgos (H-1 a H-6). Diseño completo en `DISENO_PERMISOS_Y_ARCHIVADO.md` con matriz de roles §18, 20 permisos propuestos, comparación de enfoques de archivado y división en PRs A-E. Nuevas decisiones **D-10 a D-13** | — | *(sin commit)* |
+| 2026-08-27 | **PR A implementado**: retirado el borrado físico de tickets (ruta 403, guard en el modelo y clave foránea `RESTRICT` en el historial); corregidos H-3 y H-4; botón «Eliminar» retirado de la interfaz. **H-6 queda abierto** (borrar un cliente destruye notas y adjuntos de sus tickets) como **P-42** | — | *(PR abierto)* |
