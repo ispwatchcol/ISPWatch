@@ -141,6 +141,41 @@ class SupportTicket extends Model
         'result'          => ['result_id',           TicketCatalogs::RESULT],
     ];
 
+    /**
+     * El ticket NO SE BORRA. Nunca, por ningún camino.
+     *
+     * El requerimiento del cliente trata el ticket como un **expediente**:
+     * «revisión sin alterar el expediente», «los estados y timestamps se
+     * conservan sin sobrescritura», «ISPwash será el único expediente y
+     * consecutivo oficial». Y desde el PR #3 el ticket sostiene su propia
+     * auditoría, que cuelga de él por clave foránea.
+     *
+     * Quitar la ruta `DELETE` no bastaba: el borrado podía llegar igual desde un
+     * comando, un job, una acción masiva futura o un `$ticket->delete()` escrito
+     * de buena fe. Esta guardia cubre TODOS esos caminos de una vez, porque
+     * Eloquent dispara `deleting` en todos ellos.
+     *
+     * LO QUE NO CUBRE, y por eso además existe la clave foránea `RESTRICT`:
+     * `SupportTicket::where(...)->delete()` no pasa por Eloquent. Contra eso sólo
+     * protege la base de datos — el mismo razonamiento de la R1 al declarar los
+     * catálogos `ON DELETE RESTRICT`: que sea el motor, y no la disciplina de
+     * quien esté de turno, quien impida perder el histórico.
+     *
+     * PARA EL PR C (archivado): cuando se añada `SoftDeletes`, esta guardia hay
+     * que **cambiarla**, no quitarla — `delete()` pasará a ser un UPDATE de
+     * `deleted_at` y debe permitirse, mientras que `forceDelete()` debe seguir
+     * prohibido. Bloquear `forceDeleting` será entonces lo correcto.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (): void {
+            throw new \RuntimeException(
+                'Los tickets no se pueden eliminar: el expediente y su historial deben '
+                . 'conservarse. Ver docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md.'
+            );
+        });
+    }
+
     private static function catalogos(): TicketCatalogs
     {
         return app(TicketCatalogs::class);

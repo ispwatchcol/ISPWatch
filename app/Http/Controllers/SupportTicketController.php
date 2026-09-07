@@ -421,34 +421,54 @@ class SupportTicketController extends Controller
     }
 
     /**
-     * Remove the specified ticket.
+     * El borrado físico de un ticket está PROHIBIDO. Esto lo rechaza.
+     *
+     * QUÉ HABÍA AQUÍ Y POR QUÉ SE RETIRÓ
+     *
+     * Hasta este PR existía un `destroy()` que borraba el ticket de verdad. Tres
+     * problemas encadenados, ninguno visible desde la interfaz:
+     *
+     *  1. Estaba tras `permission:view_support` — el MISMO permiso que leer. Los
+     *     roles `Tecnico` y `Staff` de todos los ISP lo tienen. Quien podía ver
+     *     un ticket podía destruirlo, y la única barrera era un `confirm()` del
+     *     navegador.
+     *
+     *  2. Desde el PR #3, `support_ticket_history` cuelga del ticket con
+     *     `ON DELETE CASCADE`. Borrar el ticket **borraba su auditoría**, que es
+     *     exactamente lo que esa tabla existe para impedir. El requerimiento del
+     *     cliente pide «historial inalterable» y «revisión sin alterar el
+     *     expediente» (Solicitud Maestra §18); un botón que lo evapora es lo
+     *     contrario.
+     *
+     *  3. Borraba los adjuntos de `Storage::disk('public')`, pero el PR #252 los
+     *     movió a `s3`. Es decir: no borraba el archivo del bucket —quedaban
+     *     huérfanos con datos del cliente— y sí borraba la fila que decía dónde
+     *     estaba. Lo peor de los dos mundos.
+     *
+     * Y una cuarta consecuencia: `invoices.ticket_id` es `nullOnDelete()`, así
+     * que un cargo facturado quedaba sin expediente de origen.
+     *
+     * POR QUÉ 403 Y NO SIMPLEMENTE QUITAR LA RUTA
+     *
+     * Una ruta inexistente devuelve un 405 escueto que no explica nada, y quien
+     * lo reciba pensará que es un fallo. Aquí el rechazo es deliberado y se dice
+     * por qué. El método NO TOCA LA BASE DE DATOS: ni siquiera busca el ticket,
+     * para que no exista camino alguno hacia un `delete()`.
+     *
+     * QUÉ VIENE DESPUÉS
+     *
+     * El archivado/anulación reversible y auditado es el PR C del diseño
+     * (`docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md`). Se dejó fuera de aquí
+     * a propósito: este PR sólo cierra el agujero, y mezclar una funcionalidad
+     * nueva con un correctivo de seguridad retrasa el correctivo.
      */
     public function destroy($id)
     {
-        $ticket = SupportTicket::findOrFail($id);
-
-        DB::beginTransaction();
-
-        try {
-            // Eliminar archivos del storage
-            foreach ($ticket->attachments as $attachment) {
-                Storage::disk('public')->delete($attachment->file_path);
-            }
-
-            $ticket->delete();
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Ticket eliminado correctamente. ✅'
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Error al eliminar el ticket.',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'message' => 'Los tickets no se pueden eliminar. El expediente y su historial '
+                . 'deben conservarse. El archivado reversible estará disponible más adelante.',
+            'error'   => 'ticket_deletion_disabled',
+        ], 403);
     }
 
     /**

@@ -18,9 +18,9 @@ export default {
         }
         return apiClient.put(`/support/${id}`, data)
     },
-    delete(id) {
-        return apiClient.delete(`/support/${id}`)
-    },
+    // `delete(id)` se retiró: los tickets no se eliminan. El backend responde
+    // 403 a `DELETE /support/{id}` y el modelo lanza ante cualquier borrado.
+    // El archivado reversible llega en una fase posterior (PR C del diseño).
     getStatistics() {
         return apiClient.get('/support/statistics')
     },

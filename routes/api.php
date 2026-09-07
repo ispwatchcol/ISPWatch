@@ -475,6 +475,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // desde la operación ordinaria, y eso empieza por no ofrecer la puerta.
         Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history']);
 
+        // `destroy` sigue enrutado A PROPÓSITO, pero ya no borra nada: responde
+        // 403 explicando por qué. Quitar la ruta daría un 405 escueto que
+        // cualquiera leería como un fallo del servidor. Ver el comentario de
+        // SupportTicketController::destroy(), el guard de SupportTicket y la
+        // clave foránea RESTRICT de support_ticket_history.
         Route::apiResource('support', SupportTicketController::class);
     });
 

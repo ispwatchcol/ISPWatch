@@ -156,16 +156,10 @@
                                     >
                                         <icon-lucide-pencil class="w-4 h-4" /> Editar
                                     </button>
-                                    <button
-                                        v-if="canDelete"
-                                        @click="deleteTicket(ticket.id)"
-                                        class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
-                                            bg-red-50 text-red-700 border border-red-200
-                                            hover:bg-red-100 hover:scale-[1.03] transition-all
-                                            dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-800/50"
-                                    >
-                                        <icon-lucide-trash-2 class="w-4 h-4" /> Eliminar
-                                    </button>
+                                    <!-- El botón «Eliminar» se retiró: el ticket es un
+                                         expediente y su historial no puede destruirse. El
+                                         archivado reversible llega en una fase posterior.
+                                         Ver docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md -->
                                 </div>
                             </td>
                         </tr>
@@ -215,15 +209,6 @@
                             >
                                 <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
                             </button>
-                            <button
-                                v-if="canDelete"
-                                @click="deleteTicket(ticket.id)"
-                                class="px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
-                                    bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-all
-                                    dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
-                            >
-                                <icon-lucide-trash-2 class="w-3.5 h-3.5" />
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -263,7 +248,7 @@ const filters = ref({
 
 const canCreate = computed(() => can('view_support'))
 const canEdit = computed(() => can('view_support'))
-const canDelete = computed(() => can('view_support'))
+// `canDelete` se eliminó junto con el botón: no existe borrado de tickets.
 
 const filteredTickets = computed(() => {
     let result = tickets.value
@@ -328,19 +313,6 @@ const loadTickets = async () => {
         error.value = 'Error al cargar los tickets.'
     } finally {
         loading.value = false
-    }
-}
-
-const deleteTicket = async (id) => {
-    if (!confirm('¿Estás seguro de eliminar este ticket?')) return
-
-    try {
-        await api.support.delete(id)
-        toast.value?.success('Éxito', 'Ticket eliminado correctamente.')
-        loadTickets()
-    } catch (err) {
-        console.error('Error al eliminar ticket:', err)
-        toast.value?.error('Error', 'No se pudo eliminar el ticket.')
     }
 }
 

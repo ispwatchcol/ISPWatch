@@ -948,7 +948,7 @@ anteriores/nuevos. La auditoría no debe ser editable desde la operación ordina
 | Columna | Nota |
 |---|---|
 | `tenant_id` | Estampado desde el ticket, no desde la sesión. Permite filtrar sin join |
-| `support_ticket_id` | FK **CASCADE**: el expediente muere con el ticket |
+| `support_ticket_id` | FK **RESTRICT** (PR A, 2026-08-27). La base **rechaza** borrar un ticket que tenga historial. Antes era `CASCADE`, y con el endpoint de borrado vivo eso destruía la auditoría junto con el ticket |
 | `actor_user_id` | FK **SET NULL**. `NULL` = lo hizo el sistema. Dar de baja a un empleado no puede borrar la auditoría de lo que hizo |
 | `event_type` | `ticket_created`, `status_changed`, …, `note_added`, `attachment_added`, `charge_created` |
 | `field` | Campo afectado; `NULL` en eventos que no son cambio de campo |
@@ -964,6 +964,33 @@ modelo y no con trigger en la R2.
 
 `updated_at` existe por convención de la tabla pero por construcción nunca difiere de
 `created_at`: si difirieran, alguien habría editado el histórico.
+
+**El ticket tampoco se puede borrar, y eso se hace cumplir en dos sitios** (PR A):
+
+| Capa | Qué hace |
+|---|---|
+| Aplicación | `DELETE /api/support/{id}` responde **403** sin tocar la base, y `SupportTicket` lanza en `deleting`, lo que cubre cualquier camino de Eloquent —controlador, comandos, jobs, acciones masivas futuras— |
+| Base de datos | `ON DELETE RESTRICT` sobre `support_ticket_id`, que es lo único que cubre un `where(...)->delete()` sin Eloquent |
+
+La razón es conservar el **expediente y su auditoría**. El requerimiento del cliente trata el
+ticket como un expediente que se revisa «sin alterar», cuyos «estados y timestamps se conservan
+sin sobrescritura», y del que ISPwash es «el único expediente y consecutivo oficial». Un
+borrado en cascada del historial contradecía de frente el «historial inalterable» que esta
+misma tabla entrega.
+
+Consecuencia aceptada a conciencia: una supresión legítima —por ejemplo por ley de datos
+personales— exigirá borrar primero el historial, de forma explícita y autorizada. Eso es la
+finalidad, no un obstáculo.
+
+**`tenant_id` conserva `ON DELETE CASCADE`**: dar de baja a un ISP se lleva su auditoría.
+Probablemente sea lo correcto para una baja, pero es una decisión **distinta y pendiente**, y
+el PR A la documentó sin tomarla. Ver
+[`cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md`](cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md).
+
+**`actor_user_id` conserva `ON DELETE SET NULL`**: si se elimina un usuario, el evento
+sobrevive y sólo pierde el vínculo con la persona. El **hecho histórico se mantiene** — dar de
+baja a un empleado no puede borrar la auditoría de lo que hizo. El nombre legible del momento
+queda además congelado en `metadata`, así que el evento sigue siendo legible sin el usuario.
 
 **Por qué no `audit_logs`:** aquélla guarda el modelo entero como JSON —consultar por campo
 obliga a recorrerlo, y los operadores JSON de PostgreSQL no existen en SQLite—, vive tras el
@@ -1164,8 +1191,8 @@ Agregado permanente.
 | `support_ticket.user_id` | `users.id` | SET NULL |
 | `support_ticket_attachment.ticket_id` | `support_ticket.id` | CASCADE |
 | `support_ticket_attachment.user_id` | `users.id` | CASCADE |
-| `support_ticket_history.tenant_id` | `tenant.id` | CASCADE |
-| `support_ticket_history.support_ticket_id` | `support_ticket.id` | CASCADE |
+| `support_ticket_history.tenant_id` | `tenant.id` | CASCADE — decisión documentada **pendiente**: dar de baja a un ISP se lleva su auditoría |
+| `support_ticket_history.support_ticket_id` | `support_ticket.id` | **RESTRICT** — el borrado físico del ticket está bloqueado por aplicación y por base de datos (PR A) |
 | `support_ticket_history.actor_user_id` | `users.id` | **SET NULL** — borrar al empleado no borra su auditoría |
 | `support_ticket_message.ticket_id` | `support_ticket.id` | CASCADE |
 | `support_ticket_message.user_id` | `users.id` | CASCADE |

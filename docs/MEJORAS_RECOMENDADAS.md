@@ -1877,6 +1877,44 @@ ruta legítima queda fuera — la expresión regular actual ya demostró ser del
 
 No se corrigió en el PR #3 por no ampliar el alcance de una entrega funcional.
 
+### 🔴 P-42 · Borrar un cliente destruye las notas y los adjuntos de todos sus tickets
+
+Descubierto el 2026-08-27 auditando los caminos de borrado para el PR A.
+
+`support_ticket_message.user_id` y `support_ticket_attachment.user_id` se declararon en 2025 con
+**`ON DELETE CASCADE` sobre `users`**:
+
+```php
+// 2025_01_07_000002 y 2025_01_07_000003
+$table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+```
+
+Y `CustomerDeletionService` termina con `$user->delete()`.
+
+**Consecuencia:** dar de baja a un cliente **borra físicamente todas las notas de bitácora y
+todos los adjuntos** de sus tickets, en cascada y sin aviso. El ticket sobrevive —su `user_id`
+es `SET NULL`— pero queda vaciado por dentro: un expediente sin evidencia ni bitácora.
+
+El historial del PR #3 **sí** sobrevive (`actor_user_id` es `SET NULL`), así que quedaría la
+traza de que hubo notas y adjuntos, apuntando a filas que ya no existen.
+
+**Por qué no se corrigió en el PR A.** Ese PR cerró el borrado del *ticket*; éste es el borrado
+de sus *hijos* por una vía distinta, toca el flujo de baja de clientes —con su propio servicio
+y sus propias pruebas— y merece su análisis. Mezclarlo habría retrasado un correctivo urgente.
+
+**Qué hacer:**
+
+1. Cambiar ambas claves foráneas a `ON DELETE SET NULL`, como ya está `support_ticket.user_id`.
+   Una nota cuyo autor se dio de baja sigue siendo una nota; perder el autor es aceptable,
+   perder la nota no.
+2. Comprobar que `SupportTicketMessage` y `SupportTicketAttachment` toleran `user_id` nulo en
+   la interfaz (hoy se pinta el nombre del autor sin más).
+3. Decidir con el cliente si dar de baja a un cliente debe conservar sus tickets. El
+   requerimiento pide expedientes que no se alteran, lo que sugiere que sí.
+
+Relacionado: **D-05** (retención de adjuntos) sigue sin definirse, y afecta a la misma
+pregunta de fondo — cuánto tiempo se conserva la evidencia.
+
 ## 8. Tabla consolidada
 
 | ID | Problema | Impacto | Prioridad | Estado |
@@ -1932,6 +1970,7 @@ No se corrigió en el PR #3 por no ampliar el alcance de una entrega funcional.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-42** | Borrar un cliente destruye en cascada las notas y adjuntos de todos sus tickets (`user_id` con `ON DELETE CASCADE` sobre `users`) | El expediente sobrevive vaciado por dentro: sin bitácora ni evidencia, y el historial apunta a filas inexistentes | 🔴 Alta | 📋 Pendiente · detectado en la auditoría del PR A |
 
 ---
 

@@ -5828,3 +5828,88 @@ El párrafo del cliente ya traía el esquema dentro: «campo modificado y valore
 nuevos» es literalmente `field`, `old_value`, `new_value`. Buena parte del diseño consistió en
 leer el requisito con cuidado en vez de inventar un modelo de eventos y después intentar
 encajarlo.
+
+---
+
+## 54. Un permiso de lectura autorizaba destruir el expediente y su auditoría — 2026-08-27
+
+Al preparar el flujo de estados salió a la luz que `DELETE /api/support/{id}` llevaba desde
+siempre detrás de `permission:view_support` — **el mismo permiso que leer**. Los roles
+`Tecnico` y `Staff` de todos los ISP lo tienen. La única barrera era un `confirm()` del
+navegador.
+
+Eso ya era grave. Lo que lo volvió urgente fue el PR #3: al colgar `support_ticket_history`
+del ticket con `ON DELETE CASCADE`, **borrar un ticket pasó a destruir también su auditoría**.
+Es decir, el PR que entregó el «historial inalterable» que pide el cliente le puso al lado un
+botón que lo evapora. Lo introduje yo y no lo vi al escribirlo.
+
+### El daño completo, que era mayor de lo que parecía
+
+| # | Qué pasaba |
+|---|---|
+| H-1 | El borrado estaba tras un permiso de lectura |
+| H-2 | `CASCADE` se llevaba la auditoría entera |
+| H-3 | Borraba adjuntos de `Storage::disk('public')`, un disco donde ya no viven desde el PR #252: **no** borraba el objeto del bucket y **sí** la fila que decía dónde estaba — lo peor de los dos mundos |
+| H-4 | `invoices.ticket_id` es `nullOnDelete()`: el cargo quedaba huérfano, plata facturada sin expediente |
+
+### Por qué se retiró el borrado en vez de arreglarlo
+
+La opción obvia era exigir un permiso propio y arreglar el disco. Se descartó tras releer el
+requerimiento, que trata el ticket como un **expediente**:
+
+> «revisión sin alterar el expediente» · «los estados y timestamps se conservan sin
+> sobrescritura» · «el cierre no debe borrar la causa sospechada, las intervenciones ni los
+> estados anteriores» · «ISPwash será el único expediente y consecutivo oficial»
+
+**El documento no pide borrar tickets en ninguna parte.** Y el proyecto ya tiene su propio
+idioma coherente: el dinero no se borra, se anula por estado (`Expense::STATUS_VOID`, facturas
+`void`). El `DELETE` era la anomalía, no una funcionalidad a la que le faltara un permiso.
+
+### Tres defensas, deliberadamente independientes
+
+| Capa | Qué cubre | Qué NO cubre |
+|---|---|---|
+| **Ruta** — 403 sin tocar la base | El endpoint y la interfaz | Cualquier cosa que no pase por HTTP |
+| **Modelo** — lanza en `deleting` | Todo camino de Eloquent: controlador, comando, job, acción masiva futura | `where(...)->delete()` |
+| **Base de datos** — `ON DELETE RESTRICT` | El borrado por SQL directo | Un ticket que aún no tenga historial |
+
+Cada una se prueba por separado a propósito: si mañana alguien reactiva el endpoint, las otras
+dos siguen en pie. Es el mismo criterio que la R1 dejó escrito para los catálogos — «que sea la
+base de datos, y no la disciplina de quien esté de turno, la que impida perder el histórico».
+
+Se respondió **403 en vez de quitar la ruta** porque un 405 escueto se lee como un fallo del
+servidor. El método no consulta la base siquiera: además de no borrar, no revela si el ticket
+existe.
+
+### La migración, y por qué SQLite obligó a reconstruir la tabla
+
+PostgreSQL redefine una constraint con `DROP CONSTRAINT` + `ADD CONSTRAINT`. SQLite no sabe
+soltar una clave foránea: viven dentro del `CREATE TABLE`, así que hay que reconstruir la tabla
+entera —crear, copiar, soltar, renombrar— con las foráneas desactivadas, o el `DROP` falla por
+las filas recién copiadas que apuntan a la vieja. Los índices tampoco sobreviven al renombrado
+y se recrean a mano.
+
+Se verificaron los dos motores con datos dentro: `migrate → rollback → migrate`, contenido
+intacto en cada paso, `RESTRICT` efectivo y las otras dos claves foráneas sin tocar.
+
+### Hallazgo que queda abierto
+
+**H-6:** `support_ticket_message.user_id` y `support_ticket_attachment.user_id` son
+`ON DELETE CASCADE` **sobre `users`**, y `CustomerDeletionService` hace `$user->delete()`.
+Es decir: **borrar un cliente destruye las notas y los adjuntos de todos sus tickets**,
+mientras el ticket sobrevive con `user_id = NULL` — un expediente vaciado por dentro.
+
+No se corrigió aquí: cambiar esas dos claves foráneas afecta al flujo de baja de clientes, que
+tiene su propio servicio y sus propias pruebas, y merece un PR con su análisis. Anotado como
+**P-42**.
+
+`support_ticket_history.tenant_id` sigue en `CASCADE`. Dar de baja a un ISP se lleva su
+auditoría; probablemente sea lo correcto para una baja, pero es una decisión distinta y no se
+tomó aquí.
+
+### Lección
+
+El PR #3 introdujo el `CASCADE` y el PR A tuvo que retirarlo tres semanas después. Lo que
+faltó al escribirlo no fue conocimiento del esquema, sino preguntarse **quién puede borrar la
+fila padre**. Una clave foránea no se elige mirando la tabla que se está creando: se elige
+mirando qué puede pasarle a la tabla de la que cuelga.
