@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\AuthorSnapshot;
 use Illuminate\Database\Eloquent\Model;
 
 class SupportTicketAttachment extends Model
@@ -12,13 +13,43 @@ class SupportTicketAttachment extends Model
     protected $fillable = [
         'ticket_id',
         'user_id',
+        'author_name',
         'file_name',
         'file_path',
         'file_size',
         'mime_type'
     ];
 
-    protected $appends = ['url', 'download_url'];
+    protected $appends = ['url', 'download_url', 'author_label'];
+
+    /**
+     * Congela el nombre de quien subió el archivo.
+     *
+     * Igual que en las notas: va en el modelo para cubrir todos los caminos de
+     * escritura, no sólo el controlador.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $adjunto): void {
+            if ($adjunto->author_name === null) {
+                $adjunto->author_name = AuthorSnapshot::para($adjunto->user_id);
+            }
+        });
+    }
+
+    /** Quién lo subió, resistente a que ese usuario ya no exista. */
+    public function getAuthorLabelAttribute(): string
+    {
+        if ($this->relationLoaded('user') && $this->user) {
+            $vivo = trim(($this->user->user_name ?? '') . ' ' . ($this->user->user_lastname ?? ''));
+
+            if ($vivo !== '') {
+                return $vivo;
+            }
+        }
+
+        return $this->author_name ?? 'Usuario eliminado';
+    }
 
     public function ticket()
     {

@@ -5913,3 +5913,83 @@ El PR #3 introdujo el `CASCADE` y el PR A tuvo que retirarlo tres semanas despu�
 faltó al escribirlo no fue conocimiento del esquema, sino preguntarse **quién puede borrar la
 fila padre**. Una clave foránea no se elige mirando la tabla que se está creando: se elige
 mirando qué puede pasarle a la tabla de la que cuelga.
+
+---
+
+## 55. Dar de baja a un cliente vaciaba el expediente de sus tickets — 2026-08-29
+
+El PR A cerró el borrado del ticket. Auditando sus caminos alternos apareció otro por la
+puerta de al lado: **borrar un cliente destruía las notas y los adjuntos de todos sus
+tickets**.
+
+`support_ticket_message.user_id` y `support_ticket_attachment.user_id` se declararon en 2025
+con `ON DELETE CASCADE` sobre `users`, y `CustomerDeletionService` termina con
+`$user->delete()`. El ticket sobrevivía —su `user_id` es `SET NULL` desde 2024— pero quedaba
+vaciado por dentro: un expediente sin bitácora ni evidencia, con el historial del PR #3
+señalando filas que ya no existen.
+
+### Por qué afectaba al cliente y no sólo al personal
+
+Parecía un caso de borde: las notas las escribe el personal, no el cliente. Pero al crear un
+ticket, `store()` atribuye los adjuntos a `$data['user_id']` — **el cliente** —, mientras que
+`update()` los atribuye al usuario autenticado. Esa inconsistencia es la que convertía la baja
+de un cliente en una pérdida real de evidencia.
+
+No se corrigió la atribución: cambiar a quién «pertenece» un adjunto es una decisión semántica
+que nadie ha pedido. Queda documentada.
+
+### El detalle peor: los archivos ya estaban huérfanos
+
+`CustomerDeletionService::collectFilePaths()` recoge documentos de cliente y firmas de
+instalación. **Nunca adjuntos de ticket.** Así que el efecto era el peor de los dos mundos:
+desaparecía la fila que decía dónde estaba el archivo, y el objeto se quedaba en S3 para
+siempre, ya sin nada que apuntara a él.
+
+Es el mismo patrón que el PR A encontró en el `destroy()` del ticket, que borraba de un disco
+donde los adjuntos ya no vivían. Dos sitios distintos, el mismo error de fondo: dar por hecho
+dónde están los archivos sin comprobarlo.
+
+### La solución, y por qué hacía falta `author_name`
+
+Las dos claves foráneas pasan a `SET NULL` —alineadas con `support_ticket.user_id` y con
+`support_ticket_history.actor_user_id`, que ya lo hacían así— y las columnas a nullable: una
+constraint `SET NULL` sobre una columna `NOT NULL` es imposible de satisfacer y el motor la
+rechaza.
+
+Pero con `SET NULL` a secas la nota sobrevive y pierde a su autor: la bitácora quedaría llena
+de «—». De ahí `author_name`, el nombre visible congelado al escribir.
+
+Congelar es lo correcto para un expediente: refleja quién firmaba **entonces**, no cómo se
+llama hoy. Es el mismo criterio que el PR #3 aplica a las etiquetas de catálogo.
+
+**Sólo el nombre.** Ni correo, ni teléfono, ni documento. El expediente necesita saber quién
+escribió, no reconstruir la ficha de alguien que pidió su baja; guardar de más sería crear una
+copia que sobrevive al borrado solicitado. El hook va en el modelo y no en el controlador para
+cubrir todos los caminos de escritura.
+
+### Lo que enseñó el entorno de prueba
+
+Al montar la base PostgreSQL desechable la creé con `references users(id) on delete cascade`
+en línea. PostgreSQL nombra esas constraints `{tabla}_{columna}_fkey`; la migración soltaba
+`{tabla}_{columna}_foreign` con `IF EXISTS`, no encontraba nada, y **añadía una segunda clave
+foránea sobre la misma columna**. La de CASCADE ganó y el borrado se llevó la fila igual, sin
+que nada fallara a la vista.
+
+En producción los nombres sí son los de Laravel —comprobado en sólo lectura— así que la
+migración habría funcionado. Pero el fallo era demasiado silencioso para dejarlo al azar: ahora
+consulta `pg_constraint` y suelta **todas** las foráneas que salgan de `user_id`, sin suponer
+cómo se llaman. El test se volvió a montar replicando los nombres reales.
+
+### Inventario completo, porque conviene saber qué más cascadea
+
+Once claves foráneas hacia `users` están en `CASCADE`. Sólo dos eran del expediente del ticket.
+De las demás, la que preocupa es **`invoices.customer_id`**: dar de baja a un cliente **borra su
+histórico de facturación**, incluidos los cargos de ticket. No se tocó —es contabilidad, no
+expediente— y queda como **P-43**.
+
+### Lección
+
+Dos PRs seguidos han encontrado el mismo tipo de fallo: una clave foránea elegida mirando la
+tabla que se creaba, sin preguntarse quién puede borrar la fila padre. En 2025 nadie pensó que
+borrar un usuario debiera conservar sus notas, porque entonces el ticket no era un expediente.
+Cuando el modelo de negocio cambia, las reglas de integridad no se actualizan solas.

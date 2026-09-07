@@ -912,8 +912,25 @@ afectado), `subject`, `description`, `resolved_at`, `closed_at`.
 > estable**, pero son atributos calculados desde `status_id`, `priority_id` y
 > `category_id` y declarados en `$appends` del modelo.
 
-`support_ticket_message`: `ticket_id`, `user_id`, `message`, `is_internal`.
-`support_ticket_attachment`: `ticket_id`, `user_id`, `file_name`, `file_path`, `file_size`, `mime_type`.
+`support_ticket_message`: `ticket_id`, `user_id`, `author_name`, `message`, `is_internal`.
+`support_ticket_attachment`: `ticket_id`, `user_id`, `author_name`, `file_name`, `file_path`, `file_size`, `mime_type`.
+
+> **`user_id` es nullable y `ON DELETE SET NULL` en ambas** desde 2026-08-29 (H-6). Antes era
+> `NOT NULL` con `ON DELETE CASCADE`, y como `CustomerDeletionService` termina con
+> `$user->delete()`, **dar de baja a un cliente borraba las notas y los adjuntos de todos sus
+> tickets**. El ticket sobrevivía —su `user_id` ya era `SET NULL`— pero quedaba vaciado por
+> dentro, y el historial del PR #3 señalaba filas inexistentes.
+>
+> `author_name` (`varchar(120)`, nullable) guarda el **nombre visible congelado al escribir**,
+> para que la bitácora siga siendo legible cuando el autor ya no exista. Sólo el nombre: ni
+> correo, ni teléfono, ni documento. Lo rellena un hook `creating` del modelo, no el
+> controlador, para cubrir todos los caminos de escritura.
+>
+> Los modelos exponen `author_label`, que prefiere el usuario vivo, cae al nombre congelado y
+> sólo entonces dice «Usuario eliminado».
+>
+> **Los archivos del bucket no se tocan:** `collectFilePaths()` nunca recogió adjuntos de
+> ticket, así que antes desaparecía la fila y el objeto quedaba huérfano en S3.
 
 Un ticket puede generar facturas de tipo `service_charge` mediante `invoices.ticket_id`.
 
@@ -1190,12 +1207,12 @@ Agregado permanente.
 | `support_ticket.tenant_id` | `tenant.id` | SET NULL |
 | `support_ticket.user_id` | `users.id` | SET NULL |
 | `support_ticket_attachment.ticket_id` | `support_ticket.id` | CASCADE |
-| `support_ticket_attachment.user_id` | `users.id` | CASCADE |
+| `support_ticket_attachment.user_id` | `users.id` | **SET NULL** — la evidencia sobrevive a la baja del usuario; el nombre queda en `author_name` (H-6) |
 | `support_ticket_history.tenant_id` | `tenant.id` | CASCADE — decisión documentada **pendiente**: dar de baja a un ISP se lleva su auditoría |
 | `support_ticket_history.support_ticket_id` | `support_ticket.id` | **RESTRICT** — el borrado físico del ticket está bloqueado por aplicación y por base de datos (PR A) |
 | `support_ticket_history.actor_user_id` | `users.id` | **SET NULL** — borrar al empleado no borra su auditoría |
 | `support_ticket_message.ticket_id` | `support_ticket.id` | CASCADE |
-| `support_ticket_message.user_id` | `users.id` | CASCADE |
+| `support_ticket_message.user_id` | `users.id` | **SET NULL** — la nota sobrevive a la baja del usuario; el nombre queda en `author_name` (H-6) |
 | `suspension_action_logs.customer_id` | `users.id` | CASCADE |
 | `suspension_action_logs.router_id` | `router.id` | SET NULL |
 | `traffic_daily.router_id` | `router.id` | CASCADE |

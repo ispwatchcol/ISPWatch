@@ -1877,7 +1877,7 @@ ruta legítima queda fuera — la expresión regular actual ya demostró ser del
 
 No se corrigió en el PR #3 por no ampliar el alcance de una entrega funcional.
 
-### 🔴 P-42 · Borrar un cliente destruye las notas y los adjuntos de todos sus tickets
+### ✅ P-42 · Borrar un cliente destruía las notas y los adjuntos de todos sus tickets — *resuelto 2026-08-29*
 
 Descubierto el 2026-08-27 auditando los caminos de borrado para el PR A.
 
@@ -1898,9 +1898,9 @@ es `SET NULL`— pero queda vaciado por dentro: un expediente sin evidencia ni b
 El historial del PR #3 **sí** sobrevive (`actor_user_id` es `SET NULL`), así que quedaría la
 traza de que hubo notas y adjuntos, apuntando a filas que ya no existen.
 
-**Por qué no se corrigió en el PR A.** Ese PR cerró el borrado del *ticket*; éste es el borrado
-de sus *hijos* por una vía distinta, toca el flujo de baja de clientes —con su propio servicio
-y sus propias pruebas— y merece su análisis. Mezclarlo habría retrasado un correctivo urgente.
+**Resuelto** en el PR de H-6 (2026-08-29): ambas claves foráneas pasan a `ON DELETE SET NULL`,
+las columnas a nullable, y se añade `author_name` con el nombre visible congelado al escribir
+para que la bitácora siga siendo legible. Ver `BITACORA_TECNICA.md` §55.
 
 **Qué hacer:**
 
@@ -1914,6 +1914,36 @@ y sus propias pruebas— y merece su análisis. Mezclarlo habría retrasado un c
 
 Relacionado: **D-05** (retención de adjuntos) sigue sin definirse, y afecta a la misma
 pregunta de fondo — cuánto tiempo se conserva la evidencia.
+
+### 🔴 P-43 · Borrar un cliente destruye su histórico de facturación
+
+Detectado el 2026-08-29 al inventariar las once claves foráneas en cascada hacia `users`
+durante el correctivo de H-6.
+
+`invoices.customer_id`, `payments.customer_id` e `invoice_carryovers.customer_id` están en
+**`ON DELETE CASCADE`**, y `CustomerDeletionService` termina con `$user->delete()`.
+
+**Consecuencia:** dar de baja a un cliente **borra sus facturas y sus pagos**, incluidos los
+cargos generados desde un ticket (`invoices.ticket_id`). El ticket sobrevive con su expediente
+completo desde H-6, pero el cargo que lo justificaba desaparece.
+
+Es el reverso de lo que cerró el PR A: allí se impidió que borrar un ticket dejara la factura
+huérfana; aquí la factura no queda huérfana, **deja de existir**.
+
+**Por qué no se corrigió con H-6.** Aquél cubría el expediente del ticket. Éste es contabilidad:
+afecta a cierres contables, a informes de ingresos y probablemente a obligaciones de
+conservación fiscal. Cambiar esas cascadas sin entender el ciclo contable sería temerario.
+
+**Qué hacer:**
+
+1. Decidir con el negocio si dar de baja a un cliente debe conservar su histórico de
+   facturación. Casi con seguridad sí, por retención fiscal.
+2. De ser así, pasar las tres a `SET NULL` y añadir el snapshot mínimo que permita seguir
+   identificando al cliente en un informe —probablemente nombre y documento, aquí sí, porque una
+   factura los lleva impresos de todos modos.
+3. Revisar si los informes de facturación toleran `customer_id` nulo.
+
+Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo se conserva qué.
 
 ## 8. Tabla consolidada
 
@@ -1970,7 +2000,8 @@ pregunta de fondo — cuánto tiempo se conserva la evidencia.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
-| **P-42** | Borrar un cliente destruye en cascada las notas y adjuntos de todos sus tickets (`user_id` con `ON DELETE CASCADE` sobre `users`) | El expediente sobrevive vaciado por dentro: sin bitácora ni evidencia, y el historial apunta a filas inexistentes | 🔴 Alta | 📋 Pendiente · detectado en la auditoría del PR A |
+| **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
+| **P-43** | Borrar un cliente destruye sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se pierde el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | 📋 Pendiente · detectado al corregir H-6 |
 
 ---
 
