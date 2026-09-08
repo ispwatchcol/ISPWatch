@@ -9,6 +9,7 @@ use App\Models\Plan;
 use App\Models\Router;
 use App\Models\Sectorial;
 use App\Services\BillingService;
+use App\Services\CustomerDeletionAuditor;
 use App\Services\CustomerDeletionService;
 use App\Services\CustomerProvisioningService;
 use App\Services\MikroTikSshService;
@@ -1297,7 +1298,12 @@ class CustomerProfileController extends Controller
      * borrado SIGUIENDO NAVEGANDO— y las filas de las tres tablas que tienen
      * columna de cliente pero no clave foránea.
      */
-    public function destroy(Request $request, $id, CustomerDeletionService $deletion)
+    public function destroy(
+        Request $request,
+        $id,
+        CustomerDeletionService $deletion,
+        CustomerDeletionAuditor $auditor,
+    )
     {
         $tenantId = $this->authTenantId();
         // Tenant-scoped lookups: a cross-tenant id resolves to 404, never deletes.
@@ -1334,23 +1340,12 @@ class CustomerProfileController extends Controller
         // transacción, un fallo al borrar revertiría también el registro de que
         // se intentó — y un intento fallido de destruir el histórico de un
         // abonado es justo lo que hay que poder revisar después.
+        //
+        // El auditor es un colaborador inyectado y no una llamada estática para
+        // que la prueba pueda sustituirlo por uno que falla, sin tener que
+        // romper el esquema. Ver CustomerDeletionAuditor.
         try {
-            $auditoria = \App\Models\AuditLog::log([
-                'tenant_id'   => $tenantId,
-                'action'      => 'customer_deleted',
-                'model_type'  => CustomerProfile::class,
-                'model_id'    => (int) $user->id,
-                'old_values'  => $this->resumenParaAuditoria($user, $customer),
-                'new_values'  => [
-                    'reason'         => $datos['reason'],
-                    'correlation_id' => $correlacion = (string) Str::uuid(),
-                ],
-                'description' => "Eliminación física del cliente {$customer->name} {$customer->last_name}.",
-            ]);
-
-            if (!$auditoria || !$auditoria->exists) {
-                throw new \RuntimeException('El registro de auditoría no quedó persistido.');
-            }
+            $correlacion = $auditor->registrar($user, $customer, $datos['reason']);
         } catch (\Throwable $e) {
             \Log::error('[CustomerProfile] No se pudo auditar la eliminación; se aborta', [
                 'customer_id' => $id,
@@ -1398,63 +1393,6 @@ class CustomerProfileController extends Controller
         ]);
     }
 
-    /**
-     * Qué se va a destruir, en cifras. Se escribe ANTES de borrar.
-     *
-     * CONTEOS, NO CONTENIDO. Nada de contraseñas, tokens, datos de pago,
-     * documentos ni adjuntos: la auditoría tiene que decir el ALCANCE de lo que
-     * se destruyó, no conservar una copia de lo destruido. Copiarlo aquí
-     * convertiría `audit_logs` en el sitio donde sobreviven precisamente los
-     * datos que alguien pidió eliminar.
-     *
-     * Del cliente se guardan sólo nombre y documento, que son lo mínimo para
-     * identificar de quién se habla en una revisión posterior; ya están en las
-     * facturas emitidas.
-     *
-     * @return array<string, mixed>
-     */
-    private function resumenParaAuditoria(User $user, CustomerProfile $customer): array
-    {
-        $id = (int) $user->id;
-
-        $contar = function (string $tabla, string $columna) use ($id): int {
-            try {
-                return (int) DB::table($tabla)->where($columna, $id)->count();
-            } catch (\Throwable) {
-                // Una tabla ausente no puede impedir la auditoría.
-                return -1;
-            }
-        };
-
-        return [
-            'customer' => [
-                'user_id'   => $id,
-                'name'      => trim("{$customer->name} {$customer->last_name}"),
-                'cedula'    => $customer->cedula,
-                'tenant_id' => (int) $user->tenant_id,
-            ],
-            // Lo que la cascada se llevará por delante. `invoices` y `payments`
-            // siguen en CASCADE: es la deuda P-43, sin resolver. Dejar el conteo
-            // escrito es lo único que hoy permite saber cuánto se perdió.
-            'se_eliminan' => [
-                'invoices'                    => $contar('invoices', 'customer_id'),
-                'payments'                    => $contar('payments', 'customer_id'),
-                'invoice_carryovers'          => $contar('invoice_carryovers', 'customer_id'),
-                'customer_credits'            => $contar('customer_credits', 'customer_id'),
-                'customer_documents'          => $contar('customer_documents', 'customer_id'),
-                'user_services'               => $contar('user_services', 'user_id'),
-                'customer_installations'      => $contar('customer_installations', 'customer_id'),
-                'billing_action_logs'         => $contar('billing_action_logs', 'customer_id'),
-                'suspension_action_logs'      => $contar('suspension_action_logs', 'customer_id'),
-            ],
-            // Lo que SOBREVIVE, para que la revisión sepa dónde seguir mirando.
-            'se_conservan' => [
-                'support_ticket'          => $contar('support_ticket', 'user_id'),
-                'support_ticket_message'  => $contar('support_ticket_message', 'user_id'),
-                'support_ticket_attachment' => $contar('support_ticket_attachment', 'user_id'),
-            ],
-        ];
-    }
 
     /**
      * Encola el aprovisionamiento de UN cliente reutilizando el mismo

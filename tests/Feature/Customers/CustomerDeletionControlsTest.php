@@ -5,17 +5,20 @@ namespace Tests\Feature\Customers;
 use App\Constants\Permissions;
 use App\Models\AuditLog;
 use App\Models\CustomerProfile;
+use App\Models\Invoice;
 use App\Models\Role;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketAttachment;
 use App\Models\SupportTicketMessage;
 use App\Models\Tenant;
+use App\Services\CustomerDeletionAuditor;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -350,16 +353,50 @@ class CustomerDeletionControlsTest extends TestCase
     {
         $cliente = $this->cliente();
 
-        // Se rompe la tabla de auditoría para forzar el fallo de escritura.
-        DB::statement('DROP TABLE audit_logs');
+        $ticket = SupportTicket::create([
+            'tenant_id' => $this->tenant->id, 'user_id' => $cliente->id,
+            'subject' => 'T', 'status' => 'open', 'priority' => 'medium', 'category' => 'technical',
+        ]);
 
-        $this->actingAs($this->administrador())
+        // El fallo se simula SUSTITUYENDO EL COLABORADOR, no rompiendo el
+        // esquema.
+        //
+        // La primera versión de este test hacía `DROP TABLE audit_logs`. En
+        // SQLite pasaba; en PostgreSQL dejaba la transacción de la prueba
+        // ABORTADA —25P02— y todas las aserciones posteriores reventaban antes
+        // de comprobar nada. Un `DROP` dentro de una prueba transaccional no
+        // simula un fallo de escritura: rompe el entorno.
+        //
+        // Sustituir el auditor deja el escenario idéntico en los dos motores,
+        // no toca el esquema y prueba exactamente lo que interesa: que un fallo
+        // al auditar cancela la operación.
+        $this->instance(CustomerDeletionAuditor::class, new class extends CustomerDeletionAuditor {
+            public function registrar(User $user, CustomerProfile $profile, string $reason): string
+            {
+                throw new RuntimeException('Fallo simulado al escribir la auditoría.');
+            }
+        });
+
+        $respuesta = $this->actingAs($this->administrador())
             ->deleteJson("/api/customers/{$cliente->id}", $this->cuerpoValido())
             ->assertStatus(500)
             ->assertJsonPath('error', 'audit_write_failed');
 
+        // 1 · No se auditó nada.
+        $this->assertSame(0, AuditLog::withoutGlobalScopes()->where('action', 'customer_deleted')->count());
+
+        // 2 · El cliente y su ficha siguen existiendo.
         $this->assertDatabaseHas('users', ['id' => $cliente->id]);
         $this->assertDatabaseHas('customer_profile', ['user_id' => $cliente->id]);
+
+        // 3 · Y sus relaciones tampoco se tocaron.
+        $this->assertDatabaseHas('support_ticket', ['id' => $ticket->id, 'user_id' => $cliente->id]);
+
+        // 4 · La respuesta no filtra el detalle interno del fallo.
+        $cuerpo = $respuesta->getContent();
+        $this->assertStringNotContainsString('Fallo simulado', $cuerpo);
+        $this->assertStringNotContainsString('CustomerDeletionAuditor', $cuerpo);
+        $this->assertStringNotContainsString('vendor', $cuerpo);
     }
 
     // ── Enlaces contractuales ────────────────────────────────────────────
@@ -452,7 +489,7 @@ class CustomerDeletionControlsTest extends TestCase
     }
 
     #[Test]
-    public function las_facturas_siguen_borrandose_en_cascada_p43_sigue_abierta(): void
+    public function una_factura_emitida_desaparece_en_cascada_p43_sigue_abierta(): void
     {
         // ESTE TEST AFIRMA UN DEFECTO, NO UNA GARANTÍA.
         //
@@ -466,14 +503,37 @@ class CustomerDeletionControlsTest extends TestCase
         // obligue a actualizarlo.
         $cliente = $this->cliente();
 
+        // `issued`, no `pending`.
+        //
+        // `pending` NO existe en el esquema: `invoices_status_check` sólo admite
+        // draft, issued, paid, partial, void, overdue y cancelled. SQLite ignora
+        // los CHECK, así que la primera versión de este test pasaba en local y
+        // fallaba en el CI de PostgreSQL. El estado se tomó del CHECK real, no
+        // de una suposición.
+        //
+        // Las cinco columnas `NOT NULL` sin valor por defecto son `customer_id`,
+        // `issue_date`, `due_date`, `period_start` y `period_end`. `currency`
+        // (COP), `status`, `subtotal`, `total` e `invoice_type` sí lo tienen,
+        // pero se declaran los que dan sentido al caso.
         $facturaId = DB::table('invoices')->insertGetId([
-            'tenant_id' => $this->tenant->id, 'customer_id' => $cliente->id,
-            'total' => 50000, 'status' => 'pending',
-            'issue_date' => now()->toDateString(), 'due_date' => now()->addDays(15)->toDateString(),
+            'tenant_id'    => $this->tenant->id,
+            'customer_id'  => $cliente->id,
+            'issue_date'   => now()->toDateString(),
+            'due_date'     => now()->addDays(15)->toDateString(),
             'period_start' => now()->startOfMonth()->toDateString(),
-            'period_end' => now()->endOfMonth()->toDateString(),
-            'created_at' => now(), 'updated_at' => now(),
+            'period_end'   => now()->endOfMonth()->toDateString(),
+            'subtotal'     => 50000,
+            'total'        => 50000,
+            'balance_due'  => 50000,
+            'status'       => 'issued',
+            'invoice_type' => Invoice::TYPE_SERVICE_CHARGE,
+            'created_at'   => now(), 'updated_at' => now(),
         ]);
+
+        // La factura existe y es válida antes de borrar: si el insert hubiera
+        // fallado en silencio, la aserción de más abajo pasaría por la razón
+        // equivocada.
+        $this->assertDatabaseHas('invoices', ['id' => $facturaId, 'status' => 'issued']);
 
         $this->actingAs($this->administrador())
             ->deleteJson("/api/customers/{$cliente->id}", $this->cuerpoValido())->assertOk();
