@@ -14,6 +14,22 @@ class Permissions
     const VIEW_CLIENT_TRAFFIC = 'view_client_traffic';
     const ADD_CLIENTS = 'add_clients';
 
+    /**
+     * Eliminar FÍSICAMENTE un cliente y todo lo que cuelga de él.
+     *
+     * Permiso propio y no `edit_internet_service`, que es el que lo autorizaba
+     * hasta ahora. Editar el servicio de un cliente y destruir su expediente
+     * completo no son la misma potestad: con el permiso de edición podían
+     * borrar clientes los roles Tecnico, Staff y Contabilidad de todos los ISP
+     * —20 roles en total—, sin que ninguno de ellos tenga autoridad
+     * administrativa.
+     *
+     * La operación sigue borrando facturas y pagos en cascada (deuda **P-43**,
+     * sin resolver). Mientras eso siga así, el permiso debe ser lo más estrecho
+     * posible.
+     */
+    const DELETE_CUSTOMERS = 'delete_customers';
+
     // Infraestructura permissions
     const MANAGE_ROUTERS = 'manage_routers';
     const VIEW_PLANS = 'view_plans';
@@ -78,6 +94,7 @@ class Permissions
                 self::EDIT_INTERNET_SERVICE => 'Editar Servicio Internet',
                 self::VIEW_CLIENT_TRAFFIC => 'Tráfico Clientes',
                 self::ADD_CLIENTS => 'Agregar Clientes',
+                self::DELETE_CUSTOMERS => 'Eliminar Clientes (destructivo)',
             ],
             'Facturas' => [
                 self::VIEW_DASHBOARD_STATS => 'Dashboard / Estadísticas',

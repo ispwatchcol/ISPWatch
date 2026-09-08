@@ -9,6 +9,7 @@ use App\Models\Plan;
 use App\Models\Router;
 use App\Models\Sectorial;
 use App\Services\BillingService;
+use App\Services\CustomerDeletionAuditor;
 use App\Services\CustomerDeletionService;
 use App\Services\CustomerProvisioningService;
 use App\Services\MikroTikSshService;
@@ -1297,12 +1298,66 @@ class CustomerProfileController extends Controller
      * borrado SIGUIENDO NAVEGANDO— y las filas de las tres tablas que tienen
      * columna de cliente pero no clave foránea.
      */
-    public function destroy($id, CustomerDeletionService $deletion)
+    public function destroy(
+        Request $request,
+        $id,
+        CustomerDeletionService $deletion,
+        CustomerDeletionAuditor $auditor,
+    )
     {
         $tenantId = $this->authTenantId();
         // Tenant-scoped lookups: a cross-tenant id resolves to 404, never deletes.
         $user = User::where('tenant_id', $tenantId)->findOrFail($id);
         $customer = CustomerProfile::where('user_id', $id)->firstOrFail();
+
+        // MOTIVO OBLIGATORIO, validado en el servidor.
+        //
+        // La interfaz ya exige escribir «ELIMINAR», pero eso es una barrera
+        // contra el clic distraído, no contra una petición hecha a mano. El
+        // motivo se exige aquí porque es lo único que queda después: dentro de
+        // seis meses, cuando alguien pregunte por qué no está ese abonado, la
+        // respuesta tiene que estar escrita.
+        //
+        // `min:10` sobre el valor ya recortado: `TrimStrings` convierte una
+        // cadena de espacios en vacía, así que «   » no pasa `required`.
+        $datos = $request->validate([
+            'reason'  => ['required', 'string', 'min:10', 'max:500'],
+            'confirm' => ['required', 'in:ELIMINAR'],
+        ], [
+            'reason.required' => 'Debes indicar el motivo de la eliminación.',
+            'reason.min'      => 'El motivo debe tener al menos 10 caracteres.',
+            'reason.max'      => 'El motivo no puede superar los 500 caracteres.',
+            'confirm.in'      => 'Falta la confirmación explícita de la eliminación.',
+        ]);
+
+        // AUDITORÍA ANTES DE DESTRUIR, y si no se puede escribir, no se destruye.
+        //
+        // El orden importa: una vez borrado el cliente ya no hay de dónde sacar
+        // su nombre, su documento ni cuántas facturas tenía. Auditar después
+        // sería auditar lo que se recuerde.
+        //
+        // Va FUERA de la transacción del borrado a propósito. Si compartieran
+        // transacción, un fallo al borrar revertiría también el registro de que
+        // se intentó — y un intento fallido de destruir el histórico de un
+        // abonado es justo lo que hay que poder revisar después.
+        //
+        // El auditor es un colaborador inyectado y no una llamada estática para
+        // que la prueba pueda sustituirlo por uno que falla, sin tener que
+        // romper el esquema. Ver CustomerDeletionAuditor.
+        try {
+            $correlacion = $auditor->registrar($user, $customer, $datos['reason']);
+        } catch (\Throwable $e) {
+            \Log::error('[CustomerProfile] No se pudo auditar la eliminación; se aborta', [
+                'customer_id' => $id,
+                'error'       => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'No se pudo registrar la auditoría de la eliminación. '
+                    . 'La operación se canceló y el cliente NO fue eliminado.',
+                'error'   => 'audit_write_failed',
+            ], 500);
+        }
 
         try {
             $result = $deletion->delete($user, $customer);
@@ -1330,10 +1385,14 @@ class CustomerProfileController extends Controller
                 . ' Revísalo a mano o el servicio seguirá activo.';
 
         return response()->json([
-            'message' => $message,
-            'cleanup' => $result,
+            'message'        => $message,
+            'cleanup'        => $result,
+            // Permite atar la respuesta con su fila de `audit_logs` cuando haya
+            // que reconstruir qué pasó.
+            'correlation_id' => $correlacion,
         ]);
     }
+
 
     /**
      * Encola el aprovisionamiento de UN cliente reutilizando el mismo

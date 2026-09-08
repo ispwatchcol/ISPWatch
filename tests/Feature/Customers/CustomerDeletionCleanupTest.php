@@ -25,6 +25,16 @@ class CustomerDeletionCleanupTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Cuerpo mínimo que exige el endpoint desde 2026-08-31: motivo de 10 a 500
+     * caracteres y confirmación explícita. El servidor los valida, así que no
+     * basta con que la interfaz los pida.
+     */
+    private const CUERPO_BORRADO = [
+        'reason'  => 'Baja verificada en las pruebas de limpieza.',
+        'confirm' => 'ELIMINAR',
+    ];
+
     protected Tenant $tenant;
     protected User $admin;
 
@@ -126,7 +136,7 @@ class CustomerDeletionCleanupTest extends TestCase
             'mime_type'       => 'image/jpeg',
         ]);
 
-        $this->deleteJson("/api/customers/{$customer->id}")->assertStatus(200);
+        $this->deleteJson("/api/customers/{$customer->id}", self::CUERPO_BORRADO)->assertStatus(200);
 
         Storage::disk('s3')->assertMissing('contratos/contrato.pdf');
         Storage::disk('s3')->assertMissing('actas/foto.jpg');
@@ -160,7 +170,7 @@ class CustomerDeletionCleanupTest extends TestCase
             'updated_at'  => now(),
         ]);
 
-        $this->deleteJson("/api/customers/{$customer->id}")->assertStatus(200);
+        $this->deleteJson("/api/customers/{$customer->id}", self::CUERPO_BORRADO)->assertStatus(200);
 
         $this->assertDatabaseMissing('customer_installations', ['customer_id' => $customer->id]);
         $this->assertDatabaseMissing('bulk_provision_runs', ['customer_id' => $customer->id]);
@@ -188,7 +198,7 @@ class CustomerDeletionCleanupTest extends TestCase
             'updated_at'       => now(),
         ]);
 
-        $this->deleteJson("/api/customers/{$customer->id}")->assertStatus(200);
+        $this->deleteJson("/api/customers/{$customer->id}", self::CUERPO_BORRADO)->assertStatus(200);
 
         $this->assertDatabaseHas('prospects', ['id' => $prospectId, 'converted_user_id' => null]);
     }
@@ -214,7 +224,7 @@ class CustomerDeletionCleanupTest extends TestCase
             })
             ->andReturn(['success' => true, 'message' => 'ok']);
 
-        $this->deleteJson("/api/customers/{$customer->id}")->assertStatus(200);
+        $this->deleteJson("/api/customers/{$customer->id}", self::CUERPO_BORRADO)->assertStatus(200);
     }
 
     /**
@@ -233,7 +243,7 @@ class CustomerDeletionCleanupTest extends TestCase
             ->shouldReceive('purge')
             ->andReturn(['success' => false, 'message' => 'El router no respondió.']);
 
-        $response = $this->deleteJson("/api/customers/{$customer->id}");
+        $response = $this->deleteJson("/api/customers/{$customer->id}", self::CUERPO_BORRADO);
 
         $response->assertStatus(200);
         $this->assertStringContainsString('NO se pudo limpiar', $response->json('message'));
@@ -249,7 +259,7 @@ class CustomerDeletionCleanupTest extends TestCase
 
         $customer = $this->makeCustomer(['router_id' => null]);
 
-        $this->deleteJson("/api/customers/{$customer->id}")->assertStatus(200);
+        $this->deleteJson("/api/customers/{$customer->id}", self::CUERPO_BORRADO)->assertStatus(200);
         $this->assertDatabaseMissing('users', ['id' => $customer->id]);
     }
 

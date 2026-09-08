@@ -5993,3 +5993,98 @@ Dos PRs seguidos han encontrado el mismo tipo de fallo: una clave foránea elegi
 tabla que se creaba, sin preguntarse quién puede borrar la fila padre. En 2025 nadie pensó que
 borrar un usuario debiera conservar sus notas, porque entonces el ticket no era un expediente.
 Cuando el modelo de negocio cambia, las reglas de integridad no se actualizan solas.
+
+---
+
+## 56. Un permiso de edición autorizaba destruir el histórico contable de un abonado — 2026-08-31
+
+La auditoría de P-43 dejó dos hechos incómodos sobre `DELETE /api/customers/{customer}`:
+
+1. Exigía **`edit_internet_service`**. Ese permiso lo tienen 20 roles —`Administrador`,
+   `Staff`, `Contabilidad` y `Tecnico` de los cinco tenants—. El rol `Tecnico` tiene siete
+   permisos en total, y uno de ellos bastaba para borrar un cliente con sus 3 000 facturas.
+2. **No dejaba ninguna traza.** `destroy()` no escribía en `audit_logs`; sólo un `Log::info`
+   dentro del servicio, después de borrar. Un abonado podía desaparecer sin que constara quién
+   lo hizo ni por qué.
+
+Este cambio no arregla P-43 —facturas y pagos siguen borrándose en cascada— pero convierte una
+operación anónima y ampliamente disponible en una privilegiada y auditada.
+
+### Lo que sí estaba bien, y conviene decirlo
+
+A diferencia del `DELETE` de tickets (§54), aquí la interfaz **no engañaba**: exige escribir
+«ELIMINAR» y enumera lo que se destruye. Es una función deliberada y divulgada, mal calibrada
+en permisos y sin rastro, no una trampa oculta. El diagnóstico correcto cambia el remedio: allí
+tocaba retirar la función; aquí, restringirla y registrarla.
+
+### El permiso
+
+`delete_customers`, concedido **sólo a los roles con `code = 'admin'`**. Quince roles pierden
+la capacidad.
+
+La tentación era concederlo a todo el que tuviera `edit_internet_service`: cero regresión,
+nadie se queja. Pero eso habría dejado exactamente el agujero que el cambio venía a cerrar. La
+retirada de la capacidad **es** el objetivo.
+
+Se selecciona por `code` y no por nombre ni id porque los roles son por tenant: el id varía
+entre ISP y el nombre es editable. Es el criterio que `CheckStaffProfile` ya dejó escrito —
+«never hard-code role_id».
+
+### La auditoría, y por qué va antes y fuera de la transacción
+
+**Antes**, porque después del borrado no hay de dónde sacar el nombre del cliente ni cuántas
+facturas tenía. Auditar al final sería auditar lo que se recuerde.
+
+**Fuera de la transacción del borrado**, porque si compartieran transacción un fallo al borrar
+revertiría también la constancia de que se intentó. Un intento fallido de destruir el histórico
+de un abonado es justo lo que hay que poder revisar.
+
+Y si la auditoría no se puede escribir, **se aborta**. Sin registro no hay borrado.
+
+Guarda **conteos, no contenido**: cuántas facturas, pagos y créditos se van a destruir, y
+cuántos tickets, notas y adjuntos sobreviven. Del cliente, sólo nombre y cédula. Ni
+contraseñas, ni tokens, ni documentos, ni el texto de las notas — copiarlos convertiría
+`audit_logs` en el sitio donde sobreviven precisamente los datos que alguien pidió eliminar.
+
+### Un test que afirma un defecto
+
+`las_facturas_siguen_borrandose_en_cascada_p43_sigue_abierta` comprueba que la factura
+**desaparece**. No es un descuido: fija que P-43 sigue abierta, para que nadie lea esa suite
+como si el dinero sobreviviera. El día que se corrija, ese test fallará y obligará a
+actualizarlo — que es exactamente lo que se quiere.
+
+### Enlaces de firma
+
+`contract_signature_links` no tiene clave foránea y el servicio no la tocaba: al borrar un
+cliente quedaban enlaces apuntando a una fila inexistente. No era un agujero —
+`PublicContractController::customerOf()` ya respondía 404 con el cliente ausente, y así estaba
+comentado desde antes— pero sí un residuo.
+
+Ahora se desvinculan y **además se revocan**, misma estrategia que `prospects.converted_user_id`.
+No se borran: un enlace es un token efímero, pero su existencia es rastro de que se pidió una
+firma, y este cambio trata de conservar rastro.
+
+### Dos trampas del entorno de pruebas
+
+- `CheckPermission` deja pasar **siempre** a `role_id == 1`. Con `RefreshDatabase` el primer rol
+  creado se lleva ese id, así que los tests de permiso pasaban por el bypass y no probaban
+  nada. Hay que quemar un rol de entrada.
+- Siete tests existentes se rompieron al exigir motivo y confirmación. Es la señal correcta:
+  el contrato del endpoint cambió a propósito, y se actualizaron.
+
+### Lo que queda
+
+**P-43 sigue abierta.** Facturas, pagos, créditos y arrastres se siguen borrando. Faltan las
+decisiones D-14 a D-18: cuántos años conservar, si el borrado físico debe existir teniendo ya
+`retirado`, si se anonimiza o se borra, qué campos son PII, y qué pasa con los contratos
+firmados.
+
+Lo que hay hoy es contención: cinco roles en vez de veinte, y constancia escrita de cuánto se
+destruyó cada vez.
+
+### Lección
+
+Los permisos envejecen peor que el código. `edit_internet_service` era razonable cuando
+gobernaba editar el plan de un abonado; se le fueron colgando operaciones hasta cubrir la
+destrucción de su histórico contable. Nadie decidió eso: se acumuló. Conviene revisar
+periódicamente **qué autoriza** cada permiso, no sólo quién lo tiene.
