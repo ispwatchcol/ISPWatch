@@ -1051,11 +1051,20 @@ Sube en cada alta, retiro o reetiquetado.
 |---|---|
 | `inventory_stock` | `brand`, `model`, `desc` ⚠️(**tipo `date`**, ver §8), `price` numeric(10,2), `is_serialized`, `unit`, `tenant_id` |
 | `inventory_provider` | `name`, `email`, `phone`, `addr`, `city`, `identification`, `advisor_*` |
-| `inventory_branch` | `name`, `dir`, `numero` |
+| `inventory_branch` | `name`, `dir`, `numero` varchar(30) — **texto, no entero** (ver nota abajo) |
 | `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `customer_id`, `status`, `serial`, `mac` |
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
 | `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `customer_id`, `notes`, `created_by`, `created_at` |
 | `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+
+> **`inventory_branch.numero` es texto a propósito.** Nació como `integer` (int4, tope
+> 2.147.483.647) y **todo celular colombiano lo desborda**: 3001234567 es 3.001.234.567. La
+> interfaz llama al campo «Número» sin más, así que la gente escribía ahí el teléfono de la
+> sucursal y guardar reventaba con `SQLSTATE[22003]` — un 500 que en pantalla sólo decía «No se
+> pudo guardar». Corregido a `varchar(30)` el 2026-09-09 (migración
+> `2026_09_09_000001`). Como texto conserva indicativo, separadores y ceros a la izquierda.
+> **No volver a declararlo numérico**: un teléfono no es una cantidad, y nada en el código lo
+> ordena ni lo compara.
 
 **Cómo se cuenta cada cosa.** `inventory_stock.is_serialized` divide el catálogo en dos
 mundos que no se mezclan:

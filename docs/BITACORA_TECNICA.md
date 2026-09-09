@@ -6088,3 +6088,56 @@ Los permisos envejecen peor que el código. `edit_internet_service` era razonabl
 gobernaba editar el plan de un abonado; se le fueron colgando operaciones hasta cubrir la
 destrucción de su histórico contable. Nadie decidió eso: se acumuló. Conviene revisar
 periódicamente **qué autoriza** cada permiso, no sólo quién lo tiene.
+
+---
+
+## 57. Un celular colombiano no cabía en el «Número» de una sucursal — 2026-09-09
+
+**Síntoma reportado.** En el tenant de Chaguaní, guardar una sucursal fallaba. En pantalla
+sólo salía «No se pudo guardar», sin más detalle.
+
+**Causa raíz.** `inventory_branch.numero` se creó como `integer` en la migración original
+(`2024_01_01_000020`). En PostgreSQL eso es un `int4`, con tope **2.147.483.647**.
+
+Un celular colombiano son diez dígitos que empiezan por 3, así que `3001234567` vale
+**3.001.234.567**: por encima del tope. No es que *algunos* números fallaran — **fallan todos
+los celulares del país**. La columna nunca pudo guardar uno.
+
+El campo se llama «Número» en la interfaz, con el marcador «Número de sucursal…», y en la
+vista móvil se pinta como una insignia `#numero`. Nada de eso dice si es un consecutivo o un
+teléfono, así que la gente escribe el teléfono de la sucursal. Era cuestión de tiempo.
+
+**Por qué la validación no lo atrapó.** `InventoryBranchController` validaba
+`'numero' => 'nullable|integer'`. En PHP de 64 bits ese valor **es** un entero válido, así que
+la regla lo dejaba pasar y el fallo aparecía después, en el `INSERT`, como
+`SQLSTATE[22003]: value out of range for type integer`. Laravel lo convertía en 500 y el
+frontend lo mostraba como un genérico «No se pudo guardar». El mensaje que veía el usuario no
+mencionaba ni el campo ni el motivo.
+
+**Arreglo.** `numero` pasa a `varchar(30)` (migración `2026_09_09_000001`), la validación a
+`nullable|string|max:30`, y el campo del formulario de `type="number"` a `type="text"` con
+`inputmode="tel"`.
+
+**Por qué texto y no `bigint`.** Un teléfono no es una cantidad. Como texto conserva el
+indicativo (`+57`), los separadores, los ceros a la izquierda de un fijo y la extensión —
+todo lo que un `bigint` habría seguido perdiendo aunque ya no desbordara. Se verificó antes
+de decidirlo: `numero` sólo se lee en `BranchList.vue` para mostrarlo; **nada lo ordena, lo
+suma ni lo compara**, así que el cambio de tipo no arrastra a nadie.
+
+**Trampa de la migración.** PostgreSQL no castea `integer` → `varchar` por su cuenta; hay que
+darle el `USING`. Y como la suite corre en sqlite, la sentencia va guardada por driver: en
+sqlite se usa el constructor de esquema, que recrea la tabla. La vuelta atrás es
+necesariamente con pérdida — lo que no quepa en un `int4` se anula en vez de reventar la
+migración.
+
+**Lo que estas pruebas NO cubren, y conviene saberlo.** `InventoryBranchNumeroTest` pasa en
+sqlite, pero **sqlite es de tipado dinámico y acepta cualquier cosa en una columna `integer`**.
+Es decir: en sqlite estas pruebas no habrían detectado el bug original y no detectarían una
+regresión del tipo de columna. Lo que sí atrapan en cualquier motor es la regla de validación
+(un `+57 601 123 4567` con la regla vieja daba 422). **La verificación real del tipo la hace
+el job «PHPUnit (PostgreSQL, motor real)» de CI**, que corre la migración contra un Postgres
+de verdad.
+
+**Alcance.** Se revisaron las migraciones buscando el mismo patrón —una columna de teléfono
+declarada como entero— y `inventory_branch.numero` era **la única**. No hay deuda equivalente
+en otras tablas.

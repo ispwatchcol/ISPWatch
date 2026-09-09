@@ -1494,7 +1494,7 @@ Dentro del ticket puedes:
 |---|---|
 | **Stock / Modelos** | Los modelos de equipo que manejas (marca, modelo, precio) |
 | **Proveedores** | A quién le compras, con datos del asesor comercial |
-| **Sucursales** | Dónde están físicamente los equipos |
+| **Sucursales** | Dónde están físicamente los equipos. El campo **Número** admite tanto un consecutivo (`2`) como el teléfono de la sucursal, con indicativo si lo necesitas (`+57 601 123 4567`) |
 | **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC |
 | **Entregas y traspasos** | Pasar equipos de la bodega a un técnico y recibirlos de vuelta |
 | **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
