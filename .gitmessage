@@ -1,0 +1,31 @@
+
+# ── Plantilla de mensaje de commit ────────────────────────────────────────────
+#
+# Formato:  tipo(alcance): qué cambia, en presente y sin punto final
+# Tipos:    feat · fix · docs · refactor · test · chore
+#
+# El cuerpo explica el PORQUÉ, no el qué — el diff ya dice el qué.
+#
+# ── Enlazar con Jira (smart commits) ──────────────────────────────────────────
+#
+# Escribe la clave del issue (KAN-123) en cualquier línea y Jira enlaza el
+# commit solo. Para además comentar o mover la tarjeta, pon los comandos
+# DESPUÉS de la clave, en la misma línea:
+#
+#     KAN-123 #comment desplegado en produccion, verificado con /health
+#     KAN-123 #in-progress
+#     KAN-123 #time 2h #comment migracion aplicada con migrate:both
+#
+# TRAMPA IMPORTANTE: git BORRA toda línea que EMPIECE por '#'.
+#
+#     KAN-123 #done     ← bien: la línea empieza por 'K'
+#     #done             ← se borra antes de llegar a Jira, no hace nada
+#
+# Transiciones válidas en el tablero KAN (el nombre del estado, con guiones):
+#
+#     #to-do   #in-progress   #in-review   #done
+#
+# Para que Jira te atribuya el cambio, el email del commit tiene que ser el
+# mismo de tu cuenta de Atlassian:  git config user.email
+#
+# ──────────────────────────────────────────────────────────────────────────────

@@ -627,6 +627,51 @@ panel sin entender qué pasó. Usa una instancia propia de axios
   git branch -vv        # NO debe apuntar a origin/main
   ```
 
+### Enlazar los commits con Jira (smart commits)
+
+El tablero vive en `ispwatch.atlassian.net`, proyecto **KAN**. Con la integración
+*GitHub for Jira* conectada, basta con nombrar el issue en el mensaje del commit
+para que Jira lo enlace, y se pueden dar órdenes en el mismo texto.
+
+Activa la plantilla de mensaje una vez por clon:
+
+```bash
+git config commit.template .gitmessage
+```
+
+Sintaxis: la clave del issue primero, los comandos después, **en la misma línea**.
+
+```
+fix(inventario): un celular no cabia en el Numero de una sucursal
+
+KAN-89 #comment migracion aplicada con migrate:both, /health en verde
+KAN-89 #in-review
+```
+
+**La trampa que hace que no funcione:** git **borra toda línea que empiece por
+`#`** antes de crear el commit. Una línea suelta con `#done` desaparece sin dejar
+rastro y parece que la integración está rota.
+
+| Se escribe | Qué pasa |
+|---|---|
+| `KAN-89 #done` | Bien — la línea empieza por `K` y llega entera |
+| `#done` | Git la borra. Jira nunca la ve |
+
+Transiciones válidas en este tablero — el nombre del estado con guiones:
+`#to-do`, `#in-progress`, `#in-review`, `#done`.
+
+Otros comandos: `#comment <texto>` y `#time 2h 30m`.
+
+**Requisito para que te atribuya el cambio:** el email de tus commits
+(`git config user.email`) tiene que ser el mismo de tu cuenta de Atlassian. Si no
+coincide, el commit se enlaza pero el comentario y la transición se rechazan sin
+avisar.
+
+> **Estado a 2026-09-09: la integración todavía NO está conectada.** Nombrar el
+> issue en el commit no hace daño y deja el historial listo, pero hasta que
+> alguien instale *GitHub for Jira* (admin de Jira + propietario de la
+> organización en GitHub) el tablero **no se actualiza solo**.
+
 ---
 
 ## 10. Cómo añadir funcionalidad
