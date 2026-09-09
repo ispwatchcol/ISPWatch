@@ -459,6 +459,24 @@ const closeDeleteModal = () => {
   itemToDelete.value = null
 }
 
+/**
+ * Saca el motivo real de un error de axios.
+ *
+ * `error.message` sólo dice "Request failed with status code 422", que no le
+ * sirve ni al usuario ni a quien diagnostica. Laravel sí manda qué campo falló
+ * en `response.data.errors`; esto lo saca a la superficie.
+ */
+const describeError = (error) => {
+  const data = error?.response?.data
+
+  if (data?.errors) {
+    const detalles = Object.values(data.errors).flat().filter(Boolean)
+    if (detalles.length) return detalles.join(' ')
+  }
+
+  return data?.message || error?.message || 'Error desconocido'
+}
+
 const handleSave = async () => {
   saving.value = true
   try {
@@ -480,7 +498,7 @@ const handleSave = async () => {
     await loadItems()
   } catch (error) {
     console.error('Error saving:', error)
-    toast.value?.error('Error', 'No se pudo guardar: ' + error.message)
+    toast.value?.error('Error', 'No se pudo guardar: ' + describeError(error))
   } finally {
     saving.value = false
   }
@@ -496,7 +514,7 @@ const deleteItem = async () => {
     await loadItems()
   } catch (error) {
     console.error('Error deleting:', error)
-    toast.value?.error('Error', 'No se pudo eliminar: ' + error.message)
+    toast.value?.error('Error', 'No se pudo eliminar: ' + describeError(error))
   } finally {
     saving.value = false
   }
