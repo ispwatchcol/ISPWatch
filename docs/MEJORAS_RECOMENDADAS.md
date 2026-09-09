@@ -1011,7 +1011,13 @@ pero quedan dos cabos:
 propia, o las liste para decidir si se purgan. Sin eso, el operador no puede distinguir «este
 documento se perdió en la migración» de «hay un problema con el almacenamiento ahora mismo», y
 cada caso llega a soporte como un bug nuevo.
-### 📋 P-10 · Eliminar un cliente no lo desaprovisiona del router
+### ✅ P-10 · Eliminar un cliente no lo desaprovisiona del router — RESUELTO
+
+> **Corregido el 2026-09-09.** Esta entrada seguía marcada como pendiente, pero **P-16 la
+> resolvió el 2026-08-06**: `CustomerDeletionService` inyecta `CustomerDeprovisionManager`
+> y limpia la configuración en el equipo antes de borrar. El texto de abajo describe el
+> estado anterior al arreglo y se conserva por el diagnóstico, no como trabajo pendiente.
+
 
 `CustomerProfileController::destroy()` borra `customer_profile` y `users` dentro de una
 transacción y nada más: **no llama a `suspendCustomer()` ni a ninguna rutina de limpieza en
@@ -1368,25 +1374,33 @@ código no exista ya como global. Y decidir de forma explícita en el contrato q
 llegara a pasar — lo razonable es que el código global tenga prioridad y el propio se
 rechace.
 
-### 📋 P-22 · El vocabulario de diagnóstico del ticket está sin acordar
+### 🟡 P-22 · Del vocabulario del ticket sólo faltan los códigos de subcausa
 
-`ticket_symptom`, `ticket_cause`, `ticket_solution` y `ticket_result` existen como tablas
-pero están **vacíos a propósito**, y las cinco columnas del ticket que apuntan a ellos
-(`symptom_id`, `suspected_cause_id`, `confirmed_cause_id`, `solution_id`, `result_id`)
-son nullable y no se capturan en ninguna pantalla.
+> **Corregido el 2026-09-09.** Esta entrada decía que los catálogos estaban «vacíos a
+> propósito» y que las cinco columnas «no se capturan en ninguna pantalla». **Las dos
+> cosas dejaron de ser ciertas el 2026-08-21** y el texto viejo llegó a producir una
+> tarjeta de seguimiento equivocada. Lo que sigue es el estado real.
 
-**Por qué se dejó así.** Los códigos son inmutables por diseño: una vez sembrados, un
-ticket puede apuntar a ellos para siempre. Inventar el vocabulario antes de acordarlo con
-el ISP y con el integrador significaría o cargar con códigos equivocados de forma
-permanente, o retirarlos a las dos semanas dejando basura en el histórico.
+**Ya resuelto.** La migración `2026_08_21_000001_seed_ticket_diagnostic_catalogs.php`
+sembró el vocabulario completo, transcrito literal del Anexo A del documento del cliente:
+**16 síntomas** (`S01`–`S16`), **7 familias de causa** (`RF`, `FO`, `CL`, `RE`, `NF`…),
+**20 acciones** (`AC01`–`AC20`) y **15 resultados** (`R01`–`R15`). La captura funciona en
+alta y en edición, con validación por catálogo y por tenant.
+`SEGUIMIENTO_MODULO_TICKETS.md` marca **F1-03 como cumplido**.
 
-**Riesgo mientras tanto.** Son columnas muertas. Si el acuerdo del vocabulario se
-demorase mucho, conviene revisar si vale la pena mantenerlas declaradas — se incluyeron
-para poder publicar el contrato OpenAPI una sola vez con el juego completo de campos.
+**Lo único que sigue abierto: los códigos de subcausa** — decisión **D-06**. El Anexo A.2
+enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les
+asigna código**. Se sembraron sólo las 7 familias, con las subcausas como texto de
+referencia en `description`, nunca como valor seleccionable: inventar un `RF01` fabricaría
+contrato, y los códigos son inmutables una vez sembrados.
 
-**Recomendación.** Cerrar el vocabulario con el ISP y el integrador, sembrarlo en su
-propia migración (nunca en un seeder: `migrate:both` no siembra `public`), y sólo entonces
-construir la captura en la interfaz.
+La columna `group_code` ya existe y está libre para eso. Cuando el cliente asigne los
+códigos oficiales, cada subcausa entra como fila propia apuntando a su familia.
+
+**Lo que NO resuelve una pantalla de administración.** Un código que el integrador deba
+ver es parte del contrato y hay que acordarlo con CNO antes de sembrarlo. Los códigos
+propios de un ISP, en cambio, van como filas con su `tenant_id` y no tocan el contrato —
+para eso sí hace falta la pantalla, que no existe (**D-13**, ver P-21 y P-24).
 
 ### ✅ P-23 · `support_ticket` ya no tiene columnas enum (R3, 2026-08-15)
 
@@ -1401,7 +1415,13 @@ producción tiene aplicada todavía ninguna de las cuatro releases.
 <details>
 <summary>Redacción anterior (cuando la R3 estaba pendiente)</summary>
 
-### 📋 P-23 · Falta la R3: `support_ticket` sigue con los enums y las FK a la vez
+### ✅ P-23 · Falta la R3: `support_ticket` sigue con los enums y las FK a la vez — RESUELTO
+
+> **Corregido el 2026-09-09.** Esta entrada contradecía a la P-23 anterior, que ya daba la
+> R3 por hecha el 2026-08-15. La migración
+> `2026_08_15_000001_drop_ticket_enum_columns_from_support_ticket.php` existe y elimina las
+> columnas enum. **Gana la entrada resuelta**; ésta quedó sin actualizar.
+
 
 **R2 y R2.5 listas (2026-08-14/15).** La aplicación lee y escribe por clave foránea, y
 desde la R2.5 **ya no escribe la columna enum**, que queda congelada en su último valor.
@@ -1974,6 +1994,17 @@ Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo
 
 ## 8. Tabla consolidada
 
+> **Dos avisos antes de usar esta tabla como índice.**
+>
+> **Hay identificadores repetidos.** Existen dos `P-9`, dos `P-10`, dos `P-11`, dos `P-13`,
+> dos `P-14`, dos `P-21` y dos `P-23`, cada par sobre temas distintos. **No se renumeraron a
+> propósito**: hay seguimiento externo que ya cita estos códigos y cambiarlos rompería esas
+> referencias. Se distinguen aquí con un calificativo en cursiva —*(router)*, *(finanzas)*,
+> *(S3)*— y buscando por el título, nunca sólo por el código.
+>
+> **Puesta al día el 2026-09-09.** La tabla llegaba sólo hasta P-21 y omitía la mitad del
+> registro, incluidas las dos entradas más graves. Ahora cubre todo el § 7.
+
 | ID | Problema | Impacto | Prioridad | Estado |
 |---|---|---|---|---|
 | **C-1** | Credenciales de producción en texto plano en el repositorio | Compromiso total: BD, CORE MikroTik, SMTP, Supabase | 🔴 Crítica | ✅ Repo limpio · 🔧 **falta rotar** |
@@ -2012,7 +2043,7 @@ Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
 | **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
-| **P-10** | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | 📋 Pendiente |
+| **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
@@ -2024,6 +2055,40 @@ Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo
 | **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | 📋 Pendiente |
 | **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
+| **P-0** | Devolver saldo al borrar una factura no des-consume el `earned` de origen | El error siempre favorece al cliente, nunca al ISP | 🟢 Baja | 📋 Deuda aceptada |
+| **P-00** | 91 clientes con dinero recibido que no respalda ninguna factura ni saldo | **$5.709.350 sin respaldo en producción** (corte 2026-08-13) | 🔴 Crítica | 📋 Pendiente · caso por caso, nunca en bloque |
+| **P-9** *(finanzas)* | Deuda restante de la auditoría de Finanzas | Búsqueda sin índice; 3 componentes muertos; fuga de blobs en 13 sitios | 🟢 Baja | 📋 Pendiente |
+| **P-10** *(arrastre)* | La factura de excepción no cobra el arrastre pendiente | Plata que se deja de cobrar sin que nadie se entere | 🟡 Media | 📋 Decidir al primer caso real |
+| **P-11** *(generate-tenant)* | `billing:generate-tenant` es una segunda ruta de facturación | Todo lo nuevo hay que replicarlo a mano; el error no da señal | 🟡 Media | 📋 Pendiente · borrarlo o delegar |
+| **P-22** | Del vocabulario del ticket sólo faltan los códigos de subcausa | Las subcausas no son seleccionables | 🟡 Media | 🟡 Parcial · sembrado 2026-08-21; falta **D-06** |
+| **P-21** *(catálogos)* | Un tenant puede pisar un código de catálogo global | El integrador no sabría si `sin_senal` es global o del ISP | 🟡 Media | 📋 Pendiente · se activa con la pantalla de administración |
+| **P-23** *(R3)* | Falta la R3 de `support_ticket` | — | — | ✅ Resuelto 2026-08-15 · entrada contradictoria |
+| **P-24** | La pantalla de catálogos tendrá que vaciar la caché | Editar y releer en la misma petición devuelve el valor viejo | 🟢 Baja | 📋 Nota anticipada |
+| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 📋 Pendiente |
+| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 📋 Pendiente |
+| **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
+| **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
+| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
+| **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | 📋 Documentado |
+| **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
+| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
+| **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
+| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 📋 Pendiente |
+| **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
+| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | 📋 Pendiente |
+| **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |
+| **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
+| **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |
+| **P-PROC-1** | El planificador corre de fondo dentro del `worker` | Si muere, el contenedor sigue «sano» y se para el ciclo de negocio | 🟠 Alta | 🟡 Mitigado por el latido; falta separar el componente |
+| **P-DEPLOY-1** | `migrate --force` corre al arrancar el contenedor | El rollback revierte también las variables corregidas | 🔴 Crítica | 📋 Pendiente · job `PRE_DEPLOY` |
+| **P-SECRET-1** | Un secreto vivía en tres sitios | Causa mecánica de que la caída durase quince horas | 🟢 Baja | 🟡 Resuelto en la plantilla; **falta aplicar** |
+| **P-ENV-1** | Desarrollo y producción comparten la misma base | Credenciales de producción en cada portátil; origen de la cadena | 🔴 Crítica | 📋 Pendiente · staging con base propia |
+| **P-RLS-1** | La frontera entre tenants es 100 % de aplicación | Si una consulta olvida el filtro, Postgres obedece | 🔴 Crítica | 📋 Pendiente · RLS con `FORCE` y rol sin `BYPASSRLS` |
+| **P-RLS-2** | `Billing` sin global scope hasta verificar el backfill | Activarlo antes de tiempo **pararía la facturación** | 🟡 Media | 📋 Pendiente · comprobar que no queden NULL |
+| **P-KEYS-1** | Riesgo residual del auto-servicio de llaves | Sin aviso de vencimiento, la integración se cae de golpe | 🟡 Media | 📋 Pendiente · `api-keys:expiring` |
+| **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
+| **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
+| **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
