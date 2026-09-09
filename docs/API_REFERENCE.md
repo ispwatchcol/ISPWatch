@@ -416,11 +416,14 @@ Pasos que ejecuta:
 1. Se limpia la configuración del cliente en su router — secret y sesión PPPoE, simple queue,
    usuario y sesión de HotSpot, lease DHCP, entradas de address-list, ARP estático y regla de
    amarre.
-2. Se borran las filas: las que van en cascada por clave foránea (facturas, pagos, documentos,
-   servicios, bitácoras) más las tres tablas que **no** tienen clave foránea y quedarían
+2. **Se salva el histórico contable**: facturas, pagos, arrastres, saldo a favor y servicios
+   adicionales se **desvinculan** (`customer_id` → `NULL`) en vez de arrastrarse, con el nombre
+   y el documento del titular congelados en la propia fila. Ver P-43 más abajo.
+3. Se borran las filas: las que van en cascada por clave foránea (documentos, servicios,
+   bitácoras) más las tres tablas que **no** tienen clave foránea y quedarían
    huérfanas (`customer_installations`, `bulk_provision_runs`, y el vínculo
    `prospects.converted_user_id`, que se pone a `NULL` porque el prospecto es un registro propio).
-3. Se borran de S3 los contratos firmados, las fotos y las firmas de instalación.
+4. Se borran de S3 los contratos firmados, las fotos y las firmas de instalación.
 
 **200 OK**
 
@@ -430,7 +433,8 @@ Pasos que ejecuta:
   "cleanup": {
     "router":  { "success": true, "statements": 11, "message": "Configuración del cliente eliminada del router." },
     "files":   { "deleted": 4, "failed": 0 },
-    "records": { "instalaciones": 1, "documentos_instalacion": 3, "ejecuciones_alta": 2, "prospectos_desligados": 1, "enlaces_firma_revocados": 1 }
+    "records": { "instalaciones": 1, "documentos_instalacion": 3, "ejecuciones_alta": 2, "prospectos_desligados": 1, "enlaces_firma_revocados": 1,
+                 "conservado_invoices": 14, "conservado_payments": 12, "conservado_invoice_carryovers": 0, "conservado_customer_credits": 1, "conservado_customer_additional_services": 2 }
   },
   "correlation_id": "9f1c2b7e-..."
 }
@@ -438,10 +442,17 @@ Pasos que ejecuta:
 
 `correlation_id` permite atar la respuesta con su fila de `audit_logs`.
 
-> ⚠️ **Los tickets del cliente sobreviven** (notas, adjuntos e historial incluidos) desde el
-> correctivo de H-6. **Sus facturas y pagos NO**: `invoices.customer_id` y
-> `payments.customer_id` siguen en `ON DELETE CASCADE`. Es la deuda **P-43**, sin resolver; el
-> conteo queda en la auditoría, pero los datos se pierden.
+> ✅ **Los tickets del cliente sobreviven** (notas, adjuntos e historial incluidos) desde el
+> correctivo de H-6, **y sus facturas y pagos también** desde P-43 (2026-09-09). Las cinco
+> claves foráneas de dinero —`invoices`, `payments`, `invoice_carryovers`, `customer_credits`
+> y `customer_additional_services`— pasaron de `ON DELETE CASCADE` a **`ON DELETE SET NULL`**.
+>
+> Las filas conservan `tenant_id`, así que **siguen apareciendo en los listados e informes del
+> ISP**, y llevan `customer_name` / `customer_document` congelados para que se les pueda seguir
+> poniendo nombre. Lo que desaparece es la ficha del abonado, no el asiento contable.
+>
+> Consecuencia para el consumidor de esta API: **`customer` puede venir `null`** en cualquier
+> factura o pago. Usar `customer_name` como respaldo para mostrar el titular.
 
 > **Un fallo al limpiar el router NO revierte el borrado** — un router caído dejaría clientes
 > imposibles de eliminar — pero la respuesta sigue siendo `200` con
@@ -1058,11 +1069,21 @@ del **filtro completo** (no de la página):
 > El **tenant sale siempre del usuario autenticado**. `tenant`/`tenant_id` por
 > query param se ignora.
 
+> ⚠️ **`customer` puede venir `null`** en una factura o un pago, desde P-43 (2026-09-09):
+> el histórico contable sobrevive al borrado de su titular. Cada fila trae
+> **`customer_name`** y **`customer_document`**, congelados al emitirse, para poder
+> mostrarla igualmente. Un consumidor que haga `invoice.customer.user_name` sin
+> comprobar el nulo se rompe con esas filas.
+>
+> El filtro `customer` busca sobre el cliente vivo, así que **no encuentra** las
+> facturas de clientes dados de baja; `customer_id` tampoco. Se llega a ellas por
+> período, número o rango de fechas.
+
 ### Exportación a CSV
 
 | Ruta | Permiso | Contenido |
 |---|---|---|
-| `GET /api/billing/invoices/export` | `view_billing` | Número, cliente, correo, tipo, estado, emisión, vencimiento, período, total, saldo |
+| `GET /api/billing/invoices/export` | `view_billing` | Número, cliente, correo, tipo, estado, emisión, vencimiento, período, total, saldo. La columna **cliente** cae al titular congelado si el cliente ya no existe; **correo** queda vacío (no se guarda en el snapshot) |
 | `GET /api/billing/payments/export` | `view_billing` | Fecha, cliente, monto, método, referencia, registrado por, facturas afectadas |
 | `GET /api/expenses/export` | `view_expenses` | Fecha, categoría, descripción, a nombre de, monto, estado, observaciones |
 
@@ -1298,6 +1319,12 @@ activo del catálogo (`equipos`, `tv`…); por defecto `additional`.
 | `GET` | `/api/billing/whatsapp-status` | Estado de la integración WhatsApp |
 | `GET/POST` | `/api/billing/payment-methods` | Lista / crea forma de pago |
 | `PUT/DELETE` | `/api/billing/payment-methods/{id}` | Actualiza / elimina |
+
+> **`send-reminder` responde 404 si la factura ya no tiene titular** — el cliente se dio de
+> baja y la factura se conserva por su valor contable (P-43). No hay a quién enviarle nada.
+> El bloque que devuelve ese 404 existía desde antes, pero leía el perfil del cliente **antes**
+> de comprobar el nulo: con `customer_id` nulo devolvía **500**. Se corrigió el 2026-09-09, a
+> la vez que se volvía alcanzable.
 
 ### Tipos de factura (catálogo)
 

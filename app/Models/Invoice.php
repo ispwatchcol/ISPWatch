@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Traits\BelongsToTenant;
+use App\Traits\FreezesCustomerSnapshot;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Invoice extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use HasFactory, BelongsToTenant, FreezesCustomerSnapshot;
 
     const TYPE_MONTHLY       = 'monthly';
     const TYPE_SERVICE_CHARGE = 'service_charge';
@@ -18,6 +19,10 @@ class Invoice extends Model
     protected $fillable = [
         'tenant_id',
         'customer_id',
+        // Titular congelado (P-43). La factura sobrevive al borrado del cliente
+        // y estos dos campos son lo único que permite seguir atribuyéndola.
+        'customer_name',
+        'customer_document',
         'service_id',
         'invoice_type',
         'ticket_id',

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\BelongsToTenant;
+use App\Traits\FreezesCustomerSnapshot;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -10,10 +11,15 @@ class Payment extends Model
 {
     use HasFactory;
     use BelongsToTenant;
+    use FreezesCustomerSnapshot;
 
     protected $fillable = [
         'tenant_id',
         'customer_id',
+        // Titular congelado (P-43). El pago sobrevive al borrado del cliente y
+        // estos dos campos son lo único que permite seguir atribuyéndolo.
+        'customer_name',
+        'customer_document',
         'amount',
         'payment_date',
         'method',

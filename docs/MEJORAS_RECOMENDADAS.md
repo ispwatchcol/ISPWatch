@@ -1915,7 +1915,7 @@ para que la bitácora siga siendo legible. Ver `BITACORA_TECNICA.md` §55.
 Relacionado: **D-05** (retención de adjuntos) sigue sin definirse, y afecta a la misma
 pregunta de fondo — cuánto tiempo se conserva la evidencia.
 
-### 🔴 P-43 · Borrar un cliente destruye su histórico de facturación
+### ✅ P-43 · Borrar un cliente destruía su histórico de facturación — RESUELTA
 
 Detectado el 2026-08-29 al inventariar las once claves foráneas en cascada hacia `users`
 durante el correctivo de H-6.
@@ -1946,14 +1946,29 @@ conservación fiscal. Cambiar esas cascadas sin entender el ciclo contable serí
 
 Sigue pendiente lo de fondo: las claves foráneas no cambiaron.
 
-**Qué hacer:**
+**✅ RESUELTA el 2026-09-09.**
 
-1. Decidir con el negocio si dar de baja a un cliente debe conservar su histórico de
-   facturación. Casi con seguridad sí, por retención fiscal.
-2. De ser así, pasar las tres a `SET NULL` y añadir el snapshot mínimo que permita seguir
-   identificando al cliente en un informe —probablemente nombre y documento, aquí sí, porque una
-   factura los lleva impresos de todos modos.
-3. Revisar si los informes de facturación toleran `customer_id` nulo.
+1. **La decisión de negocio se tomó: se conserva**, con nombre y documento. En Colombia los
+   papeles de comercio se conservan diez años (Código de Comercio, arts. 28 y 60) y un cierre
+   contable no puede depender de que nadie haya dado de baja a un abonado.
+2. Las claves foráneas pasaron a `SET NULL`. **Cinco, no tres**: al inventariarlas aparecieron
+   `customer_credits` (saldo a favor — dinero que el cliente entregó) y
+   `customer_additional_services` (lo que justifica los cargos) con la misma cascada y la misma
+   naturaleza contable. Arreglar tres y dejar dos habría dado por cerrada una deuda que seguiría
+   perdiendo dinero por otro lado.
+3. `invoices` y `payments` ganaron `customer_name` y `customer_document`, congelados **al
+   emitir** por el trait `FreezesCustomerSnapshot` — no al borrar, porque un documento contable
+   dice a quién se le facturó *entonces*. El snapshot va sólo en esas dos: las demás tablas
+   cuelgan de una factura o un pago, y repetir el dato personal en cinco sitios no habría dado
+   ni un informe nuevo.
+4. Los informes sí toleran el nulo, con dos arreglos: las exportaciones y el panel caen a
+   `customerDisplayName()`, y `send-reminder` devolvía **500** en vez de su 404 porque leía el
+   perfil antes de comprobar el nulo — un fallo latente que este cambio volvía alcanzable.
+
+**Lo que se acepta a conciencia:** el filtro por cliente de los listados no encuentra las
+facturas de un cliente dado de baja (busca sobre el cliente vivo). Se llega a ellas por
+período, número o rango de fechas. Darles filtro propio exigiría buscar sobre el snapshot, y
+no hay caso de uso que hoy lo pida.
 
 Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo se conserva qué.
 
@@ -2013,7 +2028,7 @@ Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
-| **P-43** | Borrar un cliente destruye sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se pierde el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | 🟠 **Contenida, no resuelta** (2026-08-31): permiso propio, motivo y auditoría previa. Las FK siguen en CASCADE |
+| **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
 
 ---
 

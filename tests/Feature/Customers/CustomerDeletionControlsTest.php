@@ -36,12 +36,17 @@ use Tests\TestCase;
  * `audit_logs`. Un cliente con miles de facturas podía desaparecer sin que
  * constara quién lo hizo ni por qué.
  *
- * LO QUE ESTE PR NO RESUELVE
+ * P-43, CERRADA EL 2026-09-09
  *
- * **P-43 sigue abierta**: facturas, pagos, créditos y arrastres se siguen
- * borrando en cascada. Aquí sólo se restringe quién puede hacerlo y se deja
- * constancia de cuánto se destruyó. Los tests lo afirman explícitamente para
- * que nadie lea esta suite como una garantía de que el dinero sobrevive.
+ * Esta suite decía aquí que facturas, pagos, créditos y arrastres se seguían
+ * borrando en cascada, y lo fijaba por prueba para que nadie la leyera como una
+ * garantía de que el dinero sobrevivía. Ya no es así: las cinco claves foráneas
+ * de dinero pasaron a `ON DELETE SET NULL` y el histórico contable se conserva
+ * desvinculado, con nombre y documento del titular congelados.
+ *
+ * Lo que sigue siendo cierto es el reparto: se destruye la ficha del abonado y
+ * todo lo que sólo servía para prestarle servicio; sobrevive lo que responde
+ * ante terceros.
  */
 class CustomerDeletionControlsTest extends TestCase
 {
@@ -296,10 +301,14 @@ class CustomerDeletionControlsTest extends TestCase
             'La respuesta debe poder atarse a su fila de auditoría.',
         );
 
-        // El resumen dice de quién se habla y cuánto se destruyó.
+        // El resumen dice de quién se habla, cuánto se destruyó y cuánto queda.
         $this->assertSame('Axel Cano', $log->old_values['customer']['name']);
-        $this->assertArrayHasKey('invoices', $log->old_values['se_eliminan']);
+        $this->assertArrayHasKey('customer_documents', $log->old_values['se_eliminan']);
         $this->assertArrayHasKey('support_ticket', $log->old_values['se_conservan']);
+
+        // Desde P-43 la contabilidad se cuenta entre lo que SOBREVIVE.
+        $this->assertArrayHasKey('invoices', $log->old_values['se_conservan']);
+        $this->assertArrayNotHasKey('invoices', $log->old_values['se_eliminan']);
     }
 
     #[Test]
@@ -344,7 +353,7 @@ class CustomerDeletionControlsTest extends TestCase
 
         // Si se hubiera escrito después, el conteo sería 0: el cliente ya no
         // existiría y no habría de dónde sacarlo.
-        $this->assertIsInt($log->old_values['se_eliminan']['invoices']);
+        $this->assertIsInt($log->old_values['se_conservan']['invoices']);
         $this->assertSame('1234567890', $log->old_values['customer']['cedula']);
     }
 
@@ -489,18 +498,21 @@ class CustomerDeletionControlsTest extends TestCase
     }
 
     #[Test]
-    public function una_factura_emitida_desaparece_en_cascada_p43_sigue_abierta(): void
+    public function una_factura_emitida_sobrevive_al_borrado_del_cliente(): void
     {
-        // ESTE TEST AFIRMA UN DEFECTO, NO UNA GARANTÍA.
+        // ESTE TEST AFIRMABA UN DEFECTO Y AHORA AFIRMA LA GARANTÍA.
         //
-        // `invoices.customer_id`, `payments.customer_id` y compañía siguen en
-        // `ON DELETE CASCADE`: dar de baja a un cliente borra su histórico de
-        // facturación. Este PR NO lo resuelve — sólo restringe quién puede
-        // hacerlo y deja constancia de cuánto se destruyó.
+        // Hasta el 2026-09-09 se llamaba `una_factura_emitida_desaparece_en_
+        // cascada_p43_sigue_abierta` y comprobaba lo contrario: que la factura
+        // se destruía. Se escribió así a propósito, «para que el día que se
+        // corrija P-43 este test falle y obligue a actualizarlo». Falló, y este
+        // es el resultado.
         //
-        // Se fija por prueba para que nadie lea esta suite como si el dinero
-        // sobreviviera, y para que el día que se corrija P-43 este test falle y
-        // obligue a actualizarlo.
+        // La factura se inserta con `DB::table()`, sin pasar por el modelo, así
+        // que NO lleva el snapshot que congela `FreezesCustomerSnapshot` al
+        // crear. Es el caso de las facturas anteriores a P-43, y comprueba la
+        // red de seguridad de `CustomerDeletionService::preservarContabilidad()`:
+        // congelar al titular en la última oportunidad que hay de hacerlo.
         $cliente = $this->cliente();
 
         // `issued`, no `pending`.
@@ -538,11 +550,25 @@ class CustomerDeletionControlsTest extends TestCase
         $this->actingAs($this->administrador())
             ->deleteJson("/api/customers/{$cliente->id}", $this->cuerpoValido())->assertOk();
 
-        $this->assertDatabaseMissing('invoices', ['id' => $facturaId]);
+        // El cliente se fue de verdad.
+        $this->assertDatabaseMissing('users', ['id' => $cliente->id]);
 
-        // Pero al menos ahora consta cuántas había.
+        // La factura no.
+        $factura = DB::table('invoices')->where('id', $facturaId)->first();
+
+        $this->assertNotNull($factura, 'La factura debe sobrevivir al borrado del titular.');
+        $this->assertNull($factura->customer_id, 'Y debe quedar desvinculada, no apuntando a un id inexistente.');
+        $this->assertSame('issued', $factura->status, 'Sin que cambie su estado contable.');
+        $this->assertEquals(50000, (float) $factura->total, 'Ni su importe.');
+
+        // Sin el snapshot, una factura sin titular sería una cifra que no se
+        // puede atribuir a nadie: tan inservible para un cierre como borrarla.
+        $this->assertSame('Axel Cano', $factura->customer_name);
+        $this->assertSame('1234567890', $factura->customer_document);
+
+        // Y la auditoría la cuenta entre lo que se conserva, no entre lo perdido.
         $log = AuditLog::withoutGlobalScopes()->where('action', 'customer_deleted')->firstOrFail();
-        $this->assertSame(1, $log->old_values['se_eliminan']['invoices']);
+        $this->assertSame(1, $log->old_values['se_conservan']['invoices']);
     }
 
     // ── Aislamiento y no regresión ───────────────────────────────────────
