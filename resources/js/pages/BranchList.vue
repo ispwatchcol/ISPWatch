@@ -258,11 +258,17 @@
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Número</label>
+              <!--
+                Texto, no `number`: aquí se escribe el teléfono de la sucursal y
+                un celular colombiano desbordaba la columna entera. Como texto
+                admite indicativo, separadores y extensión.
+              -->
               <input
-                v-model.number="form.numero"
-                type="number"
-                min="0"
-                placeholder="Número de sucursal..."
+                v-model="form.numero"
+                type="text"
+                inputmode="tel"
+                maxlength="30"
+                placeholder="Número o teléfono de la sucursal..."
                 class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none"

@@ -1544,6 +1544,12 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 Todos con alcance de tenant vía `BelongsToTenant`. Sustituyeron al acceso directo a Supabase.
 `tenant_id` **no es asignable en masa**: se establece desde el usuario autenticado.
 
+**Contrato de `/api/inventory-branches`** — `name` (requerido, máx. 255), `dir` (opcional, máx.
+255) y `numero` (opcional, **cadena** de máx. 30). Desde 2026-09-09 `numero` viaja como texto,
+no como número: antes era `nullable|integer` sobre una columna `int4` y cualquier celular
+colombiano la desbordaba con un 500. Un valor de más de 30 caracteres ahora responde **422**
+con el error en `numero`, no un 500.
+
 ### 15.1 Custodia, entregas y kardex
 
 | Método | Ruta | Permiso | Descripción |
