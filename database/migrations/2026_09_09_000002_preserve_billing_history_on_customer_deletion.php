@@ -166,8 +166,26 @@ return new class extends Migration
      * exactamente de donde los toma `PlaceholderResolver::forInvoice()` para
      * imprimirlos: el snapshot tiene que decir lo mismo que dice el papel.
      *
-     * Se hace en PHP y no con un `UPDATE ... FROM` porque esa sintaxis difiere entre
-     * PostgreSQL y SQLite, y la suite corre en los dos.
+     * UN SOLO `UPDATE ... FROM` EN POSTGRES; el recorrido en PHP se queda para SQLite.
+     *
+     * La versión original recorría las filas en lotes de 500 y mandaba un UPDATE por
+     * TITULAR, en PHP, para no depender de una sintaxis que difiere entre motores.
+     * Escrito así costó dos despliegues de producción: la app corre en `atl` y el
+     * pooler de Supabase está en `us-east-1`, así que cada ida y vuelta cuesta ~258 ms
+     * y el relleno tardaba minutos. Como `migrate --force` corría dentro del arranque
+     * del contenedor, Apache no llegaba a levantar y App Platform mataba el
+     * despliegue a los ~90 s por health check (§ 60 de la bitácora).
+     *
+     * Lo que importa no es el número de filas: es el número de idas y vueltas. En
+     * PostgreSQL son dos —una por tabla— y en el peor caso segundos. SQLite conserva
+     * el recorrido en PHP porque `UPDATE ... FROM` no existe allí, y es el motor con
+     * el que corre la suite rápida: la lógica de preferencia del nombre se sigue
+     * probando fila a fila. El job PRE_DEPLOY arregla la causa estructural; esto
+     * arregla la migración concreta, que es lo que tenía a un cliente parado.
+     *
+     * LAS DOS RAMAS TIENEN QUE DECIR LO MISMO. El orden de preferencia del nombre
+     * —`users`, luego `customer_profile`, luego el correo— y los recortes a 160/40
+     * están escritos dos veces. Si se cambia uno, se cambia el otro.
      *
      * LA CASCADA ESTÁ DUPLICADA CON `FreezesCustomerSnapshot`, y es a propósito.
      * Una migración es un documento histórico: tiene que seguir haciendo lo mismo
@@ -183,6 +201,58 @@ return new class extends Migration
             return;
         }
 
+        if (DB::getDriverName() === 'pgsql') {
+            $this->rellenarEnPostgres($tabla);
+
+            return;
+        }
+
+        $this->rellenarPorLotes($tabla);
+    }
+
+    /**
+     * El mismo relleno, en una sentencia.
+     *
+     * `CONCAT_WS` se salta los NULL, así que hace exactamente lo que hacía
+     * `trim($nombre . ' ' . $apellido)` en PHP; el `NULLIF(..., '')` de cada tramo es
+     * lo que convierte "nombre vacío" en "pasa al siguiente candidato" dentro del
+     * `COALESCE`. El `WHERE` final replica el `continue` del bucle: si no hay ni
+     * nombre ni documento, la fila se deja como estaba en vez de escribirle dos NULL.
+     */
+    private function rellenarEnPostgres(string $tabla): void
+    {
+        $conPerfil = Schema::hasTable('customer_profile');
+
+        $perfilJoin = $conPerfil ? 'LEFT JOIN customer_profile p ON p.user_id = u.id' : '';
+        $porPerfil  = $conPerfil
+            ? "NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(p.name, ''), NULLIF(p.last_name, ''))), ''),"
+            : '';
+        $documento  = $conPerfil ? "BTRIM(COALESCE(p.cedula, ''))" : "''";
+
+        DB::statement(
+            "UPDATE {$tabla} AS d
+                SET customer_name     = NULLIF(LEFT(s.nombre, 160), ''),
+                    customer_document = NULLIF(LEFT(s.documento, 40), '')
+               FROM (
+                     SELECT u.id,
+                            COALESCE(
+                              NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(u.user_name, ''), NULLIF(u.user_lastname, ''))), ''),
+                              {$porPerfil}
+                              COALESCE(u.email, '')
+                            ) AS nombre,
+                            {$documento} AS documento
+                       FROM users u
+                       {$perfilJoin}
+                    ) AS s
+              WHERE d.customer_id = s.id
+                AND d.customer_name IS NULL
+                AND (s.nombre <> '' OR s.documento <> '')"
+        );
+    }
+
+    /** El recorrido original, fila a fila. Se usa en SQLite, que no tiene `UPDATE ... FROM`. */
+    private function rellenarPorLotes(string $tabla): void
+    {
         $conPerfil = Schema::hasTable('customer_profile');
 
         DB::table($tabla)

@@ -523,6 +523,13 @@ equivocado.
 del web sin migraciones. **Falta aplicarlo a la especificación viva**, igual que P-SECRET-1:
 mientras no se aplique, la próxima migración lenta vuelve a tumbar el despliegue.
 
+**Y se comprobó en vivo que no basta con escribirlo.** Con el job ya en la plantilla pero sin
+aplicar, el despliegue volvió a fallar igual a las 20:38. Manda la especificación viva, no el
+archivo del repositorio. Por eso se atacó además la otra mitad —que la migración quepa en la
+ventana— que sí se arregla sólo con mergear: el relleno de `2026_09_09_000002` pasa de un
+UPDATE por titular en PHP a **un solo `UPDATE ... FROM` por tabla** en PostgreSQL. Lo que lo
+hacía lento no era el número de filas sino el de idas y vueltas.
+
 ### 🟢 P-SECRET-1 · Un secreto vivía en tres sitios — *resuelto en la plantilla, falta aplicar*
 
 Cada componente llevaba su copia de las variables compartidas: 37 duplicadas, 13 secretos.
