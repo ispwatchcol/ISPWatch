@@ -32,6 +32,7 @@ class PartnerBillingController extends PartnerController
             ->select([
                 'invoices.id',
                 'invoices.customer_id',
+                'invoices.customer_name',
                 'invoices.number',
                 'invoices.invoice_type',
                 'invoices.issue_date',
@@ -74,7 +75,14 @@ class PartnerBillingController extends PartnerController
 
         return $this->paginated($query, $request, fn ($row) => [
             'id'           => (int) $row->id,
-            'customer_id'  => (int) $row->customer_id,
+            // Nulo, no 0. El titular puede haberse dado de baja y la factura
+            // sobrevivir por su valor contable (P-43); `(int) null` daba un
+            // `customer_id: 0` que el partner intentaba resolver contra un
+            // cliente que nunca existio. Misma convencion que
+            // PartnerSupportController. `customer_name` va al lado para que la
+            // factura se pueda seguir atribuyendo sin ese id.
+            'customer_id'  => $row->customer_id ? (int) $row->customer_id : null,
+            'customer_name' => $row->customer_name,
             'number'       => $row->number,
             'type'         => $row->invoice_type,
             'issue_date'   => $row->issue_date,
@@ -106,6 +114,7 @@ class PartnerBillingController extends PartnerController
             ->select([
                 'payments.id',
                 'payments.customer_id',
+                'payments.customer_name',
                 'payments.amount',
                 'payments.payment_date',
                 'payments.method',
@@ -134,7 +143,9 @@ class PartnerBillingController extends PartnerController
 
         return $this->paginated($query, $request, fn ($row) => [
             'id'           => (int) $row->id,
-            'customer_id'  => (int) $row->customer_id,
+            // Nulo, no 0 — mismo motivo que en las facturas (P-43).
+            'customer_id'  => $row->customer_id ? (int) $row->customer_id : null,
+            'customer_name' => $row->customer_name,
             'amount'       => $row->amount,
             'payment_date' => $row->payment_date,
             'method'       => $row->method,

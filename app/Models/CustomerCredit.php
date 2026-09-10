@@ -93,6 +93,14 @@ class CustomerCredit extends Model
             return null;
         }
 
+        // Pago sin titular: el cliente se dio de baja y el pago sobrevive por su
+        // valor contable (P-43). Un saldo A FAVOR DE alguien no significa nada
+        // sin ese alguien, y el `(int)` de abajo lo convertiría en el cliente 0,
+        // que no existe: la fila reventaría contra la clave foránea a `users`.
+        if (!$payment->customer_id) {
+            return null;
+        }
+
         return static::record(
             customerId: (int) $payment->customer_id,
             type: self::TYPE_EARNED,
@@ -183,14 +191,22 @@ class CustomerCredit extends Model
         }
 
         if ($reversible > 0) {
-            static::record(
-                customerId: (int) $payment->customer_id,
-                type: self::TYPE_REVERSED,
-                amount: -$reversible,
-                reason: "Reversión del pago #{$payment->id}",
-                fromPaymentId: (int) $payment->id,
-                tenantId: $payment->tenant_id ? (int) $payment->tenant_id : null,
-            );
+            // Igual que en `earn()`: sin titular no hay libro de saldo al que
+            // apuntar, y `(int) null` sería el cliente 0 (P-43), que no existe
+            // y reventaría contra la clave foránea a `users`. El asiento de
+            // reversión se omite; el marcado de consumidos NO, porque si no el
+            // excedente seguiría contando como disponible en un libro que ya no
+            // tiene dueño.
+            if ($payment->customer_id) {
+                static::record(
+                    customerId: (int) $payment->customer_id,
+                    type: self::TYPE_REVERSED,
+                    amount: -$reversible,
+                    reason: "Reversión del pago #{$payment->id}",
+                    fromPaymentId: (int) $payment->id,
+                    tenantId: $payment->tenant_id ? (int) $payment->tenant_id : null,
+                );
+            }
 
             // El saldo devuelto ya no existe: marcar los earned como consumidos
             // evita que una segunda reversión del mismo pago lo reste otra vez.

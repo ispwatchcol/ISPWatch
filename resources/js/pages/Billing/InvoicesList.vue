@@ -717,7 +717,7 @@ const sendBulkReminders = async () => {
                             <td class="px-6 py-4 font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">#{{ invoice.number }}</td>
                             <td class="px-6 py-4">
                                 <div class="font-semibold text-slate-900 dark:text-white">
-                                    {{ customerDisplayName(invoice.customer) }}
+                                    {{ customerDisplayName(invoice.customer, invoice.customer_name) }}
                                 </div>
                                 <div class="text-xs text-slate-500 dark:text-slate-400">{{ invoice.customer?.email }}</div>
                             </td>

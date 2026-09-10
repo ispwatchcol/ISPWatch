@@ -351,7 +351,7 @@ onMounted(() => {
                                 <div>
                                     <div class="font-medium text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">#{{ invoice.number }}</div>
                                     <div class="text-xs text-slate-500 dark:text-slate-400">
-                                        {{ customerDisplayName(invoice.customer) }}
+                                        {{ customerDisplayName(invoice.customer, invoice.customer_name) }}
                                     </div>
                                 </div>
                             </div>
@@ -385,7 +385,7 @@ onMounted(() => {
                                 </div>
                                 <div>
                                     <div class="font-medium text-slate-900 dark:text-white">
-                                        {{ customerDisplayName(payment.customer) }}
+                                        {{ customerDisplayName(payment.customer, payment.customer_name) }}
                                     </div>
                                     <div class="text-xs text-slate-500 dark:text-slate-400">{{ payment.method }} • {{ payment.payment_date }}</div>
                                 </div>

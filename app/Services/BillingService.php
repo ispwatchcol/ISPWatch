@@ -2108,6 +2108,15 @@ class BillingService
     {
         $entrado = DB::table('payments')
             ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            // Los pagos sin titular quedan fuera (P-43). Este informe dice
+            // «al cliente X le sobra dinero sin aplicar», y un pago de un
+            // cliente dado de baja no se le puede atribuir a nadie.
+            //
+            // No es sólo que la fila no sirva: al agrupar, el grupo NULL
+            // entraba como clave `""`, y ese `""` acababa en el `whereIn`
+            // de abajo contra una columna bigint — en PostgreSQL, un 22P02
+            // que se lleva por delante el verificador de dinero entero.
+            ->whereNotNull('customer_id')
             ->selectRaw('customer_id, count(*) as pagos, sum(amount) as entrado')
             ->groupBy('customer_id')
             ->get()
@@ -2377,6 +2386,16 @@ class BillingService
         $type = $invoice->invoice_type ?: Invoice::TYPE_MONTHLY;
 
         if ($type !== Invoice::TYPE_MONTHLY || !$invoice->period_start) {
+            return;
+        }
+
+        // Factura sin titular: el cliente se dio de baja y la factura sobrevive
+        // por su valor contable (P-43). No hay lápida que poner —
+        // `billing_action_logs.customer_id` es NOT NULL y escribir aquí
+        // reventaría el borrado entero con un 23502— y tampoco hace falta: la
+        // facturación mensual recorre `customer_profile`, que ya no existe para
+        // este cliente, así que no hay nada que pueda regenerarse.
+        if (!$invoice->customer_id) {
             return;
         }
 

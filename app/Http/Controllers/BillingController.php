@@ -203,12 +203,12 @@ class BillingController extends Controller
             $columns,
             $query,
             function (Invoice $invoice) {
-                $profile = $invoice->customer?->customerProfile;
-                $nombre  = trim(($profile->name ?? '') . ' ' . ($profile->last_name ?? ''));
-
                 return [
                     $invoice->number,
-                    $nombre !== '' ? $nombre : ($invoice->customer?->user_name ?? ''),
+                    // Cae al titular congelado si la factura sobrevivió al
+                    // borrado de su cliente (P-43): sin esto, una exportación
+                    // contable tendría filas con importe y sin nombre.
+                    $invoice->customerDisplayName(),
                     $invoice->customer?->email ?? '',
                     $invoice->invoice_type,
                     $invoice->status,
@@ -244,9 +244,6 @@ class BillingController extends Controller
             $columns,
             $query,
             function (Payment $payment) {
-                $profile = $payment->customer?->customerProfile;
-                $nombre  = trim(($profile->name ?? '') . ' ' . ($profile->last_name ?? ''));
-
                 $creator = $payment->creator;
                 $quien   = $creator
                     ? (trim(($creator->user_name ?? '') . ' ' . ($creator->user_lastname ?? '')) ?: ($creator->name ?? ''))
@@ -261,7 +258,9 @@ class BillingController extends Controller
 
                 return [
                     $this->csvDate($payment->payment_date),
-                    $nombre !== '' ? $nombre : ($payment->customer?->user_name ?? ''),
+                    // Igual que en las facturas: el titular congelado sostiene
+                    // la columna cuando el cliente ya no existe (P-43).
+                    $payment->customerDisplayName(),
                     $this->csvMoney($payment->amount),
                     $payment->method,
                     $payment->reference ?? '',

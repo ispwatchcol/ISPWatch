@@ -196,7 +196,7 @@ const goToPage = (page) => {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const customerName = (p) => customerDisplayName(p.customer)
+const customerName = (p) => customerDisplayName(p.customer, p.customer_name)
 
 // Color estable por forma de pago: el mismo método sale siempre del mismo color
 // para distinguirlos de un vistazo. Como los métodos los crea cada ISP (y suelen

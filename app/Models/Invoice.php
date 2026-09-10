@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Traits\BelongsToTenant;
+use App\Traits\FreezesCustomerSnapshot;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Invoice extends Model
 {
-    use HasFactory, BelongsToTenant;
+    use HasFactory, BelongsToTenant, FreezesCustomerSnapshot;
 
     const TYPE_MONTHLY       = 'monthly';
     const TYPE_SERVICE_CHARGE = 'service_charge';
@@ -18,6 +19,10 @@ class Invoice extends Model
     protected $fillable = [
         'tenant_id',
         'customer_id',
+        // Titular congelado (P-43). La factura sobrevive al borrado del cliente
+        // y estos dos campos son lo único que permite seguir atribuyéndola.
+        'customer_name',
+        'customer_document',
         'service_id',
         'invoice_type',
         'ticket_id',
@@ -52,6 +57,16 @@ class Invoice extends Model
         'carried_out' => 'decimal:2',
         'last_reminder_sent' => 'datetime',
     ];
+
+    /**
+     * La cédula congelada no sale en el JSON. Mismo criterio que en `Payment`:
+     * el listado de facturas carga el perfil del cliente pidiendo sólo
+     * `user_id,name,last_name`, y `customer_document` habría colado la cédula
+     * de cada titular en una respuesta que la evitaba a propósito.
+     *
+     * `$hidden` sólo afecta a la serialización: el PDF la sigue leyendo.
+     */
+    protected $hidden = ['customer_document'];
 
     public function items()
     {

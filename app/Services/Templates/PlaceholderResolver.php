@@ -36,9 +36,25 @@ class PlaceholderResolver
             'empresa.telefono'          => $tenant?->billing_phone ?: $tenant?->tel_tenant ?: '',
             'empresa.email'             => $tenant?->billing_email ?: $tenant?->email_tenant ?: '',
             'empresa.ciudad'            => $tenant?->city ?: $tenant?->zone_tenant ?: '',
-            'cliente.nombre'            => (string) ($customer?->user_name ?: ''),
+            // El titular congelado entra SÓLO como respaldo, cuando el cliente
+            // ya no existe (P-43).
+            //
+            // Se probó al revés —snapshot con preferencia, para que un PDF
+            // reimpreso dijera siempre lo que decía— y es la decisión
+            // equivocada aquí, por dos razones. Una: este resolutor lee en vivo
+            // el tenant, la dirección, el plan y el punto de acceso, así que
+            // congelar únicamente el nombre no daría un documento histórico,
+            // daría uno incoherente. Y dos: el nombre congelado es un solo
+            // campo, y las plantillas usan `{{cliente.nombre}}` y
+            // `{{cliente.apellido}}` por separado; meterlo entero en el primero
+            // deja el segundo vacío y un espacio suelto antes de la coma.
+            //
+            // Lo que sí queda congelado de verdad es la COLUMNA: nadie la
+            // reescribe, y es lo que sostiene el histórico cuando el cliente se
+            // da de baja, que es el problema que P-43 vino a resolver.
+            'cliente.nombre'            => (string) ($customer?->user_name ?: ($customer ? '' : ($invoice->customer_name ?: ''))),
             'cliente.apellido'          => (string) ($customer?->user_lastname ?: ''),
-            'cliente.cedula'            => (string) ($profile?->cedula ?: ''),
+            'cliente.cedula'            => (string) ($profile?->cedula ?: ($invoice->customer_document ?: '')),
             'cliente.direccion'         => (string) ($profile?->address ?: ''),
             'cliente.email'             => (string) ($customer?->email ?: ''),
             'cliente.telefono'          => (string) ($customer?->tel ?: ''),
