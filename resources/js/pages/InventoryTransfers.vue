@@ -179,6 +179,7 @@ import inventoryApi from '@/services/api/inventory'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import catalogsApi from '@/services/api/catalogs'
+import { firstError } from '@/utils/apiError'
 import NotificationToast from '@/components/NotificationToast.vue'
 
 const toast = ref(null)
@@ -272,7 +273,7 @@ const loadHoldings = async () => {
     devices.value = data.devices || []
     materials.value = data.materials || []
   } catch (e) {
-    toast.value?.error('Error', firstError(e) || 'No se pudieron cargar las existencias.')
+    toast.value?.error('Error', firstError(e, 'No se pudieron cargar las existencias.'))
   } finally {
     loading.value = false
   }
@@ -300,7 +301,7 @@ const submitTransfer = async () => {
     notes.value = ''
     await loadHoldings()
   } catch (e) {
-    toast.value?.error('Error', firstError(e) || 'No se pudo registrar la entrega.')
+    toast.value?.error('Error', firstError(e, 'No se pudo registrar la entrega.'))
   } finally {
     saving.value = false
   }
@@ -323,19 +324,10 @@ const submitEntry = async () => {
     entry.value = { stock_id: null, quantity: null, toKey: null }
     await loadHoldings()
   } catch (e) {
-    toast.value?.error('Error', firstError(e) || 'No se pudo registrar la entrada.')
+    toast.value?.error('Error', firstError(e, 'No se pudo registrar la entrada.'))
   } finally {
     saving.value = false
   }
-}
-
-const firstError = (e) => {
-  const errors = e.response?.data?.errors
-  if (errors) {
-    const first = Object.values(errors)[0]
-    if (Array.isArray(first) && first.length) return first[0]
-  }
-  return e.response?.data?.message
 }
 
 onMounted(async () => {

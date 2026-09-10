@@ -467,6 +467,7 @@ import inventoryApi from '@/services/api/inventory'
 import inventoryProviderApi from '@/services/api/inventory-provider'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import inventoryStockApi from '@/services/api/inventory-stock'
+import { firstError } from '@/utils/apiError'
 import StatCard from '@/components/StatCard.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import Pagination from '@/components/ui/Pagination.vue'
@@ -646,7 +647,7 @@ const confirmDeleteDevice = async () => {
     await loadDevices()
   } catch (error) {
     console.error('Error deleting device:', error)
-    toast.value?.error('Error', 'No se pudo eliminar el dispositivo')
+    toast.value?.error('Error', firstError(error, 'No se pudo eliminar el dispositivo'))
   } finally {
     deleting.value = false
   }

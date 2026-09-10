@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\InstallationEquipment;
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class InventoryDeviceController extends Controller
 {
@@ -52,14 +55,7 @@ class InventoryDeviceController extends Controller
      */
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'stock_id' => 'nullable|integer|exists:inventory_stock,id',
-            'provider_id' => 'nullable|integer|exists:inventory_provider,id',
-            'user_id' => 'nullable|integer|exists:users,id',
-            'branch_id' => 'nullable|integer|exists:inventory_branch,id',
-            'serial' => 'nullable|string|max:255|unique:inventory_device,serial',
-            'mac' => 'nullable|string|max:255|unique:inventory_device,mac',
-        ]);
+        $data = $request->validate($this->rules($request), $this->messages());
 
         // Un equipo con custodio nace ya entregado; sin custodio, en bodega.
         $data['status'] = !empty($data['user_id'])
@@ -95,14 +91,7 @@ class InventoryDeviceController extends Controller
      */
     public function update(Request $request, InventoryDevice $inventory)
     {
-        $data = $request->validate([
-            'stock_id' => 'nullable|integer|exists:inventory_stock,id',
-            'provider_id' => 'nullable|integer|exists:inventory_provider,id',
-            'user_id' => 'nullable|integer|exists:users,id',
-            'branch_id' => 'nullable|integer|exists:inventory_branch,id',
-            'serial' => 'nullable|string|max:255|unique:inventory_device,serial,' . $inventory->id,
-            'mac' => 'nullable|string|max:255|unique:inventory_device,mac,' . $inventory->id,
-        ]);
+        $data = $request->validate($this->rules($request, $inventory), $this->messages());
 
         $newUserId   = $data['user_id'] ?? null;
         $newBranchId = $data['branch_id'] ?? null;
@@ -134,14 +123,68 @@ class InventoryDeviceController extends Controller
 
     /**
      * Remove the specified device from storage.
+     *
+     * Un equipo que está en casa de un cliente no se borra: installation_equipment
+     * apunta a él con SET NULL, así que el DELETE no falla — deja la línea de la
+     * instalación sin equipo y nadie vuelve a saber qué router quedó instalado.
+     * Para sacarlo del inventario está la baja (/inventory/{id}/retire), que sí
+     * queda escrita en el kardex.
      */
     public function destroy(InventoryDevice $inventory)
     {
+        $installed = $inventory->status === InventoryDevice::STATUS_INSTALLED
+            || InstallationEquipment::where('device_id', $inventory->id)->exists();
+
+        if ($installed) {
+            throw ValidationException::withMessages([
+                'device' => 'Este equipo está instalado en casa de un cliente y no se puede eliminar. '
+                    . 'Devuélvelo a bodega o dale de baja para sacarlo del inventario.',
+            ]);
+        }
+
         $inventory->delete();
 
         return response()->json([
             'message' => 'Equipo eliminado correctamente. ✅'
         ]);
+    }
+
+    /**
+     * Reglas de alta y edición.
+     *
+     * El serial y la MAC son únicos DENTRO del tenant, no en toda la base: dos
+     * empresas distintas pueden tener equipos con el mismo serial y la carga
+     * masiva (InventoryImport) ya deduplica así. Sin el where, un serial ajeno
+     * bloqueaba el alta con un "ya está en uso" que el cliente no podía explicar
+     * porque ese equipo no aparecía por ningún lado en su inventario.
+     */
+    private function rules(Request $request, ?InventoryDevice $device = null): array
+    {
+        $tenantId = $request->user()?->tenant_id;
+
+        $uniquePerTenant = fn (string $column) => Rule::unique('inventory_device', $column)
+            ->where(fn ($query) => $query->where('tenant_id', $tenantId))
+            ->ignore($device?->id);
+
+        return [
+            'stock_id'    => 'nullable|integer|exists:inventory_stock,id',
+            'provider_id' => 'nullable|integer|exists:inventory_provider,id',
+            'user_id'     => 'nullable|integer|exists:users,id',
+            'branch_id'   => 'nullable|integer|exists:inventory_branch,id',
+            'serial'      => ['nullable', 'string', 'max:255', $uniquePerTenant('serial')],
+            'mac'         => ['nullable', 'string', 'max:255', $uniquePerTenant('mac')],
+        ];
+    }
+
+    /** En español y diciendo QUÉ campo choca: "status code 422" no le sirve a nadie. */
+    private function messages(): array
+    {
+        return [
+            'serial.unique' => 'Ya tienes otro equipo registrado con este serial.',
+            'mac.unique'    => 'Ya tienes otro equipo registrado con esta MAC.',
+            'serial.max'    => 'El serial no puede superar los 255 caracteres.',
+            'mac.max'       => 'La MAC no puede superar los 255 caracteres.',
+        ];
     }
 
     /** "Bodega Norte", "Juan Pérez" o "Instalado · María Gómez". */

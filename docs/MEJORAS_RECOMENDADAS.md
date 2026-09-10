@@ -1992,6 +1992,70 @@ no hay caso de uso que hoy lo pida.
 
 Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo se conserva qué.
 
+### 🟡 P-44 · El serial de un equipo se compara distinto según por dónde entre — KAN-100
+
+**Detectado:** 2026-09-10, arreglando el binding roto de `/api/inventory/{id}`
+(§ 58 de `BITACORA_TECNICA.md`). **Prioridad:** media · **Estado:** deuda aceptada.
+
+`serial` y `mac` son únicos por tenant, pero los dos caminos de alta no entienden lo mismo por
+«repetido»:
+
+| Camino | Comparación | `SN-001` vs `sn-001` |
+|---|---|---|
+| Formulario (`InventoryDeviceController`) | `unique`, que en PostgreSQL usa `=` — **sensible a mayúsculas** | Los deja convivir |
+| Carga masiva (`InventoryImport`) | `mb_strtolower(trim(...))` | Rechaza el segundo |
+
+**Consecuencia concreta.** Un inventario cargado uno por uno puede terminar con el mismo
+equipo dos veces escrito distinto, y esas dos filas después bloquean una carga masiva que
+sí las ve como duplicadas. Nadie recibe un aviso: la primera vez parece que funcionó.
+
+**Por qué no se resolvió ahora.** Unificar hacia la comparación insensible implica decidir qué
+hacer con los duplicados que ya existan en producción —hay que mirarlos antes, no
+normalizarlos a ciegas— y añadir un índice único funcional (`lower(serial)`) por tenant, que es
+una migración con posible fallo al aplicarse. Se dejó fuera del arreglo del 422 a propósito:
+son dos problemas distintos y mezclarlos habría retrasado el que tenía al cliente parado.
+
+**Qué hacer:**
+
+1. Contar los duplicados reales por tenant con `lower(serial)` / `lower(mac)` — `COUNT(*)`, no
+   estimaciones.
+2. Decidir con el negocio si `SN-001` y `sn-001` son el mismo equipo (casi seguro que sí).
+3. Normalizar al guardar en los dos caminos y añadir el índice único funcional por tenant.
+
+### 🟠 P-45 · `view_inventory` es el único permiso del módulo: ver, crear, editar y **borrar** son el mismo — KAN-99
+
+**Detectado:** 2026-09-10, al arreglar el binding de `/api/inventory/{id}`
+(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** no implementado.
+
+`app/Constants/Permissions.php` declara **un solo** permiso de inventario, `VIEW_INVENTORY`, y
+con él se protegen todas las escrituras del módulo: alta y edición de equipos, entregas y
+traspasos, bajas y el `DELETE`. El nombre dice «view»; lo que concede es todo.
+
+**Por qué importa ahora y no antes.** Hasta este arreglo el `DELETE` **no borraba nada** — el
+binding roto le entregaba un modelo vacío — y encima no había botón que lo llamara. Era un
+endpoint muerto. Con el binding arreglado y el botón *Borrar* en la tarjeta del equipo, lo que
+era inalcanzable pasa a estar a un clic de cualquiera que pueda **ver** el inventario.
+
+El precedente está resuelto al lado: borrar un cliente exige `delete_customers`, concedido sólo
+a roles con `code = 'admin'` (§ 56 de la bitácora), justamente porque `edit_internet_service`
+—que tenían veinte roles, incluido *Técnico*— alcanzaba para destruir un expediente entero.
+Aquí falta el mismo corte.
+
+**Qué mitiga el riesgo hoy, y qué no.** Un equipo instalado en casa de un cliente ya no se puede
+borrar (se rechaza con 422). Eso protege el expediente de la instalación, **no** el inventario:
+un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex conserva el serial en
+`inventory_movements.device_serial`, así que queda rastro de que existió, pero la ficha se va.
+
+**Qué hacer:**
+
+1. Añadir `DELETE_INVENTORY` al catálogo y aplicarlo sólo al `DELETE`, dejando el resto en
+   `view_inventory` (no romper entregas ni bajas, que son operación diaria).
+2. Migración de backfill que lo conceda a los roles con `code = 'admin'` — sin ella el permiso
+   nuevo no llega a los roles ya sembrados y nadie puede borrar (ver la trampa nº 6).
+3. Gatear el botón en `Inventory.vue` con ese permiso.
+4. De paso, decidir si `view_inventory` debería partirse también en lectura y escritura: hoy
+   quien consulta la bodega puede mover existencias.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**

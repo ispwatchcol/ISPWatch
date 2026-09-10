@@ -1535,6 +1535,26 @@ en el historial. Si te equivocaste, el botón **Devolver** lo regresa a su dueñ
 
 Un equipo instalado queda ligado al cliente y ya no aparece como disponible para nadie.
 
+### 15.4 Borrar un equipo de la lista
+
+**Un equipo que está instalado en casa de un cliente no se puede borrar.** Si lo intentas, el
+sistema te lo dice y no lo borra: si desapareciera, la instalación de ese cliente se quedaría
+sin equipo y nadie podría saber después qué router quedó puesto ahí.
+
+Para sacarlo del inventario tienes dos caminos, según lo que haya pasado de verdad:
+
+- **Se dañó, se perdió o se lo devolviste al proveedor** → dale de **baja**. El equipo sale de
+  circulación y la baja queda escrita en Movimientos, con quién y cuándo.
+- **Volvió a la bodega** → regístralo en **Entregas y traspasos** como una entrada. Cuando ya
+  no esté instalado, se puede borrar.
+
+Borrar está pensado para lo que se cargó por error —un serial mal escrito, un equipo duplicado—,
+no para dar de baja lo que ya se usó.
+
+**Si al guardar te dice que el serial o la MAC ya están registrados**, es que ya tienes otro
+equipo tuyo con ese mismo dato: búscalo en la lista antes de volver a cargarlo. Los seriales de
+otras empresas no te bloquean; sólo cuentan los de tu propio inventario.
+
 Las cuatro tarjetas de arriba en **Lista de equipos** cuentan cada catálogo por separado:
 *Total dispositivos* son los equipos registrados, y *En stock*, *Proveedores* y *Sucursales*
 son cuántos modelos, proveedores y sucursales tienes creados — se ven aunque todavía no hayas

@@ -302,6 +302,7 @@ import inventoryStockApi from '@/services/api/inventory-stock'
 import inventoryProviderApi from '@/services/api/inventory-provider'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import catalogsApi from '@/services/api/catalogs'
+import { firstError } from '@/utils/apiError'
 import NotificationToast from '@/components/NotificationToast.vue'
 
 const router = useRouter()
@@ -448,7 +449,7 @@ const handleSubmit = async () => {
     router.push('/inventory')
   } catch (error) {
     console.error('Error saving device:', error)
-    toast.value?.error('Error', 'Error al guardar: ' + error.message)
+    toast.value?.error('Error', firstError(error, 'No se pudo guardar el equipo.'))
   } finally {
     loading.value = false
   }
