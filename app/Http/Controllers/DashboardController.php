@@ -216,11 +216,7 @@ class DashboardController extends Controller
             ->limit(5)
             ->get()
             ->map(function ($payment) {
-                // `customerDisplayName()` cae al titular congelado cuando el
-                // pago sobrevivió al borrado de su cliente (P-43). 'Cliente'
-                // queda como último recurso para los pagos anteriores a ese
-                // cambio, que no tienen snapshot.
-                $customerName = $payment->customerDisplayName() ?: 'Cliente';
+                $customerName = optional($payment->customer)->user_name ?? 'Cliente';
                 $amount = (float) ($payment->amount ?? 0);
                 return [
                     'action' => 'Pago recibido: $' . number_format($amount, 0, ',', '.'),

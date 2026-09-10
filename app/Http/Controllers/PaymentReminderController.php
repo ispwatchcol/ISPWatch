@@ -29,22 +29,14 @@ class PaymentReminderController extends Controller
 
         // Get customer data
         $customer = $invoice->customer;
+        $profile = $customer->customerProfile;
 
-        // La comprobación va ANTES de tocar el perfil. Estaba después, y leer
-        // `customerProfile` sobre null reventaba con 500 en vez de devolver el
-        // 404 que este bloque pretendía. Era inalcanzable mientras
-        // `invoices.customer_id` fuese NOT NULL con borrado en cascada: no
-        // existía la factura sin titular. Desde P-43 sí existe — el histórico
-        // sobrevive al cliente— y este camino se puede recorrer de verdad.
         if (!$customer) {
             return response()->json([
                 'success' => false,
-                'message' => 'Esta factura ya no tiene titular: el cliente fue dado de baja. '
-                    . 'Se conserva por su valor contable, pero no hay a quién enviarle el recordatorio.',
+                'message' => 'Cliente no encontrado para esta factura.'
             ], 404);
         }
-
-        $profile = $customer->customerProfile;
 
         // Prepare invoice data
         $customerName = $profile

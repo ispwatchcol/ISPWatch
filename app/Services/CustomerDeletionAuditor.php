@@ -27,10 +27,10 @@ use RuntimeException;
  *
  * QUÉ SE GUARDA Y QUÉ NO
  *
- * **Conteos, no contenido.** Cuántos documentos, servicios e instalaciones se
- * van a destruir, y cuántas facturas, pagos, créditos y tickets sobreviven. Del
- * cliente, sólo nombre y cédula — lo mínimo para saber de quién se habla en una
- * revisión y que ya figura en las facturas emitidas.
+ * **Conteos, no contenido.** Cuántas facturas, pagos, créditos y documentos se
+ * van a destruir, y cuántos tickets, notas y adjuntos sobreviven. Del cliente,
+ * sólo nombre y cédula — lo mínimo para saber de quién se habla en una revisión
+ * y que ya figura en las facturas emitidas.
  *
  * Nunca contraseñas, tokens, datos de pago, documentos ni contenido de
  * adjuntos: copiarlos convertiría `audit_logs` en el sitio donde sobreviven
@@ -97,8 +97,14 @@ class CustomerDeletionAuditor
                 'cedula'    => $profile->cedula,
                 'tenant_id' => (int) $user->tenant_id,
             ],
-            // Lo que la cascada se llevará por delante.
+            // Lo que la cascada se llevará por delante. `invoices` y `payments`
+            // siguen en CASCADE: es la deuda P-43, sin resolver. Dejar el conteo
+            // escrito es lo único que hoy permite saber cuánto se perdió.
             'se_eliminan' => [
+                'invoices'               => $contar('invoices', 'customer_id'),
+                'payments'               => $contar('payments', 'customer_id'),
+                'invoice_carryovers'     => $contar('invoice_carryovers', 'customer_id'),
+                'customer_credits'       => $contar('customer_credits', 'customer_id'),
                 'customer_documents'     => $contar('customer_documents', 'customer_id'),
                 'user_services'          => $contar('user_services', 'user_id'),
                 'customer_installations' => $contar('customer_installations', 'customer_id'),
@@ -106,22 +112,10 @@ class CustomerDeletionAuditor
                 'suspension_action_logs' => $contar('suspension_action_logs', 'customer_id'),
             ],
             // Lo que SOBREVIVE, para que la revisión sepa dónde seguir mirando.
-            //
-            // Las cinco tablas de dinero se movieron aquí el 2026-09-09, cuando
-            // P-43 pasó sus claves foráneas a `SET NULL`. Antes estaban en
-            // `se_eliminan` y el conteo servía para saber cuánto se había
-            // perdido; ahora sirve para saber cuánto hay que ir a buscar, y
-            // dónde: las filas siguen en su tabla, con `customer_id` nulo y el
-            // nombre del titular congelado en `customer_name`.
             'se_conservan' => [
-                'invoices'                     => $contar('invoices', 'customer_id'),
-                'payments'                     => $contar('payments', 'customer_id'),
-                'invoice_carryovers'           => $contar('invoice_carryovers', 'customer_id'),
-                'customer_credits'             => $contar('customer_credits', 'customer_id'),
-                'customer_additional_services' => $contar('customer_additional_services', 'customer_id'),
-                'support_ticket'               => $contar('support_ticket', 'user_id'),
-                'support_ticket_message'       => $contar('support_ticket_message', 'user_id'),
-                'support_ticket_attachment'    => $contar('support_ticket_attachment', 'user_id'),
+                'support_ticket'            => $contar('support_ticket', 'user_id'),
+                'support_ticket_message'    => $contar('support_ticket_message', 'user_id'),
+                'support_ticket_attachment' => $contar('support_ticket_attachment', 'user_id'),
             ],
         ];
     }

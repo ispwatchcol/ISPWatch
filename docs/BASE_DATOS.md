@@ -619,9 +619,7 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 |---|---|---|---|---|
 | `id` | bigint | NN | serial | **PK** |
 | `tenant_id` | bigint | | | **FK** → `tenant.id` (NO ACTION) |
-| `customer_id` | bigint | | | **FK** → `users.id` (**SET NULL** desde 2026-09-09, P-43). Nulo = el cliente se dio de baja y la factura se conserva |
-| `customer_name` | varchar(160) | | | Titular **congelado al emitir**. Lo único que atribuye la factura cuando `customer_id` es nulo |
-| `customer_document` | varchar(40) | | | Documento del titular, congelado igual. 40 y no 10: caben NIT con dígito de verificación, pasaporte y cédula de extranjería |
+| `customer_id` | bigint | NN | | **FK** → `users.id` (CASCADE) |
 | `service_id` | bigint | | | **FK** → `service_plan.id` (SET NULL) |
 | `ticket_id` | bigint | | | **FK** → `support_ticket.id` (SET NULL). Cargo por servicio |
 | `installation_id` | bigint | | | **FK** → `customer_installations.id` (SET NULL) |
@@ -640,18 +638,6 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 > `carried_in` / `carried_out` son **denormalización para los listados**: la verdad
 > contable vive en `invoice_carryovers`. Un abono parcial ya no deja la factura en
 > `partial`: la cierra en `paid` con `carried_out > 0`.
-
-> ⚠️ **`customer_name` / `customer_document` no son denormalización, son un snapshot.**
-> No se refrescan nunca. Si el cliente corrige su apellido, las facturas ya emitidas
-> siguen diciendo lo que se imprimió y se envió — que es lo correcto para un documento
-> contable. Para mostrar el nombre de HOY en un listado está `Invoice::customerDisplayName()`,
-> que prefiere el cliente vivo y sólo cae al congelado cuando ya no existe.
->
-> Lo rellena un hook `creating` del trait `FreezesCustomerSnapshot`, no cada controlador,
-> para cubrir las siete rutas de creación de factura. Mismo criterio que `author_name` en
-> las notas de ticket, con una diferencia deliberada: allí se congela **sólo el nombre**
-> porque el expediente necesita saber quién escribió; aquí va también el documento porque
-> la contabilidad necesita saber a quién se le facturó.
 
 ### 4.8.1 `invoice_types` — Catálogo de tipos de factura
 
@@ -680,7 +666,7 @@ de `customer_profile.credit_balance` (que guarda el excedente de un pago de más
 |---|---|---|---|
 | `id` | bigint | NN | **PK** |
 | `tenant_id` | bigint | NN | **FK** → `tenant.id` (CASCADE) |
-| `customer_id` | bigint | | **FK** → `users.id` (**SET NULL** desde P-43). Nulo = el titular se dio de baja y el arrastre queda como constancia de lo que no se cobró |
+| `customer_id` | bigint | NN | **FK** → `users.id` (CASCADE) |
 | `from_invoice_id` | bigint | | **FK** → `invoices.id` (SET NULL). Factura que se cerró dejando el faltante |
 | `to_invoice_id` | bigint | | **FK** → `invoices.id` (SET NULL). Factura que finalmente lo cobró. NULL mientras esté pendiente |
 | `payment_id` | bigint | | **FK** → `payments.id` (SET NULL). Abono que lo originó |
@@ -713,9 +699,7 @@ adicional recurrente, `service`, `adjustment`…), `description`, `quantity` num
 > `type` es **sólo una etiqueta**: se muestra tal cual en la vista de detalle y en el
 > PDF, y ninguna lógica ramifica sobre su valor. Agregar tipos nuevos es seguro.
 
-**`payments`** — `tenant_id`, `customer_id` (**FK SET NULL** desde P-43), `customer_name`
-varchar(160) y `customer_document` varchar(40) — el titular congelado al registrar el pago,
-igual que en `invoices` —, `amount` numeric(15,2),
+**`payments`** — `tenant_id`, `customer_id` (FK CASCADE), `amount` numeric(15,2),
 `payment_date` date, `method` (default `cash`), `reference`, `notes`,
 `status` CHECK `completed`\|`void`, `created_by` (FK → `users.id`, quién registró el pago).
 
@@ -749,8 +733,7 @@ mensualidad de cada uno**, no en factura aparte.
 
 | Columna | Tipo | Nota |
 |---|---|---|
-| `tenant_id`, `additional_service_id` | FK CASCADE | |
-| `customer_id` | **FK SET NULL** (P-43) | → **`users.id`**, la misma llave que `invoices.customer_id`. Al dar de baja al cliente la asignación se conserva **y se desactiva**: sin eso, `unbilledAdditionalServices()` la recogería con `customer_id` nulo y la cobraría al «cliente 0» |
+| `tenant_id`, `customer_id`, `additional_service_id` | FK CASCADE | `customer_id` → **`users.id`**, la misma llave que `invoices.customer_id` |
 | `price` | numeric(15,2) **nullable** | `null` = sigue el catálogo (y sus cambios); con valor = **congelado** para este cliente |
 | `quantity` | int, default 1 | "Dos routers extra" sin duplicar la asignación |
 | `starts_at` / `ends_at` | date / date null | Ventana de vigencia; `ends_at` programa la baja sin borrar |
@@ -1149,13 +1132,8 @@ Agregado permanente.
 | `billing_action_logs.tenant_id` | `tenant.id` | CASCADE |
 | `customer_additional_services.additional_service_id` | `additional_services.id` | CASCADE |
 | `customer_additional_services.assigned_by` | `users.id` | SET NULL |
-| `customer_additional_services.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `customer_additional_services.customer_id` | `users.id` | CASCADE |
 | `customer_additional_services.tenant_id` | `tenant.id` | CASCADE |
-| `customer_credits.created_by` | `users.id` | SET NULL |
-| `customer_credits.customer_id` | `users.id` | **SET NULL** (P-43) |
-| `customer_credits.from_payment_id` | `payments.id` | SET NULL |
-| `customer_credits.tenant_id` | `tenant.id` | CASCADE |
-| `customer_credits.to_invoice_id` | `invoices.id` | SET NULL |
 | `customer_documents.customer_id` | `users.id` | CASCADE |
 | `customer_profile.olt_id` | `sectorial.id` | SET NULL |
 | `customer_profile.router_id` | `router.id` | SET NULL |
@@ -1188,7 +1166,7 @@ Agregado permanente.
 | `installation_equipment.stock_id` | `inventory_stock.id` | SET NULL |
 | `inventory_provider.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_stock.tenant_id` | `tenant.id` | SET NULL |
-| `invoice_carryovers.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `invoice_carryovers.customer_id` | `users.id` | CASCADE |
 | `invoice_carryovers.from_invoice_id` | `invoices.id` | SET NULL |
 | `invoice_carryovers.payment_id` | `payments.id` | SET NULL |
 | `invoice_carryovers.tenant_id` | `tenant.id` | CASCADE |
@@ -1196,7 +1174,7 @@ Agregado permanente.
 | `invoice_items.customer_additional_service_id` | `customer_additional_services.id` | SET NULL *(sólo en PostgreSQL)* |
 | `invoice_items.invoice_id` | `invoices.id` | CASCADE |
 | `invoice_types.tenant_id` | `tenant.id` | CASCADE |
-| `invoices.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `invoices.customer_id` | `users.id` | CASCADE |
 | `invoices.installation_id` | `customer_installations.id` | SET NULL |
 | `invoices.service_id` | `service_plan.id` | SET NULL |
 | `invoices.tenant_id` | `tenant.id` | NO ACTION |
@@ -1207,7 +1185,7 @@ Agregado permanente.
 | `payment_allocations.invoice_id` | `invoices.id` | CASCADE |
 | `payment_allocations.payment_id` | `payments.id` | CASCADE |
 | `payment_methods.tenant_id` | `tenant.id` | CASCADE |
-| `payments.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `payments.customer_id` | `users.id` | CASCADE |
 | `payments.tenant_id` | `tenant.id` | NO ACTION |
 | `role.tenant_id` | `tenant.id` | CASCADE |
 | `router.billing_router_id` | `billing.id` | SET NULL |
