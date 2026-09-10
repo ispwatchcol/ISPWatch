@@ -229,12 +229,27 @@ class CustomerSnapshotBackfillTest extends TestCase
         $this->assertNull($fila->customer_document);
     }
 
+    /**
+     * El nombre se recorta a 160.
+     *
+     * El recorte del documento a 40 NO se prueba, y no es un olvido:
+     * `customer_profile.cedula` es `varchar(20)`, así que por construcción un
+     * documento no puede pasar de 40 y no hay forma de provocar el recorte sin
+     * falsear el esquema. El `LEFT(..., 40)` de la migración es defensivo — el
+     * margen está pensado para el día que la columna crezca para un NIT con
+     * dígito de verificación o una cédula de extranjería.
+     *
+     * Se intentó con una cédula de 60 caracteres y PostgreSQL la rechazó con
+     * `SQLSTATE[22001] value too long for type character varying(20)`. SQLite la
+     * aceptaba tan tranquilo, que es la trampa de siempre: el motor de la suite
+     * rápida es de tipado dinámico y no valida largos.
+     */
     #[Test]
-    public function el_nombre_se_recorta_a_160_y_el_documento_a_40(): void
+    public function el_nombre_se_recorta_a_160(): void
     {
         $cliente = $this->cliente(
             ['user_name' => str_repeat('A', 200), 'user_lastname' => ''],
-            ['cedula' => str_repeat('9', 60)]
+            ['cedula' => '1234567890']
         );
         $factura = $this->factura($cliente);
         $this->vaciarSnapshot('invoices', $factura->id);
@@ -243,6 +258,6 @@ class CustomerSnapshotBackfillTest extends TestCase
 
         $fila = $this->snapshot('invoices', $factura->id);
         $this->assertSame(160, mb_strlen($fila->customer_name));
-        $this->assertSame(40, mb_strlen($fila->customer_document));
+        $this->assertSame('1234567890', $fila->customer_document);
     }
 }
