@@ -6417,6 +6417,24 @@ revertir las variables de entorno corregidas (fue lo que alargó la caída del �
 horas), y con `instance_count > 1` dejarían de migrar dos contenedores en paralelo sobre la
 misma base.
 
+**Y el segundo arreglo, porque el primero no bastaba.** Con el job `PRE_DEPLOY` escrito pero
+**sin aplicar** en DigitalOcean, el despliegue volvió a fallar exactamente igual a las 20:38.
+La plantilla no manda: manda la especificación viva. Así que había que atacar también la otra
+mitad — que la migración quepa en la ventana — y eso sí se arregla sólo con mergear.
+
+El relleno recorría las filas en lotes de 500 mandando **un UPDATE por titular** desde PHP. Lo
+que lo hace lento no es el número de filas: es el número de idas y vueltas, a ~258 ms cada una.
+En PostgreSQL pasa a ser **un solo `UPDATE ... FROM` por tabla** — dos idas y vueltas en total.
+SQLite conserva el bucle, porque no tiene esa sintaxis y es el motor de la suite rápida.
+
+Eso deja el criterio del nombre escrito **dos veces**, que es justo lo que se desincroniza en
+silencio. Por eso el cambio viene con `CustomerSnapshotBackfillTest`: ocho casos que vacían el
+snapshot de una fila ya creada —el estado exacto en que la migración encuentra lo histórico— y
+vuelven a llamar a `up()`. Cubren el orden de preferencia (usuario → perfil → correo), que una
+fila ya rellenada no se pisa, que sin nada que congelar la fila se deja intacta, y los recortes
+a 160/40. Corren en los dos motores: en el job rápido ejercitan el bucle y en el de «PostgreSQL,
+motor real» ejercitan el SQL. Si las dos ramas divergen, falla una.
+
 **Deuda que queda.** La plantilla está arreglada; **la especificación viva no**. Hasta que
 alguien aplique `.do/deploy.template.yaml` en DigitalOcean, la próxima migración con relleno de
 datos vuelve a tumbar el despliegue exactamente igual. Es el mismo «falta aplicar» de P-SECRET-1,
