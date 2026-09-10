@@ -1571,6 +1571,20 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 Todos con alcance de tenant vía `BelongsToTenant`. Sustituyeron al acceso directo a Supabase.
 `tenant_id` **no es asignable en masa**: se establece desde el usuario autenticado.
 
+**Contrato de `/api/inventory` (alta y edición del equipo)** — `stock_id`, `provider_id`,
+`user_id` y `branch_id` opcionales y comprobados contra su tabla; `serial` y `mac` opcionales,
+máx. 255 y **únicos dentro del tenant**, no en toda la base. Desde 2026-09-10 el `unique` lleva
+`where tenant_id`: antes era global y el serial de OTRA empresa devolvía un 422 diciendo "ya está
+en uso" sobre un equipo que el cliente no tenía ni podía ver. Es el mismo criterio que ya usaba
+la carga masiva (`InventoryImport`). Los mensajes de choque van en español y nombran el campo:
+`"Ya tienes otro equipo registrado con este serial."`.
+
+**`DELETE /api/inventory/{id}` puede responder 422.** Un equipo `installed`, o que figure en una
+línea de `installation_equipment`, no se borra: la FK es `SET NULL`, así que el borrado no
+fallaría — dejaría la instalación del cliente sin equipo y sin forma de saber qué router quedó
+puesto. La respuesta trae el motivo en `errors.device`. Para sacarlo del inventario está la baja
+(`POST /api/inventory/{id}/retire`), que sí queda escrita en el kardex.
+
 **Contrato de `/api/inventory-branches`** — `name` (requerido, máx. 255), `dir` (opcional, máx.
 255) y `numero` (opcional, **cadena** de máx. 30). Desde 2026-09-09 `numero` viaja como texto,
 no como número: antes era `nullable|integer` sobre una columna `int4` y cualquier celular
@@ -1589,6 +1603,13 @@ con el error en `numero`, no un 500.
 > **Orden de rutas:** las tres rutas literales (`/movements`, `/holdings`, `/transfers`) se
 > registran **antes** de `/api/inventory/{inventory}`; al revés, el parámetro las capturaría y
 > `movements` llegaría como si fuera un id.
+
+> **Nombre del parámetro:** el comodín `{inventory}` y el argumento del controlador
+> (`InventoryDevice $inventory`) tienen que llamarse **igual**. El nombre no se ve en la URL, pero
+> es lo que usa el route-model binding para atar el modelo: si no coinciden, Laravel no ata nada y
+> el controlador recibe un modelo vacío, sin lanzar ningún error. Ver
+> [MANUAL_DESARROLLADOR.md](MANUAL_DESARROLLADOR.md) § "El nombre del parámetro de ruta no es
+> cosmético".
 
 Cuerpo de `POST /api/inventory/transfers`:
 

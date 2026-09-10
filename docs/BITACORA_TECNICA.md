@@ -6246,3 +6246,89 @@ a secas, y confirmar con `git ls-remote --heads origin <rama>` que la rama exist
 hasta que la migración corra: desplegar antes deja el primer `INSERT` de factura fallando, es
 decir, deja de facturarse. El backfill actualiza por titular y no por fila justamente porque
 lo que tarde esa migración es tiempo sin facturar.
+---
+
+## 59. El equipo no se podía editar, y «eliminado correctamente» no eliminaba nada — 2026-09-10
+
+**Síntoma reportado.** Un cliente mandó una foto de la pantalla: *«Error al guardar: Request
+failed with status code 422»* al trabajar con equipos del inventario. Reportó tres cosas a la
+vez —dar de alta, borrar y editar—, que es justo lo que despista: parecen tres fallos.
+
+**Causa raíz.** Una sola, y en una línea que se ve bien:
+
+```php
+Route::get('/inventory/{inventory}', [InventoryDeviceController::class, 'show']);
+//                        ^^^^^^^^^
+public function show(InventoryDevice $inventoryDevice)   // ← no es el mismo nombre
+```
+
+El route-model binding de Laravel empareja **por nombre**: busca un parámetro de ruta que se
+llame `inventoryDevice` (o `inventory_device` en snake_case) y encuentra uno llamado
+`inventory`. Al no haber pareja no ata el modelo — pero el argumento sigue teniendo type-hint,
+así que la resolución de dependencias hace `app()->make(InventoryDevice::class)` y le entrega
+al controlador **un modelo recién construido, vacío**.
+
+De ahí salen los tres síntomas, que en realidad son el mismo:
+
+| Endpoint | Lo que hacía |
+|---|---|
+| `GET /api/inventory/{id}` | **200** con un objeto en blanco → el formulario de edición abría vacío |
+| `PUT /api/inventory/{id}` | El `unique` recibía un id a ignorar **vacío** (`…,serial,` + `null`), así que el equipo chocaba **consigo mismo**: 422 «el serial ya está en uso» sobre su propio serial |
+| `DELETE /api/inventory/{id}` | `delete()` sobre un modelo con `exists = false` **retorna sin hacer nada**: respuesta 200 «Equipo eliminado correctamente ✅» y la fila intacta |
+
+Y explica el tercer reporte, el del alta: el cliente intentaba borrar un equipo mal cargado
+—la app le decía que sí— y al volver a darlo de alta con el mismo serial se topaba con el
+equipo viejo, que nunca se había ido. 422 otra vez.
+
+**Por qué no lo cazó nadie.** Tres capas fallaron a la vez:
+
+1. **No hay error.** Ninguna de las tres respuestas es un 500. Un modelo vacío es un objeto
+   perfectamente válido; sólo está vacío.
+2. **La ruta se ve bien desde fuera.** El nombre del comodín no aparece en la URL, así que ni
+   `route:list` ni el frontend delatan nada.
+3. **Los tests no llegaban ahí.** Sólo existían pruebas de `index` y `store` (más las de
+   autorización), y ninguno de los dos usa binding. El módulo tenía 21 tests en verde.
+
+**Arreglo.** Se igualan los dos nombres. Cabían las dos direcciones —renombrar el comodín o
+renombrar el argumento— y se eligió la segunda: `show/update/destroy` reciben ahora
+`InventoryDevice $inventory`, con lo que el comodín sigue llamándose `{inventory}` como el
+recurso, igual que hace `apiResource`, y la ruta de la baja (`/inventory/{inventory}/retire`)
+no queda con un nombre distinto al de sus hermanas.
+
+Se hizo además un escaneo estático de **todas** las rutas explícitas de `routes/api.php`,
+comparando cada comodín contra la firma de su controlador: estas tres eran las únicas
+descuadradas en toda la API. Las demás vienen de `apiResource`, que nombra el parámetro por el
+recurso y por eso nunca se descuadra.
+
+**Dos cosas más que salieron al abrir el archivo.**
+
+*El `unique` no era por tenant.* `unique:inventory_device,serial` mira la tabla entera, así que
+el serial registrado por OTRA empresa bloqueaba el alta con un «ya está en uso» imposible de
+explicar: ese equipo no aparecía por ningún lado en su inventario. La carga masiva
+(`InventoryImport`) ya deduplicaba **dentro del tenant**; el formulario era el que estaba mal.
+Ahora ambos usan el mismo criterio.
+
+*Borrar un equipo instalado.* Al arreglar el binding, el `DELETE` empezó a borrar de verdad —
+por primera vez. `installation_equipment.device_id` es `SET NULL`, así que el borrado no habría
+fallado: habría dejado la instalación del cliente sin equipo y sin forma de saber qué router
+quedó puesto en esa casa. Se rechaza con 422 y se remite a la baja
+(`POST /api/inventory/{id}/retire`), que sí queda escrita en el kardex. Se comprueba por
+`status = installed` **y** por la existencia de la línea de instalación, por si los dos se
+desincronizan.
+
+**El mensaje que veía el cliente.** `'Error al guardar: ' + error.message` mostraba el texto de
+axios —«Request failed with status code 422»— y tiraba a la basura el detalle que Laravel manda
+en `errors`. El código HTTP en crudo no le dice nada a nadie. Ahora se muestra el mensaje del
+campo que choca, en español y desde el servidor. El helper quedó en
+`resources/js/utils/apiError.js`, compartido por las tres pantallas de inventario (había una
+copia local en `InventoryTransfers.vue`).
+
+**Deuda que queda.** El formulario compara seriales de forma **sensible a mayúsculas**
+(`unique` usa `=`, y en PostgreSQL `=` distingue) mientras la carga masiva compara en
+minúsculas. `SN-001` y `sn-001` conviven si se cargan uno por uno, y el import rechazaría el
+segundo. Anotado en `MEJORAS_RECOMENDADAS.md`.
+
+**Prueba de regresión.** `tests/Feature/Inventory/InventoryDeviceCrudTest.php`, 9 casos. Se
+verificó que fallan con el bug puesto: **7 de los 9 se caen** al revertir el nombre del
+parámetro. Comprueban efecto, no código de estado: `assertJsonPath('id', …)` en el `show` y
+`assertDatabaseMissing` tras el `delete` — un `assertOk()` a secas pasaba con el bug.

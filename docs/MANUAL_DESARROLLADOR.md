@@ -1278,6 +1278,7 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 53 | **`.input`/`.label` son `scoped`: no bajan a los componentes hijos** | `Settings.vue` define esas dos clases en su `<style scoped>`, así que sólo aplican a su propia plantilla. Un componente hijo (`ApiKeysSection.vue`, `TenantApiKeysSection.vue`) que escriba `class="input"` **no recibe nada**: el navegador pinta el control nativo — caja blanca, sin relleno y con la etiqueta en línea, ilegible sobre la tarjeta oscura. No falla el build, no hay warning y en modo claro casi no se nota, que es como llegó a producción. Cada sección que use esas clases debe declararlas en su propio `<style scoped>`. Ver `BITACORA_TECNICA.md` § 47 |
 | 54 | **Un `<v-icon>` con un nombre no registrado no se ve, y no dice nada** | `oh-vue-icons` sólo dibuja los iconos pasados a `addIcons()` en `resources/js/app.js`; con cualquier otro nombre renderiza un hueco vacío, sin error de consola. Así quedaron sin icono las pestañas *Llaves API* y *Auditoría* (`md-vpnkey`, `md-history`) mientras sus vecinas sí lo tenían. Al usar un icono nuevo hay que **importarlo y registrarlo** en las dos listas de `app.js`; el nombre en kebab-case sale de `node_modules/oh-vue-icons/icons/<familia>/index.js` (`MdChevronleftRound` → `md-chevronleft-round`) |
 | 55 | **`$request->ip()` detrás de Cloudflare devuelve el borde de Cloudflare, no el visitante** | `trustProxies(at: '*')` no basta: DigitalOcean App Platform no conserva la cadena `X-Forwarded-For` que Cloudflare arma, así que Symfony recorre una cadena de un solo eslabón —el propio borde de Cloudflare (rango `104.16.0.0/13` y similares)— y ahí se queda. Nunca se detectó porque toda la suite fija `allowed_ips = ['127.0.0.1']` sin pasar por ningún proxy, y hasta el 2026-08-21 nunca había llegado una petición externa real a la API partner. Usa `$request->realIp()` (`RequestMacrosServiceProvider`), que lee `CF-Connecting-IP` cuando está presente y es válida. **Antes de usarlo en un sitio nuevo, `grep '\->ip()'` en `app/`** — si aparece algo, probablemente también debería ser `realIp()` |
+| 57 | **El comodín de la ruta debe llamarse IGUAL que el argumento del controlador** | `Route::get('/inventory/{inventory}', …)` con `show(InventoryDevice $inventoryDevice)` **no ata nada**: el binding empareja por nombre y, al no encontrar pareja, Laravel resuelve el type-hint por el contenedor y le pasa al controlador un modelo **vacío**. No lanza ningún error. Ver la trampa desarrollada más abajo |
 | 56 | **Escribir un archivo con Python en Windows sin fijar el salto de linea mete CRLF a TODO el archivo, no solo a lo que tocaste** | El modo texto por defecto de Python traduce cada salto de linea que escribes al separador del sistema operativo (en Windows, CR+LF), sin importar si el resto del archivo ya estaba en LF. Rompio `VersionConsistencyTest`: la prueba ancla el fin de linea justo despues de la fecha del encabezado, y un CR colado ahi hace que ningun encabezado del CHANGELOG coincida. Se arregla leyendo con `newline=None` (normaliza cualquier entrada) y escribiendo con `newline` fijado al salto de linea de Unix. Comprueba con `cat -A`: una linea sana termina en `$`; una con CRLF cuela un `^M` antes del `$`. **Paso de verdad al escribir esta misma tabla** |
 | 57 | **Una fila de dinero puede no tener titular** | Desde P-43, `invoices`/`payments`/`invoice_carryovers`/`customer_credits`/`customer_additional_services` tienen `customer_id` **nullable** con `ON DELETE SET NULL`: dar de baja a un cliente conserva su contabilidad. Todo lo que lea esas tablas debe tolerar el nulo. `(int) $fila->customer_id` da **0**, un cliente que no existe, y revienta contra la clave foránea; agrupar por `customer_id` mete el grupo `NULL` como clave `""`, que en un `whereIn` contra un bigint es un `22P02` en PostgreSQL |
 | 58 | **`saveQuietly()` no congela `updated_at`** | Silencia los *eventos*, no las marcas de tiempo. Para tocar una fila sin moverla al principio de los listados por actividad reciente (ni meterla en el delta `updated_since` de la API partner), pon `$modelo->timestamps = false` antes de guardar |
@@ -1329,6 +1330,51 @@ $this->assertTrue(
 
 Un `assertTrue` con mensaje falla igual en los dos motores y dice qué pasó. Confiar en
 que la consulta reviente sólo funciona en uno de los dos.
+
+### El nombre del parámetro de ruta no es cosmético
+
+**Síntoma.** Un cliente reporta que en Inventario no puede *editar* un equipo ("Error al
+guardar: Request failed with status code 422"), que *ver* uno abre el formulario en blanco
+y que *borrar* dice "eliminado correctamente" pero el equipo sigue en la lista.
+
+**Causa.** Las rutas declaraban `/inventory/{inventory}` mientras el controlador recibía
+`InventoryDevice $inventoryDevice`. El route-model binding **empareja por nombre** (exacto o
+en `snake_case`): busca un parámetro de ruta llamado `inventoryDevice` o `inventory_device`,
+y sólo hay uno llamado `inventory`. Al no encontrar pareja no ata nada — y el argumento sigue
+teniendo un type-hint, así que Laravel cae en el resolutor de dependencias y **construye un
+`InventoryDevice` vacío** con `app()->make()`. El controlador recibe un modelo sin `id`, sin
+atributos y sin `exists`.
+
+Lo grave es que nada falla de forma visible:
+
+| Método | Lo que hacía en realidad |
+|---|---|
+| `show()` | Devolvía **200** con un objeto en blanco. El formulario de edición cargaba vacío |
+| `update()` | El `unique` de `serial` recibía un id a ignorar **vacío**, así que el equipo chocaba **consigo mismo**: 422 "el serial ya está en uso" sobre un serial que sólo tenía él |
+| `destroy()` | `delete()` sobre un modelo con `exists = false` **retorna sin hacer nada**. La respuesta era 200 "Equipo eliminado correctamente ✅" y la fila seguía ahí |
+
+Ningún test lo cazaba porque no había ninguno que tocara `GET`/`PUT`/`DELETE` de un equipo
+concreto: sólo se probaban `index` y `store`, que no usan binding.
+
+**Por qué no lo delata un `php artisan route:list`.** El nombre del comodín no aparece en la
+URL, así que la ruta se ve perfecta desde fuera y responde 200. El desajuste sólo se nota
+comparando la ruta con la firma del método.
+
+**Cómo protegerse.**
+
+1. Con `apiResource` el problema no existe: Laravel nombra el parámetro a partir del recurso
+   (`inventory-stock` → `{inventory_stock}`) y coincide con `$inventoryStock`. Las rutas
+   escritas a mano son las que hay que revisar.
+2. Al declarar una ruta con vinculación implícita, el comodín y el argumento del controlador
+   se escriben igual. Aquí se igualaron por el lado del controlador —`{inventory}` ↔
+   `InventoryDevice $inventory`— para que el comodín siga llamándose como el recurso, que es lo
+   que hace `apiResource`; la dirección contraria vale lo mismo mientras sea **una sola**.
+3. Todo modelo que llegue por binding merece **una prueba que compruebe el efecto**, no sólo
+   el código de estado: `assertJsonPath('id', $device->id)` en el `show` y
+   `assertDatabaseMissing` tras el `delete`. Un `assertOk()` a secas pasaba con el bug puesto.
+
+Ver `tests/Feature/Inventory/InventoryDeviceCrudTest.php`.
+
 ## 12. Solución de problemas
 
 | Problema | Diagnóstico | Solución |
