@@ -2075,6 +2075,27 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 4. De paso, decidir si `view_inventory` debería partirse también en lectura y escritura: hoy
    quien consulta la bodega puede mover existencias.
 
+### 🟡 P-46 · Tras un despliegue, el navegador sigue mostrando la aplicación vieja
+
+**Detectado:** 2026-09-10, cerrando el incidente del § 60 de `BITACORA_TECNICA.md`.
+**Prioridad:** media · **Estado:** no implementado.
+
+Los chunks de Vite llevan hash de contenido, así que nunca se sirven rancios. **El HTML que los
+referencia, no.** Un navegador con ese documento cacheado sigue pidiendo los nombres de chunk
+viejos y ve la aplicación anterior aunque el servidor ya sirva la nueva.
+
+**Consecuencia concreta.** El día del incidente, con el arreglo YA desplegado y verificado desde
+fuera, el cliente seguía viendo el formulario roto hasta que limpió la caché a mano. Le pasa a
+cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5:
+un arreglo desplegado y un arreglo que el usuario ve son dos cosas distintas.
+
+**Qué hacer** — una de las dos, no las dos:
+
+1. Cabeceras de no-caché (`Cache-Control: no-store`) en el documento HTML del SPA, dejando
+   intacta la caché agresiva de `/build/assets`, que es donde está la ganancia real.
+2. Un aviso de «hay una versión nueva, recarga» comparando la versión compilada en el bundle
+   contra `GET /api/version`, que ya existe. Más amable, y no obliga a recargar a media tarea.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
