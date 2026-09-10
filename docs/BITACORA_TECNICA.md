@@ -6440,6 +6440,26 @@ alguien aplique `.do/deploy.template.yaml` en DigitalOcean, la próxima migraci�
 datos vuelve a tumbar el despliegue exactamente igual. Es el mismo «falta aplicar» de P-SECRET-1,
 y esta vez ya se sabe cuánto cuesta dejarlo pendiente.
 
+**Cómo se cerró, y los dos pasos manuales que hicieron falta.** Con el relleno ya en una sola
+sentencia, el despliegue completó — pero no solo:
+
+1. **Hubo que forzar el rebuild** desde el panel (*Actions → Force Rebuild and Deploy*). Tras
+   varios despliegues fallidos seguidos, App Platform no relanzó por su cuenta; reutiliza capas
+   cacheadas y se quedó con la última imagen buena. Si el diagnóstico dice que el código nuevo
+   ya debería estar arriba y el bundle en vivo dice que no, el rebuild forzado es el paso que
+   falta.
+2. **Hubo que limpiar la caché del navegador.** Y esto no es cosa del incidente: los chunks
+   llevan hash de contenido, pero el HTML que los referencia no. Un navegador con el documento
+   cacheado sigue pidiendo los nombres de chunk VIEJOS y ve la aplicación anterior aunque el
+   servidor ya sirva la nueva. Le pasa a cualquier usuario después de cualquier despliegue, y
+   nadie le va a decir que pulse Ctrl+F5. Queda anotado como deuda: o cabeceras de no-caché en
+   el documento, o un aviso de «hay una versión nueva, recarga» comparando `/api/version`
+   contra la compilada.
+
+Verificación final: `Inventory-DtQ5vjIE.js` en producción con el marcador del arreglo,
+`/health` con `migrations.pending = 0` —la prueba de que la migración de P-43 terminó— y el
+planificador latiendo.
+
 **Lección.** `DEPLOYMENT_FAILED` ya estaba en el bloque `alerts` de la plantilla. Si la alerta
 hubiera llegado a alguien, el diagnóstico habría empezado a las 18:11 y no tres horas después,
 buscando en el código un bug que ya estaba arreglado.
