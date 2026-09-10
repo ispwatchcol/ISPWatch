@@ -5,8 +5,6 @@ namespace App\Services;
 use App\Models\CustomerDocument;
 use App\Models\CustomerInstallation;
 use App\Models\CustomerProfile;
-use App\Models\Invoice;
-use App\Models\Payment;
 use App\Models\User;
 use App\Services\MikroTik\CustomerDeprovisionManager;
 use App\Services\MikroTik\RouterEndpointResolver;
@@ -50,40 +48,9 @@ use Illuminate\Support\Facades\Storage;
  * Un fallo al limpiar el router NO aborta el borrado (un router caído dejaría
  * clientes imposibles de eliminar), pero se reporta explícitamente en la
  * respuesta y en el log para que el operador sepa que hay que ir a mano.
- *
- * QUÉ NO SE BORRA, DESDE P-43 (2026-09-09)
- *
- * «Sin dejar residuos» nunca quiso decir «sin dejar contabilidad». Hasta esta
- * fecha las claves foráneas de dinero estaban en CASCADE y dar de baja a un
- * cliente **borraba sus facturas y sus pagos**, con el detalle de qué se cobró y
- * qué saldó cada pago. Ahora el histórico contable se conserva, desvinculado del
- * titular y con su nombre y documento congelados: ver `preservarContabilidad()`.
- *
- * La distinción es la de siempre en este servicio: se destruye la ficha del
- * abonado y todo lo que sólo sirve para prestarle servicio; sobrevive el asiento
- * contable, que responde ante terceros y no ante el cliente.
  */
 class CustomerDeletionService
 {
-    /**
-     * Tablas cuyo vínculo con el titular se SUELTA en vez de arrastrarse (P-43).
-     *
-     * Son contabilidad: lo que se cobró, lo que se pagó, lo que quedó a deber y
-     * el saldo a favor. Sobreviven al cliente porque un cierre contable no puede
-     * depender de que nadie lo haya dado de baja.
-     *
-     * `customer_additional_services` entra por ser lo que justifica los cargos;
-     * las demás filas que cuelgan de una factura o un pago —`invoice_items`,
-     * `payment_allocations`— sobreviven solas al sobrevivir su factura.
-     */
-    private const TABLAS_CONTABLES = [
-        'invoices',
-        'payments',
-        'invoice_carryovers',
-        'customer_credits',
-        'customer_additional_services',
-    ];
-
     public function __construct(
         private readonly CustomerDeprovisionManager $deprovision,
         private readonly RouterEndpointResolver $endpoints,
@@ -214,8 +181,6 @@ class CustomerDeletionService
      */
     private function deleteRecords(int $customerId, User $user, CustomerProfile $profile): array
     {
-        $contabilidad = $this->preservarContabilidad($customerId);
-
         $installationIds = CustomerInstallation::where('customer_id', $customerId)->pluck('id');
 
         // Antes que las instalaciones: sus fotos/actas pueden tener
@@ -258,73 +223,7 @@ class CustomerDeletionService
             'ejecuciones_alta'       => (int) $runs,
             'prospectos_desligados'  => (int) $prospects,
             'enlaces_firma_revocados' => (int) $links,
-        ] + $contabilidad;
-    }
-
-    /**
-     * Salva el histórico contable antes de que desaparezca el titular (P-43).
-     *
-     * POR QUÉ A MANO, SI LAS CLAVES FORÁNEAS YA ESTÁN EN `SET NULL`
-     *
-     * Porque `SET NULL` sólo suelta el vínculo. Si se dejara actuar sola, la
-     * factura sobreviviría sin nombre: nadie podría decir a quién se le cobró.
-     * El snapshot hay que congelarlo ANTES del borrado, mientras el titular
-     * todavía existe, y eso no lo puede hacer una constraint.
-     *
-     * La constraint sigue siendo necesaria como red de seguridad: cubre el
-     * `DELETE` escrito a mano en una consola, que no pasa por aquí. Es el mismo
-     * reparto de responsabilidades que el PR A dejó escrito para los catálogos:
-     * la aplicación hace lo correcto, la base de datos impide lo incorrecto.
-     *
-     * Es además la estrategia que este servicio ya usaba con el prospecto y con
-     * los enlaces de firma: desvincular en vez de arrastrar.
-     *
-     * NO SE TOCA `updated_at`. Perder al titular no es una modificación del
-     * asiento: la factura dice lo mismo que decía. Tocarlo movería todas las
-     * facturas del cliente al principio de cualquier listado ordenado por
-     * actividad reciente, que es justo lo contrario de lo que se busca.
-     *
-     * @return array<string,int>
-     */
-    private function preservarContabilidad(int $customerId): array
-    {
-        // El snapshot se congela al CREAR desde P-43, así que aquí sólo quedan
-        // las filas anteriores a esa función. Se hace igualmente: el coste es
-        // nulo cuando no hay ninguna, y es la última oportunidad de rescatarlas.
-        foreach ([Invoice::class, Payment::class] as $modelo) {
-            $modelo::withoutTenantScope()
-                ->where('customer_id', $customerId)
-                ->whereNull('customer_name')
-                ->each(function ($fila) {
-                    $fila->freezeCustomerSnapshot();
-                    $fila->saveQuietly();
-                });
-        }
-
-        // Un servicio adicional de un cliente que ya no existe no puede seguir
-        // activo. Se desactiva ANTES de soltar el vínculo, porque después ya no
-        // habría por dónde encontrarlo: `customer_id` es su única referencia al
-        // titular. Sin esto,
-        // `BillingService::unbilledAdditionalServices()` lo recogería con
-        // `customer_id` nulo y lo convertiría en `(int) null` — un cargo
-        // pendiente del cliente 0.
-        DB::table('customer_additional_services')
-            ->where('customer_id', $customerId)
-            ->where('is_active', true)
-            ->update(['is_active' => false, 'updated_at' => now()]);
-
-        $desvinculadas = [];
-
-        foreach (self::TABLAS_CONTABLES as $tabla) {
-            // El prefijo distingue de un vistazo, en el log y en la respuesta,
-            // lo que SOBREVIVIÓ de lo que se destruyó: las demás claves de este
-            // array son cosas borradas.
-            $desvinculadas["conservado_{$tabla}"] = (int) DB::table($tabla)
-                ->where('customer_id', $customerId)
-                ->update(['customer_id' => null]);
-        }
-
-        return $desvinculadas;
+        ];
     }
 
     /**

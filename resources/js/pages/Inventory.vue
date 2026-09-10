@@ -329,7 +329,7 @@
           </div>
 
           <!-- Actions -->
-          <div class="grid grid-cols-3 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div class="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
             <button
               @click="viewDevice(device)"
               class="py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
@@ -339,22 +339,12 @@
               Ver
             </button>
             <button
-              v-if="can('view_inventory')"
               @click="editDevice(device)"
               class="py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
                      transition-colors text-sm font-medium flex items-center justify-center gap-1"
             >
               <v-icon name="md-edit" class="w-4 h-4 fill-current" />
               Editar
-            </button>
-            <button
-              v-if="can('view_inventory')"
-              @click="deleteDevice(device)"
-              class="py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg
-                     transition-colors text-sm font-medium flex items-center justify-center gap-1"
-            >
-              <v-icon name="md-delete" class="w-4 h-4 fill-current" />
-              Eliminar
             </button>
           </div>
         </div>
@@ -462,7 +452,6 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import inventoryApi from '@/services/api/inventory'
 import inventoryProviderApi from '@/services/api/inventory-provider'
 import inventoryBranchApi from '@/services/api/inventory-branch'
@@ -473,7 +462,6 @@ import Pagination from '@/components/ui/Pagination.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()
-const router = useRouter()
 
 // State
 const devices = ref([])
@@ -621,7 +609,7 @@ const viewDevice = (device) => {
 }
 
 const editDevice = (device) => {
-  router.push(`/inventory/${device.id}/edit`)
+  window.location.href = `/inventory/${device.id}/edit`
 }
 
 const deleteDevice = (device) => {

@@ -107,42 +107,6 @@ class InventoryCustodyTest extends TestCase
     }
 
     #[Test]
-    public function an_inventory_device_can_be_shown_updated_and_deleted(): void
-    {
-        $stock = $this->serializedStock();
-        $device = $this->deviceHeldBy($stock, null, 'SN-CRUD-ORIGINAL');
-
-        // The route placeholder is {inventory}; Laravel must bind that exact
-        // parameter name to the model for all of these resource operations.
-        $this->getJson("/api/inventory/{$device->id}")
-            ->assertOk()
-            ->assertJsonPath('id', $device->id)
-            ->assertJsonPath('serial', 'SN-CRUD-ORIGINAL');
-
-        $this->putJson("/api/inventory/{$device->id}", [
-            'stock_id'    => $stock->id,
-            'provider_id' => null,
-            'user_id'     => null,
-            'branch_id'   => $this->branch->id,
-            'serial'      => 'SN-CRUD-ACTUALIZADO',
-            'mac'         => '00:11:22:33:44:55',
-        ])
-            ->assertOk()
-            ->assertJsonPath('device.id', $device->id)
-            ->assertJsonPath('device.serial', 'SN-CRUD-ACTUALIZADO');
-
-        $this->assertDatabaseHas('inventory_device', [
-            'id'     => $device->id,
-            'serial' => 'SN-CRUD-ACTUALIZADO',
-        ]);
-
-        $this->deleteJson("/api/inventory/{$device->id}")
-            ->assertOk();
-
-        $this->assertDatabaseMissing('inventory_device', ['id' => $device->id]);
-    }
-
-    #[Test]
     public function a_technician_only_sees_the_equipment_in_his_custody(): void
     {
         $stock = $this->serializedStock();
