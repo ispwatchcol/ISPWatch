@@ -81,9 +81,9 @@ class InventoryDeviceController extends Controller
     /**
      * Display the specified device.
      */
-    public function show(InventoryDevice $inventoryDevice)
+    public function show(InventoryDevice $inventory)
     {
-        return response()->json($inventoryDevice->load(['stock', 'provider', 'branch', 'holder', 'customer']));
+        return response()->json($inventory->load(['stock', 'provider', 'branch', 'holder', 'customer']));
     }
 
     /**
@@ -93,32 +93,32 @@ class InventoryDeviceController extends Controller
      * otro, así que se delega en InventoryLedger en vez de escribir la columna
      * a mano: de lo contrario el equipo cambiaría de manos sin dejar rastro.
      */
-    public function update(Request $request, InventoryDevice $inventoryDevice)
+    public function update(Request $request, InventoryDevice $inventory)
     {
         $data = $request->validate([
             'stock_id' => 'nullable|integer|exists:inventory_stock,id',
             'provider_id' => 'nullable|integer|exists:inventory_provider,id',
             'user_id' => 'nullable|integer|exists:users,id',
             'branch_id' => 'nullable|integer|exists:inventory_branch,id',
-            'serial' => 'nullable|string|max:255|unique:inventory_device,serial,' . $inventoryDevice->id,
-            'mac' => 'nullable|string|max:255|unique:inventory_device,mac,' . $inventoryDevice->id,
+            'serial' => 'nullable|string|max:255|unique:inventory_device,serial,' . $inventory->id,
+            'mac' => 'nullable|string|max:255|unique:inventory_device,mac,' . $inventory->id,
         ]);
 
         $newUserId   = $data['user_id'] ?? null;
         $newBranchId = $data['branch_id'] ?? null;
-        $custodyMoved = $inventoryDevice->status !== InventoryDevice::STATUS_INSTALLED
-            && ((int) $newUserId !== (int) $inventoryDevice->user_id
-                || (!$newUserId && (int) $newBranchId !== (int) $inventoryDevice->branch_id));
+        $custodyMoved = $inventory->status !== InventoryDevice::STATUS_INSTALLED
+            && ((int) $newUserId !== (int) $inventory->user_id
+                || (!$newUserId && (int) $newBranchId !== (int) $inventory->branch_id));
 
         // Las columnas de custodia las mueve el ledger, no el update directo.
         unset($data['user_id'], $data['branch_id']);
-        $inventoryDevice->update($data);
+        $inventory->update($data);
 
         if ($custodyMoved) {
             $target = $newUserId ?: $newBranchId;
 
             $this->ledger->transferDevice(
-                $inventoryDevice,
+                $inventory,
                 $newUserId ? InventoryMovement::HOLDER_USER : InventoryMovement::HOLDER_BRANCH,
                 $target === null ? null : (int) $target,
                 $request->user(),
@@ -128,16 +128,16 @@ class InventoryDeviceController extends Controller
 
         return response()->json([
             'message' => 'Equipo actualizado correctamente. ✅',
-            'device' => $inventoryDevice->fresh()
+            'device' => $inventory->fresh()
         ]);
     }
 
     /**
      * Remove the specified device from storage.
      */
-    public function destroy(InventoryDevice $inventoryDevice)
+    public function destroy(InventoryDevice $inventory)
     {
-        $inventoryDevice->delete();
+        $inventory->delete();
 
         return response()->json([
             'message' => 'Equipo eliminado correctamente. ✅'
