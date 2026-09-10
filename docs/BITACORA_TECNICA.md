@@ -6332,3 +6332,96 @@ segundo. Anotado en `MEJORAS_RECOMENDADAS.md`.
 verificó que fallan con el bug puesto: **7 de los 9 se caen** al revertir el nombre del
 parámetro. Comprueban efecto, no código de estado: `assertJsonPath('id', …)` en el `show` y
 `assertDatabaseMissing` tras el `delete` — un `assertOk()` a secas pasaba con el bug.
+
+---
+
+## 60. El arreglo estaba escrito, probado y mergeado — y no llegaba a producción — 2026-09-10
+
+**Síntoma reportado.** El cliente de Chaguaní seguía sin poder editar ni borrar equipos horas
+después de dar por cerrado el § 59. Mandó una captura de `/inventory/8/edit` con **todo el
+formulario en blanco**: la firma exacta del binding roto que el § 59 daba por arreglado.
+
+**Primera conclusión, equivocada en su alcance.** Que el código estaba bien y «faltaba
+desplegar». Cierto, pero incompleto: no era que nadie hubiera lanzado el despliegue. Es que el
+despliegue **se lanzaba solo y fallaba solo**, y nadie lo miraba.
+
+**Cómo se comprobó que producción estaba atrasada**, sin acceso a la consola de DigitalOcean ni
+a la base (la contraseña del `.env` local estaba caducada tras la rotación):
+
+1. `curl https://ispwatch-crm.app/build/manifest.json` → nombre del chunk de `Inventory`.
+2. Descargar ese chunk y buscar el marcador del PR #263: la tarjeta móvil pasó de dos botones
+   (`grid-cols-2 gap-2 pt-3`) a tres. Producción servía **dos**.
+3. Descartar la caché de Cloudflare: `cf-cache-status: DYNAMIC` / `BYPASS`. Venía del origen.
+4. Acotar el atraso: el mismo bundle **sí** traía el PR #257 (`inputmode="tel"` en sucursales),
+   de la víspera. Producción estaba clavada en el PR #258.
+
+El bundle compilado es una fuente de verdad honesta sobre qué código está vivo. No hace falta
+acceso a la infraestructura para leerlo.
+
+**Causa raíz.** El log del despliegue fallido lo dijo: *«Deploy Error: Health Checks — your
+container did not respond to health checks»*, sobre el commit `102d2f1`. El build terminó bien
+(1 m 48 s). Lo que falló fue el arranque.
+
+El `run_command` del servicio web era:
+
+```
+php artisan migrate --force
+heroku-php-apache2 public/
+```
+
+Apache no arranca hasta que `migrate` termina. Y ese despliegue arrastraba la migración
+`2026_09_09_000002` de P-43, que no es una migración de esquema y ya: rellena `customer_name` y
+`customer_document` en `invoices` y `payments` recorriendo las filas en lotes de 500 y mandando
+**un UPDATE por titular**, y después cambia cinco claves foráneas a `SET NULL`. Contra el pooler
+de Supabase, que está en `us-east-1` mientras la app corre en `atl`, cada ida y vuelta cuesta
+~258 ms (lo dice el propio `/health`). Son minutos.
+
+El log de ejecución lo deja sin margen de interpretación — son dos líneas y noventa segundos:
+
+```
+Sep 10 18:10:13   INFO  Running migrations.
+Sep 10 18:11:45   ERROR failed health checks after 13 attempts with error
+                  Readiness probe failed: dial tcp 10.244.36.124:8080: connect: connection refused
+```
+
+**Entre las dos no hay nada.** Laravel imprime una línea por migración; aquí no llegó a imprimir
+ni la primera. Noventa y dos segundos después de empezar a migrar seguía dentro de
+`2026_09_09_000002`, el puerto 8080 nunca se abrió —`connection refused`, no *timeout*: no había
+nadie escuchando— y App Platform, tras trece sondeos, dio el contenedor por muerto y revirtió al
+anterior.
+
+Cada intento repetía el trabajo y lo perdía: la migración va en una transacción —PostgreSQL
+soporta DDL transaccional y Laravel la envuelve— así que al morir el contenedor se deshacía
+entera. Sin daño en los datos, y sin avanzar un milímetro.
+
+**Lo peor no es el fallo: es el mensaje.** «El contenedor no respondió a los health checks» no
+menciona la base de datos, ni las migraciones, ni el relleno de datos. Manda a mirar el puerto,
+el `ingress`, el `run_command`, la memoria. El problema real —una migración lenta— no aparece
+por ninguna parte. Eso convirtió un fallo de veinte minutos en horas de cliente parado.
+
+**Arreglo.** Es P-DEPLOY-1, que llevaba pendiente desde el post-mortem de agosto y que la propia
+plantilla tenía anotado en un comentario, encima de la línea que lo causó:
+
+```yaml
+# `migrate --force` aquí convierte cualquier problema de base de datos en un
+# despliegue fallido... Corresponde un job PRE_DEPLOY. Ver P-DEPLOY-1.
+```
+
+Se saca `migrate --force` del arranque del web y se mueve a un job `kind: PRE_DEPLOY`, que corre
+antes de que arranquen los contenedores nuevos, con su propio resultado y sin health check de por
+medio. Si migrar falla, el despliegue se detiene y los contenedores viejos siguen sirviendo —que
+es lo que se quiere— y el error que se lee es el de la migración, no un enigma sobre puertos.
+
+De paso desactiva las otras dos consecuencias que ya se habían pagado: el rollback dejaba de
+revertir las variables de entorno corregidas (fue lo que alargó la caída del § 48 a quince
+horas), y con `instance_count > 1` dejarían de migrar dos contenedores en paralelo sobre la
+misma base.
+
+**Deuda que queda.** La plantilla está arreglada; **la especificación viva no**. Hasta que
+alguien aplique `.do/deploy.template.yaml` en DigitalOcean, la próxima migración con relleno de
+datos vuelve a tumbar el despliegue exactamente igual. Es el mismo «falta aplicar» de P-SECRET-1,
+y esta vez ya se sabe cuánto cuesta dejarlo pendiente.
+
+**Lección.** `DEPLOYMENT_FAILED` ya estaba en el bloque `alerts` de la plantilla. Si la alerta
+hubiera llegado a alguien, el diagnóstico habría empezado a las 18:11 y no tres horas después,
+buscando en el código un bug que ya estaba arreglado.

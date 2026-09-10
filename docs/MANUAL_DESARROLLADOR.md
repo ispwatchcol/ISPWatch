@@ -374,8 +374,20 @@ al hacer push a `main`.
 
 | Componente | Comando de arranque |
 |---|---|
-| `ispwatch` (web) | Materializa la clave SSH → `php artisan migrate --force` → `heroku-php-apache2 public/` |
+| `migrate` (job, `kind: PRE_DEPLOY`) | `php artisan migrate --force` |
+| `ispwatch` (web) | Materializa la clave SSH → `heroku-php-apache2 public/` |
 | `worker` | Materializa la clave SSH → `php artisan queue:work --tries=1 --timeout=120 --sleep=3 --max-time=3600` |
+
+> **Las migraciones NO van en el arranque del web.** Estuvieron ahí hasta el 2026-09-10 y ese
+> día tumbaron un despliegue: el contenedor arrancaba, se ponía a migrar y no llegaba a
+> `heroku-php-apache2` hasta terminar. App Platform sondea el puerto a los pocos segundos —con
+> los valores por defecto, nueve fallos de diez en diez segundos: **unos 90 s**— no obtuvo
+> respuesta y declaró *«did not respond to health checks»*, un mensaje que no menciona la base
+> de datos y manda a buscar el fallo donde no está. El despliegue se revirtió y el arreglo que
+> traía se quedó horas sin llegar a producción. Ver § 60 de la bitácora y P-DEPLOY-1.
+>
+> Un job `PRE_DEPLOY` separa las dos preguntas —¿migró bien? y ¿arrancó bien?— y si falla,
+> detiene el despliegue dejando los contenedores viejos sirviendo.
 
 ### El planificador
 

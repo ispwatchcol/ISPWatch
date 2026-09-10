@@ -494,7 +494,7 @@ facturación lleva meses saliendo— pero con tres costes:
 El componente `scheduler` ya está definido en `.do/deploy.template.yaml`. Separarlo es el
 arreglo de fondo, sin urgencia una vez que el latido está desplegado.
 
-### 🔴 P-DEPLOY-1 · `migrate --force` corre dentro del arranque del contenedor
+### 🟡 P-DEPLOY-1 · `migrate --force` corría dentro del arranque del contenedor — *resuelto en la plantilla el 2026-09-10, falta aplicar*
 
 El `run_command` del servicio web ejecuta las migraciones antes de levantar Apache. Dos
 consecuencias, ambas verificadas en producción:
@@ -508,8 +508,20 @@ consecuencias, ambas verificadas en producción:
 Y una tercera latente: si algún día `instance_count` sube de 1, dos contenedores migrarían
 en paralelo sobre la misma base.
 
-Corresponde un job `kind: PRE_DEPLOY` en la especificación de App Platform. Separa el
-resultado de migrar del resultado de arrancar, que son dos preguntas distintas.
+Y una tercera latente ya no tan latente: **el 2026-09-10 esto tumbó un despliegue de verdad.**
+El commit `102d2f1` traía la migración `2026_09_09_000002` (P-43: relleno de `customer_name` /
+`customer_document` sobre `invoices` y `payments`, más cinco cambios de clave foránea). El
+contenedor arrancó, se puso a migrar y no llegó a `heroku-php-apache2`. El log son dos líneas:
+`18:10:13 INFO Running migrations.` y `18:11:45 ERROR failed health checks after 13 attempts …
+connection refused`. Entre ambas no se imprimió ni una sola migración: a los 92 segundos seguía
+dentro de la primera. App Platform reportó «did not respond to health checks» — sin una palabra
+sobre migraciones. El despliegue se revirtió y el arreglo del 422 de inventario, que un cliente estaba
+esperando, se quedó horas sin llegar a producción mientras se buscaba el fallo en el sitio
+equivocado.
+
+`.do/deploy.template.yaml` ya tiene el job `migrate` con `kind: PRE_DEPLOY` y el `run_command`
+del web sin migraciones. **Falta aplicarlo a la especificación viva**, igual que P-SECRET-1:
+mientras no se aplique, la próxima migración lenta vuelve a tumbar el despliegue.
 
 ### 🟢 P-SECRET-1 · Un secreto vivía en tres sitios — *resuelto en la plantilla, falta aplicar*
 
@@ -2144,7 +2156,7 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 | **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
 | **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |
 | **P-PROC-1** | El planificador corre de fondo dentro del `worker` | Si muere, el contenedor sigue «sano» y se para el ciclo de negocio | 🟠 Alta | 🟡 Mitigado por el latido; falta separar el componente |
-| **P-DEPLOY-1** | `migrate --force` corre al arrancar el contenedor | El rollback revierte también las variables corregidas | 🔴 Crítica | 📋 Pendiente · job `PRE_DEPLOY` |
+| **P-DEPLOY-1** | `migrate --force` corría al arrancar el contenedor | Tumbó el despliegue del 2026-09-10 con un error que no menciona la base de datos; el rollback revierte también las variables corregidas | 🔴 Crítica | 🟡 Resuelto en la plantilla (job `PRE_DEPLOY`); **falta aplicar** |
 | **P-SECRET-1** | Un secreto vivía en tres sitios | Causa mecánica de que la caída durase quince horas | 🟢 Baja | 🟡 Resuelto en la plantilla; **falta aplicar** |
 | **P-ENV-1** | Desarrollo y producción comparten la misma base | Credenciales de producción en cada portátil; origen de la cadena | 🔴 Crítica | 📋 Pendiente · staging con base propia |
 | **P-RLS-1** | La frontera entre tenants es 100 % de aplicación | Si una consulta olvida el filtro, Postgres obedece | 🔴 Crítica | 📋 Pendiente · RLS con `FORCE` y rol sin `BYPASSRLS` |
