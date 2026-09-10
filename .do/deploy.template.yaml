@@ -371,16 +371,20 @@ services:
   http_port: 8080
   instance_count: 1
   instance_size_slug: apps-s-1vcpu-0.5gb
-  # `migrate --force` aquí convierte cualquier problema de base de datos en un
-  # despliegue fallido, y el rollback revierte también las variables corregidas.
-  # Corresponde un job PRE_DEPLOY. Ver P-DEPLOY-1 en MEJORAS_RECOMENDADAS.md.
+  # Las migraciones NO van aquí: viven en el job `migrate` (kind: PRE_DEPLOY) del
+  # bloque `jobs` al final del archivo. Ver P-DEPLOY-1 y § 60 de la bitácora.
+  #
+  # Estuvieron aquí hasta el 2026-09-10 y ese día tumbaron un despliegue: el
+  # contenedor arrancaba, se ponía a migrar y no llegaba a `heroku-php-apache2`
+  # hasta terminar. App Platform sondea /health a los pocos segundos, no obtuvo
+  # respuesta y declaró «did not respond to health checks» — un mensaje que no
+  # menciona la base de datos y manda a buscar el fallo donde no está.
   run_command: |
     mkdir -p storage/keys
     if [ -n "$MIKROTIK_CORE_SSH_KEY_B64" ]; then
       printf '%s' "$MIKROTIK_CORE_SSH_KEY_B64" | base64 -d > storage/keys/mikrotik_core_id_ed25519
       chmod 600 storage/keys/mikrotik_core_id_ed25519
     fi
-    php artisan migrate --force
     heroku-php-apache2 public/
   source_dir: /
 
@@ -452,6 +456,56 @@ workers:
       chmod 600 storage/keys/mikrotik_core_id_ed25519
     fi
     php artisan schedule:work
+  build_command: |
+    composer install --no-dev --optimize-autoloader
+  source_dir: /
+
+# ═════════════════════════════════════════════════════════════════════════════
+# JOBS
+# ═════════════════════════════════════════════════════════════════════════════
+
+jobs:
+
+# ── Migraciones (P-DEPLOY-1) ─────────────────────────────────────────────────
+# `kind: PRE_DEPLOY` corre ANTES de que arranquen los contenedores nuevos y con
+# el código nuevo ya construido. Es el único sitio correcto para migrar.
+#
+# POR QUÉ NO EN EL `run_command` DEL WEB, que es donde estaba:
+#
+#   1. Mezcla dos preguntas distintas —¿migró bien? y ¿arrancó bien?— en una
+#      sola respuesta. El 2026-09-10 una migración con relleno de datos sobre
+#      `invoices` y `payments` no terminó dentro de la ventana del health check
+#      (~90 s con los valores por defecto) y App Platform reportó «el contenedor
+#      no respondió a los health checks». Ni una palabra sobre migraciones. El
+#      despliegue se revirtió y el arreglo que traía —que era el que un cliente
+#      estaba esperando— se quedó tres horas sin llegar a producción.
+#
+#   2. El rollback revierte también las variables de entorno corregidas. Durante
+#      la caída del § 48 se podía arreglar `DB_PASSWORD` indefinidamente sin
+#      efecto: el despliegue que la aplicaba se caía y App Platform restauraba el
+#      valor viejo junto con todo lo demás.
+#
+#   3. Con `instance_count` > 1, dos contenedores migrarían EN PARALELO sobre la
+#      misma base. Hoy es 1; la trampa queda armada para el día que no lo sea.
+#
+# Si el job falla, el despliegue se detiene y los contenedores viejos siguen
+# sirviendo: exactamente lo que se quiere. Una migración a medias no se tapa con
+# un arranque exitoso.
+#
+# `instance_size_slug` más grande que el del web a propósito: un relleno de datos
+# es trabajo de una sola vez y conviene que termine cuanto antes; no cuesta nada
+# porque el job sólo vive lo que dura.
+- environment_slug: php
+  name: migrate
+  kind: PRE_DEPLOY
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: ispwatchcol/ISPWatch
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-1gb
+  run_command: |
+    php artisan migrate --force
   build_command: |
     composer install --no-dev --optimize-autoloader
   source_dir: /
