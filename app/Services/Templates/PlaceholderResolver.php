@@ -36,9 +36,13 @@ class PlaceholderResolver
             'empresa.telefono'          => $tenant?->billing_phone ?: $tenant?->tel_tenant ?: '',
             'empresa.email'             => $tenant?->billing_email ?: $tenant?->email_tenant ?: '',
             'empresa.ciudad'            => $tenant?->city ?: $tenant?->zone_tenant ?: '',
-            'cliente.nombre'            => (string) ($customer?->user_name ?: ''),
+            // El titular congelado sostiene el documento cuando el cliente ya
+            // no existe (P-43). Va al campo `nombre` completo y deja `apellido`
+            // vacío: el snapshot es un solo campo, y partirlo por el primer
+            // espacio inventaría un apellido que no consta en ninguna parte.
+            'cliente.nombre'            => (string) ($customer?->user_name ?: ($customer ? '' : ($invoice->customer_name ?: ''))),
             'cliente.apellido'          => (string) ($customer?->user_lastname ?: ''),
-            'cliente.cedula'            => (string) ($profile?->cedula ?: ''),
+            'cliente.cedula'            => (string) ($profile?->cedula ?: ($invoice->customer_document ?: '')),
             'cliente.direccion'         => (string) ($profile?->address ?: ''),
             'cliente.email'             => (string) ($customer?->email ?: ''),
             'cliente.telefono'          => (string) ($customer?->tel ?: ''),
