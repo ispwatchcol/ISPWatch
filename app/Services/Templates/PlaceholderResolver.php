@@ -36,10 +36,22 @@ class PlaceholderResolver
             'empresa.telefono'          => $tenant?->billing_phone ?: $tenant?->tel_tenant ?: '',
             'empresa.email'             => $tenant?->billing_email ?: $tenant?->email_tenant ?: '',
             'empresa.ciudad'            => $tenant?->city ?: $tenant?->zone_tenant ?: '',
-            // El titular congelado sostiene el documento cuando el cliente ya
-            // no existe (P-43). Va al campo `nombre` completo y deja `apellido`
-            // vacío: el snapshot es un solo campo, y partirlo por el primer
-            // espacio inventaría un apellido que no consta en ninguna parte.
+            // El titular congelado entra SÓLO como respaldo, cuando el cliente
+            // ya no existe (P-43).
+            //
+            // Se probó al revés —snapshot con preferencia, para que un PDF
+            // reimpreso dijera siempre lo que decía— y es la decisión
+            // equivocada aquí, por dos razones. Una: este resolutor lee en vivo
+            // el tenant, la dirección, el plan y el punto de acceso, así que
+            // congelar únicamente el nombre no daría un documento histórico,
+            // daría uno incoherente. Y dos: el nombre congelado es un solo
+            // campo, y las plantillas usan `{{cliente.nombre}}` y
+            // `{{cliente.apellido}}` por separado; meterlo entero en el primero
+            // deja el segundo vacío y un espacio suelto antes de la coma.
+            //
+            // Lo que sí queda congelado de verdad es la COLUMNA: nadie la
+            // reescribe, y es lo que sostiene el histórico cuando el cliente se
+            // da de baja, que es el problema que P-43 vino a resolver.
             'cliente.nombre'            => (string) ($customer?->user_name ?: ($customer ? '' : ($invoice->customer_name ?: ''))),
             'cliente.apellido'          => (string) ($customer?->user_lastname ?: ''),
             'cliente.cedula'            => (string) ($profile?->cedula ?: ($invoice->customer_document ?: '')),

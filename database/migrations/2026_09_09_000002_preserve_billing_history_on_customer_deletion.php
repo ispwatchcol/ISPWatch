@@ -168,6 +168,14 @@ return new class extends Migration
      *
      * Se hace en PHP y no con un `UPDATE ... FROM` porque esa sintaxis difiere entre
      * PostgreSQL y SQLite, y la suite corre en los dos.
+     *
+     * LA CASCADA ESTÁ DUPLICADA CON `FreezesCustomerSnapshot`, y es a propósito.
+     * Una migración es un documento histórico: tiene que seguir haciendo lo mismo
+     * dentro de dos años, y si leyera la regla desde el trait, cualquier cambio
+     * posterior en el trait reescribiría lo que hizo esta migración. La copia se
+     * paga una vez; el acoplamiento se paga cada vez que alguien toque el trait.
+     * Si se cambia el orden de preferencia, hay que tocar los dos sitios — y el
+     * trait apunta aquí de vuelta.
      */
     private function rellenarSnapshot(string $tabla): void
     {
@@ -196,9 +204,23 @@ return new class extends Migration
                         ->keyBy('user_id')
                     : collect();
 
+                // Un UPDATE por TITULAR, no por fila.
+                //
+                // Importa más de lo que parece: el código no se puede desplegar
+                // hasta que esta migración termine —escribe `customer_name`, que
+                // hasta entonces no existe— así que lo que tarde es tiempo sin
+                // facturar. Un cliente con dos años de historia son 24 facturas
+                // que comparten titular y comparten los dos valores; mandarlas
+                // de una es una ida y vuelta a Supabase en vez de 24.
+                $porTitular = [];
+
                 foreach ($filas as $fila) {
-                    $usuario = $usuarios->get($fila->customer_id);
-                    $perfil  = $perfiles->get($fila->customer_id);
+                    $porTitular[$fila->customer_id][] = $fila->id;
+                }
+
+                foreach ($porTitular as $customerId => $ids) {
+                    $usuario = $usuarios->get($customerId);
+                    $perfil  = $perfiles->get($customerId);
 
                     $nombre = trim(($usuario->user_name ?? '') . ' ' . ($usuario->user_lastname ?? ''));
 
@@ -216,7 +238,7 @@ return new class extends Migration
                         continue;
                     }
 
-                    DB::table($tabla)->where('id', $fila->id)->update([
+                    DB::table($tabla)->whereIn('id', $ids)->update([
                         'customer_name'     => $nombre !== '' ? mb_substr($nombre, 0, 160) : null,
                         'customer_document' => $documento !== '' ? mb_substr($documento, 0, 40) : null,
                     ]);

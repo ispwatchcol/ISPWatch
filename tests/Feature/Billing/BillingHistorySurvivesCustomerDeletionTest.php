@@ -46,12 +46,12 @@ class BillingHistorySurvivesCustomerDeletionTest extends TestCase
 
         $this->tenant = Tenant::factory()->create();
 
-        // Mismo motivo que en CustomerDeletionControlsTest: `role_id == 1` pasa
-        // cualquier permiso, así que se quema el primer id.
-        Role::create([
-            'name' => 'Superadmin global', 'code' => 'superadmin',
-            'permissions' => ['*'], 'tenant_id' => null,
-        ]);
+        // Aquí NO se quema el rol id 1 como en CustomerDeletionControlsTest.
+        // Aquel truco existe porque `CheckPermission` deja pasar siempre a
+        // `role_id == 1` y sus casos van contra el endpoint; los de esta suite
+        // llaman al servicio directamente (ver `borrar()`), así que no hay
+        // middleware de por medio y copiarlo sólo añadía una escritura por caso
+        // y hacía pensar que el control de acceso entra en lo que se prueba.
     }
 
     private function cliente(string $nombre = 'Axel', string $apellido = 'Cano'): User
@@ -315,11 +315,91 @@ class BillingHistorySurvivesCustomerDeletionTest extends TestCase
 
         $this->borrar($borrado);
 
-        $pendiente = InvoiceCarryover::withoutTenantScope()
-            ->where('tenant_id', $this->tenant->id)
-            ->where('customer_id', $otro->id)
-            ->sum('amount');
+        // La factura del OTRO cliente se emite DESPUÉS del borrado: es la única
+        // forma de que `applyPendingCarryoversTo()` corra de verdad. Comprobar
+        // el `sum()` de arrastres de `$otro` no probaba nada — nunca fue suyo,
+        // así que daba 0 en cualquier escenario, incluido uno roto.
+        $facturaDelOtro = $this->factura($otro, 30000);
 
-        $this->assertEquals(0, $pendiente, 'El arrastre huérfano no es de nadie más.');
+        // `applyPendingCarryoversTo()` es protected. Se invoca por reflexión a
+        // propósito: montar una mensual completa —router, plan, configuración
+        // de facturación, día de corte— para llegar hasta ella metería media
+        // docena de piezas ajenas a lo que aquí se comprueba, y el fallo que se
+        // vigila vive en esa consulta, no en el camino que lleva a ella.
+        $metodo = new \ReflectionMethod(\App\Services\BillingService::class, 'applyPendingCarryoversTo');
+        $metodo->setAccessible(true);
+        $metodo->invoke(app(\App\Services\BillingService::class), $facturaDelOtro);
+
+        $this->assertEquals(
+            0,
+            (float) $facturaDelOtro->fresh()->carried_in,
+            'El arrastre de un cliente borrado no puede acabar cobrado en la factura de otro.',
+        );
+    }
+
+    // ── Lo que se rompía al dejar filas sin titular ──────────────────────
+    //
+    // Los tres casos siguientes no son sobre el borrado en sí, sino sobre el
+    // código que se encuentra las filas huérfanas DESPUÉS. Salieron de la
+    // revisión del PR: eran fallos de verdad, no hipótesis.
+
+    #[Test]
+    public function el_verificador_de_dinero_no_inventa_un_cliente_cero(): void
+    {
+        $cliente = $this->cliente();
+
+        Payment::create([
+            'tenant_id'    => $this->tenant->id,
+            'customer_id'  => $cliente->id,
+            'amount'       => 50000,
+            'payment_date' => now()->toDateString(),
+            'method'       => 'cash',
+            'status'       => 'completed',
+        ]);
+
+        $this->borrar($cliente);
+
+        // Antes, `groupBy('customer_id')` metía el grupo NULL con la clave `""`,
+        // y ese `""` acababa en un `whereIn` contra una columna bigint: en
+        // PostgreSQL, un 22P02 que se llevaba por delante el verificador entero.
+        // En SQLite no reventaba, pero reportaba un "cliente #0" con todo el
+        // dinero del cliente borrado — una alarma falsa que crecía con cada baja.
+        $filas = app(\App\Services\BillingService::class)
+            ->auditOrphanPayments($this->tenant->id);
+
+        $ids = array_column($filas, 'customer_id');
+
+        $this->assertNotContains(0, $ids, 'No existe el cliente 0.');
+        $this->assertNotContains(null, $ids);
+    }
+
+    #[Test]
+    public function se_puede_borrar_una_factura_que_ya_no_tiene_titular(): void
+    {
+        $cliente = $this->cliente();
+        $factura = $this->factura($cliente);
+
+        $this->borrar($cliente);
+
+        // `suppressRegeneration()` escribía la lápida en `billing_action_logs`,
+        // cuya columna `customer_id` es NOT NULL: con la factura ya desvinculada
+        // el INSERT reventaba con un 23502 y el borrado entero se revertía.
+        app(\App\Services\BillingService::class)->deleteInvoice($factura->fresh());
+
+        $this->assertDatabaseMissing('invoices', ['id' => $factura->id]);
+    }
+
+    #[Test]
+    public function la_cedula_congelada_no_viaja_en_el_json(): void
+    {
+        $factura = $this->factura($this->cliente());
+
+        $this->assertSame('1234567890', $factura->customer_document, 'En el servidor sí está.');
+
+        // Pero no en la respuesta: el listado de facturas carga el perfil
+        // pidiendo sólo nombre y apellido, a propósito, para no servir la ficha
+        // entera. El snapshot no puede colar la cédula por la puerta de atrás.
+        $this->assertArrayNotHasKey('customer_document', $factura->toArray());
+        $this->assertArrayHasKey('customer_name', $factura->toArray());
     }
 }

@@ -297,6 +297,15 @@ class CustomerDeletionService
                 ->whereNull('customer_name')
                 ->each(function ($fila) {
                     $fila->freezeCustomerSnapshot();
+
+                    // `saveQuietly()` silencia los EVENTOS, no las marcas de
+                    // tiempo: sin esto Eloquent estampaba `updated_at` y todas
+                    // las facturas viejas del cliente saltaban al principio de
+                    // cualquier listado ordenado por actividad reciente — justo
+                    // lo que el comentario de arriba dice que no debe pasar. Y
+                    // además aparecían en el delta `updated_since` de la API
+                    // partner como si se hubieran modificado.
+                    $fila->timestamps = false;
                     $fila->saveQuietly();
                 });
         }

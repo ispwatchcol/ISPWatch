@@ -14,7 +14,7 @@ const { can } = usePermissions()
 const invoice = ref(null)
 const loading = ref(true)
 
-const customerDisplayName = computed(() => resolveCustomerDisplayName(invoice.value?.customer))
+const customerDisplayName = computed(() => resolveCustomerDisplayName(invoice.value?.customer, invoice.value?.customer_name))
 
 // Trazabilidad del arrastre: de qué facturas viene el saldo que esta cobra y a
 // cuál se fue el que ella dejó pendiente.

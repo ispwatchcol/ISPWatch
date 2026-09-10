@@ -6141,3 +6141,108 @@ de verdad.
 **Alcance.** Se revisaron las migraciones buscando el mismo patrón —una columna de teléfono
 declarada como entero— y `inventory_branch.numero` era **la única**. No hay deuda equivalente
 en otras tablas.
+
+## 58. Dar de baja a un cliente destruía su histórico de facturación — 2026-09-09
+
+**P-43 / KAN-94.** Detectado el 2026-08-29 inventariando las once claves foráneas en
+cascada hacia `users` durante el correctivo de H-6; contenido el 2026-08-31 con permiso
+propio, motivo obligatorio y auditoría previa; resuelto de fondo aquí.
+
+### Qué pasaba
+
+`invoices.customer_id`, `payments.customer_id` y compañeras estaban en `ON DELETE CASCADE`,
+y `CustomerDeletionService` termina con `$user->delete()`. Dar de baja a un cliente borraba
+sus facturas y sus pagos — y con ellos, por cascada de segundo nivel, `invoice_items` y
+`payment_allocations`: el detalle de qué se cobró y qué pago saldó qué factura. También los
+cargos nacidos de un ticket, que desde H-6 dejaban el ticket vivo y el cargo muerto.
+
+### La decisión que faltaba, y que no era técnica
+
+**El histórico se conserva, con nombre y documento.** En Colombia los papeles de comercio se
+guardan diez años (Código de Comercio, arts. 28 y 60). Guardar nombre y cédula no crea una
+copia nueva de datos personales: son los dos campos que la factura emitida ya lleva impresos,
+y sin ellos el histórico conservado sería un montón de cifras que no se pueden atribuir.
+
+### Cinco tablas, no las tres del documento
+
+`docs/MEJORAS_RECOMENDADAS.md` nombraba tres. Al inventariarlas aparecieron
+`customer_credits` (saldo a favor: dinero que el cliente entregó) y
+`customer_additional_services` (lo que justifica los cargos), con la misma cascada y la misma
+naturaleza contable. Arreglar tres y dejar dos habría dado por cerrada una deuda que seguiría
+perdiendo dinero por otro lado.
+
+### Congelar al emitir, no al borrar
+
+El trait `FreezesCustomerSnapshot` engancha `creating` en `Invoice` y `Payment`. Se eligió el
+hook y no tocar las siete rutas de creación una a una porque una sola olvidada deja una
+factura que dentro de tres años no se puede atribuir a nadie — y no habría forma de notarlo.
+
+El snapshot va sólo en esas dos tablas: las demás cuelgan de una factura o un pago, y repetir
+el dato personal en cinco sitios no daría ni un informe nuevo.
+
+La aplicación **desvincula explícitamente** además de tener la constraint en `SET NULL`: el
+snapshot hay que congelarlo mientras el titular existe, y eso no lo puede hacer una clave
+foránea. La constraint queda como red de seguridad para el `DELETE` a mano en una consola.
+Mismo reparto que el PR A dejó escrito para los catálogos.
+
+### Bugs que este cambio volvió alcanzables — y que la revisión encontró
+
+Ninguno era hipotético: todos revientan en cuanto existe una fila sin titular, cosa que hasta
+ahora era imposible.
+
+| Dónde | Qué pasaba |
+|---|---|
+| `PaymentReminderController::sendReminder()` | Leía el perfil **antes** de comprobar el nulo: 500 en vez del 404 que ese mismo bloque pretendía |
+| `BillingService::auditOrphanPayments()` | El grupo `NULL` entraba como clave `""` y ese `""` acababa en un `whereIn` contra un bigint — 22P02 en PostgreSQL, y el verificador de dinero entero se caía |
+| `BillingService::suppressRegeneration()` | Escribía la lápida en `billing_action_logs.customer_id`, que es NOT NULL: 23502 y el borrado de la factura se revertía entero |
+| `CustomerCredit::earn()` / `reverseForPayment()` | `(int) null` = cliente 0, que no existe: violación de clave foránea |
+| `BillingService::unbilledAdditionalServices()` | `(int) null` otra vez: un servicio adicional sin dueño seguía generando cargos al «cliente 0». Se desactiva al soltar el vínculo |
+| API partner | Emitía `customer_id: 0` en vez de `null`, contra su propia convención (`PartnerSupportController`). El partner intentaba resolver un cliente que nunca existió |
+
+### Dos cosas que se hicieron mal por el camino
+
+**El frontend se dio por ausente sin buscarlo bien.** Se buscó en `resources/js/views` y
+`src/views` —ninguno existe— y se concluyó que el frontend vivía en otro repositorio. Está en
+`resources/js/pages`. Consecuencia: la primera versión pasó la revisión con el snapshot
+invisible en pantalla, porque `customerDisplayName()` recibía `null` y devolvía «Desconocido»
+justo en la pantalla de contabilidad que mira un operador.
+
+**Se intentó que el PDF prefiriera el snapshot** —para que un documento reimpreso dijera
+siempre lo que decía— y rompió cuatro pruebas de plantillas. Fue la decisión equivocada por
+dos razones: `PlaceholderResolver` lee en vivo el tenant, la dirección y el plan, así que
+congelar sólo el nombre daría un documento incoherente, no uno histórico; y el snapshot es un
+solo campo mientras las plantillas usan `{{cliente.nombre}}` y `{{cliente.apellido}}` por
+separado. El snapshot queda como respaldo. Lo congelado de verdad es la columna.
+
+### Deuda aceptada a conciencia
+
+El filtro por cliente de los listados busca sobre el cliente vivo, así que **no encuentra** las
+facturas de un cliente dado de baja. Se llega a ellas por período, número o rango de fechas.
+Darles filtro propio exigiría buscar sobre el snapshot, y no hay caso de uso que hoy lo pida.
+
+La cédula congelada se oculta de la serialización (`$hidden`) porque el listado de pagos
+selecciona a propósito sólo `user_id,name,last_name` del perfil: dejarla visible habría metido
+por la puerta de atrás justo el dato que esa selección evitaba.
+
+### Y una lección de proceso, que es la más cara
+
+Esto llegó a `main` **sin PR y sin revisión**. La rama se creó con
+`git checkout -b … origin/main`, lo que la dejó rastreando `origin/main`; el `push` posterior
+fue directo a la rama de producción y la rama nunca llegó a existir en el remoto. Es la
+segunda vez que pasa por la misma causa (la primera, en julio, con
+`fix/sidebar-soporte-technician`).
+
+Se revirtió con un commit de revert —no con un force-push: los PR #259 y #260 ya se habían
+mergeado encima— y volvió partido en dos PR, porque el commit además arrastraba un arreglo de
+inventario que no tenía nada que ver. La revisión posterior encontró seis fallos de
+correctitud que habrían llegado a producción sin que nadie los mirara.
+
+**La costumbre que lo evita:** empujar siempre con `git push -u origin HEAD`, nunca `git push`
+a secas, y confirmar con `git ls-remote --heads origin <rama>` que la rama existe en el remoto.
+
+### Al desplegar
+
+`migrate:both` **primero**. El código escribe `invoices.customer_name`, columna que no existe
+hasta que la migración corra: desplegar antes deja el primer `INSERT` de factura fallando, es
+decir, deja de facturarse. El backfill actualiza por titular y no por fila justamente porque
+lo que tarde esa migración es tiempo sin facturar.

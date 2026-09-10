@@ -58,6 +58,16 @@ class Invoice extends Model
         'last_reminder_sent' => 'datetime',
     ];
 
+    /**
+     * La cédula congelada no sale en el JSON. Mismo criterio que en `Payment`:
+     * el listado de facturas carga el perfil del cliente pidiendo sólo
+     * `user_id,name,last_name`, y `customer_document` habría colado la cédula
+     * de cada titular en una respuesta que la evitaba a propósito.
+     *
+     * `$hidden` sólo afecta a la serialización: el PDF la sigue leyendo.
+     */
+    protected $hidden = ['customer_document'];
+
     public function items()
     {
         return $this->hasMany(InvoiceItem::class);

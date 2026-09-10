@@ -35,6 +35,20 @@ class Payment extends Model
     ];
 
     /**
+     * La cédula congelada no sale en el JSON.
+     *
+     * `filteredPaymentsQuery()` carga el perfil del cliente pidiendo sólo
+     * `user_id,name,last_name` — a propósito, para no arrastrar la ficha
+     * entera en un listado. Dejar `customer_document` visible habría metido por
+     * la puerta de atrás justo el dato que esa selección evitaba: la cédula de
+     * cada pagador, servida a cualquiera con `view_billing`.
+     *
+     * `$hidden` sólo afecta a la serialización: el PDF y el resolutor de
+     * marcadores lo siguen leyendo del modelo con normalidad.
+     */
+    protected $hidden = ['customer_document'];
+
+    /**
      * Resultado de la reconexión automática que dispara este pago, si estaba
      * cortado el cliente. Ver BillingService::reactivateIfCleared().
      *

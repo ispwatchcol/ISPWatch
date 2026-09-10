@@ -80,7 +80,19 @@ trait FreezesCustomerSnapshot
             return;
         }
 
-        if (!$sobrescribir && ($this->customer_name !== null || $this->customer_document !== null)) {
+        // Cada columna se mira por separado, no con un OR sobre las dos.
+        //
+        // El backfill de la migración deja `customer_name` puesto y
+        // `customer_document` vacío siempre que el perfil no existiera o su
+        // cédula estuviera en blanco en ese momento. Con un OR, esas filas
+        // quedaban condenadas: tenían nombre, así que ya nunca volvían a
+        // entrar aquí, y el documento —que es justo lo que una revisión fiscal
+        // necesita— no se rellenaba nunca aunque el perfil se completara
+        // después.
+        $faltaNombre    = $this->customer_name === null;
+        $faltaDocumento = $this->customer_document === null;
+
+        if (!$sobrescribir && !$faltaNombre && !$faltaDocumento) {
             return;
         }
 
@@ -90,8 +102,13 @@ trait FreezesCustomerSnapshot
             return;
         }
 
-        $this->customer_name     = $titular['name'];
-        $this->customer_document = $titular['document'];
+        if ($sobrescribir || $faltaNombre) {
+            $this->customer_name = $titular['name'];
+        }
+
+        if ($sobrescribir || $faltaDocumento) {
+            $this->customer_document = $titular['document'];
+        }
     }
 
     /**
@@ -103,8 +120,12 @@ trait FreezesCustomerSnapshot
      * congelado entra sólo cuando ya no hay a quién preguntar — que es
      * exactamente para lo que se guardó.
      *
-     * (Lo impreso en un PDF sí usa el snapshot con preferencia: el documento
-     * debe seguir diciendo lo que decía. Eso lo resuelve `PlaceholderResolver`.)
+     * `PlaceholderResolver` hace lo mismo con los documentos impresos, y ahí la
+     * primera versión de esto afirmaba lo contrario. Se corrigió: ese resolutor
+     * lee en vivo el tenant, la dirección y el plan, así que preferir el
+     * snapshot sólo para el nombre no daría un documento histórico sino uno
+     * incoherente. Lo que queda congelado de verdad es la columna, que nadie
+     * reescribe.
      */
     public function customerDisplayName(): string
     {
@@ -119,6 +140,13 @@ trait FreezesCustomerSnapshot
     }
 
     /**
+     * Resuelve al titular: nombre de `users`, documento de `customer_profile`.
+     *
+     * El mismo orden de preferencia está escrito otra vez en el `rellenarSnapshot()`
+     * de la migración `2026_09_09_000002_preserve_billing_history_on_customer_deletion`,
+     * que documenta por qué se copia en vez de compartirse. Si se cambia aquí,
+     * hay que mirarlo allí.
+     *
      * @return array{name: ?string, document: ?string}|null
      */
     private function resolverTitular(int $id): ?array
