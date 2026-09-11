@@ -192,7 +192,10 @@ class InventoryOrphanBalancesTest extends TestCase
                 'source_type' => 'branch',
                 'source_id'   => 99999,
             ]],
-        ])->assertStatus(422);
+        ])->assertStatus(422)
+          // Y que el mensaje señale el ORIGEN: mandar a revisar el destino
+          // —que estaba bien— es peor que no decir nada.
+          ->assertJsonValidationErrors('materials');
     }
 
     #[Test]

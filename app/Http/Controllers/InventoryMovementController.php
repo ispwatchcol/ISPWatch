@@ -318,7 +318,23 @@ class InventoryMovementController extends Controller
             return;
         }
 
-        $this->assertHolderExists($type, $id);
+        // Si además el custodio no existe, el problema es el ORIGEN, no el
+        // destino: delegar en assertHolderExists() daría el mensaje equivocado
+        // ("el destino no existe") y mandaría al usuario a revisar el campo que
+        // sí estaba bien.
+        $existe = $type === InventoryMovement::HOLDER_USER
+            ? User::where('id', $id)->exists()
+            : InventoryBranch::where('id', $id)->exists();
+
+        if (! $existe) {
+            throw ValidationException::withMessages([
+                'materials' => "El origen seleccionado ya no existe y no tiene saldo de {$stock->label()}: "
+                    . 'no hay de dónde sacar ese material.',
+            ]);
+        }
+
+        // El custodio existe pero no tiene saldo de este material. Que lo diga
+        // InventoryLedger, que es quien conoce la cantidad exacta disponible.
     }
 
     private function assertHolderExists(string $type, int $id): void
