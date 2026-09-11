@@ -128,6 +128,11 @@ class ApiAuthorizationTest extends TestCase
             'crear sectorial'      => ['post',   '/api/sectorials',  'view_sectorials'],
             'listar inventario'    => ['get',    '/api/inventory',   'view_inventory'],
             'crear equipo'         => ['post',   '/api/inventory',   'view_inventory'],
+            // Permiso propio desde KAN-99: `view_inventory` es de lectura y
+            // abría los cuatro `destroy` del grupo. El borrado de equipos no
+            // entra aquí: usa vinculación implícita y daría 404 antes del
+            // permiso — se cubre en InventoryDeletionPermissionTest.
+            'crear sucursal'       => ['post',   '/api/inventory-branches', 'view_inventory'],
             'listar tickets'       => ['get',    '/api/support',     'view_support'],
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],

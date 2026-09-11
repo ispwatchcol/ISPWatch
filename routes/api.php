@@ -509,14 +509,28 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::middleware('permission:view_inventory')->group(function () {
         Route::post('/inventory', [InventoryDeviceController::class, 'store']);
         Route::match(['put', 'patch'], '/inventory/{inventory}', [InventoryDeviceController::class, 'update']);
+
+        Route::apiResource('inventory-stock', InventoryStockController::class)
+            ->only(['store', 'update']);
+        Route::apiResource('inventory-providers', InventoryProviderController::class)
+            ->only(['store', 'update']);
+        Route::apiResource('inventory-branches', InventoryBranchController::class)
+            ->only(['store', 'update']);
+    });
+    // Borrar exige permiso propio: `view_inventory` es de LECTURA y autorizaba
+    // los cuatro `destroy` de aquí abajo. Mientras nada los expusiera el agujero
+    // era teórico; KAN-98 añadió el botón Eliminar en la tarjeta de equipo y lo
+    // dejó a un clic de cualquiera que pudiera ver el inventario, `Staff`
+    // incluido. Mismo patrón que `delete_customers` (ver KAN-99 y P-43).
+    Route::middleware('permission:delete_inventory')->group(function () {
         Route::delete('/inventory/{inventory}', [InventoryDeviceController::class, 'destroy']);
 
         Route::apiResource('inventory-stock', InventoryStockController::class)
-            ->only(['store', 'update', 'destroy']);
+            ->only(['destroy']);
         Route::apiResource('inventory-providers', InventoryProviderController::class)
-            ->only(['store', 'update', 'destroy']);
+            ->only(['destroy']);
         Route::apiResource('inventory-branches', InventoryBranchController::class)
-            ->only(['store', 'update', 'destroy']);
+            ->only(['destroy']);
     });
 
     // ─── STAFF ───

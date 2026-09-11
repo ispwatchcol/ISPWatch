@@ -2044,7 +2044,9 @@ son dos problemas distintos y mezclarlos habría retrasado el que tenía al clie
 ### 🟠 P-45 · `view_inventory` es el único permiso del módulo: ver, crear, editar y **borrar** son el mismo — KAN-99
 
 **Detectado:** 2026-09-10, al arreglar el binding de `/api/inventory/{id}`
-(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** no implementado.
+(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** **resuelto a medias el
+2026-09-11** — el borrado ya tiene permiso propio (§ 61 de la bitácora); la separación de
+lectura y escritura sigue abierta (punto 4 de la lista de abajo).
 
 `app/Constants/Permissions.php` declara **un solo** permiso de inventario, `VIEW_INVENTORY`, y
 con él se protegen todas las escrituras del módulo: alta y edición de equipos, entregas y
