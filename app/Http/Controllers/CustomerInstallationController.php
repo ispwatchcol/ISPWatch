@@ -66,9 +66,15 @@ class CustomerInstallationController extends Controller
     }
 
     /**
-     * Returns true when the authenticated user is allowed to see/edit billing fields.
-     * Mirrors CustomerInstallationPolicy::hasFinancialAccess() for collection contexts
-     * where a model instance isn't available (all(), index() list endpoints).
+     * Quién puede LEER la cartera de la orden (valor, abono, saldo).
+     *
+     * Dos permisos la abren: `edit_discount`, que es el que la gobernaba desde
+     * siempre y por eso se conserva —retirarlo dejaría a ciegas a los roles
+     * Staff y Contabilidad—, y `view_installation_cost`, el permiso de lectura
+     * propio que un técnico de campo puede recibir sin poder tocar precios.
+     *
+     * Espejo de CustomerInstallationPolicy::hasFinancialReadAccess() para los
+     * listados, donde no hay instancia del modelo sobre la que autorizar.
      */
     private function userCanViewBilling(Request $request): bool
     {
@@ -77,6 +83,29 @@ class CustomerInstallationController extends Controller
             return true;
         }
         $user->loadMissing('role');
+        $role = $user->role;
+
+        return $role !== null && (
+            $role->hasPermission(Permissions::EDIT_DISCOUNT)
+            || $role->hasPermission(Permissions::VIEW_INSTALLATION_COST)
+        );
+    }
+
+    /**
+     * Quién puede ESCRIBIR la cartera. Sigue siendo sólo `edit_discount`: es la
+     * misma puerta que exige el middleware de `PUT /installations/{id}/billing`.
+     *
+     * Guardar cartera emite o recalcula la factura de instalación y registra el
+     * pago recibido. `view_installation_cost` no alcanza aquí a propósito.
+     */
+    private function userCanEditBilling(Request $request): bool
+    {
+        $user = $request->user();
+        if ((int) $user->role_id === 1) {
+            return true;
+        }
+        $user->loadMissing('role');
+
         return $user->role?->hasPermission(Permissions::EDIT_DISCOUNT) ?? false;
     }
 
@@ -89,7 +118,8 @@ class CustomerInstallationController extends Controller
     {
         $row = $this->formatRow($inst);
         $canBilling = $this->userCanViewBilling($request);
-        $row['can_edit_billing'] = $canBilling;
+        $row['can_view_billing'] = $canBilling;
+        $row['can_edit_billing'] = $this->userCanEditBilling($request);
         if (!$canBilling) {
             $row = $this->stripBillingFields($row);
         }
@@ -97,8 +127,12 @@ class CustomerInstallationController extends Controller
     }
 
     /**
-     * Remove the 11 billing/cartera fields from a formatted row array.
+     * Remove the 12 billing/cartera fields from a formatted row array.
      * Used to sanitize list and detail responses for non-financial roles.
+     *
+     * Se ELIMINAN del JSON, no se envían en cero: un cero es un dato, y un
+     * técnico que ve «Valor de instalación: $0» concluye que la instalación
+     * fue gratis.
      */
     private function stripBillingFields(array $row): array
     {
@@ -150,6 +184,7 @@ class CustomerInstallationController extends Controller
     {
         $tenantId   = $this->authTenant($request);
         $canBilling = $this->userCanViewBilling($request);
+        $canEdit    = $this->userCanEditBilling($request);
 
         $installations = CustomerInstallation::with(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])
             ->where('tenant_id', $tenantId)
@@ -158,9 +193,10 @@ class CustomerInstallationController extends Controller
             ->when($request->to,     fn($q, $d) => $q->whereDate('scheduled_date', '<=', $d))
             ->orderBy('scheduled_date', 'desc')
             ->get()
-            ->map(function ($i) use ($canBilling) {
+            ->map(function ($i) use ($canBilling, $canEdit) {
                 $row = $this->formatRow($i);
-                $row['can_edit_billing'] = $canBilling;
+                $row['can_view_billing'] = $canBilling;
+                $row['can_edit_billing'] = $canEdit;
                 if (!$canBilling) {
                     $row = $this->stripBillingFields($row);
                 }
@@ -174,14 +210,16 @@ class CustomerInstallationController extends Controller
     {
         $customer   = $this->resolveCustomer($request, $customerId);
         $canBilling = $this->userCanViewBilling($request);
+        $canEdit    = $this->userCanEditBilling($request);
 
         $installations = CustomerInstallation::with(['technicianUser', 'invoice'])
             ->where('customer_id', $customer->id)
             ->orderBy('scheduled_date', 'desc')
             ->get()
-            ->map(function ($i) use ($canBilling) {
+            ->map(function ($i) use ($canBilling, $canEdit) {
                 $row = $this->formatRow($i);
-                $row['can_edit_billing'] = $canBilling;
+                $row['can_view_billing'] = $canBilling;
+                $row['can_edit_billing'] = $canEdit;
                 if (!$canBilling) {
                     $row = $this->stripBillingFields($row);
                 }

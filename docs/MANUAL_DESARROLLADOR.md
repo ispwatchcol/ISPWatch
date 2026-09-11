@@ -598,6 +598,14 @@ componentes en `failing`. Ver `ARQUITECTURA.md` § 16 y `API_REFERENCE.md` § 3.
    la API directamente la evita. Añade además un caso a `ApiAuthorizationTest`.
 9. **Los permisos de LECTURA pueden llevar varios valores** (`permission:a,b`, semántica OR)
    cuando son datos de referencia que otra pantalla necesita. Los de ESCRITURA, nunca.
+10. **Si un permiso de escritura es lo único que deja ver algo, falta un permiso de lectura.**
+    El bloque de cartera de una orden de instalación —valor, abono, saldo— se abría con
+    `edit_discount`, etiquetado «Editar Descuento». Quien administraba roles no tenía forma
+    de adivinar que esa casilla era la que mostraba el valor, y el rol Técnico no tenía
+    ninguna que marcar. Se separó en `view_installation_cost` (lectura) + `edit_discount`
+    (escritura). El patrón: el filtrado de campos y la ruta de guardado responden a puertas
+    distintas, y la respuesta declara ambas (`can_view_billing` / `can_edit_billing`) para
+    que el frontend no pinte un formulario que la API va a rechazar.
 10. **Un token que viaja al exterior se guarda hasheado, nunca en claro.** Vale para las
     llaves de la API pública y para los enlaces de firma remota
     (`contract_signature_links.token_hash`). La consecuencia hay que asumirla de frente:

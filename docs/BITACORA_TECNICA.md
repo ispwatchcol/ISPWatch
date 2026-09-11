@@ -4,10 +4,15 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-08-20 · Rama: `feat/health-deep-and-db-failure-handling`
+**Última actualización:** 2026-09-11 · Rama: `feat/permiso-ver-costo-instalacion`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El técnico veía la instalación pero no cuánto costaba (2026-09-11, § 62):** el bloque de
+  cartera de la orden estaba gobernado por `edit_discount` —«Editar Descuento» en la pantalla de
+  roles—, así que no había casilla que un administrador pudiera reconocer y el rol Técnico no
+  veía el apartado. Nuevo `view_installation_cost`, de **sólo lectura**: muestra valor, abono y
+  saldo sin autorizar a guardarlos, porque guardar factura.
 - **Caída total de quince horas sin una sola alerta (2026-08-20, § 48):** se rotó la contraseña de
   Supabase y no se actualizó en DigitalOcean. Como sesión, caché y cola viven en esa base, no falló
   una función: fallaron todas. El manejador de errores respondía con `redirect()->back()`, que sin
@@ -6535,3 +6540,61 @@ Un permiso llamado `view_support` acabó autorizando nueve capacidades de escrit
 decidió: se fue acumulando, como pasó con `edit_internet_service` y el borrado de clientes
 (§56). El nombre de un permiso envejece peor que su implementación, y conviene revisar
 periódicamente **qué autoriza** cada uno, no sólo quién lo tiene.
+
+---
+
+## 62. El técnico veía la instalación pero no cuánto costaba — 2026-09-11
+
+Reporte desde el terreno: los técnicos de Chaguaní abren la orden de instalación y el bloque
+**Información de Cartera** —valor, adicionales, descuento, abono, saldo— sencillamente no está.
+Y en la pantalla de Roles no hay ninguna casilla que se llame como lo que falta.
+
+### La casilla existía, pero no se llamaba así
+
+El bloque estaba gobernado por `edit_discount`, que en el catálogo aparecía como **«Editar
+Descuento»**. Nadie que administre roles va a deducir que la casilla del descuento es la que
+muestra el valor de la instalación. El rol Técnico no la trae, así que no veía el apartado, y
+no había nada que marcar para que lo viera.
+
+Es el mismo envejecimiento del § 61 y del § 56: un permiso que acaba autorizando cosas que su
+nombre no anuncia. Aquí con un agravante — `edit_discount` **no gobierna ninguna otra cosa** en
+todo el sistema. Su nombre describe una función que hoy no cumple sola.
+
+### Leer no es escribir
+
+El arreglo no es regalarle `edit_discount` al rol Técnico. Guardar la cartera **emite o
+recalcula la factura de instalación** y da por recibido un abono. Un técnico de campo necesita
+saber cuánto cobrar; cambiar el precio, aplicar un descuento o dar un pago por recibido es otra
+potestad.
+
+Así que se parte en dos:
+
+| | Permiso | Qué abre |
+|---|---|---|
+| **Lectura** | `view_installation_cost` *(nuevo)* | Los campos de cartera viajan en el JSON; el bloque se pinta en modo consulta |
+| **Escritura** | `edit_discount` *(sin cambios)* | `PUT /installations/{id}/billing`, que factura |
+
+La respuesta declara las dos puertas por separado (`can_view_billing`, `can_edit_billing`). En
+modo consulta el frontend **no dibuja el formulario**: muestra el resumen y los datos como
+texto plano, sin botón de guardar y sin el enlace a la factura —que vive en un módulo con sus
+propios permisos—. Deshabilitar inputs habría sido peor: un formulario gris que parece editable
+y no lo es.
+
+### A quién se lo da la migración
+
+Sólo a los roles `code = 'admin'` y a los que ya tenían `edit_discount`. A ninguno de ellos le
+concede nada nuevo: ya leían la cartera por esa vía. Lo único que cambia es que la casilla
+queda marcada y el catálogo del administrador deja de mentir — sin eso, el admin vería una
+casilla nueva sin marcar y creería que le falta algo.
+
+**Al rol Técnico no se lo da.** Qué ve un técnico de campo es una decisión de cada ISP: uno
+querrá que sepa cuánto cobrar, otro preferirá que no. El objeto del cambio es que la casilla
+exista, no tomar la decisión por el cliente. El administrador de Chaguaní la marca en su rol
+Técnico y sus técnicos vuelven a entrar.
+
+### Lección
+
+Cuando el único permiso que deja **ver** algo es un permiso de **escritura**, el sistema obliga
+a elegir entre no mostrar nada o conceder de más. Casi siempre se concede de más, porque la
+presión operativa empuja hacia ahí. El síntoma que lo delata es éste: alguien pregunta «¿cuál
+es la casilla?» y no hay ninguna que se llame como lo que falta.

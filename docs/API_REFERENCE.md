@@ -625,7 +625,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `GET` | `/api/installations/customers` | auth | Clientes elegibles |
 | `GET` | `/api/installations/{installation}` | auth | Detalle |
 | `PUT` | `/api/installations/{installation}/prospect` | auth | Actualiza el prospecto asociado |
-| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento |
+| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
 | `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
@@ -634,6 +634,24 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `POST` | `/api/customers/{customer}/installations` | auth | Agenda instalación |
 | `PUT` | `/api/customers/installations/{installation}` | auth | Actualiza |
 | `DELETE` | `/api/customers/installations/{installation}` | auth | Elimina |
+
+> 💰 **Los campos de cartera se filtran por permiso.** `installation_cost`,
+> `additional_charges`, `additional_items`, `discount`, `discount_reason`,
+> `payment_method`, `payment_received`, `payment_notes`, `payment_agreement`,
+> `customer_retention`, `special_attention` y `promotion_notes` **no viajan** en la
+> respuesta si el rol no puede verlos; se eliminan del JSON, no se envían en cero.
+> Afecta al detalle y a los dos listados (`/api/installations` y
+> `/api/customers/{customer}/installations`).
+>
+> Cada respuesta declara el reparto en dos banderas:
+>
+> | Campo | Qué significa | Quién lo pone en `true` |
+> |---|---|---|
+> | `can_view_billing` | Vienen los campos de cartera | `edit_discount` **o** `view_installation_cost` |
+> | `can_edit_billing` | `PUT .../billing` va a aceptar | sólo `edit_discount` |
+>
+> `can_view_billing` existe desde 2026-09-11. Un cliente que sólo conozca
+> `can_edit_billing` sigue funcionando: quien podía editar sigue pudiendo ver.
 
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
@@ -2065,7 +2083,8 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_inventory` | Escritura de inventario, stock, proveedores y sucursales; **entregas, kardex, holdings y bajas**; lectura por OR con `view_support`. También es lo que habilita tomar equipos de una **bodega** al llenar una hoja de instalación |
 | `view_support` | Tickets (CRUD), instalaciones, prospectos, **equipos de la orden**; lectura de fotos/notas/historial de sectorial |
 | `delete_installations` | `DELETE /api/customers/installations/{installation}` (por OR con `view_support`) |
-| `edit_discount` | `installations/{installation}/billing` |
+| `edit_discount` | `installations/{installation}/billing`. Es además lo que **abre en modo editable** el bloque de cartera de la orden |
+| `view_installation_cost` | Ninguna ruta propia: es un permiso de **lectura de campos**. Hace que el detalle y los listados de instalación devuelvan los campos de cartera, en modo consulta. **No autoriza a guardarlos** |
 | `view_billing` | Todo `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago, **tipos de factura**) |
 | `delete_invoice` | `DELETE /api/billing/invoices/{id}` |
 | `execute_mass_actions` | `/api/billing/action-logs*`, `/api/billing/suspension-logs*`, `/api/import/*` |

@@ -2117,6 +2117,27 @@ es deuda.
 `staff_profile` puede retirarse de las rutas de ticket y quedar cubierto por los permisos
 `ticket_*`. No antes: quitarlo ahora **ampliaría** el acceso.
 
+### 🟢 P-46 · `edit_discount` se llama como algo que ya no es lo que hace
+
+Es el permiso que autoriza **guardar la cartera de una orden de instalación**: valor,
+adicionales, descuento, forma de pago y abono recibido, lo que emite o recalcula la factura de
+instalación. Y es lo **único** que gobierna en todo el sistema — no hay ninguna otra ruta ni
+pantalla que lo consulte.
+
+Su etiqueta decía «Editar Descuento», lo que llevó a que nadie encontrara la casilla cuando un
+técnico necesitaba ver el valor de la instalación (§ 62 de la bitácora). El 2026-09-11 se
+corrigió **la etiqueta** —ahora «Editar Descuento y Cartera de Instalación»— y se separó la
+lectura en `view_installation_cost`. La **clave** sigue siendo `edit_discount`.
+
+**Por qué no se renombró la clave:** vive dentro del JSON de `role.permissions` de todos los
+roles de todos los tenants. Cambiarla exige recorrer la tabla entera reescribiendo arrays, y
+cualquier fila que quede sin migrar deja a un rol sin el permiso, sin error visible:
+simplemente desaparece un bloque de la pantalla. El beneficio es cosmético y el riesgo no.
+
+**Qué hacer:** nada urgente. Si algún día se renombra, hacerlo junto con otras claves en una
+sola pasada, con conteo previo y posterior de filas afectadas, y aceptando ambas claves durante
+un ciclo de despliegue.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
