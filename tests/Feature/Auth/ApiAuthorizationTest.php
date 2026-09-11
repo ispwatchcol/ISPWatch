@@ -128,7 +128,10 @@ class ApiAuthorizationTest extends TestCase
             'crear sectorial'      => ['post',   '/api/sectorials',  'view_sectorials'],
             'listar inventario'    => ['get',    '/api/inventory',   'view_inventory'],
             'crear equipo'         => ['post',   '/api/inventory',   'view_inventory'],
-            'listar tickets'       => ['get',    '/api/support',     'view_support'],
+            // PR B · Capacidad propia desde 2026-09-11. `view_support` sigue
+            // existiendo, pero gobierna instalaciones, sectoriales e
+            // inventario, no la operación del ticket.
+            'listar tickets'       => ['get',    '/api/support',     'ticket_view'],
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],

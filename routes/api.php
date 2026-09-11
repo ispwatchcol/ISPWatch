@@ -359,13 +359,33 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     });
 
     // ─── SUPPORT (requires staff profile) ───
+    //
+    // PR B · Estas rutas NO tenían ningún `permission:`: sólo `staff_profile`,
+    // que comprueba el CÓDIGO DE ROL (`admin`/`staff`), no una capacidad. Se
+    // les añade el permiso concreto encima. `staff_profile` se conserva porque
+    // sigue siendo un requisito distinto —tener ficha de personal— y quitarlo
+    // ampliaría el acceso, no lo reduciría.
     Route::middleware(['staff_profile'])->group(function () {
-        Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
-        Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
-        Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
-        Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
-        Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
-        // Ticket charges
+        Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
+            ->middleware('permission:ticket_export');
+
+        Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage'])
+            ->middleware('permission:ticket_note');
+        Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage'])
+            ->middleware('permission:ticket_note');
+        Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage'])
+            ->middleware('permission:ticket_note');
+
+        // Cerrar exige además `ticket_close`; lo comprueba el controlador, que
+        // es quien sabe a qué estado se está transicionando.
+        Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
+            ->middleware('permission:ticket_transition');
+
+        // Los CARGOS se quedan como estaban, con `staff_profile` a secas. Son
+        // facturación, no operación del ticket: no aparecen en la matriz de
+        // permisos del requerimiento y atarlos a uno de facturación —
+        // `view_billing`— se lo quitaría a roles que hoy sí pueden. Queda
+        // documentado como pendiente, fuera del alcance de este PR.
         Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge']);
         Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges']);
     });
@@ -462,7 +482,19 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     });
 
     // Soporte
-    Route::middleware('permission:view_support')->group(function () {
+    //
+    // PR B · Cada ruta exige ahora la CAPACIDAD concreta en vez del
+    // `view_support` paraguas. `view_support` no desaparece: sigue gobernando
+    // instalaciones, sectoriales e inventario, y la migración
+    // 2026_09_11_000001 repartió a cada rol exactamente lo que ya podía
+    // ejercer, así que nadie gana ni pierde nada con el despliegue.
+    //
+    // `PUT /support/{id}` se queda con `ticket_view` como puerta mínima —hay
+    // que poder ver un ticket para tocarlo— y la autorización fina va POR CAMPO
+    // dentro del controlador: ese endpoint edita contenido, asigna técnico,
+    // cambia prioridad y categoría, registra diagnóstico y sube adjuntos, y
+    // cada cosa tiene su permiso.
+    Route::middleware('permission:ticket_view')->group(function () {
         // Adjuntos. Van ANTES del apiResource porque `support/{support}` casaría
         // con `support/{id}/attachments/...` si se declararan después.
         //
@@ -470,21 +502,29 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // —cualquiera con la ruta leía el adjunto de otro ISP— y además no
         // funciona en App Platform, que no ejecuta `storage:link` y tiene disco
         // efímero. Ver SupportTicketAttachmentController.
-        Route::get('/support/{ticket}/attachments/{attachment}', [SupportTicketAttachmentController::class, 'show']);
-        Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download']);
+        Route::get('/support/{ticket}/attachments/{attachment}', [SupportTicketAttachmentController::class, 'show'])
+            ->middleware('permission:ticket_view_evidence');
+        Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download'])
+            ->middleware('permission:ticket_view_evidence');
 
         // PR #3 · Historial inalterable (F1-17). Sólo lectura: no hay ruta de
         // edición ni de borrado, y el modelo lanza si alguien lo intenta por
         // código. El requerimiento exige que la auditoría no sea editable
         // desde la operación ordinaria, y eso empieza por no ofrecer la puerta.
-        Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history']);
+        Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history'])
+            ->middleware('permission:ticket_view_history');
 
         // `destroy` sigue enrutado A PROPÓSITO, pero ya no borra nada: responde
         // 403 explicando por qué. Quitar la ruta daría un 405 escueto que
         // cualquiera leería como un fallo del servidor. Ver el comentario de
         // SupportTicketController::destroy(), el guard de SupportTicket y la
         // clave foránea RESTRICT de support_ticket_history.
-        Route::apiResource('support', SupportTicketController::class);
+        // `store` exige además `ticket_create`: ver un ticket y abrir uno nuevo
+        // no son la misma capacidad. `update` y `destroy` se quedan con
+        // `ticket_view` — el primero porque autoriza por campo dentro del
+        // controlador, el segundo porque ya responde 403 pase quien pase.
+        Route::apiResource('support', SupportTicketController::class)
+            ->middlewareFor('store', 'permission:ticket_create');
     });
 
     // Inventario. La lectura se abre a view_support porque la pantalla de
@@ -551,7 +591,13 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     // Catálogos del ticket (estados, prioridades, categorías). Sin permiso
     // propio, como el resto de este grupo: son datos de referencia que la
     // pantalla de soporte necesita para pintar cualquier ticket.
-    Route::get('/catalogs/ticket',          [CatalogController::class, 'ticketCatalogs']);
+    // PR B · Antes no exigía ningún permiso: cualquier usuario autenticado del
+    // panel podía leer el vocabulario completo. Ahora pide `ticket_view`, que
+    // es coherente — quien no puede listar tickets tampoco necesita su
+    // catálogo— y no quita nada usable: la pantalla que lo consume ya exigía
+    // ese mismo permiso para traer los tickets.
+    Route::get('/catalogs/ticket',          [CatalogController::class, 'ticketCatalogs'])
+        ->middleware('permission:ticket_view');
 
     Route::get('/roles/permissions', [RoleController::class, 'permissions'])
         ->middleware('permission:manage_roles');

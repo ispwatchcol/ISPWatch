@@ -1653,18 +1653,49 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 
 | Método | Ruta | Requisito | Descripción |
 |---|---|---|---|
-| `GET/POST` | `/api/support` | auth | Lista / crea ticket |
-| `GET/PUT/DELETE` | `/api/support/{id}` | auth | Detalle / actualiza / elimina |
-| `GET` | `/api/support/statistics` | `staff_profile` | Estadísticas |
-| `POST` | `/api/support/{id}/message` | `staff_profile` | Añade mensaje |
-| `PUT` | `/api/support/messages/{id}` | `staff_profile` | Edita mensaje |
-| `DELETE` | `/api/support/messages/{id}` | `staff_profile` | Elimina mensaje |
-| `PATCH` | `/api/support/{id}/status` | `staff_profile` | Cambia el estado |
+| `GET` | `/api/support` | `ticket_view` | Lista |
+| `POST` | `/api/support` | `ticket_create` | Crea ticket |
+| `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
+| `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo) |
+| `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
+| `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Estadísticas |
+| `POST` | `/api/support/{id}/message` | `staff_profile` + `ticket_note` | Añade mensaje |
+| `PUT` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Edita mensaje |
+| `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
+| `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | Cambia el estado. Cerrar exige además `ticket_close` |
 | `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
 | `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
-| `GET` | `/api/support/{ticket}/attachments/{attachment}` | `view_support` | Vista previa del adjunto (`inline`) |
-| `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `view_support` | Descarga del adjunto (`attachment`) |
-| `GET` | `/api/support/{ticket}/history` | `view_support` | **Historial inalterable** del ticket, paginado y descendente |
+| `GET` | `/api/support/{ticket}/attachments/{attachment}` | `ticket_view_evidence` | Vista previa del adjunto (`inline`) |
+| `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
+| `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |
+
+> **Permisos separados desde 2026-09-11 (PR B).** `view_support` ya no autoriza la operación
+> del ticket: cada acción tiene su capacidad `ticket_*`. `view_support` sigue existiendo y
+> sigue gobernando instalaciones, sectoriales e inventario.
+>
+> **`PUT /api/support/{id}` autoriza POR CAMPO.** La ruta exige `ticket_view`; cada campo que
+> **cambie** exige el suyo:
+>
+> | Campo | Permiso |
+> |---|---|
+> | `subject`, `description`, `sectorial_id` | `ticket_edit` |
+> | `staff_id` | `ticket_assign` |
+> | `priority` | `ticket_set_priority` |
+> | `category` | `ticket_set_category` |
+> | `symptom`, `suspected_cause`, `solution`, `result` | `ticket_diagnose` |
+> | `confirmed_cause` | `ticket_confirm_cause` |
+> | `status` | `ticket_transition` (+ `ticket_close` si el destino es `closed`) |
+> | adjuntos | `ticket_attach` |
+>
+> Un campo que llega con el mismo valor que ya tiene **no** exige permiso: la pantalla de
+> edición reenvía el formulario entero en cada guardado.
+>
+> El rechazo es **403** y dice cuál falta:
+>
+> ```json
+> { "message": "No tienes permiso para realizar esa acción sobre el ticket.",
+>   "required_permission": "ticket_confirm_cause" }
+> ```
 
 Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `priority` ∈ {`low`,`medium`,`high`,`urgent`};

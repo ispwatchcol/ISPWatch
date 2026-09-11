@@ -244,39 +244,42 @@ const routes = [
 
   // ─── SUPPORT ───
   {
+    // PR B · Cada pantalla exige su capacidad concreta en vez del `view_support`
+    // paraguas. El router sólo decide qué se PINTA; quien autoriza de verdad es
+    // el backend, que exige el mismo permiso en cada ruta de la API.
     path: '/support',
     component: () => import('@/layouts/DefaultLayout.vue'),
-    meta: { requiresAuth: true, permission: 'view_support' },
+    meta: { requiresAuth: true, permission: 'ticket_view' },
     children: [
       {
         path: '',
         name: 'Support',
         component: () => import('@/pages/Support.vue'),
-        meta: { permission: 'view_support', title: 'Soporte' },
+        meta: { permission: 'ticket_view', title: 'Soporte' },
       },
       {
         path: 'create',
         name: 'SupportCreate',
         component: () => import('@/pages/SupportCreate.vue'),
-        meta: { permission: 'view_support', title: 'Nuevo Ticket' },
+        meta: { permission: 'ticket_create', title: 'Nuevo Ticket' },
       },
       {
         path: ':id',
         name: 'SupportDetail',
         component: () => import('@/pages/SupportDetail.vue'),
-        meta: { title: 'Ticket', permission: 'view_support' },
+        meta: { title: 'Ticket', permission: 'ticket_view' },
       },
       {
         path: ':id/edit',
         name: 'SupportEdit',
         component: () => import('@/pages/SupportEdit.vue'),
-        meta: { permission: 'view_support', title: 'Editar Ticket' },
+        meta: { permission: 'ticket_edit', title: 'Editar Ticket' },
       },
       {
         path: 'statistics',
         name: 'SupportStatistics',
         component: () => import('@/pages/SupportStatistics.vue'),
-        meta: { permission: 'view_support', title: 'Estadísticas Soporte' },
+        meta: { permission: 'ticket_export', title: 'Estadísticas Soporte' },
       },
     ],
   },

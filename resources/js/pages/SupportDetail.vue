@@ -95,7 +95,7 @@
                     </div>
 
                     <!-- Historial inalterable (PR #3 · F1-17) -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                    <div v-if="canViewHistory" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-1">
                             <h2 class="text-xl font-bold text-gray-800 dark:text-white">Historial</h2>
                             <span class="text-xs text-gray-400 dark:text-gray-500">Registro no editable</span>
@@ -148,7 +148,7 @@
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-xl font-bold text-gray-800 dark:text-white">Bitácora de Trabajo</h2>
                             <button 
-                                v-if="canEdit"
+                                v-if="canNote"
                                 @click="showNoteForm = true"
                                 class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg transition flex items-center gap-1"
                             >
@@ -205,7 +205,7 @@
                                             <p class="text-[10px] text-gray-500 dark:text-gray-400">{{ formatDate(message.created_at) }}</p>
                                         </div>
                                     </div>
-                                    <div v-if="canEdit" class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div v-if="canNote" class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button @click="editNote(message)" class="p-1 text-gray-400 hover:text-blue-500 transition-colors">
                                             <v-icon name="fa-edit" class="w-4 h-4" />
                                         </button>
@@ -466,8 +466,9 @@
                         </div>
                     </div>
 
-                   <!-- Gestión del Ticket (Staff Only) -->
-                    <div v-if="canEdit" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                   <!-- Gestión del Ticket: subir evidencia. Exige `ticket_attach`,
+                        no `ticket_edit`: adjuntar es una capacidad propia. -->
+                    <div v-if="canAttach" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                          <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Gestión del Ticket</h2>
                          
                          <div class="space-y-4">
@@ -577,7 +578,24 @@ const route = useRoute()
 const ticketId = route.params.id
 
 const authStore = useAuthStore()
-const canEdit = computed(() => authStore.hasPermission('view_support'))
+// PR B · `canEdit` gobierna el botón «Editar» y las acciones de la bitácora,
+// que son capacidades distintas: editar el ticket y anotar en él.
+const canEdit = computed(() => authStore.hasPermission('ticket_edit'))
+const canNote = computed(() => authStore.hasPermission('ticket_note'))
+const canViewHistory = computed(() => authStore.hasPermission('ticket_view_history'))
+const canAttach = computed(() => authStore.hasPermission('ticket_attach'))
+
+// Si un rol conserva el `view_support` antiguo pero le faltan los granulares
+// —backfill no ejecutado, o un rol creado a mano después— la pantalla NO eleva
+// el privilegio: oculta la acción y deja constancia en consola para que el
+// operador pueda reportarlo. Ver DISENO_PERMISOS_Y_ARCHIVADO.md §6bis.
+if (authStore.hasPermission('view_support') && !authStore.hasPermission('ticket_view')) {
+    console.warn(
+        '[permisos] Este rol tiene `view_support` pero no `ticket_view`. ' +
+        'Las acciones de ticket se ocultan por seguridad. ' +
+        'Falta ejecutar la migración de transición de permisos (PR B).'
+    )
+}
 
 const ticket = ref({})
 
