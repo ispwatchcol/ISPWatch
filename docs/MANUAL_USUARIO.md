@@ -1172,6 +1172,19 @@ que ya estaban mal marcados siguen navegando aunque el router ya esté bien conf
 
 **Finanzas → Gastos.**
 
+> **¿Quieres que la compra de equipos entre sola al balance?** Se puede activar en
+> *Configuración → Sistema → Gasto automático al ingresar inventario*. Con eso, cada vez que
+> ingreses equipos o material se crea el gasto solo, por el precio del catálogo × la cantidad.
+>
+> ⚠️ **No lo actives si ya registras las facturas de compra como gasto**: se contaría dos veces la
+> misma compra y el balance mostraría menos utilidad de la real. Viene **apagado** justamente por
+> eso.
+>
+> Detalles que conviene saber: si un modelo no tiene precio en el catálogo no se crea el gasto y
+> se te avisa en el momento; el importe queda congelado (cambiar el precio del catálogo después no
+> toca los gastos ya creados); y si borras el equipo, el gasto **se anula**, no se borra. Sólo ve
+> y cambia esta opción quien tenga permiso de *Lista de Gastos*.
+
 > Las **categorías de gasto** ahora se ven como tarjetas en lugar de una tabla
 > (*Finanzas → Categorías de gasto*): cada tarjeta muestra el concepto con sus
 > botones de editar y eliminar. Es el mismo formato que *Formas de pago*.

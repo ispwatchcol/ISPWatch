@@ -1019,6 +1019,14 @@
                     </SettingsSection>
                 </div>
 
+                <!-- Gasto automático al ingresar inventario (KAN-91). Va en
+                     Sistema porque es una regla de la empresa, no una pantalla
+                     de trabajo; el propio componente se oculta a quien no tiene
+                     view_expenses. -->
+                <div v-if="activeTab === 'system'" class="space-y-6">
+                    <InventoryExpenseSection />
+                </div>
+
                 <!-- Import Data Settings -->
                 <div v-if="activeTab === 'import'" class="space-y-6">
                     <ImportSection />
@@ -1057,6 +1065,7 @@ import ImportSection from "@/components/import/ImportSection.vue";
 import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.vue";
 import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
 import DocumentTemplatesSection from "@/components/settings/DocumentTemplatesSection.vue";
+import InventoryExpenseSection from "@/components/settings/InventoryExpenseSection.vue";
 import ApiKeysSection from "@/components/settings/ApiKeysSection.vue";
 import TenantApiKeysSection from "@/components/settings/TenantApiKeysSection.vue";
 import AuditLogSection from "@/components/settings/AuditLogSection.vue";
