@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Constants\Permissions;
 use App\Models\Invoice;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketMessage;
@@ -201,6 +202,15 @@ class SupportTicketController extends Controller
             // habitual sea rellenarlo después de la visita.
         ] + $this->reglasDeDiagnostico($tenantId), $this->mensajesDeDiagnostico());
 
+        // PR B · La ruta ya exigió `ticket_create`, que cubre el acto de abrir
+        // el ticket con su asunto, su categoría y su técnico asignado.
+        // Diagnosticar y adjuntar evidencia son capacidades distintas y se
+        // exigen también al crear: si no, quien no puede diagnosticar un ticket
+        // existente podría hacerlo colando los campos en el alta.
+        if ($falta = $this->permisoQueFaltaAlCrear($request, $data)) {
+            return $this->negar($falta);
+        }
+
         DB::beginTransaction();
 
         try {
@@ -313,6 +323,18 @@ class SupportTicketController extends Controller
 
         $data = $validator->validated();
 
+        // PR B · AUTORIZACIÓN POR CAMPO.
+        //
+        // Este endpoint hace seis cosas distintas —editar contenido, asignar
+        // técnico, cambiar prioridad, cambiar categoría, registrar diagnóstico y
+        // subir adjuntos— y cada una tiene su permiso. La ruta sólo garantiza
+        // `ticket_view`, que es la puerta mínima para tocar un ticket; el
+        // reparto fino tiene que ocurrir aquí, que es donde se sabe QUÉ campos
+        // trae la petición.
+        if ($falta = $this->permisoQueFalta($request, $ticket, $data)) {
+            return $this->negar($falta);
+        }
+
         DB::beginTransaction();
 
         try {
@@ -418,6 +440,117 @@ class SupportTicketController extends Controller
                 ],
             );
         }
+    }
+
+    /**
+     * Campo de la petición => permiso que hace falta para tocarlo.
+     *
+     * `status` NO está aquí: el cambio de estado por `PUT` se trata aparte más
+     * abajo, porque cerrar exige un permiso distinto de transicionar.
+     */
+    private const PERMISO_POR_CAMPO = [
+        'subject'         => Permissions::TICKET_EDIT,
+        'description'     => Permissions::TICKET_EDIT,
+        'sectorial_id'    => Permissions::TICKET_EDIT,
+        'staff_id'        => Permissions::TICKET_ASSIGN,
+        'priority'        => Permissions::TICKET_SET_PRIORITY,
+        'category'        => Permissions::TICKET_SET_CATEGORY,
+        'symptom'         => Permissions::TICKET_DIAGNOSE,
+        'suspected_cause' => Permissions::TICKET_DIAGNOSE,
+        'solution'        => Permissions::TICKET_DIAGNOSE,
+        'result'          => Permissions::TICKET_DIAGNOSE,
+        // Confirmar la causa es una potestad aparte en el requerimiento: el
+        // documento se la da al Supervisor, no a quien diagnostica.
+        'confirmed_cause' => Permissions::TICKET_CONFIRM_CAUSE,
+    ];
+
+    /**
+     * Primer permiso que le falta a quien hace la petición, o `null` si los
+     * tiene todos.
+     *
+     * Se mira SÓLO lo que la petición trae. Un `PUT` que reenvía el formulario
+     * entero —que es lo que hace la pantalla de edición— exigiría todos los
+     * permisos aunque no cambie nada; por eso se comparan los valores contra el
+     * ticket y se ignoran los campos que llegan iguales. Sin eso, separar los
+     * permisos rompería la pantalla para cualquiera que no los tuviera todos.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function permisoQueFalta(Request $request, SupportTicket $ticket, array $data): ?string
+    {
+        $usuario = $request->user();
+
+        $cambia = fn (string $campo, $valor): bool
+            // Comparación laxa a propósito: un `staff_id` llega como "7" desde
+            // un formulario y vale 7 en la base.
+            => $ticket->{$campo} != $valor;
+
+        foreach (self::PERMISO_POR_CAMPO as $campo => $permiso) {
+            if (!array_key_exists($campo, $data) || !$cambia($campo, $data[$campo])) {
+                continue;
+            }
+
+            if (!$usuario->hasPermission($permiso)) {
+                return $permiso;
+            }
+        }
+
+        if ($request->hasFile('attachments') && !$usuario->hasPermission(Permissions::TICKET_ATTACH)) {
+            return Permissions::TICKET_ATTACH;
+        }
+
+        // El estado por `PUT`: transicionar es una cosa y cerrar otra.
+        if (array_key_exists('status', $data) && $cambia('status', $data['status'])) {
+            if (!$usuario->hasPermission(Permissions::TICKET_TRANSITION)) {
+                return Permissions::TICKET_TRANSITION;
+            }
+
+            if ($data['status'] === SupportTicket::STATUS_CLOSED
+                && !$usuario->hasPermission(Permissions::TICKET_CLOSE)) {
+                return Permissions::TICKET_CLOSE;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Permiso que falta para los campos del ALTA que no cubre `ticket_create`.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function permisoQueFaltaAlCrear(Request $request, array $data): ?string
+    {
+        $usuario = $request->user();
+
+        foreach (self::CATALOGOS_DIAGNOSTICO as $campo => $tabla) {
+            if (($data[$campo] ?? null) === null) {
+                continue;
+            }
+
+            $permiso = $campo === 'confirmed_cause'
+                ? Permissions::TICKET_CONFIRM_CAUSE
+                : Permissions::TICKET_DIAGNOSE;
+
+            if (!$usuario->hasPermission($permiso)) {
+                return $permiso;
+            }
+        }
+
+        if ($request->hasFile('attachments') && !$usuario->hasPermission(Permissions::TICKET_ATTACH)) {
+            return Permissions::TICKET_ATTACH;
+        }
+
+        return null;
+    }
+
+    /** 403 uniforme que dice QUÉ permiso falta, sin revelar nada más. */
+    private function negar(string $permiso)
+    {
+        return response()->json([
+            'message'             => 'No tienes permiso para realizar esa acción sobre el ticket.',
+            'required_permission' => $permiso,
+        ], 403);
     }
 
     /**
@@ -672,6 +805,15 @@ class SupportTicketController extends Controller
         $data = $request->validate([
             'status' => ['required', $this->reglaDe(TicketCatalogs::STATUS)],
         ]);
+
+        // PR B · La ruta ya exigió `ticket_transition`. CERRAR es una potestad
+        // aparte: el requerimiento la separa del resto de transiciones, y aquí
+        // es donde se sabe a qué estado se va.
+        if ($data['status'] === SupportTicket::STATUS_CLOSED
+            && $ticket->status !== SupportTicket::STATUS_CLOSED
+            && !$request->user()->hasPermission(Permissions::TICKET_CLOSE)) {
+            return $this->negar(Permissions::TICKET_CLOSE);
+        }
 
         DB::beginTransaction();
 

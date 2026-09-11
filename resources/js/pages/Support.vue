@@ -246,8 +246,12 @@ const filters = ref({
     staff: 'all'
 })
 
-const canCreate = computed(() => can('view_support'))
-const canEdit = computed(() => can('view_support'))
+// PR B · Capacidades separadas. No hay respaldo a `view_support`: si un rol
+// tuviera el permiso antiguo y le faltara el granular —datos inconsistentes,
+// backfill no ejecutado— la acción se OCULTA. Es la experiencia segura; elevar
+// el privilegio en silencio dejaría el panel ofreciendo lo que la API rechaza.
+const canCreate = computed(() => can('ticket_create'))
+const canEdit = computed(() => can('ticket_edit'))
 // `canDelete` se eliminó junto con el botón: no existe borrado de tickets.
 
 const filteredTickets = computed(() => {

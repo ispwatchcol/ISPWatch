@@ -2075,6 +2075,48 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 4. De paso, decidir si `view_inventory` debería partirse también en lectura y escritura: hoy
    quien consulta la bodega puede mover existencias.
 
+### 🟡 P-44 · Los cargos del ticket siguen sin permiso propio
+
+El PR B separó `view_support` en 20 capacidades `ticket_*` y dejó **todas** las rutas de ticket
+detrás de un permiso… salvo dos:
+
+```
+POST /api/support/{id}/charge
+GET  /api/support/{id}/charges
+```
+
+Siguen con `staff_profile` a secas, que comprueba el **código de rol** (`admin`/`staff`), no
+una capacidad. Cualquier usuario con ficha de personal puede generar un cargo facturable desde
+un ticket.
+
+**Por qué no se corrigió en el PR B.** Son facturación, no operación del ticket: no aparecen en
+la matriz de permisos del requerimiento, y atarlos al permiso de facturación existente
+—`view_billing`— se los quitaría a roles que hoy sí pueden generarlos. Es el mismo tipo de
+decisión que exigió el permiso propio para borrar clientes (§56): hace falta saber **quién debe
+poder facturar desde un ticket**, y eso es una pregunta de negocio.
+
+**Qué hacer:** decidir si generar un cargo desde un ticket es una capacidad de soporte o de
+facturación, y crear el permiso correspondiente con el backfill que preserve el comportamiento
+actual.
+
+Hay un test —`toda_ruta_de_ticket_exige_un_permiso`— que fija que éstas son **la única**
+excepción: si mañana alguien agrega otra ruta de ticket sin permiso, falla.
+
+### 🟡 P-45 · `staff_profile` decide por código de rol, no por capacidad
+
+`CheckStaffProfile` deja pasar a quien tenga `code` ∈ {`admin`, `staff`} más el superadmin
+global. No mira permisos.
+
+Eso significa que renombrar el `code` de un rol —o crear uno nuevo con otro código— cambia
+silenciosamente qué puede hacer su gente en el módulo de tickets, al margen de los permisos que
+tenga asignados. El PR B añadió el permiso concreto **encima** de `staff_profile` en cada ruta,
+así que hoy hacen falta las dos cosas; pero mantener dos sistemas de autorización en paralelo
+es deuda.
+
+**Qué hacer:** una vez el cliente confirme la matriz de roles (**D-09**), evaluar si
+`staff_profile` puede retirarse de las rutas de ticket y quedar cubierto por los permisos
+`ticket_*`. No antes: quitarlo ahora **ampliaría** el acceso.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2177,6 +2219,8 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
+| **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
+| **P-45** | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |
 
 ---
 
