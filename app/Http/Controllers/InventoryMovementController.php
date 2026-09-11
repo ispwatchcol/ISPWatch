@@ -10,6 +10,7 @@ use App\Models\InventoryStock;
 use App\Models\User;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -143,6 +144,59 @@ class InventoryMovementController extends Controller
     }
 
     /**
+     * Material que quedó sin custodio: saldos cuyo dueño ya no existe.
+     *
+     * Borrar una sucursal o un usuario NO borra sus saldos, y es a propósito:
+     * desaparecer existencias en silencio sería peor que dejarlas sin dueño.
+     * Pero hasta ahora esas filas sólo se veían consultando la tabla a mano, así
+     * que en la práctica eran material perdido — contado en ningún lado y sin
+     * forma de recuperarlo desde la aplicación.
+     *
+     * Esta lista es el primer paso para rescatarlo; el segundo es que el
+     * traspaso acepte un origen huérfano (ver assertOrigenUtilizable). P-19.
+     */
+    public function orphanBalances(Request $request)
+    {
+        $tenantId = $request->user()->tenant_id;
+
+        $balances = InventoryBalance::with(['stock:id,brand,model,price,unit'])
+            ->where('quantity', '>', 0)
+            ->where(function ($q) use ($tenantId) {
+                $q->where(function ($q) use ($tenantId) {
+                    $q->where('holder_type', InventoryBalance::HOLDER_BRANCH)
+                        ->whereNotExists(fn ($sub) => $sub->select(DB::raw(1))
+                            ->from('inventory_branch')
+                            ->whereColumn('inventory_branch.id', 'inventory_balances.holder_id')
+                            ->where('inventory_branch.tenant_id', $tenantId));
+                })->orWhere(function ($q) use ($tenantId) {
+                    $q->where('holder_type', InventoryBalance::HOLDER_USER)
+                        ->whereNotExists(fn ($sub) => $sub->select(DB::raw(1))
+                            ->from('users')
+                            ->whereColumn('users.id', 'inventory_balances.holder_id')
+                            ->where('users.tenant_id', $tenantId));
+                });
+            })
+            ->orderBy('holder_type')
+            ->orderBy('holder_id')
+            ->get()
+            ->map(fn (InventoryBalance $b) => [
+                'stock_id'    => $b->stock_id,
+                'item'        => $b->stock?->label() ?? 'Material',
+                'unit'        => $b->stock?->unit,
+                'quantity'    => (float) $b->quantity,
+                'holder_type' => $b->holder_type,
+                'holder_id'   => $b->holder_id,
+                // Ya no hay nombre que mostrar: el custodio se borró. Se dice
+                // qué era, para que el almacenista sepa dónde ir a buscar.
+                'holder_label' => $b->holder_type === InventoryBalance::HOLDER_USER
+                    ? "Usuario eliminado (#{$b->holder_id})"
+                    : "Sucursal eliminada (#{$b->holder_id})",
+            ]);
+
+        return response()->json($balances->values());
+    }
+
+    /**
      * Entrega/traspaso: mueve equipos y/o material a un custodio.
      * Sin origen en un material, el movimiento es una ENTRADA (compra o ajuste).
      */
@@ -197,7 +251,7 @@ class InventoryMovementController extends Controller
             $sourceId   = $material['source_id'] ?? null;
 
             if ($sourceType !== null) {
-                $this->assertHolderExists($sourceType, (int) $sourceId);
+                $this->assertOrigenUtilizable($sourceType, (int) $sourceId, $stock);
             }
 
             $this->ledger->transferQuantity(
@@ -239,6 +293,34 @@ class InventoryMovementController extends Controller
      * un id de otra empresa se guardaría como custodio y las existencias
      * saldrían del inventario sin destino real.
      */
+    /**
+     * El ORIGEN de un traspaso puede ser un custodio que ya no existe.
+     *
+     * Es la única forma de rescatar un saldo huérfano: si se exigiera que el
+     * custodio siga vivo, el material de una sucursal borrada quedaría atrapado
+     * para siempre — visible en la lista de huérfanos y sin poder moverse, que
+     * es la mitad inútil del arreglo.
+     *
+     * No es un agujero: sólo se acepta el origen si existe de verdad una fila de
+     * saldo suya con este material. No se puede inventar un origen para sacar
+     * existencias de la nada; lo que hay es lo que se puede mover. El destino
+     * sigue teniendo que existir (assertHolderExists), porque ahí sí estaríamos
+     * mandando material a un custodio inventado.
+     */
+    private function assertOrigenUtilizable(string $type, int $id, InventoryStock $stock): void
+    {
+        $tieneSaldo = InventoryBalance::heldBy($type, $id)
+            ->where('stock_id', $stock->id)
+            ->where('quantity', '>', 0)
+            ->exists();
+
+        if ($tieneSaldo) {
+            return;
+        }
+
+        $this->assertHolderExists($type, $id);
+    }
+
     private function assertHolderExists(string $type, int $id): void
     {
         $exists = $type === InventoryMovement::HOLDER_USER

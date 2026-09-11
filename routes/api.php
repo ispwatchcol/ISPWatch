@@ -499,6 +499,9 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::middleware('permission:view_inventory')->group(function () {
         Route::get('/inventory/movements', [InventoryMovementController::class, 'index']);
         Route::get('/inventory/holdings', [InventoryMovementController::class, 'holdings']);
+        // Material cuyo custodio se borró. Va acá arriba, entre las literales:
+        // debajo del comodin /inventory/{inventory} se lo tragaria como un id.
+        Route::get('/inventory/orphan-balances', [InventoryMovementController::class, 'orphanBalances']);
         Route::post('/inventory/transfers', [InventoryMovementController::class, 'store']);
         Route::post('/inventory/{inventory}/retire', [InventoryMovementController::class, 'retire']);
     });

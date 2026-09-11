@@ -1268,9 +1268,30 @@ sólo cuando el elemento elegido es una NAP — el mismo criterio que ya usa `Cu
 media hora de trabajo; no se hizo en el mismo cambio para no mezclar el arreglo del arrastre de
 datos con una ampliación del contrato de la hoja.
 
-### 📋 P-19 · El inventario con custodia deja tres cabos sueltos conocidos
+### ✅ P-19 · El inventario con custodia deja tres cabos sueltos conocidos — RESUELTO 2026-09-10
 
 Detectado 2026-08-06 al implementar custodia, consumibles y kardex (`BITACORA_TECNICA.md` § 23).
+Los tres cabos quedaron cerrados en la rama `fix/kan77-inventario-cabos-sueltos` (KAN-77):
+
+1. **Cambio de `is_serialized`** → `InventoryStockController::rechazarCambioDeConteoConExistencias()`
+   devuelve 422 cuando el modelo tiene `devices` o `balances`, con un mensaje que dice cuántas
+   existencias estorban. Antes sólo lo impedía la pantalla, y una interfaz no es una restricción.
+2. **Saldos huérfanos** → `GET /api/inventory/orphan-balances` los lista y la pantalla de
+   Movimientos los muestra con un botón para traspasarlos. Hizo falta además **permitir un origen
+   huérfano** en el traspaso: sin eso quedaban visibles pero atrapados, que es la mitad inútil del
+   arreglo.
+3. **Importación por rango de `id`** → un candado por empresa (`Cache::lock`) serializa las cargas
+   del mismo tenant y responde 409 a la segunda. Cierra a la vez el problema del rango de `id` y el
+   de la deduplicación de seriales cacheada en memoria, que era el otro motivo por el que dos
+   importaciones simultáneas se corrompían. Como pedía la nota original: quien arregló lo uno
+   arregló lo otro.
+
+Pruebas: `tests/Feature/Inventory/InventoryStockSerializationChangeTest.php`,
+`InventoryOrphanBalancesTest.php`, `InventoryImportConcurrencyTest.php`.
+
+<details>
+<summary>Descripción original del hallazgo</summary>
+
 Nada de esto bloquea el uso, pero conviene tenerlo escrito antes de que aparezca como sorpresa:
 
 1. **Cambiar `is_serialized` de un modelo con existencias no está bloqueado en el backend.** El
@@ -1289,6 +1310,8 @@ Nada de esto bloquea el uso, pero conviene tenerlo escrito antes de que aparezca
    simultáneas del mismo tenant** podrían atribuirse filas entre sí. Ese escenario ya estaba roto
    antes por otro motivo (la deduplicación de seriales se cachea en memoria por instancia), así
    que no se agrava nada; se documenta para que quien arregle lo uno arregle lo otro.
+
+</details>
 
 ### 📋 P-20 · La allowlist de IPs de las llaves de API es falsificable por cabecera
 
@@ -2135,7 +2158,7 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
 | **P-18** | Las plantillas guardadas antes del 2026-08-06 perdieron sus reglas `body`/`html` | El sanitizer las descartaba en silencio y sólo se guarda el HTML ya saneado: el original no existe | 🟡 Media | 📋 Pendiente (hay que repegar el HTML; sin migración posible) |
-| **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | 📋 Pendiente |
+| **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | ✅ Resuelto 2026-09-10 |
 | **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 | **P-0** | Devolver saldo al borrar una factura no des-consume el `earned` de origen | El error siempre favorece al cliente, nunca al ISP | 🟢 Baja | 📋 Deuda aceptada |

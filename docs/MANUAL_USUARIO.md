@@ -1508,10 +1508,25 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
 - **Por cantidad** — RJ45, cable, platos, cinta. No se registra uno por uno: se lleva un saldo
   ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida: unidad, metro, rollo.
 
-Esto no se puede cambiar a la ligera una vez el modelo tiene existencias, porque las dos formas
-de contar no se mezclan.
+Esto **no se puede cambiar** una vez el modelo tiene existencias, porque las dos formas de contar
+no se mezclan. Si lo intentas, el sistema te lo impide y te dice cuántas existencias hay que mover
+primero. No es un capricho: al cambiarlo, lo que ya estaba registrado dejaría de contarse en
+ningún lado — no se borraría, simplemente nadie lo volvería a ver.
 
-### 15.2 Entregar equipos a un técnico
+Para cambiarlo, primero deja el modelo en cero (dando de baja o traspasando lo que tenga).
+
+### 15.2 Material sin custodio
+
+Si borras una sucursal o un usuario que tenía material por cantidad, **ese material no se borra**.
+Sería peor: desaparecerían existencias sin que nadie se entere.
+
+Lo que pasa es que queda sin dueño, y lo verás en un aviso amarillo arriba de **Movimientos**:
+*"Material sin custodio"*, con qué es, cuánto hay y dónde estaba. El botón **Traspasar** te deja
+pasárselo a una sucursal o a una persona actual, y con eso vuelve a estar contado.
+
+Vale la pena revisar ese aviso después de borrar una sucursal o dar de baja a un técnico.
+
+### 15.3 Entregar equipos a un técnico
 
 **Inventarios → Entregas y traspasos.** Eliges de dónde sale (una bodega o una persona), marcas
 los equipos y escribes las cantidades de material, eliges a quién entra y registras.
@@ -1523,7 +1538,7 @@ para dar de alta consumibles comprados.
 **Nada se borra nunca.** Un movimiento equivocado se corrige con el movimiento contrario, y los
 dos quedan en el historial.
 
-### 15.3 Qué equipos puede usar cada quien
+### 15.4 Qué equipos puede usar cada quien
 
 Al llenar la hoja de una instalación, el técnico **sólo ve lo que tiene asignado**. No puede usar
 un equipo que carga otro técnico: primero se lo tienen que traspasar. Quien administre inventario
@@ -1535,7 +1550,7 @@ en el historial. Si te equivocaste, el botón **Devolver** lo regresa a su dueñ
 
 Un equipo instalado queda ligado al cliente y ya no aparece como disponible para nadie.
 
-### 15.4 Borrar un equipo de la lista
+### 15.5 Borrar un equipo de la lista
 
 **Un equipo que está instalado en casa de un cliente no se puede borrar.** Si lo intentas, el
 sistema te lo dice y no lo borra: si desapareciera, la instalación de ese cliente se quedaría

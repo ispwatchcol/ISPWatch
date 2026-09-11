@@ -1591,6 +1591,13 @@ no como número: antes era `nullable|integer` sobre una columna `int4` y cualqui
 colombiano la desbordaba con un 500. Un valor de más de 30 caracteres ahora responde **422**
 con el error en `numero`, no un 500.
 
+> **Cambiar `is_serialized` con existencias devuelve 422.** Ese campo decide de dónde salen las
+> cantidades: de las filas de `inventory_device` (una por aparato) o de los saldos por custodio en
+> `inventory_balances`. Cambiarlo deja de mirar lo registrado bajo la forma anterior — no lo borra,
+> lo vuelve invisible, que en contabilidad es peor. `PUT /api/inventory-stock/{id}` lo rechaza con
+> un error en `is_serialized` que dice cuántas existencias estorban y cómo dejarlas en cero. La
+> pantalla ya lo desactivaba, pero una interfaz no es una restricción.
+
 ### 15.1 Custodia, entregas y kardex
 
 | Método | Ruta | Permiso | Descripción |
@@ -1598,11 +1605,12 @@ con el error en `numero`, no un 500.
 | `GET` | `/api/inventory/holdings?holder_type=&holder_id=` | `view_inventory` | Qué tiene encima una sucursal o una persona: equipos con serial + saldos de material |
 | `POST` | `/api/inventory/transfers` | `view_inventory` | Entrega/traspaso. Sin `source_type` en un material, el movimiento se registra como **entrada** desde el proveedor |
 | `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
+| `GET` | `/api/inventory/orphan-balances` | `view_inventory` | Material cuyo custodio fue eliminado: saldos con `quantity > 0` cuya sucursal o usuario ya no existe |
 | `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto) |
 
-> **Orden de rutas:** las tres rutas literales (`/movements`, `/holdings`, `/transfers`) se
-> registran **antes** de `/api/inventory/{inventory}`; al revés, el parámetro las capturaría y
-> `movements` llegaría como si fuera un id.
+> **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/transfers`,
+> `/orphan-balances`) se registran **antes** de `/api/inventory/{inventory}`; al revés, el
+> parámetro las capturaría y `movements` llegaría como si fuera un id.
 
 > **Nombre del parámetro:** el comodín `{inventory}` y el argumento del controlador
 > (`InventoryDevice $inventory`) tienen que llamarse **igual**. El nombre no se ve en la URL, pero
@@ -1627,6 +1635,29 @@ Cuerpo de `POST /api/inventory/transfers`:
 
 Filtrar el kardex por custodio devuelve **las dos direcciones**: lo que entró y lo que salió de
 esa persona o bodega. Es lo que hace que "todo lo de Juan" signifique algo.
+
+#### El origen de un traspaso puede ya no existir
+
+Borrar una sucursal o un usuario **no** borra sus saldos: hacer desaparecer existencias en
+silencio sería peor que dejarlas sin dueño. `GET /api/inventory/orphan-balances` es donde se ven,
+y devuelve además un `holder_label` legible (*"Sucursal eliminada (#7)"*), porque el nombre del
+custodio ya no está en ningún lado.
+
+Listarlos no bastaba: `POST /api/inventory/transfers` validaba que el custodio de **origen**
+existiera, así que un saldo huérfano quedaba visible y atrapado. Ahora el origen se acepta si hay
+una fila de saldo real suya con ese material, exista o no el custodio.
+
+> No es un agujero. Sólo se puede sacar de un origen que **de verdad tiene** ese saldo: no se
+> puede inventar un `source_id` para crear existencias de la nada. El **destino** sí sigue
+> teniendo que existir — mandar material a un custodio inventado lo haría desaparecer otra vez.
+
+#### Una sola carga de inventario por empresa a la vez
+
+`POST /api/import/inventory` responde **409** si ya hay una importación en curso para el mismo
+tenant. No es una limitación de capacidad: dos cargas simultáneas de la misma empresa se corrompen
+entre sí de dos formas independientes —los seriales ya usados se precargan en memoria al empezar,
+y el kardex reconoce las filas nuevas por rango de `id`— y el candado cierra las dos. Ver
+[MEJORAS_RECOMENDADAS.md](MEJORAS_RECOMENDADAS.md) § P-19.
 
 ### 15.2 Equipos de una orden de instalación
 
