@@ -30,6 +30,40 @@ class Permissions
      */
     const DELETE_CUSTOMERS = 'delete_customers';
 
+    // Instalaciones permissions
+    /**
+     * Ver la cartera de una orden de instalación: valor de instalación,
+     * adicionales, descuento, forma de pago, abono recibido y saldo.
+     *
+     * POR QUÉ HACE FALTA UN PERMISO PROPIO
+     *
+     * Hasta ahora ese bloque —«Información de Cartera» en el detalle de la
+     * orden— estaba gobernado por `edit_discount`, un permiso cuya etiqueta
+     * decía «Editar Descuento» y que en la práctica es lo único que hoy
+     * gobierna. Quien administraba roles no tenía forma de adivinar que la
+     * casilla del descuento era la que mostraba el valor de la instalación, y
+     * el rol Técnico —que no la trae— no veía el apartado ni tenía casilla que
+     * marcar para verlo.
+     *
+     * LEER NO ES ESCRIBIR
+     *
+     * Éste es un permiso de LECTURA. Con él la orden muestra el resumen de
+     * cartera en modo consulta; los campos siguen siendo de sólo lectura y
+     * `PUT /installations/{id}/billing` sigue exigiendo `edit_discount`. Un
+     * técnico de campo necesita saber cuánto cobrar, que no es lo mismo que
+     * poder cambiar el precio, aplicar un descuento o dar por recibido un
+     * dinero que no entró.
+     *
+     * NO SE CONCEDE DE FÁBRICA AL ROL TÉCNICO
+     *
+     * Qué ve un técnico es una decisión de cada ISP, no del producto. La
+     * migración de relleno sólo se lo da a los roles que ya podían verlo
+     * (`edit_discount`) y a los `code = 'admin'`, para que el catálogo del
+     * administrador quede completo. Al rol Técnico se lo concede a mano quien
+     * administre los roles de su empresa.
+     */
+    const VIEW_INSTALLATION_COST = 'view_installation_cost';
+
     // Infraestructura permissions
     const MANAGE_ROUTERS = 'manage_routers';
     const VIEW_PLANS = 'view_plans';
@@ -169,9 +203,8 @@ class Permissions
     {
         return [
             'Clientes' => [
-                self::EDIT_DISCOUNT => 'Editar Descuento',
+                self::EDIT_DISCOUNT => 'Editar Descuento y Cartera de Instalación',
                 self::ACTIVATE_DEACTIVATE_CLIENTS => 'Activar y Desactivar Clientes',
-                self::DELETE_INSTALLATIONS => 'Eliminar Instalaciones',
                 self::EDIT_PENDING_BALANCE => 'Editar Saldo Pendiente',
                 self::VIEW_CLIENTS => 'Lista de Clientes',
                 self::EDIT_INTERNET_SERVICE => 'Editar Servicio Internet',
@@ -206,6 +239,10 @@ class Permissions
             'Inventario' => [
                 self::VIEW_INVENTORY => 'Ver Inventario',
                 self::DELETE_INVENTORY => 'Eliminar de Inventario (equipos, stock, proveedores, sucursales)',
+            ],
+            'Instalaciones' => [
+                self::VIEW_INSTALLATION_COST => 'Ver Costo de Instalación (valor, abonos y saldo)',
+                self::DELETE_INSTALLATIONS => 'Eliminar Instalaciones',
             ],
             'Soporte' => [
                 self::TICKET_VIEW => 'Tickets · ver listado y detalle',

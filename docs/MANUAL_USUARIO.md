@@ -1606,12 +1606,13 @@ aparecen en pantalla:
 
 | Grupo | Permisos |
 |---|---|
-| **Clientes** | Lista de Clientes · Agregar Clientes · Editar Servicio Internet · Activar y Desactivar Clientes · Editar Descuento · Editar Saldo Pendiente · Eliminar Instalaciones · Tráfico Clientes |
+| **Clientes** | Lista de Clientes · Agregar Clientes · Editar Servicio Internet · Activar y Desactivar Clientes · Editar Descuento y Cartera de Instalación · Editar Saldo Pendiente · Tráfico Clientes · Eliminar Clientes |
 | **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · Eliminar Factura · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
 | **Contabilidad** | Lista de Gastos · Editar Gasto · Lista de Facturas · Registrar Pagos · Editar Fecha de Pago · Registrar Pago Mayor 3 Días · Agregar Transferencia · Eliminar Transferencia |
 | **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
 | **Inventario** | Ver Inventario · **Eliminar de Inventario** |
-| **Soporte** | Ver Soporte Técnico |
+| **Instalaciones** | Ver Costo de Instalación · Eliminar Instalaciones |
+| **Soporte** | Ver Soporte Técnico · los permisos de tickets (ver, crear, editar, asignar, diagnosticar, adjuntar, cerrar…) |
 | **Facturación** | Ver Facturación |
 | **Sistema** | Ver Personal · Gestionar Roles · Gestionar Configuración de Empresa · Gestionar Plantillas de Documentos · Ver Ajustes del Sistema · Ejecutar Acciones Masivas |
 
@@ -1620,10 +1621,22 @@ aparecen en pantalla:
 | Rol | Alcance |
 |---|---|
 | **Administrador** | Todo, sin excepción |
-| **Técnico** | Sólo clientes: verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones. **No ve dinero**: ni facturas, ni pagos, ni gastos |
+| **Técnico** | Sólo clientes: verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones. **No ve dinero**: ni facturas, ni pagos, ni gastos. Tampoco el valor de la instalación, salvo que le marques **Ver Costo de Instalación** |
 | **Contabilidad** | Todo lo de plata: facturas, pagos, gastos, transferencias y estadísticas. **No gestiona la red** ni el personal |
 | **Staff** | El operador de mostrador: clientes, planes, sectoriales, inventario, soporte, ver facturación y registrar pagos. **No borra facturas ni toca configuración** |
 | **Cliente** | Sin permisos de gestión. Es el rol de los clientes finales |
+
+> **Si un técnico no ve el valor de la instalación**, la casilla que busca es
+> **Instalaciones → Ver Costo de Instalación**. Abre el bloque *Información de Cartera*
+> del detalle de la orden —valor, adicionales, descuento, abono y saldo— en **modo
+> consulta**: el técnico ve cuánto hay que cobrar y cuánto queda debiendo, pero no puede
+> cambiar cifras ni dar por recibido un pago. Para eso hace falta **Editar Descuento y
+> Cartera de Instalación**, que es lo que emite o recalcula la factura.
+>
+> El rol **Técnico** no trae esa casilla de fábrica: cada empresa decide si su gente de
+> campo debe conocer el valor. Hay que marcarla a mano y pedirle al técnico que vuelva a
+> entrar. Ten en cuenta además que para llegar a la pantalla de *Instalaciones* el rol
+> necesita **Ver Soporte Técnico**; sin eso no hay orden que abrir.
 
 > **Ojo con "Activar y Desactivar Clientes":** ese permiso no sólo cambia un estado en pantalla,
 > **actúa sobre el router de verdad**. Es también el que habilita cargar clientes al equipo. No

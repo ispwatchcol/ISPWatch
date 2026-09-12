@@ -408,13 +408,18 @@
         </div>
       </div>
 
-      <!-- Información de Cartera (solo admin / staff / accounting) -->
+      <!-- Información de Cartera. Dos modos: edición (edit_discount) y consulta
+           (view_installation_cost, pensado para el técnico que va a cobrar). -->
       <div v-if="showBillingSection"
         class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
           Información de Cartera
           <span class="text-[10px] uppercase bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded">
             Facturación
+          </span>
+          <span v-if="!canEditBilling"
+            class="text-[10px] uppercase bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded">
+            Solo lectura
           </span>
         </h2>
 
@@ -429,14 +434,17 @@
               Estado: <span :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
             </p>
           </div>
-          <RouterLink :to="`/billing/invoices/${installation.invoice_id}`"
+          <!-- El detalle de factura vive en el módulo de facturación y exige sus
+               propios permisos: a quien sólo consulta la cartera el enlace le
+               llevaría a una pantalla que su rol no puede abrir. -->
+          <RouterLink v-if="canEditBilling" :to="`/billing/invoices/${installation.invoice_id}`"
             class="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-200 underline whitespace-nowrap">
             Ver factura
           </RouterLink>
         </div>
 
         <!-- Advertencia de recálculo cuando ya existe factura -->
-        <div v-if="installation.invoice_id"
+        <div v-if="installation.invoice_id && canEditBilling"
           class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
           <svg class="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -447,7 +455,7 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div v-if="canEditBilling" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
           <!-- Acuerdo de pago -->
           <div class="sm:col-span-2">
@@ -589,6 +597,34 @@
 
         </div>
 
+        <!-- Modo consulta: lo que no cabe en el resumen, como texto plano.
+             Nada de inputs deshabilitados: quien no puede guardar tampoco
+             debería ver un formulario que parece editable. -->
+        <div v-if="!canEditBilling" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div v-if="billing.additional_items.length" class="sm:col-span-2">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Adicionales</p>
+            <ul class="space-y-1">
+              <li v-for="(item, i) in billing.additional_items" :key="i"
+                class="flex justify-between text-sm text-gray-700 dark:text-gray-300">
+                <span>{{ item.description || 'Sin concepto' }}</span>
+                <span>{{ fmtMoney(item.amount) }}</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="billing.payment_method">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Forma de pago</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300">{{ billing.payment_method }}</p>
+          </div>
+          <div v-if="billing.payment_agreement">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Acuerdo de pago</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300">Sí</p>
+          </div>
+          <div v-if="billing.payment_notes" class="sm:col-span-2">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones del pago</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{{ billing.payment_notes }}</p>
+          </div>
+        </div>
+
         <!-- Resumen: por cuánto salió todo -->
         <div class="mt-4 p-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg">
           <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300">
@@ -618,7 +654,7 @@
           </div>
         </div>
 
-        <button @click="saveBilling" :disabled="savingBilling"
+        <button v-if="canEditBilling" @click="saveBilling" :disabled="savingBilling"
           class="mt-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
           {{ savingBilling ? 'Guardando...' : 'Guardar cartera' }}
         </button>
@@ -1036,7 +1072,12 @@ const selectedRouter = computed(() => routers.value.find(r => r.id === sheet.val
 const selectedPlan   = computed(() => plans.value.find(p => p.id === sheet.value.plan_id))
 const isPppoeRouter  = computed(() => !!selectedRouter.value?.pppoe)
 const planLocalAddress    = computed(() => selectedPlan.value?.local_address || selectedPlan.value?.pppoe_pool || '')
-const showBillingSection  = computed(() => installation.value?.can_edit_billing === true)
+// Ver la cartera y poder cambiarla son dos permisos distintos:
+// `view_installation_cost` abre el bloque en consulta, `edit_discount` lo abre
+// editable. El `??` cubre respuestas de una API anterior al cambio, donde
+// `can_view_billing` todavía no existe.
+const showBillingSection  = computed(() => (installation.value?.can_view_billing ?? installation.value?.can_edit_billing) === true)
+const canEditBilling      = computed(() => installation.value?.can_edit_billing === true)
 const discountIsPositive  = computed(() => Number(billing.value.discount) > 0)
 
 const photos = ref([])
@@ -1068,7 +1109,7 @@ const loadInstallation = async ({ silent = false } = {}) => {
   try {
     const { data } = await api.customers.getInstallation(installationId.value)
     installation.value = data
-    if (data.can_edit_billing) {
+    if (data.can_view_billing ?? data.can_edit_billing) {
       // Compatibilidad: instalaciones viejas solo tienen el monto agregado
       // additional_charges — se muestra como una fila editable.
       const items = Array.isArray(data.additional_items) && data.additional_items.length
