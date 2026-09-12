@@ -2067,7 +2067,9 @@ son dos problemas distintos y mezclarlos habría retrasado el que tenía al clie
 ### 🟠 P-45 · `view_inventory` es el único permiso del módulo: ver, crear, editar y **borrar** son el mismo — KAN-99
 
 **Detectado:** 2026-09-10, al arreglar el binding de `/api/inventory/{id}`
-(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** no implementado.
+(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** **resuelto a medias el
+2026-09-11** — el borrado ya tiene permiso propio (§ 63 de la bitácora); la separación de
+lectura y escritura sigue abierta (punto 4 de la lista de abajo).
 
 `app/Constants/Permissions.php` declara **un solo** permiso de inventario, `VIEW_INVENTORY`, y
 con él se protegen todas las escrituras del módulo: alta y edición de equipos, entregas y
@@ -2090,13 +2092,17 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 
 **Qué hacer:**
 
-1. Añadir `DELETE_INVENTORY` al catálogo y aplicarlo sólo al `DELETE`, dejando el resto en
-   `view_inventory` (no romper entregas ni bajas, que son operación diaria).
-2. Migración de backfill que lo conceda a los roles con `code = 'admin'` — sin ella el permiso
-   nuevo no llega a los roles ya sembrados y nadie puede borrar (ver la trampa nº 6).
-3. Gatear el botón en `Inventory.vue` con ese permiso.
-4. De paso, decidir si `view_inventory` debería partirse también en lectura y escritura: hoy
-   quien consulta la bodega puede mover existencias.
+1. ✅ **Hecho (2026-09-11).** `DELETE_INVENTORY` en el catálogo, aplicado sólo a los `destroy`,
+   con el resto en `view_inventory` (entregas y bajas intactas).
+2. ✅ **Hecho.** Migración `2026_09_11_000003_grant_delete_inventory_to_admin_roles`, que lo
+   concede a los roles con `code = 'admin'` y no por arrastre desde `view_inventory`.
+3. ✅ **Hecho, y en las cuatro pantallas.** El alcance era mayor de lo escrito aquí: los `destroy`
+   de stock, proveedores y sucursales colgaban del mismo permiso, así que se gatearon los **ocho**
+   botones —tabla y tarjeta móvil de `Inventory.vue`, `StockList.vue`, `ProviderList.vue` y
+   `BranchList.vue`—, no sólo el de equipos.
+4. ⬜ **Pendiente.** Decidir si `view_inventory` debería partirse también en lectura y escritura:
+   hoy quien consulta la bodega puede crear, editar y mover existencias. Es lo que mantiene esta
+   entrada abierta.
 
 ### 🟡 P-44 · Los cargos del ticket siguen sin permiso propio
 
@@ -2148,7 +2154,7 @@ instalación. Y es lo **único** que gobierna en todo el sistema — no hay ning
 pantalla que lo consulte.
 
 Su etiqueta decía «Editar Descuento», lo que llevó a que nadie encontrara la casilla cuando un
-técnico necesitaba ver el valor de la instalación (§ 63 de la bitácora). El 2026-09-11 se
+técnico necesitaba ver el valor de la instalación (§ 64 de la bitácora). El 2026-09-11 se
 corrigió **la etiqueta** —ahora «Editar Descuento y Cartera de Instalación»— y se separó la
 lectura en `view_installation_cost`. La **clave** sigue siendo `edit_discount`.
 
@@ -2166,10 +2172,10 @@ un ciclo de despliegue.
 > **Dos avisos antes de usar esta tabla como índice.**
 >
 > **Hay identificadores repetidos.** Existen dos `P-9`, dos `P-10`, dos `P-11`, dos `P-13`,
-> dos `P-14`, dos `P-21` y dos `P-23`, cada par sobre temas distintos. **No se renumeraron a
-> propósito**: hay seguimiento externo que ya cita estos códigos y cambiarlos rompería esas
-> referencias. Se distinguen aquí con un calificativo en cursiva —*(router)*, *(finanzas)*,
-> *(S3)*— y buscando por el título, nunca sólo por el código.
+> dos `P-14`, dos `P-21`, dos `P-23` y dos `P-45`, cada par sobre temas distintos. **No se
+> renumeraron a propósito**: hay seguimiento externo que ya cita estos códigos y cambiarlos
+> rompería esas referencias. Se distinguen aquí con un calificativo en cursiva —*(router)*,
+> *(finanzas)*, *(S3)*, *(inventario)*— y buscando por el título, nunca sólo por el código.
 >
 > **Puesta al día el 2026-09-09.** La tabla llegaba sólo hasta P-21 y omitía la mitad del
 > registro, incluidas las dos entradas más graves. Ahora cubre todo el § 7.
@@ -2265,7 +2271,8 @@ un ciclo de despliegue.
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
-| **P-45** | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |
+| **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
+| **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |
 
 ---
 
