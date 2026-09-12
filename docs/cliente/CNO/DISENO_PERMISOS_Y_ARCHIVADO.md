@@ -102,6 +102,94 @@ deriva entre sedes.
 
 ---
 
+## 3bis. PR B · Transición a los permisos granulares — **implementado**
+
+Los 20 permisos existen y **cada ruta de ticket exige el suyo**. Lo que **no** se hace aquí es
+repartir los roles de la sección 18: esa matriz es **D-09** y sigue pendiente del cliente.
+
+### El mapa que había antes
+
+| Endpoint | Protección anterior | Ahora |
+|---|---|---|
+| `GET /support`, `GET /support/{id}` | `view_support` | `ticket_view` |
+| `POST /support` | `view_support` | `ticket_view` + `ticket_create` |
+| `PUT /support/{id}` | `view_support` | `ticket_view` + **autorización por campo** |
+| `GET /support/{t}/attachments/{a}` (+`/download`) | `view_support` | `ticket_view_evidence` |
+| `GET /support/{t}/history` | `view_support` | `ticket_view_history` |
+| `GET /api/catalogs/ticket` | **ninguna** | `ticket_view` |
+| `POST /support/{id}/message`, `PUT`/`DELETE /support/messages/{id}` | **sólo `staff_profile`** | + `ticket_note` |
+| `PATCH /support/{id}/status` | **sólo `staff_profile`** | + `ticket_transition` (+ `ticket_close` al cerrar) |
+| `GET /support/statistics` | **sólo `staff_profile`** | + `ticket_export` |
+| `POST`/`GET /support/{id}/charge(s)` | **sólo `staff_profile`** | **sin cambios** — ver abajo |
+| `DELETE /support/{id}` | `view_support` | sin cambios: responde 403 (PR A) |
+
+**`view_support` NO se retira.** Gobierna también instalaciones, sectoriales e inventario
+(unas 25 rutas), y sigue siendo la llave de compatibilidad durante la transición.
+
+### Autorización por campo en `PUT /support/{id}`
+
+Ese endpoint hace seis cosas y no se puede mapear a un solo permiso. La ruta exige
+`ticket_view` —hay que poder ver un ticket para tocarlo— y el controlador comprueba cada campo:
+
+| Campo de la petición | Permiso |
+|---|---|
+| `subject`, `description`, `sectorial_id` | `ticket_edit` |
+| `staff_id` | `ticket_assign` |
+| `priority` | `ticket_set_priority` |
+| `category` | `ticket_set_category` |
+| `symptom`, `suspected_cause`, `solution`, `result` | `ticket_diagnose` |
+| `confirmed_cause` | `ticket_confirm_cause` |
+| `status` | `ticket_transition`, y `ticket_close` si el destino es `closed` |
+| adjuntos | `ticket_attach` |
+
+**Sólo se exige el permiso si el valor CAMBIA.** La pantalla de edición reenvía el formulario
+entero en cada guardado; exigir todos los permisos por el mero hecho de que el campo venga en
+la petición rompería la pantalla para cualquiera que no los tuviera todos.
+
+Al **crear**, `ticket_create` cubre el asunto, la categoría y la asignación inicial —son el
+acto de abrir el ticket—, pero diagnosticar y adjuntar exigen su permiso también ahí: si no,
+quien no puede diagnosticar un ticket existente lo haría colando los campos en el alta.
+
+### El algoritmo del backfill
+
+`2026_09_11_000001_backfill_granular_ticket_permissions`. El principio es que **nadie gane ni
+pierda nada** con el despliegue, así que el reparto no se inventa: se deduce de las dos puertas
+que gobernaban las rutas.
+
+| Paso | Condición del rol | Recibe |
+|---|---|---|
+| 1 | Tiene `*` | **nada** — ya lo tiene todo |
+| 2 | Tiene `view_support` | `ticket_view`, `create`, `edit`, `assign`, `set_priority`, `set_category`, `diagnose`, `confirm_cause`, `attach`, `view_evidence`, `view_history` (11) |
+| 3 | `code` ∈ {`admin`, `staff`} | además `ticket_note`, `transition`, `close`, `export` (4) |
+| 4 | Ni lo uno ni lo otro | **nada** |
+
+El paso 3 mira el **código de rol** y no `view_support`, porque `staff_profile` es una puerta
+independiente: un rol `staff` sin `view_support` sí puede anotar hoy.
+
+**No se concede a nadie** `ticket_close_override`, `ticket_reopen`, `ticket_archive`,
+`ticket_restore` ni `ticket_manage_catalogs`: esas acciones **no existen todavía** en el
+sistema. Concederlas sería dar capacidades nuevas, justo lo contrario de una transición
+compatible.
+
+### Efecto por rol, verificado en SQLite y PostgreSQL
+
+| Rol | `code` | Permisos hoy | `ticket_*` que recibe | ¿Cambia lo que puede hacer? |
+|---|---|---|---|---|
+| Administrador | `admin` | `view_support` + otros | **15** | No |
+| Staff | `staff` | `view_support` + otros | **15** | No |
+| Tecnico (con `view_support`) | `technician` | `view_support` | **11** | No — nunca pudo anotar ni transicionar |
+| Tecnico (sin `view_support`) | `technician` | — | **0** | No |
+| Contabilidad | `accounting` | `view_billing` | **0** | No |
+| Cliente | `customer` | — | **0** | No |
+| Rol con `*` | cualquiera | `*` | **0** (no se toca) | No |
+
+### Lo que queda fuera
+
+**Los cargos** (`POST`/`GET /support/{id}/charge(s)`) se quedan con `staff_profile` a secas.
+Son facturación, no operación del ticket: no aparecen en la matriz de permisos del
+requerimiento, y atarlos a uno de facturación —`view_billing`— se lo quitaría a roles que hoy
+sí pueden generarlos. Hay un test que fija que son **la única** excepción conocida.
+
 ## 4. Archivado / anulación
 
 ### La observación que va primero
@@ -301,7 +389,7 @@ correcto para una baja de cliente, pero es una decisión distinta y **no se tom�
 | **A · Impedir el borrado físico** | Retirar el `DELETE`, guard en el modelo, FK a `RESTRICT`, corregir H-3 y H-4, quitar el botón | **No** | Sí (FK) | ✅ **Implementado** |
 | **H-6 · Preservar el expediente** | Las dos FK a `SET NULL`, `author_name` congelado, UI resistente al autor ausente | **No** | Sí (FK + columna) | ✅ **Implementado** |
 | **P-43a · Controles de eliminación de clientes** | Permiso propio, motivo, auditoría previa, enlaces de firma | **No** | Sí (datos + columna) | ✅ **Implementado** |
-| **B · Permisos granulares** | Los 20 permisos, middleware por ruta, **backfill que preserva el comportamiento** | **No** | Sí (datos) | ⚪ Listo para iniciar |
+| **B · Permisos granulares** | Los 20 permisos, middleware por ruta, **backfill que preserva el comportamiento** | **No** | Sí (datos) | ✅ **Implementado** |
 | **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas | Parcialmente | Sí (esquema) | 🔒 Requiere D-10 |
 | **D · UI de archivados** | Vista, filtro, doble confirmación, restauración | No | No | 🔒 Depende de C |
 | **E · Mapeo de roles §18** | Roles N1/N2/Campo/Supervisor/Auditor con su matriz | **Sí, bloqueante** | Sí (datos) | 🔒 Requiere D-11 |
@@ -311,6 +399,19 @@ todo rol que hoy tenga `view_support`**. Comportamiento idéntico, cero regresi�
 ahí quitar permisos es configuración del cliente, no un despliegue.
 
 ---
+
+## 6bis. Qué pasa si a un rol le falta un permiso granular
+
+La interfaz **no** hace respaldo a `view_support`. Si un rol conserva el permiso antiguo pero le
+faltan los granulares —porque el backfill no se ejecutó, o porque alguien creó un rol a mano
+después— la acción simplemente **se oculta**.
+
+Es la elección deliberada: elevar el privilegio en silencio dejaría el panel ofreciendo botones
+que la API rechaza con 403, que es peor que no ofrecerlos. `SupportDetail.vue` deja constancia
+en consola (`[permisos] …`) para que el operador pueda reportarlo, sin conceder nada.
+
+**Cómo se arregla:** volver a ejecutar la migración de transición, que es idempotente, o
+asignar los permisos desde la pantalla de roles.
 
 ## 7. Criterios de aceptación por PR
 

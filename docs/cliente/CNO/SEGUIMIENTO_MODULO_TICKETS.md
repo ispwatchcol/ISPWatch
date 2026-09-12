@@ -98,7 +98,11 @@ Concretamente, **no** debe reportarse como cumplido:
 - **F1-11** por existir la tabla de adjuntos. La **protección de acceso ya está resuelta**
   (endpoint autenticado con verificación de tenant, disco privado), pero **siguen faltando
   el hash de integridad y la política de retención**, así que el criterio no se cumple.
-- **F1-17** por tener ya la auditoría. El PR #3 resuelve la **mitad de auditoría** —historial
+- **F1-17** por tener ya la auditoría y los permisos separados. El PR #3 resuelve la auditoría
+  y el PR B entrega las 20 capacidades, pero **el criterio exige el modelo de roles** de la
+  sección 18, y ése sigue sin confirmarse (**D-09**). Tener la herramienta no es tener la
+  configuración.
+- *(detalle del PR #3)* El PR #3 resuelve la **mitad de auditoría** —historial
   inalterable con actor, campo, valor anterior y valor nuevo—, pero el criterio exige además
   el **modelo de roles** de la sección 18 (Recepción/N1, N2, Técnico de campo, Supervisor,
   Auditor/gerencia), y hoy sólo existe `view_support`.
@@ -138,7 +142,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`; `router_outage_events` es base parcial | **PR #6** | — |
 | **F1-16** | Servicios afectados y minutos-cliente (P1) | ⚪ Pendiente | No existe | Tras PR #6 | — |
-| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**: `support_ticket_history` inalterable con actor, campo, valor anterior/nuevo, origen y fecha; visible en el detalle. **Falta el modelo de roles** de la sección 18: sólo existe `view_support` | Roles N1/N2/campo/supervisor/auditor | Depende de **D-09** |
+| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**. **Permisos separados (PR B)**: 20 capacidades `ticket_*`, una por acción, y ninguna ruta de ticket queda sin permiso. **Sigue faltando el MODELO DE ROLES** de la sección 18: los permisos existen, pero el reparto en Recepción/N1, N2, Técnico de campo, Supervisor y Auditor está sin confirmar | Aplicar la matriz de roles | Depende de **D-09** |
 | **F1-18** | Exportación completa y filtros por infraestructura | ⚪ Pendiente | Sin export de tickets | **PR #7** | Tras F1-06 |
 | **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟡 Parcial | Sólo `avg_resolution_time` (`SupportTicketController.php:411`); 0 percentiles | **PR #7** | — |
 | **F1-20** | Zona horaria America/Bogota | 🟡 Parcial | `config/app.php:70` → `UTC` (almacenamiento correcto); presentación sin fijar | **PR #7** | — |
@@ -533,6 +537,40 @@ La retención sigue siendo **D-05**.
 su histórico de facturación, incluidos los cargos de ticket. Es contabilidad, no expediente
 del ticket, y merece su propio análisis (**P-43**).
 
+### PR B · Permisos granulares de ticket
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Separar `view_support` en capacidades por acción, sin cambiar lo que nadie podía hacer |
+| **Cubre** | Avanza **F1-17**, que **sigue parcial**: entrega los permisos, no el modelo de roles |
+| **Migraciones** | `2026_09_11_000001_backfill_granular_ticket_permissions` (sólo datos) |
+| **Pruebas** | `tests/Feature/Support/TicketGranularPermissionsTest.php` — 24 pruebas |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**El problema.** `view_support` era un permiso-paraguas: quien lo tenía podía listar, crear,
+editar, asignar, cambiar prioridad y categoría, diagnosticar, adjuntar, ver evidencia y leer el
+historial. Y siete rutas más —notas, transiciones, cargos, estadísticas— **no tenían ningún
+`permission:`**: sólo `staff_profile`, que comprueba el código de rol, no una capacidad. El
+endpoint de catálogos no tenía ni eso.
+
+**Qué cambia.** 20 permisos `ticket_*`, uno por acción. `PUT /support/{id}` —que hace seis
+cosas distintas— autoriza **por campo**, y sólo cuando el valor cambia, para que la pantalla de
+edición siga funcionando al reenviar el formulario entero.
+
+**Nadie gana ni pierde nada.** El backfill deduce el reparto de las dos puertas que gobernaban
+antes: quien tenía `view_support` recibe las 11 capacidades que ese permiso abría; quien además
+es `admin` o `staff` recibe las 4 que abría `staff_profile`. Verificado rol por rol en SQLite y
+en PostgreSQL.
+
+**No se concede a nadie** `ticket_close_override`, `ticket_reopen`, `ticket_archive`,
+`ticket_restore` ni `ticket_manage_catalogs`: esas acciones todavía no existen.
+
+**Los roles definitivos NO se configuran aquí.** La matriz de la sección 18 es **D-09** y sigue
+pendiente del cliente. Este PR entrega la herramienta; el reparto es otra conversación.
+
+**Queda fuera:** los cargos del ticket siguen con `staff_profile` a secas. Son facturación, no
+operación del ticket, y no aparecen en la matriz del requerimiento.
+
 ### PR #4 · Ciclo de vida y reglas de cierre
 
 | Campo | Detalle |
@@ -704,3 +742,4 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-27 | **PR A implementado**: retirado el borrado físico de tickets (ruta 403, guard en el modelo y clave foránea `RESTRICT` en el historial); corregidos H-3 y H-4; botón «Eliminar» retirado de la interfaz. **H-6 queda abierto** (borrar un cliente destruye notas y adjuntos de sus tickets) como **P-42** | — | *(PR abierto)* |
 | 2026-08-29 | **PR A mergeado y desplegado** (PR #254). Borrado físico de tickets bloqueado y FK del historial en `RESTRICT`, validado en producción | David Gómez | PR #254 |
 | 2026-08-29 | **H-6 corregido**: `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan de `CASCADE` a `SET NULL`; se añade `author_name` con el nombre congelado del autor. Dar de baja a un cliente ya no vacía el expediente. **Queda abierto `invoices.customer_id`** (P-43), que sigue borrando el histórico de facturación | — | *(PR abierto)* |
+| 2026-09-11 | **PR B implementado**: 20 permisos `ticket_*`, una capacidad por acción; autorización por campo en el `PUT`; siete rutas que no tenían ningún permiso ahora lo exigen; el endpoint de catálogos deja de ser abierto. Backfill que preserva exactamente lo que cada rol podía hacer. **F1-17 sigue parcial**: falta el modelo de roles de la sección 18 (**D-09**) | — | *(PR abierto)* |

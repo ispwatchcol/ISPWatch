@@ -6443,3 +6443,95 @@ y esta vez ya se sabe cuánto cuesta dejarlo pendiente.
 **Lección.** `DEPLOYMENT_FAILED` ya estaba en el bloque `alerts` de la plantilla. Si la alerta
 hubiera llegado a alguien, el diagnóstico habría empezado a las 18:11 y no tres horas después,
 buscando en el código un bug que ya estaba arreglado.
+
+---
+
+## 61. `view_support` autorizaba nueve cosas distintas, y siete rutas no pedían nada — 2026-09-11
+
+El módulo de tickets tenía un solo permiso para toda su operación. Quien tenía `view_support`
+podía listar, crear, editar, asignar técnico, cambiar prioridad y categoría, diagnosticar,
+adjuntar evidencia y leer el historial inalterable. Nueve capacidades detrás de un permiso cuyo
+nombre dice «ver».
+
+Y al hacer el mapa apareció algo peor: **siete rutas de ticket no tenían ningún `permission:`**.
+Notas, edición y borrado de notas, transiciones de estado, cargos y estadísticas iban sólo con
+`staff_profile`, que no comprueba una capacidad sino el **código de rol** (`admin` o `staff`).
+El endpoint de catálogos no tenía ni eso: cualquier usuario autenticado del panel leía el
+vocabulario completo.
+
+### Lo que acotó el alcance
+
+`view_support` **no es un permiso de tickets**. Gobierna también instalaciones, sectoriales e
+inventario — unas 25 rutas. Retirarlo habría roto tres módulos ajenos.
+
+Así que no se sustituye: se conserva, y lo que cambia es que las rutas de ticket dejan de
+apoyarse en él.
+
+### Autorización por campo
+
+`PUT /support/{id}` hace seis cosas: edita contenido, asigna técnico, cambia prioridad, cambia
+categoría, registra diagnóstico y sube adjuntos. No hay un permiso que le corresponda.
+
+La ruta se queda con `ticket_view` —hay que poder ver un ticket para tocarlo— y el controlador
+comprueba campo por campo.
+
+El detalle que decide si esto funciona o estorba: **sólo se exige el permiso si el valor
+cambia**. La pantalla de edición reenvía el formulario entero en cada guardado, así que exigir
+`ticket_set_priority` porque `priority` viene en la petición —con el mismo valor que ya
+tiene— dejaría la pantalla inservible para cualquiera que no tuviera los seis permisos. Es el
+mismo razonamiento que llevó al PR #3 a registrar el cambio real y no el payload.
+
+### El backfill: nadie gana ni pierde nada
+
+El reparto no se inventa, se deduce de las dos puertas que gobernaban antes:
+
+- Rol con `view_support` → las 11 capacidades que ese permiso abría.
+- Rol con `code` ∈ {`admin`, `staff`} → además las 4 que abría `staff_profile`.
+- Rol con `*` → no se toca.
+- Ni lo uno ni lo otro → nada.
+
+El segundo paso mira el **código de rol** y no `view_support`, porque son puertas
+independientes: un rol `staff` sin `view_support` sí podía anotar.
+
+Resultado medido, idéntico en SQLite y PostgreSQL: `Administrador` y `Staff` reciben 15,
+`Tecnico` con `view_support` recibe 11 —nunca pudo anotar ni transicionar—, y los demás cero.
+
+**A nadie se le conceden** `ticket_close_override`, `ticket_reopen`, `ticket_archive`,
+`ticket_restore` ni `ticket_manage_catalogs`. Esas acciones no existen todavía en el sistema, y
+darlas sería conceder capacidades nuevas — justo lo contrario de una transición compatible.
+Los permisos se declaran igualmente para que el cliente pueda repartir roles sobre una matriz
+completa.
+
+### Cerrar no es transicionar
+
+`ticket_close` se separó de `ticket_transition` aunque hoy cerrar sea poner `status = closed`.
+El requerimiento las distingue —«cierre especial» es potestad del Supervisor— y separarlas
+ahora evita tener que volver a tocar la autorización cuando lleguen las reglas de cierre del
+PR #4. Se concede a los mismos roles que ya podían cerrar, así que no quita nada.
+
+### Sin respaldo silencioso en la interfaz
+
+Si un rol conserva `view_support` pero le faltan los granulares —backfill no ejecutado, rol
+creado a mano después— la interfaz **oculta la acción** y deja constancia en consola. No cae de
+vuelta a `view_support`.
+
+Elevar el privilegio en silencio dejaría el panel ofreciendo botones que la API rechaza con
+403, que es peor que no ofrecerlos.
+
+### Lo que queda fuera
+
+**Los cargos** siguen con `staff_profile` a secas. Son facturación, no operación del ticket, no
+aparecen en la matriz de permisos del requerimiento, y atarlos a `view_billing` se los quitaría
+a roles que hoy sí pueden generarlos. Hay un test que fija que son la **única** excepción: si
+mañana alguien agrega una ruta de ticket sin permiso, falla.
+
+**Los roles definitivos no se configuran aquí.** La matriz de la sección 18 —Recepción/N1, N2,
+Técnico de campo, Supervisor, Auditor— es **D-09** y sigue pendiente del cliente. Por eso
+**F1-17 sigue parcial**: tener la herramienta no es tener la configuración.
+
+### Lección
+
+Un permiso llamado `view_support` acabó autorizando nueve capacidades de escritura. Nadie lo
+decidió: se fue acumulando, como pasó con `edit_internet_service` y el borrado de clientes
+(§56). El nombre de un permiso envejece peor que su implementación, y conviene revisar
+periódicamente **qué autoriza** cada uno, no sólo quién lo tiene.

@@ -133,7 +133,10 @@ class ApiAuthorizationTest extends TestCase
             // entra aquí: usa vinculación implícita y daría 404 antes del
             // permiso — se cubre en InventoryDeletionPermissionTest.
             'crear sucursal'       => ['post',   '/api/inventory-branches', 'view_inventory'],
-            'listar tickets'       => ['get',    '/api/support',     'view_support'],
+            // PR B · Capacidad propia desde 2026-09-11. `view_support` sigue
+            // existiendo, pero gobierna instalaciones, sectoriales e
+            // inventario, no la operación del ticket.
+            'listar tickets'       => ['get',    '/api/support',     'ticket_view'],
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],

@@ -64,6 +64,66 @@ class Permissions
     // Soporte permissions
     const VIEW_SUPPORT = 'view_support';
 
+    /**
+     * PR B · Capacidades separadas de la operación de tickets.
+     *
+     * `view_support` era un permiso-paraguas: quien lo tenía podía listar,
+     * crear, editar, diagnosticar, adjuntar, ver evidencia y leer el historial.
+     * Y además gobierna —todavía— instalaciones, sectoriales e inventario, así
+     * que no se puede simplemente retirar.
+     *
+     * TRANSICIÓN, NO SUSTITUCIÓN. `view_support` se conserva y se sigue usando
+     * donde gobierna otros módulos. Lo que cambia es que las rutas de TICKETS
+     * pasan a exigir la capacidad concreta, y una migración reparte a cada rol
+     * exactamente las que ya podía ejercer — ni una más.
+     *
+     * LOS ROLES DEFINITIVOS NO SE CONFIGURAN AQUÍ. La matriz de la sección 18
+     * del requerimiento (Recepción/N1, N2, Técnico de campo, Supervisor,
+     * Auditor) está pendiente de confirmación del cliente: es la decisión
+     * **D-09**. Estos permisos son la herramienta; el reparto final es otra
+     * conversación.
+     */
+    const TICKET_VIEW            = 'ticket_view';
+    const TICKET_CREATE          = 'ticket_create';
+    const TICKET_EDIT            = 'ticket_edit';
+    const TICKET_ASSIGN          = 'ticket_assign';
+    const TICKET_SET_PRIORITY    = 'ticket_set_priority';
+    const TICKET_SET_CATEGORY    = 'ticket_set_category';
+    const TICKET_DIAGNOSE        = 'ticket_diagnose';
+    const TICKET_CONFIRM_CAUSE   = 'ticket_confirm_cause';
+    const TICKET_NOTE            = 'ticket_note';
+    const TICKET_ATTACH          = 'ticket_attach';
+    const TICKET_VIEW_EVIDENCE   = 'ticket_view_evidence';
+    const TICKET_VIEW_HISTORY    = 'ticket_view_history';
+    const TICKET_TRANSITION      = 'ticket_transition';
+    const TICKET_CLOSE           = 'ticket_close';
+    const TICKET_CLOSE_OVERRIDE  = 'ticket_close_override';
+    const TICKET_REOPEN          = 'ticket_reopen';
+    const TICKET_ARCHIVE         = 'ticket_archive';
+    const TICKET_RESTORE         = 'ticket_restore';
+    const TICKET_MANAGE_CATALOGS = 'ticket_manage_catalogs';
+    const TICKET_EXPORT          = 'ticket_export';
+
+    /**
+     * Los que todavía NO gobiernan ninguna acción del sistema.
+     *
+     * Se declaran para que la matriz quede completa y el cliente pueda repartir
+     * roles sobre ella, pero hoy no hay endpoint que los exija: archivar y
+     * restaurar son el PR C —y dependen de **D-10**—, reabrir no existe
+     * (**D-12**), el cierre con excepción llega con las reglas de cierre del
+     * PR #4, y no hay pantalla de administración de catálogos (**D-13**).
+     *
+     * La migración de transición NO los concede a nadie: dar una capacidad que
+     * antes no se tenía sería justo lo contrario de una transición compatible.
+     */
+    public const TICKET_SIN_ACCION_TODAVIA = [
+        self::TICKET_CLOSE_OVERRIDE,
+        self::TICKET_REOPEN,
+        self::TICKET_ARCHIVE,
+        self::TICKET_RESTORE,
+        self::TICKET_MANAGE_CATALOGS,
+    ];
+
     // Facturación permissions
     const VIEW_BILLING = 'view_billing';
 
@@ -148,6 +208,26 @@ class Permissions
                 self::DELETE_INVENTORY => 'Eliminar de Inventario (equipos, stock, proveedores, sucursales)',
             ],
             'Soporte' => [
+                self::TICKET_VIEW => 'Tickets · ver listado y detalle',
+                self::TICKET_CREATE => 'Tickets · crear',
+                self::TICKET_EDIT => 'Tickets · editar contenido',
+                self::TICKET_ASSIGN => 'Tickets · asignar o reasignar técnico',
+                self::TICKET_SET_PRIORITY => 'Tickets · cambiar prioridad',
+                self::TICKET_SET_CATEGORY => 'Tickets · cambiar categoría',
+                self::TICKET_DIAGNOSE => 'Tickets · registrar diagnóstico',
+                self::TICKET_CONFIRM_CAUSE => 'Tickets · confirmar causa',
+                self::TICKET_NOTE => 'Tickets · agregar notas',
+                self::TICKET_ATTACH => 'Tickets · adjuntar evidencia',
+                self::TICKET_VIEW_EVIDENCE => 'Tickets · ver y descargar evidencia',
+                self::TICKET_VIEW_HISTORY => 'Tickets · ver historial',
+                self::TICKET_TRANSITION => 'Tickets · cambiar estado',
+                self::TICKET_CLOSE => 'Tickets · cerrar',
+                self::TICKET_CLOSE_OVERRIDE => 'Tickets · cerrar con excepción (aún sin uso)',
+                self::TICKET_REOPEN => 'Tickets · reabrir (aún sin uso)',
+                self::TICKET_ARCHIVE => 'Tickets · archivar (aún sin uso)',
+                self::TICKET_RESTORE => 'Tickets · restaurar (aún sin uso)',
+                self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar catálogos (aún sin uso)',
+                self::TICKET_EXPORT => 'Tickets · métricas y exportación',
                 self::VIEW_SUPPORT => 'Ver Soporte Técnico',
             ],
             'Facturación' => [
