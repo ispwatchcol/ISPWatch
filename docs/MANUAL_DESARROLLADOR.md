@@ -732,7 +732,7 @@ Route::middleware(['permission:view_reports'])->group(function () {
 > ```
 >
 > Declarar el mismo recurso dos veces **no** choca: los nombres que genera Laravel son
-> distintos (`inventory-stock.update` vs `inventory-stock.destroy`). Ver KAN-99 y § 62 de
+> distintos (`inventory-stock.update` vs `inventory-stock.destroy`). Ver KAN-99 y § 63 de
 > `BITACORA_TECNICA.md`.
 
 **4. Controlador** — sólo traduce HTTP; la lógica va a un servicio.

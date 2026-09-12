@@ -1590,7 +1590,7 @@ la carga masiva (`InventoryImport`). Los mensajes de choque van en español y no
 > `view_inventory` conserva ver, crear, editar, entregar y dar de baja: lo único que se le retira
 > es el borrado. El permiso nuevo se concede sólo a roles con `code = 'admin'`, y una migración
 > de relleno lo aplica a los ya existentes. Un integrador con `view_inventory` que antes borraba
-> ahora recibe **403**. Ver § 62 de `BITACORA_TECNICA.md`.
+> ahora recibe **403**. Ver § 63 de `BITACORA_TECNICA.md`.
 
 **`DELETE /api/inventory/{id}` puede responder 422.** Un equipo `installed`, o que figure en una
 línea de `installation_equipment`, no se borra: la FK es `SET NULL`, así que el borrado no
@@ -1604,6 +1604,29 @@ no como número: antes era `nullable|integer` sobre una columna `int4` y cualqui
 colombiano la desbordaba con un 500. Un valor de más de 30 caracteres ahora responde **422**
 con el error en `numero`, no un 500.
 
+> **Gasto automático al ingresar inventario (opcional, apagado por defecto).** Si la empresa
+> activa `tenant.inventory_entry_creates_expense`, toda ENTRADA —alta de un equipo, entrada de
+> material sin origen y carga masiva— crea un `expense` por `stock.price × cantidad`, enlazado al
+> movimiento en `expenses.inventory_movement_id`. Esa columna es **única**: es lo que hace que
+> reintentar una entrada no cobre dos veces.
+>
+> El interruptor se cambia por `PUT|PATCH /api/tenant/config`, que pide `manage_tenant` **y
+> además `view_expenses`** para estos dos campos: encenderlo hace que el inventario mueva el
+> balance financiero, y esa decisión es de quien responde por el balance. El resto de la
+> configuración sigue pidiendo sólo `manage_tenant`.
+>
+> Si el modelo no tiene precio de catálogo **no se crea gasto** y se devuelve un aviso — ni un
+> gasto en 0 (que se lee como "salió gratis") ni silencio (que descuadra el balance sin que nadie
+> se entere). En la carga masiva esos avisos llegan en `warnings`, que **no** afecta a `success`:
+> el equipo entró bien, lo que faltó fue el gasto.
+
+> **Cambiar `is_serialized` con existencias devuelve 422.** Ese campo decide de dónde salen las
+> cantidades: de las filas de `inventory_device` (una por aparato) o de los saldos por custodio en
+> `inventory_balances`. Cambiarlo deja de mirar lo registrado bajo la forma anterior — no lo borra,
+> lo vuelve invisible, que en contabilidad es peor. `PUT /api/inventory-stock/{id}` lo rechaza con
+> un error en `is_serialized` que dice cuántas existencias estorban y cómo dejarlas en cero. La
+> pantalla ya lo desactivaba, pero una interfaz no es una restricción.
+
 ### 15.1 Custodia, entregas y kardex
 
 | Método | Ruta | Permiso | Descripción |
@@ -1611,11 +1634,12 @@ con el error en `numero`, no un 500.
 | `GET` | `/api/inventory/holdings?holder_type=&holder_id=` | `view_inventory` | Qué tiene encima una sucursal o una persona: equipos con serial + saldos de material |
 | `POST` | `/api/inventory/transfers` | `view_inventory` | Entrega/traspaso. Sin `source_type` en un material, el movimiento se registra como **entrada** desde el proveedor |
 | `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
+| `GET` | `/api/inventory/orphan-balances` | `view_inventory` | Material cuyo custodio fue eliminado: saldos con `quantity > 0` cuya sucursal o usuario ya no existe |
 | `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto) |
 
-> **Orden de rutas:** las tres rutas literales (`/movements`, `/holdings`, `/transfers`) se
-> registran **antes** de `/api/inventory/{inventory}`; al revés, el parámetro las capturaría y
-> `movements` llegaría como si fuera un id.
+> **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/transfers`,
+> `/orphan-balances`) se registran **antes** de `/api/inventory/{inventory}`; al revés, el
+> parámetro las capturaría y `movements` llegaría como si fuera un id.
 
 > **Nombre del parámetro:** el comodín `{inventory}` y el argumento del controlador
 > (`InventoryDevice $inventory`) tienen que llamarse **igual**. El nombre no se ve en la URL, pero
@@ -1640,6 +1664,29 @@ Cuerpo de `POST /api/inventory/transfers`:
 
 Filtrar el kardex por custodio devuelve **las dos direcciones**: lo que entró y lo que salió de
 esa persona o bodega. Es lo que hace que "todo lo de Juan" signifique algo.
+
+#### El origen de un traspaso puede ya no existir
+
+Borrar una sucursal o un usuario **no** borra sus saldos: hacer desaparecer existencias en
+silencio sería peor que dejarlas sin dueño. `GET /api/inventory/orphan-balances` es donde se ven,
+y devuelve además un `holder_label` legible (*"Sucursal eliminada (#7)"*), porque el nombre del
+custodio ya no está en ningún lado.
+
+Listarlos no bastaba: `POST /api/inventory/transfers` validaba que el custodio de **origen**
+existiera, así que un saldo huérfano quedaba visible y atrapado. Ahora el origen se acepta si hay
+una fila de saldo real suya con ese material, exista o no el custodio.
+
+> No es un agujero. Sólo se puede sacar de un origen que **de verdad tiene** ese saldo: no se
+> puede inventar un `source_id` para crear existencias de la nada. El **destino** sí sigue
+> teniendo que existir — mandar material a un custodio inventado lo haría desaparecer otra vez.
+
+#### Una sola carga de inventario por empresa a la vez
+
+`POST /api/import/inventory` responde **409** si ya hay una importación en curso para el mismo
+tenant. No es una limitación de capacidad: dos cargas simultáneas de la misma empresa se corrompen
+entre sí de dos formas independientes —los seriales ya usados se precargan en memoria al empezar,
+y el kardex reconoce las filas nuevas por rango de `id`— y el candado cierra las dos. Ver
+[MEJORAS_RECOMENDADAS.md](MEJORAS_RECOMENDADAS.md) § P-19.
 
 ### 15.2 Equipos de una orden de instalación
 

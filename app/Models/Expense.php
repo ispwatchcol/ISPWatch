@@ -40,6 +40,23 @@ class Expense extends Model
     }
 
     /**
+     * Movimiento de inventario que originó este gasto, cuando lo generó la
+     * entrada automática (KAN-91). Null en los gastos escritos a mano, que son
+     * la mayoría. La columna es ÚNICA: es lo que impide cobrar dos veces la
+     * misma entrada si la operación se reintenta.
+     */
+    public function inventoryMovement()
+    {
+        return $this->belongsTo(InventoryMovement::class, 'inventory_movement_id');
+    }
+
+    /** ¿Lo generó solo el inventario, o lo escribió una persona? */
+    public function esAutomatico(): bool
+    {
+        return $this->inventory_movement_id !== null;
+    }
+
+    /**
      * Staff/técnico a nombre de quién se registra el gasto. Nullable: no todo
      * gasto está asociado a una persona (arriendo, servicios, etc.).
      */

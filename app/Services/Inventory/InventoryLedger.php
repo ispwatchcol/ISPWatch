@@ -38,6 +38,16 @@ use Illuminate\Validation\ValidationException;
  */
 class InventoryLedger
 {
+    /** @var array<int, string> Avisos de gastos que no se pudieron crear. */
+    private array $avisosDeGasto = [];
+
+    // Por constructor y no con app() dentro de record(): así la instancia vive lo
+    // que dure la petición y puede memoizar los ajustes del tenant, en vez de
+    // resolverlos de nuevo en cada movimiento.
+    public function __construct(private InventoryExpenseRecorder $expenseRecorder)
+    {
+    }
+
     /**
      * Traspasa un equipo serializado a un nuevo custodio (usuario o sucursal).
      * Es lo que ocurre cuando la bodega le entrega 10 LDF al técnico Juan.
@@ -511,7 +521,35 @@ class InventoryLedger
         $movement->tenant_id = $tenantId;
         $movement->save();
 
+        // El gasto automático se engancha AQUÍ y no en cada método de entrada
+        // porque este es el cuello de botella: tanto el alta de un equipo
+        // serializado (recordInitialEntry) como la entrada de material sin
+        // origen (transferQuantity) terminan pasando por acá. Un solo punto que
+        // cubre los dos, y que cubrirá al siguiente que aparezca.
+        //
+        // OJO: la carga masiva NO pasa por el ledger — escribe los movimientos
+        // a pelo — así que tiene su propia llamada al recorder. Si algún día se
+        // enruta por acá, hay que quitar aquella para no cobrar dos veces (el
+        // índice único lo impediría, pero mejor no llegar a depender de eso).
+        $aviso = $this->expenseRecorder->forMovement($movement);
+
+        if ($aviso !== null) {
+            $this->avisosDeGasto[] = $aviso;
+        }
+
         return $movement;
+    }
+
+    /**
+     * Avisos acumulados de gastos que no se pudieron crear (material sin precio
+     * de catálogo). Los consume el controlador para mostrárselos al usuario:
+     * callarlos dejaría el balance descuadrado sin que nadie se entere.
+     *
+     * @return array<int, string>
+     */
+    public function avisosDeGasto(): array
+    {
+        return $this->avisosDeGasto;
     }
 
     private function deviceName(InventoryDevice $device): string
