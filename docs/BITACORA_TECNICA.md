@@ -6535,3 +6535,81 @@ Un permiso llamado `view_support` acabó autorizando nueve capacidades de escrit
 decidió: se fue acumulando, como pasó con `edit_internet_service` y el borrado de clientes
 (§56). El nombre de un permiso envejece peor que su implementación, y conviene revisar
 periódicamente **qué autoriza** cada uno, no sólo quién lo tiene.
+
+---
+
+## 62. Un permiso de lectura vaciaba el inventario — 2026-09-11
+
+**KAN-99.** Los cuatro `destroy` del grupo de inventario —equipos, stock, proveedores y
+sucursales— estaban protegidos con `view_inventory`. Un permiso cuyo nombre dice «ver»
+autorizaba destruir.
+
+Es la tercera vez que aparece el mismo patrón: tickets (§54), clientes (§56) y ahora inventario.
+Y la segunda vez en dos días que un permiso de este producto resulta autorizar mucho más de lo
+que su nombre anuncia (§61).
+
+### Por qué importaba ahora y no antes
+
+El defecto era **preexistente e inalcanzable**. Hasta §59 el `DELETE` de equipos ni siquiera
+borraba —el binding roto le entregaba un modelo vacío— y ninguna pantalla lo llamaba. Era un
+endpoint muerto detrás de un permiso flojo: nadie podía llegar.
+
+Ese mismo arreglo añadió el botón *Eliminar* en la tarjeta de equipo. Con el binding funcionando
+y el botón puesto, lo que era teórico pasó a estar **a un clic de cualquiera que pudiera ver el
+inventario** — el rol `Staff` incluido, que trae `view_inventory` de fábrica.
+
+No cambió el código vulnerable. Cambió quién podía alcanzarlo.
+
+### El corte
+
+`DELETE_INVENTORY`, con el mismo tratamiento que `delete_customers` (§56): permiso propio,
+aplicado **sólo** a los cuatro `destroy`, y concedido **sólo** a los roles con `code = 'admin'`.
+
+`view_inventory` se queda intacto y sigue autorizando ver, crear, editar, entregar, mover y dar
+de baja. Son operación diaria del personal de campo y romperlas habría convertido un arreglo de
+seguridad en una avería.
+
+Las rutas de `apiResource` se parten en dos grupos: `->only(['store', 'update'])` bajo
+`view_inventory` y `->only(['destroy'])` bajo `delete_inventory`. Los nombres de ruta que genera
+Laravel no chocan porque son distintos (`inventory-stock.update` vs `inventory-stock.destroy`).
+
+### No se concede por arrastre
+
+Sería más cómodo dárselo a todo rol que hoy tenga `view_inventory`: cero regresiones, nadie se
+queja. Pero eso dejaría exactamente el agujero que la tarjeta viene a cerrar. **Retirar la
+capacidad es el objetivo, no un efecto colateral** — el mismo razonamiento de §56.
+
+### La migración de relleno, otra vez
+
+Un permiso nuevo **no llega solo** a los roles ya sembrados: el frontend lee `role.permissions`
+de la base, no `getPermissionsByRole()`, y no hay bypass de superadministrador. Sin el relleno
+los administradores verían el inventario sin poder borrar nada y sin explicación.
+
+Ya pasó con `manage_document_templates`, que dejó a los administradores en 34 permisos de 35 sin
+ver la pestaña de Plantillas. Es la trampa nº 6 de `MEJORAS_RECOMENDADAS.md` y ésta es la
+tercera migración que existe sólo para esquivarla.
+
+### Por qué las pruebas crean las filas de verdad
+
+Las cuatro rutas usan vinculación implícita de modelo. En el grupo `api`, `SubstituteBindings`
+corre **antes** del middleware de permiso: con un id inexistente la respuesta es 404 y el
+permiso no se llega a comprobar nunca. Un test que pasara con 404 sería un falso positivo que
+no detectaría la regresión.
+
+Por eso cada caso crea el equipo, el stock, el proveedor y la sucursal reales. Y por eso hay una
+prueba que, además del 403, verifica que **la fila sigue ahí**: un middleware mal colocado puede
+rechazar la respuesta con el registro ya destruido.
+
+### Lo que queda abierto
+
+`view_inventory` sigue autorizando **crear y editar**, que es la misma clase de defecto: un
+permiso de lectura que concede escritura. Se deja anotado en **P-45** y no se arregla aquí
+porque borrar es lo irreversible, y mezclar las dos cosas habría hecho el cambio mucho más
+ancho de lo que la tarjeta pedía.
+
+### Lección
+
+La misma de §61, desde el otro lado: revisar qué autoriza un permiso no basta si no se revisa
+**qué lo alcanza**. Este agujero llevaba meses abierto sin riesgo real y se volvió explotable
+por un arreglo de usabilidad que no tocó la autorización. Al añadir una pantalla conviene
+preguntar qué endpoints deja de proteger la oscuridad.

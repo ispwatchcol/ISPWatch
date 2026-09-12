@@ -717,6 +717,24 @@ Route::middleware(['permission:view_reports'])->group(function () {
 });
 ```
 
+> **Si lo que proteges aparte es el borrado de un `apiResource`,** parte el recurso en dos
+> grupos en vez de renunciar a `apiResource`:
+>
+> ```php
+> Route::middleware('permission:view_inventory')->group(function () {
+>     Route::apiResource('inventory-stock', InventoryStockController::class)
+>         ->only(['store', 'update']);
+> });
+> Route::middleware('permission:delete_inventory')->group(function () {
+>     Route::apiResource('inventory-stock', InventoryStockController::class)
+>         ->only(['destroy']);
+> });
+> ```
+>
+> Declarar el mismo recurso dos veces **no** choca: los nombres que genera Laravel son
+> distintos (`inventory-stock.update` vs `inventory-stock.destroy`). Ver KAN-99 y § 62 de
+> `BITACORA_TECNICA.md`.
+
 **4. Controlador** — sólo traduce HTTP; la lógica va a un servicio.
 
 **5. Frontend** — módulo en `services/api/reports.js`, página en `pages/` y ruta con

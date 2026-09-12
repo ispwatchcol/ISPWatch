@@ -1582,7 +1582,7 @@ aparecen en pantalla:
 | **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · Eliminar Factura · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
 | **Contabilidad** | Lista de Gastos · Editar Gasto · Lista de Facturas · Registrar Pagos · Editar Fecha de Pago · Registrar Pago Mayor 3 Días · Agregar Transferencia · Eliminar Transferencia |
 | **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
-| **Inventario** | Ver Inventario |
+| **Inventario** | Ver Inventario · **Eliminar de Inventario** |
 | **Soporte** | Ver Soporte Técnico |
 | **Facturación** | Ver Facturación |
 | **Sistema** | Ver Personal · Gestionar Roles · Gestionar Configuración de Empresa · Gestionar Plantillas de Documentos · Ver Ajustes del Sistema · Ejecutar Acciones Masivas |
@@ -1600,6 +1600,19 @@ aparecen en pantalla:
 > **Ojo con "Activar y Desactivar Clientes":** ese permiso no sólo cambia un estado en pantalla,
 > **actúa sobre el router de verdad**. Es también el que habilita cargar clientes al equipo. No
 > se lo des a quien no deba tocar la red.
+
+> **"Eliminar de Inventario" se separó de "Ver Inventario".** Hasta ahora el mismo permiso que
+> abría la pantalla de inventario permitía **borrar** equipos, stock, proveedores y sucursales.
+> Desde la actualización del 11-sep-2026 son dos permisos distintos, y el de borrar sólo lo
+> reciben los roles de administrador.
+>
+> **Qué vas a notar:** a quien tenga «Ver Inventario» pero no el nuevo permiso le desaparece el
+> botón **Eliminar** en Inventario, Stock, Proveedores y Sucursales. Todo lo demás sigue igual:
+> puede consultar, crear, editar, entregar equipos y dar de baja. Si alguien de tu equipo
+> necesita borrar, márcale «Eliminar de Inventario» en **Roles**.
+>
+> Para sacar un equipo de circulación sin perder su historial, sigue siendo mejor **darlo de
+> baja** que borrarlo: la baja queda escrita en el kardex y el borrado no.
 
 > ⚠️ **Muy importante:** cuando el sistema estrena un permiso nuevo, **los roles que ya
 > existían no lo reciben solos**. Si tras una actualización una pestaña desaparece para los
