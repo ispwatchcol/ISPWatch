@@ -128,6 +128,11 @@ class ApiAuthorizationTest extends TestCase
             'crear sectorial'      => ['post',   '/api/sectorials',  'view_sectorials'],
             'listar inventario'    => ['get',    '/api/inventory',   'view_inventory'],
             'crear equipo'         => ['post',   '/api/inventory',   'view_inventory'],
+            // Permiso propio desde KAN-99: `view_inventory` es de lectura y
+            // abría los cuatro `destroy` del grupo. El borrado de equipos no
+            // entra aquí: usa vinculación implícita y daría 404 antes del
+            // permiso — se cubre en InventoryDeletionPermissionTest.
+            'crear sucursal'       => ['post',   '/api/inventory-branches', 'view_inventory'],
             // PR B · Capacidad propia desde 2026-09-11. `view_support` sigue
             // existiendo, pero gobierna instalaciones, sectoriales e
             // inventario, no la operación del ticket.

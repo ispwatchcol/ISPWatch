@@ -1559,14 +1559,20 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
-| `GET/POST` | `/api/inventory` | auth | Equipos (con serial y MAC) |
-| `GET/PUT/DELETE` | `/api/inventory/{id}` | auth | Detalle / actualiza / elimina |
-| `GET/POST` | `/api/inventory-stock` | auth | Modelos / stock |
-| `PUT/DELETE` | `/api/inventory-stock/{id}` | auth | |
-| `GET/POST` | `/api/inventory-providers` | auth | Proveedores |
-| `PUT/DELETE` | `/api/inventory-providers/{id}` | auth | |
-| `GET/POST` | `/api/inventory-branches` | auth | Sucursales |
-| `PUT/DELETE` | `/api/inventory-branches/{id}` | auth | |
+| `GET` | `/api/inventory` | `view_inventory` ∪ `view_support` | Equipos (con serial y MAC) |
+| `POST` | `/api/inventory` | `view_inventory` | Alta de equipo |
+| `GET` | `/api/inventory/{id}` | `view_inventory` ∪ `view_support` | Detalle |
+| `PUT/PATCH` | `/api/inventory/{id}` | `view_inventory` | Actualiza |
+| `DELETE` | `/api/inventory/{id}` | **`delete_inventory`** | Elimina el equipo |
+| `GET` | `/api/inventory-stock` | `view_inventory` ∪ `view_support` | Modelos / stock |
+| `POST`, `PUT` | `/api/inventory-stock[/{id}]` | `view_inventory` | |
+| `DELETE` | `/api/inventory-stock/{id}` | **`delete_inventory`** | |
+| `GET` | `/api/inventory-providers` | `view_inventory` ∪ `view_support` | Proveedores |
+| `POST`, `PUT` | `/api/inventory-providers[/{id}]` | `view_inventory` | |
+| `DELETE` | `/api/inventory-providers/{id}` | **`delete_inventory`** | |
+| `GET` | `/api/inventory-branches` | `view_inventory` ∪ `view_support` | Sucursales |
+| `POST`, `PUT` | `/api/inventory-branches[/{id}]` | `view_inventory` | |
+| `DELETE` | `/api/inventory-branches/{id}` | **`delete_inventory`** | |
 
 Todos con alcance de tenant vía `BelongsToTenant`. Sustituyeron al acceso directo a Supabase.
 `tenant_id` **no es asignable en masa**: se establece desde el usuario autenticado.
@@ -1578,6 +1584,13 @@ máx. 255 y **únicos dentro del tenant**, no en toda la base. Desde 2026-09-10 
 en uso" sobre un equipo que el cliente no tenía ni podía ver. Es el mismo criterio que ya usaba
 la carga masiva (`InventoryImport`). Los mensajes de choque van en español y nombran el campo:
 `"Ya tienes otro equipo registrado con este serial."`.
+
+> **Los cuatro `DELETE` exigen `delete_inventory` desde 2026-09-11 (KAN-99).** Antes bastaba
+> `view_inventory` —un permiso de lectura— para borrar equipos, stock, proveedores y sucursales.
+> `view_inventory` conserva ver, crear, editar, entregar y dar de baja: lo único que se le retira
+> es el borrado. El permiso nuevo se concede sólo a roles con `code = 'admin'`, y una migración
+> de relleno lo aplica a los ya existentes. Un integrador con `view_inventory` que antes borraba
+> ahora recibe **403**. Ver § 63 de `BITACORA_TECNICA.md`.
 
 **`DELETE /api/inventory/{id}` puede responder 422.** Un equipo `installed`, o que figure en una
 línea de `installation_equipment`, no se borra: la FK es `SET NULL`, así que el borrado no
@@ -2109,7 +2122,8 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_client_traffic` | `routers/{router}/traffic` (por OR con `manage_routers`) |
 | `view_plans` | Escritura de planes y sincronización al router; lectura por OR |
 | `view_sectorials` | Escritura de sectoriales, fotos y notas; lectura por OR |
-| `view_inventory` | Escritura de inventario, stock, proveedores y sucursales; **entregas, kardex, holdings y bajas**; lectura por OR con `view_support`. También es lo que habilita tomar equipos de una **bodega** al llenar una hoja de instalación |
+| `view_inventory` | Alta y edición de inventario, stock, proveedores y sucursales; **entregas, kardex, holdings y bajas**; lectura por OR con `view_support`. También es lo que habilita tomar equipos de una **bodega** al llenar una hoja de instalación. **Ya no autoriza borrar** |
+| `delete_inventory` | `DELETE` de equipos, stock, proveedores y sucursales. Permiso propio desde KAN-99 porque `view_inventory` —de lectura— los abría los cuatro. Se concede sólo a roles con `code = 'admin'` |
 | `view_support` | Tickets (CRUD), instalaciones, prospectos, **equipos de la orden**; lectura de fotos/notas/historial de sectorial |
 | `delete_installations` | `DELETE /api/customers/installations/{installation}` (por OR con `view_support`) |
 | `edit_discount` | `installations/{installation}/billing` |

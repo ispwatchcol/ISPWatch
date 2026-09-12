@@ -38,6 +38,29 @@ class Permissions
     // Inventario permissions
     const VIEW_INVENTORY = 'view_inventory';
 
+    /**
+     * Eliminar equipos, stock, proveedores y sucursales del inventario.
+     *
+     * Permiso propio y no `view_inventory`, que es el que lo autorizaba hasta
+     * ahora: un permiso de LECTURA abría los cuatro `destroy` del grupo de
+     * rutas de inventario.
+     *
+     * El fallo era preexistente pero inalcanzable —ninguna pantalla exponía el
+     * borrado de equipos—. KAN-98 añadió el botón Eliminar en la tarjeta de
+     * equipo, y con él borrar pasó a estar a un clic de cualquiera que pudiera
+     * ver el inventario, el rol `Staff` incluido.
+     *
+     * Mismo tratamiento que `DELETE_CUSTOMERS`: se concede sólo a los roles con
+     * `code = 'admin'`, y no por arrastre desde `view_inventory` — retirar la
+     * capacidad es el objetivo, no un efecto colateral.
+     *
+     * NO cubre `store` ni `update`, que siguen bajo `view_inventory`. Es la
+     * misma clase de defecto y queda anotado como deuda en
+     * `docs/MEJORAS_RECOMENDADAS.md`; borrar es lo irreversible y es lo que
+     * esta tarjeta cierra.
+     */
+    const DELETE_INVENTORY = 'delete_inventory';
+
     // Soporte permissions
     const VIEW_SUPPORT = 'view_support';
 
@@ -182,6 +205,7 @@ class Permissions
             ],
             'Inventario' => [
                 self::VIEW_INVENTORY => 'Ver Inventario',
+                self::DELETE_INVENTORY => 'Eliminar de Inventario (equipos, stock, proveedores, sucursales)',
             ],
             'Soporte' => [
                 self::TICKET_VIEW => 'Tickets · ver listado y detalle',
