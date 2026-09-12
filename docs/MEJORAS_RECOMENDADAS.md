@@ -2117,7 +2117,7 @@ es deuda.
 `staff_profile` puede retirarse de las rutas de ticket y quedar cubierto por los permisos
 `ticket_*`. No antes: quitarlo ahora **ampliaría** el acceso.
 
-### 🟢 P-46 · `edit_discount` se llama como algo que ya no es lo que hace
+### 🟢 P-47 · `edit_discount` se llama como algo que ya no es lo que hace — KAN-104
 
 Es el permiso que autoriza **guardar la cartera de una orden de instalación**: valor,
 adicionales, descuento, forma de pago y abono recibido, lo que emite o recalcula la factura de
@@ -2238,6 +2238,7 @@ un ciclo de despliegue.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
