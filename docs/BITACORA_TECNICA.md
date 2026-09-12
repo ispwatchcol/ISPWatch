@@ -2208,6 +2208,47 @@ se traga la ruta literal y `movements` llega al controlador como si fuera un id.
 el rechazo de equipo ajeno, el descuento por cantidad, el saldo insuficiente, la devolución, el
 traspaso, la entrada sin origen y el kardex por custodio).
 
+### 23.9 Los tres cabos sueltos, cerrados — 2026-09-11
+
+Al entregar el § 23 quedaron anotados tres cabos (P-19 en `MEJORAS_RECOMENDADAS.md`). Ninguno
+bloqueaba el uso, y por eso sobrevivieron un mes. Se cerraron juntos en KAN-77.
+
+**1 · Cambiar cómo se cuenta un modelo que ya tiene existencias.** `is_serialized` decide de dónde
+salen las cantidades: de `inventory_device` (una fila por aparato) o de los saldos por custodio en
+`inventory_balances`. Al cambiarlo, lo registrado bajo la forma anterior deja de mirarse —no se
+borra, se vuelve invisible, que en contabilidad es peor: nadie se entera de que faltan—.
+
+El backend no lo impedía; lo impedía la pantalla, y el propio docblock de `rules()` daba eso por
+hecho. Pero **una interfaz no es una restricción**: la API estaba abierta y un formulario con
+estado viejo bastaba. Ahora `rechazarCambioDeConteoConExistencias()` devuelve 422 nombrando cuántas
+existencias estorban y cómo dejarlas en cero — un "no se puede" a secas obliga a adivinar qué
+mover.
+
+**2 · Saldos huérfanos.** Borrar una sucursal o un usuario no borra sus saldos, y es deliberado.
+Pero sólo se veían consultando la tabla a mano, así que en la práctica era material perdido.
+`GET /api/inventory/orphan-balances` los lista y la pantalla de Movimientos los muestra arriba, con
+un botón para traspasarlos.
+
+Lo que no era obvio al empezar: **listarlos no alcanzaba**. `store()` validaba con
+`assertHolderExists()` también el **origen** del traspaso, así que un saldo huérfano quedaba
+visible y atrapado — la mitad inútil del arreglo. Ahora el origen se acepta si existe una fila de
+saldo real suya con ese material (`assertOrigenUtilizable()`). No es un agujero: no se puede
+inventar un origen para sacar existencias de la nada, y el **destino** sí tiene que existir, porque
+mandar material a un custodio inventado lo haría desaparecer otra vez.
+
+**3 · Importación por rango de `id`.** `recordEntries()` reconocía las filas recién insertadas por
+`id > max(id) previo`. La nota original decía que el escenario ya estaba roto por otro motivo —la
+deduplicación de seriales se cachea en memoria por instancia— y pedía que *quien arregle lo uno
+arregle lo otro*. Un candado por empresa lo hace: `Cache::lock("inventory-import:tenant:{id}")`
+serializa las cargas del mismo tenant y la segunda recibe un 409 con un mensaje que se entiende.
+
+Serializar es la respuesta correcta y no un parche: son cargas manuales de un Excel, no un flujo
+concurrente que haya que escalar. El TTL evita que un proceso muerto deje la empresa bloqueada, y
+el `release()` va en un `finally` para que un archivo inválido no la deje trancada tampoco.
+
+**Pruebas:** `InventoryStockSerializationChangeTest` (5), `InventoryOrphanBalancesTest` (7),
+`InventoryImportConcurrencyTest` (4). La carpeta `tests/Feature/Inventory` pasa de 35 a 46.
+
 ---
 
 ## 24. El Panel de Finanzas era el acumulado histórico y no sabía de gastos — 2026-08-06

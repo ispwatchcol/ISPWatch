@@ -10,6 +10,7 @@ use App\Imports\InventoryImport;
 use App\Imports\UnifiedImport;
 use App\Support\AuditContext;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ImportController extends Controller
@@ -121,6 +122,37 @@ class ImportController extends Controller
         @set_time_limit(120);
 
         $tenantId = auth()->user()->tenant_id;
+
+        // Una sola carga de inventario por empresa a la vez. Dos simultáneas del
+        // MISMO tenant se corrompen entre sí por dos motivos independientes, y
+        // este candado cierra los dos (P-19 · KAN-77):
+        //
+        //  1. InventoryImport precarga en memoria los seriales y MAC ya usados
+        //     para no consultar por fila. Dos instancias en paralelo parten del
+        //     mismo retrato y ninguna ve lo que inserta la otra, así que el
+        //     mismo serial entra dos veces sin que la deduplicación se entere.
+        //  2. recordEntries() reconoce las filas recién insertadas por
+        //     `id > max(id) previo`. Si la otra importación confirma su lote en
+        //     medio, esas filas caen dentro del rango y el kardex les atribuye
+        //     una entrada que no es suya.
+        //
+        // Serializar es la respuesta correcta y no un parche: son cargas
+        // manuales de un Excel, no un flujo concurrente que haya que escalar.
+        // El TTL evita que un proceso muerto deje la empresa bloqueada.
+        $lock = Cache::lock("inventory-import:tenant:{$tenantId}", 300);
+
+        if (! $lock->get()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ya hay una carga de inventario en curso para esta empresa. '
+                    . 'Espera a que termine antes de subir otro archivo.',
+                'summary' => ['equipos' => 0],
+                'errors'  => [],
+            ], 409);
+        }
+
+        // El constructor es parte de la sección crítica: es donde se toma el
+        // retrato de seriales y MAC existentes.
         $import = new InventoryImport($tenantId);
 
         try {
@@ -132,6 +164,8 @@ class ImportController extends Controller
                 'summary' => ['equipos' => $import->imported],
                 'errors'  => $import->errors,
             ], 500);
+        } finally {
+            $lock->release();
         }
 
         $errors = $import->errors;
