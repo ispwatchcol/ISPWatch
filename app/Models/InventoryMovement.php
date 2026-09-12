@@ -30,6 +30,11 @@ class InventoryMovement extends Model
         'to_type',
         'to_id',
         'installation_id',
+        // De qué ticket de soporte salió, si salió de uno (KAN-92). Sin esta
+        // marca el kardex diría que se lo llevó el cliente, sin poder decir por
+        // qué: un equipo entregado en una visita sería indistinguible de uno
+        // entregado en una instalación.
+        'ticket_id',
         'customer_id',
         'notes',
         'created_by',

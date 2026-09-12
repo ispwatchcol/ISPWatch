@@ -40,6 +40,7 @@ use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
 use App\Http\Controllers\InventoryMovementController;
 use App\Http\Controllers\InstallationEquipmentController;
+use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
@@ -176,6 +177,23 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::post('/installations/{installation}/equipment', [InstallationEquipmentController::class, 'store'])
         ->middleware('permission:view_support');
     Route::delete('/installations/{installation}/equipment/{item}', [InstallationEquipmentController::class, 'destroy'])
+        ->middleware('permission:view_support');
+
+    // Equipos y materiales entregados en una visita de soporte (KAN-92).
+    // Mismo permiso que instalaciones y por la misma razón: quien atiende la
+    // visita es quien descarga el inventario. La regla de custodia la aplica
+    // InventoryLedger — un técnico sólo descarga lo que tiene encima— así que
+    // no hace falta un permiso nuevo.
+    Route::get('/support/{ticket}/equipment', [TicketEquipmentController::class, 'index'])
+        ->middleware('permission:view_support,view_clients');
+    Route::get('/support/{ticket}/equipment/available', [TicketEquipmentController::class, 'available'])
+        ->middleware('permission:view_support');
+    Route::post('/support/{ticket}/equipment', [TicketEquipmentController::class, 'store'])
+        ->middleware('permission:view_support');
+    // Retirar del cliente un equipo que ya tenía: la otra mitad del reemplazo.
+    Route::post('/support/{ticket}/equipment/retrieve', [TicketEquipmentController::class, 'retrieve'])
+        ->middleware('permission:view_support');
+    Route::delete('/support/{ticket}/equipment/{item}', [TicketEquipmentController::class, 'destroy'])
         ->middleware('permission:view_support');
 
     // ─── PROSPECTS ───
