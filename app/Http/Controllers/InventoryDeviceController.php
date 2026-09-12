@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\InstallationEquipment;
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
+use App\Services\Inventory\InventoryExpenseRecorder;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -12,8 +13,10 @@ use Illuminate\Validation\ValidationException;
 
 class InventoryDeviceController extends Controller
 {
-    public function __construct(private InventoryLedger $ledger)
-    {
+    public function __construct(
+        private InventoryLedger $ledger,
+        private InventoryExpenseRecorder $expenseRecorder,
+    ) {
     }
 
     /**
@@ -140,6 +143,22 @@ class InventoryDeviceController extends Controller
                 'device' => 'Este equipo está instalado en casa de un cliente y no se puede eliminar. '
                     . 'Devuélvelo a bodega o dale de baja para sacarlo del inventario.',
             ]);
+        }
+
+        // Si la entrada de este equipo generó un gasto automático (KAN-91), hay
+        // que anularlo: borrar el equipo sin tocar el gasto deja el balance
+        // cargando una compra que ya no existe en el inventario.
+        //
+        // Se anula, no se borra. Es precedente firme del proyecto: destruir un
+        // registro de dinero deja el balance cuadrando por arte de magia y sin
+        // rastro de qué pasó.
+        $entradas = InventoryMovement::withoutTenantScope()
+            ->where('device_id', $inventory->id)
+            ->where('type', InventoryMovement::TYPE_ENTRADA)
+            ->pluck('id');
+
+        foreach ($entradas as $movimientoId) {
+            $this->expenseRecorder->voidForMovement($movimientoId);
         }
 
         $inventory->delete();

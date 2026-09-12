@@ -144,6 +144,29 @@
               </div>
             </div>
 
+            <!-- Avisos: la fila SÍ entró, pero algo de alrededor no se pudo
+                 hacer — hoy, el gasto automático de un modelo sin precio. No son
+                 errores y por eso no van en rojo ni marcan la carga como
+                 fallida; pero tampoco pueden callarse, porque el balance
+                 quedaría descuadrado sin que nadie se entere. -->
+            <div
+              v-if="results.warnings && results.warnings.length"
+              class="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-left"
+            >
+              <p class="text-xs font-semibold text-amber-900 dark:text-amber-200 mb-1">
+                Avisos ({{ results.warnings.length }})
+              </p>
+              <ul class="list-disc list-inside space-y-1">
+                <li
+                  v-for="(aviso, i) in results.warnings"
+                  :key="i"
+                  class="text-xs text-amber-800 dark:text-amber-300"
+                >
+                  {{ aviso }}
+                </li>
+              </ul>
+            </div>
+
             <button
               v-if="results.errors && results.errors.length"
               @click="showErrors = true"

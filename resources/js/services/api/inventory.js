@@ -24,6 +24,11 @@ export default {
     holdings(params = {}) {
         return apiClient.get('/inventory/holdings', { params })
     },
+    // Material cuyo custodio (sucursal o usuario) fue borrado: existencias que
+    // no cuenta nadie hasta que se traspasan a un custodio vivo.
+    orphanBalances() {
+        return apiClient.get('/inventory/orphan-balances')
+    },
     // Entrega/traspaso de equipos y materiales a un custodio.
     transfer(payload) {
         return apiClient.post('/inventory/transfers', payload)

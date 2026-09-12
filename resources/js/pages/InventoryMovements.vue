@@ -59,6 +59,96 @@
         </div>
       </div>
 
+      <!-- Material sin custodio -->
+      <!-- Borrar una sucursal o un usuario no borra sus saldos: hacerlos
+           desaparecer en silencio sería peor. Pero hasta ahora esas filas sólo
+           se veían consultando la tabla a mano, así que el material estaba
+           perdido en la práctica. Aquí se ve y desde aquí se rescata. -->
+      <div v-if="orphans.length"
+           class="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 md:p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-xl shrink-0">
+            <v-icon name="bi-exclamation-triangle" class="text-amber-600 dark:text-amber-400 w-5 h-5" />
+          </div>
+          <div>
+            <h2 class="text-base font-semibold text-amber-900 dark:text-amber-200">
+              Material sin custodio ({{ orphans.length }})
+            </h2>
+            <p class="text-sm text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+              Su sucursal o usuario fue eliminado. El material sigue existiendo pero no lo cuenta
+              nadie: traspásalo a un custodio actual para volver a tenerlo en el inventario.
+            </p>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-amber-900/70 dark:text-amber-300/70">
+                <th class="py-2 pr-4 font-medium">Material</th>
+                <th class="py-2 pr-4 font-medium">Estaba en</th>
+                <th class="py-2 pr-4 font-medium">Cantidad</th>
+                <th class="py-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="o in orphans" :key="`${o.holder_type}:${o.holder_id}:${o.stock_id}`"
+                  class="border-t border-amber-200/60 dark:border-amber-800/60">
+                <td class="py-2 pr-4 text-gray-800 dark:text-gray-100">{{ o.item }}</td>
+                <td class="py-2 pr-4 text-gray-600 dark:text-gray-300">{{ o.holder_label }}</td>
+                <td class="py-2 pr-4 text-gray-800 dark:text-gray-100 font-medium">
+                  {{ fmtQty(o.quantity) }} <span class="text-gray-500 dark:text-gray-400">{{ o.unit || '' }}</span>
+                </td>
+                <td class="py-2">
+                  <button type="button" @click="abrirRescate(o)"
+                    class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
+                    Traspasar
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Rescate de material sin custodio -->
+      <div v-if="rescate" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="fixed inset-0 bg-black/50" @click="rescate = null"></div>
+        <div class="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Traspasar material</h3>
+          <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            {{ rescate.item }} — {{ fmtQty(rescate.quantity) }} {{ rescate.unit || '' }},
+            de {{ rescate.holder_label }}.
+          </p>
+
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nuevo custodio</label>
+          <select v-model="rescateDestino"
+            class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl
+                   bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm mb-4
+                   focus:ring-2 focus:ring-purple-500 outline-none">
+            <option value="">Selecciona…</option>
+            <option v-for="opt in holderOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+          </select>
+
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cantidad</label>
+          <input v-model.number="rescateCantidad" type="number" min="0.01" :max="rescate.quantity" step="0.01"
+            class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl
+                   bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm mb-6
+                   focus:ring-2 focus:ring-purple-500 outline-none" />
+
+          <div class="flex justify-end gap-2">
+            <button type="button" @click="rescate = null"
+              class="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+              Cancelar
+            </button>
+            <button type="button" @click="confirmarRescate" :disabled="!rescateDestino || rescateGuardando"
+              class="px-4 py-2 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg disabled:opacity-50 transition">
+              {{ rescateGuardando ? 'Traspasando…' : 'Traspasar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Tabla -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
         <div v-if="loading" class="flex items-center justify-center py-16 text-gray-500 dark:text-gray-400">
@@ -163,6 +253,57 @@ const staff = ref([])
 
 const filters = ref({ holder: '', type: '', from: '', to: '' })
 
+// Material cuyo custodio se borró: existencias que hoy no cuenta nadie.
+const orphans = ref([])
+const rescate = ref(null)
+const rescateDestino = ref('')
+const rescateCantidad = ref(0)
+const rescateGuardando = ref(false)
+
+const cargarHuerfanos = async () => {
+  try {
+    const { data } = await inventoryApi.orphanBalances()
+    orphans.value = data || []
+  } catch {
+    // Que no se caiga el kardex por esto: es un aviso, no el contenido
+    // principal de la pantalla.
+    orphans.value = []
+  }
+}
+
+const abrirRescate = (o) => {
+  rescate.value = o
+  rescateDestino.value = ''
+  rescateCantidad.value = o.quantity
+}
+
+const confirmarRescate = async () => {
+  if (!rescateDestino.value || rescateGuardando.value) return
+  const [toType, toId] = rescateDestino.value.split(':')
+
+  rescateGuardando.value = true
+  try {
+    await inventoryApi.transfer({
+      to_type: toType,
+      to_id: Number(toId),
+      materials: [{
+        stock_id: rescate.value.stock_id,
+        quantity: Number(rescateCantidad.value),
+        source_type: rescate.value.holder_type,
+        source_id: rescate.value.holder_id,
+      }],
+      notes: 'Rescate de material sin custodio',
+    })
+    toast.value?.success('Listo', 'El material vuelve a estar contado.')
+    rescate.value = null
+    await Promise.all([cargarHuerfanos(), load()])
+  } catch (e) {
+    toast.value?.error('Error', e.response?.data?.message || 'No se pudo traspasar el material.')
+  } finally {
+    rescateGuardando.value = false
+  }
+}
+
 const holderOptions = computed(() => {
   const options = []
   for (const b of branches.value) options.push({ key: `branch:${b.id}`, label: b.name || `Sucursal #${b.id}` })
@@ -239,6 +380,6 @@ onMounted(async () => {
   ])
   if (branchRes.status === 'fulfilled') branches.value = branchRes.value.data || []
   if (staffRes.status === 'fulfilled')  staff.value    = staffRes.value.data || []
-  await load()
+  await Promise.all([load(), cargarHuerfanos()])
 })
 </script>

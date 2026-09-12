@@ -8,7 +8,7 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
-- **El técnico veía la instalación pero no cuánto costaba (2026-09-11, § 62):** el bloque de
+- **El técnico veía la instalación pero no cuánto costaba (2026-09-11, § 63):** el bloque de
   cartera de la orden estaba gobernado por `edit_discount` —«Editar Descuento» en la pantalla de
   roles—, así que no había casilla que un administrador pudiera reconocer y el rol Técnico no
   veía el apartado. Nuevo `view_installation_cost`, de **sólo lectura**: muestra valor, abono y
@@ -2212,6 +2212,47 @@ se traga la ruta literal y `movements` llega al controlador como si fuera un id.
 611 pruebas en verde (599 antes; +12 de `InventoryCustodyTest`, que cubre el filtro por custodia,
 el rechazo de equipo ajeno, el descuento por cantidad, el saldo insuficiente, la devolución, el
 traspaso, la entrada sin origen y el kardex por custodio).
+
+### 23.9 Los tres cabos sueltos, cerrados — 2026-09-11
+
+Al entregar el § 23 quedaron anotados tres cabos (P-19 en `MEJORAS_RECOMENDADAS.md`). Ninguno
+bloqueaba el uso, y por eso sobrevivieron un mes. Se cerraron juntos en KAN-77.
+
+**1 · Cambiar cómo se cuenta un modelo que ya tiene existencias.** `is_serialized` decide de dónde
+salen las cantidades: de `inventory_device` (una fila por aparato) o de los saldos por custodio en
+`inventory_balances`. Al cambiarlo, lo registrado bajo la forma anterior deja de mirarse —no se
+borra, se vuelve invisible, que en contabilidad es peor: nadie se entera de que faltan—.
+
+El backend no lo impedía; lo impedía la pantalla, y el propio docblock de `rules()` daba eso por
+hecho. Pero **una interfaz no es una restricción**: la API estaba abierta y un formulario con
+estado viejo bastaba. Ahora `rechazarCambioDeConteoConExistencias()` devuelve 422 nombrando cuántas
+existencias estorban y cómo dejarlas en cero — un "no se puede" a secas obliga a adivinar qué
+mover.
+
+**2 · Saldos huérfanos.** Borrar una sucursal o un usuario no borra sus saldos, y es deliberado.
+Pero sólo se veían consultando la tabla a mano, así que en la práctica era material perdido.
+`GET /api/inventory/orphan-balances` los lista y la pantalla de Movimientos los muestra arriba, con
+un botón para traspasarlos.
+
+Lo que no era obvio al empezar: **listarlos no alcanzaba**. `store()` validaba con
+`assertHolderExists()` también el **origen** del traspaso, así que un saldo huérfano quedaba
+visible y atrapado — la mitad inútil del arreglo. Ahora el origen se acepta si existe una fila de
+saldo real suya con ese material (`assertOrigenUtilizable()`). No es un agujero: no se puede
+inventar un origen para sacar existencias de la nada, y el **destino** sí tiene que existir, porque
+mandar material a un custodio inventado lo haría desaparecer otra vez.
+
+**3 · Importación por rango de `id`.** `recordEntries()` reconocía las filas recién insertadas por
+`id > max(id) previo`. La nota original decía que el escenario ya estaba roto por otro motivo —la
+deduplicación de seriales se cachea en memoria por instancia— y pedía que *quien arregle lo uno
+arregle lo otro*. Un candado por empresa lo hace: `Cache::lock("inventory-import:tenant:{id}")`
+serializa las cargas del mismo tenant y la segunda recibe un 409 con un mensaje que se entiende.
+
+Serializar es la respuesta correcta y no un parche: son cargas manuales de un Excel, no un flujo
+concurrente que haya que escalar. El TTL evita que un proceso muerto deje la empresa bloqueada, y
+el `release()` va en un `finally` para que un archivo inválido no la deje trancada tampoco.
+
+**Pruebas:** `InventoryStockSerializationChangeTest` (5), `InventoryOrphanBalancesTest` (7),
+`InventoryImportConcurrencyTest` (4). La carpeta `tests/Feature/Inventory` pasa de 35 a 46.
 
 ---
 
@@ -6543,7 +6584,84 @@ periódicamente **qué autoriza** cada uno, no sólo quién lo tiene.
 
 ---
 
-## 62. El técnico veía la instalación pero no cuánto costaba — 2026-09-11
+## 62. Que la entrada de inventario genere el gasto, sin que nadie lo pida — 2026-09-11
+
+**Pedido:** que ingresar un equipo descuente del balance de finanzas, *sólo si el ISP lo activa*.
+Hasta ahora inventario y finanzas no se tocaban: una compra de equipos entraba al balance
+únicamente si alguien la escribía a mano como gasto.
+
+### Por qué nace apagada
+
+Muchos ISP ya registran la factura del proveedor como gasto manual. Con esto encendido, esa compra
+se contaría **dos veces** y el balance mostraría menos utilidad de la real. Nadie reclama por tener
+menos utilidad de la que cree — así que un error en ese sentido puede vivir meses sin que lo
+detecten. Por eso `tenant.inventory_entry_creates_expense` nace en `false`, el texto de
+Configuración lo dice con todas las letras, y hay una prueba que blinda el default.
+
+### El enganche: un solo punto, no tres
+
+Los dos caminos de entrada del ledger —`recordInitialEntry()` para un equipo serializado y
+`transferQuantity()` sin origen para material— terminan los dos en el mismo `record()` privado.
+Enganchar ahí cubre ambos, y cubrirá al siguiente que aparezca.
+
+**Pero hay un tercero que no pasa por el ledger.** `InventoryImport` escribe los movimientos con
+`DB::table()->insert()` directo. Si el gasto sólo se enganchara en el ledger, importar 200 equipos
+no habría generado **ni un gasto**, y el balance no cuadraría sin que nadie se enterara. El ticket
+lo señalaba como la trampa y tenía razón: la carga masiva lleva su propia llamada.
+
+### Por qué el servicio es por lotes y no por movimiento
+
+La primera versión recorría los movimientos llamando al recorder uno por uno. Eso es exactamente
+lo que ya tumbó el gateway una vez con 200 filas (§ imports masivos): una importación no puede
+hacer consultas por fila. `InventoryExpenseRecorder::forMovements()` hace **tres consultas fijas**
+—gastos existentes, precios del catálogo, inserción masiva— sin importar si entran 2 equipos o 500.
+El método de un solo movimiento delega en el de lotes, no al revés.
+
+Del mismo orden: con el interruptor **apagado** —el caso de todos hoy— `record()` pasaba igual por
+el recorder en cada movimiento. Se memoizan los ajustes del tenant por instancia y el servicio se
+inyecta por constructor en el ledger, para no pagar una consulta de más por movimiento a cambio de
+nada.
+
+### Las dos decisiones que el ticket dejó abiertas
+
+**Un modelo sin precio de catálogo no genera gasto, y se avisa.** Las otras dos opciones eran
+peores: un gasto en 0 se lee como «salió gratis», no como «falta el dato», y ensucia el listado;
+omitirlo en silencio descuadra el balance sin que nadie lo note. El aviso se agrupa por modelo — en
+una carga de 200 equipos iguales, 200 líneas idénticas no informan más que una, sólo esconden las
+demás. Y viaja en `warnings`, aparte de `errors`: el equipo **sí** entró, así que marcar la
+importación como fallida sería mentir.
+
+**El interruptor exige `view_expenses`; ingresar equipos no.** La ruta de configuración ya pedía
+`manage_tenant`, pero encender esto hace que el inventario mueva el balance. La frontera quedó en
+la decisión, no en el trabajo diario: el almacenista sigue ingresando equipos con `view_inventory`
+y el gasto sale como consecuencia trazable. Exigirle permiso financiero para trabajar habría hecho
+que la función se sintiera como que «no deja trabajar».
+
+### Trazabilidad e idempotencia
+
+`expenses.inventory_movement_id` es nullable y **único**. Nullable porque casi todos los gastos se
+escriben a mano; único porque es lo que hace que reintentar una entrada no cobre dos veces. Sin esa
+columna tampoco habría forma de distinguir un gasto automático de uno manual, ni de anularlo.
+
+Al borrar un equipo, el gasto de su entrada **se anula**, no se borra: precedente firme del
+proyecto — destruir un registro de dinero deja el balance cuadrando por arte de magia y sin rastro
+de qué pasó (§ borrar factura pagada).
+
+### Pruebas
+
+16 nuevas: `InventoryEntryExpenseTest` (11) cubre las dos ramas del interruptor, el multiplicador
+por cantidad, que un traspaso **no** sea una compra, la idempotencia, la anulación, el modelo sin
+precio, la paridad de la carga masiva y que el importe quede congelado frente a un cambio de
+catálogo. `InventoryExpenseSettingTest` (5) cubre el permiso — incluida la regresión que había que
+evitar: que exigir `view_expenses` **no** se derrame sobre el resto de la configuración y deje a un
+admin sin poder cambiarle el nombre a su empresa.
+
+**Post-despliegue:** la migración corre sola en el job `migrate` (PRE_DEPLOY). Recordar
+`migrate:both` si se aplica en local, para que `ispwatch_dev` no se quede atrás.
+
+---
+
+## 63. El técnico veía la instalación pero no cuánto costaba — 2026-09-11
 
 Reporte desde el terreno: los técnicos de Chaguaní abren la orden de instalación y el bloque
 **Información de Cartera** —valor, adicionales, descuento, abono, saldo— sencillamente no está.

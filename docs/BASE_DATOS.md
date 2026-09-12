@@ -390,6 +390,7 @@ erDiagram
     customer_installations ||--o{ installation_equipment : "equipos usados"
     inventory_device ||--o| installation_equipment : "instalado en"
 
+    inventory_movements ||--o| expenses : "gasto automático"
     expense_categories ||--o{ expenses : ""
     users ||--o{ expenses : "beneficiario / creador"
 ```
@@ -416,6 +417,8 @@ usada en los documentos, la marca y el contador de numeración de facturas.
 | `next_invoice_number` | integer | NN | `1` | Contador secuencial de facturación |
 | `contract_prefix` | varchar(20) | | | Prefijo del consecutivo de contratos (`CTR` si está vacío) |
 | `next_contract_number` | integer | NN | `1` | Contador secuencial de contratos firmados |
+| `inventory_entry_creates_expense` | boolean | NN | `false` | Si la entrada de inventario genera un gasto automático. **Nace apagado a propósito**: el ISP que ya registra la factura del proveedor contaría la compra dos veces |
+| `inventory_expense_category_id` | bigint | | | Categoría en la que caen esos gastos. FK a `expense_categories`, `nullOnDelete` |
 | `logo` | varchar(255) | | | Ruta del logo |
 | `brand_color` | varchar(7) | | | Color de marca en HEX |
 | `document_footer_text` | text | | | Pie de página de los documentos |
@@ -1116,7 +1119,7 @@ Agregado permanente.
 
 | Tabla | Descripción |
 |---|---|
-| `expenses` | `expense_category_id`, `user_id` (beneficiario), `created_by`, `expense_date`, `amount`, `description`, `notes`, `status` (`activo`\|`anulado` — **no hay borrado físico**) |
+| `expenses` | `expense_category_id`, `user_id` (beneficiario), `created_by`, `inventory_movement_id` (**UK**, nullable — el movimiento que lo originó si lo creó el inventario), `expense_date`, `amount`, `description`, `notes`, `status` (`activo`\|`anulado` — **no hay borrado físico**) |
 | `expense_categories` | `name` por tenant |
 | `bulk_provision_runs` | **PK uuid**. `status`, `total`, `processed`, `success_count`, `fail_count`, `pppoe_skipped_count`, `results` (json), `finished_at` |
 | `audit_logs` | `user_id`, `action`, `model_type`, `model_id`, `old_values`/`new_values` (json), `ip_address`, `user_agent` |
