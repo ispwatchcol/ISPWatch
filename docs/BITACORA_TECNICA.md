@@ -6576,3 +6576,80 @@ Un permiso llamado `view_support` acabó autorizando nueve capacidades de escrit
 decidió: se fue acumulando, como pasó con `edit_internet_service` y el borrado de clientes
 (§56). El nombre de un permiso envejece peor que su implementación, y conviene revisar
 periódicamente **qué autoriza** cada uno, no sólo quién lo tiene.
+
+---
+
+## 62. Que la entrada de inventario genere el gasto, sin que nadie lo pida — 2026-09-11
+
+**Pedido:** que ingresar un equipo descuente del balance de finanzas, *sólo si el ISP lo activa*.
+Hasta ahora inventario y finanzas no se tocaban: una compra de equipos entraba al balance
+únicamente si alguien la escribía a mano como gasto.
+
+### Por qué nace apagada
+
+Muchos ISP ya registran la factura del proveedor como gasto manual. Con esto encendido, esa compra
+se contaría **dos veces** y el balance mostraría menos utilidad de la real. Nadie reclama por tener
+menos utilidad de la que cree — así que un error en ese sentido puede vivir meses sin que lo
+detecten. Por eso `tenant.inventory_entry_creates_expense` nace en `false`, el texto de
+Configuración lo dice con todas las letras, y hay una prueba que blinda el default.
+
+### El enganche: un solo punto, no tres
+
+Los dos caminos de entrada del ledger —`recordInitialEntry()` para un equipo serializado y
+`transferQuantity()` sin origen para material— terminan los dos en el mismo `record()` privado.
+Enganchar ahí cubre ambos, y cubrirá al siguiente que aparezca.
+
+**Pero hay un tercero que no pasa por el ledger.** `InventoryImport` escribe los movimientos con
+`DB::table()->insert()` directo. Si el gasto sólo se enganchara en el ledger, importar 200 equipos
+no habría generado **ni un gasto**, y el balance no cuadraría sin que nadie se enterara. El ticket
+lo señalaba como la trampa y tenía razón: la carga masiva lleva su propia llamada.
+
+### Por qué el servicio es por lotes y no por movimiento
+
+La primera versión recorría los movimientos llamando al recorder uno por uno. Eso es exactamente
+lo que ya tumbó el gateway una vez con 200 filas (§ imports masivos): una importación no puede
+hacer consultas por fila. `InventoryExpenseRecorder::forMovements()` hace **tres consultas fijas**
+—gastos existentes, precios del catálogo, inserción masiva— sin importar si entran 2 equipos o 500.
+El método de un solo movimiento delega en el de lotes, no al revés.
+
+Del mismo orden: con el interruptor **apagado** —el caso de todos hoy— `record()` pasaba igual por
+el recorder en cada movimiento. Se memoizan los ajustes del tenant por instancia y el servicio se
+inyecta por constructor en el ledger, para no pagar una consulta de más por movimiento a cambio de
+nada.
+
+### Las dos decisiones que el ticket dejó abiertas
+
+**Un modelo sin precio de catálogo no genera gasto, y se avisa.** Las otras dos opciones eran
+peores: un gasto en 0 se lee como «salió gratis», no como «falta el dato», y ensucia el listado;
+omitirlo en silencio descuadra el balance sin que nadie lo note. El aviso se agrupa por modelo — en
+una carga de 200 equipos iguales, 200 líneas idénticas no informan más que una, sólo esconden las
+demás. Y viaja en `warnings`, aparte de `errors`: el equipo **sí** entró, así que marcar la
+importación como fallida sería mentir.
+
+**El interruptor exige `view_expenses`; ingresar equipos no.** La ruta de configuración ya pedía
+`manage_tenant`, pero encender esto hace que el inventario mueva el balance. La frontera quedó en
+la decisión, no en el trabajo diario: el almacenista sigue ingresando equipos con `view_inventory`
+y el gasto sale como consecuencia trazable. Exigirle permiso financiero para trabajar habría hecho
+que la función se sintiera como que «no deja trabajar».
+
+### Trazabilidad e idempotencia
+
+`expenses.inventory_movement_id` es nullable y **único**. Nullable porque casi todos los gastos se
+escriben a mano; único porque es lo que hace que reintentar una entrada no cobre dos veces. Sin esa
+columna tampoco habría forma de distinguir un gasto automático de uno manual, ni de anularlo.
+
+Al borrar un equipo, el gasto de su entrada **se anula**, no se borra: precedente firme del
+proyecto — destruir un registro de dinero deja el balance cuadrando por arte de magia y sin rastro
+de qué pasó (§ borrar factura pagada).
+
+### Pruebas
+
+16 nuevas: `InventoryEntryExpenseTest` (11) cubre las dos ramas del interruptor, el multiplicador
+por cantidad, que un traspaso **no** sea una compra, la idempotencia, la anulación, el modelo sin
+precio, la paridad de la carga masiva y que el importe quede congelado frente a un cambio de
+catálogo. `InventoryExpenseSettingTest` (5) cubre el permiso — incluida la regresión que había que
+evitar: que exigir `view_expenses` **no** se derrame sobre el resto de la configuración y deje a un
+admin sin poder cambiarle el nombre a su empresa.
+
+**Post-despliegue:** la migración corre sola en el job `migrate` (PRE_DEPLOY). Recordar
+`migrate:both` si se aplica en local, para que `ispwatch_dev` no se quede atrás.

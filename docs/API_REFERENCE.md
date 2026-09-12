@@ -1591,6 +1591,22 @@ no como número: antes era `nullable|integer` sobre una columna `int4` y cualqui
 colombiano la desbordaba con un 500. Un valor de más de 30 caracteres ahora responde **422**
 con el error en `numero`, no un 500.
 
+> **Gasto automático al ingresar inventario (opcional, apagado por defecto).** Si la empresa
+> activa `tenant.inventory_entry_creates_expense`, toda ENTRADA —alta de un equipo, entrada de
+> material sin origen y carga masiva— crea un `expense` por `stock.price × cantidad`, enlazado al
+> movimiento en `expenses.inventory_movement_id`. Esa columna es **única**: es lo que hace que
+> reintentar una entrada no cobre dos veces.
+>
+> El interruptor se cambia por `PUT|PATCH /api/tenant/config`, que pide `manage_tenant` **y
+> además `view_expenses`** para estos dos campos: encenderlo hace que el inventario mueva el
+> balance financiero, y esa decisión es de quien responde por el balance. El resto de la
+> configuración sigue pidiendo sólo `manage_tenant`.
+>
+> Si el modelo no tiene precio de catálogo **no se crea gasto** y se devuelve un aviso — ni un
+> gasto en 0 (que se lee como "salió gratis") ni silencio (que descuadra el balance sin que nadie
+> se entere). En la carga masiva esos avisos llegan en `warnings`, que **no** afecta a `success`:
+> el equipo entró bien, lo que faltó fue el gasto.
+
 > **Cambiar `is_serialized` con existencias devuelve 422.** Ese campo decide de dónde salen las
 > cantidades: de las filas de `inventory_device` (una por aparato) o de los saldos por custodio en
 > `inventory_balances`. Cambiarlo deja de mirar lo registrado bajo la forma anterior — no lo borra,

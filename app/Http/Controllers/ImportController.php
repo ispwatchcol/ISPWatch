@@ -177,6 +177,10 @@ class ImportController extends Controller
             'partial' => $hasErrors && $imported > 0,
             'summary' => ['equipos' => $imported],
             'errors'  => $errors,
+            // Los avisos NO afectan a `success`: el equipo entró bien, lo que
+            // falló es algo de alrededor (hoy, el gasto automático de un modelo
+            // sin precio). Ocultarlos dejaría el balance descuadrado en silencio.
+            'warnings' => $import->warnings,
             'message' => $this->buildInventorySummaryMessage($imported, $errors),
         ], $hasErrors && $imported === 0 ? 422 : 200);
     }
