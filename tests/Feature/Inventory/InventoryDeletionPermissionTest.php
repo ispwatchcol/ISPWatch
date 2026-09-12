@@ -244,7 +244,7 @@ class InventoryDeletionPermissionTest extends TestCase
         }
 
         $migracion = require database_path(
-            'migrations/2026_09_11_000001_grant_delete_inventory_to_admin_roles.php'
+            'migrations/2026_09_11_000003_grant_delete_inventory_to_admin_roles.php'
         );
         $migracion->up();
 
@@ -269,7 +269,7 @@ class InventoryDeletionPermissionTest extends TestCase
         ]);
 
         $migracion = require database_path(
-            'migrations/2026_09_11_000001_grant_delete_inventory_to_admin_roles.php'
+            'migrations/2026_09_11_000003_grant_delete_inventory_to_admin_roles.php'
         );
         $migracion->up();
         $migracion->down();
@@ -290,7 +290,7 @@ class InventoryDeletionPermissionTest extends TestCase
         ]);
 
         $migracion = require database_path(
-            'migrations/2026_09_11_000001_grant_delete_inventory_to_admin_roles.php'
+            'migrations/2026_09_11_000003_grant_delete_inventory_to_admin_roles.php'
         );
         $migracion->up();
 
