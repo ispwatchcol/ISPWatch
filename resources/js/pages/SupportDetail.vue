@@ -20,13 +20,32 @@
                     </p>
                 </div>
                 <div class="flex gap-2">
+                    <!-- PR C · Un expediente archivado está fuera de la operación:
+                         el backend rechaza editarlo, anotarlo y transicionarlo, así
+                         que la pantalla tampoco lo ofrece. -->
                     <button
-                        v-if="canEdit"
+                        v-if="canEdit && !ticket.is_archived"
                         @click="router.push(`/support/${ticketId}/edit`)"
                         class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
                     >
                     <v-icon name="fa-edit" class="w-5 h-5 inline mr-2"></v-icon>
                         Editar
+                    </button>
+                    <button
+                        v-if="canArchive && !ticket.is_archived"
+                        @click="abrirArchivado"
+                        class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition"
+                    >
+                        <v-icon name="bi-archive" class="w-5 h-5 inline mr-2"></v-icon>
+                        Archivar
+                    </button>
+                    <button
+                        v-if="canRestore && ticket.is_archived"
+                        @click="abrirRestauracion"
+                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+                    >
+                        <v-icon name="ri-arrow-go-back-line" class="w-5 h-5 inline mr-2"></v-icon>
+                        Restaurar
                     </button>
                     <button
                         @click="router.push('/support')"
@@ -35,6 +54,34 @@
                     <v-icon name="ri-arrow-go-back-line" class="w-5 h-5 inline mr-2"></v-icon>
                         Volver
                     </button>
+                </div>
+            </div>
+
+            <!-- PR C · El expediente archivado se ve entero, pero con el aviso
+                 delante: quien lo abre tiene que saber que no está en operación
+                 antes de leer nada, no descubrirlo al intentar anotar. -->
+            <div
+                v-if="ticket.is_archived"
+                class="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/30"
+            >
+                <div class="flex items-start gap-3">
+                    <v-icon name="bi-archive" class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+                    <div class="text-sm">
+                        <p class="font-bold text-amber-900 dark:text-amber-200">
+                            Expediente archivado el {{ formatDate(ticket.archived_at) }}
+                        </p>
+                        <p v-if="ticket.archived_reason" class="mt-1 text-amber-800 dark:text-amber-300">
+                            <span class="font-semibold">Motivo:</span> {{ ticket.archived_reason }}
+                        </p>
+                        <p v-if="ticket.archiver" class="mt-1 text-amber-800 dark:text-amber-300">
+                            <span class="font-semibold">Archivado por:</span>
+                            {{ ticket.archiver.user_name }} {{ ticket.archiver.user_lastname }}
+                        </p>
+                        <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                            El expediente se conserva íntegro —notas, adjuntos, cargos e historial— pero está
+                            fuera de la operación: no admite ediciones ni notas hasta que se restaure.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -555,6 +602,177 @@
             </div>
         </div>
     </div>
+        <!-- ── PR C · Archivar expediente ──────────────────────────────────
+             Doble confirmación: motivo escrito Y el número del ticket tecleado.
+             Las dos se validan TAMBIÉN en el servidor; esto es la puerta, no la
+             cerradura. Un `confirm()` se acepta por reflejo — escribir el número
+             obliga a mirar cuál es. -->
+        <Teleport to="body">
+            <div
+                v-if="modalArchivar"
+                class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                @click="cerrarArchivado"
+            >
+                <div
+                    class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    @click.stop
+                >
+                    <div class="border-b border-gray-100 bg-amber-50/60 p-6 dark:border-gray-700 dark:bg-gray-700/30">
+                        <h3 class="text-xl font-bold text-gray-900 dark:text-white">
+                            Archivar el ticket #{{ ticket.id }}
+                        </h3>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                            El expediente se conserva íntegro y puede restaurarse en cualquier momento.
+                            No se borra ninguna nota, adjunto ni cargo.
+                        </p>
+                    </div>
+
+                    <div class="space-y-4 p-6">
+                        <!-- Trabajo vivo: dos barreras más, porque archivar un
+                             ticket en curso casi siempre es un error. -->
+                        <div
+                            v-if="ticketActivo"
+                            class="rounded-lg border border-red-300 bg-red-50 p-3 dark:border-red-700 dark:bg-red-900/30"
+                        >
+                            <p class="text-sm font-semibold text-red-800 dark:text-red-300">
+                                Este ticket está {{ statusLabel(ticket.status) }}: tiene trabajo en curso.
+                            </p>
+                            <p class="mt-1 text-xs text-red-700 dark:text-red-400">
+                                Un ticket activo sólo se archiva si es un duplicado o un error de registro.
+                                Si el trabajo simplemente terminó, <strong>ciérralo</strong> en vez de archivarlo:
+                                así sigue contando en las estadísticas.
+                            </p>
+
+                            <label class="mt-3 block text-xs font-semibold text-red-800 dark:text-red-300">
+                                Razón
+                            </label>
+                            <select
+                                v-model="formArchivo.reason_code"
+                                class="mt-1 w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm dark:border-red-700 dark:bg-gray-900 dark:text-gray-100"
+                            >
+                                <option value="">Selecciona…</option>
+                                <option value="duplicate">Es un duplicado de otro ticket</option>
+                                <option value="registration_error">Se abrió por error de registro</option>
+                            </select>
+
+                            <label class="mt-3 flex items-start gap-2 text-xs text-red-800 dark:text-red-300">
+                                <input
+                                    v-model="formArchivo.acknowledge_active"
+                                    type="checkbox"
+                                    class="mt-0.5 rounded border-red-400"
+                                />
+                                <span>Entiendo que estoy archivando un ticket con trabajo en curso.</span>
+                            </label>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                Motivo del archivado <span class="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                v-model="formArchivo.reason"
+                                rows="3"
+                                maxlength="500"
+                                placeholder="Explica por qué se retira este expediente de la operación…"
+                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            ></textarea>
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {{ formArchivo.reason.length }}/500 · mínimo 10 caracteres.
+                                Queda registrado en el historial con tu nombre.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                Escribe <span class="font-mono text-amber-600 dark:text-amber-400">{{ ticket.id }}</span>
+                                para confirmar <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                v-model="formArchivo.confirm_ticket_id"
+                                type="text"
+                                inputmode="numeric"
+                                autocomplete="off"
+                                :placeholder="`Número del ticket (${ticket.id})`"
+                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                        <button
+                            @click="cerrarArchivado"
+                            class="rounded-lg px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            :disabled="!archivadoListo || enviandoArchivo"
+                            @click="archivarTicket"
+                            class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {{ enviandoArchivo ? 'Archivando…' : 'Archivar expediente' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
+        <!-- ── PR C · Restaurar expediente ─────────────────────────────────
+             Con motivo propio, igual que archivar. Alguien va a encontrarse de
+             vuelta un ticket que creía retirado y debe constar por qué. -->
+        <Teleport to="body">
+            <div
+                v-if="modalRestaurar"
+                class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                @click="cerrarRestauracion"
+            >
+                <div
+                    class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    @click.stop
+                >
+                    <div class="border-b border-gray-100 bg-blue-50/60 p-6 dark:border-gray-700 dark:bg-gray-700/30">
+                        <h3 class="text-xl font-bold text-gray-900 dark:text-white">
+                            Restaurar el ticket #{{ ticket.id }}
+                        </h3>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                            Vuelve a la operación con el estado que tenía al archivarse.
+                        </p>
+                    </div>
+
+                    <div class="p-6">
+                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                            Motivo de la restauración <span class="text-red-500">*</span>
+                        </label>
+                        <textarea
+                            v-model="formRestauracion.reason"
+                            rows="3"
+                            maxlength="500"
+                            placeholder="Explica por qué vuelve a la operación…"
+                            class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                        ></textarea>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {{ formRestauracion.reason.length }}/500 · mínimo 10 caracteres.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                        <button
+                            @click="cerrarRestauracion"
+                            class="rounded-lg px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            :disabled="formRestauracion.reason.trim().length < 10 || enviandoRestauracion"
+                            @click="restaurarTicket"
+                            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {{ enviandoRestauracion ? 'Restaurando…' : 'Restaurar expediente' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
 </template>
 
 <script setup>
@@ -584,6 +802,12 @@ const canEdit = computed(() => authStore.hasPermission('ticket_edit'))
 const canNote = computed(() => authStore.hasPermission('ticket_note'))
 const canViewHistory = computed(() => authStore.hasPermission('ticket_view_history'))
 const canAttach = computed(() => authStore.hasPermission('ticket_attach'))
+// PR C · Archivar y restaurar. CNO los aprobó para «Administradores y
+// Propietarios»; en ISPWatch «Propietario» no existe como rol, así que la
+// migración los concede a `code = 'admin'` y el superadministrador pasa por su
+// propio bypass. Ver DISENO_PERMISOS_Y_ARCHIVADO.md §0 (supuesto S-1).
+const canArchive = computed(() => authStore.hasPermission('ticket_archive'))
+const canRestore = computed(() => authStore.hasPermission('ticket_restore'))
 
 // Si un rol conserva el `view_support` antiguo pero le faltan los granulares
 // —backfill no ejecutado, o un rol creado a mano después— la pantalla NO eleva
@@ -1066,6 +1290,125 @@ const cargarHistorial = async (pagina = 1) => {
         historialError.value = true
     } finally {
         historialCargando.value = false
+    }
+}
+
+// ── PR C · Archivar y restaurar el expediente ────────────────────────────
+//
+// Ninguna de estas comprobaciones sustituye a la del servidor: el backend
+// vuelve a validar el motivo, el número tecleado, el estado del ticket y los
+// cargos vivos. Lo de aquí sólo evita que el botón se pueda pulsar sin haber
+// rellenado lo que hace falta.
+
+const modalArchivar = ref(false)
+const modalRestaurar = ref(false)
+const enviandoArchivo = ref(false)
+const enviandoRestauracion = ref(false)
+
+const formArchivo = ref({
+    reason: '',
+    reason_code: '',
+    acknowledge_active: false,
+    confirm_ticket_id: '',
+})
+
+const formRestauracion = ref({ reason: '' })
+
+/** Un ticket con trabajo en curso: archivarlo exige las dos barreras extra. */
+const ticketActivo = computed(
+    () => ticket.value.status === 'open' || ticket.value.status === 'in_progress'
+)
+
+const archivadoListo = computed(() => {
+    const f = formArchivo.value
+
+    if (f.reason.trim().length < 10) return false
+    // Comparación como texto: el campo es un input y el id llega como número.
+    if (String(f.confirm_ticket_id).trim() !== String(ticket.value.id)) return false
+    if (ticketActivo.value && (!f.reason_code || !f.acknowledge_active)) return false
+
+    return true
+})
+
+const abrirArchivado = () => {
+    formArchivo.value = { reason: '', reason_code: '', acknowledge_active: false, confirm_ticket_id: '' }
+    modalArchivar.value = true
+}
+
+const cerrarArchivado = () => {
+    modalArchivar.value = false
+}
+
+const abrirRestauracion = () => {
+    formRestauracion.value = { reason: '' }
+    modalRestaurar.value = true
+}
+
+const cerrarRestauracion = () => {
+    modalRestaurar.value = false
+}
+
+/** Primer mensaje útil de un 422, venga como `errors` o como `message`. */
+const mensajeDeError = (err, porDefecto) => {
+    const errores = err.response?.data?.errors
+    if (errores) return Object.values(errores)[0]?.[0] ?? porDefecto
+
+    return err.response?.data?.message ?? porDefecto
+}
+
+const archivarTicket = async () => {
+    if (!archivadoListo.value || enviandoArchivo.value) return
+
+    try {
+        enviandoArchivo.value = true
+
+        const payload = { reason: formArchivo.value.reason.trim(), confirm_ticket_id: formArchivo.value.confirm_ticket_id }
+
+        // Sólo se mandan cuando aplican: enviarlos siempre haría que el
+        // servidor validara `reason_code` en un ticket ya cerrado, donde no
+        // tiene sentido pedirlo.
+        if (ticketActivo.value) {
+            payload.reason_code = formArchivo.value.reason_code
+            payload.acknowledge_active = formArchivo.value.acknowledge_active
+        }
+
+        const { data } = await api.support.archive(ticketId, payload)
+
+        modalArchivar.value = false
+        toast.value?.success('Ticket archivado', data.message || 'El expediente se conserva y puede restaurarse.')
+
+        // Se recarga en vez de navegar: quien archivó puede seguir viendo el
+        // expediente, y el historial acaba de ganar un evento.
+        await loadTicket()
+        await cargarHistorial(1)
+    } catch (err) {
+        console.error('Error al archivar el ticket:', err)
+        toast.value?.error('No se pudo archivar', mensajeDeError(err, 'No se pudo archivar el ticket.'))
+    } finally {
+        enviandoArchivo.value = false
+    }
+}
+
+const restaurarTicket = async () => {
+    if (formRestauracion.value.reason.trim().length < 10 || enviandoRestauracion.value) return
+
+    try {
+        enviandoRestauracion.value = true
+
+        const { data } = await api.support.restore(ticketId, {
+            reason: formRestauracion.value.reason.trim(),
+        })
+
+        modalRestaurar.value = false
+        toast.value?.success('Ticket restaurado', data.message || 'El expediente vuelve a la operación.')
+
+        await loadTicket()
+        await cargarHistorial(1)
+    } catch (err) {
+        console.error('Error al restaurar el ticket:', err)
+        toast.value?.error('No se pudo restaurar', mensajeDeError(err, 'No se pudo restaurar el ticket.'))
+    } finally {
+        enviandoRestauracion.value = false
     }
 }
 

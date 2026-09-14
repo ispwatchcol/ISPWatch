@@ -38,6 +38,14 @@ class PartnerSupportController extends PartnerController
         // apareciendo —con el campo en null— en vez de esfumarse del listado.
         $query = SupportTicket::query()
             ->where('support_ticket.tenant_id', $tenantId)
+            // PR C · Los expedientes archivados NUNCA salen por la API pública.
+            //
+            // Redundante a propósito: el *global scope* de `SoftDeletes` ya lo
+            // excluye. Se escribe igualmente porque el integrador ve un contrato
+            // congelado, y un `withTrashed()` añadido aquí por descuido —o la
+            // retirada del trait— publicaría expedientes retirados sin que nada
+            // fallara. Hay un test que lo fija.
+            ->whereNull('support_ticket.deleted_at')
             ->leftJoin('ticket_status as ts', 'ts.id', '=', 'support_ticket.status_id')
             ->leftJoin('ticket_priority as tp', 'tp.id', '=', 'support_ticket.priority_id')
             ->leftJoin('ticket_category as tc', 'tc.id', '=', 'support_ticket.category_id')

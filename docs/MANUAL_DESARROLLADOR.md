@@ -612,7 +612,26 @@ componentes en `failing`. Ver `ARQUITECTURA.md` § 16 y `API_REFERENCE.md` § 3.
     si el token no se puede recuperar, **no puede existir un "reenviar"** — se emite uno
     nuevo y se revoca el anterior. No inventes una columna en claro para ahorrarte ese
     diálogo con el usuario.
-11. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
+11. **Un `SoftDeletes` nuevo obliga a auditar cada lectura que SÍ debe ver lo retirado.**
+    `SupportTicket` lo usa desde el PR C y ahí «borrado» significa **archivado**. El *global
+    scope* excluye las filas en todas partes a la vez —que es la ventaja— y en silencio —que
+    es el riesgo—. Antes de añadirlo, haz la lista de consultas que deben seguir viéndolas y
+    ponles `withTrashed()` con su comprobación de permiso: en tickets son el detalle, el
+    historial, los cargos y los adjuntos. Y en un contrato congelado hacia fuera, escribe
+    además el `whereNull(...)` explícito: no debería depender de que nadie añada un
+    `withTrashed()` por descuido.
+
+    Cuidado con el guardia: `forceDelete()` dispara **también** el evento `deleting`, así que
+    para distinguir archivar de destruir se comprueba `isForceDeleting()` dentro de `deleting`,
+    no un `forceDeleting` aparte. Y el vocabulario cuenta: si hacia el usuario es «archivar»,
+    `deleted_at` va en `$hidden` y expones un atributo con el nombre del negocio.
+
+12. **`Rule::requiredIf(false)` no desactiva las reglas que van a su lado.** Se colapsa a una
+    cadena vacía, y `[Rule::requiredIf($cond), 'accepted']` sigue exigiendo `accepted` cuando
+    la condición es falsa. Si un campo sólo aplica en ciertos casos, **añade la clave al array
+    de reglas** dentro de un `if`, en vez de declararla siempre con una condición dentro.
+
+13. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
     otra cosa que contar (`throttle:public-contract` en `AppServiceProvider`), y además un
     techo por recurso: los 5 intentos de verificación de `ContractSignatureLink` protegen
     un enlace concreto, el limitador protege al servidor de un barrido.
