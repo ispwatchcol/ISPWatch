@@ -6860,3 +6860,90 @@ Un cliente que aprueba en prosa nombra los roles que tiene en la cabeza, no los 
 la base de datos. **Verificar el `code` antes de conceder el permiso** cuesta una consulta y
 evita construir sobre un rol imaginario — que es exactamente el tipo de error que no falla en
 los tests, porque el rol inventado se comporta perfectamente: sólo que no es el de nadie.
+
+---
+
+## 66. Archivar no es eliminar, y la diferencia tenía que estar en el código — 2026-09-13
+
+El PR A retiró el borrado físico de tickets y dejó un hueco a conciencia: no había forma de
+sacar de la vista un ticket abierto por error. CNO aprobó el 11/09 sustituirlo por archivado
+reversible y auditado. Esto lo implementa.
+
+### `deleted_at` frente a un estado nuevo
+
+El proyecto anula el dinero por estado —`void`, `cancelled`, `anulado`— y esa era la primera
+opción. Se descartó porque el estado del ticket ya significa otra cosa: dónde está en el flujo
+de atención. Añadir «archivado» al catálogo de estados habría obligado a excluirlo a mano en
+cada listado, cada estadística y cada consulta del integrador.
+
+Con `SoftDeletes`, la exclusión la aplica el *global scope* en todas partes a la vez, y lo que
+queda por auditar es la lista corta de lecturas que **sí** deben ver el archivado. Esa lista son
+cuatro: detalle, historial, cargos y adjuntos. Las cuatro se tocaron, y hay un test por cada
+una.
+
+El riesgo del soft delete es el contrario —oculta filas en silencio, que es justo el fallo de
+la §51— y por eso la exclusión en `/v1/partner` se escribió **además** a mano, con
+`whereNull('support_ticket.deleted_at')` redundante y un test que lo fija. El contrato del
+integrador está congelado; que dependa de un trait es una garantía más débil de la que merece.
+
+### El vocabulario también es implementación
+
+El requerimiento trata el ticket como un expediente que se revisa «sin alterar». Si la interfaz
+dice «Eliminar», el operador cree que eliminó, y se comporta en consecuencia — no vuelve a
+buscarlo, no lo menciona, no lo restaura.
+
+Así que la palabra no aparece en ninguna parte: ni en los botones, ni en los mensajes, ni en el
+JSON. `deleted_at` va en `$hidden` y el modelo expone `archived_at` e `is_archived`. Es una
+columna que no se puede renombrar y un contrato que sí: se renombró el contrato.
+
+### La guardia del modelo cambió de sitio, no desapareció
+
+El PR A bloqueaba `deleting` a secas. Con `SoftDeletes`, `delete()` pasa a ser un `UPDATE` de
+`deleted_at` —el archivado— y tiene que pasar; lo que sigue prohibido es `forceDelete()`.
+
+La comprobación se hizo con `isForceDeleting()` **dentro de `deleting`**, y no en el evento
+`forceDeleting`, porque Laravel dispara los dos al forzar: el trait marca la bandera y delega en
+`delete()`. Un guardia sólo en `forceDeleting` funcionaría igual hoy; comprobar la bandera en el
+punto por el que pasan los dos caminos no deja ninguna puerta sin cubrir.
+
+Se añadió el test complementario —archivar por Eloquent **sí** funciona— porque sin él un
+guardia demasiado celoso rompería el archivado sin que nada fallara.
+
+### Cuatro barreras, ninguna sólo en el navegador
+
+Motivo de 10 a 500 caracteres; el número del ticket **tecleado**; trabajo vivo bloqueado salvo
+duplicado o error de registro y con confirmación adicional; y cargos sin anular bloqueados.
+
+Las cuatro se validan en el servidor. La de teclear el número nació como requisito de interfaz,
+y se subió al backend porque una barrera que sólo vive en el navegador no es una barrera: basta
+un `curl`. El modal la implementa igual, pero ahora es la puerta, no la cerradura.
+
+La de los cargos es la que más cuesta explicar y la más importante: si el cargo se sigue
+cobrando y su expediente desapareció de la operación, la trazabilidad contable se rompe por un
+sitio que nadie mira hasta que alguien reclama.
+
+### Dos trampas de PHP y de Laravel
+
+**`Rule::requiredIf(false)` no desactiva las reglas que van a su lado.** Se colapsa a cadena
+vacía, y `['acknowledge_active' => [Rule::requiredIf($esActivo), 'accepted']]` seguía exigiendo
+la casilla en un ticket cerrado, porque `accepted` se evalúa igual. Se sustituyó por construir
+el conjunto de reglas: si el ticket está activo, **se añaden** las dos claves. Más largo y sin
+esquinas.
+
+**La unión de arrays conserva la clave de la izquierda.** El helper de los tests hacía
+`['status' => 'open', …] + $extra`, así que `ticketCerrado()` devolvía tickets abiertos y veinte
+pruebas fallaban por el mismo sitio. No es un fallo de producción, pero habría escondido uno:
+un helper que ignora en silencio lo que se le pide es peor que uno que revienta.
+
+### «Propietario», otra vez
+
+La aprobación nombra dos roles y en ISPWatch existe uno (§65). Se concede a `code = 'admin'` en
+los cinco tenants, el superadministrador pasa por su propio bypass, y queda escrito como
+supuesto S-1 hasta que el cliente lo confirme o lo corrija.
+
+### Lección
+
+Un soft delete es una decisión de vocabulario tanto como de esquema. La columna se llama
+`deleted_at` porque así la llama Eloquent, pero lo que el sistema hace es archivar — y en cuanto
+esa palabra se filtra a un botón, a un mensaje o a una clave del JSON, deja de ser un detalle de
+implementación y se convierte en lo que el operador cree que pasó.

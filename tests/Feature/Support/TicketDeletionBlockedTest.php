@@ -180,24 +180,49 @@ class TicketDeletionBlockedTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('no se pueden eliminar');
 
-        // Esto cubre de una vez el controlador, un comando, un job y cualquier
-        // acción masiva futura: todos pasan por aquí.
-        $ticket->delete();
+        // PR C · Lo que se prueba aquí cambió de `delete()` a `forceDelete()`,
+        // y es un cambio de contrato deliberado, no una prueba relajada.
+        //
+        // Con `SoftDeletes`, `delete()` ya no destruye: escribe `deleted_at`, que
+        // es el archivado que CNO aprobó. Lo que sigue prohibido —y lo que esta
+        // prueba fija— es el borrado FÍSICO, que es lo que el PR A cerró.
+        // Cubre de una vez el controlador, un comando, un job y cualquier acción
+        // masiva futura: todos pasan por aquí.
+        $ticket->forceDelete();
     }
 
     #[Test]
-    public function el_borrado_por_eloquent_no_deja_el_ticket_a_medias(): void
+    public function el_borrado_fisico_no_deja_el_ticket_a_medias(): void
     {
         $ticket = $this->ticket();
 
         try {
-            $ticket->delete();
+            $ticket->forceDelete();
         } catch (RuntimeException) {
             // esperado
         }
 
         $this->assertDatabaseHas('support_ticket', ['id' => $ticket->id]);
+        $this->assertNull(
+            $ticket->fresh()->deleted_at,
+            'Un intento de borrado físico fallido tampoco debe dejar el ticket archivado.',
+        );
         $this->assertNotEmpty($this->historialDe($ticket));
+    }
+
+    #[Test]
+    public function archivar_por_eloquent_si_esta_permitido_y_conserva_la_fila(): void
+    {
+        $ticket = $this->ticket();
+
+        // El complemento del test de arriba: la guardia distingue archivar de
+        // destruir. Sin esta prueba, un guardia demasiado celoso —bloquear
+        // `deleting` a secas, como hacía el PR A— rompería el archivado y
+        // ningún test lo diría.
+        $ticket->delete();
+
+        $this->assertDatabaseHas('support_ticket', ['id' => $ticket->id]);
+        $this->assertNotNull($ticket->fresh()->deleted_at);
     }
 
     // ── Defensa 3 · la base de datos ─────────────────────────────────────
@@ -368,10 +393,14 @@ class TicketDeletionBlockedTest extends TestCase
 
         // Sin historial la clave foránea no lo protege —no hay filas que
         // restringir—, pero el modelo sí. Las tres defensas se complementan.
+        //
+        // PR C · `forceDelete()` y no `delete()`: el borrado físico es lo que
+        // sigue prohibido. Archivar esta misma fila sí está permitido, y es
+        // justamente lo que un administrador haría con ella.
         $modelo = SupportTicket::find($id);
 
         $this->expectException(RuntimeException::class);
-        $modelo->delete();
+        $modelo->forceDelete();
     }
 
     #[Test]

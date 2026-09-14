@@ -9,14 +9,30 @@
                 <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">Soporte</h1>
                 <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Gestión de tickets de soporte</p>
             </div>
-            <button
-                v-if="canCreate"
-                @click="router.push('/support/create')"
-                class="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition w-full sm:w-auto"
-            >
-                <icon-lucide-plus class="w-4 h-4" />
-                Nuevo Ticket
-            </button>
+            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                <!-- PR C · La vista de archivados sólo existe para quien puede
+                     archivar o restaurar. No se oculta un botón a quien podría
+                     usarlo: se oculta a quien la API le respondería 403. -->
+                <button
+                    v-if="canSeeArchived"
+                    @click="alternarVista"
+                    class="flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 transition sm:w-auto sm:px-6 sm:py-3"
+                    :class="vistaArchivados
+                        ? 'border-amber-600 bg-amber-600 text-white hover:bg-amber-700'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'"
+                >
+                    <v-icon name="bi-archive" class="h-4 w-4" />
+                    {{ vistaArchivados ? 'Ver tickets activos' : 'Ver archivados' }}
+                </button>
+                <button
+                    v-if="canCreate && !vistaArchivados"
+                    @click="router.push('/support/create')"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition w-full sm:w-auto"
+                >
+                    <icon-lucide-plus class="w-4 h-4" />
+                    Nuevo Ticket
+                </button>
+            </div>
         </div>
 
         <!-- Buscador y Filtros -->
@@ -83,6 +99,7 @@
             </div>
         </div>
 
+        <template v-if="!vistaArchivados">
         <!-- Loading -->
         <div v-if="loading" class="text-center py-12">
             <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
@@ -218,11 +235,166 @@
                 </div>
             </div>
         </div>
+        </template>
+
+        <!-- ── PR C · Expedientes archivados ────────────────────────────────
+             Sólo para quien puede archivar o restaurar. Paginado en el servidor:
+             los archivados sólo crecen y una consulta sin límite envejece mal. -->
+        <template v-if="vistaArchivados">
+            <div v-if="cargandoArchivados" class="py-12 text-center">
+                <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-amber-500 border-t-transparent"></div>
+                <p class="mt-4 text-gray-500 dark:text-gray-400">Cargando expedientes archivados...</p>
+            </div>
+
+            <div v-else class="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-md dark:border-gray-700 dark:bg-gray-800">
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-amber-50 dark:bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">ID</th>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Asunto</th>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Cliente</th>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Estado al archivar</th>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Motivo</th>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Archivado por</th>
+                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Fecha</th>
+                                <th class="px-4 py-4 text-center text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                            <tr
+                                v-for="t in archivados"
+                                :key="t.id"
+                                class="transition hover:bg-gray-50 dark:hover:bg-gray-700"
+                            >
+                                <td class="px-4 py-4 text-sm text-gray-800 dark:text-white">#{{ t.id }}</td>
+                                <td class="px-4 py-4 text-sm font-medium text-gray-800 dark:text-white">{{ t.subject }}</td>
+                                <td class="px-4 py-4 text-sm text-gray-600 dark:text-gray-300">
+                                    {{ t.user?.user_name }} {{ t.user?.user_lastname }}
+                                </td>
+                                <td class="px-4 py-4 text-sm">
+                                    <span :class="getStatusBadgeClass(t.status)">{{ getStatusLabel(t.status) }}</span>
+                                </td>
+                                <td class="max-w-xs px-4 py-4 text-sm text-gray-600 dark:text-gray-300">
+                                    {{ t.archived_reason }}
+                                </td>
+                                <td class="px-4 py-4 text-sm text-gray-600 dark:text-gray-300">
+                                    {{ t.archiver ? `${t.archiver.user_name} ${t.archiver.user_lastname}` : '—' }}
+                                </td>
+                                <td class="px-4 py-4 text-sm text-gray-600 dark:text-gray-300">
+                                    {{ formatDate(t.archived_at) }}
+                                </td>
+                                <td class="px-4 py-4 text-center">
+                                    <div class="flex flex-wrap justify-center gap-2">
+                                        <button
+                                            @click="router.push(`/support/${t.id}`)"
+                                            class="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition-all hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                                        >
+                                            <icon-lucide-eye class="h-4 w-4" /> Ver
+                                        </button>
+                                        <button
+                                            v-if="canRestore"
+                                            @click="abrirRestauracion(t)"
+                                            class="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition-all hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                                        >
+                                            <v-icon name="ri-arrow-go-back-line" class="h-4 w-4" /> Restaurar
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div v-if="archivados.length === 0" class="p-8 text-center text-gray-500 dark:text-gray-400">
+                    No hay expedientes archivados.
+                </div>
+
+                <div
+                    v-if="archivadosPaginas > 1"
+                    class="flex items-center justify-between border-t border-gray-100 px-4 py-3 dark:border-gray-700"
+                >
+                    <button
+                        :disabled="archivadosPagina <= 1"
+                        @click="cargarArchivados(archivadosPagina - 1)"
+                        class="rounded-lg px-3 py-1.5 text-sm text-gray-600 transition hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                        Anterior
+                    </button>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                        Página {{ archivadosPagina }} de {{ archivadosPaginas }} · {{ archivadosTotal }} expedientes
+                    </span>
+                    <button
+                        :disabled="archivadosPagina >= archivadosPaginas"
+                        @click="cargarArchivados(archivadosPagina + 1)"
+                        class="rounded-lg px-3 py-1.5 text-sm text-gray-600 transition hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                        Siguiente
+                    </button>
+                </div>
+            </div>
+        </template>
+
+        <!-- Restaurar desde el listado. Motivo obligatorio, igual que archivar. -->
+        <Teleport to="body">
+            <div
+                v-if="ticketARestaurar"
+                class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                @click="cerrarRestauracion"
+            >
+                <div
+                    class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    @click.stop
+                >
+                    <div class="border-b border-gray-100 bg-blue-50/60 p-6 dark:border-gray-700 dark:bg-gray-700/30">
+                        <h3 class="text-xl font-bold text-gray-900 dark:text-white">
+                            Restaurar el ticket #{{ ticketARestaurar.id }}
+                        </h3>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                            {{ ticketARestaurar.subject }}
+                        </p>
+                    </div>
+
+                    <div class="p-6">
+                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                            Motivo de la restauración <span class="text-red-500">*</span>
+                        </label>
+                        <textarea
+                            v-model="motivoRestauracion"
+                            rows="3"
+                            maxlength="500"
+                            placeholder="Explica por qué vuelve a la operación…"
+                            class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                        ></textarea>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {{ motivoRestauracion.length }}/500 · mínimo 10 caracteres. Queda en el historial.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                        <button
+                            @click="cerrarRestauracion"
+                            class="rounded-lg px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            :disabled="motivoRestauracion.trim().length < 10 || restaurando"
+                            @click="restaurarTicket"
+                            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {{ restaurando ? 'Restaurando…' : 'Restaurar expediente' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
     </div>
 </template>
 
+
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { usePermissions } from '@/composables/usePermissions'
@@ -253,6 +425,7 @@ const filters = ref({
 const canCreate = computed(() => can('ticket_create'))
 const canEdit = computed(() => can('ticket_edit'))
 // `canDelete` se eliminó junto con el botón: no existe borrado de tickets.
+// Lo que sí existe desde el PR C es ARCHIVAR, más abajo.
 
 const filteredTickets = computed(() => {
     let result = tickets.value
@@ -370,6 +543,110 @@ const formatDate = (date) => {
     return new Date(date).toLocaleDateString('es-ES', {
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     })
+}
+
+// ── PR C · Expedientes archivados ────────────────────────────────────────
+//
+// El listado ordinario filtra en el cliente porque trae todos los tickets de
+// una vez. Éste NO: los archivados sólo crecen —nada los saca de ahí salvo
+// restaurarlos— así que va paginado en el servidor y los filtros viajan como
+// parámetros. Es la misma pantalla, con otra fuente de datos.
+
+const vistaArchivados = ref(false)
+const archivados = ref([])
+const cargandoArchivados = ref(false)
+const archivadosPagina = ref(1)
+const archivadosPaginas = ref(1)
+const archivadosTotal = ref(0)
+
+// Ver archivados va con cualquiera de los dos permisos: hoy los dos van al
+// mismo rol y el cliente pidió simplicidad. Ver DISENO §0, supuesto S-3.
+const canSeeArchived = computed(() => can('ticket_archive') || can('ticket_restore'))
+const canRestore = computed(() => can('ticket_restore'))
+
+const alternarVista = () => {
+    vistaArchivados.value = !vistaArchivados.value
+
+    if (vistaArchivados.value) {
+        cargarArchivados(1)
+    }
+}
+
+const cargarArchivados = async (pagina = 1) => {
+    try {
+        cargandoArchivados.value = true
+
+        const params = { page: pagina }
+
+        if (searchQuery.value.trim()) params.search = searchQuery.value.trim()
+        if (filters.value.status !== 'all') params.status = filters.value.status
+        if (filters.value.priority !== 'all') params.priority = filters.value.priority
+        if (filters.value.category !== 'all') params.category = filters.value.category
+
+        const { data } = await api.support.getArchived(params)
+
+        archivados.value = data.data ?? []
+        archivadosPagina.value = data.current_page ?? 1
+        archivadosPaginas.value = data.last_page ?? 1
+        archivadosTotal.value = data.total ?? 0
+    } catch (err) {
+        console.error('Error al cargar los expedientes archivados:', err)
+        toast.value?.error('Error', 'No se pudieron cargar los expedientes archivados.')
+    } finally {
+        cargandoArchivados.value = false
+    }
+}
+
+// Los filtros de arriba son los mismos para las dos vistas; en la de
+// archivados hay que volver a preguntar al servidor porque no están en memoria.
+watch([searchQuery, filters], () => {
+    if (vistaArchivados.value) {
+        cargarArchivados(1)
+    }
+}, { deep: true })
+
+// ── Restaurar desde el listado ──
+
+const ticketARestaurar = ref(null)
+const motivoRestauracion = ref('')
+const restaurando = ref(false)
+
+const abrirRestauracion = (ticket) => {
+    ticketARestaurar.value = ticket
+    motivoRestauracion.value = ''
+}
+
+const cerrarRestauracion = () => {
+    ticketARestaurar.value = null
+}
+
+const restaurarTicket = async () => {
+    if (!ticketARestaurar.value || motivoRestauracion.value.trim().length < 10 || restaurando.value) return
+
+    try {
+        restaurando.value = true
+
+        const { data } = await api.support.restore(ticketARestaurar.value.id, {
+            reason: motivoRestauracion.value.trim(),
+        })
+
+        toast.value?.success('Ticket restaurado', data.message || 'El expediente vuelve a la operación.')
+        ticketARestaurar.value = null
+
+        // Las dos listas cambian: uno sale de archivados y entra en activos.
+        await cargarArchivados(archivadosPagina.value)
+        await loadTickets()
+    } catch (err) {
+        console.error('Error al restaurar el ticket:', err)
+        const errores = err.response?.data?.errors
+        const detalle = errores
+            ? Object.values(errores)[0]?.[0]
+            : err.response?.data?.message
+
+        toast.value?.error('No se pudo restaurar', detalle || 'No se pudo restaurar el ticket.')
+    } finally {
+        restaurando.value = false
+    }
 }
 
 onMounted(() => {

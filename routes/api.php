@@ -514,6 +514,27 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history'])
             ->middleware('permission:ticket_view_history');
 
+        // PR C · Archivado y restauración. Sustituyen definitivamente a la
+        // noción de borrar un ticket: CNO aprobó el 2026-09-11 un archivado
+        // reversible y auditado «para Administradores y Propietarios».
+        //
+        // El listado va ANTES del apiResource por lo mismo que los adjuntos:
+        // `support/{support}` casaría con `support/archived` y el detalle
+        // intentaría buscar un ticket con id «archived».
+        //
+        // Semántica OR a propósito: quien puede archivar o restaurar puede ver
+        // el listado. No se creó un `ticket_view_archived` aparte porque el
+        // cliente pidió simplicidad y hoy los dos permisos van al mismo rol;
+        // separarlo es trivial si el PR E necesita un Auditor que mire sin
+        // tocar (supuesto S-3 del diseño).
+        Route::get('/support/archived', [SupportTicketController::class, 'archived'])
+            ->middleware('permission:ticket_archive,ticket_restore');
+
+        Route::post('/support/{ticket}/archive', [SupportTicketController::class, 'archive'])
+            ->middleware('permission:ticket_archive');
+        Route::post('/support/{ticket}/restore', [SupportTicketController::class, 'restore'])
+            ->middleware('permission:ticket_restore');
+
         // `destroy` sigue enrutado A PROPÓSITO, pero ya no borra nada: responde
         // 403 explicando por qué. Quitar la ruta daría un 405 escueto que
         // cualquiera leería como un fallo del servidor. Ver el comentario de

@@ -46,6 +46,14 @@ class SupportTicketHistory extends Model
     public const ATTACHMENT_ADDED  = 'attachment_added';
     public const CHARGE_CREATED    = 'charge_created';
 
+    // PR C · Archivado. Los dos eventos que registran que un expediente salió
+    // de la operación ordinaria y que volvió. El motivo —obligatorio— viaja en
+    // `metadata`, no en `new_value`: es prosa de 10 a 500 caracteres, no un
+    // valor de campo, y meterlo ahí lo haría indistinguible de un cambio de
+    // dato en la pantalla de historial.
+    public const ARCHIVED          = 'ticket_archived';
+    public const RESTORED          = 'ticket_restored';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

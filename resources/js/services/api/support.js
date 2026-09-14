@@ -19,8 +19,25 @@ export default {
         return apiClient.put(`/support/${id}`, data)
     },
     // `delete(id)` se retiró: los tickets no se eliminan. El backend responde
-    // 403 a `DELETE /support/{id}` y el modelo lanza ante cualquier borrado.
-    // El archivado reversible llega en una fase posterior (PR C del diseño).
+    // 403 a `DELETE /support/{id}` y el modelo lanza ante cualquier borrado
+    // FÍSICO. Lo que sustituye a borrar es archivar, aquí debajo.
+
+    // PR C · Archivado reversible y auditado. Sólo para Administradores.
+    //
+    // `reason` es obligatorio (10–500) y `confirm_ticket_id` es la doble
+    // confirmación: el número del ticket, tecleado. Los dos se validan también
+    // en el servidor — una barrera que sólo vive en el navegador no es una
+    // barrera. Para un ticket abierto o en progreso hacen falta además
+    // `reason_code` y `acknowledge_active`.
+    archive(ticketId, data) {
+        return apiClient.post(`/support/${ticketId}/archive`, data)
+    },
+    restore(ticketId, data) {
+        return apiClient.post(`/support/${ticketId}/restore`, data)
+    },
+    getArchived(params = {}) {
+        return apiClient.get('/support/archived', { params })
+    },
     getStatistics() {
         return apiClient.get('/support/statistics')
     },

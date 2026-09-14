@@ -571,6 +571,60 @@ pendiente del cliente. Este PR entrega la herramienta; el reparto es otra conver
 **Queda fuera:** los cargos del ticket siguen con `staff_profile` a secas. Son facturación, no
 operación del ticket, y no aparecen en la matriz del requerimiento.
 
+### PR C · Archivar y restaurar expedientes
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Sustituir definitivamente la noción de eliminar un ticket por archivado reversible y auditado |
+| **Fuente** | **Confirmación de CNO por chat — 11/09/2026** (resuelve **D-10**) |
+| **Cubre** | Cierra el hueco que el PR A dejó a propósito. Refuerza **F1-17** (auditoría de la retirada) |
+| **Migraciones** | `2026_09_13_000001_add_archiving_to_support_ticket` (esquema) · `2026_09_13_000002_grant_ticket_archiving_to_admin_roles` (datos) |
+| **Pruebas** | `tests/Feature/Support/TicketArchivingTest.php` — 30 pruebas (1 sólo PostgreSQL) |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Qué hace.** `POST /api/support/{id}/archive` retira el expediente de la operación y
+`POST /api/support/{id}/restore` lo devuelve. La interfaz dice **Archivar** y **Restaurar**;
+la palabra «eliminar» no aparece en ninguna parte, ni siquiera en el JSON — `deleted_at` va
+oculto y el contrato expone `archived_at` e `is_archived`.
+
+**No se borra nada.** Notas, adjuntos, cargos e historial siguen intactos, y **ningún archivo
+del bucket se toca** — CNO dejó instrucción expresa de no purgar (**D-05** sigue abierta en su
+mitad de retención).
+
+**Cuatro barreras, todas en el servidor:**
+
+1. **Motivo obligatorio** de 10 a 500 caracteres, firmado con el nombre de quien archiva.
+2. **Escribir el número del ticket.** Era un requisito de interfaz; se subió al backend porque
+   una barrera que sólo vive en el navegador la salta un `curl`.
+3. **Trabajo vivo bloqueado.** Un ticket `open` o `in_progress` sólo se archiva por
+   **duplicado** o **error de registro**, y con una confirmación adicional. Cualquier otro
+   motivo describe un ticket que hay que **cerrar**, no esconder.
+4. **Cargos vivos bloqueados.** Con una factura sin anular (`draft`, `issued`, `paid`,
+   `partial`, `overdue`) no se archiva: el cargo se seguiría cobrando y su expediente habría
+   desaparecido de la vista.
+
+**Auditoría.** Eventos append-only `ticket_archived` y `ticket_restored` en
+`support_ticket_history`, con el motivo en `metadata` y el actor resuelto del servidor.
+Restaurar conserva en el evento el motivo del archivado anterior, que la fila del ticket pierde.
+
+**Quién puede.** Sólo los roles con `code = 'admin'`, más el superadministrador global.
+⚠️ **CNO aprobó el archivado para «Administradores y Propietarios», y en ISPWatch no existe un
+rol Propietario** — supuesto **S-1**, pendiente de confirmar.
+
+**Qué desaparece y qué no.** Un archivado sale de listados, estadísticas y `/v1/partner`
+—este último con un `whereNull` explícito además del scope, y un test que lo fija— y deja de
+admitir edición, notas y transiciones (404). Siguen consultables su detalle, historial, cargos
+y adjuntos, **sólo** para quien puede restaurarlo; para el resto también son 404, no 403.
+
+**El borrado físico no se reabre.** La ruta `DELETE` sigue respondiendo 403, el modelo sigue
+lanzando ante `forceDelete()` y la clave foránea del historial **sigue en `RESTRICT`** —
+verificado en PostgreSQL, no revertido.
+
+**El PR D se absorbió aquí.** Se había separado cuando el archivado podía no llegar a existir;
+aprobado, entregar el backend sin interfaz habría dejado una capacidad inalcanzable para quien
+tiene que usarla, y la doble confirmación —que era el corazón del PR D— es una barrera de
+seguridad, no un adorno que pueda esperar a otro despliegue.
+
 ### PR #4 · Ciclo de vida y reglas de cierre
 
 | Campo | Detalle |
@@ -760,3 +814,4 @@ operación del ticket, y no aparecen en la matriz del requerimiento.
 | 2026-08-29 | **H-6 corregido**: `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan de `CASCADE` a `SET NULL`; se añade `author_name` con el nombre congelado del autor. Dar de baja a un cliente ya no vacía el expediente. **Queda abierto `invoices.customer_id`** (P-43), que sigue borrando el histórico de facturación | — | *(PR abierto)* |
 | 2026-09-11 | **PR B implementado**: 20 permisos `ticket_*`, una capacidad por acción; autorización por campo en el `PUT`; siete rutas que no tenían ningún permiso ahora lo exigen; el endpoint de catálogos deja de ser abierto. Backfill que preserva exactamente lo que cada rol podía hacer. **F1-17 sigue parcial**: falta el modelo de roles de la sección 18 (**D-09**) | — | *(PR abierto)* |
 | 2026-09-11 | **Confirmación de CNO por chat.** Aprobado el **archivado reversible y auditado** (D-10) para Administradores y Propietarios; **cerrada D-06** (subcausas sólo como texto); **confirmados** estados y transiciones; **delegadas** en el equipo D-09, D-11, D-12 y D-13; **evidencias accesibles** ratificado; **retención sin definir**, con instrucción de no purgar (D-05 sigue parcial). Registrado el supuesto **S-1**: en ISPWatch **no existe el rol «Propietario»** | David Gómez | *(rama `david-tickets-archivar-expedientes`)* |
+| 2026-09-13 | **PR C implementado**: archivado reversible y auditado de tickets (`deleted_at` + `archived_by` + `archived_reason`), con motivo obligatorio, doble confirmación escribiendo el número, bloqueo de tickets activos salvo duplicado/error de registro y bloqueo con cargos sin anular. Eventos `ticket_archived` / `ticket_restored`. Listado de archivados y restauración desde la interfaz. **El PR D queda absorbido**. Detectada y anotada la deuda **P-48** | David Gómez | *(PR abierto)* |

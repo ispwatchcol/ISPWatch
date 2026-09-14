@@ -1746,6 +1746,9 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `GET` | `/api/support/{ticket}/attachments/{attachment}` | `ticket_view_evidence` | Vista previa del adjunto (`inline`) |
 | `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
 | `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |
+| `GET` | `/api/support/archived` | `ticket_archive` **o** `ticket_restore` | **Expedientes archivados**, paginado y filtrable |
+| `POST` | `/api/support/{ticket}/archive` | `ticket_archive` | **Archiva** el expediente (reversible y auditado) |
+| `POST` | `/api/support/{ticket}/restore` | `ticket_restore` | **Restaura** un expediente archivado |
 
 > **Permisos separados desde 2026-09-11 (PR B).** `view_support` ya no autoriza la operación
 > del ticket: cada acción tiene su capacidad `ticket_*`. `view_support` sigue existiendo y
@@ -1783,6 +1786,47 @@ Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `suspected_cause`, `confirmed_cause`, `solution` y `result` como **código** del Anexo A;
 `null` borra el campo. El detalle y el listado devuelven `diagnosis` con `code` y `label` por
 campo, o `null` si no hay diagnóstico.
+
+**Archivado** (PR C · 2026-09-13). Sustituye definitivamente al borrado de tickets, que sigue
+respondiendo 403. Concedido por migración sólo a los roles con `code = 'admin'`.
+
+`POST /api/support/{ticket}/archive`
+
+| Campo | Regla | Cuándo |
+|---|---|---|
+| `reason` | **obligatorio**, 10–500 caracteres | siempre |
+| `confirm_ticket_id` | **obligatorio**, debe ser igual al id del ticket | siempre — es la doble confirmación, y se valida en el servidor |
+| `reason_code` | `duplicate` \| `registration_error` | **obligatorio** si el ticket está `open` o `in_progress` |
+| `acknowledge_active` | debe ser verdadero | **obligatorio** si el ticket está `open` o `in_progress` |
+
+Rechaza con **422** y `error: ticket_has_active_charge` si el ticket tiene una factura en
+`draft`, `issued`, `paid`, `partial` u `overdue` — es decir, cualquier cargo sin anular. Con
+`void` o `cancelled` sí archiva.
+
+Rechaza con **422** y `error: ticket_confirmation_mismatch` si el número escrito no coincide.
+Archivar un ticket ya archivado es **404**, no una operación idempotente.
+
+`POST /api/support/{ticket}/restore` exige sólo `reason` (10–500). Restaurar un ticket que no
+está archivado es **404**.
+
+Los dos registran un evento append-only en el historial: `ticket_archived` y `ticket_restored`,
+con el motivo en `metadata` y el actor resuelto del servidor.
+
+**El ticket archivado en el JSON.** El contrato **no** expone `deleted_at`. Expone:
+
+```json
+{ "id": 25, "is_archived": true, "archived_at": "2026-09-13T14:02:11.000000Z",
+  "archived_reason": "Duplicado del ticket #24.",
+  "archiver": { "id": 7, "user_name": "Ana", "user_lastname": "Ríos" } }
+```
+
+**Qué deja de responder un archivado.** `PUT /api/support/{id}`, `POST .../message` y
+`PATCH .../status` devuelven **404**: está fuera de la operación. Siguen respondiendo el
+detalle, el historial, los cargos y los adjuntos, **sólo** para quien tiene `ticket_archive` o
+`ticket_restore`; para todos los demás también son 404, no 403, para no revelar que existe.
+
+**No sale por `/v1/partner`.** El contrato del integrador excluye los archivados siempre, con
+un `whereNull` explícito además del scope, y hay un test que lo fija.
 
 **Historial** (PR #3). `GET /api/support/{ticket}/history` devuelve la paginación estándar de
 Laravel con los eventos más recientes primero. Acepta `per_page` (máx. 100).

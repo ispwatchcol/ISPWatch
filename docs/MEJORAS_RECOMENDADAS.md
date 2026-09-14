@@ -2146,6 +2146,42 @@ es deuda.
 `staff_profile` puede retirarse de las rutas de ticket y quedar cubierto por los permisos
 `ticket_*`. No antes: quitarlo ahora **ampliaría** el acceso.
 
+### 🟡 P-48 · Los eventos `charge_created` nunca guardaron el número de factura
+
+**Encontrado al implementar el PR C**, comprobando qué columna lleva el número de la factura
+para poder nombrarla al rechazar un archivado.
+
+`SupportTicketController::generateCharge()` registra el evento así:
+
+```php
+metadata: array_filter([
+    'invoice_id'     => $invoice->id ?? null,
+    'invoice_number' => $invoice->invoice_number ?? null,   // ← siempre null
+], fn ($v) => $v !== null),
+```
+
+**`invoices` no tiene una columna `invoice_number`.** Se llama `number`, y `Invoice` no declara
+ningún accessor con el otro nombre. El `?? null` convierte el error en silencio y el
+`array_filter` quita la clave, así que el evento se guarda sin número y nadie se entera: el
+historial dice que se creó un cargo y da el `invoice_id`, que sirve, pero no el número que el
+operador ve en pantalla.
+
+**No se ha corregido aquí a propósito.** Tocar `generateCharge()` es cambiar el módulo de cargos
+dentro de un PR de archivado, y el dato que falta no rompe nada: `invoice_id` permite llegar a
+la factura. El código nuevo del PR C sí usa `number`, que es el correcto.
+
+**Arreglo:** cambiar `invoice_number` por `number` en esa metadata. Los eventos ya escritos no
+se pueden corregir —el historial es append-only por diseño— y no hace falta: la factura sigue
+alcanzable por su id.
+
+| | |
+|---|---|
+| **Impacto** | Bajo. Pérdida de legibilidad en el historial, sin pérdida de trazabilidad |
+| **Esfuerzo** | Trivial |
+| **Riesgo de no hacerlo** | Quien lea el historial tiene que abrir la factura para saber cuál es |
+
+---
+
 ### 🟢 P-47 · `edit_discount` se llama como algo que ya no es lo que hace — KAN-104
 
 Es el permiso que autoriza **guardar la cartera de una orden de instalación**: valor,
@@ -2267,6 +2303,7 @@ un ciclo de despliegue.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |

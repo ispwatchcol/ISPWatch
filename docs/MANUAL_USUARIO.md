@@ -1493,9 +1493,36 @@ Dentro del ticket puedes:
 - **Adjuntar archivos**.
 - **Generar un cargo**: si la visita se cobra, esto crea una factura ligada al ticket.
 
-### 14.3 Estadísticas
+### 14.3 Archivar un ticket
+
+**Un ticket no se puede eliminar.** Es el expediente oficial del caso y su historial tiene que
+poder consultarse siempre. Lo que sí puede hacer un **Administrador** es **archivarlo**: el
+ticket sale de los listados, de las estadísticas y de la API, pero **no se borra nada** — ni
+notas, ni adjuntos, ni cargos, ni el historial. Y se puede restaurar cuando quieras.
+
+**Cómo se archiva.** En el detalle del ticket, botón **Archivar**. Te pedirá dos cosas:
+
+1. Un **motivo** de al menos 10 caracteres. Queda firmado con tu nombre en el historial.
+2. **Escribir el número del ticket**. Es a propósito: obliga a mirar cuál estás archivando.
+
+**Un ticket abierto o en progreso pide más.** Tiene trabajo en curso, así que sólo se archiva
+si es un **duplicado** o un **error de registro**, y hay que marcar una casilla de confirmación.
+Si el trabajo simplemente terminó, **ciérralo** en vez de archivarlo: así sigue contando en las
+estadísticas, que es donde debe estar.
+
+**Un ticket con un cargo sin anular no se puede archivar.** Primero hay que anular la factura.
+Si el cargo se sigue cobrando, su expediente no puede desaparecer de la vista.
+
+**Cómo se restaura.** En **Soporte → Ver archivados** tienes el listado, con el motivo y quién
+archivó cada uno. El botón **Restaurar** pide también un motivo, y el ticket vuelve con el mismo
+estado que tenía.
+
+> La vista de archivados y los dos botones **sólo aparecen si tu rol es Administrador**.
+
+### 14.4 Estadísticas
 
 **Soporte → Estadísticas** muestra tickets por estado, por prioridad y por categoría.
+Los tickets archivados **no** cuentan en estas cifras.
 
 ---
 

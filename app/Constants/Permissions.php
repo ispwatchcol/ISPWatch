@@ -142,19 +142,20 @@ class Permissions
      * Los que todavía NO gobiernan ninguna acción del sistema.
      *
      * Se declaran para que la matriz quede completa y el cliente pueda repartir
-     * roles sobre ella, pero hoy no hay endpoint que los exija: archivar y
-     * restaurar son el PR C —y dependen de **D-10**—, reabrir no existe
-     * (**D-12**), el cierre con excepción llega con las reglas de cierre del
-     * PR #4, y no hay pantalla de administración de catálogos (**D-13**).
+     * roles sobre ella, pero hoy no hay endpoint que los exija: reabrir no
+     * existe (**D-12**), el cierre con excepción llega con las reglas de cierre
+     * del PR #4, y no hay pantalla de administración de catálogos (**D-13**).
      *
      * La migración de transición NO los concede a nadie: dar una capacidad que
      * antes no se tenía sería justo lo contrario de una transición compatible.
+     *
+     * `ticket_archive` y `ticket_restore` SALIERON DE ESTA LISTA en el PR C.
+     * D-10 se resolvió —CNO aprobó el archivado el 2026-09-11— y las dos
+     * capacidades ya gobiernan endpoints reales, concedidas a `code = 'admin'`.
      */
     public const TICKET_SIN_ACCION_TODAVIA = [
         self::TICKET_CLOSE_OVERRIDE,
         self::TICKET_REOPEN,
-        self::TICKET_ARCHIVE,
-        self::TICKET_RESTORE,
         self::TICKET_MANAGE_CATALOGS,
     ];
 
@@ -261,8 +262,8 @@ class Permissions
                 self::TICKET_CLOSE => 'Tickets · cerrar',
                 self::TICKET_CLOSE_OVERRIDE => 'Tickets · cerrar con excepción (aún sin uso)',
                 self::TICKET_REOPEN => 'Tickets · reabrir (aún sin uso)',
-                self::TICKET_ARCHIVE => 'Tickets · archivar (aún sin uso)',
-                self::TICKET_RESTORE => 'Tickets · restaurar (aún sin uso)',
+                self::TICKET_ARCHIVE => 'Tickets · archivar expediente',
+                self::TICKET_RESTORE => 'Tickets · restaurar expediente archivado',
                 self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar catálogos (aún sin uso)',
                 self::TICKET_EXPORT => 'Tickets · métricas y exportación',
                 self::VIEW_SUPPORT => 'Ver Soporte Técnico',

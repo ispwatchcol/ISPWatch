@@ -1,7 +1,7 @@
 # Diseño · Permisos granulares y archivado de tickets
 
 > **Estado:** aprobado conceptualmente el 2026-08-27; **confirmado por CNO el 2026-09-11** (§0).
-> **PR A, H-6, P-43a y B implementados**; **C aprobado**; D y E pendientes.
+> **PR A, H-6, P-43a, B y C implementados** (el D queda absorbido por el C); E pendiente.
 > **Fuentes:** `docs/cliente/CNO/V1_1/Solicitud_Maestra_ISPwash_CNO_V1_1.docx` (secciones 18 y
 > 19) · **Confirmación de CNO por chat — 11/09/2026** · `SEGUIMIENTO_MODULO_TICKETS.md` ·
 > modelo de roles y permisos vigente · `SupportTicket`, `support_ticket_history` y rutas
@@ -277,7 +277,7 @@ El `DELETE` era la anomalía, no la funcionalidad que faltaba. Eso es lo que hiz
    endpoint de historial, `invoices.ticket_id` y las estadísticas. Este código ya se quemó con
    ocultamientos silenciosos (bitácora §51).
 
-### Esquema propuesto (PR C)
+### Esquema (PR C) — **implementado el 2026-09-13**
 
 ```
 ALTER TABLE support_ticket ADD:
@@ -299,6 +299,26 @@ No se añade `archived_at`: sería redundante con `deleted_at`.
 | Historial | **Intacto y consultable** — es cuando más importa |
 | Adjuntos en `s3` | **No se borran.** Su retención es **D-05** |
 | Cargos | Un ticket con factura no anulada **no debería poder archivarse** |
+
+### Lo que el PR C implementó, y en qué se apartó de la propuesta
+
+La propuesta se mantuvo entera. Tres cosas se concretaron al implementarla:
+
+| Punto | Propuesta | Implementado |
+|---|---|---|
+| Estados bloqueados | «No archivar `open` ni `in_progress`» | **Se archiva si es duplicado o error de registro**, con `reason_code` y una confirmación adicional. Un bloqueo absoluto habría dejado sin salida el caso que motivó todo esto: el ticket abierto por error |
+| Doble confirmación | Estaba asignada al PR D, como requisito de interfaz | **Se validó también en el servidor** (`confirm_ticket_id`). Una barrera que sólo vive en el navegador la salta un `curl` |
+| Vocabulario | «El concepto de cara al usuario es archivado» | Además **`deleted_at` se ocultó del JSON** y el contrato expone `archived_at` e `is_archived`. La palabra no entra en la API, no sólo en los botones |
+
+**Los cuatro puntos de lectura que el diseño obligó a auditar** —detalle, historial, cargos y
+adjuntos— usan `withTrashed()` y **sólo** para quien tiene `ticket_archive` o `ticket_restore`.
+Para el resto responden 404, no 403: quien no puede ver archivados tampoco debe poder deducir
+que ese ticket existe.
+
+**La exclusión en `/v1/partner` se escribió dos veces a propósito:** el scope de `SoftDeletes`
+ya la aplica, y encima hay un `whereNull('support_ticket.deleted_at')` explícito con un test que
+lo fija. El contrato del integrador está congelado y no debería depender de que nadie añada un
+`withTrashed()` por descuido.
 
 ---
 
@@ -443,7 +463,7 @@ correcto para una baja de cliente, pero es una decisión distinta y **no se tom�
 | **H-6 · Preservar el expediente** | Las dos FK a `SET NULL`, `author_name` congelado, UI resistente al autor ausente | **No** | Sí (FK + columna) | ✅ **Implementado** |
 | **P-43a · Controles de eliminación de clientes** | Permiso propio, motivo, auditoría previa, enlaces de firma | **No** | Sí (datos + columna) | ✅ **Implementado** |
 | **B · Permisos granulares** | Los 20 permisos, middleware por ruta, **backfill que preserva el comportamiento** | **No** | Sí (datos) | ✅ **Implementado** |
-| **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas + **la UI del PR D** | Ya no: **D-10 aprobada** | Sí (esquema + datos) | 🟢 **Aprobado — en implementación** |
+| **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas + **la UI del PR D** | Ya no: **D-10 aprobada** | Sí (esquema + datos) | ✅ **Implementado** |
 | **D · UI de archivados** | Vista, filtro, doble confirmación, restauración | No | No | ↩️ **Absorbido por el PR C** |
 | **E · Mapeo de roles §18** | Roles N1/N2/Campo/Supervisor/Auditor con su matriz | Delegado en el equipo (D-09) | Sí (datos) | 🔓 Desbloqueado, sin empezar |
 
@@ -485,10 +505,11 @@ permiso concede exactamente su acción; `role_id == 1` sigue pasando; el fronten
 
 **PR C** — un ticket archivado es invisible en la operación ordinaria y **completamente
 reconstruible** desde el panel de archivados; archivar sin motivo da 422; `forceDelete()` sobre
-un ticket con historial falla; el historial del archivado sigue siendo consultable.
+un ticket con historial falla; el historial del archivado sigue siendo consultable. ✅
+*Cumplidos*, con 30 pruebas.
 
-**PR D** — archivar exige dos pasos deliberados y un motivo escrito; la vista de archivados no
-aparece sin permiso.
+**PR D** *(absorbido por el C)* — archivar exige dos pasos deliberados y un motivo escrito; la
+vista de archivados no aparece sin permiso. ✅ *Cumplidos.*
 
 **PR E** — cada rol de la sección 18 tiene exactamente las capacidades que el cliente confirme.
 
@@ -499,12 +520,12 @@ aparece sin permiso.
 | Barrera | Propuesta | Justificación | Estado |
 |---|---|---|---|
 | Sin borrado físico | Ruta 403 + guard de modelo + FK `RESTRICT` | Tres capas independientes | ✅ PR A |
-| Doble paso | Modal que exige **escribir el número del ticket** | El `confirm()` se acepta por reflejo | PR D |
-| Motivo obligatorio | Mín. 10 caracteres, validado en backend | Obliga a pensar y es la evidencia de la decisión | PR C |
-| Estados bloqueados | **No archivar** `open` ni `in_progress` | Archivar trabajo activo casi siempre es un error | PR C |
-| Cargos | **No archivar** con factura no anulada | El cargo es plata: sin expediente rompe la trazabilidad contable | PR C |
-| Restauración | Siempre posible, con motivo y evento, sin límite de tiempo | Si es reversible, un error deja de ser catástrofe | PR C |
-| Auditoría | `ticket_archived` / `ticket_restored` | Infraestructura del PR #3 ya disponible | PR C |
+| Doble paso | Modal que exige **escribir el número del ticket**, validado también en el servidor | El `confirm()` se acepta por reflejo, y una barrera sólo del navegador la salta un `curl` | ✅ PR C |
+| Motivo obligatorio | 10–500 caracteres, validado en backend | Obliga a pensar y es la evidencia de la decisión | ✅ PR C |
+| Estados bloqueados | `open` e `in_progress` sólo por **duplicado o error de registro**, con confirmación extra | Archivar trabajo activo casi siempre es un error — pero no siempre | ✅ PR C |
+| Cargos | **No archivar** con factura no anulada | El cargo es plata: sin expediente rompe la trazabilidad contable | ✅ PR C |
+| Restauración | Siempre posible, con motivo y evento, sin límite de tiempo | Si es reversible, un error deja de ser catástrofe | ✅ PR C |
+| Auditoría | `ticket_archived` / `ticket_restored` | Infraestructura del PR #3 ya disponible | ✅ PR C |
 | Retención | **No purgar nada**; ligar a D-05 | El cliente aún no definió retención de evidencia | Abierto |
 
 ---

@@ -6,11 +6,28 @@ use App\Support\TicketCatalogs;
 use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Invoice;
 
 class SupportTicket extends Model
 {
     use BelongsToTenant;
+
+    /**
+     * PR C · Archivado. El ticket se retira de la vista; NO se borra.
+     *
+     * `SoftDeletes` aporta el *global scope* que excluye lo archivado de toda
+     * consulta a la vez —listados, estadísticas, API de socios— y da
+     * `withTrashed()`/`onlyTrashed()`/`restore()` sin escribirlos.
+     *
+     * EL VOCABULARIO NO ES EL DE ELOQUENT. Hacia fuera esto se llama
+     * **archivar** y **restaurar**; «eliminar» no aparece ni en la interfaz ni
+     * en el contrato de la API. El requerimiento trata el ticket como un
+     * expediente que se revisa «sin alterar», y un operador que cree haber
+     * eliminado algo se comporta distinto de uno que sabe que lo archivó.
+     * Por eso el atributo público es `archived_at` y `deleted_at` va oculto.
+     */
+    use SoftDeletes;
 
     protected $table = 'support_ticket';
 
@@ -68,7 +85,19 @@ class SupportTicket extends Model
     protected $casts = [
         'resolved_at' => 'datetime',
         'closed_at'   => 'datetime',
+        'deleted_at'  => 'datetime',
     ];
+
+    /**
+     * PR C · `deleted_at` no sale en el JSON; sale `archived_at`, que es la
+     * misma fecha con el nombre que el negocio usa. Ver el bloque de
+     * `SoftDeletes` arriba.
+     *
+     * `archived_reason` y `archived_by` SÍ salen: la vista de archivados tiene
+     * que poder mostrar quién retiró el expediente y por qué, que es justo lo
+     * que hace auditable la decisión.
+     */
+    protected $hidden = ['deleted_at'];
 
     /**
      * FASE 1 · R3 — `status`, `priority` y `category` YA NO SON COLUMNAS.
@@ -87,6 +116,9 @@ class SupportTicket extends Model
         'status_label', 'priority_label', 'category_label',
         // PR #2 — el diagnóstico viaja agrupado, no como diez claves sueltas.
         'diagnosis',
+        // PR C — `deleted_at` con el nombre del negocio, y el booleano que la
+        // interfaz necesita para decidir si pinta el aviso de archivado.
+        'archived_at', 'is_archived',
     ];
 
     /**
@@ -161,19 +193,59 @@ class SupportTicket extends Model
      * catálogos `ON DELETE RESTRICT`: que sea el motor, y no la disciplina de
      * quien esté de turno, quien impida perder el histórico.
      *
-     * PARA EL PR C (archivado): cuando se añada `SoftDeletes`, esta guardia hay
-     * que **cambiarla**, no quitarla — `delete()` pasará a ser un UPDATE de
-     * `deleted_at` y debe permitirse, mientras que `forceDelete()` debe seguir
-     * prohibido. Bloquear `forceDeleting` será entonces lo correcto.
+     * PR C — LA GUARDIA CAMBIÓ, NO DESAPARECIÓ. Con `SoftDeletes`, `delete()`
+     * ya no destruye: escribe `deleted_at`, que es el archivado, y debe pasar.
+     * Lo que sigue prohibido es `forceDelete()`, que sí borra la fila.
+     *
+     * Se comprueba con `isForceDeleting()` dentro de `deleting` y no en el
+     * evento `forceDeleting`, porque Laravel dispara AMBOS al forzar: el trait
+     * marca la bandera y delega en `delete()`. Un guardia sólo en `forceDeleting`
+     * funcionaría igual hoy, pero comprobar la bandera en el punto por el que
+     * pasan los dos caminos no deja ninguna puerta sin cubrir.
      */
     protected static function booted(): void
     {
-        static::deleting(function (): void {
+        static::deleting(function (self $ticket): void {
+            if (!$ticket->isForceDeleting()) {
+                // Archivado: `deleted_at` se escribe y el expediente se queda.
+                return;
+            }
+
             throw new \RuntimeException(
                 'Los tickets no se pueden eliminar: el expediente y su historial deben '
-                . 'conservarse. Ver docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md.'
+                . 'conservarse. Archiva el ticket en su lugar — es reversible. '
+                . 'Ver docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md.'
             );
         });
+    }
+
+    /**
+     * PR C · Quién archivó el expediente.
+     *
+     * `ON DELETE SET NULL` en la base: dar de baja a ese administrador deja el
+     * vínculo en null, no borra el ticket. Quién fue sigue en
+     * `support_ticket_history`, que es inalterable.
+     */
+    public function archiver()
+    {
+        return $this->belongsTo(User::class, 'archived_by');
+    }
+
+    /**
+     * La fecha de archivado con el nombre del negocio.
+     *
+     * No es una columna: es `deleted_at`, que va oculta. Duplicar la columna
+     * habría dado dos fechas que deben decir lo mismo y acaban divergiendo.
+     */
+    protected function archivedAt(): Attribute
+    {
+        return Attribute::get(fn (): ?string => $this->deleted_at?->toJSON());
+    }
+
+    /** Para que la interfaz no tenga que interpretar una fecha nula. */
+    protected function isArchived(): Attribute
+    {
+        return Attribute::get(fn (): bool => $this->deleted_at !== null);
     }
 
     private static function catalogos(): TicketCatalogs

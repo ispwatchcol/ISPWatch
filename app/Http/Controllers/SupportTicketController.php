@@ -274,15 +274,24 @@ class SupportTicketController extends Controller
 
     /**
      * Display the specified ticket.
+     *
+     * PR C · Punto de lectura que SÍ debe ver lo archivado, para quien puede
+     * archivar o restaurar. Sin esto, archivar un ticket lo volvería
+     * inaccesible incluso para quien tiene que revisarlo antes de restaurarlo,
+     * y el «expediente completamente reconstruible» del diseño sería falso.
+     *
+     * Para todos los demás sigue siendo un 404, no un 403: quien no puede ver
+     * archivados tampoco debe poder deducir que ese ticket existe.
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $ticket = SupportTicket::with([
+        $ticket = $this->buscarTicket($request, $id, [
             'user',
             'staff',
             'messages.user',
-            'attachments.user'
-        ])->findOrFail($id);
+            'attachments.user',
+            'archiver:id,user_name,user_lastname',
+        ]);
 
         return response()->json($ticket);
     }
@@ -599,7 +608,8 @@ class SupportTicketController extends Controller
     {
         return response()->json([
             'message' => 'Los tickets no se pueden eliminar. El expediente y su historial '
-                . 'deben conservarse. El archivado reversible estará disponible más adelante.',
+                . 'deben conservarse. Para retirar un ticket de la operación usa '
+                . 'POST /api/support/{id}/archive, que es reversible y queda auditado.',
             'error'   => 'ticket_deletion_disabled',
         ], 403);
     }
@@ -961,7 +971,10 @@ class SupportTicketController extends Controller
      */
     public function history(Request $request, $id)
     {
-        $ticket = SupportTicket::findOrFail($id);
+        // PR C · El historial de un ticket archivado sigue siendo consultable
+        // para quien puede restaurarlo: es donde consta el motivo por el que se
+        // archivó y quién lo decidió.
+        $ticket = $this->buscarTicket($request, $id);
 
         $eventos = SupportTicketHistory::with('actor:id,user_name,user_lastname,email')
             ->where('support_ticket_id', $ticket->id)
@@ -972,14 +985,311 @@ class SupportTicketController extends Controller
         return response()->json($eventos);
     }
 
-    public function getCharges($id)
+    public function getCharges(Request $request, $id)
     {
-        $ticket  = SupportTicket::findOrFail($id);
+        // PR C · Un ticket archivado no debería tener cargos vivos —archivar lo
+        // impide—, pero sí puede tener facturas anuladas, y la trazabilidad
+        // contable tiene que poder verlas desde el expediente.
+        $ticket  = $this->buscarTicket($request, $id);
         $charges = Invoice::with(['items', 'payments'])
             ->where('ticket_id', $ticket->id)
             ->orderBy('created_at', 'desc')
             ->get();
 
         return response()->json($charges);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PR C · Archivado y restauración de expedientes
+    //
+    // El PR A retiró el borrado físico del ticket y dejó un hueco deliberado:
+    // no había forma de sacar de la vista un ticket abierto por error. CNO
+    // aprobó el 2026-09-11 sustituirlo por archivado reversible y auditado
+    // «para Administradores y Propietarios».
+    //
+    // «Propietario» NO EXISTE como rol en ISPWatch —los `code` son admin,
+    // staff, technician, accounting y client—, así que se implementa como
+    // `admin` más el superadministrador global. Supuesto S-1 del diseño.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Estados en los que archivar es casi siempre un error: hay trabajo vivo. */
+    private const ESTADOS_ACTIVOS = [
+        SupportTicket::STATUS_OPEN,
+        SupportTicket::STATUS_IN_PROGRESS,
+    ];
+
+    /**
+     * Las dos únicas razones que justifican archivar trabajo en curso.
+     *
+     * Un ticket duplicado o abierto por error no es trabajo: es ruido que
+     * ensucia las métricas. Cualquier otro motivo —«ya no aplica», «el cliente
+     * no contesta»— describe un ticket que hay que CERRAR, no esconder, y el
+     * cierre deja el expediente en las estadísticas donde debe estar.
+     */
+    private const MOTIVOS_SOBRE_ACTIVO = ['duplicate', 'registration_error'];
+
+    /** Estados de factura que significan «este cargo ya no se cobra». */
+    private const FACTURAS_ANULADAS = ['void', 'cancelled'];
+
+    /**
+     * ¿Puede quien pide ver los expedientes archivados?
+     *
+     * Replica la semántica de `CheckPermission`, bypass de superadministrador
+     * incluido, porque esto se evalúa DENTRO del controlador en rutas que no
+     * exigen el permiso por middleware (`show`, `history`, `getCharges`).
+     */
+    private function puedeVerArchivados(Request $request): bool
+    {
+        $usuario = $request->user();
+
+        if (!$usuario) {
+            return false;
+        }
+
+        return (int) $usuario->role_id === 1
+            || $usuario->hasPermission(Permissions::TICKET_ARCHIVE)
+            || $usuario->hasPermission(Permissions::TICKET_RESTORE);
+    }
+
+    /**
+     * Busca un ticket incluyendo los archivados SÓLO si quien pide puede verlos.
+     *
+     * El aislamiento por tenant lo sigue poniendo el scope global de
+     * `BelongsToTenant`, que `withTrashed()` no toca.
+     *
+     * @param  array<int, string>  $con
+     */
+    private function buscarTicket(Request $request, $id, array $con = []): SupportTicket
+    {
+        return SupportTicket::with($con)
+            ->when($this->puedeVerArchivados($request), fn ($q) => $q->withTrashed())
+            ->findOrFail($id);
+    }
+
+    /**
+     * Listado de expedientes archivados. Sólo para quien archiva o restaura.
+     *
+     * Paginado y no `get()` como el listado ordinario: los archivados sólo
+     * crecen —nada los saca de aquí salvo restaurarlos— y una consulta sin
+     * límite envejece mal.
+     */
+    public function archived(Request $request)
+    {
+        $tenantId = $request->user()?->tenant_id;
+
+        $query = SupportTicket::onlyTrashed()->with([
+            'user:id,user_name,user_lastname,email',
+            'staff:id,user_name,user_lastname',
+            'archiver:id,user_name,user_lastname',
+        ]);
+
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        // Los mismos filtros por código que el listado ordinario: quien busca
+        // un archivado busca igual que siempre.
+        foreach (self::CATALOGOS_FILTRABLES as $campo => [$columna, $tabla]) {
+            if ($request->has($campo) && $request->{$campo} != 'all') {
+                $query->where($columna, $this->catalogs->id($tabla, $request->{$campo}));
+            }
+        }
+
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // `whereLike` elige ilike o like según el motor: con LIKE a secas
+        // PostgreSQL distingue mayúsculas y la búsqueda falla en producción sin
+        // fallar en los tests. Mismo criterio que `index()`.
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->whereLike('subject', $search)
+                  ->orWhereLike('description', $search)
+                  ->orWhereLike('archived_reason', $search);
+            });
+        }
+
+        return response()->json(
+            $query->orderByDesc('deleted_at')
+                  ->orderByDesc('id')
+                  ->paginate(min((int) $request->query('per_page', 25), 100))
+        );
+    }
+
+    /**
+     * Archiva un expediente. Reversible, auditado y con motivo obligatorio.
+     *
+     * CUATRO BARRERAS, Y NINGUNA VIVE SÓLO EN LA INTERFAZ
+     *
+     * 1. **Motivo de 10 a 500 caracteres.** Diez caracteres no garantizan una
+     *    explicación, pero descartan «ok» y «ya» — y sobre todo obligan a
+     *    detenerse. El motivo es la evidencia de la decisión.
+     * 2. **Escribir el número del ticket** (`confirm_ticket_id`). Es la doble
+     *    confirmación, y se valida en el servidor además de en el modal: un
+     *    `confirm()` se acepta por reflejo, y una barrera que sólo existe en el
+     *    navegador no es una barrera.
+     * 3. **Trabajo vivo bloqueado.** Un ticket `open` o `in_progress` sólo se
+     *    archiva por duplicado o error de registro, y con una confirmación
+     *    adicional explícita.
+     * 4. **Cargos vivos bloqueados.** Con una factura sin anular, archivar
+     *    rompería la trazabilidad contable: el cargo seguiría cobrándose y su
+     *    expediente habría desaparecido de la operación.
+     *
+     * NO SE BORRA NADA. Ni notas, ni adjuntos, ni cargos, ni historial, ni un
+     * solo archivo del bucket — CNO dejó instrucción expresa de no purgar.
+     */
+    public function archive(Request $request, $id)
+    {
+        // Sin `withTrashed()` a propósito: archivar lo ya archivado es un 404,
+        // no una operación idempotente que registraría un evento de más.
+        $ticket = SupportTicket::findOrFail($id);
+
+        $esActivo = in_array($ticket->status, self::ESTADOS_ACTIVOS, true);
+
+        $reglas = [
+            'reason'            => 'required|string|min:10|max:500',
+            'confirm_ticket_id' => 'required',
+        ];
+
+        // Las dos barreras del trabajo vivo se AÑADEN, no se declaran siempre
+        // con una condición dentro. `Rule::requiredIf(false)` se colapsa a una
+        // cadena vacía pero no desactiva las reglas que van a su lado: con
+        // `['accepted']` al lado, un ticket cerrado exigía igualmente la
+        // casilla. Construir el conjunto de reglas es más claro y no tiene
+        // esquinas.
+        if ($esActivo) {
+            $reglas['reason_code']        = ['required', Rule::in(self::MOTIVOS_SOBRE_ACTIVO)];
+            // `accepted` exige true, "1", "on" o "yes": false no pasa.
+            $reglas['acknowledge_active'] = ['required', 'accepted'];
+        }
+
+        $data = $request->validate($reglas, [
+            'reason.required'             => 'El motivo del archivado es obligatorio.',
+            'reason.min'                  => 'El motivo debe explicar la decisión: mínimo 10 caracteres.',
+            'reason.max'                  => 'El motivo no puede pasar de 500 caracteres.',
+            'confirm_ticket_id.required'  => 'Escribe el número del ticket para confirmar.',
+            'reason_code.required'        => 'Un ticket abierto o en progreso sólo se archiva por duplicado o error de registro.',
+            'reason_code.in'              => 'Un ticket abierto o en progreso sólo se archiva por duplicado o error de registro.',
+            'acknowledge_active.required' => 'Confirma que entiendes que estás archivando un ticket con trabajo en curso.',
+            'acknowledge_active.accepted' => 'Confirma que entiendes que estás archivando un ticket con trabajo en curso.',
+        ]);
+
+        // Comparación como cadena: el número llega del formulario como texto.
+        if ((string) $data['confirm_ticket_id'] !== (string) $ticket->id) {
+            return response()->json([
+                'message' => 'El número de ticket que escribiste no coincide con el que vas a archivar.',
+                'error'   => 'ticket_confirmation_mismatch',
+            ], 422);
+        }
+
+        $factura = Invoice::where('ticket_id', $ticket->id)
+            ->whereNotIn('status', self::FACTURAS_ANULADAS)
+            ->first();
+
+        if ($factura) {
+            return response()->json([
+                // La columna es `number`. NO `invoice_number`, que no existe en
+                // `invoices` — ver P-46 en docs/MEJORAS_RECOMENDADAS.md, donde
+                // queda anotado que `generateCharge()` sí la usa y por eso los
+                // eventos `charge_created` nunca guardaron el número.
+                'message' => 'Este ticket tiene un cargo sin anular y no puede archivarse. '
+                    . 'Anula primero la factura ' . ($factura->number ?? "#{$factura->id}") . '.',
+                'error'   => 'ticket_has_active_charge',
+                'invoice' => [
+                    'id'     => $factura->id,
+                    'number' => $factura->number ?? null,
+                    'status' => $factura->status,
+                ],
+            ], 422);
+        }
+
+        DB::transaction(function () use ($ticket, $data, $request, $esActivo) {
+            // El evento va ANTES del archivado y dentro de la misma transacción:
+            // si el archivado fallara, el historial no debe afirmar que ocurrió.
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::ARCHIVED,
+                metadata: array_filter([
+                    'reason'      => $data['reason'],
+                    'reason_code' => $data['reason_code'] ?? null,
+                    // El estado en que quedó congelado el expediente. Restaurarlo
+                    // lo devuelve ahí, y conviene que conste sin recalcularlo.
+                    'status'      => $ticket->status,
+                    'era_activo'  => $esActivo ?: null,
+                ], fn ($v) => $v !== null),
+            );
+
+            // Asignación directa y no `fill()`: `archived_by` y `archived_reason`
+            // NO están en `$fillable`, para que ningún `PUT` del formulario de
+            // edición pueda escribirlos. Sólo se tocan por este camino.
+            $ticket->archived_by     = $request->user()?->id;
+            $ticket->archived_reason = $data['reason'];
+            $ticket->save();
+
+            // `delete()` sobre un modelo con SoftDeletes escribe `deleted_at`.
+            // El guardia del modelo deja pasar esto y sigue bloqueando
+            // `forceDelete()`.
+            $ticket->delete();
+        });
+
+        return response()->json([
+            'message' => 'Ticket archivado. El expediente se conserva íntegro y puede restaurarse. 🗄️',
+            'ticket'  => SupportTicket::withTrashed()->with('archiver:id,user_name,user_lastname')->find($ticket->id),
+        ]);
+    }
+
+    /**
+     * Devuelve un expediente archivado a la operación.
+     *
+     * Exige motivo propio, como archivar. Restaurar también es una decisión
+     * —alguien va a encontrarse de vuelta un ticket que creía retirado— y la
+     * simetría evita el patrón habitual: mucha ceremonia para esconder y
+     * ninguna para devolver.
+     *
+     * SIN LÍMITE DE TIEMPO. Si el archivado es reversible, un error deja de ser
+     * una catástrofe; ponerle caducidad lo devolvería a serlo.
+     */
+    public function restore(Request $request, $id)
+    {
+        $ticket = SupportTicket::onlyTrashed()->findOrFail($id);
+
+        $data = $request->validate([
+            'reason' => 'required|string|min:10|max:500',
+        ], [
+            'reason.required' => 'El motivo de la restauración es obligatorio.',
+            'reason.min'      => 'El motivo debe explicar la decisión: mínimo 10 caracteres.',
+            'reason.max'      => 'El motivo no puede pasar de 500 caracteres.',
+        ]);
+
+        $motivoOriginal = $ticket->archived_reason;
+        $archivadoEl    = $ticket->deleted_at?->toJSON();
+
+        DB::transaction(function () use ($ticket, $data, $motivoOriginal, $archivadoEl) {
+            $ticket->restore();
+
+            // Se limpian para que la fila no siga afirmando que está archivada.
+            // Nada se pierde: quién archivó, cuándo y por qué queda en el
+            // historial, que es inalterable y por eso es la fuente buena.
+            $ticket->archived_by     = null;
+            $ticket->archived_reason = null;
+            $ticket->save();
+
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::RESTORED,
+                metadata: array_filter([
+                    'reason'          => $data['reason'],
+                    'archived_reason' => $motivoOriginal,
+                    'archived_at'     => $archivadoEl,
+                ], fn ($v) => $v !== null),
+            );
+        });
+
+        return response()->json([
+            'message' => 'Ticket restaurado. Vuelve a aparecer en la operación. ↩️',
+            'ticket'  => $ticket->fresh(),
+        ]);
     }
 }

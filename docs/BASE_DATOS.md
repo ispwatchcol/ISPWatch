@@ -921,7 +921,38 @@ siguen saliendo idénticas.
 ### 4.15 `support_ticket` y derivadas
 
 `support_ticket`: `user_id` (cliente), `staff_id` (asignado), `sectorial_id` (elemento
-afectado), `subject`, `description`, `resolved_at`, `closed_at`.
+afectado), `subject`, `description`, `resolved_at`, `closed_at`, y desde el PR C
+`deleted_at`, `archived_by` y `archived_reason`.
+
+#### Archivado (PR C · 2026-09-13)
+
+| Columna | Tipo | Regla | Para qué |
+|---|---|---|---|
+| `deleted_at` | `timestamp NULL` | índice `support_ticket_deleted_at_index` | Marca de **archivado**. El modelo usa `SoftDeletes` |
+| `archived_by` | `bigint NULL` | **FK** → `users.id` **ON DELETE SET NULL** | Quién archivó |
+| `archived_reason` | `varchar(500) NULL` | obligatoria al archivar (10–500), validada en el controlador | Por qué |
+
+> **`deleted_at` NO significa «eliminado».** Significa archivado, y es la única forma de
+> retirar un ticket de la operación: el borrado físico sigue prohibido por la ruta (403), por
+> el guardia del modelo (`forceDelete()` lanza) y por la clave foránea `RESTRICT` del
+> historial. El modelo **oculta `deleted_at` en el JSON** y expone `archived_at` e
+> `is_archived` en su lugar, para que la palabra «eliminado» no entre en el contrato de la API.
+>
+> **No se añadió `archived_at` como columna:** sería `deleted_at` con otro nombre, y dos
+> columnas que deben decir lo mismo acaban diciendo cosas distintas.
+>
+> `archived_by` va en **SET NULL** por la misma razón que las notas y los adjuntos (H-6): dar
+> de baja al administrador que archivó un ticket no puede desarchivarlo ni tocar el
+> expediente. Quién fue queda además en `support_ticket_history`, que es inalterable.
+>
+> **Se restaura poniendo las tres en NULL**, y el evento `ticket_restored` del historial
+> conserva el motivo del archivado anterior.
+>
+> **Efecto en todas las lecturas:** el *global scope* de `SoftDeletes` añade
+> `deleted_at is null` a cada consulta del modelo, así que los archivados desaparecen a la vez
+> de listados, estadísticas y `/v1/partner`. Los cuatro puntos que **sí** deben verlos —
+> detalle, historial, cargos y adjuntos— lo hacen con `withTrashed()` y **sólo** para quien
+> tiene `ticket_archive` o `ticket_restore`.
 
 > ⚠️ **Las columnas `status`, `priority` y `category` ya no existen.** La R3 (2026-08-15)
 > las eliminó junto con sus `CHECK` {`open`,`in_progress`,`resolved`,`closed`},
@@ -1238,6 +1269,7 @@ Agregado permanente.
 | `staff_profile.user_id` | `users.id` | CASCADE |
 | `support_ticket.sectorial_id` | `sectorial.id` | SET NULL |
 | `support_ticket.staff_id` | `users.id` | SET NULL |
+| `support_ticket.archived_by` | `users.id` | SET NULL |
 | `support_ticket.tenant_id` | `tenant.id` | SET NULL |
 | `support_ticket.user_id` | `users.id` | SET NULL |
 | `support_ticket_attachment.ticket_id` | `support_ticket.id` | CASCADE |

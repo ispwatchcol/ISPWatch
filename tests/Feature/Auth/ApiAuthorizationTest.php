@@ -137,6 +137,9 @@ class ApiAuthorizationTest extends TestCase
             // existiendo, pero gobierna instalaciones, sectoriales e
             // inventario, no la operación del ticket.
             'listar tickets'       => ['get',    '/api/support',     'ticket_view'],
+            // PR C · Archivado. El listado va con semántica OR —`ticket_archive`
+            // o `ticket_restore`— y aquí se comprueba con el primero.
+            'listar archivados'    => ['get',    '/api/support/archived', ['ticket_view', 'ticket_archive']],
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],
@@ -160,7 +163,7 @@ class ApiAuthorizationTest extends TestCase
 
     #[Test]
     #[DataProvider('protectedEndpoints')]
-    public function un_usuario_sin_permisos_recibe_403(string $method, string $uri, string $permission): void
+    public function un_usuario_sin_permisos_recibe_403(string $method, string $uri, string|array $permission): void
     {
         $user = $this->userWithPermissions([]);
 
@@ -171,9 +174,14 @@ class ApiAuthorizationTest extends TestCase
 
     #[Test]
     #[DataProvider('protectedEndpoints')]
-    public function el_permiso_correspondiente_abre_el_endpoint(string $method, string $uri, string $permission): void
+    public function el_permiso_correspondiente_abre_el_endpoint(string $method, string $uri, string|array $permission): void
     {
-        $user = $this->userWithPermissions([$permission]);
+        // Un array cuando hacen falta VARIOS a la vez: una ruta puede estar
+        // dentro de un grupo con su propio `permission:` y llevar además el
+        // suyo. Es el caso de `/api/support/archived`, que exige `ticket_view`
+        // por el grupo y `ticket_archive` por la ruta.
+        $permisos = (array) $permission;
+        $user = $this->userWithPermissions($permisos);
 
         $response = $this->actingAs($user)->{$method}($uri, []);
 
@@ -183,7 +191,7 @@ class ApiAuthorizationTest extends TestCase
         $this->assertNotSame(
             403,
             $response->getStatusCode(),
-            "El permiso '{$permission}' debería abrir {$method} {$uri}."
+            "Los permisos '" . implode("', '", $permisos) . "' deberían abrir {$method} {$uri}."
         );
     }
 
