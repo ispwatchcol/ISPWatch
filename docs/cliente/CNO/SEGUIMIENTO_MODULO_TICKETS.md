@@ -624,7 +624,13 @@ operación del ticket, y no aparecen en la matriz del requerimiento.
 
 ## Decisiones pendientes del cliente
 
-Ninguna debe resolverse por iniciativa propia.
+> **Actualizado el 2026-09-11** con la *Confirmación de CNO por chat — 11/09/2026*. El cliente
+> resolvió D-06 y D-10, **delegó en el equipo** D-09, D-11, D-12 y D-13, y dejó **D-05 abierta
+> en su mitad de retención**, con instrucción explícita de **no purgar ni borrar
+> automáticamente**.
+>
+> «Delegada» no es «resuelta»: la decisión pasa a ser nuestra, pero sigue habiendo que tomarla
+> y escribirla. Las delegadas se mantienen en la tabla con el estado cambiado, no se borran.
 
 | ID | Decisión | Por qué no la tomamos | Bloquea |
 |---|---|---|---|
@@ -632,15 +638,15 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-02** | **Separación soporte / facturación.** El módulo excluye facturación pero hoy el ticket genera facturas | Funcionalidad viva que otros tenants podrían usar; retirarla es decisión de producto | F1-02 |
 | **D-03** | **Autoridad para excepciones de cierre.** Quién puede cerrar sin causa confirmada y bajo qué registro | Es una regla operativa y de responsabilidad, no técnica | F1-10, PR #4 |
 | **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
-| **D-05** | **Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 (disco privado `s3`, endpoint autenticado por tenant y ticket). Sigue sin definirse cuánto se conservan y si llevan hash de integridad | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
-| **D-06** | **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
+| **D-05** | 🟡 **Parcial · Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 y **CNO lo confirmó el 2026-09-11** («evidencias accesibles para quienes manejan tickets»). **La retención sigue sin definir**, con instrucción expresa de **no purgar ni borrar automáticamente** | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
+| **D-06** | ✅ **CERRADA el 2026-09-11.** CNO confirmó **mantener las subcausas sólo como texto de referencia y no crear códigos individuales** — exactamente lo que el PR #1 hizo. *Enunciado original:* **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
 | **D-07** | **¿Se expone al integrador?** Abarca ya tres cosas: los catálogos (PR #1), los cinco campos de diagnóstico (PR #2) y el historial del ticket (PR #3). Los tres viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
-| **D-09** | **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
-| **D-10** | **¿Debe existir el archivado de tickets?** El documento no lo pide en ninguna parte; al contrario, trata el ticket como un expediente que se revisa «sin alterar». El PR A retiró el borrado físico; falta decidir si se sustituye por archivado reversible o por nada | Requiere confirmar quién archiva y quién restaura | PR C y PR D del diseño |
-| **D-11** | **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
-| **D-12** | **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
-| **D-13** | **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
+| **D-09** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11**: «definirlos según la Solicitud Maestra, buscando simplicidad y permitiendo cambios posteriores». Sigue sin implementarse. *Enunciado original:* **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
+| **D-10** | ✅ **RESUELTA el 2026-09-11.** CNO aprobó **archivado reversible y auditado para Administradores y Propietarios**. Advertencia registrada: **en ISPWatch no existe un rol «Propietario»** (los `code` reales son `admin`/`staff`/`technician`/`accounting`/`client`); se implementó como `admin` + superadministrador global — supuesto **S-1** del diseño | — | Desbloqueó el **PR C** |
+| **D-11** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («cierre… según la Solicitud Maestra»). *Enunciado original:* **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
+| **D-12** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («reapertura… según la Solicitud Maestra»). *Enunciado original:* **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
+| **D-13** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** (va dentro de «roles y permisos»). *Enunciado original:* **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
 
 ---
 
@@ -671,6 +677,13 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-25 | De notas, adjuntos y cargos se guarda **referencia, no copia** | La nota es editable, el importe cambia y la ruta del adjunto es interna | Evita dos versiones divergentes y no filtra rutas del bucket | ✅ Aplicada (PR #3) |
 | 2026-08-25 | **Tabla propia** en vez de `audit_logs` | `audit_logs` guarda JSON del modelo, está tras `view_audit_log` y no tiene FK al ticket | Consulta por campo sin recorrer JSON y visible para quien atiende el ticket | ✅ Aplicada (PR #3) |
 | 2026-08-25 | **No se reconstruye historial retroactivo** | No existen los datos de lo ocurrido antes | Inventar eventos pasados sería falsificar una auditoría | ✅ Aplicada (PR #3) |
+| 2026-09-11 | **El archivado de tickets existe**: reversible y auditado, para Administradores y Propietarios | **Confirmación de CNO por chat — 11/09/2026** | Resuelve D-10 y desbloquea el PR C | ✅ Aplicada (PR C) |
+| 2026-09-11 | **Las subcausas se quedan como texto de referencia**; no se crean códigos individuales | **Confirmación de CNO por chat — 11/09/2026** | **Cierra D-06.** Ratifica lo que el PR #1 ya hizo | ✅ Ratificada |
+| 2026-09-11 | **Los estados y transiciones de la Solicitud Maestra quedan confirmados** | **Confirmación de CNO por chat — 11/09/2026** | Desbloquea el PR #4 (ciclo de vida) | ⚪ Sin implementar |
+| 2026-09-11 | **Las evidencias son accesibles para quienes manejan tickets** | **Confirmación de CNO por chat — 11/09/2026** | Ratifica el modelo del endurecimiento posterior al PR #2 | ✅ Ya vigente |
+| 2026-09-11 | **Roles, permisos, cierre, reapertura, servicio e incidentes se delegan en el equipo**, según la Solicitud Maestra, con simplicidad y reversibilidad | **Confirmación de CNO por chat — 11/09/2026** | D-09, D-11, D-12 y D-13 pasan de bloqueantes a delegadas | 🔓 Delegadas |
+| 2026-09-11 | **No se purga ni se borra evidencia automáticamente**; la retención sigue sin definir | **Confirmación de CNO por chat — 11/09/2026** | Archivar un ticket **no toca ningún archivo del bucket**. D-05 sigue abierta | ✅ Aplicada (PR C) |
+| 2026-09-11 | **«Propietario» se implementa como `admin` + superadministrador global**, porque ese rol no existe en ISPWatch | Decisión del equipo (**S-1**), verificada contra la base | Si CNO designaba otra figura, es un rol nuevo y entra por el PR E | ⚠️ **Supuesto, pendiente de confirmar** |
 
 ---
 
@@ -720,6 +733,9 @@ Ninguna debe resolverse por iniciativa propia.
 | Contrato OpenAPI entregado | *(pendiente)* | | ⚪ No enviado |
 | Códigos del Anexo A confirmados | *(pendiente)* | | ⚪ No solicitado |
 | Reunión de la sección 40 | *(pendiente)* | | ⚪ No agendada |
+| **Decisiones operativas (roles, cierre, archivado, subcausas, evidencias)** | 2026-09-11 | **2026-09-11** | ✅ **Respondida por chat** — ver *Registro de decisiones* |
+| Confirmación de que «Propietario» = rol `admin` (**S-1**) | *(pendiente)* | | ⚠️ **No solicitada** — asunción del equipo |
+| Retención de evidencias (**D-05**) | 2026-09-11 | **2026-09-11** | 🟡 **Sin definir**, con instrucción de no purgar |
 
 ---
 
@@ -743,3 +759,4 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-29 | **PR A mergeado y desplegado** (PR #254). Borrado físico de tickets bloqueado y FK del historial en `RESTRICT`, validado en producción | David Gómez | PR #254 |
 | 2026-08-29 | **H-6 corregido**: `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan de `CASCADE` a `SET NULL`; se añade `author_name` con el nombre congelado del autor. Dar de baja a un cliente ya no vacía el expediente. **Queda abierto `invoices.customer_id`** (P-43), que sigue borrando el histórico de facturación | — | *(PR abierto)* |
 | 2026-09-11 | **PR B implementado**: 20 permisos `ticket_*`, una capacidad por acción; autorización por campo en el `PUT`; siete rutas que no tenían ningún permiso ahora lo exigen; el endpoint de catálogos deja de ser abierto. Backfill que preserva exactamente lo que cada rol podía hacer. **F1-17 sigue parcial**: falta el modelo de roles de la sección 18 (**D-09**) | — | *(PR abierto)* |
+| 2026-09-11 | **Confirmación de CNO por chat.** Aprobado el **archivado reversible y auditado** (D-10) para Administradores y Propietarios; **cerrada D-06** (subcausas sólo como texto); **confirmados** estados y transiciones; **delegadas** en el equipo D-09, D-11, D-12 y D-13; **evidencias accesibles** ratificado; **retención sin definir**, con instrucción de no purgar (D-05 sigue parcial). Registrado el supuesto **S-1**: en ISPWatch **no existe el rol «Propietario»** | David Gómez | *(rama `david-tickets-archivar-expedientes`)* |

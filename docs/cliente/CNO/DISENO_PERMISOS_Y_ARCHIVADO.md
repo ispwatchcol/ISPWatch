@@ -1,11 +1,60 @@
 # Diseño · Permisos granulares y archivado de tickets
 
-> **Estado:** aprobado conceptualmente el 2026-08-27. **PR A implementado**; B a E pendientes.
+> **Estado:** aprobado conceptualmente el 2026-08-27; **confirmado por CNO el 2026-09-11** (§0).
+> **PR A, H-6, P-43a y B implementados**; **C aprobado**; D y E pendientes.
 > **Fuentes:** `docs/cliente/CNO/V1_1/Solicitud_Maestra_ISPwash_CNO_V1_1.docx` (secciones 18 y
-> 19) · `SEGUIMIENTO_MODULO_TICKETS.md` · modelo de roles y permisos vigente · `SupportTicket`,
-> `support_ticket_history` y rutas actuales.
+> 19) · **Confirmación de CNO por chat — 11/09/2026** · `SEGUIMIENTO_MODULO_TICKETS.md` ·
+> modelo de roles y permisos vigente · `SupportTicket`, `support_ticket_history` y rutas
+> actuales.
 >
 > Este documento **no** modifica los originales del cliente en `V1_1/`.
+
+---
+
+## 0. Confirmación de CNO — 11/09/2026
+
+> **Fuente:** Confirmación de CNO por chat — 11/09/2026.
+
+CNO respondió a las decisiones pendientes y **delegó en el equipo el diseño operativo**. Lo que
+sigue separa tres cosas que conviene no mezclar: lo que el cliente aprobó, lo que el equipo
+tuvo que suponer para poder implementar, y lo que sigue sin definirse.
+
+### Decisiones aprobadas por el cliente
+
+| ID | Decisión de CNO | Efecto |
+|---|---|---|
+| **D-10** | **El archivado existe**: reversible y auditado, para **Administradores y Propietarios** | ✅ Resuelta. Desbloquea PR C y PR D |
+| **D-06** | Las **subcausas se mantienen sólo como texto de referencia**; no se crean códigos individuales | ✅ **Cerrada.** Confirma lo que el PR #1 ya había hecho |
+| **D-09** | Roles y permisos: **definirlos según la Solicitud Maestra**, con criterio de simplicidad y permitiendo cambios posteriores | Delegada. Ver supuesto **S-1** |
+| **D-11** | Cierre: ídem, según la Solicitud Maestra | Delegada. Desbloquea PR #4 |
+| **D-12** | Reapertura: ídem | Delegada. Desbloquea PR #4 |
+| **D-13** | Administración de catálogos: ídem, va dentro de «roles y permisos» | Delegada |
+| — | **Estados y transiciones** de la Solicitud Maestra: **confirmados** | Desbloquea PR #4 |
+| — | **Evidencias accesibles** para quienes manejan tickets | Confirma el modelo del endurecimiento posterior al PR #2 |
+
+**«Delegada» no es «resuelta».** El cliente autorizó al equipo a decidir; la decisión sigue
+siendo nuestra y hay que dejarla escrita antes de implementarla. Por eso D-09, D-11, D-12 y
+D-13 siguen en la tabla de §9 con el estado cambiado, no borradas.
+
+### Supuestos técnicos del equipo
+
+Ninguno de estos vino del cliente. Se registran aquí precisamente para que puedan rebatirse.
+
+| ID | Supuesto | Por qué |
+|---|---|---|
+| **S-1** | **«Propietario» no es un rol de ISPWatch.** Los `code` reales son `admin`, `staff`, `technician`, `accounting` y `client` — verificado contra la base, cinco tenants, sin excepciones. «Administrador y Propietario» se implementa como **`code = 'admin'` más el superadministrador global (`role_id == 1`)** | Inventar un rol `owner` habría fabricado un concepto nuevo sin respaldo ni en el requerimiento ni en el esquema. Si CNO llamaba «Propietario» a otra cosa —el dueño del ISP, una figura contractual—, hay que aclararlo **antes** del PR E |
+| **S-2** | Archivar y restaurar se gobiernan con `ticket_archive` y `ticket_restore`, ya declarados por el PR B | Se declararon previendo esto y quedaron sin uso. El PR C los activa; no hay permisos nuevos |
+| **S-3** | Ver el listado de archivados **no** recibe permiso propio: basta cualquiera de los dos anteriores | Simplicidad, que es el criterio que pidió el cliente. Separar `ticket_view_archived` es trivial si el PR E lo necesita para un rol Auditor que mire sin tocar |
+| **S-4** | «Archivado» y *soft delete* son la misma cosa en la implementación, pero **la palabra «eliminar» no aparece en la interfaz** | El requerimiento trata el ticket como expediente. El vocabulario importa tanto como el comportamiento: lo que el operador cree que hizo determina lo que hará después |
+
+### Pendiente: retención de evidencias
+
+CNO **no definió la retención** y dio una instrucción explícita: **no purgar ni borrar
+automáticamente**.
+
+Consecuencia directa para el PR C: **archivar un ticket no toca un solo archivo del bucket.**
+Los adjuntos siguen donde están, con su endpoint autenticado, y siguen siendo consultables
+desde el expediente archivado. **D-05 sigue abierta** en su mitad de retención y hash.
 
 ---
 
@@ -191,6 +240,10 @@ requerimiento, y atarlos a uno de facturación —`view_billing`— se lo quitar
 sí pueden generarlos. Hay un test que fija que son **la única** excepción conocida.
 
 ## 4. Archivado / anulación
+
+> **Aprobado por CNO el 2026-09-11** (§0): archivado reversible y auditado, para Administradores
+> y Propietarios. Lo que sigue era la propuesta y se conserva íntegra, porque el razonamiento no
+> cambió al aprobarse.
 
 ### La observación que va primero
 
@@ -390,9 +443,16 @@ correcto para una baja de cliente, pero es una decisión distinta y **no se tom�
 | **H-6 · Preservar el expediente** | Las dos FK a `SET NULL`, `author_name` congelado, UI resistente al autor ausente | **No** | Sí (FK + columna) | ✅ **Implementado** |
 | **P-43a · Controles de eliminación de clientes** | Permiso propio, motivo, auditoría previa, enlaces de firma | **No** | Sí (datos + columna) | ✅ **Implementado** |
 | **B · Permisos granulares** | Los 20 permisos, middleware por ruta, **backfill que preserva el comportamiento** | **No** | Sí (datos) | ✅ **Implementado** |
-| **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas | Parcialmente | Sí (esquema) | 🔒 Requiere D-10 |
-| **D · UI de archivados** | Vista, filtro, doble confirmación, restauración | No | No | 🔒 Depende de C |
-| **E · Mapeo de roles §18** | Roles N1/N2/Campo/Supervisor/Auditor con su matriz | **Sí, bloqueante** | Sí (datos) | 🔒 Requiere D-11 |
+| **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas + **la UI del PR D** | Ya no: **D-10 aprobada** | Sí (esquema + datos) | 🟢 **Aprobado — en implementación** |
+| **D · UI de archivados** | Vista, filtro, doble confirmación, restauración | No | No | ↩️ **Absorbido por el PR C** |
+| **E · Mapeo de roles §18** | Roles N1/N2/Campo/Supervisor/Auditor con su matriz | Delegado en el equipo (D-09) | Sí (datos) | 🔓 Desbloqueado, sin empezar |
+
+**Por qué el PR D desaparece como PR aparte:** se separó cuando archivar podía no llegar a
+existir, para no construir pantallas de algo sin aprobar. Aprobado el archivado, entregar el
+backend sin la interfaz dejaría una capacidad que sólo se alcanza por API — es decir,
+inalcanzable para quien tiene que usarla. La doble confirmación escribiendo el número del
+ticket, que era el corazón del PR D, es una **barrera de seguridad**, y las barreras no se
+entregan en un segundo despliegue.
 
 **Lo que desbloquea el PR B:** entregar los permisos con un **backfill que dé los 20 nuevos a
 todo rol que hoy tenga `view_support`**. Comportamiento idéntico, cero regresión, y a partir de
@@ -451,15 +511,23 @@ aparece sin permiso.
 
 ## 9. Decisiones pendientes del cliente
 
-| ID | Pregunta | Bloquea |
-|---|---|---|
-| **D-09** | Modelo de roles de la sección 18: ¿se adoptan los cinco y con qué capacidades? | PR E, mitad de F1-17 |
-| **D-10** | ¿Debe existir el archivado? Y de existir, ¿quién archiva y quién restaura? | PR C, PR D |
-| **D-11** | ¿Quién **cierra** un ticket? El documento sólo nombra «propuesta de cierre» y «cierre especial» | PR #4 (ciclo de vida), permiso #14 |
-| **D-12** | ¿Existe la **reapertura**? No aparece en el documento | Permiso #16 |
-| **D-13** | ¿Quién administra los catálogos del ticket? | Permiso #19 |
+Actualizado tras la **Confirmación de CNO por chat — 11/09/2026** (§0).
 
-**Sugerencia de redacción para D-10:** «detectamos que hoy cualquiera con permiso de lectura
-podía borrar un ticket, y lo hemos impedido. Proponemos sustituirlo por un archivado reversible
-y auditado — ¿lo confirman, o prefieren que no exista ninguna forma de retirar un ticket de la
-vista?»
+| ID | Pregunta | Estado | Bloquea |
+|---|---|---|---|
+| **D-09** | Modelo de roles de la sección 18: ¿se adoptan los cinco y con qué capacidades? | 🔓 **Delegada en el equipo.** Definir según la Solicitud Maestra, con simplicidad y reversibilidad | PR E, mitad de F1-17 |
+| **D-10** | ¿Debe existir el archivado? ¿Quién archiva y quién restaura? | ✅ **Resuelta.** Sí, reversible y auditado, para Administradores y Propietarios → **S-1** | — |
+| **D-11** | ¿Quién **cierra** un ticket? | 🔓 **Delegada en el equipo**, según la Solicitud Maestra | PR #4, permiso `ticket_close` |
+| **D-12** | ¿Existe la **reapertura**? | 🔓 **Delegada en el equipo**, según la Solicitud Maestra | PR #4, permiso `ticket_reopen` |
+| **D-13** | ¿Quién administra los catálogos del ticket? | 🔓 **Delegada en el equipo** (va dentro de «roles y permisos») | Permiso `ticket_manage_catalogs` |
+| **D-05** | Retención y hash de adjuntos | 🟡 **Parcial.** El acceso quedó confirmado («evidencias accesibles para quienes manejan tickets»); la **retención sigue sin definir**, con instrucción explícita de **no purgar ni borrar automáticamente** | F1-11 |
+
+**Lo que sigue necesitando respuesta del cliente, y no del equipo:** cuánto tiempo se conservan
+las evidencias y si llevan hash de integridad (**D-05**). Todo lo demás quedó delegado o
+resuelto.
+
+**Sobre S-1, que conviene no dejar pasar:** CNO aprobó el archivado «para Administradores y
+Propietarios», y en ISPWatch **no existe un rol Propietario**. Se implementó como el rol
+`admin` más el superadministrador global. Si para CNO «Propietario» designa a otra figura —el
+dueño del ISP frente a un administrador contratado, por ejemplo—, eso es un rol nuevo y debe
+entrar por el PR E, no colarse aquí.

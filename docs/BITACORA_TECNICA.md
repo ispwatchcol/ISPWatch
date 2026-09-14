@@ -6794,3 +6794,69 @@ Cuando el único permiso que deja **ver** algo es un permiso de **escritura**, e
 a elegir entre no mostrar nada o conceder de más. Casi siempre se concede de más, porque la
 presión operativa empuja hacia ahí. El síntoma que lo delata es éste: alguien pregunta «¿cuál
 es la casilla?» y no hay ninguna que se llame como lo que falta.
+
+---
+
+## 65. El cliente aprobó el archivado «para Propietarios», y ese rol no existe — 2026-09-11
+
+CNO respondió por chat a las decisiones que llevaban dos semanas abiertas. La respuesta resolvió
+menos de lo que parecía y desbloqueó más de lo que decía.
+
+### Lo que quedó decidido
+
+**El archivado existe** (D-10): reversible, auditado, para Administradores y Propietarios. Era
+la única decisión bloqueante del PR C, y la que motivó el diseño entero: el PR A había retirado
+el borrado físico de tickets y dejado un hueco deliberado —no había forma de sacar de la vista
+un ticket abierto por error— a la espera de esta respuesta.
+
+**Las subcausas se quedan como texto** (D-06). El PR #1 sembró las 7 familias del Anexo A y dejó
+las 48 subcausas como prosa en `description`, porque el Anexo no les asignaba código y los
+códigos son inmutables al sembrarse. El cliente ratificó exactamente eso. Es la primera decisión
+del proyecto que se confirma como se había tomado: conviene anotarlo, porque el criterio —**no
+fabricar contrato cuando la fuente no lo da**— acaba de demostrar que era el correcto.
+
+**No se purga evidencia.** Sin definir la retención, pero con la instrucción explícita de no
+borrar nada automáticamente. Para el PR C eso se traduce en una línea de código que no se
+escribe: archivar no toca el bucket.
+
+### Lo que se delegó, que no es lo mismo que resolverse
+
+Roles, permisos, cierre, reapertura e incidentes «según la Solicitud Maestra, buscando
+simplicidad y permitiendo cambios posteriores».
+
+Es una respuesta razonable de un cliente que no quiere diseñar software, pero conviene no
+traducirla como «D-09, D-11, D-12 y D-13 resueltas». Lo que cambió es **quién decide**, no que
+la decisión esté tomada. Siguen en la tabla de decisiones con el estado cambiado, porque
+borrarlas dejaría el rastro en falso: dentro de seis meses, la pregunta «¿por qué el cierre
+funciona así?» debe poder responderse con algo más que «alguien lo programó así».
+
+### El rol que no estaba
+
+La aprobación dice **«Administradores y Propietarios»**. Antes de conceder nada, se verificó
+contra la base cuál es el `code` real de propietario.
+
+No hay ninguno. Los roles de ISPWatch son `admin`, `staff`, `technician`, `accounting` y
+`client`, y así están en los cinco tenants sin una sola excepción. La única figura por encima
+del administrador es el **superadministrador global** (`role_id == 1`), que no es un rol de
+tenant sino un bypass del middleware de permisos.
+
+Las salidas posibles eran tres, y dos eran malas:
+
+1. **Crear un rol `owner`** porque el cliente lo nombró. Sería fabricar un concepto sin respaldo
+   en el requerimiento ni en el esquema, con permisos que nadie especificó, y arrastrarlo a
+   cinco tenants. El mismo error que se evitó con los códigos de subcausa.
+2. **Conceder a `admin` y callar.** Funciona, y deja escrito en ninguna parte que el cliente
+   pidió dos roles y se le dieron uno y medio.
+3. **Implementarlo como `admin` + superadministrador global, y decirlo.** Es lo que se hizo,
+   registrado como supuesto **S-1** en el diseño y como fila propia en el seguimiento.
+
+Si para CNO «Propietario» designa a otra figura —el dueño del ISP frente a un administrador
+contratado— eso es un rol nuevo, con su matriz, y entra por el PR E. No se cuela en el PR C
+porque la palabra apareciera en un chat.
+
+### Lección
+
+Un cliente que aprueba en prosa nombra los roles que tiene en la cabeza, no los que existen en
+la base de datos. **Verificar el `code` antes de conceder el permiso** cuesta una consulta y
+evita construir sobre un rol imaginario — que es exactamente el tipo de error que no falla en
+los tests, porque el rol inventado se comporta perfectamente: sólo que no es el de nadie.
