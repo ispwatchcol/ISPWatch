@@ -6947,3 +6947,98 @@ Un soft delete es una decisión de vocabulario tanto como de esquema. La columna
 `deleted_at` porque así la llama Eloquent, pero lo que el sistema hace es archivar — y en cuanto
 esa palabra se filtra a un botón, a un mensaje o a una clave del JSON, deja de ser un detalle de
 implementación y se convierte en lo que el operador cree que pasó.
+
+---
+
+## 67. Un aviso detrás del modal, y una factura que se podía borrar — 2026-09-19
+
+Dos hallazgos del humo del PR C en producción. Parecen inconexos y comparten forma: en los dos,
+la salvaguarda existía y no llegaba a donde tenía que llegar.
+
+### El aviso que nadie podía leer
+
+Al intentar archivar un ticket con un cargo sin anular, el backend responde 422 con un mensaje
+que **nombra la factura a anular**: exactamente el dato que el operador necesita. Salía. Pero
+detrás del modal.
+
+El contenedor de notificaciones estaba en `z-[100]` y el modal de archivado en `z-[9999]`.
+
+La tentación era subir el número del toast. Se descartó porque el problema no era el número:
+era que **no había escala**. Los modales se declaraban con `z-50` en unos sitios —el
+`ConfirmModal` compartido— y `z-[9999]` en otros, `Login.vue` tenía su propio aviso en
+`z-[100]`, y cada número se eligió mirando sólo el archivo que se estaba editando. Subir el
+toast lo habría tapado hasta el siguiente modal con un número más alto, que es lo que ya había
+pasado una vez.
+
+Y había un segundo problema debajo: **37 pantallas montaban cada una su propio
+`<NotificationToast>`**, y cada instancia traía su propio contenedor `fixed` con su propia
+lista. Treinta y siete contenedores potenciales compitiendo por la misma esquina, ninguno con
+forma de saber qué hay pintado encima.
+
+Lo que se hizo:
+
+- Una **escala con nombre** en `app.css` —`z-app-dropdown` 1000, `z-app-modal` 2000,
+  `z-app-toast` 3000— y todos los `z-[…]` sueltos migrados a ella. Hay un test que recorre los
+  `.vue` y falla si alguien vuelve a escribir un número a mano, porque el número de al lado no
+  se ve desde donde se escribe.
+- La cola de avisos sale de los componentes y pasa a un **módulo** (`useNotifications.js`).
+- **Un solo contenedor**, `NotificationHost`, montado en `App.vue` fuera del `router-view` —si
+  viviera dentro, cambiar de página desmontaría el aviso que acaba de aparecer.
+- `NotificationToast` se queda como **adaptador**: no pinta nada y expone la misma API. Las 37
+  pantallas siguen funcionando sin tocarlas. Son llamadas con `?.`, así que si el adaptador
+  dejara de exponer un método no reventarían: simplemente dejarían de avisar. Hay un test.
+
+De paso, los errores duran 8 segundos en vez de 5 y el mensaje ya no se puede truncar. Cinco
+segundos no alcanzan para leer un mensaje que menciona un número de factura y decidir qué
+hacer con él.
+
+### La factura que se podía borrar
+
+El operador notó que la pantalla financiera ofrece **Eliminar** sobre una factura emitida. La
+auditoría encontró tres cosas, y la tercera no la esperaba nadie:
+
+1. **`DELETE /billing/invoices/{id}` destruía cualquier factura**, incluida la que es el cargo
+   de un ticket. Se llevaba el número consecutivo, los ítems y el vínculo. Detrás de
+   `delete_invoice`, que tienen Administración y Contabilidad en los cinco tenants.
+
+2. **Anular ya se podía, pero por la puerta de atrás.** `PUT /billing/invoices/{id}` aceptaba
+   `status: cancelled` detrás de **`view_billing`** — un permiso de **lectura**. Sin motivo, sin
+   confirmación y sin una línea en `audit_logs`. El propio aviso del modal de borrado lo
+   recomendaba: «edítala y ponla en Cancelada».
+
+3. **La misma validación aceptaba `pending`, que no existe.** El CHECK de `invoices.status`
+   admite draft, issued, paid, partial, void, overdue y cancelled. La pantalla de edición
+   ofrecía «Pendiente de pago» en el desplegable: en PostgreSQL eso es un 23514, y en SQLite
+   pasa — así que ningún test lo veía.
+
+Lo que se hizo: **borrar y anular dejan de compartir puerta.** `delete_invoice` sólo alcanza un
+borrador sin número y sin ticket. Anular es `POST .../void` con permiso propio (`invoice_void`),
+motivo obligatorio de 10 a 500 caracteres y evento en `audit_logs` con actor, estado
+anterior/nuevo, ticket y `correlation_id`.
+
+### El detalle que decidió el diseño: qué pasa con el pago
+
+Anular una factura pagada mueve dinero, y había dos precedentes en el código que hacen cosas
+distintas:
+
+- `deleteInvoice()` suelta la asignación y devuelve el importe como saldo a favor,
+  **conservando el pago**.
+- `markInvoiceUnpaid()` **borra el pago** si sólo financiaba esa factura.
+
+Se copió el primero. El recaudo es un hecho ocurrido —entró plata en la caja ese día— y
+destruirlo para corregir un error de facturación es cambiar el histórico de tesorería por un
+motivo que no tiene nada que ver con él.
+
+### Lo que NO hizo falta
+
+Anular una mensual **no deja lápida `suppressed`**. Borrarla sí la necesitaba, porque la fila
+desaparecía y el periodo quedaba libre para que la corrida mensual lo volviera a llenar.
+`monthlyInvoiceExists()` no filtra por estado: la factura anulada sigue ocupando su periodo.
+Es una propiedad que salió gratis de no borrar, y conviene tenerla escrita porque el día que
+alguien añada un `whereNotIn('status', …)` a esa consulta, la regeneración volverá.
+
+### Lección
+
+Las dos mitades de este PR son el mismo error con dos caras. Una salvaguarda que vive en el
+sitio equivocado —un aviso debajo del modal, una comprobación en el botón y no en el endpoint—
+no es media salvaguarda: es ninguna, y además da la sensación de que hay una.

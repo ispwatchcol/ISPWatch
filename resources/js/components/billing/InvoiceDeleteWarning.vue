@@ -80,7 +80,8 @@ const fmt = (n) => Number(n || 0).toLocaleString('es-CO')
             <p class="text-xs text-emerald-800 dark:text-emerald-300">
                 <strong>¿Buscabas otra cosa?</strong>
                 Para un <strong>descuento</strong>, agrega un ítem con monto negativo en el detalle de la factura.
-                Para dejarla sin efecto conservando el número, edítala y ponla en <strong>Cancelada</strong>.
+                Para dejarla sin efecto conservando el número, los importes y el histórico, usa
+                <strong>Anular</strong>.
             </p>
         </div>
     </div>

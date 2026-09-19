@@ -997,9 +997,10 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `GET` | `/api/billing/invoices` | — | Lista con filtros |
 | `GET` | `/api/billing/invoices/{id}` | — | Detalle |
 | `POST` | `/api/billing/invoices` | — | Crea factura manual |
-| `PUT` | `/api/billing/invoices/{id}` | — | Actualiza |
+| `PUT` | `/api/billing/invoices/{id}` | — | Actualiza. **Ya no acepta `cancelled`**: anular tiene endpoint propio |
 | `POST` | `/api/billing/invoices/{id}/mark-unpaid` | — | Revierte pagos y restaura el saldo |
-| `DELETE` | `/api/billing/invoices/{id}` | **`delete_invoice`** | Elimina (deja lápida) |
+| `POST` | `/api/billing/invoices/{id}/void` | **`invoice_void`** | **Anula** la factura conservándolo todo |
+| `DELETE` | `/api/billing/invoices/{id}` | **`delete_invoice`** | Borra **sólo un borrador sin número y sin ticket**; cualquier otra da 422 |
 | `POST` | `/api/billing/invoices/{id}/items` | — | Añade ítem |
 | `GET` | `/api/billing/invoices/{id}/pdf` | — | Descarga el PDF |
 | `GET` | `/api/billing/invoices/export` | — | **CSV** de todas las facturas del filtro |
@@ -1037,6 +1038,59 @@ Tres decisiones que conviene no revertir sin pensarlo:
 
 `total_expenses` y `balance` llegan en **`null`** —no en `0`— cuando el usuario no tiene
 `view_expenses`, para que el panel oculte esas tarjetas en vez de mostrar un balance falso.
+
+### Anular una factura (2026-09-19)
+
+Una factura emitida **no se borra: se anula**. Anular conserva el número consecutivo, los
+importes, el titular congelado, los ítems, las fechas y el vínculo con el ticket; lo único que
+cambia es que deja de cobrarse.
+
+**`POST /api/billing/invoices/{id}/void`** · permiso **`invoice_void`**
+
+| Campo | Regla |
+|---|---|
+| `reason` | **obligatorio**, 10–500 caracteres. Queda en `audit_logs` con el actor |
+
+```json
+{
+  "message": "Factura 00000016 anulada. Se conserva el número, los importes y el histórico. 🧾",
+  "invoice": { "id": 16, "number": "00000016", "status": "void", "balance_due": "0.00",
+               "total": "50000.00", "ticket_id": 25,
+               "voided_at": "2026-09-19T14:02:11.000000Z", "void_reason": "Cobro duplicado.",
+               "voider": { "id": 7, "user_name": "Ana", "user_lastname": "Ríos" } },
+  "previous_status": "issued",
+  "correlation_id": "0a9c…"
+}
+```
+
+**422 · `invoice_already_void`** si ya estaba en `void` o `cancelled`.
+
+**Qué deja de responder una factura anulada.** Es de **sólo lectura**:
+`PUT /billing/invoices/{id}`, `POST .../items` y `POST .../mark-unpaid` devuelven **422** con
+`error: invoice_is_void`.
+
+**Qué pasa con el dinero.** Lo ya aplicado vuelve como **saldo a favor** del cliente y **el pago
+se conserva** — el recaudo ocurrió. Es la diferencia con `mark-unpaid`, que borra el pago si
+sólo financiaba esa factura.
+
+**Anular no deja lápida de regeneración.** Una mensual anulada sigue ocupando su periodo, así
+que la facturación automática no la vuelve a crear. Borrarla sí la necesitaba.
+
+### El borrado de facturas quedó acotado
+
+**`DELETE /api/billing/invoices/{id}`** responde **422** con `error: invoice_deletion_blocked`
+salvo que la factura sea un **borrador sin número y sin ticket**. En la práctica ninguna lo es:
+las siete rutas de creación asignan número y dejan la factura en `issued`.
+
+No es un 403 —quien lo intenta **tiene** `delete_invoice`—, es que la operación no procede. El
+mensaje nombra el motivo y dirige a la anulación. Se comprueba en el servidor, no sólo
+ocultando el botón.
+
+**`PUT /api/billing/invoices/{id}` ya no acepta `status: cancelled`.** Anular era un caso
+particular de «editar el estado» detrás de `view_billing`, un permiso de **lectura**: bastaba
+para sacar una factura de las cuentas sin motivo, sin confirmación y sin auditoría. Los estados
+que acepta ahora son `issued`, `paid`, `partial` y `overdue` — `pending`, que la pantalla de
+edición ofrecía, nunca fue válido y PostgreSQL lo rechazaba con un 23514.
 
 **`GET /api/billing/invoices`** — listado paginado (20 por página por defecto,
 orden `issue_date` descendente con desempate por `id`). Todos los parámetros son

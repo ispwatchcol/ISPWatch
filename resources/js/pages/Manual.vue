@@ -226,7 +226,7 @@
     </div>
 
     <!-- Category Modal (Superadmin) -->
-    <div v-if="isEditingCategory" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div v-if="isEditingCategory" class="fixed inset-0 z-app-modal flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
         <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl max-w-md w-full overflow-hidden">
             <div class="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
                 <h3 class="text-xl font-bold dark:text-white">{{ editingCategory.id ? 'Editar Categoría' : 'Nueva Categoría' }}</h3>
@@ -255,7 +255,7 @@
     </div>
 
     <!-- Article Modal (Superadmin) -->
-    <div v-if="isEditingArticle" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div v-if="isEditingArticle" class="fixed inset-0 z-app-modal flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
         <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-xl max-w-4xl w-full h-[90vh] flex flex-col overflow-hidden">
             <div class="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center shrink-0">
                 <h3 class="text-xl font-bold dark:text-white">{{ editingArticle.id ? 'Editar Artículo' : 'Nuevo Artículo' }}</h3>

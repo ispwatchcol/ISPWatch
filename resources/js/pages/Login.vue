@@ -9,7 +9,7 @@
         <!-- ✅ NOTIFICACIÓN DE VERIFICACIÓN EXITOSA -->
         <div 
           v-if="showVerificationSuccess" 
-          class="fixed top-4 right-4 z-[100] w-full max-w-md animate-slide-in-right px-4"
+          class="fixed top-4 right-4 z-app-toast w-full max-w-md animate-slide-in-right px-4"
         >
           <div class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-green-200 dark:border-green-900/50">
             <!-- Header -->
@@ -56,7 +56,7 @@
         <!-- ✅ NOTIFICACIÓN DE CREDENCIALES (después del registro) -->
         <div 
           v-if="showCredentialsNotification" 
-          class="fixed top-4 right-4 z-[100] w-full max-w-md animate-slide-in-right px-4"
+          class="fixed top-4 right-4 z-app-toast w-full max-w-md animate-slide-in-right px-4"
         >
           <div class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-green-200 dark:border-green-900/50">
             <!-- Header -->

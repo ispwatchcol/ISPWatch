@@ -312,7 +312,7 @@
                     <Teleport to="body">
                         <div 
                           v-if="lightboxImage" 
-                          class="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+                          class="fixed inset-0 z-app-modal flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
                           @click="lightboxImage = null"
                         >
                           <div 
@@ -610,7 +610,7 @@
         <Teleport to="body">
             <div
                 v-if="modalArchivar"
-                class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                class="fixed inset-0 z-app-modal flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
                 @click="cerrarArchivado"
             >
                 <div
@@ -723,7 +723,7 @@
         <Teleport to="body">
             <div
                 v-if="modalRestaurar"
-                class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                class="fixed inset-0 z-app-modal flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
                 @click="cerrarRestauracion"
             >
                 <div

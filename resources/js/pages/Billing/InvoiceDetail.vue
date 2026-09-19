@@ -4,7 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import InvoiceDeleteWarning from '@/components/billing/InvoiceDeleteWarning.vue'
+import InvoiceVoidWarning from '@/components/billing/InvoiceVoidWarning.vue'
 import { usePermissions } from '@/composables/usePermissions'
+import { useNotifications } from '@/composables/useNotifications'
+import { sePuedeBorrar, sePuedeAnular, estaAnulada } from '@/utils/invoices'
 import { customerDisplayName as resolveCustomerDisplayName } from '@/utils/customerName'
 import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
 
@@ -62,6 +65,45 @@ const confirmDelete = async () => {
         console.error('Error deleting invoice', e)
         alert(e.response?.data?.message || 'No se pudo eliminar la factura.')
         deleting.value = false
+    }
+}
+
+// ── Anulación ────────────────────────────────────────────────────────────
+
+const toast = useNotifications()
+
+const showVoidModal = ref(false)
+const voidReason = ref('')
+const voiding = ref(false)
+
+const puedeAnular = computed(() => sePuedeAnular(invoice.value))
+const puedeBorrar = computed(() => sePuedeBorrar(invoice.value))
+const anulada = computed(() => estaAnulada(invoice.value))
+
+const openVoid = () => {
+    voidReason.value = ''
+    showVoidModal.value = true
+}
+
+const confirmVoid = async () => {
+    if (!invoice.value || voidReason.value.trim().length < 10) return
+
+    voiding.value = true
+
+    try {
+        const { data } = await billingService.voidInvoice(invoice.value.id, voidReason.value.trim())
+
+        showVoidModal.value = false
+        toast.success('Factura anulada', data.message || 'La factura deja de cobrarse y se conserva.')
+        await fetchInvoice()
+    } catch (e) {
+        console.error('Error voiding invoice', e)
+        const errores = e.response?.data?.errors
+        const detalle = errores ? Object.values(errores)[0]?.[0] : e.response?.data?.message
+
+        toast.error('No se pudo anular', detalle || 'No se pudo anular la factura.')
+    } finally {
+        voiding.value = false
     }
 }
 
@@ -143,16 +185,26 @@ onMounted(() => {
                     Volver a Listado
                 </button>
                 <div class="flex gap-3">
-                    <button v-if="invoice && (invoice.status === 'paid' || Number(invoice.balance_due) <= 0)"
+                    <!-- Una factura anulada es de sólo lectura: el backend
+                         rechaza marcarla como no pagada, editarla y añadirle
+                         ítems, así que la pantalla tampoco lo ofrece. -->
+                    <button v-if="invoice && !anulada && (invoice.status === 'paid' || Number(invoice.balance_due) <= 0)"
                         @click="showUnpaidModal = true"
                         class="p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all flex items-center gap-2">
                         <v-icon name="ri-arrow-go-back-line" class="w-5 h-5" />
                         Marcar como no pagada
                     </button>
-                    <button v-if="can('delete_invoice')" @click="showDeleteModal = true"
+                    <button v-if="can('invoice_void') && puedeAnular" @click="openVoid"
+                        class="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all flex items-center gap-2">
+                        <v-icon name="md-block" class="w-5 h-5" />
+                        Anular
+                    </button>
+                    <!-- Sólo un borrador sin número y sin ticket. En la práctica
+                         ninguna factura lo cumple; ver `utils/invoices.js`. -->
+                    <button v-if="can('delete_invoice') && puedeBorrar" @click="showDeleteModal = true"
                         class="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all flex items-center gap-2">
                         <v-icon name="md-delete" class="w-5 h-5" />
-                        Eliminar
+                        Eliminar borrador
                     </button>
                     <button @click="downloadPdf"
                         class="p-3 bg-white dark:bg-gray-800 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all flex items-center gap-2">
@@ -165,6 +217,32 @@ onMounted(() => {
                     <button class="p-3 bg-white dark:bg-gray-800 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-gray-700 hover:bg-slate-50 transition-all">
                         <v-icon name="md-share" class="w-5 h-5" />
                     </button>
+                </div>
+            </div>
+
+            <!-- Anulada: el motivo va DELANTE del documento.
+                 Quien abre una factura anulada tiene que saber por qué lo está
+                 antes de leer el importe, no descubrirlo al intentar cobrarla. -->
+            <div v-if="invoice && anulada"
+                class="mb-6 rounded-2xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-800 dark:bg-amber-900/25">
+                <div class="flex items-start gap-3">
+                    <v-icon name="md-block" class="mt-0.5 h-6 w-6 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <div class="text-sm">
+                        <p class="font-bold text-amber-900 dark:text-amber-200">
+                            Factura anulada<span v-if="invoice.voided_at"> el {{ formatDate(invoice.voided_at) }}</span>
+                        </p>
+                        <p v-if="invoice.void_reason" class="mt-1 text-amber-800 dark:text-amber-300">
+                            <span class="font-semibold">Motivo:</span> {{ invoice.void_reason }}
+                        </p>
+                        <p v-if="invoice.voider" class="mt-1 text-amber-800 dark:text-amber-300">
+                            <span class="font-semibold">Anulada por:</span>
+                            {{ invoice.voider.user_name }} {{ invoice.voider.user_lastname }}
+                        </p>
+                        <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                            Ya no se cobra y no cuenta en los totales, pero se conserva íntegra —número,
+                            importes, titular, fechas e ítems— como registro contable. Es de sólo lectura.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -352,6 +430,22 @@ onMounted(() => {
             @cancel="showDeleteModal = false"
         >
             <InvoiceDeleteWarning :invoice="invoice" />
+        </ConfirmModal>
+
+        <!-- Confirmación: Anular factura -->
+        <ConfirmModal
+            :visible="showVoidModal"
+            variant="warning"
+            title="Anular factura"
+            require-text="ANULAR"
+            confirm-text="Anular factura"
+            loading-text="Anulando..."
+            :loading="voiding"
+            :disabled="voidReason.trim().length < 10"
+            @confirm="confirmVoid"
+            @cancel="showVoidModal = false"
+        >
+            <InvoiceVoidWarning :invoice="invoice" v-model="voidReason" />
         </ConfirmModal>
     </div>
 </template>

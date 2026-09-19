@@ -637,8 +637,36 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 | `carried_in` | numeric(12,2) | NN | `0` | Saldo de facturas anteriores que ESTA factura está cobrando (ver `invoice_carryovers`) |
 | `carried_out` | numeric(12,2) | NN | `0` | Saldo que esta factura trasladó a la siguiente al cerrarse con un abono parcial |
 | `status` | varchar(255) | NN | `draft` | CHECK: `draft`, `issued`, `paid`, `partial`, `void`, `overdue`, `cancelled` |
+| `voided_at` | timestamp | | | **Anulación** (2026-09-19). Cuándo se anuló |
+| `voided_by` | bigint | | | **FK** → `users.id` (**SET NULL**). Quién la anuló |
+| `void_reason` | varchar(500) | | | Por qué. Obligatorio al anular (10–500) |
 | `last_reminder_sent` | timestamp | | | Idempotencia del recordatorio |
 | `notes` | text | | | |
+
+> ⚠️ **`draft` es el default de la columna y NADA lo escribe.** Las siete rutas de creación
+> llaman a `generateInvoiceNumber()` y dejan la factura en `issued` (o en `paid` si el total
+> es 0). En la práctica no existe ninguna factura en borrador; el estado sobrevive como valor
+> por defecto y como la única puerta que aún permite el borrado físico.
+
+#### Anulación (2026-09-19)
+
+Una factura emitida **no se borra: se anula**. `DELETE /billing/invoices/{id}` sólo alcanza un
+borrador sin número y sin ticket — es decir, ninguna de las que el sistema genera.
+
+| Aspecto | Decisión |
+|---|---|
+| Estado destino | **`void`**. Es el que el sistema ya escribía (`VoidCourtesyInvoices`) y el que `SupportTicketController` consulta para decidir si un ticket con cargos puede archivarse |
+| `cancelled` | Equivalente histórico. Nada lo escribe desde que el `PUT` genérico dejó de aceptarlo; se sigue **leyendo** como anulada en todos los `whereNotIn` del módulo |
+| Qué se conserva | Número, subtotal, impuesto, total, titular congelado, ítems, fechas y `ticket_id` |
+| Qué cambia | `status` → `void`, `balance_due` → 0, `carried_out` → 0, y el trío de anulación |
+| Por qué `balance_due` a 0 | Es el saldo lo que miran recordatorios, cortes y cálculo de mora. Es lo que saca la factura de la cobranza |
+| Dinero ya aplicado | Vuelve como **saldo a favor** del cliente. **El pago NO se borra** — el recaudo ocurrió — a diferencia de `markInvoiceUnpaid()`, que sí lo borra si sólo financiaba esa factura |
+| Arrastres | Los que esta factura cobraba vuelven a `pending`; los que ella generó y nadie cobró se eliminan. Igual que al borrar |
+| Lápida `suppressed` | **No se pone.** `monthlyInvoiceExists()` no filtra por estado, así que una mensual anulada sigue ocupando su periodo y la facturación automática no la regenera. Borrarla sí la necesitaba, porque la fila desaparecía |
+| Auditoría | Evento `invoice.voided` en `audit_logs` con actor, factura, ticket, estado anterior/nuevo, motivo y `correlation_id` |
+
+`voided_by` va en **SET NULL** por lo mismo que `customer_id` (P-43) y que `archived_by` en
+`support_ticket`: dar de baja al operador que anuló no puede llevarse la factura por delante.
 
 > `carried_in` / `carried_out` son **denormalización para los listados**: la verdad
 > contable vive en `invoice_carryovers`. Un abono parcial ya no deja la factura en
@@ -1235,6 +1263,7 @@ Agregado permanente.
 | `invoices.service_id` | `service_plan.id` | SET NULL |
 | `invoices.tenant_id` | `tenant.id` | NO ACTION |
 | `invoices.ticket_id` | `support_ticket.id` | SET NULL |
+| `invoices.voided_by` | `users.id` | SET NULL |
 | `ip_assignment.id_range` | `ip_range.id` | SET NULL |
 | `ip_assignment.router_id` | `router.id` | SET NULL |
 | `ip_range.tenant_id` | `tenant.id` | SET NULL |

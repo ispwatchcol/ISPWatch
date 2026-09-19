@@ -322,6 +322,33 @@ lo fija. El contrato del integrador está congelado y no debería depender de qu
 
 ---
 
+## 4quater. La otra mitad de la regla: la factura del ticket — 2026-09-19
+
+El PR C impide archivar un ticket que tenga **una factura sin anular**. El humo en producción
+destapó que esa regla se apoyaba en algo que no existía: **no había forma ordenada de anular una
+factura**, y sí había una de destruirla.
+
+| | Antes | Ahora |
+|---|---|---|
+| Borrar una factura emitida | `DELETE` detrás de `delete_invoice` — se llevaba número, ítems y el vínculo con el ticket | **422.** Sólo se borra un borrador sin número y sin ticket, que el sistema no genera |
+| Anular | `PUT` con `status: cancelled` detrás de **`view_billing`**, un permiso de LECTURA. Sin motivo ni auditoría | `POST /billing/invoices/{id}/void` con **`invoice_void`**, motivo de 10–500 y evento en `audit_logs` |
+| Factura anulada | Editable como cualquier otra | **Sólo lectura** |
+
+**Qué significa para el archivado de tickets.** La secuencia que el PR C describe ya se puede
+recorrer entera: si el cargo no procede, se **anula** —conservando número, importe y el vínculo
+con el ticket— y entonces el ticket se archiva. Antes el operador sólo tenía dos salidas, y las
+dos malas: borrar la factura, o dejar el ticket sin archivar.
+
+**No cambia la semántica de los cargos de ticket.** `POST /support/{id}/charge` sigue generando
+la misma factura `service_charge`, con el mismo permiso —`staff_profile` a secas, que sigue
+siendo **P-44**— y el mismo evento `charge_created` en el historial. Lo único que cambia es qué
+se puede hacer con esa factura después.
+
+**Y no toca las claves foráneas de P-43.** `invoices.customer_id` y `invoices.ticket_id` siguen
+en `SET NULL` exactamente como quedaron.
+
+---
+
 ## 4bis. H-6 · El expediente sobrevive a la baja del usuario
 
 **Implementado.** `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan
@@ -523,7 +550,7 @@ vista de archivados no aparece sin permiso. ✅ *Cumplidos.*
 | Doble paso | Modal que exige **escribir el número del ticket**, validado también en el servidor | El `confirm()` se acepta por reflejo, y una barrera sólo del navegador la salta un `curl` | ✅ PR C |
 | Motivo obligatorio | 10–500 caracteres, validado en backend | Obliga a pensar y es la evidencia de la decisión | ✅ PR C |
 | Estados bloqueados | `open` e `in_progress` sólo por **duplicado o error de registro**, con confirmación extra | Archivar trabajo activo casi siempre es un error — pero no siempre | ✅ PR C |
-| Cargos | **No archivar** con factura no anulada | El cargo es plata: sin expediente rompe la trazabilidad contable | ✅ PR C |
+| Cargos | **No archivar** con factura no anulada | El cargo es plata: sin expediente rompe la trazabilidad contable | ✅ PR C · y desde 2026-09-19 la factura se puede **anular** en vez de borrar (§4quater) |
 | Restauración | Siempre posible, con motivo y evento, sin límite de tiempo | Si es reversible, un error deja de ser catástrofe | ✅ PR C |
 | Auditoría | `ticket_archived` / `ticket_restored` | Infraestructura del PR #3 ya disponible | ✅ PR C |
 | Retención | **No purgar nada**; ligar a D-05 | El cliente aún no definió retención de evidencia | Abierto |

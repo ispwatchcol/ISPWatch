@@ -273,8 +273,19 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::post('/billing/invoices', [BillingController::class, 'store']);
         Route::put('/billing/invoices/{id}', [BillingController::class, 'update']);
         Route::post('/billing/invoices/{id}/mark-unpaid', [BillingController::class, 'markUnpaid']);
+        // El borrado FÍSICO sigue enrutado, pero el controlador sólo lo deja
+        // pasar para un borrador sin número y sin ticket — que el sistema no
+        // genera nunca. Todo lo demás se anula. Quitar la ruta daría un 405
+        // escueto en vez de un mensaje que explica el camino correcto.
         Route::delete('/billing/invoices/{id}', [BillingController::class, 'destroy'])
             ->middleware('permission:delete_invoice');
+
+        // ANULAR: permiso propio y no `view_billing` ni `delete_invoice`.
+        // Hasta ahora se anulaba con un `PUT` de estado detrás de un permiso de
+        // LECTURA, sin motivo ni auditoría. Borrar y anular son operaciones
+        // distintas y dejan de compartir puerta.
+        Route::post('/billing/invoices/{id}/void', [BillingController::class, 'voidInvoice'])
+            ->middleware('permission:invoice_void');
         Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
         Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
         Route::get('/billing/payments', [BillingController::class, 'getPayments']);

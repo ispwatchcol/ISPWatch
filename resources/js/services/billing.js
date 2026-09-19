@@ -26,9 +26,18 @@ export default {
     return apiClient.post(`/billing/invoices/${id}/mark-unpaid`)
   },
 
-  // Delete Invoice (reverses payments to credit, removes items)
+  // Delete Invoice: SÓLO un borrador sin número y sin ticket. El backend
+  // rechaza cualquier otra con 422 y `error: invoice_deletion_blocked`.
+  // En la práctica no hay ninguna: toda factura nace con número y en `issued`.
   deleteInvoice(id) {
     return apiClient.delete(`/billing/invoices/${id}`)
+  },
+
+  // ANULAR: lo que sustituye al borrado. Conserva número, importes, titular,
+  // fechas y el vínculo con el ticket; sólo deja la factura sin efecto.
+  // `reason` es obligatorio (10–500) y queda en `audit_logs` con el actor.
+  voidInvoice(id, reason) {
+    return apiClient.post(`/billing/invoices/${id}/void`, { reason })
   },
 
   // Add Items

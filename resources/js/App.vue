@@ -1,12 +1,22 @@
 <template>
   <div id="app">
     <router-view /> <!-- Aquí se renderizan todas las páginas según la ruta -->
+
+    <!--
+      EL ÚNICO contenedor de notificaciones. Se monta aquí, fuera del
+      `router-view`, para que sobreviva a los cambios de página y quede por
+      encima de cualquier modal (`.z-app-toast`). Ninguna pantalla debe montar
+      otro: `NotificationToast` es sólo un adaptador que escribe en la misma
+      cola. Ver `composables/useNotifications.js`.
+    -->
+    <NotificationHost />
   </div>
 </template>
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from './stores/auth';
+import NotificationHost from './components/NotificationHost.vue';
 
 const authStore = useAuthStore();
 

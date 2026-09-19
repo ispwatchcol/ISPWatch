@@ -631,7 +631,31 @@ componentes en `failing`. Ver `ARQUITECTURA.md` § 16 y `API_REFERENCE.md` § 3.
     la condición es falsa. Si un campo sólo aplica en ciertos casos, **añade la clave al array
     de reglas** dentro de un `if`, en vez de declararla siempre con una condición dentro.
 
-13. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
+13. **El `z-index` sale de la escala con nombre, nunca de un número a mano.**
+    `resources/css/app.css` declara `.z-app-dropdown`, `.z-app-modal` y `.z-app-toast`, en ese
+    orden. Un `z-[9999]` suelto es como se abrió el agujero que dejaba los avisos detrás de los
+    modales: el número de al lado no se ve desde donde se escribe. Hay un test
+    (`NotificationLayeringTest`) que recorre los `.vue` y falla si alguien vuelve a hacerlo.
+
+    Y para avisar al usuario, **no montes un `<NotificationToast>` nuevo ni un contenedor
+    propio**: importa `useNotifications()`. El contenedor es uno solo, `NotificationHost`,
+    montado en `App.vue`.
+
+14. **Una acción destructiva se bloquea en el ENDPOINT, no ocultando el botón.**
+    Ocultar el botón es buena experiencia y cero seguridad: un `curl` con el permiso llega
+    igual. Cuando el usuario **tiene** el permiso pero la operación no procede para ese
+    recurso, responde **422 con un mensaje que diga cuál es el camino correcto**, no 403 — no
+    le falta autorización, le falta que la operación tenga sentido. Es lo que hacen
+    `DELETE /billing/invoices/{id}` (anula en vez de borrar) y el archivado de tickets con un
+    cargo vivo.
+
+15. **Antes de ofrecer un valor en un desplegable, compruébalo contra el CHECK.**
+    La pantalla de edición de facturas ofrecía «Pendiente de pago» durante meses.
+    `invoices.status` no admite `pending`: PostgreSQL lo rechaza con un 23514 y **SQLite lo
+    acepta**, así que la suite no lo veía. Si una columna tiene un CHECK, la lista de opciones
+    y la regla `in:` del validador salen de ahí, no de la memoria.
+
+16. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
     otra cosa que contar (`throttle:public-contract` en `AppServiceProvider`), y además un
     techo por recurso: los 5 intentos de verificación de `ContractSignatureLink` protegen
     un enlace concreto, el limitador protege al servidor de un barrido.

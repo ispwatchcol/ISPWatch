@@ -2131,6 +2131,12 @@ actual.
 Hay un test —`toda_ruta_de_ticket_exige_un_permiso`— que fija que éstas son **la única**
 excepción: si mañana alguien agrega otra ruta de ticket sin permiso, falla.
 
+> **Actualización 2026-09-19.** El PR de anulación de facturas **no cierra P-44**, pero acota su
+> daño: el cargo que ese endpoint genera ya no se puede destruir. Antes, quien lo creaba sin
+> permiso propio podía además borrarlo con `delete_invoice` y no quedaba rastro; ahora el
+> borrado está bloqueado y anularlo exige `invoice_void`, motivo y auditoría. La pregunta de
+> negocio —**quién debe poder facturar desde un ticket**— sigue abierta.
+
 ### 🟡 P-45 · `staff_profile` decide por código de rol, no por capacidad
 
 `CheckStaffProfile` deja pasar a quien tenga `code` ∈ {`admin`, `staff`} más el superadmin
@@ -2145,6 +2151,67 @@ es deuda.
 **Qué hacer:** una vez el cliente confirme la matriz de roles (**D-09**), evaluar si
 `staff_profile` puede retirarse de las rutas de ticket y quedar cubierto por los permisos
 `ticket_*`. No antes: quitarlo ahora **ampliaría** el acceso.
+
+### ✅ Decisión · Una factura emitida se anula, no se borra — 2026-09-19
+
+Registro de la política, no de una deuda. Se anota aquí porque es la clase de decisión que
+alguien deshace por comodidad dentro de seis meses si no está escrita en alguna parte.
+
+**Lo que se encontró** (auditoría previa al PR de anulación):
+
+| Hallazgo | Estado antes |
+|---|---|
+| `DELETE /billing/invoices/{id}` destruía **cualquier** factura, incluida la que es el cargo de un ticket | Detrás de `delete_invoice`, que tienen Administración y Contabilidad en los cinco tenants |
+| Anular ya se podía con `PUT` + `status: cancelled` | Detrás de **`view_billing`**, un permiso de **LECTURA**. Sin motivo, sin confirmación, sin `audit_logs` |
+| La misma validación aceptaba `pending` | No existe en el CHECK de `invoices.status`: 23514 en PostgreSQL, y en SQLite pasa |
+| `draft` nunca se produce | Las siete rutas de creación asignan número y dejan la factura en `issued` |
+
+**La política que queda:**
+
+1. Borrar alcanza **sólo** un borrador sin número y sin ticket. En la práctica, ninguna.
+2. Todo lo demás se **anula** (`void`): conserva número, importes, titular, ítems, fechas y
+   vínculo con el ticket. Permiso propio `invoice_void`, motivo de 10–500 caracteres, evento
+   `invoice.voided` en `audit_logs` con `correlation_id`.
+3. Una factura anulada es de **sólo lectura**.
+4. El dinero ya aplicado vuelve como saldo a favor y **el pago se conserva**. Es deliberado y
+   distinto de `markInvoiceUnpaid()`, que sí borra el pago: el recaudo es un hecho ocurrido.
+
+**Por qué no se retiró `delete_invoice` de los roles.** Lo que protege el histórico es el
+bloqueo del endpoint, no quién tiene la casilla marcada. Quitarlo habría sido ruido, y la
+política de borradores podría cambiar.
+
+**Relación con P-43.** P-43 impidió que dar de baja a un cliente destruyera sus facturas
+(`customer_id` a `SET NULL` + titular congelado). Esto cierra la otra puerta: la que permitía
+destruirlas una a una desde la pantalla. Las dos apuntaban al mismo histórico.
+
+---
+
+### 🟢 P-49 · Quedan ramas muertas de `pending` en las pantallas de facturación
+
+`pending` no es un estado válido de `invoices.status` y nunca lo fue. La pantalla de edición lo
+ofrecía en un desplegable —corregido— pero siguen existiendo ramas que lo esperan:
+
+```
+BillingDashboard.vue:131   case 'pending':   → color ámbar
+InvoiceDetail.vue:146      case 'pending':   → color ámbar
+InvoicesList.vue:248       case 'pending':   → color ámbar
+InvoicesList.vue:434       filter(['pending', 'overdue', 'issued'])
+InvoicesList.vue:751       v-if=['pending', 'overdue', 'issued']
+```
+
+Ninguna hace daño: son `case` que no se alcanzan y filtros cuyo primer elemento nunca coincide.
+**No se limpiaron en el PR de anulación** para no mezclar una limpieza cosmética con un cambio
+de política de borrado.
+
+**Riesgo real de dejarlas:** sugieren que `pending` existe. El desplegable de edición salió
+precisamente de ahí, y estuvo mandando un valor que PostgreSQL rechaza.
+
+| | |
+|---|---|
+| **Impacto** | Ninguno hoy; induce a error a quien lea el código |
+| **Esfuerzo** | Trivial |
+
+---
 
 ### 🟡 P-48 · Los eventos `charge_created` nunca guardaron el número de factura
 
@@ -2303,6 +2370,7 @@ un ciclo de despliegue.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |

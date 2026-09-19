@@ -140,6 +140,10 @@ class ApiAuthorizationTest extends TestCase
             // PR C · Archivado. El listado va con semántica OR —`ticket_archive`
             // o `ticket_restore`— y aquí se comprueba con el primero.
             'listar archivados'    => ['get',    '/api/support/archived', ['ticket_view', 'ticket_archive']],
+            // Anular una factura: permiso propio, no `view_billing` (que abre
+            // el grupo) ni `delete_invoice`. Borrar y anular dejaron de
+            // compartir puerta.
+            'anular factura'       => ['post',   '/api/billing/invoices/1/void', ['view_billing', 'invoice_void']],
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],
