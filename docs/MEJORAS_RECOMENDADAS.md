@@ -2213,6 +2213,57 @@ precisamente de ahí, y estuvo mandando un valor que PostgreSQL rechaza.
 
 ---
 
+### 🟠 P-50 · Seis de las diez reglas de cierre del § 15 no son exigibles todavía
+
+El workflow formal exige **tres** de las diez reglas obligatorias de cierre de la Solicitud
+Maestra —causa confirmada, acción y resultado— y una cuarta se cumple por construcción. Las
+otras seis **no se comprueban** porque el ticket no captura los datos que harían falta:
+
+| Regla § 15 | Qué falta |
+|---|---|
+| 5 · «prueba final o justificación de por qué no fue posible» | Campo de pruebas finales, con su razón de no-medición. El § 12 del documento lo pide aparte («cuando no sea posible obtener la medición final, el usuario deberá seleccionar una razón y escribir la justificación») |
+| 6 · «infraestructura afectada o clasificación red interna / no aplica» | `sectorial_id` existe pero no admite «no aplica» ni «red interna del cliente»: es una FK a un elemento físico |
+| 7 · «validación del cliente separada de la restauración técnica» | No hay campo de validación del cliente |
+| 8 · «"Otro" siempre debe requerir explicación» | Haría falta marcar en el catálogo qué códigos son «Otro» y exigir texto libre al elegirlos |
+| 9 · «solución temporal, pendiente de tercero y no resuelto → seguimiento o autorización» | **Resuelta a medias**: cerrar con solución temporal obliga a pasar por el cierre especial, que ES la autorización. Falta el seguimiento para «pendiente de tercero» |
+
+**Por qué no se hizo en el PR #4.** Son campos de captura nuevos —esquema, formulario, API y
+catálogos— y mezclarlos con el cambio del ciclo de vida habría hecho imposible revisar ninguna
+de las dos cosas. Los de las reglas 5 y 7 son además el alcance natural del **PR #5
+(intervenciones)**, que ya contempla «pruebas finales» y «validación».
+
+**Consecuencia mientras tanto:** **F1-10 queda parcial**, no cumplido. Un cierre puede pasar sin
+prueba final registrada y sin constancia de que el cliente validó.
+
+| | |
+|---|---|
+| **Impacto** | Medio. El expediente cierra con menos evidencia de la que el requerimiento pide |
+| **Esfuerzo** | Alto: esquema + UI + catálogos |
+| **Riesgo de no hacerlo** | Declarar cumplida una matriz de aceptación que no lo está |
+
+---
+
+### 🟢 P-51 · La matriz de transiciones no es configurable por el cliente
+
+`TicketWorkflow` declara las transiciones en PHP. Es deliberado —ver la bitácora § 68— porque
+una tabla sin pantalla de administración aparenta ser configurable sin serlo, y **D-13** (quién
+administra los catálogos) sigue delegada sin resolver.
+
+Pero deja una consecuencia escrita: **cambiar una transición exige desplegar.** Si un ISP quiere
+permitir, por ejemplo, saltar de «En clasificación» directo a «En intervención», hoy hace falta
+un PR.
+
+**Cuándo convendría moverla a base de datos:** cuando exista la pantalla de administración de
+catálogos (D-13) y cuando un segundo ISP pida un flujo distinto del de CNO. Antes, no: sería
+construir configuración para un solo caso.
+
+| | |
+|---|---|
+| **Impacto** | Bajo hoy; sube con el segundo tenant que quiera otro flujo |
+| **Esfuerzo** | Medio (tabla versionada + pantalla) |
+
+---
+
 ### 🟡 P-48 · Los eventos `charge_created` nunca guardaron el número de factura
 
 **Encontrado al implementar el PR C**, comprobando qué columna lleva el número de la factura
@@ -2370,6 +2421,8 @@ un ciclo de despliegue.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
+| **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |

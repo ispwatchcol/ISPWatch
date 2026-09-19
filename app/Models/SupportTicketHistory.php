@@ -54,6 +54,22 @@ class SupportTicketHistory extends Model
     public const ARCHIVED          = 'ticket_archived';
     public const RESTORED          = 'ticket_restored';
 
+    // Workflow formal · las cuatro decisiones del ciclo de vida.
+    //
+    // Van APARTE de `status_changed`, que el observer escribe solo al detectar
+    // el cambio de `status_id`. No son lo mismo: `status_changed` dice que el
+    // ticket se movió, y estos dicen QUÉ SE DECIDIÓ y por qué. Un cierre
+    // excepcional es un `status_changed` a `cerrado` idéntico al ordinario; lo
+    // que lo distingue —el requisito que faltaba y quién lo autorizó— sólo cabe
+    // en un evento propio.
+    public const CLOSURE_PROPOSED  = 'closure_proposed';
+    public const CLOSED            = 'ticket_closed';
+    public const CLOSED_EXCEPTION  = 'ticket_closed_exception';
+    public const REOPENED          = 'ticket_reopened';
+
+    /** Motivo escrito en una transición ordinaria, cuando quien la hace lo da. */
+    public const TRANSITION_NOTE   = 'transition_note';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

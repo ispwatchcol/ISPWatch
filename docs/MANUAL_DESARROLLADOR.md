@@ -655,7 +655,18 @@ componentes en `failing`. Ver `ARQUITECTURA.md` § 16 y `API_REFERENCE.md` § 3.
     acepta**, así que la suite no lo veía. Si una columna tiene un CHECK, la lista de opciones
     y la regla `in:` del validador salen de ahí, no de la memoria.
 
-16. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
+16. **El estado de un ticket NO se escribe: se transiciona.**
+    `PUT /support/{id}` ignora `status` a propósito. Para moverlo hay que pasar por
+    `PATCH .../status`, que valida el ESTADO ORIGEN contra `App\Support\TicketWorkflow`, y
+    cerrar/reabrir tienen endpoint propio con sus requisitos. Si añades un camino que cambie
+    `status_id`, hazlo pasar por `transicionar()` o te saltarás la matriz, los timestamps que
+    declara el catálogo y el evento del historial.
+
+    **Al añadir un estado al catálogo**, declara su `legacy_code`: es lo que mantiene congelado
+    el contrato del integrador y lo que hace que las estadísticas lo cuenten. Un estado sin
+    equivalencia sale por `/v1/partner` con su propio código y desaparece de los tableros.
+
+17. **Una ruta pública lleva su propio limitador por IP.** Sin usuario autenticado no hay
     otra cosa que contar (`throttle:public-contract` en `AppServiceProvider`), y además un
     techo por recurso: los 5 intentos de verificación de `ContractSignatureLink` protegen
     un enlace concreto, el limitador protege al servidor de un barrido.

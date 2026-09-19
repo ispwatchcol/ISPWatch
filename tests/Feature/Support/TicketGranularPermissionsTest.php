@@ -292,29 +292,27 @@ class TicketGranularPermissionsTest extends TestCase
             Permissions::TICKET_VIEW, Permissions::TICKET_TRANSITION,
         ], 'staff');
 
-        // Transicionar a un estado no terminal, sí.
+        // Transicionar a un estado no terminal, si.
         $this->actingAs($sinCierre)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'in_progress'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
             ->assertOk();
 
-        // Cerrar, no.
+        // Cerrar, no. Y con el workflow formal ya no se cierra escribiendo un
+        // estado: hay endpoint propio, que es lo que exige `ticket_close`.
         $this->actingAs($sinCierre)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'closed'])
+            ->postJson("/api/support/{$ticket->id}/close", [])
             ->assertForbidden()
             ->assertJsonPath('required_permission', Permissions::TICKET_CLOSE);
 
-        $this->assertSame('in_progress', $ticket->fresh()->status);
+        $this->assertSame('en_clasificacion', $ticket->fresh()->status);
 
-        // Con `ticket_close`, sí.
-        $conCierre = $this->usuarioCon([
-            Permissions::TICKET_VIEW, Permissions::TICKET_TRANSITION, Permissions::TICKET_CLOSE,
-        ], 'staff');
+        // Y por la puerta vieja tampoco: el PATCH rechaza el destino terminal.
+        $this->actingAs($sinCierre)
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'cerrado'])
+            ->assertStatus(422)
+            ->assertJsonPath('error', 'ticket_close_requires_endpoint');
 
-        $this->actingAs($conCierre)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'closed'])
-            ->assertOk();
-
-        $this->assertSame('closed', $ticket->fresh()->status);
+        $this->assertSame('en_clasificacion', $ticket->fresh()->status);
     }
 
     #[Test]
@@ -534,14 +532,17 @@ class TicketGranularPermissionsTest extends TestCase
 
         $this->actingAs($usuario)->get("/api/support/{$id}/attachments/{$adjunto->id}")->assertOk();
         $this->actingAs($usuario)->getJson("/api/support/{$id}/history")->assertOk();
-        $this->actingAs($usuario)->patchJson("/api/support/{$id}/status", ['status' => 'resolved'])->assertOk();
+        // El ticket nace `radicado`: el flujo se recorre, no se salta.
+        foreach (['en_clasificacion', 'en_diagnostico_remoto', 'asignado', 'en_intervencion', 'servicio_restablecido'] as $paso) {
+            $this->actingAs($usuario)->patchJson("/api/support/{$id}/status", ['status' => $paso])->assertOk();
+        }
 
         $detalle = $this->actingAs($usuario)->getJson("/api/support/{$id}")->assertOk()->json();
 
         $this->assertSame('S02', $detalle['diagnosis']['symptom']['code']);
         $this->assertCount(1, $detalle['messages']);
         $this->assertCount(1, $detalle['attachments']);
-        $this->assertSame('resolved', $detalle['status']);
+        $this->assertSame('servicio_restablecido', $detalle['status']);
     }
 
     #[Test]

@@ -1520,11 +1520,64 @@ Dos opciones importantes:
 Dentro del ticket puedes:
 
 - **Añadir mensajes**. Puedes marcarlos como **internos**: esos no los ve el cliente.
-- **Cambiar el estado**: Abierto → En progreso → Resuelto → Cerrado.
+- **Mover el ticket por el ciclo de vida** (ver 14.3).
 - **Adjuntar archivos**.
 - **Generar un cargo**: si la visita se cobra, esto crea una factura ligada al ticket.
 
-### 14.3 Archivar un ticket
+### 14.2.1 El ciclo de vida del ticket
+
+**Ya no se elige el estado de una lista.** Antes se podía pasar de un ticket recién recibido a
+«Cerrado» de un clic, sin causa, sin acción y sin resultado. Ahora el ticket **avanza por
+pasos**, y en el bloque **Ciclo de vida** sólo aparecen los que caben desde donde está.
+
+Los pasos son los del acuerdo con CNO:
+
+> **Radicado → En clasificación → En diagnóstico remoto → Asignado → Visita programada →
+> En intervención → Servicio restablecido → En observación → Cerrado**
+
+La **visita programada** y la **observación** se pueden saltar. Y se puede volver atrás dentro
+del trabajo: si el técnico llega y descubre que la falla era remota, el ticket vuelve a
+diagnóstico.
+
+Además hay **estados de espera**, para cuando el trabajo se detiene por algo ajeno: *pendiente
+del cliente, de material, de tercero, de infraestructura*, *no fue posible contactar*,
+*asociado a incidente masivo*, *duplicado* y *solución temporal*. Se entra en ellos desde
+cualquier punto del trabajo y se vuelve cuando la espera termina.
+
+> **«Servicio restablecido» no es «Cerrado».** Restablecido es el momento en que vuelve la
+> conectividad. Cerrado significa que la causa, la acción y el resultado quedaron documentados.
+> Son dos fechas distintas y el sistema guarda las dos.
+
+### 14.3 Cerrar y reabrir un ticket
+
+**Proponer el cierre.** Cuando el técnico termina, pulsa **Proponer cierre**. Esto **no cierra**
+el ticket: lo deja *En observación*, esperando al supervisor, con la acción, el resultado y una
+observación técnica obligatoria. Sirve para separar a quien hizo el trabajo de quien acredita
+que está bien hecho.
+
+**Cerrar.** Sólo con el permiso *Cerrar ticket*. El sistema exige que el expediente tenga:
+
+1. **Causa confirmada**
+2. **Acción o solución registrada**
+3. **Resultado técnico**
+
+Si falta algo, el bloque **Ciclo de vida** te lo dice **antes** de abrir el cuadro de cierre, con
+la lista de lo que falta. Cerrar **no borra nada**: la causa sospechada, las notas, los adjuntos
+y los estados anteriores se quedan.
+
+**Cierre especial.** Para cuando hay que cerrar sin uno de esos requisitos. Exige permiso aparte,
+un motivo de al menos 10 caracteres, y deja en el historial **cuál requisito faltó** y quién lo
+autorizó. No es un cierre normal con otro nombre: se distingue en la bitácora. Si no falta nada,
+el sistema lo rechaza y te manda al cierre normal.
+
+**Reabrir.** Si la falla reaparece. Exige permiso propio y motivo. El ticket vuelve al estado
+*Reabierto* y sigue el flujo desde ahí. **La fecha del cierre anterior no se borra**: queda como
+parte del histórico.
+
+> Un ticket **archivado** no se mueve, ni se cierra, ni se reabre. Primero hay que restaurarlo
+> (ver 14.4).
+
+### 14.4 Archivar un ticket
 
 **Un ticket no se puede eliminar.** Es el expediente oficial del caso y su historial tiene que
 poder consultarse siempre. Lo que sí puede hacer un **Administrador** es **archivarlo**: el
@@ -1550,10 +1603,13 @@ estado que tenía.
 
 > La vista de archivados y los dos botones **sólo aparecen si tu rol es Administrador**.
 
-### 14.4 Estadísticas
+### 14.5 Estadísticas
 
 **Soporte → Estadísticas** muestra tickets por estado, por prioridad y por categoría.
 Los tickets archivados **no** cuentan en estas cifras.
+
+Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificación* cuentan como
+**abiertos**; *Asignado*, *En intervención* y las esperas, como **en progreso**.
 
 ---
 

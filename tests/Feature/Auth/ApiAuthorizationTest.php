@@ -144,6 +144,19 @@ class ApiAuthorizationTest extends TestCase
             // el grupo) ni `delete_invoice`. Borrar y anular dejaron de
             // compartir puerta.
             'anular factura'       => ['post',   '/api/billing/invoices/1/void', ['view_billing', 'invoice_void']],
+            // Workflow formal · qué puede hacerse con un ticket. Sólo pide
+            // `ticket_view`: saber qué acciones existen no es poder ejecutarlas.
+            'acciones del ticket'  => ['get',    '/api/support/1/transitions', 'ticket_view'],
+            //
+            // Las CINCO operaciones del ciclo de vida —transicionar, proponer
+            // cierre, cerrar, cierre especial y reabrir— no caben en este
+            // proveedor: viven en el grupo `staff_profile`, que autoriza por
+            // CÓDIGO DE ROL (`admin`/`staff`) y no por capacidad, y el usuario
+            // que fabrica `userWithPermissions()` tiene el código `custom`.
+            //
+            // Es la deuda P-45, no un hueco de cobertura: cada una tiene su
+            // caso positivo y negativo en `TicketWorkflowTest`, con roles
+            // reales. Cuando P-45 se resuelva, estas cinco entran aquí.
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],

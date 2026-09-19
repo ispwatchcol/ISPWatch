@@ -72,17 +72,23 @@
                     </select>
                 </div>
 
-                <!-- Estado -->
-                <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Estado <span class="text-red-500">*</span>
-                    </label>
-                    <select
-                        v-model="form.status"
-                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        <option v-for="e in statuses" :key="e.code" :value="e.code">{{ e.label }}</option>
-                    </select>
+                <!--
+                  EL SELECTOR DE ESTADO SE RETIRÓ.
+                  Elegir un estado de una lista permitía saltar de recién
+                  radicado a cerrado sin causa confirmada, sin acción y sin
+                  resultado. Ahora el estado se mueve por TRANSICIONES, que
+                  validan de dónde viene el ticket, y cerrar tiene requisitos.
+                  El backend ya ignora `status` en este formulario.
+                -->
+                <div class="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Estado actual:
+                        <span class="font-semibold">{{ statusLabel(form.status) || '—' }}</span>
+                    </p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        El estado se cambia desde el <strong>ciclo de vida</strong>, en el detalle del ticket:
+                        allí sólo se ofrecen los pasos que el flujo permite desde donde está.
+                    </p>
                 </div>
 
                 <!-- Asignar Staff -->
@@ -149,6 +155,7 @@ import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 // PR #2: de la misma respuesta sale el vocabulario de diagnóstico.
 const {
     statuses, priorities, categories,
+    statusLabel,
     cargado: catalogosCargados,
     error: catalogosConError,
     cargar: cargarCatalogos,

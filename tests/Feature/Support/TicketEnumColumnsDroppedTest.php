@@ -183,7 +183,8 @@ class TicketEnumColumnsDroppedTest extends TestCase
 
         $ticket = SupportTicket::find($response->json('ticket.id'));
 
-        $this->assertSame('open', $ticket->status);
+        // Nace en el estado inicial del catálogo: `radicado`.
+        $this->assertSame('radicado', $ticket->status);
         $this->assertSame('medium', $ticket->priority);
         $this->assertNotNull($ticket->status_id, 'La clave foránea debe resolverse al crear.');
     }
@@ -194,16 +195,18 @@ class TicketEnumColumnsDroppedTest extends TestCase
         $ticket = $this->ticket(['status' => 'open']);
 
         $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'resolved'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
             ->assertOk()
-            ->assertJsonPath('ticket.status', 'resolved');
+            ->assertJsonPath('ticket.status', 'en_clasificacion');
 
         $ticket->refresh();
 
-        $this->assertSame('resolved', $ticket->status);
-        $this->assertNotNull($ticket->resolved_at);
+        $this->assertSame('en_clasificacion', $ticket->status);
+        // `en_clasificacion` no sella `resolved_at`: eso lo hace
+        // `servicio_restablecido`, y lo decide el catálogo.
+        $this->assertNull($ticket->resolved_at);
         $this->assertSame(
-            'resolved',
+            'en_clasificacion',
             DB::table('ticket_status')->where('id', $ticket->status_id)->value('code'),
         );
     }
@@ -262,13 +265,13 @@ class TicketEnumColumnsDroppedTest extends TestCase
         $ticket = $this->ticket(['status' => 'open']);
 
         $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'in_progress'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
             ->assertOk();
 
         Mail::assertSent(\App\Mail\SendTicketNotification::class, function ($mail) {
             // Renderizar es lo que de verdad prueba que la plantilla no toca
             // ninguna columna inexistente.
-            return str_contains($mail->render(), 'En progreso');
+            return str_contains($mail->render(), 'En clasificación');
         });
     }
 }
