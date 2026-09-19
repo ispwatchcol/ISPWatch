@@ -3,7 +3,7 @@
     <Transition name="modal">
       <div
         v-if="visible"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        class="fixed inset-0 z-app-modal flex items-center justify-center bg-black/50 backdrop-blur-sm"
         @click.self="cancel"
       >
         <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
@@ -91,12 +91,18 @@ const props = defineProps({
   variant: { type: String, default: 'danger', validator: v => ['danger', 'warning', 'info'].includes(v) },
   // When set, the user must type this exact text before confirming (e.g. "ELIMINAR").
   requireText: { type: String, default: '' },
+  // Bloqueo adicional desde fuera: el contenido del slot puede tener sus
+  // propios requisitos (por ejemplo un motivo obligatorio) y el modal no tiene
+  // forma de conocerlos. Se suma a `requireText`, no lo reemplaza.
+  disabled: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
 
 const typed = ref('')
-const canConfirm = computed(() => !props.requireText || typed.value.trim() === props.requireText)
+const canConfirm = computed(
+  () => !props.disabled && (!props.requireText || typed.value.trim() === props.requireText)
+)
 
 // Reset the typed text whenever the modal is shown/hidden.
 watch(() => props.visible, () => { typed.value = '' })

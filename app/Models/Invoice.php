@@ -16,6 +16,52 @@ class Invoice extends Model
     const TYPE_ADDITIONAL    = 'additional';
     const TYPE_INSTALLATION  = 'installation';
 
+    // ── Estados ──────────────────────────────────────────────────────────
+    //
+    // Los siete del CHECK de `invoices.status`, que existe desde la migración
+    // del módulo (2026-01-13). Se declaran aquí porque hasta ahora viajaban
+    // como cadenas sueltas repartidas por una docena de consultas, y un typo en
+    // una de ellas no lo detecta nadie: la factura simplemente deja de contar.
+
+    const STATUS_DRAFT     = 'draft';
+    const STATUS_ISSUED    = 'issued';
+    const STATUS_PAID      = 'paid';
+    const STATUS_PARTIAL   = 'partial';
+    const STATUS_OVERDUE   = 'overdue';
+
+    /**
+     * Anulada. Es el estado al que lleva la anulación.
+     *
+     * `void` y no `cancelled` porque es el que el sistema ya escribía —
+     * `VoidCourtesyInvoices` deja así las facturas de cortesía— y el que
+     * `SupportTicketController` consulta para decidir si un ticket con cargos
+     * puede archivarse.
+     */
+    const STATUS_VOID      = 'void';
+
+    /**
+     * Equivalente histórico de `void`. NINGÚN código lo escribe hoy salvo el
+     * `PUT` genérico de facturas, que era justamente el agujero que la
+     * anulación cierra. Se sigue TRATANDO como anulada en todas las lecturas
+     * —está en cada `whereNotIn` del módulo— para no reinterpretar filas que ya
+     * existan con ese valor.
+     */
+    const STATUS_CANCELLED = 'cancelled';
+
+    /** Los dos que significan «esto ya no se cobra». */
+    const ESTADOS_ANULADOS = [self::STATUS_VOID, self::STATUS_CANCELLED];
+
+    /**
+     * Estados en los que la factura ya salió al mundo: tiene valor contable y
+     * no puede destruirse, sólo anularse.
+     */
+    const ESTADOS_EMITIDOS = [
+        self::STATUS_ISSUED,
+        self::STATUS_PAID,
+        self::STATUS_PARTIAL,
+        self::STATUS_OVERDUE,
+    ];
+
     protected $fillable = [
         'tenant_id',
         'customer_id',
@@ -131,5 +177,73 @@ class Invoice extends Model
     public function type()
     {
         return $this->belongsTo(InvoiceType::class, 'invoice_type', 'slug');
+    }
+
+    /**
+     * Quién anuló la factura.
+     *
+     * `ON DELETE SET NULL` en la base: dar de baja a ese usuario deja el
+     * vínculo vacío, no borra la factura. Quién fue queda además en
+     * `audit_logs`, que es la fuente que no se puede tocar desde la operación.
+     */
+    public function voider()
+    {
+        return $this->belongsTo(User::class, 'voided_by');
+    }
+
+    /** ¿Está anulada? Cubre los dos estados, no sólo `void`. */
+    public function estaAnulada(): bool
+    {
+        return in_array($this->status, self::ESTADOS_ANULADOS, true);
+    }
+
+    /**
+     * ¿Se puede DESTRUIR esta factura?
+     *
+     * Sólo un borrador que no salió nunca: sin número asignado y sin ticket
+     * detrás. Cualquier otra cosa se anula.
+     *
+     * En la práctica esto no es cierto de ninguna factura del sistema: toda
+     * ruta de creación llama a `generateInvoiceNumber()` y deja el estado en
+     * `issued`. `draft` es el valor por defecto de la columna y nada lo escribe.
+     * La comprobación se implementa igualmente porque la política de borradores
+     * puede cambiar y porque el valor por defecto sigue ahí: un `INSERT` a mano
+     * puede producir uno.
+     */
+    public function sePuedeBorrar(): bool
+    {
+        return $this->status === self::STATUS_DRAFT
+            && blank($this->number)
+            && $this->ticket_id === null;
+    }
+
+    /**
+     * Motivo por el que NO se puede borrar, para poder decírselo a quien lo
+     * intenta. `null` si sí se puede.
+     */
+    public function porQueNoSePuedeBorrar(): ?string
+    {
+        if ($this->sePuedeBorrar()) {
+            return null;
+        }
+
+        if ($this->estaAnulada()) {
+            return 'Esta factura ya está anulada y se conserva como registro contable. '
+                . 'Una factura anulada es de sólo lectura.';
+        }
+
+        if ($this->ticket_id !== null) {
+            return 'Esta factura es el cargo del ticket #' . $this->ticket_id
+                . ' y no puede eliminarse: borrarla dejaría el ticket sin el respaldo del cobro. '
+                . 'Anúlala en su lugar — conserva el número, el importe y el vínculo con el ticket.';
+        }
+
+        if (filled($this->number)) {
+            return 'La factura ' . $this->number . ' ya tiene número asignado y no puede eliminarse. '
+                . 'Anúlala en su lugar: conserva el número, los importes, el titular y las fechas.';
+        }
+
+        return 'Esta factura está en estado «' . $this->status . '» y no puede eliminarse. '
+            . 'Anúlala en su lugar.';
     }
 }

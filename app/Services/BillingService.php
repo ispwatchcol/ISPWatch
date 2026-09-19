@@ -24,6 +24,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use RuntimeException;
 
 class BillingService
 {
@@ -2371,6 +2372,118 @@ class BillingService
             $invoice->delete();
 
             Log::info("Billing: Invoice {$invoice->id} (#{$invoice->number}) deleted.");
+        });
+    }
+
+    /**
+     * ANULA una factura: la deja sin efecto conservándolo todo.
+     *
+     * EN QUÉ SE DIFERENCIA DE `deleteInvoice()`
+     *
+     * El dinero se mueve igual —es el mismo dinero y tiene que ir al mismo
+     * sitio— pero la factura NO se borra: se queda con su número, sus ítems,
+     * sus importes, su titular congelado, sus fechas y su vínculo con el ticket.
+     * Lo único que cambia es `status`, `balance_due` y el trío de anulación.
+     *
+     * Y NO DEJA LÁPIDA `suppressed`. No hace falta: `monthlyInvoiceExists()` no
+     * filtra por estado, así que una mensual anulada sigue ocupando su periodo y
+     * la facturación automática no la regenera. Borrarla sí obligaba a poner la
+     * lápida, porque la fila desaparecía y el periodo quedaba libre.
+     *
+     * QUÉ PASA CON EL DINERO YA APLICADO
+     *
+     * Vuelve al cliente como saldo a favor, y **el pago se conserva**. Es la
+     * diferencia con `markInvoiceUnpaid()`, que borra el pago si sólo financiaba
+     * esta factura: aquí el recaudo es un hecho ocurrido —entró plata en la
+     * caja ese día— y destruirlo para anular una factura sería cambiar el
+     * histórico de tesorería por un error de facturación.
+     *
+     * @throws RuntimeException si la factura ya estaba anulada.
+     */
+    public function voidInvoice(Invoice $invoice, string $reason, ?int $actorId = null): Invoice
+    {
+        if ($invoice->estaAnulada()) {
+            throw new RuntimeException('La factura ya está anulada.');
+        }
+
+        return DB::transaction(function () use ($invoice, $reason, $actorId) {
+            $invoice->refresh();
+
+            // Deuda arrastrada que ESTA factura estaba cobrando: vuelve a quedar
+            // pendiente para la siguiente. Si no, anular la factura del mes le
+            // perdonaría al cliente un saldo que sí debe.
+            InvoiceCarryover::where('to_invoice_id', $invoice->id)
+                ->where('status', InvoiceCarryover::STATUS_APPLIED)
+                ->update([
+                    'status'        => InvoiceCarryover::STATUS_PENDING,
+                    'to_invoice_id' => null,
+                    'applied_at'    => null,
+                    'updated_at'    => now(),
+                ]);
+
+            // Arrastres que ESTA factura generó y que nadie ha cobrado todavía:
+            // mueren con la anulación. El abono que los originó se devuelve como
+            // saldo a favor unas líneas más abajo.
+            InvoiceCarryover::pending()->where('from_invoice_id', $invoice->id)->delete();
+
+            foreach (PaymentAllocation::where('invoice_id', $invoice->id)->get() as $allocation) {
+                $payment = Payment::find($allocation->payment_id);
+
+                if ($payment) {
+                    CustomerCredit::earn(
+                        $payment,
+                        (float) $allocation->amount,
+                        "Factura {$invoice->number} anulada: el pago #{$payment->id} vuelve a saldo a favor"
+                    );
+                }
+
+                // Se suelta la asignación, NO el pago. El recaudo existió.
+                $allocation->delete();
+            }
+
+            // Saldo a favor que había pagado esta factura: si la factura deja de
+            // tener efecto, el saldo tiene que volver o el cliente lo pierde sin
+            // que nadie se entere. Vuelve como ajuste y no des-consumiendo los
+            // `earned` originales: es el lado conservador —nunca destruye
+            // saldo—, el mismo criterio que toma `deleteInvoice()`.
+            $creditApplied = CustomerCredit::where('to_invoice_id', $invoice->id)
+                ->where('type', CustomerCredit::TYPE_APPLIED)
+                ->sum('amount');
+
+            if ($creditApplied < 0) {
+                $profile = CustomerProfile::where('user_id', $invoice->customer_id)->first();
+
+                if ($profile) {
+                    CustomerCredit::adjust(
+                        (int) $invoice->customer_id,
+                        (float) $profile->credit_balance + abs((float) $creditApplied),
+                        (float) $profile->credit_balance,
+                        "Factura {$invoice->number} anulada: se devuelve el saldo a favor que la había pagado"
+                    );
+                }
+            }
+
+            // Lo que cambia de la factura, y nada más. `total`, `subtotal`,
+            // `tax`, `number`, `customer_*`, `ticket_id` y las fechas se quedan
+            // como estaban: son el registro de lo que se facturó, y anular no
+            // reescribe el pasado, lo deja sin efecto.
+            //
+            // `balance_due` a cero porque es lo que saca la factura de la
+            // cobranza: los recordatorios, los cortes y el cálculo de mora
+            // miran el saldo. `VoidCourtesyInvoices` hace exactamente esto.
+            $invoice->status      = Invoice::STATUS_VOID;
+            $invoice->balance_due = 0;
+            $invoice->carried_out = 0;
+            $invoice->voided_at   = now();
+            $invoice->voided_by   = $actorId;
+            $invoice->void_reason = $reason;
+            $invoice->save();
+
+            Log::info("Billing: Invoice {$invoice->id} (#{$invoice->number}) voided.", [
+                'actor_id' => $actorId,
+            ]);
+
+            return $invoice->fresh(['customer', 'items', 'payments', 'voider']);
         });
     }
 

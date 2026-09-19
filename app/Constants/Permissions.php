@@ -187,7 +187,37 @@ class Permissions
     const SEARCH_INVOICES = 'search_invoices';
     const EDIT_TOTAL_TO_PAY = 'edit_total_to_pay';
     const REGISTER_PAYMENTS = 'register_payments';
+    /**
+     * Borrar FÍSICAMENTE una factura.
+     *
+     * Desde el PR de anulación este permiso ya casi no alcanza nada: sólo puede
+     * borrar un borrador sin número y sin ticket, y en la práctica el sistema
+     * no genera ninguno — toda ruta de creación asigna número y deja la factura
+     * en `issued`. Cualquier otra factura hay que ANULARLA, que conserva el
+     * número, los importes, el titular, el vínculo con el ticket y las fechas.
+     *
+     * No se retira porque la política de borradores podría cambiar y porque
+     * quitarlo de los roles ya sembrados no aportaría nada: lo que protege el
+     * histórico es el bloqueo del endpoint, no quién tiene la casilla marcada.
+     */
     const DELETE_INVOICE = 'delete_invoice';
+
+    /**
+     * ANULAR una factura: dejarla sin efecto conservándolo todo.
+     *
+     * Permiso propio y no `view_billing`, que es el que gobernaba el `PUT` con
+     * el que hasta ahora se podía poner una factura en `cancelled`: un permiso
+     * de lectura de facturación autorizaba sacar dinero de las cuentas, sin
+     * motivo, sin confirmación y sin dejar rastro en `audit_logs`.
+     *
+     * Tampoco se reutiliza `delete_invoice`: borrar y anular son operaciones
+     * distintas —una destruye y la otra conserva— y el objetivo es que dejen de
+     * confundirse. La migración de relleno se lo concede a quien ya tenía
+     * `delete_invoice`, para que nadie pierda la capacidad de retirar una
+     * factura; lo que cambia es CÓMO la retira.
+     */
+    const INVOICE_VOID = 'invoice_void';
+
     const MANAGE_PAYMENT_PROMISES = 'manage_payment_promises';
 
     // Contabilidad permissions
@@ -219,7 +249,8 @@ class Permissions
                 self::SEARCH_INVOICES => 'Buscar Facturas',
                 self::EDIT_TOTAL_TO_PAY => 'Editar Total a Pagar',
                 self::REGISTER_PAYMENTS => 'Registrar Pagos',
-                self::DELETE_INVOICE => 'Eliminar Factura',
+                self::DELETE_INVOICE => 'Eliminar Factura (sólo borradores)',
+                self::INVOICE_VOID => 'Anular Factura (conserva número e importes)',
                 self::MANAGE_PAYMENT_PROMISES => 'Promesas de Pago',
             ],
             'Contabilidad' => [
@@ -312,6 +343,7 @@ class Permissions
                 self::ADD_EXPENSE,
                 self::REGISTER_PAYMENTS,
                 self::DELETE_INVOICE,
+                self::INVOICE_VOID,
                 self::EDIT_EXPENSE,
                 self::REGISTER_PAYMENT_OVER_3_DAYS,
                 self::REGISTER_PAYMENTS_ACCOUNTING,

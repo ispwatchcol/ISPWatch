@@ -1014,6 +1014,37 @@ En el pie de la tabla eliges cuántos recaudos ver por página (15, 25, 50, 100 
 Desde la lista de pagos. Al eliminarlo, las facturas que había cubierto vuelven a quedar
 con saldo.
 
+### 8.4.1 Anular una factura
+
+**Una factura emitida no se elimina: se anula.** Tiene número consecutivo y respalda lo que
+se cobró; borrarla dejaría un hueco en la contabilidad que nadie nota hasta que alguien
+reclama.
+
+Anular la deja **sin efecto conservándolo todo**: el número, el importe, el cliente, las fechas,
+el detalle y —si vino de un ticket— el vínculo con ese ticket. Lo que cambia es que deja de
+cobrarse: sale de los totales, de los recordatorios y del cálculo de mora.
+
+**Cómo se anula.** Botón **Anular**, en el listado de facturas o en el detalle. Pide dos cosas:
+
+1. Un **motivo** de al menos 10 caracteres. Queda firmado con tu nombre en la bitácora.
+2. Escribir **ANULAR** para confirmar.
+
+**Si la factura tenía pagos**, ese dinero vuelve como **saldo a favor** del cliente. El recaudo
+**no** se borra —el dinero entró— pero queda suelto hasta que alguien lo aplique a otra factura.
+El aviso del modal te dice exactamente cuánto es antes de confirmar.
+
+**Una factura anulada es de sólo lectura.** No se puede editar, ni añadirle ítems, ni marcarla
+como no pagada. Sigue viéndose en el listado, con el motivo y quién la anuló.
+
+**Si la factura era el cargo de un ticket**, anularla es lo que permite archivar ese ticket
+después (ver 14.3).
+
+> **¿Y el botón «Eliminar»?** Sólo aparece para un borrador que nunca llegó a emitirse — sin
+> número y sin ticket. En la práctica no verás ninguno: toda factura nace con su número.
+>
+> El permiso se llama **Anular Factura** y es distinto de **Eliminar Factura**. Si tu rol tenía
+> el de eliminar, recibió el de anular automáticamente.
+
 ### 8.5 Saldo a favor
 
 En la ficha del cliente, pestaña **Facturación**, verás su saldo a favor. Un administrador
@@ -1634,7 +1665,7 @@ aparecen en pantalla:
 | Grupo | Permisos |
 |---|---|
 | **Clientes** | Lista de Clientes · Agregar Clientes · Editar Servicio Internet · Activar y Desactivar Clientes · Editar Descuento y Cartera de Instalación · Editar Saldo Pendiente · Tráfico Clientes · Eliminar Clientes |
-| **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · Eliminar Factura · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
+| **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · **Anular Factura** · Eliminar Factura (sólo borradores) · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
 | **Contabilidad** | Lista de Gastos · Editar Gasto · Lista de Facturas · Registrar Pagos · Editar Fecha de Pago · Registrar Pago Mayor 3 Días · Agregar Transferencia · Eliminar Transferencia |
 | **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
 | **Inventario** | Ver Inventario · **Eliminar de Inventario** |

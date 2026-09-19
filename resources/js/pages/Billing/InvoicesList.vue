@@ -8,6 +8,7 @@ import MonthPicker from '@/components/MonthPicker.vue'
 import SearchableSelect from '@/components/SearchableSelect.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import InvoiceDeleteWarning from '@/components/billing/InvoiceDeleteWarning.vue'
+import InvoiceVoidWarning from '@/components/billing/InvoiceVoidWarning.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import StatCard from '@/components/ui/StatCard.vue'
@@ -15,6 +16,8 @@ import { customerDisplayName } from '@/utils/customerName'
 import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { invoiceTypeLabel, invoiceTypeColor, activeInvoiceTypes, invoiceTypes, loadInvoiceTypes } from '@/utils/invoiceType'
 import { usePermissions } from '@/composables/usePermissions'
+import { useNotifications } from '@/composables/useNotifications'
+import { sePuedeBorrar, sePuedeAnular } from '@/utils/invoices'
 
 const router = useRouter()
 const route = useRoute()
@@ -307,6 +310,49 @@ const confirmDelete = async () => {
         alert(e.response?.data?.message || 'No se pudo eliminar la factura.')
     } finally {
         deleting.value = false
+    }
+}
+
+// ── Anulación ────────────────────────────────────────────────────────────
+//
+// Sustituye al borrado para todo lo que no sea un borrador sin estrenar — es
+// decir, para todas las facturas que el sistema genera. Conserva número,
+// importes, titular, fechas y el vínculo con el ticket.
+
+const toast = useNotifications()
+
+const showVoidModal = ref(false)
+const voidTarget = ref(null)
+const voidReason = ref('')
+const voiding = ref(false)
+
+const openVoid = (invoice) => {
+    voidTarget.value = invoice
+    voidReason.value = ''
+    showVoidModal.value = true
+}
+
+const confirmVoid = async () => {
+    if (!voidTarget.value || voidReason.value.trim().length < 10) return
+
+    voiding.value = true
+
+    try {
+        const { data } = await billingService.voidInvoice(voidTarget.value.id, voidReason.value.trim())
+
+        showVoidModal.value = false
+        toast.success('Factura anulada', data.message || 'La factura deja de cobrarse y se conserva.')
+        await fetchInvoices()
+    } catch (e) {
+        console.error('Error voiding invoice', e)
+        // El mensaje del backend nombra la factura y explica el motivo del
+        // rechazo; se muestra entero. Ver `useNotifications`.
+        const errores = e.response?.data?.errors
+        const detalle = errores ? Object.values(errores)[0]?.[0] : e.response?.data?.message
+
+        toast.error('No se pudo anular', detalle || 'No se pudo anular la factura.')
+    } finally {
+        voiding.value = false
     }
 }
 
@@ -769,8 +815,21 @@ const sendBulkReminders = async () => {
                                         class="p-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors" title="Marcar como no pagada">
                                         <v-icon name="ri-arrow-go-back-line" class="w-5 h-5" />
                                     </button>
-                                    <button v-if="can('delete_invoice')" @click="openDelete(invoice)"
-                                        class="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Eliminar Factura">
+                                    <!--
+                                      «Anular» sustituye a «Eliminar» para toda
+                                      factura emitida. El botón de borrar sólo
+                                      aparece para un borrador sin número y sin
+                                      ticket, que es lo único que el backend
+                                      deja destruir — y que el sistema no genera.
+                                    -->
+                                    <button v-if="can('invoice_void') && sePuedeAnular(invoice)"
+                                        @click="openVoid(invoice)"
+                                        class="p-2 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-colors" title="Anular Factura">
+                                        <v-icon name="md-block" class="w-5 h-5" />
+                                    </button>
+                                    <button v-if="can('delete_invoice') && sePuedeBorrar(invoice)"
+                                        @click="openDelete(invoice)"
+                                        class="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Eliminar borrador">
                                         <v-icon name="md-delete" class="w-5 h-5" />
                                     </button>
                                 </div>
@@ -927,6 +986,22 @@ const sendBulkReminders = async () => {
             @cancel="showDeleteModal = false"
         >
             <InvoiceDeleteWarning :invoice="deleteTarget" />
+        </ConfirmModal>
+
+        <!-- Confirmación: Anular factura -->
+        <ConfirmModal
+            :visible="showVoidModal"
+            variant="warning"
+            title="Anular factura"
+            require-text="ANULAR"
+            confirm-text="Anular factura"
+            loading-text="Anulando..."
+            :loading="voiding"
+            :disabled="voidReason.trim().length < 10"
+            @confirm="confirmVoid"
+            @cancel="showVoidModal = false"
+        >
+            <InvoiceVoidWarning :invoice="voidTarget" v-model="voidReason" />
         </ConfirmModal>
     </div>
 </template>

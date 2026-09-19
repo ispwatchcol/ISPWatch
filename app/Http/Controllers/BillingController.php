@@ -16,6 +16,7 @@ use App\Traits\ExportsCsv;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class BillingController extends Controller
 {
@@ -281,6 +282,10 @@ class BillingController extends Controller
                 // qué factura se fue el que ella dejó pendiente.
                 'carryoversIn.fromInvoice:id,number',
                 'carryoversOut.toInvoice:id,number',
+                // Quién anuló, para que el aviso del detalle pueda nombrarlo.
+                // Sólo el nombre: la pantalla no necesita más y el correo del
+                // operador no tiene por qué viajar en la respuesta.
+                'voider:id,user_name,user_lastname',
             ])->findOrFail($id)
         );
     }
@@ -392,8 +397,25 @@ class BillingController extends Controller
     {
         $invoice = Invoice::findOrFail($id);
 
+        // Una factura anulada es de SÓLO LECTURA. Es el registro contable de
+        // algo que dejó de tener efecto; editarle el importe o las fechas
+        // después reescribiría el pasado.
+        if ($respuesta = $this->rechazarSiEstaAnulada($invoice, 'editarse')) {
+            return $respuesta;
+        }
+
         $data = $request->validate([
-            'status'       => 'sometimes|in:issued,pending,paid,overdue,cancelled',
+            // `cancelled` YA NO SE ACEPTA AQUÍ, y `pending` nunca fue un estado
+            // válido: el CHECK de `invoices.status` admite draft, issued, paid,
+            // partial, void, overdue y cancelled, así que mandar `pending`
+            // reventaba con un 23514 en PostgreSQL y pasaba en SQLite.
+            //
+            // Anular tenía que dejar de ser un caso particular de «editar». Con
+            // esta ruta bastaba `view_billing` —un permiso de LECTURA— para
+            // sacar una factura de las cuentas, sin motivo, sin confirmación y
+            // sin una línea en `audit_logs`. Ahora se hace por
+            // `POST /billing/invoices/{id}/void`, que exige `invoice_void`.
+            'status'       => 'sometimes|in:issued,paid,partial,overdue',
             'issue_date'   => 'sometimes|date',
             'due_date'     => 'sometimes|date',
             'period_start' => 'sometimes|nullable|date',
@@ -411,6 +433,11 @@ class BillingController extends Controller
     public function markUnpaid($id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        if ($respuesta = $this->rechazarSiEstaAnulada($invoice, 'marcarse como no pagada')) {
+            return $respuesta;
+        }
+
         $invoice = $this->billingService->markInvoiceUnpaid($invoice);
 
         return response()->json($invoice);
@@ -420,6 +447,29 @@ class BillingController extends Controller
     public function destroy($id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        // EL BORRADO FÍSICO QUEDA PARA LOS BORRADORES SIN ESTRENAR, y nada más.
+        //
+        // Una factura emitida, pagada, parcial, vencida o ligada a un ticket es
+        // un documento con valor contable: tiene número consecutivo, importes
+        // que cuadran contra la caja y, si viene de un ticket, es el respaldo
+        // del cobro de esa visita. Destruirla rompe la trazabilidad por un sitio
+        // que nadie mira hasta que alguien reclama.
+        //
+        // Se responde 422 y no 403 a propósito: no es que al usuario le falte un
+        // permiso —lo tiene—, es que la operación no procede para esta factura.
+        // El mensaje dice cuál es el camino correcto.
+        //
+        // Esto se comprueba en el SERVIDOR, no sólo ocultando el botón: la
+        // pantalla ya no lo ofrece, pero un `curl` con el permiso llegaba igual.
+        if ($motivo = $invoice->porQueNoSePuedeBorrar()) {
+            return response()->json([
+                'message'   => $motivo,
+                'error'     => 'invoice_deletion_blocked',
+                'status'    => $invoice->status,
+                'ticket_id' => $invoice->ticket_id,
+            ], 422);
+        }
 
         // Auditoría ANTES de borrar: después la fila ya no existe y se perdería
         // el importe, el periodo y el cliente. Borrar una factura además deja
@@ -441,10 +491,133 @@ class BillingController extends Controller
         return response()->json(['message' => 'Factura eliminada correctamente.']);
     }
 
+    /**
+     * 422 uniforme cuando alguien intenta escribir sobre una factura anulada.
+     *
+     * Devuelve `null` si la factura está viva, para poder usarlo como guardia
+     * al principio de cada método: `if ($r = $this->rechazarSiEstaAnulada(...))
+     * return $r;`.
+     */
+    private function rechazarSiEstaAnulada(Invoice $invoice, string $accion)
+    {
+        if (!$invoice->estaAnulada()) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => "La factura {$invoice->number} está anulada y no puede {$accion}. "
+                . 'Una factura anulada es de sólo lectura: se conserva como registro contable.',
+            'error'   => 'invoice_is_void',
+            'status'  => $invoice->status,
+        ], 422);
+    }
+
+    /**
+     * ANULA una factura. Reemplaza al borrado para todo lo que no sea un
+     * borrador sin estrenar.
+     *
+     * POR QUÉ ESTE ENDPOINT EXISTE
+     *
+     * Anular ya se podía: bastaba un `PUT /billing/invoices/{id}` con
+     * `status: cancelled`, detrás de `view_billing` — un permiso de LECTURA.
+     * Sin motivo, sin confirmación y sin una línea en `audit_logs`. El aviso del
+     * modal de borrado incluso lo recomendaba («edítala y ponla en Cancelada»).
+     *
+     * Ahora es una operación con nombre propio: permiso propio, motivo
+     * obligatorio, auditoría y un efecto sobre el dinero que está escrito en un
+     * solo sitio (`BillingService::voidInvoice`).
+     *
+     * QUÉ CONSERVA: número, subtotal, impuesto, total, titular congelado,
+     * ítems, fechas y el vínculo con el ticket. Lo único que cambia es el
+     * estado, el saldo —a cero, que es lo que la saca de la cobranza— y el trío
+     * de anulación.
+     */
+    public function voidInvoice(Request $request, $id)
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        if ($invoice->estaAnulada()) {
+            return response()->json([
+                'message' => "La factura {$invoice->number} ya estaba anulada.",
+                'error'   => 'invoice_already_void',
+                'status'  => $invoice->status,
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'reason' => 'required|string|min:10|max:500',
+        ], [
+            'reason.required' => 'El motivo de la anulación es obligatorio.',
+            'reason.min'      => 'El motivo debe explicar la decisión: mínimo 10 caracteres.',
+            'reason.max'      => 'El motivo no puede pasar de 500 caracteres.',
+        ]);
+
+        $estadoAnterior = $invoice->status;
+        $correlacion    = (string) Str::uuid();
+
+        // La auditoría va ANTES y FUERA de la transacción del servicio, por lo
+        // mismo que en la eliminación de clientes: si la anulación falla a mitad
+        // de camino, el intento tiene que quedar registrado igualmente. Un
+        // intento fallido de sacar una factura de las cuentas es justo lo que
+        // hay que poder revisar después.
+        \App\Models\AuditLog::log([
+            'tenant_id'   => $invoice->tenant_id,
+            'action'      => 'invoice.voided',
+            'model_type'  => Invoice::class,
+            'model_id'    => $invoice->id,
+            'old_values'  => $invoice->only([
+                'number', 'customer_id', 'customer_name', 'ticket_id',
+                'total', 'balance_due', 'status', 'issue_date',
+                'period_start', 'period_end', 'invoice_type',
+            ]),
+            'new_values'  => [
+                'status'         => Invoice::STATUS_VOID,
+                'balance_due'    => 0,
+                'reason'         => $data['reason'],
+                'correlation_id' => $correlacion,
+            ],
+            'description' => "Factura {$invoice->number} anulada"
+                . ($invoice->ticket_id ? " (cargo del ticket #{$invoice->ticket_id})" : '')
+                . ": {$data['reason']}",
+        ]);
+
+        try {
+            $anulada = $this->billingService->voidInvoice(
+                $invoice,
+                $data['reason'],
+                $request->user()?->id,
+            );
+        } catch (\Throwable $e) {
+            \Log::error('Error al anular la factura: ' . $e->getMessage(), [
+                'invoice_id'     => $invoice->id,
+                'correlation_id' => $correlacion,
+                'exception'      => get_class($e),
+            ]);
+
+            return response()->json([
+                'message'        => 'No se pudo anular la factura: ' . $e->getMessage(),
+                'correlation_id' => $correlacion,
+            ], 500);
+        }
+
+        return response()->json([
+            'message'        => "Factura {$anulada->number} anulada. "
+                . 'Se conserva el número, los importes y el histórico. 🧾',
+            'invoice'        => $anulada,
+            'previous_status' => $estadoAnterior,
+            'correlation_id' => $correlacion,
+        ]);
+    }
+
     // Add Items
     public function addItems(Request $request, $id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        if ($respuesta = $this->rechazarSiEstaAnulada($invoice, 'recibir ítems nuevos')) {
+            return $respuesta;
+        }
+
         $request->validate([
             'description' => 'required',
             'amount' => 'required|numeric',

@@ -339,7 +339,7 @@
         <Teleport to="body">
             <div
                 v-if="ticketARestaurar"
-                class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                class="fixed inset-0 z-app-modal flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
                 @click="cerrarRestauracion"
             >
                 <div

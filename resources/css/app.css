@@ -72,3 +72,31 @@ input[type="date"],
 input[type="month"] {
     accent-color: rgb(16 185 129);
 }
+/* ─── Escala de apilamiento ────────────────────────────────────────────────
+   Un solo sitio donde se decide qué va encima de qué. Existe porque no lo
+   había: los modales se declaraban con `z-50` en unos sitios y `z-[9999]` en
+   otros, y el contenedor de notificaciones estaba en `z-[100]` — es decir, por
+   encima de los primeros y por debajo de los segundos. El resultado fue que un
+   error de validación salía DETRÁS del modal que lo había provocado, ilegible,
+   justo cuando más falta hacía leerlo (rechazo al archivar un ticket con un
+   cargo sin anular).
+
+   Regla: un aviso SIEMPRE va por encima de la superficie que lo genera. Si no,
+   la interfaz se queda muda en el único momento en que tiene algo que decir.
+
+   Úsalas por nombre. Un `z-[…]` suelto vuelve a abrir el mismo agujero, porque
+   el número de al lado no se ve desde donde se escribe.                       */
+
+.z-app-dropdown {
+    z-index: 1000;
+}
+
+/* Modales, overlays y lightboxes. */
+.z-app-modal {
+    z-index: 2000;
+}
+
+/* Notificaciones: por encima de TODO lo anterior, sin excepción. */
+.z-app-toast {
+    z-index: 3000;
+}
