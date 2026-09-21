@@ -24,6 +24,21 @@ class StaleDocumentTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * El bundle no se compila en CI, así que `@vite` no encuentra su
+     * manifiesto y el documento del SPA revienta al renderizar. `withoutVite()`
+     * sustituye las etiquetas por nada: a estas pruebas les importa la
+     * respuesta (código, cabeceras, que sea el HTML del SPA), no qué chunks
+     * referencia. En local pasaba sin esto sólo porque había un `public/build`
+     * de una compilación anterior — un verde que no se reproducía en CI.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->withoutVite();
+    }
+
     public function test_el_documento_del_spa_no_se_cachea(): void
     {
         $response = $this->get('/dashboard');
