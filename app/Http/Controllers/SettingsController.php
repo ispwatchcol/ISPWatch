@@ -61,6 +61,37 @@ class SettingsController extends Controller
         return response()->json([
             'version'     => config('version.number'),
             'released_at' => config('version.released_at'),
+            'build'       => $this->buildId(),
         ]);
+    }
+
+    /**
+     * Identificador del BUNDLE que está sirviendo este despliegue (KAN-101).
+     *
+     * `version` no sirve para detectar un despliegue: la mayoría de los
+     * despliegues corrigen algo sin mover el número de SemVer, y el navegador
+     * que tuviera la aplicación abierta seguiría con el código viejo sin que
+     * nada se lo dijera. El manifiesto de Vite, en cambio, cambia SIEMPRE que
+     * cambia un chunk — es la lista de los nombres con hash.
+     *
+     * El frontend guarda el primer `build` que ve al cargar y compara los
+     * siguientes contra ése: si cambia, hay código nuevo en el servidor.
+     *
+     * Devuelve null cuando no hay manifiesto (desarrollo con el dev server de
+     * Vite), y entonces el aviso simplemente no aparece: allí está el HMR.
+     */
+    private function buildId(): ?string
+    {
+        static $buildId = false;
+
+        if ($buildId !== false) {
+            return $buildId;
+        }
+
+        $manifest = public_path('build/manifest.json');
+
+        return $buildId = is_file($manifest)
+            ? substr((string) sha1_file($manifest), 0, 12)
+            : null;
     }
 }
