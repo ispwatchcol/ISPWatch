@@ -295,7 +295,12 @@ class TicketDiagnosticCatalogSeedTest extends TestCase
         // categories no debe notar el cambio.
         $data = $this->actingAs($this->staff)->getJson('/api/catalogs/ticket')->assertOk()->json();
 
-        $this->assertSame(['open', 'in_progress', 'resolved', 'closed'], collect($data['statuses'])->pluck('code')->all());
+        // Prefijo, no lista completa: el workflow anadio dieciocho estados
+        // detras de los cuatro originales, que conservan su peso y su orden.
+        $this->assertSame(
+            ['open', 'in_progress', 'resolved', 'closed'],
+            collect($data['statuses'])->pluck('code')->take(4)->all(),
+        );
         $this->assertSame(['code', 'label'], array_keys($data['statuses'][0]));
         $this->assertSame(4, count($data['priorities']));
         $this->assertSame(4, count($data['categories']));

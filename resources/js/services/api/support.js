@@ -57,8 +57,37 @@ export default {
     deleteMessage(messageId) {
         return apiClient.delete(`/support/messages/${messageId}`)
     },
-    updateStatus(ticketId, status) {
-        return apiClient.patch(`/support/${ticketId}/status`, { status })
+    // ── Workflow formal (Solicitud Maestra §7, §15, §18) ──
+    //
+    // El estado dejó de moverse por el `PUT` del formulario: una transición
+    // valida el ESTADO ORIGEN contra la matriz del servidor. Y cerrar, proponer
+    // cerrar y reabrir tienen cada uno su ruta, su permiso y sus requisitos.
+
+    /** Qué puede hacer AHORA este usuario con este ticket. Lo decide el servidor. */
+    getTransitions(ticketId) {
+        return apiClient.get(`/support/${ticketId}/transitions`)
+    },
+
+    updateStatus(ticketId, status, reason = null) {
+        return apiClient.patch(`/support/${ticketId}/status`, reason ? { status, reason } : { status })
+    },
+
+    /** Propuesta de cierre: NO cierra. Deja el ticket en observación. */
+    proposeClosure(ticketId, reason) {
+        return apiClient.post(`/support/${ticketId}/propose-closure`, { reason })
+    },
+
+    closeTicket(ticketId, reason = null) {
+        return apiClient.post(`/support/${ticketId}/close`, reason ? { reason } : {})
+    },
+
+    /** Cierre especial: exige motivo y registra qué requisito faltó. */
+    closeException(ticketId, reason) {
+        return apiClient.post(`/support/${ticketId}/close-exception`, { reason })
+    },
+
+    reopen(ticketId, reason) {
+        return apiClient.post(`/support/${ticketId}/reopen`, { reason })
     },
     generateCharge(ticketId, data) {
         return apiClient.post(`/support/${ticketId}/charge`, data)

@@ -249,8 +249,10 @@ class TicketDeletionBlockedTest extends TestCase
     {
         $ticket = $this->ticket();
 
+        // El estado se mueve por su endpoint desde el workflow formal.
         $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'resolved'])->assertOk();
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
+            ->assertOk();
 
         $antes = count($this->historialDe($ticket));
 
@@ -364,13 +366,17 @@ class TicketDeletionBlockedTest extends TestCase
         $this->actingAs($this->staff)->getJson("/api/support/{$ticket->id}/history")->assertOk();
 
         $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'in_progress', 'symptom' => 'S02'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
+            ->assertOk();
+
+        $this->actingAs($this->staff)
+            ->putJson("/api/support/{$ticket->id}", ['symptom' => 'S02'])
             ->assertOk();
 
         $detalle = $this->actingAs($this->staff)
             ->getJson("/api/support/{$ticket->id}")->assertOk()->json();
 
-        $this->assertSame('in_progress', $detalle['status']);
+        $this->assertSame('en_clasificacion', $detalle['status']);
         $this->assertSame('S02', $detalle['diagnosis']['symptom']['code']);
     }
 

@@ -1788,13 +1788,18 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `GET` | `/api/support` | `ticket_view` | Lista |
 | `POST` | `/api/support` | `ticket_create` | Crea ticket |
 | `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
-| `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo) |
+| `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado** |
 | `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
 | `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Estadísticas |
 | `POST` | `/api/support/{id}/message` | `staff_profile` + `ticket_note` | Añade mensaje |
 | `PUT` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Edita mensaje |
 | `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
-| `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | Cambia el estado. Cerrar exige además `ticket_close` |
+| `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | **Transición**: valida estado origen contra la matriz |
+| `GET` | `/api/support/{ticket}/transitions` | `ticket_view` | Qué puede hacer AHORA quien pide |
+| `POST` | `/api/support/{id}/propose-closure` | `staff_profile` + `ticket_transition` | **Propone** el cierre. NO cierra |
+| `POST` | `/api/support/{id}/close` | `staff_profile` + `ticket_close` | **Cierra**, con los requisitos del §15 |
+| `POST` | `/api/support/{id}/close-exception` | `staff_profile` + `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
+| `POST` | `/api/support/{id}/reopen` | `staff_profile` + `ticket_reopen` | **Reabre** un ticket cerrado |
 | `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
 | `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
 | `GET` | `/api/support/{ticket}/attachments/{attachment}` | `ticket_view_evidence` | Vista previa del adjunto (`inline`) |
@@ -1840,6 +1845,70 @@ Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `suspected_cause`, `confirmed_cause`, `solution` y `result` como **código** del Anexo A;
 `null` borra el campo. El detalle y el listado devuelven `diagnosis` con `code` y `label` por
 campo, o `null` si no hay diagnóstico.
+
+### Workflow formal del ticket (2026-09-19)
+
+Fuente: Solicitud Maestra §7 (ciclo de vida), §15 (reglas de cierre) y §18 (roles). CNO
+confirmó estados y transiciones por chat el 11/09/2026.
+
+**El estado salió del `PUT`.** `PUT /api/support/{id}` **ignora** `status` si llega — se ignora
+en vez de dar 422 porque la pantalla de edición reenvía el formulario entero. Mover el estado es
+una transición, y valida de dónde viene el ticket.
+
+**`PATCH /api/support/{id}/status`** — transición ordinaria.
+
+| Campo | Regla |
+|---|---|
+| `status` | **obligatorio**, código vigente del catálogo |
+| `reason` | opcional, máx. 500. Si llega, queda como evento `transition_note` |
+
+| Error | Cuándo |
+|---|---|
+| `ticket_transition_not_allowed` (422) | La matriz no admite ese salto. La respuesta trae `allowed` con los destinos válidos |
+| `ticket_same_status` (422) | El ticket ya está ahí. **No genera evento** |
+| `ticket_close_requires_endpoint` (422) | El destino es `cerrado`: usa el endpoint de cierre |
+
+**`GET /api/support/{ticket}/transitions`** — lo que la interfaz lee para no mantener su propia
+copia de la matriz:
+
+```json
+{ "status": "servicio_restablecido", "is_archived": false,
+  "transitions": [ { "code": "en_observacion", "label": "En observación" } ],
+  "actions": { "propose_closure": true, "close": true, "close_exception": true, "reopen": false },
+  "closure_requirements": { "missing": [], "complete": true } }
+```
+
+**`POST /api/support/{id}/propose-closure`** — §18 se la da al Técnico de campo. **No cierra**:
+deja el ticket en `en_observacion`, el estado que el documento coloca justo antes de CERRADO.
+Exige `reason` (10–500) y que el expediente tenga **acción y resultado** (reglas 2 y 3 del §15);
+**no** exige causa confirmada, que es potestad del Supervisor. Evento `closure_proposed`.
+
+**`POST /api/support/{id}/close`** — exige las tres reglas del §15 que el modelo puede sostener:
+`confirmed_cause`, `solution` y `result`. `reason` es opcional. Sólo desde un estado en que el
+servicio ya volvió. Sella `closed_at` **sin tocar** `resolved_at`. Evento `ticket_closed`.
+
+| Error | Cuándo |
+|---|---|
+| `ticket_closure_requirements_missing` (422) | Falta alguno. La respuesta trae `missing` y `details` |
+| `ticket_cannot_close_from_status` (422) | El servicio todavía no está restablecido |
+| `ticket_already_closed` (422) | Ya es terminal |
+
+**`POST /api/support/{id}/close-exception`** — §15.1 («salvo excepción autorizada y
+justificada») y §18 («cierre especial»). `reason` **obligatorio** (10–500). Registra en
+`metadata.requisitos_incumplidos` **qué faltó**, y deja evento propio `ticket_closed_exception`
+— no un `ticket_closed`. Si no falta nada responde **422 `ticket_no_exception_needed`**: usarlo
+sin que falte un requisito ensuciaría la auditoría.
+
+**`POST /api/support/{id}/reopen`** — `reason` obligatorio. Deja el ticket en `reabierto` (§7 lo
+lista como auxiliar). **No borra `closed_at`**: §19.5 pide que los timestamps se conserven sin
+sobrescritura. Evento `ticket_reopened` con el `closed_at` anterior en `metadata`.
+
+**Un ticket archivado está fuera del workflow.** Las cinco operaciones devuelven **404**: hay que
+restaurarlo primero (PR C).
+
+**El contrato de socios no cambia.** `/v1/partner/tickets` sigue devolviendo `open`,
+`in_progress`, `resolved` y `closed` — la equivalencia la declara `ticket_status.legacy_code` —
+y el filtro `?status=open` sigue trayendo también los `radicado` y `en_clasificacion`.
 
 **Archivado** (PR C · 2026-09-13). Sustituye definitivamente al borrado de tickets, que sigue
 respondiendo 403. Concedido por migración sólo a los roles con `code = 'admin'`.

@@ -7042,3 +7042,103 @@ alguien añada un `whereNotIn('status', …)` a esa consulta, la regeneración v
 Las dos mitades de este PR son el mismo error con dos caras. Una salvaguarda que vive en el
 sitio equivocado —un aviso debajo del modal, una comprobación en el botón y no en el endpoint—
 no es media salvaguarda: es ninguna, y además da la sensación de que hay una.
+
+---
+
+## 68. Un ticket podía pasar de recién recibido a cerrado de un clic — 2026-09-19
+
+CNO confirmó los estados y transiciones el 11/09 y delegó la definición operativa del cierre.
+Esto implementa la §7, la §15 y la parte de la §18 que habla de quién cierra.
+
+### Lo que había
+
+Cuatro estados —`open`, `in_progress`, `resolved`, `closed`— y **ninguna máquina**.
+`updateStatus()` comprobaba que el valor estuviera en el catálogo y nada más; el formulario de
+edición movía el estado con el mismo `PUT` que cambia el asunto. Es decir: de recién radicado a
+cerrado, sin causa confirmada, sin acción y sin resultado, que son las tres primeras reglas
+obligatorias del §15.
+
+Dos tests lo dejaban escrito desde la Fase 1, marcados **DEFECTO FIJADO**, con la nota de que
+«la Fase 2 debe modelar la reapertura como transición explícita» y que cuando lo hiciera «este
+test debe cambiar de forma consciente y no simplemente arreglarse». Es lo que se hizo: los dos
+afirman ahora lo contrario, con el porqué al lado.
+
+### Los estados salen del documento, no de la cabeza de nadie
+
+Nueve del diagrama de la §7 y nueve del bloque «Estados auxiliares requeridos» que va debajo.
+Dieciocho exactos.
+
+El documento **no asigna código técnico a ninguno**, igual que no se lo asignó a las 48
+subcausas del Anexo A. Ahí se decidió no inventarlos (**D-06**, que CNO acabó ratificando). Aquí
+no cabía la misma salida: un estado sin código no se puede guardar. Así que se derivan del
+nombre en snake_case sin tildes, y la migración los lleva uno a uno con el literal del documento
+al lado para que se puedan cotejar. Queda como supuesto **S-7**.
+
+### La decisión que evitó romper el contrato
+
+`radicado` sustituye a `open` como estado inicial: es donde el documento abre el ciclo. Pero
+`/v1/partner` lleva desde la R2 con el contrato congelado y una nota que dice, literalmente, que
+«el integrador compara contra `open`» y que devolverle otra cosa «no le daría ningún error,
+simplemente dejaría de coincidir y sus tickets desaparecerían en silencio».
+
+Renombrar no era opción. Tampoco dejar el flujo a medias. La salida fue una columna:
+`ticket_status.legacy_code`, que declara a cuál de los cuatro viejos equivale cada estado nuevo.
+El integrador recibe `COALESCE(legacy_code, code)` y sigue viendo `open`; el panel dice «En
+clasificación». Y el filtro `?status=open` sigue trayendo lo que traía.
+
+La misma columna salvó las **estadísticas**, que contaban por código exacto. Sin la
+equivalencia, el tablero habría marcado cero tickets abiertos el día del despliegue — y ningún
+test lo habría visto, porque todos creaban tickets en los estados viejos.
+
+### Por qué las transiciones no están en una tabla
+
+Los catálogos de la R1 viven en base de datos porque son vocabulario: el ISP los reetiqueta y en
+tres de ellos añade los suyos. Una transición no es vocabulario, es una regla de negocio. Y
+sobre todo: **no hay pantalla para administrarla**, y D-13 —quién administra los catálogos—
+sigue delegada sin resolver. Una tabla que nadie puede editar es peor que una constante, porque
+aparenta ser configurable.
+
+Está en `TicketWorkflow`, y se expone por `GET /support/{id}/transitions` para que la interfaz
+pinte lo que el servidor permite. Sin ese endpoint, el panel habría necesitado su propia copia
+de la matriz, y una segunda copia se desincroniza el día que alguien toca la primera.
+
+### Las cuatro operaciones, y por qué son cuatro
+
+La §18 reparte: el Técnico de campo hace «pruebas finales y **propuesta de cierre**»; el
+Supervisor tiene «**excepciones**, **cierre especial**». Eso son tres cosas distintas más la
+reapertura, y compartir endpoint las volvía indistinguibles en la auditoría.
+
+La **propuesta no cierra**: deja el ticket en «En observación», el estado que el diagrama coloca
+justo antes de CERRADO, esperando al supervisor. El documento no nombra un estado de
+«propuesto», así que usar ése es una interpretación —supuesto **S-5**— y se prefirió a inventar
+vocabulario que el cliente no pidió.
+
+El **cierre especial** rechaza ejecutarse si no falta ningún requisito. Parece una molestia y no
+lo es: un «cierre excepcional» sobre un expediente completo es un cierre ordinario hecho con el
+permiso más alto, y deja en la bitácora un evento que miente sobre lo que pasó.
+
+La **reapertura no borra `closed_at`**. El §19.5 pide que «los estados y timestamps se conserven
+sin sobrescritura», y la fecha de aquel cierre sigue siendo un hecho. Lo que antes era un
+defecto anotado —«resolved_at sobrevive a la reapertura y sesga el promedio»— resulta ser el
+comportamiento exigido; lo que faltaba no era limpiar la fecha, era que reabrir fuera una
+operación y no un efecto colateral de escribir un estado.
+
+### Lo que no se pudo cumplir, y se dice
+
+El §15 tiene **diez** reglas de cierre. Se exigen **tres**. Una cuarta se cumple por
+construcción. Las otras seis piden campos que el ticket no captura: pruebas finales,
+infraestructura afectada con valor «no aplica», validación del cliente separada de la
+restauración técnica.
+
+Se podría haber declarado F1-10 cumplido —las excepciones sí quedan auditadas, que es la mitad
+literal del criterio— y nadie lo habría revisado. Queda **parcial**, con la tabla de las seis
+reglas y el motivo de cada una, porque decir que se exigen diez cuando se exigen tres es la
+clase de afirmación que alguien descubre en una auditoría dentro de un año.
+
+### Lección
+
+Cambiar el estado inicial de un flujo parece una fila de catálogo y es un cambio de contrato: lo
+ven el integrador, el tablero de métricas y veintinueve tests. La columna de equivalencia costó
+diez minutos y evitó las tres roturas a la vez — pero sólo porque la R2 había dejado escrito,
+dos meses antes, **por qué** ese contrato estaba congelado. El comentario que explica el porqué
+es lo que permite cambiar el cómo sin romperlo.

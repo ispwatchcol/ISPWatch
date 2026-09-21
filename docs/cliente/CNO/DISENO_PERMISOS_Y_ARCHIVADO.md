@@ -349,6 +349,47 @@ en `SET NULL` exactamente como quedaron.
 
 ---
 
+## 4quinquies. El workflow formal — 2026-09-19
+
+CNO confirmó los estados y transiciones el 11/09/2026 y delegó la definición operativa del
+cierre, las excepciones y la reapertura. Esto la implementa.
+
+### Lo que activa de los permisos ya declarados
+
+El PR B declaró veinte permisos y dejó cinco **sin uso** porque su acción no existía. El PR C
+activó dos (`ticket_archive`, `ticket_restore`). Éste activa dos más:
+
+| Permiso | Antes | Ahora |
+|---|---|---|
+| `ticket_close` | Comprobado dentro de `PATCH .../status` cuando el destino era `closed` | Endpoint propio `POST .../close`, con los requisitos del §15 |
+| `ticket_close_override` | **Sin uso** | `POST .../close-exception` |
+| `ticket_reopen` | **Sin uso** | `POST .../reopen` |
+| `ticket_transition` | Movía el estado a cualquier sitio, también desde el `PUT` | Sólo por transición válida, con estado origen comprobado |
+
+Queda **uno solo sin uso**: `ticket_manage_catalogs` (**D-13**).
+
+**Ninguno se concede por migración.** `ticket_close_override` y `ticket_reopen` los recibieron
+los roles que ya tenían `*`, y nadie más: conceder una capacidad que antes no existía sería lo
+contrario de una transición compatible. Asignarlos es configuración del cliente.
+
+### Supuestos nuevos
+
+| ID | Supuesto | Por qué |
+|---|---|---|
+| **S-5** | **La propuesta de cierre deja el ticket en «En observación».** El documento no nombra un estado de «propuesto» | `EN OBSERVACIÓN` es el estado que el diagrama coloca inmediatamente antes de CERRADO, y es donde el ticket espera la decisión del supervisor. Inventar un estado nuevo habría añadido vocabulario que el documento no pide |
+| **S-6** | **`Duplicado` es terminal.** El §7 lo lista como auxiliar sin decir si cierra | La alternativa —dejarlo abierto para siempre— ensucia toda métrica de pendientes. Si CNO prefiere que un duplicado siga contando como abierto, es una fila del catálogo |
+| **S-7** | **Los códigos técnicos de los 18 estados se derivan del nombre** en snake_case sin tildes | El documento no asigna código a ninguno. Mismo criterio que con las subcausas del Anexo A (**D-06**): no se inventa vocabulario, se deriva de la única fuente que hay y se deja cotejable |
+
+### Lo que NO se pudo exigir todavía
+
+De las **diez** reglas obligatorias de cierre del §15 se exigen tres, y una se cumple por
+construcción. Las seis restantes necesitan campos de captura que el ticket no tiene —pruebas
+finales, infraestructura afectada con valor «no aplica», validación del cliente separada— y son
+el alcance del **PR #5**. Por eso **F1-10 queda parcial**, no cumplido: declararlo cumplido
+sería decir que se exigen diez reglas cuando se exigen tres.
+
+---
+
 ## 4bis. H-6 · El expediente sobrevive a la baja del usuario
 
 **Implementado.** `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan
@@ -492,6 +533,7 @@ correcto para una baja de cliente, pero es una decisión distinta y **no se tom�
 | **B · Permisos granulares** | Los 20 permisos, middleware por ruta, **backfill que preserva el comportamiento** | **No** | Sí (datos) | ✅ **Implementado** |
 | **C · Archivado y restauración** | `deleted_at` + motivo + eventos + reglas + **la UI del PR D** | Ya no: **D-10 aprobada** | Sí (esquema + datos) | ✅ **Implementado** |
 | **D · UI de archivados** | Vista, filtro, doble confirmación, restauración | No | No | ↩️ **Absorbido por el PR C** |
+| **#4 · Workflow y cierre** | 9 + 9 estados, matriz de transiciones, propuesta, cierre, excepción y reapertura | Ya no: confirmado el 11/09 | Sí (esquema + datos) | ✅ **Implementado** |
 | **E · Mapeo de roles §18** | Roles N1/N2/Campo/Supervisor/Auditor con su matriz | Delegado en el equipo (D-09) | Sí (datos) | 🔓 Desbloqueado, sin empezar |
 
 **Por qué el PR D desaparece como PR aparte:** se separó cuando archivar podía no llegar a

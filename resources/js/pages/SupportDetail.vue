@@ -85,6 +85,91 @@
                 </div>
             </div>
 
+            <!-- ── Ciclo de vida (Solicitud Maestra §7, §15, §18) ──────────
+                 Sustituye al selector libre de estado. Sólo se pintan los pasos
+                 que el SERVIDOR dice que caben desde aquí: la matriz no se
+                 duplica en JavaScript, porque una segunda copia se
+                 desincroniza y el panel acaba ofreciendo lo que la API rechaza. -->
+            <div
+                v-if="!ticket.is_archived && (workflow.transitions.length || algunaAccion)"
+                class="mb-6 rounded-xl bg-white p-6 shadow-md dark:bg-gray-800"
+            >
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="text-lg font-bold text-gray-800 dark:text-white">Ciclo de vida</h3>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-gray-700 dark:text-slate-200">
+                        {{ statusLabel(ticket.status) || ticket.status }}
+                    </span>
+                </div>
+
+                <!-- Lo que le falta al expediente para poder cerrarse, ANTES de
+                     abrir ningún modal: enterarse de que falta la causa
+                     confirmada después de escribir el motivo es peor. -->
+                <div
+                    v-if="workflow.closureRequirements.missing.length"
+                    class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/25"
+                >
+                    <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                        Para cerrar este ticket falta:
+                    </p>
+                    <ul class="mt-1 list-inside list-disc text-xs text-amber-800 dark:text-amber-300">
+                        <li v-for="falta in workflow.closureRequirements.missing" :key="falta">{{ falta }}</li>
+                    </ul>
+                </div>
+
+                <!-- Transiciones ordinarias -->
+                <div v-if="workflow.transitions.length" class="mb-4">
+                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Mover a
+                    </p>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            v-for="paso in workflow.transitions"
+                            :key="paso.code"
+                            @click="abrirAccion('transition', paso)"
+                            class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
+                        >
+                            {{ paso.label }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Las cuatro operaciones con nombre propio -->
+                <div v-if="algunaAccion" class="flex flex-wrap gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
+                    <button
+                        v-if="workflow.actions.propose_closure"
+                        @click="abrirAccion('propose')"
+                        class="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300"
+                    >
+                        <v-icon name="md-assignmentturnedin" class="h-4 w-4" />
+                        Proponer cierre
+                    </button>
+                    <button
+                        v-if="workflow.actions.close"
+                        @click="abrirAccion('close')"
+                        class="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                    >
+                        <v-icon name="bi-check-circle-fill" class="h-4 w-4" />
+                        Cerrar ticket
+                    </button>
+                    <button
+                        v-if="workflow.actions.close_exception"
+                        @click="abrirAccion('exception')"
+                        class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                    >
+                        <v-icon name="md-warning" class="h-4 w-4" />
+                        Cierre especial
+                    </button>
+                    <button
+                        v-if="workflow.actions.reopen"
+                        @click="abrirAccion('reopen')"
+                        class="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                    >
+                        <v-icon name="ri-arrow-go-back-line" class="h-4 w-4" />
+                        Reabrir
+                    </button>
+                </div>
+            </div>
+
             <!-- Badges -->
             <div class="flex gap-3 mb-6">
                 <span :class="getStatusBadgeClass(ticket.status)">{{ getStatusLabel(ticket.status) }}</span>
@@ -773,6 +858,81 @@
                 </div>
             </div>
         </Teleport>
+
+        <!-- ── Modal único de las acciones del ciclo de vida ───────────────
+             Uno solo y no cinco: las cinco piden lo mismo —una confirmación y,
+             según el caso, un motivo— y cinco copias del mismo formulario se
+             desincronizan a la primera corrección. Lo que cambia entre ellas
+             está en `ACCIONES`. -->
+        <Teleport to="body">
+            <div
+                v-if="accion"
+                class="fixed inset-0 z-app-modal flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                @click="cerrarAccion"
+            >
+                <div
+                    class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    @click.stop
+                >
+                    <div class="border-b border-gray-100 p-6 dark:border-gray-700" :class="accion.cabecera">
+                        <h3 class="text-xl font-bold text-gray-900 dark:text-white">{{ accion.titulo }}</h3>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ accion.descripcion }}</p>
+                    </div>
+
+                    <div class="space-y-4 p-6">
+                        <!-- El cierre especial deja constancia de QUÉ faltó: se
+                             enseña aquí para que quien autoriza sepa qué firma. -->
+                        <div
+                            v-if="accion.clave === 'exception' && workflow.closureRequirements.missing.length"
+                            class="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/25"
+                        >
+                            <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                                Vas a autorizar el cierre sin:
+                            </p>
+                            <ul class="mt-1 list-inside list-disc text-xs text-amber-800 dark:text-amber-300">
+                                <li v-for="falta in workflow.closureRequirements.missing" :key="falta">{{ falta }}</li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                {{ accion.etiquetaMotivo }}
+                                <span v-if="accion.motivoObligatorio" class="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                v-model="motivoAccion"
+                                rows="3"
+                                maxlength="500"
+                                :placeholder="accion.placeholder"
+                                class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            ></textarea>
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {{ motivoAccion.length }}/500
+                                <template v-if="accion.motivoObligatorio"> · mínimo 10 caracteres</template>
+                                · queda en el historial con tu nombre.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                        <button
+                            @click="cerrarAccion"
+                            class="rounded-lg px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            :disabled="!accionLista || ejecutandoAccion"
+                            @click="ejecutarAccion"
+                            class="rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+                            :class="accion.boton"
+                        >
+                            {{ ejecutandoAccion ? 'Procesando…' : accion.textoBoton }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
 </template>
 
 <script setup>
@@ -1107,10 +1267,8 @@ const updateTicket = async () => {
         
         const formData = new FormData()
         
-        // Only append if it exists and is valid
-        if (ticket.value.status) {
-            formData.append('status', ticket.value.status)
-        }
+        // `status` YA NO VIAJA AQUI. El estado se mueve por transiciones, que
+        // validan de donde viene el ticket; el backend lo ignora en este PUT.
         
         // Method spoofing for files via PUT
         formData.append('_method', 'PUT') 
@@ -1412,11 +1570,178 @@ const restaurarTicket = async () => {
     }
 }
 
+// ── Ciclo de vida del ticket (Solicitud Maestra §7, §15, §18) ────────────
+//
+// Lo que se puede hacer LO DICE EL SERVIDOR (`GET .../transitions`). Aquí no
+// hay copia de la matriz de transiciones ni de los requisitos de cierre: una
+// segunda copia se desincroniza el día que alguien toca la primera, y entonces
+// el panel ofrece botones que la API rechaza con 422.
+
+const workflow = ref({
+    transitions: [],
+    actions: { propose_closure: false, close: false, close_exception: false, reopen: false },
+    closureRequirements: { missing: [], complete: true },
+})
+
+const algunaAccion = computed(() => Object.values(workflow.value.actions).some(Boolean))
+
+const cargarWorkflow = async () => {
+    try {
+        const { data } = await api.support.getTransitions(ticketId)
+
+        workflow.value = {
+            transitions: data.transitions ?? [],
+            actions: data.actions ?? {},
+            closureRequirements: {
+                missing: data.closure_requirements?.missing ?? [],
+                complete: data.closure_requirements?.complete ?? true,
+            },
+        }
+    } catch (err) {
+        console.error('Error al cargar las acciones del ticket:', err)
+        // Sin datos, no se ofrece nada. Es la experiencia segura: pintar
+        // botones a ciegas terminaría en 422 delante del operador.
+        workflow.value = { transitions: [], actions: {}, closureRequirements: { missing: [], complete: true } }
+    }
+}
+
+/**
+ * Lo único que cambia entre las cinco acciones.
+ *
+ * `motivoObligatorio` refleja lo que exige el backend, no una preferencia de la
+ * pantalla: la propuesta, el cierre especial y la reapertura lo piden; la
+ * transición ordinaria y el cierre normal lo aceptan opcional.
+ */
+const ACCIONES = {
+    transition: {
+        clave: 'transition',
+        titulo: 'Cambiar el estado',
+        descripcion: 'El ticket avanza en el flujo. Queda registrado quién lo movió y desde dónde.',
+        etiquetaMotivo: 'Motivo (opcional)',
+        placeholder: 'Por ejemplo: falta una ONU del modelo que pide la instalación…',
+        motivoObligatorio: false,
+        textoBoton: 'Mover',
+        cabecera: 'bg-blue-50/60 dark:bg-gray-700/30',
+        boton: 'bg-blue-600 hover:bg-blue-700',
+    },
+    propose: {
+        clave: 'propose',
+        titulo: 'Proponer el cierre',
+        descripcion: 'NO cierra el ticket: lo deja en observación, a la espera de que el supervisor lo revise.',
+        etiquetaMotivo: 'Observación técnica',
+        placeholder: 'Qué se hizo y cómo quedó el servicio…',
+        motivoObligatorio: true,
+        textoBoton: 'Proponer cierre',
+        cabecera: 'bg-indigo-50/60 dark:bg-gray-700/30',
+        boton: 'bg-indigo-600 hover:bg-indigo-700',
+    },
+    close: {
+        clave: 'close',
+        titulo: 'Cerrar el ticket',
+        descripcion: 'Cerrar significa que la causa, la acción y el resultado quedaron documentados. No borra nada del expediente.',
+        etiquetaMotivo: 'Observación de cierre (opcional)',
+        placeholder: 'Por ejemplo: el cliente confirma el servicio…',
+        motivoObligatorio: false,
+        textoBoton: 'Cerrar ticket',
+        cabecera: 'bg-emerald-50/60 dark:bg-gray-700/30',
+        boton: 'bg-emerald-600 hover:bg-emerald-700',
+    },
+    exception: {
+        clave: 'exception',
+        titulo: 'Cierre especial',
+        descripcion: 'Autoriza cerrar sin cumplir todos los requisitos. Queda constancia de cuál faltó y de quién lo autorizó.',
+        etiquetaMotivo: 'Justificación de la excepción',
+        placeholder: 'Por qué se autoriza cerrar sin ese requisito…',
+        motivoObligatorio: true,
+        textoBoton: 'Autorizar y cerrar',
+        cabecera: 'bg-amber-50/60 dark:bg-gray-700/30',
+        boton: 'bg-amber-600 hover:bg-amber-700',
+    },
+    reopen: {
+        clave: 'reopen',
+        titulo: 'Reabrir el ticket',
+        descripcion: 'Vuelve al flujo de trabajo. La fecha del cierre anterior se conserva.',
+        etiquetaMotivo: 'Motivo de la reapertura',
+        placeholder: 'Por ejemplo: la falla reapareció en el mismo servicio…',
+        motivoObligatorio: true,
+        textoBoton: 'Reabrir',
+        cabecera: 'bg-blue-50/60 dark:bg-gray-700/30',
+        boton: 'bg-blue-600 hover:bg-blue-700',
+    },
+}
+
+const accion = ref(null)
+const accionDestino = ref(null)
+const motivoAccion = ref('')
+const ejecutandoAccion = ref(false)
+
+const accionLista = computed(() => {
+    if (!accion.value) return false
+
+    return !accion.value.motivoObligatorio || motivoAccion.value.trim().length >= 10
+})
+
+const abrirAccion = (clave, destino = null) => {
+    const base = ACCIONES[clave]
+    if (!base) return
+
+    accion.value = clave === 'transition' && destino
+        ? { ...base, titulo: `Mover a «${destino.label}»` }
+        : { ...base }
+
+    accionDestino.value = destino
+    motivoAccion.value = ''
+}
+
+const cerrarAccion = () => {
+    accion.value = null
+    accionDestino.value = null
+}
+
+const ejecutarAccion = async () => {
+    if (!accion.value || !accionLista.value || ejecutandoAccion.value) return
+
+    const motivo = motivoAccion.value.trim() || null
+
+    try {
+        ejecutandoAccion.value = true
+
+        const { data } = await (() => {
+            switch (accion.value.clave) {
+                case 'transition': return api.support.updateStatus(ticketId, accionDestino.value.code, motivo)
+                case 'propose':    return api.support.proposeClosure(ticketId, motivo)
+                case 'close':      return api.support.closeTicket(ticketId, motivo)
+                case 'exception':  return api.support.closeException(ticketId, motivo)
+                case 'reopen':     return api.support.reopen(ticketId, motivo)
+            }
+        })()
+
+        cerrarAccion()
+        toast.value?.success('Listo', data.message || 'El ticket se actualizó.')
+
+        await loadTicket()
+        await cargarWorkflow()
+        await cargarHistorial(1)
+    } catch (err) {
+        console.error('Error en la acción del ciclo de vida:', err)
+
+        // El backend explica QUÉ falta y hacia dónde se puede ir; se muestra
+        // entero. Ver el contenedor global de avisos.
+        const errores = err.response?.data?.errors
+        const detalle = errores ? Object.values(errores)[0]?.[0] : err.response?.data?.message
+
+        toast.value?.error('No se pudo completar', detalle || 'No se pudo completar la acción.')
+    } finally {
+        ejecutandoAccion.value = false
+    }
+}
+
 onMounted(() => {
     cargarCatalogos()
     loadTicket()
     loadCharges()
     cargarHistorial(1)
+    cargarWorkflow()
 })
 </script>
 

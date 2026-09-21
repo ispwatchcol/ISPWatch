@@ -387,10 +387,27 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage'])
             ->middleware('permission:ticket_note');
 
-        // Cerrar exige además `ticket_close`; lo comprueba el controlador, que
-        // es quien sabe a qué estado se está transicionando.
+        // ── Workflow formal (Solicitud Maestra §7, §15, §18) ──
+        //
+        // El estado SALIÓ del `PUT` genérico: moverlo es una transición con
+        // estado origen válido. Y cerrar, proponer cerrar y reabrir tienen cada
+        // uno su ruta, su permiso y sus requisitos — el requerimiento los
+        // distingue y compartir endpoint los volvía indistinguibles.
         Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
             ->middleware('permission:ticket_transition');
+
+        // Propuesta de cierre: §18 se la da al Técnico de campo. NO cierra.
+        Route::post('/support/{id}/propose-closure', [SupportTicketController::class, 'proposeClosure'])
+            ->middleware('permission:ticket_transition');
+
+        // Cierre ordinario y cierre especial. §18 los da al Supervisor.
+        Route::post('/support/{id}/close', [SupportTicketController::class, 'close'])
+            ->middleware('permission:ticket_close');
+        Route::post('/support/{id}/close-exception', [SupportTicketController::class, 'closeException'])
+            ->middleware('permission:ticket_close_override');
+
+        Route::post('/support/{id}/reopen', [SupportTicketController::class, 'reopen'])
+            ->middleware('permission:ticket_reopen');
 
         // Los CARGOS se quedan como estaban, con `staff_profile` a secas. Son
         // facturación, no operación del ticket: no aparecen en la matriz de
@@ -524,6 +541,15 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // desde la operación ordinaria, y eso empieza por no ofrecer la puerta.
         Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history'])
             ->middleware('permission:ticket_view_history');
+
+        // Qué puede hacer AHORA quien pide, con este ticket. La interfaz lo lee
+        // en vez de mantener su propia copia de la matriz de transiciones: una
+        // segunda copia en JavaScript se desincroniza el día que alguien toca la
+        // primera, y entonces el panel ofrece botones que la API rechaza.
+        //
+        // Sólo `ticket_view`: saber qué acciones existen no es poder hacerlas —
+        // la respuesta ya dice cuáles están permitidas para este usuario.
+        Route::get('/support/{ticket}/transitions', [SupportTicketController::class, 'transitions']);
 
         // PR C · Archivado y restauración. Sustituyen definitivamente a la
         // noción de borrar un ticket: CNO aprobó el 2026-09-11 un archivado

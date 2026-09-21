@@ -93,8 +93,11 @@ Concretamente, **no** debe reportarse como cumplido:
   cinco campos se capturan en el alta y la edición, se validan contra el catálogo vigente
   y se leen con código y etiqueta. Queda como decisión aparte si se exponen al integrador
   (**D-07**), que no forma parte del criterio de F1-03.
-- **F1-04** por existir `resolved_at` y `closed_at`. El criterio exige estados,
-  transiciones **e historial**.
+- ~~**F1-04** por existir `resolved_at` y `closed_at`. El criterio exige estados,
+  transiciones **e historial**.~~ **Resuelto por el PR #4**: los 9 estados del flujo y los 9
+  auxiliares de la §7 están sembrados, las transiciones se validan contra una matriz explícita
+  y cada movimiento deja evento con actor, estado anterior/nuevo y motivo. `resolved_at` y
+  `closed_at` quedan separados, que es lo que el documento exige.
 - **F1-11** por existir la tabla de adjuntos. La **protección de acceso ya está resuelta**
   (endpoint autenticado con verificación de tenant, disco privado), pero **siguen faltando
   el hash de integridad y la política de retención**, así que el criterio no se cumple.
@@ -129,13 +132,13 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-01** | Ticket asociado a cliente **y servicio específico** | 🔴 Bloqueado | `support_ticket.user_id`; `customer_profile` con PK = `user_id` | Definir modelo de servicio | **Decisión D-01** |
 | **F1-02** | Alcance exclusivo soporte; excluir facturación | ⚠️ **Contradicción** | `routes/api.php:368-369` — `POST /support/{id}/charge` | No tocar; escalar | **Decisión D-02** |
 | **F1-03** | Síntoma, causa sospechada, causa confirmada, acción y resultado | 🟢 **Cumplido** | 5 columnas en `support_ticket`; catálogos del Anexo A (16+7+20+15); **captura en alta y edición**, validación por catálogo y por tenant, y lectura con código y etiqueta en el detalle y en la API del panel | — | Subcausas sin código: **D-06**. Exposición a socios: **D-07** (no forma parte de F1-03) |
-| **F1-04** | Estados y transiciones con timestamps e historial | 🟡 Parcial | 4 estados vs 9 + 9 auxiliares (Maestra L139-149); `resolved_at`, `closed_at` | **PR #4** | **Decisión D-03** |
+| **F1-04** | Estados y transiciones con timestamps e historial | ✅ **Cumplido** | 9 del flujo + 9 auxiliares sembrados; matriz explícita de transiciones; evento por movimiento; `resolved_at` ≠ `closed_at` | **PR #4** | — |
 | **F1-05** | Campos condicionales radio / FTTH | ⚪ Pendiente | No existe | Diseño posterior | Tras PR #2 |
 | **F1-06** | Asociación zona, nodo, AP/OLT, PON, CPE/ONU | 🟡 Parcial | `support_ticket.sectorial_id` | Ampliar jerarquía | — |
 | **F1-07** | Snapshot histórico de infraestructura | ⚪ Pendiente | `sectorial_id` es FK viva, no snapshot | Diseño posterior | Tras F1-06 |
 | **F1-08** | Varias intervenciones por ticket | ⚪ Pendiente | `support_ticket_message` son comentarios | **PR #5** | — |
 | **F1-09** | Pruebas iniciales y finales estructuradas | ⚪ Pendiente | No existe | Tras PR #5 | — |
-| **F1-10** | Reglas de cierre y excepciones auditadas | ⚪ Pendiente | Cualquier transición permitida | **PR #4** | **Decisión D-03** |
+| **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido; se exigen **3 de las 10 reglas** del §15 (causa confirmada, acción, resultado). Las otras necesitan campos que el ticket aún no captura | **PR #4** + PR #5 | — |
 | **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
 | **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones | **PR #5** | — |
 | **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe | **PR #6** | — |
@@ -630,13 +633,59 @@ seguridad, no un adorno que pueda esperar a otro despliegue.
 | Campo | Detalle |
 |---|---|
 | **Objetivo** | Estados reales del cliente y cierre controlado |
-| **Cubre** | F1-04, F1-10 |
-| **Alcance** | Ampliar `ticket_status` a los 9 estados + auxiliares; tabla de transiciones; enforcement en `updateStatus()`; reglas de cierre; `restablecido_en` ≠ `cerrado_en` |
-| **Dependencias** | **PR #3** (las excepciones deben quedar auditadas) · **Decisión D-03** |
-| **Pruebas** | No se cierra sin causa confirmada, acción y resultado; la transición inválida se rechaza; la excepción queda auditada |
-| **Aceptación** | El cierre incompleto queda bloqueado o exige excepción registrada |
-| **Estado** | 🔒 Bloqueado por D-03 |
-| **Riesgo** | **Medio** — cambia comportamiento vigente en producción |
+| **Fuente** | Solicitud Maestra §7, §15 y §18 · **Confirmación de CNO por chat — 11/09/2026** |
+| **Cubre** | **F1-04 cumplido** · **F1-10 parcial** (ver abajo) |
+| **Migraciones** | `2026_09_19_000003_extend_ticket_status_to_master_workflow` (esquema + datos) |
+| **Pruebas** | `tests/Feature/Support/TicketWorkflowTest.php` — 52 pruebas, con matriz de transiciones por proveedor de datos |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Los estados salen literales del documento.** Los nueve del flujo del diagrama de la §7 y los
+nueve del bloque «Estados auxiliares requeridos» que va debajo. El documento **no asigna código
+técnico** a ninguno, así que se derivan del nombre en snake_case sin tildes y quedan cotejables
+uno a uno en `BASE_DATOS.md`. Mismo criterio que con las subcausas del Anexo A: no se inventa
+vocabulario, se deriva de la única fuente que hay y se deja escrito.
+
+**Los cuatro estados viejos no se tocan.** Siguen en el catálogo marcados como `legacy`, porque
+los 27 tickets de producción apuntan a ellos y porque el **contrato del integrador está
+congelado**. Cada estado nuevo declara a cuál de los cuatro equivale (`legacy_code`), y eso es
+lo que sale por `/v1/partner` y lo que cuentan las estadísticas.
+
+**Las transiciones se validan contra una matriz explícita.** Ya no se puede saltar de recién
+radicado a cerrado. Las vueltas atrás dentro del tramo operativo sí se permiten —un técnico que
+llega a la visita y descubre que la falla era remota tiene que poder devolver el ticket a
+diagnóstico— pero de un estado terminal sólo se sale reabriendo.
+
+**Cuatro operaciones con nombre propio**, cada una con su permiso:
+
+| Operación | Permiso | Qué hace |
+|---|---|---|
+| Proponer cierre | `ticket_transition` | **No cierra.** Deja el ticket en «En observación» con acción, resultado y observación técnica |
+| Cerrar | `ticket_close` | Exige causa confirmada, acción y resultado. Sella `closed_at` sin tocar `resolved_at` |
+| Cierre especial | `ticket_close_override` | Autoriza sin un requisito. Registra **cuál faltó** y deja evento propio |
+| Reabrir | `ticket_reopen` | Deja el ticket en «Reabierto». **No borra `closed_at`** |
+
+**Por qué F1-10 queda PARCIAL y no cumplido.** El §15 enumera **diez** reglas obligatorias de
+cierre. Se exigen tres —causa confirmada, acción y resultado— y una cuarta se cumple por
+construcción (el sellado de `resolved_at` lo hace el catálogo). Las otras seis necesitan campos
+de captura que el ticket todavía no tiene:
+
+| Regla §15 | Por qué no se exige aún |
+|---|---|
+| 5 · «prueba final o justificación de por qué no fue posible» | No existe el campo de pruebas finales |
+| 6 · «infraestructura afectada o clasificación red interna / no aplica» | `sectorial_id` no admite «no aplica» ni «red interna del cliente» |
+| 7 · «validación del cliente separada de la restauración técnica» | No existe el campo |
+| 8 · «"Otro" siempre debe requerir explicación» | Depende de marcar qué códigos de catálogo son «Otro» |
+| 9 · «solución temporal, pendiente de tercero y no resuelto → seguimiento o autorización» | **Parcial**: la solución temporal obliga a pasar por el cierre especial, que ES la autorización |
+| 10 · «el cierre no debe borrar causa sospechada, intervenciones ni estados anteriores» | ✅ Se cumple: el cierre no escribe ningún campo del diagnóstico |
+
+Los campos que faltan son el alcance del **PR #5 (intervenciones)** y de la captura de pruebas
+finales. Hasta entonces, declarar F1-10 cumplido sería decir que se exigen diez reglas cuando se
+exigen tres.
+
+**D-03 deja de bloquear.** Preguntaba quién puede cerrar sin causa confirmada. CNO delegó la
+definición operativa el 11/09/2026 y la §18 ya lo decía: el **Supervisor** («excepciones, cierre
+especial»). Se implementa como el permiso `ticket_close_override`, que **no se concede a nadie
+por migración** — asignarlo es configuración del cliente.
 
 ### PR #5 · Intervenciones
 
@@ -815,3 +864,4 @@ seguridad, no un adorno que pueda esperar a otro despliegue.
 | 2026-09-11 | **PR B implementado**: 20 permisos `ticket_*`, una capacidad por acción; autorización por campo en el `PUT`; siete rutas que no tenían ningún permiso ahora lo exigen; el endpoint de catálogos deja de ser abierto. Backfill que preserva exactamente lo que cada rol podía hacer. **F1-17 sigue parcial**: falta el modelo de roles de la sección 18 (**D-09**) | — | *(PR abierto)* |
 | 2026-09-11 | **Confirmación de CNO por chat.** Aprobado el **archivado reversible y auditado** (D-10) para Administradores y Propietarios; **cerrada D-06** (subcausas sólo como texto); **confirmados** estados y transiciones; **delegadas** en el equipo D-09, D-11, D-12 y D-13; **evidencias accesibles** ratificado; **retención sin definir**, con instrucción de no purgar (D-05 sigue parcial). Registrado el supuesto **S-1**: en ISPWatch **no existe el rol «Propietario»** | David Gómez | *(rama `david-tickets-archivar-expedientes`)* |
 | 2026-09-13 | **PR C implementado**: archivado reversible y auditado de tickets (`deleted_at` + `archived_by` + `archived_reason`), con motivo obligatorio, doble confirmación escribiendo el número, bloqueo de tickets activos salvo duplicado/error de registro y bloqueo con cargos sin anular. Eventos `ticket_archived` / `ticket_restored`. Listado de archivados y restauración desde la interfaz. **El PR D queda absorbido**. Detectada y anotada la deuda **P-48** | David Gómez | *(PR abierto)* |
+| 2026-09-19 | **PR #4 implementado**: workflow formal de tickets. 9 estados del flujo + 9 auxiliares de la §7 sembrados literales; matriz explícita de transiciones; el `PUT` deja de mover el estado; propuesta de cierre, cierre con requisitos del §15, cierre especial auditado y reapertura, cada uno con su permiso. Los cuatro estados viejos se conservan como `legacy` con equivalencia, así que **el contrato del integrador no cambia**. **F1-04 pasa a cumplido; F1-10 queda parcial** (3 de las 10 reglas de cierre son exigibles con el modelo actual). **D-03 deja de bloquear** | David Gómez | *(PR abierto)* |

@@ -1035,6 +1035,64 @@ base. Ver [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md)
 Todas las FK son **`ON DELETE RESTRICT`**: perder una fila de catálogo dejaría un ticket
 histórico sin poder decir en qué estado quedó.
 
+#### Workflow de estados (2026-09-19)
+
+`ticket_status` gana dos columnas y pasa de 4 filas a 22.
+
+| Columna | Tipo | Para qué |
+|---|---|---|
+| `flow_category` | `varchar(20)` NN, default `legacy` | `main` (los 9 del flujo) · `auxiliary` (los 9 auxiliares) · `legacy` (los 4 de antes) |
+| `legacy_code` | `varchar(30)` NULL | A cuál de los 4 viejos equivale. **No es una FK**: es un código estable |
+
+**Los 18 estados salen literales de la Solicitud Maestra §7**, «Ciclo de vida requerido».
+El documento no asigna código técnico a ninguno —igual que no se lo asignó a las subcausas del
+Anexo A—, así que los códigos se derivan del nombre en snake_case sin tildes.
+
+| Flujo (§7, diagrama) | code | peso | equivale a |
+|---|---|---|---|
+| RADICADO | `radicado` | 100 | `open` · **estado inicial** |
+| EN CLASIFICACIÓN | `en_clasificacion` | 110 | `open` |
+| EN DIAGNÓSTICO REMOTO | `en_diagnostico_remoto` | 120 | `in_progress` |
+| ASIGNADO | `asignado` | 130 | `in_progress` |
+| VISITA PROGRAMADA *(cuando aplique)* | `visita_programada` | 140 | `in_progress` |
+| EN INTERVENCIÓN | `en_intervencion` | 150 | `in_progress` |
+| SERVICIO RESTABLECIDO | `servicio_restablecido` | 160 | `resolved` · sella `resolved_at` |
+| EN OBSERVACIÓN *(opcional)* | `en_observacion` | 170 | `resolved` |
+| CERRADO | `cerrado` | 180 | `closed` · terminal, sella `closed_at` |
+
+| Auxiliares (§7) | code | peso | equivale a |
+|---|---|---|---|
+| Pendiente del cliente | `pendiente_cliente` | 200 | `in_progress` |
+| Pendiente de material | `pendiente_material` | 210 | `in_progress` |
+| Pendiente de tercero | `pendiente_tercero` | 220 | `in_progress` |
+| Pendiente de infraestructura | `pendiente_infraestructura` | 230 | `in_progress` |
+| Asociado a incidente masivo | `asociado_incidente_masivo` | 240 | `in_progress` |
+| Duplicado | `duplicado` | 250 | `closed` · terminal |
+| No fue posible contactar | `no_fue_posible_contactar` | 260 | `in_progress` |
+| Solución temporal | `solucion_temporal` | 270 | `resolved` |
+| Reabierto | `reabierto` | 280 | `in_progress` |
+
+> ⚠️ **RESTABLECIDO NO ES CERRADO.** El documento le dedica un recuadro: «Servicio
+> restablecido registra el momento en que vuelve la conectividad; Cerrado significa que la
+> causa, la acción, las pruebas finales, el resultado y la validación quedaron documentados.
+> Deben existir timestamps separados». Por eso `servicio_restablecido` **no** es terminal y
+> sella sólo `resolved_at`.
+
+> **Los cuatro viejos no se renombran ni se borran.** `open`, `in_progress`, `resolved` y
+> `closed` se quedan marcados como `legacy`, porque los tickets ya existentes apuntan a ellos
+> por clave foránea y porque el **contrato del integrador está congelado** desde la R2: compara
+> contra `open`. `/v1/partner` devuelve `COALESCE(legacy_code, code)`, así que sigue diciendo
+> `open` mientras el panel dice «En clasificación».
+>
+> Las **estadísticas** cuentan por la misma equivalencia. Sin eso, el tablero habría quedado en
+> cero el día del despliegue.
+
+> **Las transiciones NO están en base de datos**, sino en `App\Support\TicketWorkflow`. Los
+> catálogos viven en tablas porque son vocabulario que el ISP puede reetiquetar; una transición
+> es una regla de negocio, no hay pantalla para administrarla, y **D-13** —quién administra los
+> catálogos— sigue delegada sin resolver. Una tabla que nadie puede editar aparenta ser
+> configurable sin serlo. Se expone por `GET /support/{id}/transitions`.
+
 ### 4.15a `support_ticket_history` — auditoría inalterable
 
 Añadida por el PR #3 para el requisito **F1-17**, cuyo criterio es literal: «cada cambio debe

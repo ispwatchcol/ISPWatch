@@ -11,6 +11,7 @@ use App\Models\SupportTicketHistory;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Support\TicketCatalogs;
+use App\Support\TicketWorkflow;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\In;
@@ -228,7 +229,11 @@ class SupportTicketController extends Controller
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'] ?? 'general',
                 'priority' => SupportTicket::PRIORITY_MEDIUM,
-                'status' => SupportTicket::STATUS_OPEN,
+                // El estado de apertura sale del CATÁLOGO (`is_initial`), no de
+                // una constante. La Solicitud Maestra abre en `radicado`, y
+                // dejarlo escrito aquí habría obligado a desplegar código para
+                // cambiar el primer paso del flujo.
+                'status' => $this->catalogs->estadoInicial() ?? SupportTicket::STATUS_OPEN,
             ] + $this->diagnosticoDe($data));
 
             if (!empty($data['sectorial_id'])) {
@@ -308,7 +313,16 @@ class SupportTicketController extends Controller
             'description' => 'nullable|string',
             'category' => ['sometimes', $this->reglaDe(TicketCatalogs::CATEGORY)],
             'priority' => ['sometimes', $this->reglaDe(TicketCatalogs::PRIORITY)],
-            'status'   => ['sometimes', $this->reglaDe(TicketCatalogs::STATUS)],
+            // `status` SALIÓ DE AQUÍ. El estado ya no se mueve por el formulario
+            // de edición: un cambio de estado es una TRANSICIÓN, con estado
+            // origen válido, permiso propio y motivo, y va por
+            // `PATCH /support/{id}/status`. Mientras estuvo en este `PUT`,
+            // cualquiera con `ticket_transition` podía saltar de `radicado` a
+            // `cerrado` sin causa confirmada y sin que nada lo notara.
+            //
+            // Se ignora si llega, en vez de dar 422: la pantalla de edición
+            // reenvía el formulario entero, y rechazar la petición por un campo
+            // que el usuario no tocó rompería el guardado.
             'staff_id' => 'sometimes|nullable|exists:users,id',
             'sectorial_id' => 'sometimes|nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
@@ -347,15 +361,12 @@ class SupportTicketController extends Controller
         DB::beginTransaction();
 
         try {
-            $oldStatus = $ticket->status;
-
             $ticket->update($data);
 
-            // Si cambia a resuelto, actualizar resolved_at
-            if (isset($data['status']) && $data['status'] === SupportTicket::STATUS_RESOLVED && $oldStatus !== SupportTicket::STATUS_RESOLVED) {
-                $ticket->resolved_at = now();
-                $ticket->save();
-            }
+            // Aquí había un bloque que estampaba `resolved_at` cuando el `PUT`
+            // movía el estado a resuelto. Ya no puede ocurrir: `status` salió de
+            // la validación y el estampado lo decide el catálogo
+            // (`stamps_resolved_at`) desde la transición. Ver `transicionar()`.
 
             // Subir archivos adjuntos si existen en update
             if ($request->hasFile('attachments')) {
@@ -366,14 +377,8 @@ class SupportTicketController extends Controller
 
             $ticket->load(['user', 'staff', 'messages', 'attachments']);
 
-            // Enviar email si cambió el estado
-            if (isset($data['status']) && $oldStatus !== $data['status']) {
-                try {
-                    Mail::to($ticket->user->email)->send(new SendTicketNotification($ticket, 'updated'));
-                } catch (\Exception $e) {
-                    \Log::error('Error sending ticket notification email: ' . $e->getMessage());
-                }
-            }
+            // El correo por cambio de estado lo manda ahora la transición, que
+            // es el único camino por el que el estado se mueve.
 
             return response()->json([
                 'message' => 'Ticket actualizado correctamente. ✅',
@@ -508,17 +513,10 @@ class SupportTicketController extends Controller
             return Permissions::TICKET_ATTACH;
         }
 
-        // El estado por `PUT`: transicionar es una cosa y cerrar otra.
-        if (array_key_exists('status', $data) && $cambia('status', $data['status'])) {
-            if (!$usuario->hasPermission(Permissions::TICKET_TRANSITION)) {
-                return Permissions::TICKET_TRANSITION;
-            }
-
-            if ($data['status'] === SupportTicket::STATUS_CLOSED
-                && !$usuario->hasPermission(Permissions::TICKET_CLOSE)) {
-                return Permissions::TICKET_CLOSE;
-            }
-        }
+        // El estado YA NO VIAJA POR AQUÍ. Se movía con `ticket_transition` —y
+        // con `ticket_close` si el destino era cerrado— desde el mismo `PUT` que
+        // edita el asunto. Ahora es una transición con estado origen válido,
+        // requisitos de cierre y motivo. Ver `transicionar()`.
 
         return null;
     }
@@ -626,15 +624,20 @@ class SupportTicketController extends Controller
             $baseQuery->where('tenant_id', $tenantId);
         }
 
-        $idDeEstado = fn (string $code) => $this->catalogs->id(TicketCatalogs::STATUS, $code);
+        // Se cuenta por EQUIVALENCIA, no por el código exacto. Con los estados
+        // de la Solicitud Maestra, «abiertos» ya no son sólo los `open`: son
+        // también `radicado` y `en_clasificacion`, que es a lo que equivalen.
+        // Contar por código exacto habría dejado el tablero en cero el día del
+        // despliegue, sin que ningún test lo viera.
+        $idsDe = fn (string $legacy) => $this->catalogs->idsEquivalentesA($legacy);
 
         $totalTickets = (clone $baseQuery)->count();
-        $openTickets = (clone $baseQuery)->where('status_id', $idDeEstado(SupportTicket::STATUS_OPEN))->count();
-        $inProgressTickets = (clone $baseQuery)->where('status_id', $idDeEstado(SupportTicket::STATUS_IN_PROGRESS))->count();
+        $openTickets = (clone $baseQuery)->whereIn('status_id', $idsDe(SupportTicket::STATUS_OPEN))->count();
+        $inProgressTickets = (clone $baseQuery)->whereIn('status_id', $idsDe(SupportTicket::STATUS_IN_PROGRESS))->count();
 
         // Tickets resueltos este mes
         $startOfMonth = now()->startOfMonth();
-        $resolvedThisMonth = (clone $baseQuery)->where('status_id', $idDeEstado(SupportTicket::STATUS_RESOLVED))
+        $resolvedThisMonth = (clone $baseQuery)->whereIn('status_id', $idsDe(SupportTicket::STATUS_RESOLVED))
             ->where('resolved_at', '>=', $startOfMonth)
             ->count();
 
@@ -805,61 +808,519 @@ class SupportTicketController extends Controller
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Workflow formal · estados, transiciones, cierre y reapertura
+    //
+    // Fuente: Solicitud_Maestra_ISPwash_CNO_V1_1.docx §7 (ciclo de vida),
+    // §15 (reglas obligatorias de cierre) y §18 (roles). CNO confirmó los
+    // estados y transiciones por chat el 11/09/2026 y delegó en el equipo la
+    // definición operativa del cierre, las excepciones y la reapertura.
+    //
+    // POR QUÉ EL ESTADO SALIÓ DEL `PUT`
+    //
+    // Hasta ahora el estado se movía desde el formulario de edición, con
+    // `ticket_transition`, y desde `PATCH .../status` sin comprobar de dónde
+    // venía. Se podía saltar de `radicado` a `cerrado` sin causa confirmada,
+    // sin acción y sin resultado — las tres primeras reglas del §15— y el
+    // historial sólo dejaba constancia de que alguien lo hizo.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Motivo obligatorio con la misma forma en todo el módulo (PR C). */
+    private const REGLA_MOTIVO = 'required|string|min:10|max:500';
+
+    private const MENSAJES_MOTIVO = [
+        'reason.required' => 'El motivo es obligatorio.',
+        'reason.min'      => 'El motivo debe explicar la decisión: mínimo 10 caracteres.',
+        'reason.max'      => 'El motivo no puede pasar de 500 caracteres.',
+    ];
+
     /**
-     * Update ticket status.
+     * Qué puede hacer AHORA quien pide, con este ticket.
+     *
+     * Existe para que la interfaz no mantenga su propia copia de la matriz. Una
+     * segunda copia en JavaScript se desincroniza el día que alguien toca la
+     * primera, y entonces el panel ofrece botones que la API rechaza.
+     */
+    public function transitions(Request $request, $id)
+    {
+        $ticket  = $this->buscarTicket($request, $id);
+        $usuario = $request->user();
+        $actual  = $ticket->status;
+
+        $puede = fn (string $permiso): bool => (int) $usuario->role_id === 1
+            || $usuario->hasPermission($permiso);
+
+        $destinos = [];
+
+        foreach (TicketWorkflow::destinosDesde($actual) as $code) {
+            // Cerrar no se ofrece aquí: tiene endpoint propio, permiso propio y
+            // requisitos que comprobar. Mezclarlo con el resto haría que un
+            // `PATCH .../status` con destino `cerrado` saltara el §15.
+            if ($code === TicketWorkflow::CERRADO) {
+                continue;
+            }
+
+            $destinos[] = [
+                'code'  => $code,
+                'label' => $this->catalogs->label(TicketCatalogs::STATUS, $this->catalogs->id(TicketCatalogs::STATUS, $code)),
+            ];
+        }
+
+        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
+
+        return response()->json([
+            'status'      => $actual,
+            'is_archived' => $ticket->is_archived,
+            // Qué transiciones ordinarias caben desde aquí.
+            'transitions' => $ticket->is_archived || !$puede(Permissions::TICKET_TRANSITION) ? [] : $destinos,
+            // Y las cuatro operaciones con nombre propio.
+            'actions'     => [
+                'propose_closure' => !$ticket->is_archived
+                    && $puede(Permissions::TICKET_TRANSITION)
+                    && in_array($actual, TicketWorkflow::PUEDE_PROPONER_DESDE, true),
+                'close' => !$ticket->is_archived
+                    && $puede(Permissions::TICKET_CLOSE)
+                    && in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true),
+                'close_exception' => !$ticket->is_archived
+                    && $puede(Permissions::TICKET_CLOSE_OVERRIDE)
+                    && in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true),
+                'reopen' => !$ticket->is_archived
+                    && $puede(Permissions::TICKET_REOPEN)
+                    && TicketWorkflow::esTerminal($actual),
+            ],
+            // Lo que le falta al expediente para poder cerrarse. La interfaz lo
+            // muestra ANTES de abrir el modal, para que nadie se entere de que
+            // falta la causa confirmada después de escribir el motivo.
+            'closure_requirements' => [
+                'missing'  => array_values($faltantes),
+                'complete' => $faltantes === [],
+            ],
+        ]);
+    }
+
+    /**
+     * Transición ordinaria. Valida ORIGEN y destino contra la matriz.
+     *
+     * No cierra ni reabre: los dos tienen endpoint propio porque llevan
+     * permisos y requisitos distintos.
      */
     public function updateStatus(Request $request, $id)
     {
+        // Sin `withTrashed()`: un ticket archivado está fuera de la operación y
+        // no se mueve. Para tocarlo hay que restaurarlo primero, que es una
+        // decisión con su propio permiso y su motivo.
         $ticket = SupportTicket::findOrFail($id);
 
         $data = $request->validate([
             'status' => ['required', $this->reglaDe(TicketCatalogs::STATUS)],
+            // Opcional en una transición ordinaria: mover un ticket de
+            // «asignado» a «en intervención» no necesita justificarse. Si llega,
+            // se guarda.
+            'reason' => 'nullable|string|max:500',
         ]);
 
-        // PR B · La ruta ya exigió `ticket_transition`. CERRAR es una potestad
-        // aparte: el requerimiento la separa del resto de transiciones, y aquí
-        // es donde se sabe a qué estado se va.
-        if ($data['status'] === SupportTicket::STATUS_CLOSED
-            && $ticket->status !== SupportTicket::STATUS_CLOSED
-            && !$request->user()->hasPermission(Permissions::TICKET_CLOSE)) {
-            return $this->negar(Permissions::TICKET_CLOSE);
+        $destino = $data['status'];
+
+        if ($destino === $ticket->status) {
+            // Ni evento ni escritura. El requerimiento pide explícitamente que
+            // repetir el mismo estado no genere historial, y responder 200 en
+            // silencio dejaría al operador creyendo que hizo algo.
+            return response()->json([
+                'message' => 'El ticket ya está en ese estado.',
+                'error'   => 'ticket_same_status',
+                'status'  => $ticket->status,
+            ], 422);
         }
 
-        DB::beginTransaction();
+        // Cerrar y reabrir no pasan por aquí.
+        if ($destino === TicketWorkflow::CERRADO || $destino === TicketWorkflow::CLOSED) {
+            return response()->json([
+                'message' => 'Cerrar un ticket no es una transición más: usa POST /api/support/'
+                    . $ticket->id . '/close, que comprueba los requisitos de cierre.',
+                'error'   => 'ticket_close_requires_endpoint',
+            ], 422);
+        }
 
+        if ($respuesta = $this->rechazarTransicion($ticket, $destino)) {
+            return $respuesta;
+        }
+
+        $anterior = $this->transicionar($ticket, $destino, $data['reason'] ?? null);
+
+        return response()->json([
+            'message'         => 'Estado actualizado correctamente. ✅',
+            'previous_status' => $anterior,
+            'ticket'          => $ticket->fresh(['user', 'staff']),
+        ]);
+    }
+
+    /**
+     * PROPUESTA DE CIERRE. §18 se la da al Técnico de campo, tras las pruebas
+     * finales.
+     *
+     * NO CIERRA EL TICKET, y ése es todo el punto: separa a quien hizo el
+     * trabajo de quien acredita que está bien hecho. Deja el ticket en
+     * «En observación» —el estado que el documento coloca justo antes de
+     * CERRADO— y un evento con la acción, el resultado y la observación.
+     *
+     * Exige acción y resultado (reglas 2 y 3 del §15) pero NO causa confirmada:
+     * confirmar la causa es potestad del Supervisor, también según §18.
+     */
+    public function proposeClosure(Request $request, $id)
+    {
+        $ticket = SupportTicket::findOrFail($id);
+
+        if (!in_array($ticket->status, TicketWorkflow::PUEDE_PROPONER_DESDE, true)) {
+            return response()->json([
+                'message' => 'Sólo se puede proponer el cierre de un ticket cuyo servicio ya está '
+                    . 'restablecido. Este ticket está en «' . $this->etiquetaDe($ticket->status) . '».',
+                'error'   => 'ticket_cannot_propose_closure',
+                'status'  => $ticket->status,
+            ], 422);
+        }
+
+        $data = $request->validate(
+            ['reason' => self::REGLA_MOTIVO],
+            self::MENSAJES_MOTIVO + [
+                'reason.required' => 'La observación técnica de la propuesta es obligatoria.',
+            ],
+        );
+
+        if ($faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_PROPUESTA)) {
+            return $this->rechazarPorRequisitos($faltantes, 'proponer el cierre');
+        }
+
+        $destino  = TicketWorkflow::ESTADO_TRAS_PROPUESTA;
+        $anterior = $ticket->status;
+
+        DB::transaction(function () use ($ticket, $destino, $data, $anterior) {
+            // El ticket puede estar YA en observación: entonces la propuesta no
+            // mueve el estado, sólo deja el evento. Sin esta comprobación se
+            // intentaría una transición de un estado a sí mismo.
+            if ($anterior !== $destino) {
+                $this->transicionar($ticket, $destino, null, notificar: false);
+            }
+
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::CLOSURE_PROPOSED,
+                metadata: array_filter([
+                    'reason'    => $data['reason'],
+                    'from'      => $anterior,
+                    'solution'  => $ticket->solution,
+                    'result'    => $ticket->result,
+                ], fn ($v) => $v !== null),
+            );
+        });
+
+        return response()->json([
+            'message'         => 'Cierre propuesto. El ticket queda a la espera de la revisión del supervisor. 📋',
+            'previous_status' => $anterior,
+            'ticket'          => $ticket->fresh(['user', 'staff']),
+        ]);
+    }
+
+    /**
+     * CIERRE NORMAL. §18 se lo da al Supervisor; exige `ticket_close`.
+     *
+     * Comprueba las tres reglas del §15 que el modelo de datos puede sostener
+     * hoy: causa confirmada, acción y resultado. Las otras siete quedan
+     * documentadas en `TicketWorkflow::REQUISITOS_DE_CIERRE` y son la razón por
+     * la que F1-10 sigue PARCIAL: exigen campos de captura que el ticket no
+     * tiene todavía.
+     */
+    public function close(Request $request, $id)
+    {
+        return $this->cerrar($request, $id, excepcion: false);
+    }
+
+    /**
+     * CIERRE EXCEPCIONAL. §15.1 lo contempla —«salvo excepción autorizada y
+     * justificada»— y §18 se lo da al Supervisor como «cierre especial».
+     *
+     * NO es un cierre normal con otro nombre: deja un evento propio, registra
+     * QUÉ requisito faltaba y por qué se autorizó, y exige
+     * `ticket_close_override`, que nadie tiene por defecto.
+     */
+    public function closeException(Request $request, $id)
+    {
+        return $this->cerrar($request, $id, excepcion: true);
+    }
+
+    private function cerrar(Request $request, $id, bool $excepcion)
+    {
+        $ticket = SupportTicket::findOrFail($id);
+
+        if (TicketWorkflow::esTerminal($ticket->status)) {
+            return response()->json([
+                'message' => 'El ticket ya está cerrado.',
+                'error'   => 'ticket_already_closed',
+                'status'  => $ticket->status,
+            ], 422);
+        }
+
+        if (!in_array($ticket->status, TicketWorkflow::PUEDE_CERRAR_DESDE, true)) {
+            return response()->json([
+                'message' => 'No se puede cerrar un ticket en «' . $this->etiquetaDe($ticket->status)
+                    . '»: el servicio todavía no está restablecido. El documento separa restablecer '
+                    . 'de cerrar, y cerrar sin restablecer deja el expediente diciendo algo que no pasó.',
+                'error'   => 'ticket_cannot_close_from_status',
+                'status'  => $ticket->status,
+            ], 422);
+        }
+
+        $reglas = $excepcion
+            ? ['reason' => self::REGLA_MOTIVO]
+            : ['reason' => 'nullable|string|max:500'];
+
+        $data = $request->validate($reglas, self::MENSAJES_MOTIVO + [
+            'reason.required' => 'El cierre excepcional exige explicar por qué se autoriza sin '
+                . 'cumplir todos los requisitos.',
+        ]);
+
+        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
+
+        // §15.9: una solución temporal no se cierra sin «seguimiento o
+        // autorización». El cierre excepcional ES esa autorización.
+        if ($ticket->status === TicketWorkflow::SOLUCION_TEMPORAL) {
+            $faltantes['solucion_temporal'] = 'Cierre con solución temporal: exige autorización (regla 9 del § 15)';
+        }
+
+        if (!$excepcion && $faltantes) {
+            return $this->rechazarPorRequisitos($faltantes, 'cerrar');
+        }
+
+        if ($excepcion && !$faltantes) {
+            // Sin nada que excepcionar, un «cierre excepcional» sería un cierre
+            // normal con el permiso más alto y un evento que miente sobre lo
+            // que pasó. Se rechaza y se dirige al cierre ordinario.
+            return response()->json([
+                'message' => 'Este ticket cumple todos los requisitos de cierre: ciérralo de forma '
+                    . 'ordinaria. El cierre excepcional deja constancia de un requisito incumplido, '
+                    . 'y usarlo sin que falte nada ensucia la auditoría.',
+                'error'   => 'ticket_no_exception_needed',
+            ], 422);
+        }
+
+        $anterior = $ticket->status;
+
+        DB::transaction(function () use ($ticket, $data, $excepcion, $faltantes, $anterior) {
+            $this->transicionar($ticket, TicketWorkflow::CERRADO, null, notificar: false);
+
+            SupportTicketHistory::registrar(
+                $ticket,
+                $excepcion ? SupportTicketHistory::CLOSED_EXCEPTION : SupportTicketHistory::CLOSED,
+                metadata: array_filter([
+                    'reason' => $data['reason'] ?? null,
+                    'from'   => $anterior,
+                    // QUÉ requisito faltó. Es la mitad del valor de un cierre
+                    // excepcional: sin esto sólo consta que alguien lo forzó.
+                    'requisitos_incumplidos' => $excepcion ? array_values($faltantes) : null,
+                    'confirmed_cause' => $ticket->confirmed_cause,
+                    'solution'        => $ticket->solution,
+                    'result'          => $ticket->result,
+                ], fn ($v) => $v !== null && $v !== []),
+            );
+        });
+
+        $this->notificarCambioDeEstado($ticket);
+
+        return response()->json([
+            'message' => $excepcion
+                ? 'Ticket cerrado por excepción. El motivo y el requisito incumplido quedan en el historial. ⚠️'
+                : 'Ticket cerrado. ✅',
+            'previous_status' => $anterior,
+            'exception'       => $excepcion,
+            'ticket'          => $ticket->fresh(['user', 'staff']),
+        ]);
+    }
+
+    /**
+     * REAPERTURA. §7 la nombra como estado auxiliar («Reabierto») y el Anexo B
+     * la trata como modalidad STR («la afectación reaparece después del
+     * cierre»). Exige `ticket_reopen`.
+     *
+     * NO BORRA `closed_at`. El §19.5 pide que «los estados y timestamps se
+     * conserven sin sobrescritura»: la fecha del cierre anterior sigue siendo
+     * un hecho, y el historial guarda el evento completo de aquel cierre.
+     */
+    public function reopen(Request $request, $id)
+    {
+        // Un archivado no se reabre: primero hay que restaurarlo, que es otra
+        // decisión con otro permiso. `findOrFail` sin `withTrashed()` lo cubre.
+        $ticket = SupportTicket::findOrFail($id);
+
+        if (!TicketWorkflow::esTerminal($ticket->status)) {
+            return response()->json([
+                'message' => 'Sólo se reabre un ticket cerrado. Este está en «'
+                    . $this->etiquetaDe($ticket->status) . '».',
+                'error'   => 'ticket_not_closed',
+                'status'  => $ticket->status,
+            ], 422);
+        }
+
+        $data = $request->validate(
+            ['reason' => self::REGLA_MOTIVO],
+            self::MENSAJES_MOTIVO + [
+                'reason.required' => 'El motivo de la reapertura es obligatorio.',
+            ],
+        );
+
+        $anterior  = $ticket->status;
+        $cerradoEl = $ticket->closed_at?->toJSON();
+
+        DB::transaction(function () use ($ticket, $data, $anterior, $cerradoEl) {
+            $this->transicionar($ticket, TicketWorkflow::ESTADO_TRAS_REAPERTURA, null, notificar: false);
+
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::REOPENED,
+                metadata: array_filter([
+                    'reason'    => $data['reason'],
+                    'from'      => $anterior,
+                    'closed_at' => $cerradoEl,
+                ], fn ($v) => $v !== null),
+            );
+        });
+
+        $this->notificarCambioDeEstado($ticket);
+
+        return response()->json([
+            'message'         => 'Ticket reabierto. La fecha del cierre anterior se conserva. ↩️',
+            'previous_status' => $anterior,
+            'ticket'          => $ticket->fresh(['user', 'staff']),
+        ]);
+    }
+
+    // ── Piezas compartidas ───────────────────────────────────────────────
+
+    /**
+     * Aplica la transición: estado, timestamps y correo.
+     *
+     * El evento `status_changed` del historial NO se escribe aquí: lo pone el
+     * observer al detectar el cambio de `status_id`. Escribirlo también desde
+     * el controlador dejaría dos eventos por cada movimiento.
+     *
+     * @return string el estado anterior
+     */
+    private function transicionar(
+        SupportTicket $ticket,
+        string $destino,
+        ?string $motivo = null,
+        bool $notificar = true,
+    ): string {
+        $anterior = $ticket->status;
+
+        $fila = $this->catalogs->estado($destino);
+
+        $ticket->status = $destino;
+
+        // Los timestamps los decide el CATÁLOGO, no una cadena de `if`. Añadir
+        // un estado que estampe `resolved_at` es editar una fila, no desplegar.
+        //
+        // Y NO SE BORRAN NUNCA: «los estados y timestamps se conservan sin
+        // sobrescritura» (§19.5). Un ticket que vuelve a intervención mantiene
+        // el `resolved_at` del restablecimiento anterior.
+        if ($fila?->stamps_resolved_at && $ticket->resolved_at === null) {
+            $ticket->resolved_at = now();
+        }
+
+        if ($fila?->stamps_closed_at) {
+            $ticket->closed_at = now();
+        }
+
+        $ticket->save();
+
+        if ($motivo !== null && $motivo !== '') {
+            SupportTicketHistory::registrar(
+                $ticket,
+                SupportTicketHistory::TRANSITION_NOTE,
+                field: 'status',
+                metadata: ['reason' => $motivo, 'from' => $anterior, 'to' => $destino],
+            );
+        }
+
+        if ($notificar) {
+            $this->notificarCambioDeEstado($ticket);
+        }
+
+        return $anterior;
+    }
+
+    /** El correo al cliente nunca debe tumbar la transición. */
+    private function notificarCambioDeEstado(SupportTicket $ticket): void
+    {
         try {
-            $oldStatus = $ticket->status;
-            $ticket->status = $data['status'];
+            $ticket->loadMissing('user');
 
-            // Si cambia a resuelto, actualizar resolved_at
-            if ($data['status'] === SupportTicket::STATUS_RESOLVED && $oldStatus !== SupportTicket::STATUS_RESOLVED) {
-                $ticket->resolved_at = now();
-            }
-
-            $ticket->save();
-
-            DB::commit();
-
-            $ticket->load(['user', 'staff']);
-
-            // Enviar email de notificación
-            try {
+            if ($ticket->user?->email) {
                 Mail::to($ticket->user->email)->send(new SendTicketNotification($ticket, 'updated'));
-            } catch (\Exception $e) {
-                \Log::error('Error sending status update notification email: ' . $e->getMessage());
             }
-
-            return response()->json([
-                'message' => 'Estado actualizado correctamente. ✅',
-                'ticket' => $ticket
-            ]);
         } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Error al actualizar el estado.',
-                'error' => $e->getMessage()
-            ], 500);
+            \Log::error('Error sending status update notification email: ' . $e->getMessage());
         }
+    }
+
+    /** 422 uniforme cuando la matriz no admite el movimiento. */
+    private function rechazarTransicion(SupportTicket $ticket, string $destino)
+    {
+        if (TicketWorkflow::permite($ticket->status, $destino)) {
+            return null;
+        }
+
+        $posibles = array_map(fn ($c) => $this->etiquetaDe($c), TicketWorkflow::destinosDesde($ticket->status));
+
+        return response()->json([
+            'message' => 'No se puede pasar de «' . $this->etiquetaDe($ticket->status) . '» a «'
+                . $this->etiquetaDe($destino) . '».'
+                . ($posibles ? ' Desde aquí se puede ir a: ' . implode(', ', $posibles) . '.' : ''),
+            'error'             => 'ticket_transition_not_allowed',
+            'from'              => $ticket->status,
+            'to'                => $destino,
+            'allowed'           => TicketWorkflow::destinosDesde($ticket->status),
+        ], 422);
+    }
+
+    /**
+     * Requisitos del §15 que al expediente todavía le faltan.
+     *
+     * @param  array<string, string>  $requisitos  campo => descripción
+     * @return array<string, string>
+     */
+    private function requisitosFaltantes(SupportTicket $ticket, array $requisitos): array
+    {
+        $faltantes = [];
+
+        foreach ($requisitos as $campo => $descripcion) {
+            if (blank($ticket->{$campo})) {
+                $faltantes[$campo] = $descripcion;
+            }
+        }
+
+        return $faltantes;
+    }
+
+    /** @param array<string, string> $faltantes */
+    private function rechazarPorRequisitos(array $faltantes, string $accion)
+    {
+        return response()->json([
+            'message' => 'No se puede ' . $accion . ': faltan ' . count($faltantes)
+                . ' requisito(s) del expediente — ' . implode('; ', array_values($faltantes)) . '.',
+            'error'   => 'ticket_closure_requirements_missing',
+            'missing' => array_keys($faltantes),
+            'details' => array_values($faltantes),
+        ], 422);
+    }
+
+    /** Etiqueta del catálogo para un código, o el código si no hay fila. */
+    private function etiquetaDe(?string $code): string
+    {
+        if ($code === null) {
+            return '—';
+        }
+
+        return $this->catalogs->label(TicketCatalogs::STATUS, $this->catalogs->id(TicketCatalogs::STATUS, $code))
+            ?? $code;
     }
 
     /**
@@ -1012,11 +1473,19 @@ class SupportTicketController extends Controller
     // `admin` más el superadministrador global. Supuesto S-1 del diseño.
     // ─────────────────────────────────────────────────────────────────────
 
-    /** Estados en los que archivar es casi siempre un error: hay trabajo vivo. */
-    private const ESTADOS_ACTIVOS = [
-        SupportTicket::STATUS_OPEN,
-        SupportTicket::STATUS_IN_PROGRESS,
-    ];
+    /**
+     * Estados en los que archivar es casi siempre un error: hay trabajo vivo.
+     *
+     * Era la pareja `open`/`in_progress` escrita a mano. Con los dieciocho
+     * estados de la Solicitud Maestra eso habría dejado un boquete: archivar un
+     * ticket «En intervención» se habría saltado las dos barreras del PR C sin
+     * que nada fallara. Ahora se deduce del workflow —todo lo que no es
+     * terminal— así que añadir un estado no abre el agujero.
+     */
+    private function estadosActivos(): array
+    {
+        return TicketWorkflow::estadosActivos();
+    }
 
     /**
      * Las dos únicas razones que justifican archivar trabajo en curso.
@@ -1146,7 +1615,7 @@ class SupportTicketController extends Controller
         // no una operación idempotente que registraría un evento de más.
         $ticket = SupportTicket::findOrFail($id);
 
-        $esActivo = in_array($ticket->status, self::ESTADOS_ACTIVOS, true);
+        $esActivo = in_array($ticket->status, $this->estadosActivos(), true);
 
         $reglas = [
             'reason'            => 'required|string|min:10|max:500',
