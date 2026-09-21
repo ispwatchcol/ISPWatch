@@ -135,6 +135,21 @@ class ProductionDatabaseGuardTest extends TestCase
         }
     }
 
+    /**
+     * El informe de duplicados de inventario existe para mirar PRODUCCIÓN antes
+     * de aplicar la migración que sella la unicidad (KAN-100). Pedirle
+     * confirmación al único comando que hay que correr contra producción para
+     * decidir si migrar sería llevarle la contraria a su propósito.
+     */
+    public function test_el_informe_de_duplicados_de_inventario_pasa_sin_preguntar(): void
+    {
+        $this->assertFalse(ProductionDatabaseGuard::shouldGuard(
+            'local',
+            $this->supabaseConnection(),
+            'inventory:duplicate-identifiers',
+        ));
+    }
+
     /** `cache:clear` sí: con CACHE_STORE=database vacía la caché de producción. */
     public function test_cache_clear_si_se_frena(): void
     {
