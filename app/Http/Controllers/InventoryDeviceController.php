@@ -7,7 +7,9 @@ use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Services\Inventory\InventoryExpenseRecorder;
 use App\Services\Inventory\InventoryLedger;
+use App\Support\InventoryIdentifier;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -58,6 +60,8 @@ class InventoryDeviceController extends Controller
      */
     public function store(Request $request)
     {
+        $this->normalizeIdentifiers($request);
+
         $data = $request->validate($this->rules($request), $this->messages());
 
         // Un equipo con custodio nace ya entregado; sin custodio, en bodega.
@@ -94,6 +98,8 @@ class InventoryDeviceController extends Controller
      */
     public function update(Request $request, InventoryDevice $inventory)
     {
+        $this->normalizeIdentifiers($request);
+
         $data = $request->validate($this->rules($request, $inventory), $this->messages());
 
         $newUserId   = $data['user_id'] ?? null;
@@ -181,26 +187,73 @@ class InventoryDeviceController extends Controller
     {
         $tenantId = $request->user()?->tenant_id;
 
-        $uniquePerTenant = fn (string $column) => Rule::unique('inventory_device', $column)
-            ->where(fn ($query) => $query->where('tenant_id', $tenantId))
-            ->ignore($device?->id);
-
         return [
             'stock_id'    => 'nullable|integer|exists:inventory_stock,id',
             'provider_id' => 'nullable|integer|exists:inventory_provider,id',
             'user_id'     => 'nullable|integer|exists:users,id',
             'branch_id'   => 'nullable|integer|exists:inventory_branch,id',
-            'serial'      => ['nullable', 'string', 'max:255', $uniquePerTenant('serial')],
-            'mac'         => ['nullable', 'string', 'max:255', $uniquePerTenant('mac')],
+            'serial'      => ['nullable', 'string', 'max:255', $this->uniqueIgnoringCase('serial', $tenantId, $device, 'Ya tienes otro equipo registrado con este serial.')],
+            'mac'         => ['nullable', 'string', 'max:255', $this->uniqueIgnoringCase('mac', $tenantId, $device, 'Ya tienes otro equipo registrado con esta MAC.')],
         ];
+    }
+
+    /**
+     * Espacios fuera antes de validar (KAN-100 · P-44).
+     *
+     * Se hace sobre el request y no después de validar para que la regla de
+     * unicidad compare exactamente lo que se va a guardar: con un espacio final
+     * colado, «SN-001 » pasaba la validación y entraba como un equipo distinto
+     * de «SN-001».
+     */
+    private function normalizeIdentifiers(Request $request): void
+    {
+        foreach (['serial', 'mac'] as $campo) {
+            if ($request->exists($campo)) {
+                $request->merge([$campo => InventoryIdentifier::store($request->input($campo))]);
+            }
+        }
+    }
+
+    /**
+     * Unicidad por tenant SIN distinguir mayúsculas (KAN-100 · P-44).
+     *
+     * No se usa `Rule::unique`: en PostgreSQL compara con `=`, que es sensible
+     * a mayúsculas, y dejaba convivir `SN-001` con `sn-001` — dos filas para un
+     * mismo equipo que después bloqueaban la carga masiva, que sí compara en
+     * minúsculas. Esta regla iguala los dos caminos.
+     *
+     * `LOWER()` en la consulta es lo mismo que indexa la migración
+     * 2026_09_21_000001, así que la validación y el índice único no pueden
+     * discrepar.
+     */
+    private function uniqueIgnoringCase(string $column, ?int $tenantId, ?InventoryDevice $device, string $message): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) use ($column, $tenantId, $device, $message): void {
+            $comparable = InventoryIdentifier::comparable(is_string($value) ? $value : null);
+
+            if ($comparable === null) {
+                return;
+            }
+
+            $existe = DB::table('inventory_device')
+                ->where('tenant_id', $tenantId)
+                ->whereRaw("LOWER({$column}) = ?", [$comparable])
+                ->when($device, fn ($query) => $query->where('id', '!=', $device->id))
+                ->exists();
+
+            if ($existe) {
+                $fail($message);
+            }
+        };
     }
 
     /** En español y diciendo QUÉ campo choca: "status code 422" no le sirve a nadie. */
     private function messages(): array
     {
+        // Los mensajes de unicidad los emite la propia regla (`uniqueIgnoringCase`):
+        // al no ser ya la regla `unique` del framework, no tienen clave que
+        // nombrar aquí.
         return [
-            'serial.unique' => 'Ya tienes otro equipo registrado con este serial.',
-            'mac.unique'    => 'Ya tienes otro equipo registrado con esta MAC.',
             'serial.max'    => 'El serial no puede superar los 255 caracteres.',
             'mac.max'       => 'La MAC no puede superar los 255 caracteres.',
         ];

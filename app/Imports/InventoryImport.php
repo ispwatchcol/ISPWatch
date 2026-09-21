@@ -5,6 +5,7 @@ use App\Models\InventoryBranch;
 use App\Models\InventoryDevice;
 use App\Models\InventoryProvider;
 use App\Models\InventoryStock;
+use App\Support\InventoryIdentifier;
 use App\Services\Inventory\InventoryExpenseRecorder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -85,10 +86,10 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
         foreach ($devices as $device) {
             if (!empty($device->serial)) {
-                $this->existingSerials[mb_strtolower(trim($device->serial))] = true;
+                $this->existingSerials[InventoryIdentifier::comparable($device->serial)] = true;
             }
             if (!empty($device->mac)) {
-                $this->existingMacs[mb_strtolower(trim($device->mac))] = true;
+                $this->existingMacs[InventoryIdentifier::comparable($device->mac)] = true;
             }
         }
     }
@@ -122,7 +123,7 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
             // Serial uniqueness (tenant + in-file).
             if ($serial !== null) {
-                $serialKey = mb_strtolower($serial);
+                $serialKey = InventoryIdentifier::comparable($serial);
                 if (isset($this->existingSerials[$serialKey])) {
                     $this->errors[] = $this->err($rowNumber, 'serial',
                         "El serial {$serial} ya está registrado en el inventario.");
@@ -132,7 +133,7 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
             // MAC uniqueness (tenant + in-file).
             if ($mac !== null) {
-                $macKey = mb_strtolower($mac);
+                $macKey = InventoryIdentifier::comparable($mac);
                 if (isset($this->existingMacs[$macKey])) {
                     $this->errors[] = $this->err($rowNumber, 'mac',
                         "La MAC {$mac} ya está registrada en el inventario.");
@@ -159,10 +160,10 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
             // Reserve serial/mac so a later duplicate in the SAME file is caught.
             if ($serial !== null) {
-                $this->existingSerials[mb_strtolower($serial)] = true;
+                $this->existingSerials[InventoryIdentifier::comparable($serial)] = true;
             }
             if ($mac !== null) {
-                $this->existingMacs[mb_strtolower($mac)] = true;
+                $this->existingMacs[InventoryIdentifier::comparable($mac)] = true;
             }
 
             $pending[] = [
