@@ -868,9 +868,27 @@ class SupportTicketController extends Controller
 
         $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
 
+        // POR QUÉ no se puede reabrir, además de si se puede.
+        //
+        // Sin esto, un administrador abría un ticket cerrado y no veía el botón
+        // «Reabrir» por ningún lado, sin ninguna pista de si faltaba un permiso,
+        // si el estado no lo admitía o si la pantalla estaba rota. La interfaz
+        // no debe adivinarlo —no conoce los permisos del servidor— así que lo
+        // dice el servidor, que es el único que lo sabe.
+        $reopenBlocked = match (true) {
+            $ticket->is_archived                            => 'archived',
+            !TicketWorkflow::sePuedeReabrir($actual)         => 'not_closed',
+            !$puede(Permissions::TICKET_REOPEN)              => 'permission',
+            default                                          => null,
+        };
+
         return response()->json([
             'status'      => $actual,
+            'status_label' => $this->etiquetaDe($actual),
             'is_archived' => $ticket->is_archived,
+            // Un terminal no ofrece transiciones ordinarias, y la pantalla
+            // necesita saberlo para explicarlo en vez de no pintar nada.
+            'is_terminal' => TicketWorkflow::esTerminal($actual),
             // Qué transiciones ordinarias caben desde aquí.
             'transitions' => $ticket->is_archived || !$puede(Permissions::TICKET_TRANSITION) ? [] : $destinos,
             // Y las cuatro operaciones con nombre propio.
@@ -886,7 +904,7 @@ class SupportTicketController extends Controller
                     && in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true),
                 'reopen' => !$ticket->is_archived
                     && $puede(Permissions::TICKET_REOPEN)
-                    && TicketWorkflow::esTerminal($actual),
+                    && TicketWorkflow::sePuedeReabrir($actual),
             ],
             // Lo que le falta al expediente para poder cerrarse. La interfaz lo
             // muestra ANTES de abrir el modal, para que nadie se entere de que
@@ -895,6 +913,10 @@ class SupportTicketController extends Controller
                 'missing'  => array_values($faltantes),
                 'complete' => $faltantes === [],
             ],
+            // `null` cuando sí se puede. `permission` es el caso que motivó
+            // este correctivo: el permiso existía y no se había repartido.
+            'reopen_blocked_by'   => $reopenBlocked,
+            'reopen_permission'   => Permissions::TICKET_REOPEN,
         ]);
     }
 
@@ -932,12 +954,22 @@ class SupportTicketController extends Controller
             ], 422);
         }
 
-        // Cerrar y reabrir no pasan por aquí.
-        if ($destino === TicketWorkflow::CERRADO || $destino === TicketWorkflow::CLOSED) {
+        // Cerrar y REABRIR no pasan por aquí: cada uno tiene su endpoint, su
+        // permiso y sus requisitos. Se rechazan por una tabla y no por dos `if`
+        // encadenados, para que añadir una operación con nombre propio no deje
+        // un destino alcanzable por la puerta genérica.
+        if ($ruta = TicketWorkflow::DESTINOS_CON_ENDPOINT_PROPIO[$destino] ?? null) {
+            $esCierre = $ruta === 'close';
+
             return response()->json([
-                'message' => 'Cerrar un ticket no es una transición más: usa POST /api/support/'
-                    . $ticket->id . '/close, que comprueba los requisitos de cierre.',
-                'error'   => 'ticket_close_requires_endpoint',
+                'message' => ($esCierre
+                    ? 'Cerrar un ticket no es una transición más: usa POST /api/support/'
+                    : 'Reabrir un ticket no es una transición más: usa POST /api/support/')
+                    . $ticket->id . '/' . $ruta
+                    . ($esCierre
+                        ? ', que comprueba los requisitos de cierre.'
+                        : ', que exige `ticket_reopen` y un motivo.'),
+                'error'   => $esCierre ? 'ticket_close_requires_endpoint' : 'ticket_reopen_requires_endpoint',
             ], 422);
         }
 
@@ -1150,7 +1182,13 @@ class SupportTicketController extends Controller
         // decisión con otro permiso. `findOrFail` sin `withTrashed()` lo cubre.
         $ticket = SupportTicket::findOrFail($id);
 
-        if (!TicketWorkflow::esTerminal($ticket->status)) {
+        // La tabla de reapertura, no `esTerminal()`: declara explícitamente de
+        // qué estado se puede volver y a cuál, y deja la respuesta capaz de
+        // decirlo. Un ticket ya reabierto cae aquí con el mismo error, que es
+        // lo que pide «reapertura repetida recibe error claro».
+        $destino = TicketWorkflow::estadoTrasReabrir($ticket->status);
+
+        if ($destino === null) {
             return response()->json([
                 'message' => 'Sólo se reabre un ticket cerrado. Este está en «'
                     . $this->etiquetaDe($ticket->status) . '».',
@@ -1169,8 +1207,12 @@ class SupportTicketController extends Controller
         $anterior  = $ticket->status;
         $cerradoEl = $ticket->closed_at?->toJSON();
 
-        DB::transaction(function () use ($ticket, $data, $anterior, $cerradoEl) {
-            $this->transicionar($ticket, TicketWorkflow::ESTADO_TRAS_REAPERTURA, null, notificar: false);
+        DB::transaction(function () use ($ticket, $data, $anterior, $cerradoEl, $destino) {
+            // `closed_at` NO se limpia: el §19.5 pide que «los estados y
+            // timestamps se conserven sin sobrescritura», y la fecha de aquel
+            // cierre sigue siendo un hecho. `transicionar()` tampoco la toca
+            // porque `reabierto` no declara `stamps_closed_at`.
+            $this->transicionar($ticket, $destino, null, notificar: false);
 
             SupportTicketHistory::registrar(
                 $ticket,
@@ -1178,6 +1220,7 @@ class SupportTicketController extends Controller
                 metadata: array_filter([
                     'reason'    => $data['reason'],
                     'from'      => $anterior,
+                    'to'        => $destino,
                     'closed_at' => $cerradoEl,
                 ], fn ($v) => $v !== null),
             );

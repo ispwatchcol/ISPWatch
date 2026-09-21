@@ -276,6 +276,49 @@ class TicketWorkflow
     /** Dónde queda un ticket al reabrirse. § 7 lo lista como auxiliar. */
     public const ESTADO_TRAS_REAPERTURA = self::REABIERTO;
 
+    /**
+     * Desde qué estado terminal se puede REABRIR, y a dónde va el ticket.
+     *
+     * VA APARTE DE `TRANSICIONES` A PROPÓSITO. Si `cerrado => [reabierto]`
+     * estuviera en la matriz general, `PATCH /support/{id}/status` lo aceptaría
+     * y cualquiera con `ticket_transition` reabriría un ticket cerrado **sin**
+     * `ticket_reopen` y **sin** motivo — que es justo lo que la reapertura
+     * existe para impedir. Aquí queda declarado de forma explícita, y lo
+     * consulta únicamente el endpoint de reapertura.
+     *
+     * Los cuatro terminales entran: los dos del flujo nuevo (`cerrado`,
+     * `duplicado` — un duplicado que resulta no serlo hay que poder devolverlo)
+     * y los dos legacy, para que un ticket anterior al workflow también se
+     * pueda reabrir sin tocarlo a mano primero.
+     */
+    public const REAPERTURA = [
+        self::CERRADO   => self::REABIERTO,
+        self::DUPLICADO => self::REABIERTO,
+        self::CLOSED    => self::REABIERTO,
+        self::RESOLVED  => self::REABIERTO,
+    ];
+
+    /**
+     * Destinos que NO se alcanzan por `PATCH .../status`, porque tienen
+     * operación propia con su permiso y sus requisitos.
+     */
+    public const DESTINOS_CON_ENDPOINT_PROPIO = [
+        self::CERRADO   => 'close',
+        self::CLOSED    => 'close',
+        self::REABIERTO => 'reopen',
+    ];
+
+    public static function sePuedeReabrir(?string $code): bool
+    {
+        return $code !== null && array_key_exists($code, self::REAPERTURA);
+    }
+
+    /** A qué estado vuelve un ticket al reabrirse, o `null` si no se puede. */
+    public static function estadoTrasReabrir(?string $code): ?string
+    {
+        return self::REAPERTURA[$code] ?? null;
+    }
+
     /** Estados terminales: un ticket ahí no se sigue trabajando. */
     public const TERMINALES = [self::CERRADO, self::DUPLICADO, self::CLOSED, self::RESOLVED];
 

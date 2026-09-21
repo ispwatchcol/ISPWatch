@@ -1899,9 +1899,33 @@ justificada») y §18 («cierre especial»). `reason` **obligatorio** (10–500)
 — no un `ticket_closed`. Si no falta nada responde **422 `ticket_no_exception_needed`**: usarlo
 sin que falte un requisito ensuciaría la auditoría.
 
-**`POST /api/support/{id}/reopen`** — `reason` obligatorio. Deja el ticket en `reabierto` (§7 lo
-lista como auxiliar). **No borra `closed_at`**: §19.5 pide que los timestamps se conserven sin
-sobrescritura. Evento `ticket_reopened` con el `closed_at` anterior en `metadata`.
+**`POST /api/support/{id}/reopen`** — `reason` obligatorio (10–500). Deja el ticket en
+`reabierto` (§7 lo lista como auxiliar). **No borra `closed_at`**: §19.5 pide que los timestamps
+se conserven sin sobrescritura. Evento `ticket_reopened` con `from`, `to` y el `closed_at`
+anterior en `metadata`.
+
+Se reabre desde los cuatro estados terminales —`cerrado`, `duplicado` y los legacy `closed` y
+`resolved`—, declarados en `TicketWorkflow::REAPERTURA`. Desde cualquier otro responde **422
+`ticket_not_closed`**, y lo mismo si ya está reabierto.
+
+**No se puede reabrir por la transición genérica.** `PATCH .../status` con destino `reabierto`
+responde **422 `ticket_reopen_requires_endpoint`**, aunque quien lo pida tenga `ticket_reopen`:
+la puerta es el endpoint, porque es el único que exige el motivo. Por eso la pareja
+`cerrado → reabierto` vive en `REAPERTURA` y **no** en la matriz general — si estuviera ahí,
+cualquiera con `ticket_transition` reabriría sin permiso y sin motivo.
+
+**`GET /api/support/{ticket}/transitions` dice POR QUÉ no se puede reabrir**, no sólo si se
+puede. Campos añadidos:
+
+| Campo | Valores |
+|---|---|
+| `is_terminal` | El estado actual no admite transiciones ordinarias |
+| `status_label` | Etiqueta del estado, para no recalcularla en el cliente |
+| `reopen_blocked_by` | `archived` · `not_closed` · `permission` · `null` si sí se puede |
+| `reopen_permission` | El permiso que haría falta (`ticket_reopen`) |
+
+Existe porque sin ello la interfaz no podía distinguir «me falta un permiso» de «la pantalla
+está rota»: es exactamente lo que ocurrió cuando `ticket_reopen` no se había repartido.
 
 **Un ticket archivado está fuera del workflow.** Las cinco operaciones devuelven **404**: hay que
 restaurarlo primero (PR C).
