@@ -7241,9 +7241,16 @@ a ciegas puede borrar el rastro del que de verdad está instalado en casa de un 
 verlos antes está `php artisan inventory:duplicate-identifiers`, que cuenta con `COUNT(*)` real
 y no con `n_live_tup`, que ya produjo dos falsos positivos en la auditoría del 2026-07-30.
 
-**Queda pendiente** correr esa cuenta contra producción: el `.env` local tiene la contraseña
-anterior a la rotación y no conecta. Mientras eso no se mire, la migración puede abortar al
-aplicarse — que es el comportamiento correcto, pero conviene saberlo antes y no durante.
+**El conteo se hizo el mismo día**, en cuanto se recuperó la credencial: *cero duplicados* de
+serial y de MAC sobre los 130 equipos de producción. La migración quedó aplicada en los dos
+esquemas y los índices existen en ambos.
+
+Con una sorpresa por el camino que conviene dejar escrita: al conectar, la migración **ya
+figuraba aplicada en `public`** (lote 104), y no la había aplicado esta sesión —todos los
+intentos anteriores murieron en el fallo de autenticación—. `ispwatch_dev` no la tenía, así
+que quien la corrió usó `migrate` y no `migrate:both`. Se completó con `migrate:both`, que en
+`public` fue un no-op («Nothing to migrate»). Si aparece código de una rama sin mergear ya
+aplicado en producción, lo que hay que averiguar no es si funciona: es quién lo aplicó.
 
 ### Lo que se repite en las cuatro
 
