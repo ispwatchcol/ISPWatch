@@ -2263,13 +2263,20 @@ que usa el campo "A nombre de quién" de un gasto.
 `/api/system/version` devuelve la versión del despliegue que atiende:
 
 ```json
-{ "version": "1.0.0", "released_at": "2026-08-19" }
+{ "version": "1.1.1", "released_at": "2026-08-21", "build": "9f2a41c0d8b3" }
 ```
 
 **Sin permiso a propósito.** Es lo primero que pregunta soporte —«¿qué versión te
 aparece?»— y exigir `view_settings` se lo negaría justamente a quien está llamando
 a pedir ayuda. Sale del servidor y no del bundle del navegador, que puede venir
 cacheado de un despliegue anterior. Fuente única: `config/version.php`.
+
+**`build`** (2026-09-21, KAN-101) es la huella del manifiesto de Vite: los primeros
+12 caracteres del SHA-1 de `public/build/manifest.json`. Identifica el **bundle**
+que sirve este despliegue, no la versión publicada — `version` sólo se mueve al
+publicar y la mayoría de los despliegues corrigen algo sin tocarlo. El frontend
+guarda el primer `build` que ve al cargar y avisa al usuario cuando cambia. Vale
+`null` en desarrollo, donde no hay manifiesto porque manda el dev server de Vite.
 
 ---
 
@@ -2506,10 +2513,25 @@ curl -H "Authorization: Bearer 42|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
      "https://ispwatch-crm.app/api/v1/partner/invoices?status=issued&from=2026-08-01&per_page=100"
 ```
 
-`Accept: application/json` no es decorativo: sin esa cabecera, una petición sin
-llave válida se va por el redirect de invitados (`redirectGuestsTo` en
-`bootstrap/app.php`) y devuelve **302 a `/`** en lugar de 401. Anotado como
-papercut en `MEJORAS_RECOMENDADAS.md`.
+`Accept: application/json` sigue siendo buena práctica, pero desde el
+2026-09-21 (KAN-41) **ya no cambia el resultado**: toda respuesta de error bajo
+`api/*` es JSON, la pida el cliente o no. Antes, sin esa cabecera, una petición
+sin llave válida se iba por el redirect de invitados (`redirectGuestsTo`) y
+devolvía **302 a `/`**; quien siguiera el redirect terminaba leyendo el HTML del
+panel con un 200 y creyendo que su llave servía.
+
+Los códigos que devuelve la API pública cuando la petición no llega a su
+controlador:
+
+| Situación | Código | Cuerpo |
+|---|---|---|
+| Sin llave, llave revocada o vencida | `401` | `{"error": "invalid_credentials", "message": "…"}` |
+| La URL no existe | `404` | `{"error": "not_found", "message": "…"}` |
+| La URL existe pero el verbo no (la API es de **solo lectura**) | `405` + cabecera `Allow` | `{"error": "method_not_allowed", "message": "…"}` |
+| Límite de peticiones | `429` + cabecera `Retry-After` | `{"error": "http_error", "message": "…"}` |
+
+La API del panel (`/api/...`, sesión de Sanctum) usa el otro sobre de la casa,
+`{"success": false, "message": "…"}`, con los mismos códigos.
 
 ### 22.8-bis Contrato OpenAPI
 

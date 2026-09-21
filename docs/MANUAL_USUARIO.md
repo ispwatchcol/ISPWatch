@@ -83,6 +83,19 @@ devuelve solo. No hay que entrar a ningún equipo a mano.
 Si estabas trabajando y de repente vuelves a la pantalla de acceso, tu sesión caducó.
 Vuelve a entrar; no se pierde nada de lo que ya habías guardado.
 
+### Si aparece «Hay una versión nueva de ISPWatch»
+
+Abajo a la derecha puede salirte un aviso azul diciendo que hay una versión nueva. Significa
+que se publicó una actualización mientras tenías la pantalla abierta, y que lo que estás
+viendo es la versión anterior.
+
+- **Recargar ahora** — la página se vuelve a cargar y pasas a la versión nueva.
+- **Más tarde** — el aviso se cierra y puedes terminar lo que estabas haciendo.
+
+El sistema **nunca recarga solo**: si estás a media ficha, no vas a perder lo escrito. Cuando
+termines, recarga tú. Si un compañero te dice que un arreglo «ya está» y tú sigues viendo el
+problema, este aviso —o simplemente recargar— suele ser la explicación.
+
 ---
 
 ## 3. Cómo moverse por el sistema
@@ -1696,6 +1709,13 @@ no para dar de baja lo que ya se usó.
 **Si al guardar te dice que el serial o la MAC ya están registrados**, es que ya tienes otro
 equipo tuyo con ese mismo dato: búscalo en la lista antes de volver a cargarlo. Los seriales de
 otras empresas no te bloquean; sólo cuentan los de tu propio inventario.
+
+Desde septiembre de 2026, **las mayúsculas no cuentan**: `SN-001` y `sn-001` son el mismo
+equipo para el sistema, y también lo son si sólo se diferencian en un espacio al final —lo
+típico al pegar el serial desde una hoja de cálculo—. Antes entraban como dos equipos
+distintos, y esas dos filas hacían fallar después la importación masiva sin que se entendiera
+por qué. El serial se guarda **tal como lo escribes**, para que coincida con la etiqueta del
+equipo; lo único que cambia es cómo se compara.
 
 Las cuatro tarjetas de arriba en **Lista de equipos** cuentan cada catálogo por separado:
 *Total dispositivos* son los equipos registrados, y *En stock*, *Proveedores* y *Sucursales*

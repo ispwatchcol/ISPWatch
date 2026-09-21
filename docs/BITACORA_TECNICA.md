@@ -7142,3 +7142,112 @@ ven el integrador, el tablero de métricas y veintinueve tests. La columna de eq
 diez minutos y evitó las tres roturas a la vez — pero sólo porque la R2 había dejado escrito,
 dos meses antes, **por qué** ese contrato estaba congelado. El comentario que explica el porqué
 es lo que permite cambiar el cómo sin romperlo.
+
+---
+
+## 65. Cuatro cosas que fallaban en silencio — 2026-09-21
+
+Cuatro tarjetas de la cola, en una sola rama. No se parecen en el tema, pero sí en la forma:
+las cuatro fallaban **sin decir nada**, y en las cuatro el síntoma aparecía lejos de la causa.
+
+### KAN-95 · Un `migrate` desde un portátil podía escribir en producción
+
+`config/database.php` traía `'schema' => env('DB_SCHEMA', 'public')`. Supabase aloja
+`ispwatch_dev` y `public` en la MISMA base: lo único que separa desarrollo de producción es esa
+clave. Con la línea comentada en el `.env`, el destino por defecto **era producción**. El
+2026-08-21 dejó de ser hipotético.
+
+Al empezar se comprobó el `.env` de esta máquina: `APP_ENV=local`, host de Supabase,
+`DB_SCHEMA=public`. La trampa estaba armada, no descrita.
+
+Dos salvaguardas, porque son dos fallos distintos —el olvido y el descuido—:
+
+1. **El valor por defecto desaparece.** Fuera de producción, sin `DB_SCHEMA` la aplicación no
+   arranca. Dentro de producción se asume `public` con un aviso en el log: allí es el valor
+   correcto, y convertir una variable ausente en una caída total del producto sería un remedio
+   peor que la enfermedad. Es una desviación consciente de lo que pedía la tarjeta.
+2. **`ProductionDatabaseGuard`** frena cualquier comando de consola cuya conexión **ya
+   resuelta** apunte al esquema `public` de Supabase mientras `APP_ENV` no sea `production`.
+   Con terminal pide teclear el nombre del esquema; sin terminal, se detiene. Escotilla:
+   `ISPWATCH_ALLOW_PRODUCTION_DB=true`.
+
+Se mira la configuración resuelta y nunca `env()` —es justo lo que engañó en agosto— y el
+esquema destino es el **primero** del `search_path`, así que `ispwatch_dev,public` no cuenta
+como producción.
+
+**La lección la dio la propia salvaguarda.** Su primera versión colgó la suite de tests: `php
+artisan test` arranca con el `.env` local, cayó en el guardia y se quedó esperando una
+confirmación en una terminal que no existía. De ahí salieron dos correcciones que no estaban
+previstas: `test` pasa sin preguntar (PHPUnit fuerza sqlite en memoria y tiene su propia
+salvaguarda), y preguntar exige **TTY de verdad** —`isInteractive()` vale `true` también
+cuando la salida está redirigida—. Una salvaguarda que cuelga es una salvaguarda que alguien
+va a desactivar.
+
+### KAN-41 y KAN-97 · La API contestaba como página web
+
+El mismo error visto por dos lados. `redirectGuestsTo('/')` se aplica a todo, así que una
+petición a `/api/v1/partner/*` sin llave y sin `Accept: application/json` recibía un **302 al
+panel**; el integrador que sigue el redirect ve un 200 con el HTML del login y cree que su
+llave sirve. Y una URL `/api/...` inexistente caía en el catch-all del SPA y devolvía **200 con
+la aplicación entera**.
+
+P-30 avisaba de una trampa: devolver `null` en `redirectGuestsTo` hace que el handler busque
+`route('login')`, que aquí no existe, y un 401 legítimo se volvería un 500. Por eso no se tocó
+esa línea: se añadió un renderizador de `AuthenticationException` para `api/*`. El grupo `web`
+sigue redirigiendo igual que siempre.
+
+El fallback de la API distingue dos cosas que no son lo mismo: si la URL no existe, **404**; si
+existe bajo otro verbo, **405** con `Allow`. La primera versión usaba el helper
+`Route::fallback()`, que sólo registra GET, y convertía en 404 el 405 con el que la API pública
+declara que es de solo lectura. Lo cazó `ApiKeySecurityTest` —una prueba escrita para otra cosa
+hace meses—, que es exactamente para lo que sirve una suite.
+
+### KAN-101 · El arreglo desplegado que el usuario no veía
+
+Los chunks de Vite llevan hash de contenido y nunca se sirven rancios; el documento HTML que
+los referencia, sí. Se hicieron las dos mitades:
+
+`Cache-Control: no-store` en toda respuesta HTML, dejando intacta la caché de `/build/assets`
+—que no pasa por PHP—, y un aviso de «hay una versión nueva» que **no** recarga solo: hacerlo
+por sorpresa a alguien a medio llenar un alta le borra el trabajo.
+
+Lo que se compara **no** es el número de versión. `version` sólo se mueve al publicar y la
+mayoría de los despliegues corrigen algo sin tocarlo: el aviso se quedaría mudo justo en los
+más frecuentes. `GET /api/system/version` publica ahora `build`, la huella del manifiesto de
+Vite, que cambia siempre que cambia un chunk. El frontend guarda la primera que ve al cargar
+—en memoria, nunca en `localStorage`, porque un valor persistido haría aparecer el aviso en una
+pestaña recién abierta— y compara contra ésa.
+
+El vigilante usa `axios` directo y no `apiClient`: el interceptor de éste manda al login ante
+cualquier 401, y una comprobación de fondo no puede echar a nadie de una pantalla a medio
+llenar.
+
+### KAN-100 · `SN-001` y `sn-001` eran dos equipos
+
+El formulario usaba la regla `unique`, que en PostgreSQL compara con `=` y distingue
+mayúsculas; la carga masiva comparaba en minúsculas. Un inventario cargado uno por uno podía
+terminar con el mismo equipo dos veces, y esas dos filas bloqueaban después el archivo entero
+de una carga masiva. La primera vez parecía que había funcionado.
+
+Tres capas, porque arreglar una sola deja el agujero abierto por las otras:
+`InventoryIdentifier` como única definición de «el mismo serial» (se guarda tal como se
+escribió —es lo que dice la etiqueta del equipo—, se compara en minúsculas y sin espacios), la
+validación del formulario con `LOWER(columna)` por tenant, y los índices únicos funcionales y
+parciales sobre `(tenant_id, LOWER(serial))` y su gemelo de `mac`.
+
+**La migración aborta si encuentra duplicados.** Es deliberado: son equipos reales y decidir
+cuál fila se queda con el valor es una decisión de inventario, no de una migración —normalizar
+a ciegas puede borrar el rastro del que de verdad está instalado en casa de un cliente—. Para
+verlos antes está `php artisan inventory:duplicate-identifiers`, que cuenta con `COUNT(*)` real
+y no con `n_live_tup`, que ya produjo dos falsos positivos en la auditoría del 2026-07-30.
+
+**Queda pendiente** correr esa cuenta contra producción: el `.env` local tiene la contraseña
+anterior a la rotación y no conecta. Mientras eso no se mire, la migración puede abortar al
+aplicarse — que es el comportamiento correcto, pero conviene saberlo antes y no durante.
+
+### Lo que se repite en las cuatro
+
+Ninguna de las cuatro producía un error visible. Un 302 que el cliente HTTP sigue, un 200 con
+HTML, un equipo duplicado que «se guardó bien», una migración que acierta de esquema por
+casualidad. El coste no está en el fallo: está en el tiempo que se pierde buscando la causa en
+el sitio equivocado.
