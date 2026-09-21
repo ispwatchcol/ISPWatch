@@ -171,7 +171,8 @@ resources/js/
 │   ├── billing.js
 │   └── api/                # 19 módulos: customers, routers, plans, …
 ├── composables/            # useNotification, usePermissions,
-│                           # useProvisionPolling, useTableControls
+│                           # useProvisionPolling, useTableControls,
+│                           # useVersionWatcher (avisa de despliegue nuevo)
 ├── layouts/DefaultLayout.vue
 ├── components/             # Sidebar, BillingPanel, DatePicker, …
 ├── pages/                  # 44 páginas + subcarpeta Billing/
@@ -221,11 +222,26 @@ sequenceDiagram
 | `permission` / `can_do` | `CheckPermission` | Exige uno o varios permisos con **semántica OR** (`permission:a,b`); **bypass si `role_id == 1`** |
 | `staff_profile` | `CheckStaffProfile` | Pese al nombre, comprueba `role.code ∈ {admin, staff}` o `role_id == 1`; **no** exige fila en `staff_profile` |
 | `throttle:<limitador>` | Laravel | Límite de peticiones: `api` (120/min), `router-ops` (10/min), `bulk-ops` (5/min) |
-| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:` (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
+| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:`, y **`Cache-Control: no-store` en toda respuesta HTML** (KAN-101: el documento del SPA con URL estable hacía que el navegador siguiera pidiendo los chunks viejos; `/build/assets` no pasa por PHP y conserva su caché) (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
 | *(api, prepend)* | `EnsureFrontendRequestsAreStateful` | Sanctum SPA |
 
 `trustProxies(at: '*')` está activo (necesario tras el balanceador de DigitalOcean).
 Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpers\ErrorMessages`.
+
+**Contrato de error bajo `api/*` (KAN-41 / KAN-97).** Dos renderizadores más en
+`withExceptions`: `AuthenticationException` devuelve **401 JSON** —antes se iba por
+`redirectGuestsTo('/')` y contestaba 302 al panel, que el cliente HTTP sigue hasta un 200 con
+HTML— y el resto de `HttpException` (403, 404, 405, 429) se serializa conservando sus
+cabeceras. El catch-all del SPA excluye `api`, igual que ya excluía `health`, y
+`routes/api.php` cierra con un fallback propio que distingue **404** (la URL no existe) de
+**405 + `Allow`** (existe, pero la API pública es de solo lectura). La API partner conserva su
+sobre `{error, message}`; la del panel usa `{success, message}`.
+
+**Salvaguarda de base de datos (KAN-95).** `DatabaseSafetyServiceProvider` y
+`App\Support\ProductionDatabaseGuard`: `DB_SCHEMA` ya no tiene valor por defecto —fuera de
+producción, sin ella la aplicación no arranca— y ningún comando de consola escribe en el
+esquema `public` de Supabase desde un entorno que no sea `production` sin confirmación
+tecleada. La decisión se toma sobre la configuración **resuelta**, nunca sobre `env()`.
 
 ### Servicios de dominio (`app/Services`)
 

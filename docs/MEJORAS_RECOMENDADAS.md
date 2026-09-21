@@ -1622,7 +1622,16 @@ pasa la operación real.
 Mismo patrón, sin revisar: `ip_assignment.router_id` y `suspension_action_logs.router_id`
 también son `SET NULL`.
 
-### 📋 P-30 · La API partner responde 302 en vez de 401 sin `Accept: application/json`
+### ✅ P-30 · La API partner responde 302 en vez de 401 sin `Accept: application/json` — RESUELTO 2026-09-21
+
+> **Resuelto el 2026-09-21** (KAN-41), junto con P-41. **Sin tocar `redirectGuestsTo`**, que es
+> justo lo que hacía temer un 500: un renderizador de `AuthenticationException` en
+> `bootstrap/app.php` devuelve 401 JSON cuando la petición es `api/*`, con el sobre
+> `{error, message}` en la API partner y `{success, message}` en la del panel. El grupo `web`
+> sigue redirigiendo igual que antes. Se añadió además un renderizador para el resto de
+> `HttpException` bajo `api/*` (403, 404, 405, 429) que conserva sus cabeceras —`Retry-After`
+> y `Allow` son parte de la respuesta—. Ver `BITACORA_TECNICA.md` § 65. El diagnóstico
+> original se conserva abajo.
 
 `bootstrap/app.php` declara `redirectGuestsTo('/')`, que aplica a **toda** la aplicación.
 Una petición a `/api/v1/partner/*` sin llave válida y sin la cabecera `Accept` no recibe un
@@ -1826,7 +1835,17 @@ públicamente alcanzable hoy. Si lo es, cerrarlo es la prioridad — no requiere
 sólo configuración de la app en DigitalOcean.
 
 
-### 🔴 P-39 · Nada impide que un `php artisan migrate` local escriba en producción
+### ✅ P-39 · Nada impide que un `php artisan migrate` local escriba en producción — RESUELTO 2026-09-21
+
+> **Resuelto el 2026-09-21** (KAN-95). Dos salvaguardas: `config/database.php` ya no trae
+> `public` como valor por defecto de `DB_SCHEMA` —fuera de producción, sin esa variable la
+> aplicación no arranca y lo dice—, y `App\Support\ProductionDatabaseGuard` frena cualquier
+> comando de consola cuya conexión **ya resuelta** apunte al esquema `public` de Supabase
+> mientras `APP_ENV` no sea `production`: con terminal pide teclear el nombre del esquema,
+> sin terminal se detiene. La escotilla es `ISPWATCH_ALLOW_PRODUCTION_DB=true`.
+>
+> Pasan sin preguntar el diagnóstico (`migrate:status`, `db:show`), el andamiaje (`make:`,
+> `config:`, `route:`, `view:`, `optimize`) y `test`. Ver `BITACORA_TECNICA.md` § 65.
 
 La suite de pruebas tiene una salvaguarda seria: `tests/TestCase.php` inspecciona la
 conexión **ya resuelta** y aborta si no es SQLite en memoria o un PostgreSQL desechable.
@@ -1913,7 +1932,14 @@ es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde prod
 del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
 `run_command` o si se prohíbe ese disco por convención.
 
-### 🟡 P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes
+### ✅ P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes — RESUELTO 2026-09-21
+
+> **Resuelto el 2026-09-21** (KAN-97). El catch-all excluye ahora `api`, igual que ya excluía
+> `health`, y `routes/api.php` cierra con su propio fallback. Distingue dos cosas que no son
+> lo mismo: si la URL no existe, **404**; si existe bajo otro verbo, **405** con `Allow`. Lo
+> segundo importa porque la API pública es de solo lectura y ese 405 es como lo comunica —
+> registrar el fallback con el helper `Route::fallback()` (sólo GET) lo convertía en 404, y lo
+> cazó `ApiKeySecurityTest`. Ver `BITACORA_TECNICA.md` § 65.
 
 `routes/web.php` cierra con un catch-all que sirve el SPA:
 
@@ -2034,7 +2060,20 @@ no hay caso de uso que hoy lo pida.
 
 Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo se conserva qué.
 
-### 🟡 P-44 · El serial de un equipo se compara distinto según por dónde entre — KAN-100
+### ✅ P-44 · El serial de un equipo se compara distinto según por dónde entre — RESUELTO 2026-09-21 (KAN-100)
+
+> **Resuelto el 2026-09-21.** Tres capas: `App\Support\InventoryIdentifier` como única
+> definición de «el mismo serial» (se guarda tal como se escribió, se compara en minúsculas y
+> sin espacios), la validación del formulario comparando con `LOWER(columna)` por tenant, y
+> los índices únicos funcionales y parciales `inventory_device_tenant_serial_ci_unique` /
+> `..._mac_ci_unique`. La importación usa ya el mismo helper, así que no quedan dos
+> definiciones.
+>
+> **La migración aborta si encuentra duplicados**, a propósito: son equipos reales y decidir
+> cuál fila se queda con el valor es una decisión de inventario. Para verlos antes:
+> `php artisan inventory:duplicate-identifiers` (cuenta con `COUNT(*)` real). **Esa cuenta
+> contra producción sigue pendiente**: el `.env` local tiene la contraseña anterior a la
+> rotación. Ver `BITACORA_TECNICA.md` § 65.
 
 **Detectado:** 2026-09-10, arreglando el binding roto de `/api/inventory/{id}`
 (§ 58 de `BITACORA_TECNICA.md`). **Prioridad:** media · **Estado:** deuda aceptada.
@@ -2103,6 +2142,27 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 4. ⬜ **Pendiente.** Decidir si `view_inventory` debería partirse también en lectura y escritura:
    hoy quien consulta la bodega puede crear, editar y mover existencias. Es lo que mantiene esta
    entrada abierta.
+
+### ✅ P-46 · Tras un despliegue, el navegador sigue mostrando la aplicación vieja — RESUELTO 2026-09-21
+
+**Detectado:** 2026-09-10, cerrando el incidente del § 60. **Prioridad:** media.
+
+Los chunks de Vite llevan hash de contenido y **nunca** se sirven rancios. El HTML que los
+referencia, no: tiene una URL estable, y un navegador que lo tenga cacheado sigue pidiendo los
+nombres de chunk viejos —sigue ejecutando la aplicación anterior— aunque el servidor ya sirva
+la nueva. Ese día, con el arreglo desplegado y verificado desde fuera, el cliente seguía viendo
+el formulario roto hasta que limpió la caché a mano.
+
+> **Resuelto el 2026-09-21** (KAN-101), con las dos mitades:
+>
+> 1. `Cache-Control: no-store` en toda respuesta HTML (`SecurityHeaders`). La caché agresiva de
+>    `/build/assets` queda intacta: esos archivos no pasan por PHP.
+> 2. Aviso de «hay una versión nueva, recarga», que **no** recarga solo —hacerlo por sorpresa a
+>    alguien a medio llenar un alta le borra el trabajo—.
+>
+> Lo que se compara NO es el número de versión: `version` sólo se mueve al publicar y la mayoría
+> de los despliegues corrigen algo sin tocarlo. `GET /api/system/version` publica ahora `build`,
+> la huella del manifiesto de Vite, que cambia siempre que cambia un chunk.
 
 ### 🟡 P-44 · Los cargos del ticket siguen sin permiso propio
 
@@ -2398,7 +2458,7 @@ un ciclo de despliegue.
 | **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
 | **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
 | **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
-| **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | 📋 Documentado |
+| **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | ✅ Resuelto 2026-09-21 (401 JSON bajo `api/*`) |
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
 | **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
@@ -2418,9 +2478,9 @@ un ciclo de despliegue.
 | **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
 | **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
-| **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
+| **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
-| **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
@@ -2428,6 +2488,8 @@ un ciclo de despliegue.
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
+| **P-44** *(inventario)* | `serial`/`mac` se comparan distinto según entren por el formulario o por la carga masiva | El mismo equipo entra dos veces escrito distinto, y esas filas bloquean después una carga masiva entera | 🟡 Media | ✅ Resuelto 2026-09-21 · **falta contar los duplicados de producción** |
+| **P-46** | Tras un despliegue, el navegador sigue mostrando la aplicación vieja | Le pasa a cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5 | 🟡 Media | ✅ Resuelto 2026-09-21 (`no-store` + aviso de versión nueva) |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
 | **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
 | **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |

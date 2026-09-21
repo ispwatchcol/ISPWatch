@@ -10,6 +10,13 @@
       cola. Ver `composables/useNotifications.js`.
     -->
     <NotificationHost />
+
+    <!--
+      Aviso de "hay una versión nueva" (KAN-101 · P-46). También fuera del
+      `router-view`: el vigilante debe sobrevivir a los cambios de página, o se
+      reiniciaría su referencia de versión en cada navegación.
+    -->
+    <NewVersionBanner />
   </div>
 </template>
 
@@ -17,6 +24,7 @@
 import { onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from './stores/auth';
 import NotificationHost from './components/NotificationHost.vue';
+import NewVersionBanner from './components/NewVersionBanner.vue';
 
 const authStore = useAuthStore();
 

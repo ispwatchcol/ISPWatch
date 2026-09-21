@@ -868,3 +868,59 @@ Route::prefix('v1/partner')
             Route::get('/installations', [PartnerSupportController::class, 'installations']);
         });
     });
+
+/*
+|--------------------------------------------------------------------------
+| Ruta inexistente bajo /api  (KAN-97 · P-41)
+|--------------------------------------------------------------------------
+|
+| Antes de esto, `GET /api/lo-que-sea` no casaba con ninguna ruta de este
+| archivo y terminaba en el catch-all del SPA de routes/web.php: 200 con el
+| HTML de la aplicación. Un integrador —o el propio frontend tras renombrar un
+| endpoint— recibía un éxito con un cuerpo que no es JSON, y el error aparecía
+| mucho más lejos, al intentar leerlo.
+|
+| Se registra con `Route::any(...)->fallback()` y no con `Route::fallback()`:
+| el helper del framework sólo declara GET, y entonces un POST a una URL que no
+| existe encontraba la ruta pero no el verbo y respondía 405 «método no
+| permitido». Un 405 afirma que el endpoint existe —manda al integrador a
+| cambiar el verbo— cuando el problema es que la URL está mal.
+|
+| `->fallback()` es lo que la deja de última: una ruta marcada así sólo se
+| considera cuando ninguna otra casó, sin importar el orden de registro.
+|
+*/
+Route::any('{ispwatchApiFallback}', function () {
+    $request = request();
+    $partner = $request->is('api/v1/partner*');
+
+    // ¿La URL SÍ existe, pero bajo otro verbo? Entonces el problema no es la
+    // ruta sino el método, y hay que decirlo con 405 y su cabecera `Allow`.
+    // No es un matiz: la API pública es de SOLO LECTURA y ese 405 es la forma
+    // en que se lo dice a quien intenta escribir —hay un test que lo fija—.
+    // Un 404 ahí mandaría al integrador a buscar una URL que sí tiene.
+    $allowed = collect(Route::getRoutes()->getRoutes())
+        ->reject(fn ($route) => $route->isFallback)
+        ->filter(fn ($route) => $route->matches($request, false))
+        ->flatMap(fn ($route) => $route->methods())
+        ->unique()
+        ->values();
+
+    if ($allowed->isNotEmpty()) {
+        $message = 'El método ' . $request->method() . ' no está permitido en este recurso.';
+
+        return response()->json(
+            $partner
+                ? ['error' => 'method_not_allowed', 'message' => $message]
+                : ['success' => false, 'message' => $message],
+            405
+        )->header('Allow', $allowed->implode(', '));
+    }
+
+    return response()->json(
+        $partner
+            ? ['error' => 'not_found', 'message' => 'Este recurso no existe en la API pública de ISPWatch.']
+            : ['success' => false, 'message' => 'El recurso solicitado no existe en la API de ISPWatch.'],
+        404
+    );
+})->where('ispwatchApiFallback', '.*')->fallback();

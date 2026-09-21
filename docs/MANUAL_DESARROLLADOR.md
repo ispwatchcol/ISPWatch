@@ -129,9 +129,47 @@ planes de servicio → routers → usuarios base → clientes de ejemplo.
 >   .' / url='.(empty(\$c['url'])?'(vacia)':'DEFINIDA — ANULA EL RESTO').PHP_EOL;"
 > ```
 >
-> Ojo también con `DB_SCHEMA`: si no está definida, `config/database.php` toma `public`
-> —**producción**—, no `ispwatch_dev`. La salvaguarda de `tests/TestCase.php` sólo protege
-> la suite de pruebas; los comandos de consola no pasan por ella (deuda **P-39**).
+> **`DB_SCHEMA` ya no tiene valor por defecto** (2026-09-21, KAN-95 · P-39). Antes, si no
+> estaba definida, `config/database.php` tomaba `public` —**producción**—: el olvido de una
+> línea apuntaba la terminal de desarrollo a la base de los clientes. Ahora, fuera de
+> producción, la aplicación **no arranca** sin esa variable y explica por qué.
+
+#### El freno de mano de la consola
+
+`App\Support\ProductionDatabaseGuard` frena cualquier comando de consola cuya conexión **ya
+resuelta** apunte al esquema `public` de Supabase mientras `APP_ENV` no sea `production`:
+
+```
+$ php artisan migrate
+
+ [WARNING] Este comando va a escribir en PRODUCCIÓN.
+           Comando: migrate · host: aws-0-us-east-1.pooler.supabase.com · esquema: public
+
+ Escribe el nombre del esquema para confirmar que sabes dónde estás escribiendo:
+ >
+```
+
+* **Con terminal**, hay que teclear el nombre del esquema (`public`). No vale un «sí».
+* **Sin terminal** (un script, un cron, la salida redirigida a un archivo) el comando se
+  detiene y no llega a correr.
+* **Escotilla:** `ISPWATCH_ALLOW_PRODUCTION_DB=true` en el entorno.
+* **En `production` no actúa nunca**: allí `public` es el destino correcto y el contenedor
+  corre sin terminal — preguntar sería una caída.
+
+Pasan sin preguntar el diagnóstico (`migrate:status`, `db:show`, `db:table`, `db:monitor`,
+`about`, `list`), el andamiaje que no toca la base (`make:`, `config:`, `route:`, `view:`,
+`storage:`, `key:`, `optimize`) y **`test`** — PHPUnit fuerza `sqlite :memory:` y tiene su
+propia salvaguarda en `tests/TestCase.php`. `cache:clear` **sí** se frena: con
+`CACHE_STORE=database` vacía la caché de producción.
+
+Si añades un comando que sólo lee, agrégalo a `ALLOWED_COMMANDS` en
+`app/Support/ProductionDatabaseGuard.php`. La lista es una excepción explícita: **lo que no
+esté ahí se trata como escritura**, que es el lado seguro del error.
+
+Un detalle que importa si tocas esto: el esquema «destino» es el **primero** del `search_path`
+—`ispwatch_dev,public` escribe en desarrollo y sólo lee de `public`—, y la decisión se toma
+sobre `config('database.connections.pgsql')`, la configuración **resuelta**, nunca sobre
+`env()`, que es justo lo que engañó en agosto.
 
 ### Sesión, cache y cola
 
@@ -538,6 +576,7 @@ decirle al cajero "está suspendido" y luego no reconectar (o al revés).
 | `migrate:both [--fresh] [--seed] [--path=] [--force]` | Migraciones en ambos esquemas |
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences [--table=] [--all]` | Repara secuencias |
+| `inventory:duplicate-identifiers [--tenant=]` | Lista seriales y MAC repetidos dentro de un tenant **ignorando mayúsculas**. **No escribe nada**; sale con código 1 si encuentra algo. Correrlo ANTES de la migración `2026_09_21_000001`, que aborta mientras queden duplicados (KAN-100) |
 | `documents:migrate-to-s3 [--dry-run]` | Migra documentos locales a S3 |
 
 ### Observabilidad

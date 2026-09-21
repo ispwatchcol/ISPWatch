@@ -38,6 +38,15 @@ Por eso **nunca se usa `php artisan migrate` a secas**: el comando correcto es
 `php artisan migrate:both`, que aplica en ambos esquemas. PostGIS vive en `public`, lo que
 obliga a un *fallback* en el `search_path` para el esquema de desarrollo.
 
+**`DB_SCHEMA` no tiene valor por defecto** desde el 2026-09-21 (KAN-95 · P-39). Antes
+`config/database.php` resolvía a `public` cuando la variable faltaba, de modo que el olvido de
+una línea en el `.env` apuntaba la terminal de desarrollo a **producción**; el 2026-08-21 una
+migración sin revisar entró por ahí. Ahora, fuera de producción, la aplicación no arranca sin
+esa variable y lo dice. Además, `App\Support\ProductionDatabaseGuard` frena todo comando de
+consola cuya conexión resuelta apunte al esquema `public` de Supabase mientras `APP_ENV` no sea
+`production`: con terminal pide teclear el nombre del esquema, sin terminal se detiene. La
+escotilla, para scripts que sepan lo que hacen, es `ISPWATCH_ALLOW_PRODUCTION_DB=true`.
+
 ### Convenciones de nombres
 
 - Tablas del dominio original **en singular** (`router`, `sectorial`, `role`, `billing`,
@@ -1392,6 +1401,8 @@ Agregado permanente.
 | `unique_tenant_invoice_number` | `invoices` | `(tenant_id, number)` | Numeración segura ante concurrencia |
 | `bal_unique_per_period` | `billing_action_logs` | `(tenant_id, customer_id, period_start, action)` | Un solo registro de resultado por cliente/periodo |
 | `customer_profile_pppoe_username_router_unique` | `customer_profile` | **parcial**: `(router_id, pppoe_username)` `WHERE pppoe_username IS NOT NULL AND <> '' AND router_id IS NOT NULL` | Evita que RouterOS **sobrescriba en silencio** el secret de otro cliente |
+| `inventory_device_tenant_serial_ci_unique` | `inventory_device` | **parcial y funcional**: `(tenant_id, LOWER(serial))` `WHERE serial IS NOT NULL AND <> ''` | `SN-001` y `sn-001` son el mismo equipo (KAN-100 · P-44). Funcional porque `=` distingue mayúsculas en PostgreSQL; parcial porque un rollo de cable no tiene serial |
+| `inventory_device_tenant_mac_ci_unique` | `inventory_device` | **parcial y funcional**: `(tenant_id, LOWER(mac))` `WHERE mac IS NOT NULL AND <> ''` | Igual que el anterior, para la MAC |
 | `router_name_tenant_id_unique` | `router` | `(name, tenant_id)` | |
 | `sectorial_name_tenant_id_unique` | `sectorial` | `(name, tenant_id)` | |
 | `service_plan_name_tenant_id_unique` | `service_plan` | `(name, tenant_id)` | |
@@ -1403,6 +1414,11 @@ Agregado permanente.
 
 > La unicidad de **IP por router** (`customer_profile.ip_user`) se valida **sólo en la
 > aplicación** (`CustomerProfileController`), no hay índice que la respalde.
+
+> **La migración de esos dos índices aborta si ya hay duplicados** (2026_09_21_000001). Es
+> deliberado: son equipos reales y decidir cuál fila se queda con el valor es una decisión de
+> inventario. Para verlos antes de migrar: `php artisan inventory:duplicate-identifiers`.
+
 
 ### Índices de rendimiento
 
