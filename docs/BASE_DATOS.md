@@ -882,6 +882,18 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 | Firma | `customer_signature_path`, `technician_signature_path`, `signed_at` |
 | Cobro | `payment_agreement`, `installation_cost`, `additional_charges`, `additional_items` (json), `discount`, `discount_reason`, `payment_method`, `payment_received`, `payment_notes` |
 | Comercial | `customer_retention`, `special_attention`, `promotion_notes` |
+| Sin cobro | `no_charge` (boolean NOT NULL, default `false`), `no_charge_reason` (varchar(255) null) |
+
+**`no_charge`** (migración `2026_09_21_000001`) es la orden que **no se le factura al
+cliente**: mantenimiento o garantía. Con ella puesta, guardar la cartera NO emite factura
+—`InstallationBillingService` ni se llama— y la orden no admite cifras (`installation_cost`,
+adicionales, descuento ni `payment_received`); el equipo cargado en la hoja sale igual del
+inventario y lo asume la empresa.
+
+No es un «tipo de orden»: hay mantenimientos que sí se cobran y traslados regalados por
+retención, así que atar el cobro a un catálogo de tipos obligaría a desdoblarlo en cuanto
+apareciera la primera excepción. El motivo es opcional a propósito — un campo obligatorio
+acaba lleno de «.», que informa menos que un vacío porque además miente.
 
 ### 4.14 `customer_documents` y `document_templates`
 
@@ -960,6 +972,21 @@ siguen saliendo idénticas.
 `support_ticket`: `user_id` (cliente), `staff_id` (asignado), `sectorial_id` (elemento
 afectado), `subject`, `description`, `resolved_at`, `closed_at`, y desde el PR C
 `deleted_at`, `archived_by` y `archived_reason`.
+
+#### Sin cobro al cliente (2026-09-21)
+
+| Columna | Tipo | Para qué |
+|---|---|---|
+| `no_charge` | `boolean NOT NULL` default `false` | La visita no se le cobra al cliente (mantenimiento, garantía) |
+| `no_charge_reason` | `varchar(255) NULL` | Motivo, opcional |
+
+Con `no_charge` en true, `POST /support/{id}/charge` responde **422**: el ticket no admite
+cargos. Es una prohibición, no un valor por defecto — el interruptor «Cargo Asociado» del
+alta ya venía apagado y eso no impedía facturar la visita un mes después. Quitar la marca
+exige `ticket_edit` y escribe un evento `no_charge_changed` en `support_ticket_history`.
+
+Mismos nombres y misma forma que en `customer_installations` (§4.13) a propósito: es la
+misma decisión de negocio vista desde los dos módulos por los que entra una visita.
 
 #### Archivado (PR C · 2026-09-13)
 

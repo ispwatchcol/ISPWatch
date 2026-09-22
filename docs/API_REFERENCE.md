@@ -653,6 +653,25 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 > `can_view_billing` existe desde 2026-09-11. Un cliente que sólo conozca
 > `can_edit_billing` sigue funcionando: quien podía editar sigue pudiendo ver.
 
+> 🎁 **Orden sin cobro** (2026-09-21). `no_charge` (boolean) y `no_charge_reason`
+> (máx. 255) se aceptan al **crear** la orden por los tres caminos —`POST /api/installations`,
+> `POST /api/customers/{customer}/installations` y `POST /api/prospects/{prospect}/installations`—
+> y al actualizarla por `PUT /api/customers/installations/{installation}` o
+> `PUT /api/installations/{installation}/billing`.
+>
+> **NO se filtran por permiso**: viajan siempre, incluso al rol que no ve cartera. Son la
+> instrucción «no le cobres» para quien está en sitio, y no revelan ninguna cifra.
+>
+> | Situación | Respuesta |
+> |---|---|
+> | Guardar cartera con `no_charge` en true | **200** con `invoice: null` e `invoice_warning` explicando que no se generó factura |
+> | Guardar cartera con `no_charge` y alguna cifra (`installation_cost`, adicionales, `discount`, `payment_received`) | **422** con el error en `no_charge`. No se ponen en cero en silencio |
+> | Marcar `no_charge` en una orden que **ya tiene factura** | **422**: hay que anular la factura en Facturación primero |
+> | **Cambiar** la marca en una orden existente sin `edit_discount` | **403**. Ponerla al crear no exige ese permiso |
+>
+> Reenviar el mismo valor no cuenta como cambio (`''` y `null` se normalizan), así que el
+> formulario completo se puede guardar sin permisos de cartera mientras la marca no se mueva.
+
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
 > **una foto por petición**.
@@ -1846,6 +1865,18 @@ Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `null` borra el campo. El detalle y el listado devuelven `diagnosis` con `code` y `label` por
 campo, o `null` si no hay diagnóstico.
 
+**Sin cobro al cliente** (2026-09-21). `POST /api/support` y `PUT /api/support/{id}` aceptan
+`no_charge` (boolean) y `no_charge_reason` (máx. 255); el detalle y el listado los devuelven
+siempre.
+
+| Situación | Respuesta |
+|---|---|
+| `POST /api/support/{id}/charge` con el ticket marcado | **422**, error en `no_charge`. El ticket no admite cargos |
+| Cambiar `no_charge` sin `ticket_edit` | **403** con `required_permission: ticket_edit` |
+| Cambiar `no_charge` con permiso | 200, y evento `no_charge_changed` en el historial (`old_value`/`new_value` legibles, motivo en `metadata.reason`) |
+
+Marcarlo al **crear** el ticket no exige permiso aparte: va dentro de `ticket_create`.
+
 ### Workflow formal del ticket (2026-09-19)
 
 Fuente: Solicitud Maestra §7 (ciclo de vida), §15 (reglas de cierre) y §18 (roles). CNO
@@ -2407,6 +2438,10 @@ red de cada punto.
 
 `from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación
 (tickets) o programada (instalaciones). `per_page` tiene tope de **100**.
+
+`/installations` incluye `no_charge` (boolean) desde 2026-09-21. Es un campo **añadido**,
+no un cambio de contrato: sin él, una visita de garantía viaja como una orden de $0 y el
+integrador no puede distinguirla de una a la que todavía no le han puesto precio.
 
 El filtro `document` es de **coincidencia exacta**, no parcial: una búsqueda por
 prefijo convertiría esa ruta en un enumerador de la base de clientes del ISP.

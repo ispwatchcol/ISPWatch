@@ -495,9 +495,33 @@ Un **prospecto** es alguien interesado que todavía no es cliente.
 2. Pulsa **Nueva instalación**.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
 4. Elige **fecha** y **técnico**.
-5. Guarda.
+5. Si la visita **no se le cobra al cliente** —mantenimiento, garantía, cambio de un equipo
+   quemado— marca la casilla **Sin cobro al cliente** y, si quieres, escribe el motivo.
+6. Guarda.
 
 El prospecto queda en estado **agendado**.
+
+> 🎁 **Qué hace exactamente «Sin cobro al cliente»** (desde el 21/09/2026)
+>
+> Es la respuesta a una situación de todos los días: se le quema el router al cliente, el
+> técnico va y se lo cambia, y eso **no se le cobra**.
+>
+> - El equipo **sí** se descuenta de la bodega y **sí** es un gasto de la empresa. Eso no cambia.
+> - La orden **no genera factura**, por más que alguien guarde la cartera después.
+> - La orden **no admite valores**: ni costo de instalación, ni adicionales, ni descuento, ni
+>   abono recibido. Si trae alguno, el sistema no lo borra por su cuenta — te avisa para que
+>   decidas tú qué hacer con ese dinero.
+> - El técnico ve el aviso **aunque no tenga permiso para ver precios**: es justo él quien
+>   está en la casa del cliente decidiendo si le pide plata.
+> - En el detalle de la orden ves el **costo interno** de la visita (lo que le costó a la
+>   empresa en equipos y materiales), que no se le factura a nadie.
+>
+> La casilla también está en la pestaña **Instalaciones** de la ficha del cliente, que es por
+> donde se agenda un mantenimiento a alguien que ya es cliente.
+>
+> **Para quitarla después** hace falta el permiso *Editar Descuento y Cartera de Instalación*,
+> y **no se puede** marcar una orden que ya emitió factura: primero se anula la factura en
+> Facturación.
 
 ### 6.2 El día de la instalación
 
@@ -537,6 +561,9 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > el sistema la rechaza y te lo dice.
 4. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
+   > Si la orden está marcada **Sin cobro al cliente**, este bloque aparece con los campos de
+   > dinero apagados y no se emite factura. La casilla está arriba del bloque, por si hay que
+   > quitarla porque al final sí se cobra.
    > El desplegable **Cobrar equipo de la instalación** trae los equipos que ya cargaste, con su
    > precio. Sólo ofrece lo que de verdad se descargó, para que la factura y el acta no digan
    > cosas distintas.
@@ -1526,7 +1553,9 @@ Dos opciones importantes:
 4. Elige **categoría** (Técnico, Facturación, Servicios, General) y **prioridad**
    (Baja, Media, Alta, Urgente).
 5. Si el problema es de un elemento de red concreto, selecciona el **sectorial** afectado.
-6. Guarda.
+6. Si la visita **no se le cobra al cliente**, marca **Sin cobro al cliente** en el bloque
+   *Cargo Asociado*. Con eso el ticket no podrá generar cargos — ni hoy ni dentro de un mes.
+7. Guarda.
 
 ### 14.2 Trabajar el ticket
 
@@ -1536,6 +1565,13 @@ Dentro del ticket puedes:
 - **Mover el ticket por el ciclo de vida** (ver 14.3).
 - **Adjuntar archivos**.
 - **Generar un cargo**: si la visita se cobra, esto crea una factura ligada al ticket.
+  > Si el ticket está marcado **Sin cobro al cliente**, el botón no aparece y el bloque te
+  > explica por qué. Para volver a poder cobrarlo, quita la marca en **Editar ticket**: queda
+  > registrado en el historial quién la quitó y cuándo.
+  >
+  > **El interruptor «Cargo Asociado» del alta no bastaba.** Que venga apagado sólo significa
+  > que ese día no se cobró; el ticket seguía admitiendo cargos para siempre. La marca es lo
+  > otro: una prohibición.
 
 ### 14.2.1 El ciclo de vida del ticket
 

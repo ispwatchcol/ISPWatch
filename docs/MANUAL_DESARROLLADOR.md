@@ -724,6 +724,34 @@ firma presencial y la remota producen el **mismo PDF** con el mismo valor legal,
 diferencia sutil entre ambas —la detección de tinta, sobre todo— sería un contrato firmado
 en blanco según por dónde entró el cliente.
 
+### Una marca que impide cobrar (`no_charge`)
+
+`customer_installations.no_charge` y `support_ticket.no_charge` marcan la visita que **no
+se le factura al cliente** (mantenimiento, garantía). Si tocas alguno de los dos módulos,
+tres reglas que no son obvias leyendo el esquema:
+
+1. **La marca se comprueba donde se emite el dinero, no en el modelo.** En instalaciones,
+   `CustomerInstallationController::updateBilling()` salta `InstallationBillingService`; en
+   tickets, `generateCharge()` responde 422 antes de validar nada más. Si añades un tercer
+   camino que facture una visita, el guardia hay que ponerlo ahí también — no hay un
+   observador que lo haga por ti, y ponerlo en el modelo obligaría a que el modelo supiera
+   de facturas.
+
+2. **Los campos NO se filtran por permiso**, a diferencia del resto de la cartera
+   (`stripBillingFields()`). Es deliberado: el técnico sin `view_installation_cost` tiene
+   que ver «no le cobres», y la marca no revela ninguna cifra. Si añades el campo a otra
+   respuesta, no lo escondas.
+
+3. **Cambiarla después de crear la orden exige permiso; ponerla al crear, no.** Quien
+   agenda es quien sabe si va de garantía, y exigirle `edit_discount` dejaría el botón
+   inservible justo para quien lo usa. El comparador normaliza `''` y `null` para que
+   reenviar el formulario entero no cuente como cambio (`guardNoChargeChange()`); si
+   replicas el patrón, replica también esa normalización o provocarás 403 fantasma.
+
+Y una que sí es de negocio: **no se ponen las cifras en cero solas**. Una orden marcada que
+traiga valores se rechaza con 422. Borrar dinero en silencio es como se pierde la pista de
+un abono que el cliente sí entregó.
+
 **Una página pública no usa `apiClient`.** Su interceptor de `401` borra la sesión y
 redirige a `/`; un cliente final sin sesión acabaría mirando la pantalla de acceso del
 panel sin entender qué pasó. Usa una instancia propia de axios
