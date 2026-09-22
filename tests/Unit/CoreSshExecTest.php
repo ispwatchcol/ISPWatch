@@ -40,6 +40,11 @@ class CoreSshExecTest extends TestCase
             {
                 return $this->sshExecConnectionFailureMessage($ip, $o, $port);
             }
+            public function isAuth(string $o): bool { return $this->isSshExecAuthFailure($o); }
+            public function authMsg(string $ip, string $o, ?int $port): string
+            {
+                return $this->sshExecAuthFailureMessage($ip, $o, $port);
+            }
         };
     }
 
@@ -106,5 +111,74 @@ class CoreSshExecTest extends TestCase
         $refused = $this->subject->connMsg('172.16.16.254', '<connection failed> 172.16.16.254:22 (12)', null);
         $this->assertStringContainsString('PUERTO', $refused); // wrong-port hint
         $this->assertStringContainsString('172.16.16.254:22', $refused);
+    }
+
+    /**
+     * El caso que reportó el ISP: el CORE abre la sesión y el router rechaza la
+     * clave. No es un fallo de conexión —el TCP se estableció— ni un fallo de
+     * comando, porque en el router no se ejecutó nada.
+     */
+    public function test_auth_failure_is_its_own_case(): void
+    {
+        $real = 'failure: authentication failure (/system/ssh-exec; line 1)';
+
+        $this->assertTrue($this->subject->isAuth($real));
+        $this->assertFalse($this->subject->isConn($real), 'El TCP sí se estableció: no es un fallo de conexión.');
+    }
+
+    /**
+     * La guarda que evita que el detector se coma casos ajenos: «not enough
+     * permissions» es el usuario que SÍ entró pero no puede correr el comando,
+     * y ése es un fallo de comando de toda la vida.
+     */
+    public function test_not_enough_permissions_is_still_a_command_failure(): void
+    {
+        $permisos = "exit-code: 0
+     output: not enough permissions (13)";
+
+        $this->assertFalse($this->subject->isAuth($permisos));
+        $this->assertTrue($this->subject->isCmd($permisos));
+    }
+
+    public function test_connection_failure_is_not_read_as_an_auth_failure(): void
+    {
+        $this->assertFalse($this->subject->isAuth('failure: closing connection: <connection failed> 172.16.16.254:22 (12)'));
+        $this->assertFalse($this->subject->isAuth('action timed out - try again ... (13)'));
+    }
+
+    /**
+     * El mensaje tiene que decir el salto exacto que falló y las dos causas que
+     * desde el panel son indistinguibles: la clave cambiada y el usuario de
+     * RouterOS restringido por dirección.
+     */
+    public function test_auth_failure_message_names_the_hop_and_the_traps(): void
+    {
+        $msg = $this->subject->authMsg('172.16.16.254', 'failure: authentication failure', 2200);
+
+        $this->assertStringContainsString('172.16.16.254:2200', $msg);
+        $this->assertStringContainsString('RECHAZÓ', $msg);
+        $this->assertStringContainsString('/user print detail', $msg);  // usuario limitado por address=
+        $this->assertStringContainsString('/ppp active print', $msg);   // la IP se movió de router
+        $this->assertStringNotContainsString('no se pudo crear', $msg); // ya no culpa al comando
+    }
+
+    /**
+     * Dentro de una cadena de RouterOS `\` escapa y `$` interpola. Una clave
+     * con cualquiera de los dos llegaba deformada al router y volvía como
+     * `authentication failure`, idéntica a una credencial equivocada.
+     */
+    public function test_password_backslash_and_dollar_are_escaped(): void
+    {
+        $conBarra = $this->subject->build('10.0.0.1', 'admin', 'a\b', '/x', null);
+        $this->assertStringContainsString('password="a\\\\b"', $conBarra);
+
+        $conDolar = $this->subject->build('10.0.0.1', 'admin', 'cla$ve', '/x', null);
+        $this->assertStringContainsString('password="cla\$ve"', $conDolar);
+    }
+
+    public function test_plain_password_is_left_untouched(): void
+    {
+        $cmd = $this->subject->build('10.0.0.1', 'admin', 'Abc123xyz', '/x', null);
+        $this->assertStringContainsString('password="Abc123xyz"', $cmd);
     }
 }

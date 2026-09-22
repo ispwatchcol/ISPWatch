@@ -206,6 +206,18 @@ class PppProfileManager
                 ];
             }
 
+            // El CORE llegó y el router rechazó la clave: no corrió nada, pero la
+            // causa y el remedio son otros. Va ANTES del error genérico porque
+            // «authentication failure» hace match con la palabra «failure».
+            if ($output && $this->isSshExecAuthFailure($output)) {
+                Log::warning('[PppProfileManager] CORE SSH direct: client rejected credentials', ['output' => $output]);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecAuthFailureMessage($clientIp, $output, $clientSshPort),
+                ];
+            }
+
             if ($output && $this->isSshExecCommandFailure($output)) {
                 Log::warning('[PppProfileManager] CORE SSH direct: error in output', ['output' => $output]);
                 return [
@@ -505,6 +517,18 @@ class PppProfileManager
                     'success' => false,
                     'method'  => 'CORE_SSH_DIRECT',
                     'message' => $this->sshExecConnectionFailureMessage($clientIp, $output, $clientSshPort),
+                ];
+            }
+
+            // El CORE llegó y el router rechazó la clave: no corrió nada, pero la
+            // causa y el remedio son otros. Va ANTES del error genérico porque
+            // «authentication failure» hace match con la palabra «failure».
+            if ($output && $this->isSshExecAuthFailure($output)) {
+                $this->logProvisionStep('PppProfileManager', 'secret_add_set_end', ['username' => $username, 'outcome' => 'auth_failure'], $stepStart);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecAuthFailureMessage($clientIp, $output, $clientSshPort),
                 ];
             }
 
