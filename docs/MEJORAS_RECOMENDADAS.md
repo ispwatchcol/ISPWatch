@@ -2275,6 +2275,42 @@ precisamente de ahí, y estuvo mandando un valor que PostgreSQL rechaza.
 
 ---
 
+### 🟠 P-52 · `ticket_close_override` no lo tiene nadie: el cierre especial es inalcanzable
+
+Mismo defecto que dejó la reapertura sin botón, y **no se corrigió en el mismo PR a propósito**.
+
+El PR #4 activó el endpoint `POST /support/{id}/close-exception` y su permiso, pero ninguna
+migración repartió `ticket_close_override`. Medido en la base: los cinco roles `admin` tienen 17
+de los 20 permisos `ticket_*`; faltan `ticket_reopen` —repartido por el correctivo de
+2026-09-21—, `ticket_manage_catalogs` (sin endpoint, **D-13**) y éste.
+
+**Por qué no se repartió junto con la reapertura.** Son cosas distintas:
+
+| | Reabrir | Cierre especial |
+|---|---|---|
+| Qué es | Operación **ordinaria** del flujo: «Reabierto» es uno de los nueve estados auxiliares del § 7 y la modalidad STR del Anexo B | **Potestad de excepción**: autoriza cerrar incumpliendo las reglas del § 15 |
+| Sin él | El flujo del documento no se puede recorrer entero | El flujo funciona; sólo no se puede saltar una regla |
+| Quién decide | Se reparte: es parte del producto | Lo **configura el ISP**: el § 18 lo sitúa en el Supervisor |
+
+Repartirlo por migración a todos los administradores sería decidir por el cliente quién puede
+saltarse las reglas obligatorias de cierre.
+
+**Consecuencia mientras tanto:** un ticket al que le falte la causa confirmada —el caso que la
+regla 1 del § 15 contempla como «excepción autorizada y justificada»— **no se puede cerrar por
+ninguna vía** hasta que alguien marque el permiso en Configuración → Roles.
+
+**Qué hacer:** que CNO designe el rol que ejerce de Supervisor y se le marque
+`ticket_close_override`. Si designan al Administrador, basta una migración idéntica a la de la
+reapertura; si designan otro rol, es configuración y no código.
+
+| | |
+|---|---|
+| **Impacto** | Medio. Bloquea un camino que el requerimiento contempla expresamente |
+| **Esfuerzo** | Trivial (una casilla) o una migración de cuatro líneas |
+| **Riesgo de no hacerlo** | Que alguien cierre «como sea» por otra puerta, o que el ticket se quede abierto para siempre |
+
+---
+
 ### 🟠 P-50 · Seis de las diez reglas de cierre del § 15 no son exigibles todavía
 
 El workflow formal exige **tres** de las diez reglas obligatorias de cierre de la Solicitud
@@ -2483,6 +2519,7 @@ un ciclo de despliegue.
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
+| **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |

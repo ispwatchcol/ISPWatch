@@ -7258,3 +7258,97 @@ Ninguna de las cuatro producía un error visible. Un 302 que el cliente HTTP sig
 HTML, un equipo duplicado que «se guardó bien», una migración que acierta de esquema por
 casualidad. El coste no está en el fallo: está en el tiempo que se pierde buscando la causa en
 el sitio equivocado.
+
+---
+
+## 69. El permiso existía, el endpoint existía, y el botón no aparecía — 2026-09-21
+
+El humo del workflow: el ticket #39 se cerró bien, el historial mostraba las transiciones y los
+timestamps, y un Administrador no encontraba por ninguna parte el botón «Reabrir».
+
+### Lo que no era
+
+No era la interfaz. El botón está detrás de `workflow.actions.reopen`, que sale de
+`GET /support/{id}/transitions`, y el servidor respondía `false`. La pantalla hacía exactamente
+lo que el PR B dejó escrito: **no ofrecer lo que la API va a rechazar con 403**.
+
+Tampoco era la matriz. `reopen()` nunca consultó `TRANSICIONES`; usaba `esTerminal()` y
+`ESTADO_TRAS_REAPERTURA`, y funcionaba.
+
+### Lo que era
+
+`ticket_reopen` **no lo tenía nadie**. Medido en la base antes de tocar nada:
+
+```
+Rol 6 (admin, tenant 16): 17 de 20 permisos ticket_*
+FALTAN: ticket_close_override, ticket_manage_catalogs, ticket_reopen
+```
+
+Los tres que ninguna migración llegó a repartir. El PR B repartió 15, el PR C añadió
+`ticket_archive` y `ticket_restore` — 17 — y el PR #4 activó los endpoints de reapertura y cierre
+especial **sin backfill**.
+
+Lo escribí yo mismo en el informe del PR #4, en la sección de riesgos: «`ticket_close_override` y
+`ticket_reopen` no los tiene nadie; hay que asignarlos desde la pantalla de roles». Lo que ese
+párrafo no decía es que **reabrir no es una capacidad opcional**: «Reabierto» es uno de los nueve
+estados auxiliares del §7 y la modalidad STR del Anexo B es «la afectación reaparece después del
+cierre». Sin el permiso repartido, el flujo que el documento describe no se puede recorrer
+entero. Un riesgo anotado no es lo mismo que una decisión tomada, y aquí lo traté como si lo
+fuera.
+
+`Permissions::getPermissionsByRole('admin')` devuelve la lista completa, pero eso sólo se
+consulta al **crear** un rol. Los que ya existen conservan su lista guardada — es la regla 5 del
+manual del desarrollador, «cada permiso nuevo necesita backfill», que el PR B y el PR C sí
+siguieron.
+
+### El bypass que no salva
+
+`CheckPermission` deja pasar a `role_id == 1`. En dev, el rol 1 resultó tener **59 permisos
+explícitos, no `*`** — y los administradores de cada ISP son los roles 6, 11, 16 y 21, sin
+bypass alguno. El «pero el admin puede todo» no era cierto en ninguno de los dos sentidos.
+
+### La corrección, y la trampa que tenía
+
+Lo obvio era añadir `cerrado => [reabierto]` a la matriz para que quedara explícito. **Habría
+abierto un agujero**: `PATCH /support/{id}/status` valida contra esa misma matriz, así que
+cualquiera con `ticket_transition` habría reabierto un ticket cerrado sin `ticket_reopen` y sin
+motivo — justo lo que la reapertura existe para impedir.
+
+La pareja va en una tabla aparte, `TicketWorkflow::REAPERTURA`, que sólo consulta el endpoint de
+reapertura. Y la transición genérica pasó a rechazar los destinos con endpoint propio por tabla
+(`DESTINOS_CON_ENDPOINT_PROPIO`) en vez de por dos `if` encadenados, para que añadir una
+operación con nombre propio no deje un destino alcanzable por la puerta de atrás.
+
+### Lo que faltaba de verdad
+
+Que la pantalla dijera **por qué**. Un ticket cerrado sin acciones disponibles no pintaba ni la
+tarjeta de ciclo de vida: el operador veía un expediente cerrado y nada más, sin forma de
+distinguir «me falta un permiso» de «esto está roto».
+
+La interfaz no puede deducirlo —no conoce los permisos efectivos del servidor— así que lo dice
+el servidor: `reopen_blocked_by` vale `permission`, `not_closed`, `archived` o `null`. Con eso la
+tarjeta se pinta igualmente y explica que hace falta «Tickets · reabrir».
+
+### Lo que se dejó sin repartir
+
+`ticket_close_override` sigue sin concederse a nadie, y es deliberado: autoriza cerrar
+**incumpliendo** las reglas del §15. Repartirlo por migración a todos los administradores sería
+tomar por el cliente una decisión que el §18 le asigna al Supervisor. Queda como **P-52**, con la
+consecuencia escrita: hasta que alguien lo marque en la pantalla de roles, el cierre especial es
+inalcanzable — igual que lo era la reapertura.
+
+La diferencia entre los dos casos es la que no supe ver en el PR #4: reabrir es una **operación
+ordinaria** del flujo, y el cierre especial es una **potestad de excepción**. La primera se
+reparte; la segunda se configura.
+
+### Lección
+
+Un permiso declarado, con su endpoint y su prueba en verde, sigue sin existir para el usuario
+hasta que alguien lo tiene. La suite pasaba al 100% porque cada test se fabrica el rol con los
+permisos que necesita — que es lo correcto para probar la autorización, y exactamente lo que
+impide notar que en la base real no los tiene nadie.
+
+Lo que habría cazado esto es una prueba que parta de los permisos que un rol `admin` tiene **de
+verdad** tras las migraciones, y no de los que el test le concede. Es lo que hace ahora
+`TicketReopenTest`: reproduce los 17 permisos medidos en la base y comprueba, desde ahí, que la
+migración cierra el hueco.

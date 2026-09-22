@@ -1583,9 +1583,17 @@ un motivo de al menos 10 caracteres, y deja en el historial **cuál requisito fa
 autorizó. No es un cierre normal con otro nombre: se distingue en la bitácora. Si no falta nada,
 el sistema lo rechaza y te manda al cierre normal.
 
-**Reabrir.** Si la falla reaparece. Exige permiso propio y motivo. El ticket vuelve al estado
-*Reabierto* y sigue el flujo desde ahí. **La fecha del cierre anterior no se borra**: queda como
-parte del histórico.
+**Reabrir.** Si la falla reaparece. Exige permiso propio y un motivo de al menos 10 caracteres.
+El ticket vuelve al estado *Reabierto* y sigue el flujo desde ahí. **La fecha del cierre anterior
+no se borra**: queda como parte del histórico.
+
+> **¿No ves el botón «Reabrir» en un ticket cerrado?** El bloque **Ciclo de vida** te dice por
+> qué. Si dice que hace falta el permiso **«Tickets · reabrir»**, pídeselo a quien administre los
+> roles: **Configuración → Roles**, marcar esa casilla en el rol correspondiente.
+>
+> Los roles **Administrador** lo reciben automáticamente al actualizar. Staff, Técnico y
+> Contabilidad **no**: reabrir revierte una decisión de cierre, y esa autoridad está en el
+> supervisor. Un ISP que quiera dársela a otro rol lo hace desde esa misma pantalla.
 
 > Un ticket **archivado** no se mueve, ni se cierra, ni se reabre. Primero hay que restaurarlo
 > (ver 14.4).
