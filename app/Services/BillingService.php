@@ -20,7 +20,10 @@ use App\Models\SuspensionActionLog;
 use App\Models\User;
 use App\Models\UserService;
 use App\Models\Tenant;
+use App\Support\ReconnectionOutcome;
 use Carbon\Carbon;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -1278,9 +1281,61 @@ class BillingService
         // que el controlador se lo pueda devolver al cajero: quien registra el
         // pago tiene que enterarse en ese momento de que el cliente estaba
         // cortado y de si quedó reconectado o no.
-        $payment->reactivation = $this->reactivateIfCleared((int) $data['customer_id']);
+        $payment->reactivation = $this->reactivateIfCleared((int) $data['customer_id'], [
+            'source'         => $data['source'] ?? 'payment',
+            'correlation_id' => $data['correlation_id'] ?? null,
+            'actor_id'       => $data['created_by'] ?? null,
+        ]);
+
+        $this->auditReconnectionAfterPayment($payment, $data);
 
         return $payment;
+    }
+
+    /**
+     * Bitácora del par pago ⇄ reconexión.
+     *
+     * Van juntos en una sola entrada a propósito: la pregunta que hay que poder
+     * responder meses después no es "¿entró el pago?" ni "¿se reconectó?" por
+     * separado, sino "este cliente pagó el día tal, ¿se le restableció el
+     * servicio, y si no, por qué". Con el motivo normalizado, esa consulta se
+     * puede hacer contando, no leyendo texto libre.
+     *
+     * Sin secretos: ni IP, ni usuario, ni contraseña, ni la respuesta cruda del
+     * equipo. Sólo el código del desenlace.
+     */
+    private function auditReconnectionAfterPayment(Payment $payment, array $data): void
+    {
+        try {
+            $reactivation = $payment->reactivation ?? [];
+
+            // Un pago de un cliente que no estaba cortado no tiene nada que
+            // contar sobre reconexiones; no se ensucia la bitácora con ruido.
+            if (empty($reactivation['was_suspended'])) {
+                return;
+            }
+
+            \App\Models\AuditLog::log([
+                'tenant_id'   => $payment->tenant_id,
+                'user_id'     => $data['created_by'] ?? null,
+                'action'      => 'payment.reconnection',
+                'model_type'  => Payment::class,
+                'model_id'    => $payment->id,
+                'new_values'  => [
+                    'customer_id'     => $payment->customer_id,
+                    'amount'          => $payment->amount,
+                    'db_reactivated'  => (bool) ($reactivation['reactivated'] ?? false),
+                    'router_ok'       => (bool) ($reactivation['router_ok'] ?? false),
+                    'outcome'         => $reactivation['outcome'] ?? null,
+                    'source'          => $data['source'] ?? 'payment',
+                    'correlation_id'  => $data['correlation_id'] ?? null,
+                ],
+                'description' => 'Pago registrado. Reconexión automática: '
+                    . ReconnectionOutcome::label($reactivation['outcome'] ?? null),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Billing: no se pudo auditar la reconexión del pago: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1313,16 +1368,25 @@ class BillingService
      * Nunca lanza: un fallo del router no puede revertir ni romper el pago ya
      * guardado. El detalle vuelve al llamador para que el cajero lo vea.
      *
-     * @return array{was_suspended:bool,reactivated:bool,router_ok:bool,message:string}
+     * OJO con los dos booleanos, que responden preguntas distintas:
+     *   - `reactivated`: se levantó el corte EN LA BD (el cliente ya no debe).
+     *   - `router_ok`:   el EQUIPO confirmó la reconexión.
+     * Pueden diverger, y cuando divergen el cliente pagó y sigue sin servicio.
+     * Esa es la situación que `outcome` nombra y que la pantalla tiene que
+     * gritar; ninguna lectura de este resultado debe cantar éxito sin mirarlo.
+     *
+     * @param array $context {source?: string, correlation_id?: string, actor_id?: int}
+     * @return array{was_suspended:bool,reactivated:bool,router_ok:bool,message:string,
+     *               outcome:string,label:string,pending:bool,action:string,log_id:int|null}
      */
-    public function reactivateIfCleared(int $customerId): array
+    public function reactivateIfCleared(int $customerId, array $context = []): array
     {
-        $result = [
+        $result = array_merge([
             'was_suspended' => false,
             'reactivated'   => false,
             'router_ok'     => false,
-            'message'       => '',
-        ];
+            'log_id'        => null,
+        ], ReconnectionOutcome::describe(ReconnectionOutcome::NO_APLICA));
 
         try {
             $profile = CustomerProfile::where('user_id', $customerId)->first();
@@ -1350,7 +1414,18 @@ class BillingService
             $cutOnRouter = $latest && $latest->action === SuspensionActionLog::ACTION_SUSPEND;
 
             if (!$cutInDb && !$cutOnRouter) {
-                return $result; // no está cortado por ningún lado
+                // No está cortado por ningún lado. Se distingue el cliente que
+                // nunca estuvo cortado del que YA fue reconectado, para que un
+                // segundo pago sobre un servicio ya levantado sea idempotente
+                // y explícito en vez de un silencio ambiguo. Ninguno de los dos
+                // levanta alerta: no hay nada pendiente.
+                $yaReconectado = $latest
+                    && $latest->action === SuspensionActionLog::ACTION_UNSUSPEND
+                    && $latest->status === SuspensionActionLog::STATUS_SUCCESS;
+
+                return array_merge($result, ReconnectionOutcome::describe(
+                    $yaReconectado ? ReconnectionOutcome::YA_REACTIVADO : ReconnectionOutcome::NO_APLICA
+                ));
             }
 
             $result['was_suspended'] = true;
@@ -1366,17 +1441,18 @@ class BillingService
                 return $result;
             }
 
-            // Sin router o sin IP no hay nada que desbloquear en el equipo, pero
-            // el estado de la BD sí hay que corregirlo: el cliente ya no debe.
-            $routerOk = true;
-            if ($profile->router_id && $profile->ip_user) {
-                $routerOk = app(RouterProvisioningService::class)->unsuspendCustomer(
-                    $customerId,
-                    (int) $profile->router_id,
-                    ['reason' => SuspensionActionLog::REASON_AUTO_RECONNECT]
-                );
-            }
-            $result['router_ok'] = $routerOk;
+            // La acción sobre el equipo. Devuelve un código cerrado: o el
+            // router confirmó, o dice exactamente por qué no.
+            //
+            // ANTES esto era `$routerOk = true` y sólo se intentaba si había
+            // router e IP — de modo que un cliente SIN router asignado salía de
+            // aquí con router_ok=true y el cajero leía "reactivado
+            // automáticamente" sobre un servicio que nadie había tocado. El
+            // pago entraba, el cliente se iba, y seguía sin internet.
+            $outcome = $this->attemptReconnection($profile, $context);
+
+            $result['outcome']   = $outcome;
+            $result['router_ok'] = $outcome === ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE;
 
             // El estado de la BD se corrige SIEMPRE que el saldo quedó en cero,
             // haya confirmado el router o no. Dejarlo en status=false es peor que
@@ -1393,22 +1469,193 @@ class BillingService
                 ]);
             }
 
+            // `reactivated` significa "se levantó el corte en la BD", NO "el
+            // servicio está arriba". Los dos hechos se separaron justamente
+            // porque se venían informando como uno: quien quiera saber si el
+            // equipo quedó reconectado mira `outcome`.
             $result['reactivated'] = true;
-            $result['message'] = $routerOk
-                ? 'El cliente estaba suspendido y quedó reactivado automáticamente al no tener saldo vencido.'
-                : 'El cliente quedó activo en el sistema, pero el router NO confirmó la reconexión. '
-                    . 'Revísalo en Acciones masivas → reconexiones fallidas.';
+            $result = array_merge($result, ReconnectionOutcome::describe($outcome));
 
             Log::info("Billing: auto-reconnect customer {$customerId} after payment cleared overdue balance "
-                . '(router ' . ($profile->router_id ?? 'n/a') . '). router_ok=' . ($routerOk ? '1' : '0')
+                . '(router ' . ($profile->router_id ?? 'n/a') . "). outcome={$outcome}"
                 . ', cut_in_db=' . ($cutInDb ? '1' : '0')
                 . ', cut_on_router=' . ($cutOnRouter ? '1' : '0'));
         } catch (\Throwable $e) {
+            // El detalle crudo se queda en el log del servidor. Al cajero le
+            // vuelve el motivo normalizado: nunca la excepción, que puede
+            // arrastrar direcciones, usuarios o respuestas del equipo.
             Log::error("Billing: auto-reconnect after payment failed for customer {$customerId}: {$e->getMessage()}");
-            $result['message'] = 'No se pudo verificar la reconexión automática del cliente: ' . $e->getMessage();
+            $result = array_merge(
+                $result,
+                ReconnectionOutcome::describe(ReconnectionOutcome::PENDIENTE_ERROR_MIKROTIK)
+            );
         }
 
+        $result['log_id'] = $result['pending']
+            ? optional(SuspensionActionLog::pendingReconnectionFor($customerId))->id
+            : null;
+
         return $result;
+    }
+
+    /**
+     * Ejecuta (o descarta con motivo) la reconexión de un cliente en su equipo.
+     *
+     * Toda la política de "¿se puede?" vive en ReconnectionPreflight, que se
+     * consulta ANTES de abrir nada: sin router, sin credenciales o con el
+     * equipo fuera de servicio no se intenta, porque intentar sólo produce un
+     * timeout genérico que el operador interpreta mal.
+     *
+     * Serializado por cliente: dos reconexiones simultáneas del mismo servicio
+     * (doble click, pago y reintento a la vez) pelean por el mismo secret/lista
+     * del RouterBoard, que es justo la carrera que produce falsos positivos.
+     *
+     * @param array $context {source?: string, correlation_id?: string, actor_id?: int}
+     * @return string Código de ReconnectionOutcome.
+     */
+    public function attemptReconnection(CustomerProfile $profile, array $context = []): string
+    {
+        $customerId = (int) $profile->user_id;
+
+        // Impedimentos conocidos: se registran como pendientes y no se intenta.
+        $blocked = app(ReconnectionPreflight::class)->check($profile);
+        if ($blocked !== null) {
+            $this->recordReconnectionOutcome($profile, $blocked, attempted: false);
+            $this->logReconnection($customerId, $blocked, $context);
+
+            return $blocked;
+        }
+
+        try {
+            $outcome = Cache::lock("reconnect-customer-{$customerId}", 60)->block(
+                10,
+                function () use ($profile, $customerId) {
+                    $ok = app(RouterProvisioningService::class)->unsuspendCustomer(
+                        $customerId,
+                        (int) $profile->router_id,
+                        ['reason' => SuspensionActionLog::REASON_AUTO_RECONNECT]
+                    );
+
+                    return $ok
+                        ? ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE
+                        : ReconnectionOutcome::PENDIENTE_ERROR_MIKROTIK;
+                }
+            );
+        } catch (LockTimeoutException $e) {
+            // Otra reconexión del MISMO servicio sigue en curso. No se intenta
+            // por encima de ella y, sobre todo, no se canta éxito: queda
+            // pendiente de verificar. Se reutiliza el código de error de equipo
+            // en lugar de inventar un estado nuevo; lo que el operador tiene
+            // que hacer —verificar y reintentar— es idéntico.
+            Log::warning("Billing: reconexión ya en curso para el cliente {$customerId}; no se lanza una segunda.");
+            $this->recordReconnectionOutcome($profile, ReconnectionOutcome::PENDIENTE_ERROR_MIKROTIK, attempted: false);
+            $this->logReconnection($customerId, ReconnectionOutcome::PENDIENTE_ERROR_MIKROTIK, $context);
+
+            return ReconnectionOutcome::PENDIENTE_ERROR_MIKROTIK;
+        }
+
+        $this->recordReconnectionOutcome($profile, $outcome, attempted: true);
+        $this->logReconnection($customerId, $outcome, $context);
+
+        return $outcome;
+    }
+
+    /**
+     * Rastro en el log del servidor de CADA intento de reconexión.
+     *
+     * Lleva el origen y el `correlation_id` porque el mismo desenlace significa
+     * cosas distintas según de dónde venga: un `pendiente_error_mikrotik` desde
+     * un pago es un cliente en el mostrador esperando; el mismo código desde un
+     * reintento manual es un operador que ya sabe del problema. Sin el origen,
+     * las dos líneas son idénticas.
+     */
+    private function logReconnection(int $customerId, string $outcome, array $context): void
+    {
+        Log::info('Billing: reconexión', [
+            'customer_id'    => $customerId,
+            'outcome'        => $outcome,
+            'source'         => $context['source'] ?? 'payment',
+            'actor_id'       => $context['actor_id'] ?? null,
+            'correlation_id' => $context['correlation_id'] ?? null,
+        ]);
+    }
+
+    /**
+     * Deja el desenlace donde la ficha del cliente pueda encontrarlo después.
+     *
+     * Sin tabla nueva: es el mismo suspension_action_logs que ya lleva el ciclo
+     * de cortes. RouterProvisioningService ya abre su fila cuando llega a
+     * intentar; aquí se le estampa el `outcome`, y se CREA la fila en los casos
+     * que ni siquiera llegan al equipo (sin router asignado, sin credenciales),
+     * que antes no dejaban rastro de ningún tipo — el cliente quedaba sin
+     * servicio y sin una sola línea que lo dijera.
+     *
+     * router_id va nullable a propósito en esa tabla: el caso "sin router
+     * asignado" no tiene ninguno que anotar y es justamente el que hay que ver.
+     *
+     * @param bool $attempted ¿Se llegó a tocar el equipo en ESTE ciclo?
+     *        Con true, RouterProvisioningService acaba de abrir/actualizar su
+     *        fila y lo único que falta es estamparle el motivo.
+     *        Con false no se intentó nada (preflight lo frenó, o ya había otra
+     *        reconexión en curso), así que NO se toca ninguna fila existente:
+     *        reescribir un UNSUSPEND antiguo —que pudo ser un éxito real— para
+     *        marcarlo fallido sería falsear la bitácora.
+     */
+    private function recordReconnectionOutcome(
+        CustomerProfile $profile,
+        string $outcome,
+        bool $attempted
+    ): void {
+        try {
+            $customerId = (int) $profile->user_id;
+            $pending    = ReconnectionOutcome::isPending($outcome);
+
+            $log = SuspensionActionLog::where('customer_id', $customerId)
+                ->where('action', SuspensionActionLog::ACTION_UNSUSPEND)
+                ->latest('id')
+                ->first();
+
+            if ($attempted) {
+                // La fila que acaba de usar el intento (RouterProvisioning
+                // reutiliza la abierta del mismo par cliente+equipo). Se pisa
+                // el motivo anterior a propósito: un reintento que SÍ conectó
+                // tiene que borrar el "pendiente" que dejó el intento fallido,
+                // o la alerta se quedaría encendida sobre un caso ya resuelto.
+                if ($log && (int) $log->router_id === (int) $profile->router_id) {
+                    $log->update(['outcome' => $outcome]);
+                    return;
+                }
+            } elseif ($log
+                && ReconnectionOutcome::isPending($log->outcome)
+                && (int) $log->router_id === (int) $profile->router_id) {
+                // Ya hay una pendiente abierta por lo mismo: se actualiza el
+                // motivo en vez de apilar filas idénticas en cada pago.
+                $log->update([
+                    'outcome' => $outcome,
+                    'status'  => SuspensionActionLog::STATUS_FAILED,
+                ]);
+                return;
+            }
+
+            if (!$pending) {
+                return; // un éxito ya quedó registrado por el propio intento
+            }
+
+            SuspensionActionLog::create([
+                'router_id'   => $profile->router_id,
+                'customer_id' => $customerId,
+                'ip'          => $profile->ip_user,
+                'action'      => SuspensionActionLog::ACTION_UNSUSPEND,
+                'reason'      => SuspensionActionLog::REASON_AUTO_RECONNECT,
+                'outcome'     => $outcome,
+                'status'      => SuspensionActionLog::STATUS_FAILED,
+                'attempts'    => 1,
+            ]);
+        } catch (\Throwable $e) {
+            // Registrar el motivo no puede tumbar el pago ni la corrección de
+            // estado. Si esto falla, el desenlace igual viaja en la respuesta.
+            Log::error('Billing: no se pudo registrar el desenlace de la reconexión: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1417,7 +1664,16 @@ class BillingService
      * BD y último log del router — para que el aviso y la acción no se
      * contradigan: si aquí decimos "está suspendido", allá se reconecta.
      *
-     * @return array{is_suspended:bool,service_status:string|null,since:string|null,source:string|null}
+     * Lleva además la reconexión PENDIENTE del cliente, si la hay. Esa es la
+     * que sostiene la alerta en la ficha: el aviso del momento del pago se lo
+     * lleva el cajero al cerrar la pantalla, pero el cliente sigue sin
+     * servicio, así que el problema tiene que seguir visible para quien abra la
+     * ficha mañana. Vive aparte de `is_suspended` porque son cosas distintas:
+     * un cliente puede estar ACTIVO en el sistema y con la reconexión pendiente
+     * en el equipo — de hecho es exactamente el caso que hay que ver.
+     *
+     * @return array{is_suspended:bool,service_status:string|null,since:string|null,
+     *               source:string|null,reconnection:array|null}
      */
     public function suspensionStatusFor(int $customerId): array
     {
@@ -1426,12 +1682,15 @@ class BillingService
             'service_status' => null,
             'since'          => null,
             'source'         => null,
+            'reconnection'   => null,
         ];
 
         $profile = CustomerProfile::where('user_id', $customerId)->first();
         if (!$profile) {
             return $status;
         }
+
+        $status['reconnection'] = $this->pendingReconnectionFor($customerId);
 
         $status['service_status'] = $profile->service_status;
 
@@ -1460,6 +1719,31 @@ class BillingService
         $status['since']        = $cutOnRouter ? optional($latest->created_at)->toDateTimeString() : null;
 
         return $status;
+    }
+
+    /**
+     * La reconexión pendiente vigente de un cliente, lista para pintar.
+     *
+     * Devuelve null cuando no hay nada pendiente — que es el caso normal y el
+     * que debe dejar la pantalla limpia. Lo que sale de aquí va al navegador,
+     * así que lleva el motivo normalizado y la fecha, y NO lleva ip,
+     * credenciales ni el `error_message` del equipo.
+     *
+     * `log_id` sí viaja: es lo que necesita el botón de reintento, y por sí
+     * solo no revela nada (el endpoint que lo consume valida permiso y tenant).
+     */
+    public function pendingReconnectionFor(int $customerId): ?array
+    {
+        $log = SuspensionActionLog::pendingReconnectionFor($customerId);
+        if (!$log) {
+            return null;
+        }
+
+        return array_merge(ReconnectionOutcome::describe($log->outcome), [
+            'log_id'   => $log->id,
+            'since'    => optional($log->updated_at)->toDateTimeString(),
+            'attempts' => (int) $log->attempts,
+        ]);
     }
 
     /**

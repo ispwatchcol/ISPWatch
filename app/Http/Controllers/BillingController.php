@@ -15,6 +15,7 @@ use App\Services\Templates\TemplateRenderer;
 use App\Traits\ExportsCsv;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -656,27 +657,122 @@ class BillingController extends Controller
         $data = $request->all();
         $data['created_by'] = $request->user()?->id;
 
+        // Ata el pago con su intento de reconexión y con las dos entradas que
+        // dejan en audit_logs, para poder reconstruir el caso entero después.
+        $correlacion = (string) Str::uuid();
+        $data['correlation_id'] = $correlacion;
+        $data['source']         = 'payment';
+
         try {
             $payment = $this->billingService->registerPayment($data);
         } catch (\Throwable $e) {
             \Log::error('Error al registrar pago: ' . $e->getMessage(), [
-                'customer_id' => $data['customer_id'] ?? null,
-                'amount'      => $data['amount'] ?? null,
-                'exception'   => get_class($e),
+                'customer_id'    => $data['customer_id'] ?? null,
+                'amount'         => $data['amount'] ?? null,
+                'correlation_id' => $correlacion,
+                'exception'      => get_class($e),
             ]);
             return response()->json([
-                'message' => 'No se pudo registrar el pago: ' . $e->getMessage(),
+                'message'        => 'No se pudo registrar el pago: ' . $e->getMessage(),
+                'correlation_id' => $correlacion,
             ], 500);
         }
 
         // `reactivation` sale del servicio (no es una columna): le dice al cajero
-        // si el cliente estaba cortado y si quedó reconectado. Se agrega como
-        // clave suelta del JSON para no tocar la forma que ya consume el front
-        // (allocations, creator, …).
+        // si el cliente estaba cortado y CÓMO terminó la reconexión. Se agrega
+        // como clave suelta del JSON para no tocar la forma que ya consume el
+        // front (allocations, creator, …).
+        //
+        // El pago ya está guardado y no se revierte pase lo que pase con el
+        // equipo: por eso sigue siendo 201, y el problema del router viaja
+        // dentro del cuerpo en lugar de convertirse en un error HTTP que haría
+        // creer al cajero que el pago no entró.
         $body = $payment->load(['allocations', 'creator:id,name,user_name,user_lastname'])->toArray();
-        $body['reactivation'] = $payment->reactivation;
+        $body['reactivation']   = $payment->reactivation;
+        $body['correlation_id'] = $correlacion;
+
+        // El botón de reintento sólo existe para quien puede ejecutarlo. Se
+        // decide en el servidor: que el front lo esconda no es una protección.
+        $body['reactivation']['can_retry'] = ($payment->reactivation['pending'] ?? false)
+            && (bool) $request->user()?->hasPermission(Permissions::EXECUTE_MASS_ACTIONS);
 
         return response()->json($body, 201);
+    }
+
+    /**
+     * Reintento manual de la reconexión de UN cliente.
+     *
+     * Existe aparte del reintento de `suspension-logs/{id}` porque el caso que
+     * motivó todo esto —cliente sin router asignado— no tiene fila con equipo
+     * que reintentar: el operador arregla la ficha y quiere reintentar por
+     * CLIENTE, no por log.
+     *
+     * Protegido por `execute_mass_actions`, que es el permiso con el que ya se
+     * operan los cortes y reconexiones fallidas. Registrar pagos NO alcanza:
+     * cobrar en el mostrador y escribir en un RouterBoard son atribuciones
+     * distintas.
+     */
+    public function retryReconnection(Request $request, int $customerId)
+    {
+        $tenantId = $request->user()?->tenant_id;
+
+        // Aislamiento por sede: un operador sólo reintenta sobre clientes de su
+        // tenant. Se resuelve contra users, que es donde vive el tenant_id del
+        // cliente, y un cliente de otra sede es indistinguible de uno que no
+        // existe.
+        $customer = \App\Models\User::where('id', $customerId)
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->firstOrFail();
+
+        $profile = \App\Models\CustomerProfile::where('user_id', $customer->id)->firstOrFail();
+
+        $correlacion = (string) Str::uuid();
+
+        // Un servicio, una reconexión a la vez. Si ya hay una corriendo (doble
+        // click, o el pago todavía resolviendo), NO se lanza otra: dos procesos
+        // escribiendo la misma lista del RouterBoard es la carrera que produce
+        // falsos positivos.
+        $lock = Cache::lock("reconnect-retry-{$customer->id}", 60);
+        if (!$lock->get()) {
+            return response()->json([
+                'message'        => 'Ya hay una reconexión en curso para este cliente. Espera a que termine.',
+                'correlation_id' => $correlacion,
+            ], 409);
+        }
+
+        try {
+            $outcome = $this->billingService->attemptReconnection($profile, [
+                'source'         => 'retry',
+                'correlation_id' => $correlacion,
+                'actor_id'       => $request->user()?->id,
+            ]);
+        } finally {
+            $lock->release();
+        }
+
+        \App\Models\AuditLog::log([
+            'tenant_id'   => $tenantId,
+            'user_id'     => $request->user()?->id,
+            'action'      => 'reconnection.retried',
+            'model_type'  => \App\Models\CustomerProfile::class,
+            'model_id'    => $profile->id,
+            'new_values'  => [
+                'customer_id'    => $customer->id,
+                'outcome'        => $outcome,
+                'source'         => 'retry',
+                'correlation_id' => $correlacion,
+            ],
+            'description' => 'Reintento manual de reconexión: '
+                . \App\Support\ReconnectionOutcome::label($outcome),
+        ]);
+
+        return response()->json(array_merge(
+            \App\Support\ReconnectionOutcome::describe($outcome),
+            [
+                'reconnected'    => $outcome === \App\Support\ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE,
+                'correlation_id' => $correlacion,
+            ]
+        ));
     }
 
     // Update Payment

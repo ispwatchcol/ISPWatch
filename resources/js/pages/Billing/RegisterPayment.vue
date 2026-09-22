@@ -79,22 +79,74 @@ const isSuspended = computed(() => suspension.value?.is_suspended === true)
 // Resultado de la reconexión que devuelve el backend junto con el pago.
 const reactivation = computed(() => successInfo.value?.reactivation ?? null)
 
-// Tres desenlaces posibles, cada uno con su color: reconectado (verde), activo
-// en el sistema pero sin confirmación del router (rojo: hay que ir a revisarlo),
-// y sigue cortado porque le quedan vencidas (ámbar).
+// El pago entró; lo que puede haber fallado es la reconexión. Se lee del
+// desenlace normalizado (`pending`) y NO de `reactivated`, que sólo dice que se
+// levantó el corte en la BD: el cliente puede figurar activo en el sistema y
+// seguir sin servicio porque nadie tocó el equipo. Confundir esas dos cosas es
+// lo que hacía que un cliente sin router asignado viera el aviso verde.
+const reconnectionPending = computed(() => reactivation.value?.pending === true)
+
+// Éxito real: el equipo confirmó. Cualquier otra cosa no se pinta de verde.
+const reconnectionOk = computed(() => reactivation.value?.router_ok === true)
+
+// Tres desenlaces, tres colores: reconectado (verde), pendiente por un problema
+// del equipo (rojo, hay que ir a resolverlo), y sigue cortado porque le quedan
+// facturas vencidas (ámbar, no es una falla).
 const reactivationClasses = computed(() => {
-    const r = reactivation.value
-    if (!r) return ''
-    if (r.reactivated && r.router_ok) return 'bg-emerald-100/60 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300'
-    if (r.reactivated)                return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+    if (reconnectionOk.value)      return 'bg-emerald-100/60 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300'
+    if (reconnectionPending.value) return 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300'
     return 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300'
 })
 
-const reactivationIcon = computed(() => {
-    const r = reactivation.value
-    if (r?.reactivated && r?.router_ok) return 'bi-wifi'
-    return 'bi-exclamation-triangle-fill'
-})
+const reactivationIcon = computed(() =>
+    reconnectionOk.value ? 'bi-wifi' : 'bi-exclamation-triangle-fill'
+)
+
+// ── Reintento de reconexión ──────────────────────────────────────────
+// El botón sólo aparece si el BACKEND dice que este usuario puede (can_retry).
+// Esconderlo en el front no protege nada; la puerta está en el endpoint, que
+// exige `execute_mass_actions`. Esto es sólo no ofrecer lo que no se puede.
+const canRetryReconnection = computed(() => reactivation.value?.can_retry === true)
+const retrying   = ref(false)
+const retryDone  = ref(null)   // { ok: bool, message: string }
+
+const retryReconnection = async () => {
+    // Guardia contra el doble click: el servidor también rechaza reintentos
+    // simultáneos (409), pero no hay razón para llegar a pedírselo.
+    if (retrying.value) return
+
+    retrying.value = true
+    retryDone.value = null
+    try {
+        const { data } = await apiClient.post(
+            `/billing/customers/${successInfo.value.customer_id}/retry-reconnection`
+        )
+        retryDone.value = {
+            ok: data.reconnected === true,
+            message: data.reconnected
+                ? 'Servicio reactivado correctamente.'
+                : `${data.message} ${data.action}`.trim(),
+        }
+        // Al cerrar el caso, el aviso deja de tener sentido.
+        if (data.reconnected && successInfo.value?.reactivation) {
+            successInfo.value.reactivation = {
+                ...successInfo.value.reactivation,
+                pending: false,
+                router_ok: true,
+                can_retry: false,
+            }
+        }
+    } catch (e) {
+        retryDone.value = {
+            ok: false,
+            message: e.response?.status === 409
+                ? 'Ya hay una reconexión en curso para este cliente. Espera a que termine.'
+                : (e.response?.data?.message || 'No se pudo reintentar la reconexión.'),
+        }
+    } finally {
+        retrying.value = false
+    }
+}
 
 // Aviso de reconexión que se suma al modal de confirmación cuando el cliente
 // está cortado: pagar lo reconecta, y el cajero lo confirma sabiéndolo.
@@ -333,12 +385,47 @@ onMounted(() => {
                             </div>
                         </div>
 
-                        <!-- Resultado de la reconexión automática -->
+                        <!--
+                            Resultado de la reconexión automática.
+
+                            El pago siempre se dio por bueno arriba; esto dice
+                            si el SERVICIO quedó restablecido, que es otra cosa.
+                            Cuando queda pendiente no es un matiz de color: el
+                            cliente se va del mostrador creyendo que ya tiene
+                            internet, así que el aviso ocupa espacio, dice el
+                            motivo y dice qué hacer.
+                        -->
                         <div v-if="reactivation?.was_suspended"
-                            class="mt-4 flex items-start gap-3 rounded-2xl px-4 py-3 border"
-                            :class="reactivationClasses">
-                            <v-icon :name="reactivationIcon" class="w-5 h-5 shrink-0 mt-0.5" />
-                            <p class="text-sm">{{ reactivation.message }}</p>
+                            class="mt-4 rounded-2xl px-4 py-3 border"
+                            :class="reactivationClasses"
+                            role="alert"
+                            :aria-live="reconnectionPending ? 'assertive' : 'polite'">
+                            <div class="flex items-start gap-3">
+                                <v-icon :name="reactivationIcon" class="w-5 h-5 shrink-0 mt-0.5" />
+                                <div class="space-y-1">
+                                    <p v-if="reconnectionPending" class="text-sm font-semibold uppercase tracking-wide">
+                                        El servicio NO quedó reactivado
+                                    </p>
+                                    <p class="text-sm">{{ reactivation.message }}</p>
+                                    <p v-if="reactivation.action" class="text-sm font-medium">
+                                        {{ reactivation.action }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Reintento, sólo para quien tiene permiso. -->
+                            <div v-if="canRetryReconnection" class="mt-3 pl-8">
+                                <button type="button"
+                                    class="px-4 py-2 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    :disabled="retrying"
+                                    @click="retryReconnection">
+                                    {{ retrying ? 'Reintentando…' : 'Reintentar reconexión' }}
+                                </button>
+                            </div>
+
+                            <p v-if="retryDone" class="mt-2 pl-8 text-sm font-medium">
+                                {{ retryDone.message }}
+                            </p>
                         </div>
                     </div>
                 </div>
