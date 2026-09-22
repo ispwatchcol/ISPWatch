@@ -8,6 +8,12 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Un desfase de tres millones, y ninguna forma de saber de quién era la culpa (2026-09-22, § 73):**
+  un cliente reportó un descuadre contra su Excel y no teníamos con qué responder si el error era
+  nuestro o suyo. Nuevo `billing:audit-books` (catorce invariantes contables, lector puro) y
+  `billing:statement` (el mes bajo todos los criterios defendibles, con el precio de cada
+  diferencia). Por el camino: el verificador de dinero huérfano estaba mal planteado y denunciaba
+  a quien gastara su saldo a favor, y el excedente cobrado en una instalación se perdía de los libros.
 - **«No se pudo crear la queue» cuando la queue nunca se intentó (2026-09-22, § 71):** el
   router rechazaba las credenciales del CORE y el panel lo reportaba como un fallo del comando.
   Tercer caso propio en `DetectsSshExecFailures` con su diagnóstico, y de paso el escapado de la
@@ -7463,3 +7469,167 @@ Para una clave sin esos caracteres el comando emitido es byte a byte el de siemp
 RouterOS bloquea la IP de origen (la del CORE) por *login protection*, y el síntoma cambia a
 «no conecta», que es otro problema — y el operador acaba diagnosticando el segundo mientras
 el primero sigue ahí.
+
+---
+
+## 72. El manual no mencionaba un método de control que el formulario sí ofrecía — 2026-09-22
+
+**Cómo apareció.** Un cliente que está montando su propio FreeRADIUS escribió con ocho
+preguntas sobre la opción **RADIUS (AAA)** de la ficha del router: si deja el equipo bajo
+gestión externa, qué campos siguen siendo obligatorios, qué deja de ejecutar ISPWatch, y
+cómo funciona entonces el corte por mora. Preguntas razonables, todas respondibles.
+
+El problema no era la respuesta. Era que **el manual no contestaba ninguna**. El artículo
+del Centro de Ayuda «El método de control del router» listaba **cinco** métodos: RADIUS
+(AAA) no aparecía, pese a estar en el formulario desde el § 32 (2026-08-14). Un mes y
+medio con una opción visible en la interfaz y ausente de la ayuda.
+
+**Lo que estaba bien en el código.** La revisión confirmó que el comportamiento ya era
+correcto y no hubo que tocarlo: `provisionByControlMode()` resuelve RADIUS y retorna antes
+de abrir nada, y la compuerta `isExternallyManaged()` de `RouterProvisioningService` cubre
+las seis puertas de suspender/reconectar. Lo único que faltaba era contarlo.
+
+**Un error de fondo en `MANUAL_USUARIO.md`.** Decía que con RADIUS «el router pregunta e
+**ISPWatch responde**». Eso describe el diseño de `rlm_rest` que se archivó en el § 33,
+no el actual: hoy responde el servidor del ISP y ISPWatch se queda con lo comercial. Es la
+clase de frase que hace que un integrador diseñe su parte al revés, así que se corrigió.
+
+**Dónde va la documentación.** En el **Centro de Ayuda de la aplicación**, que es donde el
+operador la busca — no en un documento de arquitectura. Artículo nuevo «RADIUS (AAA):
+cuando otro sistema gestiona la red», ubicado justo detrás del artículo de métodos de
+control: quien acaba de leer los seis es exactamente quien necesita este.
+
+**La trampa que casi deja el trabajo sin efecto.** La primera versión de la migración daba
+por existente la categoría «Routers y Red» y salía sin hacer nada si faltaba. Pero esa
+categoría la crea `HelpCenterSeeder`, **que no corre en producción** — allí el Centro de
+Ayuda sólo tiene lo que alguna migración haya sembrado. La migración habría sido un no-op
+silencioso justo en el único entorno donde alguien lee el manual. Lo destaparon las pruebas,
+no la lectura del código. Ahora la categoría y el artículo de método de control se crean si
+faltan, y sus datos viajan en el archivo compartido.
+
+**Reescribir contenido existente, sin pisar al usuario.** Las migraciones del Centro de
+Ayuda no sobrescriben por regla: si un superadmin editó un artículo, su versión manda. Pero
+aquí había que corregir uno ya publicado. La condición lo resuelve sin excepción a la regla:
+se actualiza **sólo si el texto guardado no menciona RADIUS**. Si alguien ya lo documentó por
+su cuenta, no se toca. Va con `UPPER(content) NOT LIKE` y no `ILIKE`, que sqlite no conoce y
+reventaría la suite entera (§ tests sobre sqlite).
+
+**Deuda que se documentó en vez de esconder.** Con RADIUS activo, el formulario del router
+**sigue exigiendo** IP, usuario, contraseña y firmware, que en ese modo no se usan jamás.
+Se optó por decirlo en el manual («puedes poner valores de relleno») antes que dejar al
+operador descubriéndolo contra un 422. El arreglo real —hacerlos condicionales al modo— está
+anotado en `MEJORAS_RECOMENDADAS.md`; el trait `NormalizesRouterControlMode` ya expone
+`normalizedControlMode()` precisamente para eso.
+
+**Lo que sigue sin resolverse.** ISPWatch ordena el corte y publica el evento, pero **no puede
+verificar que se aplicó**: la Partner API es de sólo lectura y no hay canal de vuelta. El
+manual ahora lo dice con todas las letras en vez de dejarlo implícito. Sigue siendo la
+contrapartida abierta del § 33.
+
+---
+
+## 73. Un desfase de tres millones, y ninguna forma de saber de quién era la culpa — 2026-09-22
+
+**El detonante.** Chaguaní reportó un descuadre de ~$3.000.000 entre su Excel y la plataforma.
+La pregunta operativa no era cuánto habíamos facturado: era **si el error era nuestro o suyo**,
+y no teníamos ninguna herramienta para responderla. Sin eso, la única salida es discutir cifras
+a ciegas contra una planilla que no controlamos.
+
+No somos un software contable, pero llevamos las cuentas del ISP. Esa distinción no exime de
+cuadrar: exime de emitir documentos fiscales, no de que el dinero recibido esté donde dice.
+
+### El modelo de dinero, que estaba sin escribir
+
+Auditar exigió primero **escribir la ecuación** que el módulo cumple sin haberla enunciado
+nunca. Una factura se salda por cuatro caminos distintos, y **sólo uno deja fila en
+`payment_allocations`**:
+
+| Camino | Dónde queda |
+|---|---|
+| Pago asignado | `payment_allocations.amount` |
+| Saldo a favor aplicado | `customer_credits` (`applied`, negativo) — **no** crea asignación |
+| Faltante de un abono parcial | `invoices.carried_out` → `invoice_carryovers` |
+| Anulación | `balance_due = 0`, `carried_out = 0` |
+
+De ahí:
+
+```
+balance_due == total − asignado − saldo_aplicado − arrastrado_fuera
+```
+
+`carried_in` **no** entra: el arrastre que cobra la factura ya se sumó a `total` como un ítem,
+y contarlo otra vez lo duplicaría.
+
+### El verificador que teníamos estaba mal planteado
+
+`billing:verify-orphan-payments` comprobaba `recibido == asignado + credit_balance`, contra el
+**saldo actual**. Pero `applyCreditToInvoice()` baja `balance_due` y baja `credit_balance` **sin
+crear asignación**: a partir de ese momento ese dinero no está en ninguno de los dos términos y
+la resta da positivo.
+
+Es decir: **denunciaba a todo cliente que alguna vez hubiera gastado su saldo a favor**, por el
+importe exacto que gastó. No era un descuadre — era el saldo a favor funcionando como se
+diseñó — y esos falsos positivos enterraban a los de verdad. El término correcto es lo
+**ganado** (`earned` − `reversed`), que sí es estable: un peso que entra o se aplica a una
+factura, o se vuelve saldo.
+
+Esto obliga a releer con cautela el hallazgo previo de «9 clientes con $1.252.000 fuera del
+pipeline»: una parte podía ser saldo a favor legítimamente consumido.
+
+### Lo que se construyó
+
+**`BooksAuditService` + `billing:audit-books`** — catorce invariantes, lector puro, se puede
+correr contra producción sin riesgo. `C1` ecuación de la factura · `C2` anuladas con saldo vivo ·
+`C3` factura contra sus renglones · `C4` estado vs saldo · `C5` pagos sobre-asignados ·
+`C6` caja del cliente · `C7` libro de saldo vs su caché · `C8` **fugas entre empresas** ·
+`C9` asignaciones huérfanas · `C10` pagos que el panel no ve · `C11` dinero sin titular ·
+`C12` números repetidos · `C13` arrastre incoherente · `C14` posibles duplicados de caja.
+
+Agendado a las 08:30 con `--mail --warnings-ok`: **sólo los críticos mandan correo**. Un aviso
+alertando todas las noches acaba silenciando el comando entero, y con él los críticos.
+
+**`BooksStatementService` + `billing:statement`** — el que responde la pregunta de Chaguaní.
+En vez de dar una cifra y discutirla, calcula el mes bajo **todos los criterios defendibles** y
+**pone precio a cada diferencia**: anuladas incluidas o no, por periodo o por emisión, sólo
+mensualidades, por fecha de pago o de digitación, recaudos sin titular. Con `--target=3000000`
+señala cuál explica el desfase reclamado.
+
+Si una coincide, es criterio y no defecto, y la discusión termina en un minuto sin tocar la
+base. Si ninguna, el problema es nuestro y toca `billing:audit-books`.
+
+### Dos defectos reales encontrados por el camino
+
+**El excedente del cobro de una instalación se perdía.** `syncPayment()` asignaba
+`min(recibido, total)` y **la diferencia no iba a ninguna parte**: ni asignada ni acreditada.
+El instalador que cobraba $150.000 por una instalación de $100.000 dejaba $50.000 fuera de los
+libros. Ahora `syncExcessCredit()` los acredita, y cuadra contra lo ya acreditado para que
+corregir el cobro varias veces no sume saldo de nuevo. Bajarlo sólo devuelve lo que ninguna
+factura consumió — misma doctrina que `reverseForPayment()` y los arrastres.
+
+**Recalcular el saldo de una instalación borraba el crédito aplicado.** `balance_due = total −
+allocated` ignoraba el saldo a favor, que no deja asignación: el cliente volvía a deber algo ya
+pagado. Ahora resta también `customer_credits.applied`.
+
+### La trampa que casi vuelve mudo al auditor
+
+`whereRaw('ABS(...) > ?', [0.01])` **no funciona en SQLite**: PDO manda los float como texto y
+SQLite ordena todo número por debajo de cualquier texto, así que la comparación da **siempre
+falso**. Con `<=`, siempre verdadero.
+
+El auditor no fallaba: **se volvía mudo**, que en un auditor es peor. Las pruebas de libros
+sanos pasaban porque la consulta no devolvía nunca nada. La tolerancia va ahora **interpolada**
+como literal (`'… > ' . self::TOLERANCIA`), nunca atada. Se revisó el resto del repositorio: los
+demás `whereRaw` con binding son de texto (`LOWER(x) = ?`) y no están afectados.
+
+**Regla que queda:** ningún umbral numérico va como binding en SQL crudo.
+
+### Pruebas
+
+29 nuevas. La mitad que más importa es la de **silencio**: un cliente que gastó su saldo, un
+abono parcial con arrastre, una factura anulada y una instalación con excedente corregido a la
+baja **no producen ni un hallazgo**. Un auditor que grita por movimientos legítimos se acaba
+silenciando. Suite completa: 1458 en verde.
+
+`C12` se probó al revés de lo previsto: el número repetido ya lo impide un índice único
+`(tenant_id, number)`, así que la prueba verifica **esa** defensa —la que de verdad protege la
+identidad fiscal del documento— y `C12` queda como red por si el índice falta en algún esquema.
