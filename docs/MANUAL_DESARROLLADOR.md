@@ -158,7 +158,8 @@ $ php artisan migrate
 
 Pasan sin preguntar el diagnóstico (`migrate:status`, `db:show`, `db:table`, `db:monitor`,
 `about`, `list`), el andamiaje que no toca la base (`make:`, `config:`, `route:`, `view:`,
-`storage:`, `key:`, `optimize`) y **`test`** — PHPUnit fuerza `sqlite :memory:` y tiene su
+`storage:`, `key:`, `optimize`), **`inventory:duplicate-identifiers`** —su razón de existir es
+mirar producción antes de migrar (KAN-100)— y **`test`** — PHPUnit fuerza `sqlite :memory:` y tiene su
 propia salvaguarda en `tests/TestCase.php`. `cache:clear` **sí** se frena: con
 `CACHE_STORE=database` vacía la caché de producción.
 

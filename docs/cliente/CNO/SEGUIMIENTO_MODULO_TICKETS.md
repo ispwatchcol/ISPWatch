@@ -687,6 +687,52 @@ definición operativa el 11/09/2026 y la §18 ya lo decía: el **Supervisor** (�
 especial»). Se implementa como el permiso `ticket_close_override`, que **no se concede a nadie
 por migración** — asignarlo es configuración del cliente.
 
+### PR #4b · Correctivo · Habilitar la reapertura
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Cerrar el hueco que el humo del PR #4 encontró: la reapertura era inalcanzable |
+| **Migraciones** | `2026_09_21_000002_grant_ticket_reopen_to_admin_roles` (sólo datos) |
+| **Pruebas** | `tests/Feature/Support/TicketReopenTest.php` — 15 pruebas |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Qué pasó.** El ticket #39 se cerró bien y el historial mostraba las transiciones y los
+timestamps, pero un Administrador no encontraba el botón «Reabrir».
+
+**Causa raíz.** El PR #4 declaró el endpoint, el permiso y la matriz, pero **no repartió
+`ticket_reopen` a ningún rol**. Medido en la base antes de corregir: los cinco roles `admin`
+tenían **17 de los 20** permisos `ticket_*`, y faltaban exactamente los tres que ninguna
+migración llegó a repartir — `ticket_reopen`, `ticket_close_override` y
+`ticket_manage_catalogs`.
+
+No era un fallo de interfaz: la pantalla hacía lo correcto —no ofrecer lo que la API va a
+rechazar con 403— pero sin decir por qué. Y el bypass de superadministrador no salvaba el caso,
+porque sólo aplica a `role_id == 1` y los administradores de cada ISP tienen otro id.
+
+**Qué se corrigió.**
+
+1. **Migración idempotente** que concede `ticket_reopen` a los roles `code = 'admin'`. No a
+   `staff` ni a `technician`, y sin tocar los roles con comodín.
+2. **La reapertura queda explícita en la matriz**, en una tabla propia
+   (`TicketWorkflow::REAPERTURA`) y **no** en la matriz general: si `cerrado → reabierto`
+   estuviera ahí, `PATCH .../status` la aceptaría y cualquiera con `ticket_transition` reabriría
+   sin permiso y sin motivo. La transición genérica ahora rechaza ese destino con un mensaje que
+   dirige al endpoint correcto.
+3. **`GET .../transitions` dice por qué no se puede reabrir** (`reopen_blocked_by`:
+   `permission` / `not_closed` / `archived`), y la pantalla lo muestra en vez de esconder la
+   tarjeta entera. Es lo que habría convertido este fallo en un aviso legible en lugar de en un
+   botón ausente.
+
+**`ticket_close_override` NO se reparte, a conciencia.** Autoriza cerrar **incumpliendo** las
+reglas del §15; repartirlo por migración sería tomar por el cliente una decisión que el §18 le
+asigna al Supervisor. Queda anotado como **P-52**: hay que asignarlo desde la pantalla de roles
+a quien el ISP designe, o el cierre especial sigue inalcanzable.
+
+**Lo que no cambia:** ni los estados, ni la matriz general, ni el contrato del integrador
+—`reabierto` equivale a `in_progress`—, ni los timestamps. `closed_at` **se conserva** al
+reabrir, porque el §19.5 pide que los timestamps no se sobrescriban y la fecha de aquel cierre
+sigue siendo un hecho.
+
 ### PR #5 · Intervenciones
 
 | Campo | Detalle |
@@ -865,3 +911,4 @@ por migración** — asignarlo es configuración del cliente.
 | 2026-09-11 | **Confirmación de CNO por chat.** Aprobado el **archivado reversible y auditado** (D-10) para Administradores y Propietarios; **cerrada D-06** (subcausas sólo como texto); **confirmados** estados y transiciones; **delegadas** en el equipo D-09, D-11, D-12 y D-13; **evidencias accesibles** ratificado; **retención sin definir**, con instrucción de no purgar (D-05 sigue parcial). Registrado el supuesto **S-1**: en ISPWatch **no existe el rol «Propietario»** | David Gómez | *(rama `david-tickets-archivar-expedientes`)* |
 | 2026-09-13 | **PR C implementado**: archivado reversible y auditado de tickets (`deleted_at` + `archived_by` + `archived_reason`), con motivo obligatorio, doble confirmación escribiendo el número, bloqueo de tickets activos salvo duplicado/error de registro y bloqueo con cargos sin anular. Eventos `ticket_archived` / `ticket_restored`. Listado de archivados y restauración desde la interfaz. **El PR D queda absorbido**. Detectada y anotada la deuda **P-48** | David Gómez | *(PR abierto)* |
 | 2026-09-19 | **PR #4 implementado**: workflow formal de tickets. 9 estados del flujo + 9 auxiliares de la §7 sembrados literales; matriz explícita de transiciones; el `PUT` deja de mover el estado; propuesta de cierre, cierre con requisitos del §15, cierre especial auditado y reapertura, cada uno con su permiso. Los cuatro estados viejos se conservan como `legacy` con equivalencia, así que **el contrato del integrador no cambia**. **F1-04 pasa a cumplido; F1-10 queda parcial** (3 de las 10 reglas de cierre son exigibles con el modelo actual). **D-03 deja de bloquear** | David Gómez | *(PR abierto)* |
+| 2026-09-21 | **Correctivo de reapertura**: el humo del PR #4 encontró que un Administrador no podía reabrir el ticket #39. Causa raíz: `ticket_reopen` nunca se repartió —los roles `admin` tenían 17 de 20 permisos `ticket_*`—. Migración idempotente para `code = 'admin'`; la pareja `cerrado → reabierto` queda explícita en `TicketWorkflow::REAPERTURA` sin abrir la transición genérica; `GET .../transitions` ahora dice **por qué** una acción no está disponible. `ticket_close_override` sigue sin repartir a conciencia (**P-52**) | David Gómez | *(PR abierto)* |

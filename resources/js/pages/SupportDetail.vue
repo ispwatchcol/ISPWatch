@@ -96,13 +96,13 @@
                  duplica en JavaScript, porque una segunda copia se
                  desincroniza y el panel acaba ofreciendo lo que la API rechaza. -->
             <div
-                v-if="!ticket.is_archived && (workflow.transitions.length || algunaAccion)"
+                v-if="!ticket.is_archived && (workflow.transitions.length || algunaAccion || workflow.isTerminal)"
                 class="mb-6 rounded-xl bg-white p-6 shadow-md dark:bg-gray-800"
             >
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h3 class="text-lg font-bold text-gray-800 dark:text-white">Ciclo de vida</h3>
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-gray-700 dark:text-slate-200">
-                        {{ statusLabel(ticket.status) || ticket.status }}
+                        {{ workflow.statusLabel || statusLabel(ticket.status) || ticket.status }}
                     </span>
                 </div>
 
@@ -119,6 +119,31 @@
                     <ul class="mt-1 list-inside list-disc text-xs text-amber-800 dark:text-amber-300">
                         <li v-for="falta in workflow.closureRequirements.missing" :key="falta">{{ falta }}</li>
                     </ul>
+                </div>
+
+                <!--
+                  Un ticket cerrado sin acciones disponibles NO se queda mudo.
+                  Antes la tarjeta entera desaparecía y el operador no tenía
+                  forma de saber si le faltaba un permiso, si el estado no lo
+                  admitía o si la pantalla estaba rota. El motivo lo da el
+                  servidor, que es el único que conoce los permisos.
+                -->
+                <div
+                    v-if="!workflow.transitions.length && !algunaAccion"
+                    class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-gray-700 dark:bg-gray-900/40"
+                >
+                    <p class="text-sm text-slate-700 dark:text-slate-200">
+                        Este ticket está <strong>{{ workflow.statusLabel || statusLabel(ticket.status) }}</strong>
+                        y no tiene acciones disponibles para ti.
+                    </p>
+                    <p v-if="workflow.reopenBlockedBy === 'permission'" class="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                        Reabrirlo exige el permiso <strong>«Tickets · reabrir»</strong>
+                        (<code class="rounded bg-slate-200 px-1 dark:bg-gray-700">{{ workflow.reopenPermission }}</code>).
+                        Pídeselo a quien administre los roles.
+                    </p>
+                    <p v-else-if="workflow.reopenBlockedBy === 'archived'" class="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                        Está archivado: restáuralo antes de volver a trabajarlo.
+                    </p>
                 </div>
 
                 <!-- Transiciones ordinarias -->
@@ -1605,6 +1630,13 @@ const workflow = ref({
     transitions: [],
     actions: { propose_closure: false, close: false, close_exception: false, reopen: false },
     closureRequirements: { missing: [], complete: true },
+    // `isTerminal` y `reopenBlockedBy` los decide el servidor: la pantalla no
+    // conoce ni la matriz ni los permisos efectivos, y adivinarlos fue
+    // justamente lo que dejó al operador sin saber por qué no podía reabrir.
+    isTerminal: false,
+    statusLabel: '',
+    reopenBlockedBy: null,
+    reopenPermission: 'ticket_reopen',
 })
 
 const algunaAccion = computed(() => Object.values(workflow.value.actions).some(Boolean))
@@ -1620,12 +1652,20 @@ const cargarWorkflow = async () => {
                 missing: data.closure_requirements?.missing ?? [],
                 complete: data.closure_requirements?.complete ?? true,
             },
+            isTerminal: data.is_terminal ?? false,
+            statusLabel: data.status_label ?? '',
+            reopenBlockedBy: data.reopen_blocked_by ?? null,
+            reopenPermission: data.reopen_permission ?? 'ticket_reopen',
         }
     } catch (err) {
         console.error('Error al cargar las acciones del ticket:', err)
         // Sin datos, no se ofrece nada. Es la experiencia segura: pintar
         // botones a ciegas terminaría en 422 delante del operador.
-        workflow.value = { transitions: [], actions: {}, closureRequirements: { missing: [], complete: true } }
+        workflow.value = {
+            transitions: [], actions: {},
+            closureRequirements: { missing: [], complete: true },
+            isTerminal: false, statusLabel: '', reopenBlockedBy: null, reopenPermission: 'ticket_reopen',
+        }
     }
 }
 
