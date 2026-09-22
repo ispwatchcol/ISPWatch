@@ -140,6 +140,10 @@ class PartnerSupportController extends PartnerController
                 'customer_installations.additional_charges',
                 'customer_installations.discount',
                 'customer_installations.payment_received',
+                // Sin esto, una visita de garantía viaja como una orden de
+                // $0 y el integrador no puede distinguirla de una a la que
+                // todavía no le han puesto precio.
+                'customer_installations.no_charge',
                 'customer_installations.created_at',
                 'customer_installations.updated_at',
             ]);
@@ -181,6 +185,7 @@ class PartnerSupportController extends PartnerController
             'additional_charges' => $row->additional_charges,
             'discount'           => $row->discount,
             'payment_received'   => $row->payment_received,
+            'no_charge'          => (bool) $row->no_charge,
             'created_at'         => $row->created_at,
             'updated_at'         => $row->updated_at,
         ]);

@@ -70,6 +70,13 @@ class SupportTicketHistory extends Model
     /** Motivo escrito en una transición ordinaria, cuando quien la hace lo da. */
     public const TRANSITION_NOTE   = 'transition_note';
 
+    /**
+     * Se decidió que la visita no se le cobra al cliente, o se deshizo esa
+     * decisión. Evento propio y no un `field_changed` cualquiera: es dinero
+     * perdonado, y tiene que poder buscarse sin leer el expediente entero.
+     */
+    public const NO_CHARGE         = 'no_charge_changed';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

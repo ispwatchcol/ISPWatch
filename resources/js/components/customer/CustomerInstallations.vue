@@ -66,6 +66,24 @@
           <textarea v-model="form.notes" rows="3" placeholder="Notas adicionales para la instalación..."
             class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
         </div>
+
+        <!-- Visita que no se le cobra al cliente -->
+        <div class="sm:col-span-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input v-model="form.no_charge" type="checkbox"
+              class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+            <span>
+              <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+              <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                Mantenimiento o garantía. Los equipos se descuentan igual del inventario y siguen siendo
+                gasto de la empresa, pero esta orden no genera factura.
+              </span>
+            </span>
+          </label>
+          <input v-if="form.no_charge" v-model="form.no_charge_reason" type="text" maxlength="255"
+            placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+            class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
       </div>
 
       <div v-if="formError" class="mt-3 text-sm text-red-600 dark:text-red-400">{{ formError }}</div>
@@ -104,6 +122,11 @@
             <div class="flex flex-wrap items-center gap-2 mb-2">
               <span :class="statusBadge(inst.status)" class="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase">
                 {{ inst.status }}
+              </span>
+              <span v-if="inst.no_charge"
+                :title="inst.no_charge_reason || 'Esta orden no se le cobra al cliente'"
+                class="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                Sin cobro
               </span>
               <span class="text-sm font-semibold text-gray-800 dark:text-white">
                 {{ formatDate(inst.scheduled_date) }}
@@ -196,6 +219,8 @@ const emptyForm = () => ({
   equipment: '',
   notes: '',
   status: 'pendiente',
+  no_charge: false,
+  no_charge_reason: '',
 })
 
 const form = ref(emptyForm())
@@ -223,6 +248,8 @@ const openForm = (inst = null) => {
       equipment: inst.equipment ?? '',
       notes: inst.notes ?? '',
       status: inst.status,
+      no_charge: !!inst.no_charge,
+      no_charge_reason: inst.no_charge_reason ?? '',
     }
   } else {
     editing.value = null

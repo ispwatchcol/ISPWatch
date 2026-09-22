@@ -133,7 +133,14 @@
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                         <tr v-for="ticket in filteredTickets" :key="ticket.id" class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
                             <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">#{{ ticket.id }}</td>
-                            <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">{{ ticket.subject }}</td>
+                            <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">
+                                {{ ticket.subject }}
+                                <span v-if="ticket.no_charge"
+                                    :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
+                                    class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                    Sin cobro
+                                </span>
+                            </td>
                             <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                                 {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
                             </td>
@@ -191,7 +198,13 @@
                         <div class="flex justify-between items-start gap-2">
                             <div class="min-w-0">
                                 <span class="text-xs text-gray-400 dark:text-gray-500">#{{ ticket.id }}</span>
-                                <h3 class="font-semibold text-gray-800 dark:text-white text-sm leading-snug">{{ ticket.subject }}</h3>
+                                <h3 class="font-semibold text-gray-800 dark:text-white text-sm leading-snug">
+                                {{ ticket.subject }}
+                                <span v-if="ticket.no_charge"
+                                    class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                    Sin cobro
+                                </span>
+                            </h3>
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
                                 </p>

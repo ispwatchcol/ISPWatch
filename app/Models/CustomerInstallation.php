@@ -42,6 +42,10 @@ class CustomerInstallation extends Model
         'customer_retention',
         'special_attention',
         'promotion_notes',
+        // Visita que no se le cobra al cliente (garantía, mantenimiento). El
+        // equipo igual sale de la bodega; lo que no sale es la factura.
+        'no_charge',
+        'no_charge_reason',
     ];
 
     protected $casts = [
@@ -58,6 +62,7 @@ class CustomerInstallation extends Model
         'payment_received'   => 'decimal:2',
         'customer_retention' => 'boolean',
         'special_attention'  => 'boolean',
+        'no_charge'          => 'boolean',
     ];
 
     public function customer()

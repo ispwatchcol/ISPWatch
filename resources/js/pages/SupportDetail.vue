@@ -18,6 +18,11 @@
                     <p class="text-gray-500 dark:text-gray-400 mt-1">
                         Creado el {{ formatDate(ticket.created_at) }}
                     </p>
+                    <span v-if="ticket.no_charge"
+                        :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
+                        class="mt-2 inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                        Sin cobro al cliente
+                    </span>
                 </div>
                 <div class="flex gap-2">
                     <!-- PR C · Un expediente archivado está fuera de la operación:
@@ -464,6 +469,7 @@
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-xl font-bold text-gray-800 dark:text-white">Cargos del Ticket</h2>
                             <button
+                                v-if="!ticket.no_charge"
                                 @click="showChargeForm = !showChargeForm"
                                 class="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg flex items-center gap-1 transition"
                             >
@@ -472,8 +478,18 @@
                             </button>
                         </div>
 
+                        <!-- Ticket sin cobro: no se esconde el bloque, se explica.
+                             Esconderlo dejaría a quien busca el botón pensando que
+                             le falta un permiso. -->
+                        <div v-if="ticket.no_charge"
+                            class="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+                            Este ticket está marcado <strong>sin cobro al cliente</strong>, así que no admite cargos.
+                            <span v-if="ticket.no_charge_reason">Motivo: {{ ticket.no_charge_reason }}.</span>
+                            Si finalmente hay que cobrarlo, quita la marca en <em>Editar ticket</em>.
+                        </div>
+
                         <!-- Formulario nuevo cargo -->
-                        <div v-if="showChargeForm" class="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600 space-y-4">
+                        <div v-if="showChargeForm && !ticket.no_charge" class="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600 space-y-4">
                             <div class="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm">
                                 <v-icon name="bi-person" class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                 <span class="text-gray-600 dark:text-gray-300">Se cobrará a:</span>
@@ -1381,6 +1397,7 @@ const NOMBRE_DE_CAMPO = {
     confirmed_cause: 'la causa confirmada',
     solution: 'la acción realizada',
     result: 'el resultado',
+    no_charge: 'si la visita se le cobra al cliente',
 }
 
 /** Etiqueta guardada en el evento; si no la hay, el código; si tampoco, «sin definir». */
@@ -1414,6 +1431,13 @@ const etiquetaDeEvento = (evento) => {
             return meta.invoice_number
                 ? `Se generó el cargo ${meta.invoice_number}`
                 : 'Se generó un cargo'
+        case 'no_charge_changed': {
+            const sinCobro = evento.new_value === 'sin cobro al cliente'
+            const motivo = meta.reason ? ` (${meta.reason})` : ''
+            return sinCobro
+                ? `Se marcó la visita sin cobro al cliente${motivo}`
+                : 'Se quitó la marca de sin cobro: la visita vuelve a ser cobrable'
+        }
         default: {
             const campo = NOMBRE_DE_CAMPO[evento.field] || evento.field || 'un campo'
             return `Cambió ${campo}: ${valorLegible(evento, 'old')} → ${valorLegible(evento, 'new')}`
