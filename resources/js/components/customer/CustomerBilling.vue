@@ -119,6 +119,42 @@
       </div>
     </Transition>
 
+    <!--
+      ── Banner: reconexión pendiente ────────────────────────────────
+      El cliente pagó y su servicio NO se restableció. Va PRIMERO y en rojo
+      porque es la única situación de esta pantalla en la que alguien se fue
+      del mostrador creyendo que ya tiene internet. Sigue visible mientras el
+      problema siga abierto: se recarga con los datos, no es un toast.
+      Nunca muestra IP, credenciales ni el error crudo del equipo.
+    -->
+    <Transition name="slide-down">
+      <div v-if="pendingReconnection"
+        class="flex items-start gap-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-2xl px-5 py-4"
+        role="alert">
+        <div class="shrink-0 w-10 h-10 bg-red-100 dark:bg-red-800 rounded-xl flex items-center justify-center text-red-600 dark:text-red-300 text-xl">
+          ⚠
+        </div>
+        <div class="flex-1">
+          <p class="font-semibold text-red-800 dark:text-red-200">
+            Reconexión pendiente — el servicio no está reactivado
+          </p>
+          <p class="text-sm text-red-700 dark:text-red-300 mt-0.5">
+            {{ pendingReconnection.message }}
+          </p>
+          <p v-if="pendingReconnection.action" class="text-sm text-red-700 dark:text-red-300 mt-1 font-medium">
+            {{ pendingReconnection.action }}
+          </p>
+          <button v-if="canRetryReconnection"
+            type="button"
+            class="mt-3 px-4 py-2 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            :disabled="retryingReconnect"
+            @click="retryReconnection">
+            {{ retryingReconnect ? 'Reintentando…' : 'Reintentar reconexión' }}
+          </button>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ── Banner: facturas vencidas ─────────────────────────────────── -->
     <Transition name="slide-down">
       <div v-if="overdueInvoices.length > 0"
@@ -438,6 +474,9 @@
 import { ref, computed, onMounted } from 'vue'
 import billingService from '@/services/billing'
 import { apiClient } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const props = defineProps({
   customerId: { type: [String, Number], required: true },
@@ -455,6 +494,42 @@ const carryoverBalance = ref(0)
 // pago lo reconecta automáticamente.
 const suspension     = ref(null)
 const isSuspended    = computed(() => suspension.value?.is_suspended === true)
+
+// Reconexión que quedó pendiente en el equipo: el cliente pagó pero su servicio
+// NO se restableció. Vive aparte de `is_suspended` porque son cosas distintas —
+// el cliente figura ACTIVO en el sistema y aun así está sin internet, que es
+// justo el caso que hay que poder ver. Se recarga con fetchData(), así que el
+// aviso sigue ahí mañana, no sólo en el instante del cobro.
+const pendingReconnection = computed(() => suspension.value?.reconnection ?? null)
+
+// El reintento escribe en el RouterBoard: es `execute_mass_actions`, el mismo
+// permiso con el que se operan los cortes fallidos. El endpoint lo exige
+// igualmente; esto sólo evita ofrecer un botón que iba a dar 403.
+const canRetryReconnection = computed(() => authStore.hasPermission('execute_mass_actions'))
+const retryingReconnect = ref(false)
+
+const retryReconnection = async () => {
+  if (retryingReconnect.value) return   // doble click; el servidor también lo corta con 409
+
+  retryingReconnect.value = true
+  try {
+    const { data } = await apiClient.post(`/billing/customers/${props.customerId}/retry-reconnection`)
+    emit('notify', data.reconnected
+      ? { type: 'success', title: 'Servicio reactivado', message: 'El router confirmó la reconexión.' }
+      : { type: 'error', title: 'La reconexión sigue pendiente', message: `${data.message} ${data.action}`.trim() })
+    await fetchData()
+  } catch (e) {
+    emit('notify', {
+      type: 'error',
+      title: 'No se pudo reintentar',
+      message: e.response?.status === 409
+        ? 'Ya hay una reconexión en curso para este cliente. Espera a que termine.'
+        : (e.response?.data?.message || 'No se pudo reintentar la reconexión.'),
+    })
+  } finally {
+    retryingReconnect.value = false
+  }
+}
 const loading        = ref(true)
 const showModal      = ref(false)
 const submitting     = ref(false)
@@ -611,11 +686,23 @@ const submitPayment = async () => {
 
     // Si el cliente estaba cortado, el desenlace de la reconexión es la noticia
     // importante del recaudo — no que el pago se guardó.
+    //
+    // El éxito se decide por `router_ok` (el equipo confirmó) y el problema por
+    // `pending`, NUNCA por `reactivated`: ése sólo dice que se levantó el corte
+    // en la BD, y un cliente sin router asignado lo cumplía sin que nadie
+    // hubiera tocado su servicio. Ahí nacía el falso "cliente reactivado".
+    //
+    // El toast es el aviso del momento; el que sostiene el caso es el banner de
+    // arriba, que fetchData() deja puesto mientras el problema siga abierto.
     const r = res?.data?.reactivation
-    if (r?.was_suspended && r?.reactivated && r?.router_ok) {
+    if (r?.pending) {
+      emit('notify', {
+        type: 'error',
+        title: 'Pago registrado — el servicio NO quedó reactivado',
+        message: `${r.message} ${r.action}`.trim(),
+      })
+    } else if (r?.was_suspended && r?.router_ok) {
       emit('notify', { type: 'success', title: 'Pago registrado y cliente reactivado', message: r.message })
-    } else if (r?.was_suspended && r?.reactivated) {
-      emit('notify', { type: 'error', title: 'Pago registrado — revisar reconexión', message: r.message })
     } else if (r?.was_suspended) {
       emit('notify', { type: 'warning', title: 'Pago registrado — sigue suspendido', message: r.message })
     } else {

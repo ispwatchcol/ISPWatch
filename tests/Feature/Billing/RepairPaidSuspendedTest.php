@@ -33,10 +33,16 @@ class RepairPaidSuspendedTest extends TestCase
 
     private function router(Tenant $tenant): Router
     {
+        // Con credenciales y dirección: ReconnectionPreflight exige que el
+        // equipo sea realmente operable antes de intentar nada contra él, y un
+        // router sin credenciales no autentica por ninguna de las dos vías.
         return Router::create([
-            'name'      => 'Router ' . uniqid(),
-            'tenant_id' => $tenant->id,
-            'status'    => 'active',
+            'name'        => 'Router ' . uniqid(),
+            'tenant_id'   => $tenant->id,
+            'status'      => 'active',
+            'ip'          => '10.10.0.1',
+            'user_rb'     => 'admin',
+            'password_rb' => 'clave-rb',
         ]);
     }
 

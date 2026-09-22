@@ -1306,21 +1306,34 @@ del **filtro completo** (no de la página):
    queda en `paid` con `balance_due = 0` y el faltante se registra en
    `invoice_carryovers` (`status = pending`) para cobrarse en la **siguiente factura
    mensual**. Ver "Arrastre de saldo" más abajo.
-4. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **lo reconecta
-   automáticamente en el router**. Se levanta cualquier corte vigente (de facturación o
-   manual); las bajas definitivas (`retirado`, `cancelado`) **no** se tocan. Como el punto 3
-   deja la factura sin saldo vencido, **un abono parcial también reconecta**.
+4. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **intenta reconectarlo
+   en el router**. Se levanta cualquier corte vigente (de facturación o manual); las bajas
+   definitivas (`retirado`, `cancelado`) **no** se tocan. Como el punto 3 deja la factura sin
+   saldo vencido, **un abono parcial también dispara la reconexión**.
 
-**201** con el pago, sus `allocations` y la clave suelta **`reactivation`**:
+> **Pago confirmado ≠ reconexión confirmada.** El pago es una operación financiera y se aplica
+> siempre; la reconexión depende de un equipo que puede no existir, no estar asignado, no tener
+> credenciales o no responder. **Un fallo de router NUNCA revierte el pago ni cambia el código
+> de respuesta**: sigue siendo `201` y el problema viaja dentro del cuerpo. Devolver `500`
+> haría creer al cajero que el pago no entró.
+
+**201** con el pago, sus `allocations`, un `correlation_id` y la clave suelta **`reactivation`**:
 
 ```json
 {
   "id": 1911, "amount": "60000.00", "allocations": [ ... ],
+  "correlation_id": "4bcb0818-7db6-4bc7-9719-39460507c284",
   "reactivation": {
-    "was_suspended": true,    // estaba cortado al llegar el pago
-    "reactivated":   true,    // se levantó el corte
-    "router_ok":     false,   // el router NO confirmó el desbloqueo
-    "message":       "El cliente quedó activo en el sistema, pero el router NO confirmó..."
+    "was_suspended": true,     // estaba cortado al llegar el pago
+    "reactivated":   true,     // se levantó el corte EN LA BD
+    "router_ok":     false,    // el EQUIPO no confirmó la reconexión
+    "outcome":       "pendiente_router_no_asignado",
+    "label":         "Sin router asignado",
+    "pending":       true,     // ← la señal que decide si se alerta
+    "message":       "El pago quedó registrado, pero la reactivación automática NO se pudo ejecutar: el cliente no tiene un router asignado en su ficha de servicio.",
+    "action":        "Asigna un router al cliente en su ficha de servicio y luego reintenta la reconexión, o reconéctalo manualmente en el equipo.",
+    "log_id":        4412,     // fila de suspension_action_logs; null si no hay nada pendiente
+    "can_retry":     false     // ¿este usuario puede reintentar? (execute_mass_actions)
   }
 }
 ```
@@ -1329,16 +1342,58 @@ del **filtro completo** (no de la página):
 JSON (`Payment::$reactivation` es una propiedad PHP declarada, no un atributo Eloquent —
 si entrara al array de atributos, el primer `save()` posterior intentaría escribirla).
 
-Los tres desenlaces que el front distingue:
+**`outcome` es el campo autoritativo.** Vocabulario cerrado
+(`App\Support\ReconnectionOutcome`); no leas el `message`, que es texto de cara al operador y
+puede reescribirse:
 
-| `was_suspended` | `reactivated` | `router_ok` | Significado |
-|---|---|---|---|
-| `false` | — | — | No estaba cortado; nada que hacer |
-| `true` | `true` | `true` | Reconectado y confirmado por el router |
-| `true` | `true` | `false` | Activo en BD, **el router no confirmó** → revisar `UNSUSPEND/failed` |
-| `true` | `false` | `false` | Sigue cortado: le quedan facturas vencidas (`message` dice cuántas) |
+| `outcome` | `pending` | Significado |
+|---|---|---|
+| `reactivado_automaticamente` | `false` | El equipo confirmó. **Único caso que puede pintarse como éxito.** |
+| `ya_reactivado` | `false` | Ya estaba reconectado; no se tocó el equipo (idempotencia) |
+| `no_aplica` | `false` | No estaba cortado, o sigue debiendo (`message` dice cuántas vencidas) |
+| `pendiente_router_no_asignado` | `true` | El cliente no tiene router en su ficha |
+| `pendiente_sin_router_configurado` | `true` | La ficha apunta a un equipo que no existe en esta sede |
+| `pendiente_router_no_disponible` | `true` | Router `inactive`/`maintenance`, con `falla_general`, o sin dirección a la que discar |
+| `pendiente_configuracion_incompleta` | `true` | Faltan credenciales del equipo o IP del cliente |
+| `pendiente_error_mikrotik` | `true` | Se intentó y falló la comunicación |
 
-**500** con `{"message":"No se pudo registrar el pago: ..."}` ante fallo del servicio.
+Ojo con los dos booleanos heredados, que responden preguntas distintas: `reactivated` es
+«se levantó el corte en la BD» y `router_ok` es «el equipo confirmó». **Pueden diverger**, y
+cuando divergen el cliente pagó y sigue sin servicio. `router_ok` equivale a
+`outcome === "reactivado_automaticamente"`.
+
+La respuesta **nunca** incluye IP, usuario, contraseña ni el error crudo del MikroTik; el
+detalle técnico se queda en el log del servidor.
+
+**500** con `{"message":"No se pudo registrar el pago: ...", "correlation_id": "..."}` ante
+fallo del servicio (el pago no se registró).
+
+**`POST /api/billing/customers/{customerId}/retry-reconnection`** — permiso
+**`execute_mass_actions`**
+
+Reintenta la reconexión de UN cliente. Existe aparte del reintento por log
+(`/billing/suspension-logs/{id}/retry`) porque el caso «sin router asignado» no tiene fila con
+equipo que reintentar: el operador arregla la ficha y reintenta **por cliente**.
+
+`register_payments` no alcanza: cobrar y escribir en un RouterBoard son atribuciones distintas.
+El cliente se resuelve dentro del tenant de la sesión; uno de otra sede responde `404`.
+
+**200**
+
+```json
+{
+  "outcome": "reactivado_automaticamente",
+  "label":   "Reactivado automáticamente",
+  "pending": false,
+  "message": "El cliente estaba suspendido y el servicio quedó reactivado automáticamente.",
+  "action":  "",
+  "reconnected": true,
+  "correlation_id": "25766d17-5b89-4a35-a13a-cc3d10bbe2fa"
+}
+```
+
+**409** `{"message":"Ya hay una reconexión en curso para este cliente. Espera a que termine."}`
+— candado por cliente contra reintentos duplicados. **403** sin permiso. **404** fuera del tenant.
 
 **`GET /api/billing/customers/{customerId}/balance`**
 
@@ -1352,10 +1407,33 @@ Los tres desenlaces que el front distingue:
     "is_suspended":   true,        // está cortado (BD o router)
     "service_status": "suspendido",
     "since":          "2026-07-22 21:03:25",  // null si no hay log de corte
-    "source":         "db"         // "db" | "router": qué señal lo delató
+    "source":         "db",        // "db" | "router": qué señal lo delató
+    "reconnection":   null         // reconexión pendiente; null = nada abierto
   }
 }
 ```
+
+**`suspension.reconnection`** sostiene la alerta persistente de la ficha del cliente: el aviso
+del momento del cobro se lo lleva el cajero al cerrar la pantalla, pero el cliente sigue sin
+servicio. Es `null` mientras no haya nada pendiente — el caso normal, que debe dejar la pantalla
+limpia. Cuando lo hay:
+
+```json
+"reconnection": {
+  "outcome":  "pendiente_router_no_asignado",
+  "label":    "Sin router asignado",
+  "pending":  true,
+  "message":  "El pago quedó registrado, pero la reactivación automática NO se pudo ejecutar: ...",
+  "action":   "Asigna un router al cliente en su ficha de servicio y luego reintenta ...",
+  "log_id":   4412,
+  "since":    "2026-09-22 23:19:14",
+  "attempts": 1
+}
+```
+
+Es **independiente de `is_suspended`**: un cliente puede figurar ACTIVO en el sistema y tener la
+reconexión pendiente en el equipo — de hecho es exactamente el caso que hay que ver. Se apaga
+solo cuando el problema se resuelve. Sin IP, credenciales ni el error crudo del equipo.
 
 `carryover_balance` **no** se suma a `net_balance`: hoy el cliente no lo debe y no
 cuenta para la mora ni para el corte. Es informativo para el cajero.
