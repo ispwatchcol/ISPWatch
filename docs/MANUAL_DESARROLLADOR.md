@@ -725,6 +725,31 @@ firma presencial y la remota producen el **mismo PDF** con el mismo valor legal,
 diferencia sutil entre ambas —la detección de tinta, sobre todo— sería un contrato firmado
 en blanco según por dónde entró el cliente.
 
+### Los cuatro desenlaces de un `ssh-exec` (y el que falta si añades uno)
+
+Todo empuje al router del cliente pasa por el CORE con `/system ssh-exec`, y su salida se
+clasifica en `DetectsSshExecFailures` **antes** de que ningún manager la interprete:
+
+| Detector | Qué ocurrió | Qué NO hay que revisar |
+|---|---|---|
+| `isSshExecConnectionFailure()` | La sesión no se abrió | Ni el comando, ni las credenciales |
+| `isSshExecAuthFailure()` | Se abrió y el cliente rechazó la clave | Ni el comando, ni el plan/perfil |
+| salida vacía | No se puede confirmar nada | — (se trata como fallo a propósito) |
+| `isSshExecCommandFailure()` | El cliente ejecutó y rechazó la orden | — |
+
+Los tres primeros significan **que en el router no corrió nada**. Reportarlos con el texto
+del cuarto —que es lo que pasaba con el fallo de autenticación hasta el 2026-09-22— manda al
+operador a revisar una cola, un plan o un perfil que nunca se llegaron a tocar.
+
+**Si añades un camino nuevo que empuje al router**, las cuatro comprobaciones van en ese
+orden y las cuatro son obligatorias. El orden importa: `authentication failure` contiene la
+palabra «failure», así que el detector genérico se lo come si va primero.
+
+**El escapado de la contraseña no es el del comando.** El comando lleva una capa de
+`addslashes()`; la contraseña se neutraliza aparte con `strtr()` sobre `\`, `$` y `"`, porque
+dentro de una cadena de RouterOS los tres significan algo. Nunca encadenes `str_replace()`
+ahí: el segundo reemplazo vuelve a escapar las barras que metió el primero.
+
 ### Una marca que impide cobrar (`no_charge`)
 
 `customer_installations.no_charge` y `support_ticket.no_charge` marcan la visita que **no

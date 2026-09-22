@@ -2455,6 +2455,24 @@ costo interno de esos equipos.
 No es un fallo de ninguna de las dos ramas: es una costura que sólo existe cuando las dos
 estén en `main`, y se anota aquí para que no se descubra en producción.
 
+### 📋 P-50 · El `$` sigue sin escaparse en el COMANDO, sólo en la contraseña
+
+El arreglo del 2026-09-22 neutraliza `\`, `$` y `"` en la contraseña, pero el comando que
+viaja en el mismo `ssh-exec` sigue pasando sólo por `addslashes()`, que escapa `\` y `"` y
+**no toca el `$`**. Dentro de una cadena de RouterOS el `$` interpola una variable.
+
+Por dónde puede entrar: el comentario de la cola y del secret lleva el **nombre del cliente**,
+que se translitera a ASCII (`Str::ascii`) — y `$` es ASCII, así que sobrevive. Un cliente
+apellidado, literalmente, «Ca$h» produciría un comando con una variable inexistente en medio.
+
+No se corrigió aquí a propósito: `addslashes()` está en el camino de TODOS los comandos, y
+cambiarlo sin una prueba contra un RouterOS real es cambiarle el escapado a nueve managers a
+ciegas. La contraseña se pudo arreglar sola porque es un literal, no un fragmento de guion.
+
+**Recomendación.** Escapar `$` en `coreSshExecCommand()` para el comando también, con una
+prueba que fije el comando emitido byte a byte, y verificarlo contra el CORE de pruebas antes
+de desplegar.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2567,6 +2585,7 @@ estén en `main`, y se anota aquí para que no se descubra en producción.
 | **P-46** | Tras un despliegue, el navegador sigue mostrando la aplicación vieja | Le pasa a cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5 | 🟡 Media | ✅ Resuelto 2026-09-21 (`no-store` + aviso de versión nueva) |
 | **P-48** | El equipo entregado en una visita sin cobro no genera gasto si el ISP no encendió `inventory_entry_creates_expense` | El mantenimiento gratis no aparece en ningún informe de gastos, y no hay costo interno agregado | 🟡 Media | 📋 Pendiente · decisión contable del ISP + informe de visitas sin cobro |
 | **P-49** | La pantalla de equipos del ticket (KAN-92, sin mergear) no muestra la marca «sin cobro» | El técnico que cambia un router en garantía no vería «no le cobres» donde está trabajando | 🟢 Baja | 📋 Pendiente · costura entre dos ramas, al mergear KAN-92 |
+| **P-50** | `addslashes()` no escapa el `$` del comando que corre en el router | Un nombre de cliente con `$` mete una variable inexistente en medio del comando | 🟢 Baja | 📋 Pendiente · toca el escapado de los nueve managers, exige prueba contra RouterOS real |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
 | **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
 | **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |

@@ -1034,6 +1034,34 @@ el chain `input` no contesta ping y se administra sin problema.
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`
 para poder distinguir un fallo real de una salida vacía.
 
+**La contraseña se escapa aparte, y con tres caracteres** (2026-09-22). Viaja dentro de una
+cadena entrecomillada de RouterOS, donde `\` escapa, `$` interpola una variable y `"` cierra
+la cadena. Hasta este cambio sólo se neutralizaban las comillas, así que una clave con `\` o
+con `$` llegaba deformada al cliente y volvía como `authentication failure` — idéntica a una
+credencial equivocada, y por eso irresoluble desde el panel. Lo hace un único `strtr()`:
+encadenar `str_replace()` volvería a escapar las barras que introdujo el reemplazo anterior.
+
+#### Los tres desenlaces de un `ssh-exec`, y por qué se distinguen
+
+`DetectsSshExecFailures` clasifica la salida antes de que ningún manager la interprete. Los
+tres casos terminan en «no se cargó al router», pero mandan a sitios distintos:
+
+| Salida del CORE | Qué pasó | Dónde está el remedio |
+|---|---|---|
+| `<connection failed>`, `action timed out`, `connection refused` | La sesión SSH **no se abrió**. En el cliente no corrió nada | IP overlay obsoleta, puerto SSH, `available from` del servicio |
+| `authentication failure` | La sesión se abrió y el cliente **rechazó la clave**. Tampoco corrió nada | Credenciales del router en ISPWatch, `address=` del usuario de RouterOS, o la IP ahora es de otro equipo |
+| `bad parameter`, `no such item`, `exit-code ≠ 0` | El cliente ejecutó y **rechazó el comando** | El plan/perfil, el nombre de la cola, la sintaxis |
+
+El del medio es el que se añadió el 2026-09-22, y hasta entonces caía en el tercer cajón:
+la palabra «failure» hace match con el vocabulario de error genérico, así que un rechazo de
+credenciales se reportaba como «no se pudo crear/actualizar la queue» y mandaba al operador a
+revisar una cola que nunca se llegó a intentar.
+
+**La trampa del segundo caso** —y la razón de que el mensaje la nombre explícitamente— es que
+la sesión la abre **el CORE desde su IP overlay**, no ISPWatch. Un usuario de RouterOS
+restringido con `address=` a la IP vieja rechaza la contraseña **correcta**, mientras esa
+misma contraseña entra sin problema desde el portátil del operador.
+
 **El tiempo de espera es parte del contrato, no un detalle.** El primer salto
 (APP→CORE) es rápido; el segundo (CORE→RB) incluye un *handshake* SSH completo
 contra un equipo pequeño al otro lado del overlay y tarda con frecuencia más de

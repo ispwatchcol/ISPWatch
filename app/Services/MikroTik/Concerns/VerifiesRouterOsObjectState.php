@@ -66,6 +66,19 @@ trait VerifiesRouterOsObjectState
             ];
         }
 
+        // `connection_ok` se queda en false también aquí: quien verifica sólo
+        // necesita saber que la comprobación NO llegó a mirar el router. Lo que
+        // cambia es el texto, porque el remedio es otro.
+        if ($output && $this->isSshExecAuthFailure($output)) {
+            return [
+                'confirmed' => false,
+                'connection_ok' => false,
+                'output' => $output,
+                'message' => 'No se pudo verificar el resultado tras el intento — el router rechazó las credenciales: '
+                    . $this->sshExecAuthFailureMessage($clientIp, $output, $clientSshPort),
+            ];
+        }
+
         return ['confirmed' => true, 'connection_ok' => true, 'output' => $output, 'message' => null];
     }
 
