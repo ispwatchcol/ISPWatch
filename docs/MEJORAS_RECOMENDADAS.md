@@ -2071,9 +2071,11 @@ Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo
 >
 > **La migración aborta si encuentra duplicados**, a propósito: son equipos reales y decidir
 > cuál fila se queda con el valor es una decisión de inventario. Para verlos antes:
-> `php artisan inventory:duplicate-identifiers` (cuenta con `COUNT(*)` real). **Esa cuenta
-> contra producción sigue pendiente**: el `.env` local tiene la contraseña anterior a la
-> rotación. Ver `BITACORA_TECNICA.md` § 65.
+> `php artisan inventory:duplicate-identifiers` (cuenta con `COUNT(*)` real).
+>
+> **Conteo hecho el 2026-09-21 contra producción: cero duplicados** de serial y de MAC sobre
+> 130 equipos. La migración está aplicada en los dos esquemas —`public` (lote 104) e
+> `ispwatch_dev`— y los cuatro índices existen. Ver `BITACORA_TECNICA.md` § 65.
 
 **Detectado:** 2026-09-10, arreglando el binding roto de `/api/inventory/{id}`
 (§ 58 de `BITACORA_TECNICA.md`). **Prioridad:** media · **Estado:** deuda aceptada.
@@ -2488,7 +2490,7 @@ un ciclo de despliegue.
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
-| **P-44** *(inventario)* | `serial`/`mac` se comparan distinto según entren por el formulario o por la carga masiva | El mismo equipo entra dos veces escrito distinto, y esas filas bloquean después una carga masiva entera | 🟡 Media | ✅ Resuelto 2026-09-21 · **falta contar los duplicados de producción** |
+| **P-44** *(inventario)* | `serial`/`mac` se comparan distinto según entren por el formulario o por la carga masiva | El mismo equipo entra dos veces escrito distinto, y esas filas bloquean después una carga masiva entera | 🟡 Media | ✅ Resuelto 2026-09-21 · migrado en ambos esquemas · 0 duplicados en producción |
 | **P-46** | Tras un despliegue, el navegador sigue mostrando la aplicación vieja | Le pasa a cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5 | 🟡 Media | ✅ Resuelto 2026-09-21 (`no-store` + aviso de versión nueva) |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
 | **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
