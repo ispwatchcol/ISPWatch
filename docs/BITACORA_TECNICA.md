@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-22 · Rama: `feat/ot-sin-cobro-mantenimiento`
+**Última actualización:** 2026-09-22 · Rama: `fix/ssh-exec-auth-failure`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **«No se pudo crear la queue» cuando la queue nunca se intentó (2026-09-22, § 70):** el
+  router rechazaba las credenciales del CORE y el panel lo reportaba como un fallo del comando.
+  Tercer caso propio en `DetectsSshExecFailures` con su diagnóstico, y de paso el escapado de la
+  contraseña, que sólo cubría las comillas y deformaba las claves con `\` o `$`.
 - **La visita de garantía dependía de que nadie escribiera un precio (2026-09-22, § 69):**
   cambiar el router quemado de un cliente consume inventario pero no se le cobra, y no había
   forma de decirlo. Nueva marca `no_charge` en la orden de instalación y en el ticket: la orden
@@ -363,7 +367,7 @@ ISPWatch/
 | `SshTunnel.php` | 207 | Conexión SSH individual |
 | `RouterEndpointResolver.php` | 157 | Resuelve la IP real desde `/ppp active` del CORE y la reescribe en BD |
 | `Concerns/BuildsCoreSshExec.php` | — | Construye la línea `/system ssh-exec` (puerto + escapado) |
-| `Concerns/DetectsSshExecFailures.php` | — | Distingue fallo real de salida vacía |
+| `Concerns/DetectsSshExecFailures.php` | — | Clasifica la salida del `ssh-exec`: no conectó / rechazó la clave / rechazó el comando / salida vacía |
 | `Concerns/NormalizesRouterComment.php` | — | Normaliza comentarios de objetos |
 | `Concerns/VerifiesRouterOsObjectState.php` | — | Verifica que el objeto quedó como se pidió |
 
@@ -689,6 +693,7 @@ VPN; lectura de interfaces; historial de tráfico; falla masiva.
 | Perfil HotSpot no se crea | `/ip hotspot user profile` **no acepta `comment`** y el comando entero falla |
 | Cliente en la lista de morosos sigue navegando | Faltaba `place-before`, dependencia de `out-interface=wan`, sin flush de conntrack y sin regla de acceso al portal (los cuatro corregidos) |
 | "Actualiza pero no carga a la RB" | Timeout del gateway en el push PPPoE síncrono, no un error de datos |
+| `authentication failure (/system/ssh-exec; line 1)` | El CORE abrió la sesión y el router **rechazó la clave**: credenciales cambiadas, usuario de RouterOS limitado por `address=`, la IP ahora es de otro equipo, o una contraseña con `\` o `$` que llegaba deformada (las tres primeras se revisan; la cuarta se corrigió el 2026-09-22) |
 
 ---
 
@@ -7313,3 +7318,47 @@ el de la compra. Lo que sí se muestra en la orden es el **costo interno** de la
 
 **Pendiente.** `migrate:both` antes de desplegar. Y cuando se mergee KAN-92 (equipos en el
 ticket), su pantalla tendrá que respetar la marca igual que la hoja de la instalación.
+
+---
+
+## 70. «No se pudo crear la queue» cuando la queue nunca se intentó — 2026-09-22
+
+**Lo que vio el ISP.** Al guardar un cliente: *«Datos guardados, pero no se pudo cargar al
+router: No se pudo crear/actualizar la queue. Detalle del router: failure: authentication
+failure (/system/ssh-exec; line 1)»*.
+
+**Lo que pasó de verdad.** El CORE abrió la sesión SSH contra el router del cliente y el
+router **rechazó el usuario y la contraseña**. En el router no se ejecutó ni una línea: la
+queue no falló, la queue ni se intentó. El mensaje mandaba a revisar la cola, el plan y el
+perfil — tres sitios donde no había nada que ver.
+
+**Por qué el mensaje mentía.** `DetectsSshExecFailures` ya distinguía dos desenlaces: «el
+CORE no pudo ni conectarse» (con mensaje propio y muy explicativo, § 40-41) y «el cliente
+ejecutó y rechazó el comando». El rechazo de credenciales es un TERCER caso y no estaba
+contemplado: no hace match con el detector de conexión —el TCP sí se estableció— pero la
+palabra «failure» sí coincide con el vocabulario de error genérico, así que caía en el
+segundo cajón. Un fallo de autenticación se reportaba con el texto de un fallo de comando.
+
+Ahora hay `isSshExecAuthFailure()` + `sshExecAuthFailureMessage()`, y los **nueve** puntos
+que consultan el detector comprueban el caso nuevo antes del genérico: queue, PCQ, hotspot,
+lease DHCP, binding IP/MAC, perfil y secret PPPoE, desaprovisionamiento y la verificación
+post-intento.
+
+**La trampa que el mensaje nombra explícitamente.** La sesión la abre **el CORE desde su IP
+overlay**, no ISPWatch. Un usuario de RouterOS con `address=` apuntando a la IP vieja —o a la
+de ISPWatch— rechaza la contraseña CORRECTA, mientras esa misma contraseña entra sin problema
+desde el portátil del operador. Desde el panel ese caso es idéntico al de una credencial
+cambiada, y por eso el texto pide mirar `/user print detail` antes de dar por buena la clave.
+
+**Y una causa que además se corrigió.** `BuildsCoreSshExec` escapaba sólo las comillas de la
+contraseña. Dentro de una cadena de RouterOS `\` también escapa y `$` interpola una variable,
+así que una clave con cualquiera de los dos llegaba deformada al cliente y volvía como
+`authentication failure` — indistinguible de una credencial equivocada, e imposible de
+diagnosticar desde el panel. Se neutralizan los tres caracteres con un único `strtr()`:
+encadenar `str_replace()` volvería a escapar las barras que introdujo el reemplazo anterior.
+Para una clave sin esos caracteres el comando emitido es byte a byte el de siempre.
+
+**Lo que NO se tocó.** El aviso también recuerda no reintentar en bucle: tras varios fallos
+RouterOS bloquea la IP de origen (la del CORE) por *login protection*, y el síntoma cambia a
+«no conecta», que es otro problema — y el operador acaba diagnosticando el segundo mientras
+el primero sigue ahí.

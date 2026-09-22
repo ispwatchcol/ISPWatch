@@ -271,6 +271,27 @@ Si la carga en segundo plano falla (o el router la tenía apagada), entra a la f
 y usa el botón de **aprovisionar**. Ese botón exige que el cliente tenga **router**, **plan** e
 **IP** asignados; si le falta alguno te lo dice y no hace nada.
 
+#### Qué significa cada aviso de «no se pudo cargar al router»
+
+El cliente **siempre queda guardado**; lo que falla es la parte del equipo de red. El texto del
+aviso dice en qué punto se cortó, y cada punto se arregla en un sitio distinto:
+
+| Si el aviso dice… | Qué pasó | Dónde mirar |
+|---|---|---|
+| `authentication failure` | El sistema llegó al router y el **router rechazó la clave**. En el equipo no se ejecutó nada | El usuario y la contraseña de ESE router en **Routers → Editar**. Si estás seguro de que son correctos, mira el punto siguiente |
+| `<connection failed>` · `action timed out` | No se pudo ni abrir la sesión con el router | La IP del router (puede haber cambiado al reconectar el túnel), el **Puerto SSH** y que el servicio SSH acepte al CORE |
+| `bad parameter` · `no such item` | El router **sí ejecutó** y rechazó la orden | El plan o el perfil que falta en ese equipo, según diga el detalle |
+
+> 🔐 **La trampa del primer caso.** Quien se conecta al router **es el CORE**, no ISPWatch ni tu
+> computador. Si el usuario de RouterOS está limitado a una dirección concreta (`address=` en
+> `/user print detail`), rechaza la contraseña **correcta** aunque a ti esa misma clave te
+> funcione perfectamente desde tu equipo. Es el caso que más tiempo hace perder, porque todo
+> parece estar bien.
+>
+> **No insistas dándole al botón.** Tras varios intentos fallidos el router bloquea por un rato
+> la dirección desde la que se intenta —la del CORE— y el aviso cambia a «no conecta». Entonces
+> estarás persiguiendo un problema distinto del que tenías.
+
 ### 5.3 Editar un cliente
 
 En la lista, pulsa el icono de **editar**. Verás el mismo formulario con los datos actuales,
