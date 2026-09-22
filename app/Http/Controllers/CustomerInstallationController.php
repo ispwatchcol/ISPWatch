@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CustomerInstallationController extends Controller
 {
@@ -110,6 +111,83 @@ class CustomerInstallationController extends Controller
     }
 
     /**
+     * Reglas de la marca «sin cobro», iguales vengan del formulario de la orden
+     * o del bloque de cartera.
+     *
+     * @return array<string, string>
+     */
+    private function noChargeRules(): array
+    {
+        return [
+            'no_charge'        => 'nullable|boolean',
+            'no_charge_reason' => 'nullable|string|max:255',
+        ];
+    }
+
+    /**
+     * Decide si el cambio de la marca «sin cobro» sobre una orden YA EXISTENTE
+     * puede guardarse, y devuelve los datos ya filtrados.
+     *
+     * DOS PUERTAS, Y CADA UNA TAPA UN AGUJERO DISTINTO
+     *
+     * 1. Cambiarla exige `edit_discount`, el mismo permiso que escribir la
+     *    cartera. Decidir que una visita no se cobra es decidir sobre dinero;
+     *    si bastara con poder editar la orden, el permiso de agendar valdría
+     *    para perdonar facturas. Al CREAR la orden no se exige: ahí forma parte
+     *    del acto de agendar, y quien agenda es quien sabe si va de garantía.
+     *
+     * 2. No se puede marcar una orden que YA tiene factura. La factura no se
+     *    borra desde aquí —en este proyecto el dinero se anula, nunca se
+     *    destruye, porque borrar una factura pagada deja el pago suelto— así
+     *    que el camino es anularla en Facturación y volver.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function guardNoChargeChange(Request $request, CustomerInstallation $installation, array $data): array
+    {
+        $tocaLaMarca = array_key_exists('no_charge', $data)
+            && (bool) $data['no_charge'] !== (bool) $installation->no_charge;
+
+        // El formulario manda cadena vacía donde la base guarda NULL. Sin
+        // normalizar, reenviar el formulario sin tocar nada contaría como un
+        // cambio y le daría un 403 a quien sólo quería corregir la dirección.
+        $motivoNuevo = trim((string) ($data['no_charge_reason'] ?? '')) ?: null;
+        $motivoViejo = trim((string) ($installation->no_charge_reason ?? '')) ?: null;
+
+        $tocaElMotivo = array_key_exists('no_charge_reason', $data) && $motivoNuevo !== $motivoViejo;
+
+        if (array_key_exists('no_charge_reason', $data)) {
+            $data['no_charge_reason'] = $motivoNuevo;
+        }
+
+        if (!$tocaLaMarca && !$tocaElMotivo) {
+            // Nada que decidir: se quitan las claves para no reescribir lo mismo.
+            unset($data['no_charge'], $data['no_charge_reason']);
+            return $data;
+        }
+
+        abort_if(
+            !$this->userCanEditBilling($request),
+            403,
+            'No tienes permiso para cambiar si esta orden se le cobra al cliente.'
+        );
+
+        if ($tocaLaMarca && $data['no_charge']) {
+            $installation->loadMissing('invoice');
+
+            if ($installation->invoice) {
+                throw ValidationException::withMessages([
+                    'no_charge' => "Esta orden ya tiene la factura #{$installation->invoice->number}. "
+                        . 'Anúlala en Facturación antes de marcarla sin cobro: aquí no se borran facturas.',
+                ]);
+            }
+        }
+
+        return $data;
+    }
+
+    /**
      * Format one installation and apply billing-field access control for the
      * authenticated user. Use this in every endpoint that returns an installation
      * object — it is the single point where role-based field filtering happens.
@@ -133,6 +211,12 @@ class CustomerInstallationController extends Controller
      * Se ELIMINAN del JSON, no se envían en cero: un cero es un dato, y un
      * técnico que ve «Valor de instalación: $0» concluye que la instalación
      * fue gratis.
+     *
+     * `no_charge` NO está en la lista, y es deliberado: es justo lo que el
+     * técnico sin permisos de cartera tiene que ver. Ocultárselo lo dejaría
+     * cobrando a pulso una visita de garantía, que es el problema que la marca
+     * viene a resolver. Además no revela ninguna cifra — dice si se cobra, no
+     * cuánto.
      */
     private function stripBillingFields(array $row): array
     {
@@ -249,7 +333,7 @@ class CustomerInstallationController extends Controller
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
             'status'         => 'in:pendiente,completada,cancelada',
-        ]);
+        ] + $this->noChargeRules());
 
         $data['technician_id'] = $this->validateTechnician(
             $data['technician_id'] ?? null,
@@ -268,6 +352,12 @@ class CustomerInstallationController extends Controller
             'status'         => $data['status'] ?? 'pendiente',
             'completed_at'   => ($data['status'] ?? 'pendiente') === 'completada' ? now() : null,
             'created_by'     => $request->user()?->id,
+            // Al crear no se pide `edit_discount`: marcar la visita como
+            // «de garantía» es parte de agendarla, y quien agenda es quien lo
+            // sabe. Cambiarlo DESPUÉS sí exige el permiso — ver
+            // guardNoChargeChange().
+            'no_charge'        => (bool) ($data['no_charge'] ?? false),
+            'no_charge_reason' => $data['no_charge_reason'] ?? null,
         ]);
 
         return response()->json([
@@ -304,7 +394,7 @@ class CustomerInstallationController extends Controller
             'technician'     => 'nullable|string|max:120',
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
-        ]);
+        ] + $this->noChargeRules());
 
         $data['technician_id'] = $this->validateTechnician($data['technician_id'] ?? null, $tenantId);
 
@@ -336,6 +426,8 @@ class CustomerInstallationController extends Controller
                 'notes'          => $data['notes'] ?? null,
                 'status'         => 'pendiente',
                 'created_by'     => $request->user()?->id,
+                'no_charge'        => (bool) ($data['no_charge'] ?? false),
+                'no_charge_reason' => $data['no_charge_reason'] ?? null,
             ]);
         });
 
@@ -393,7 +485,7 @@ class CustomerInstallationController extends Controller
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
             'status'         => 'in:pendiente,completada,cancelada',
-        ]);
+        ] + $this->noChargeRules());
 
         $data['technician_id'] = $this->validateTechnician(
             $data['technician_id'] ?? null,
@@ -412,6 +504,12 @@ class CustomerInstallationController extends Controller
             'status'         => $data['status'] ?? 'pendiente',
             'completed_at'   => ($data['status'] ?? 'pendiente') === 'completada' ? now() : null,
             'created_by'     => $request->user()?->id,
+            // Al crear no se pide `edit_discount`: marcar la visita como
+            // «de garantía» es parte de agendarla, y quien agenda es quien lo
+            // sabe. Cambiarlo DESPUÉS sí exige el permiso — ver
+            // guardNoChargeChange().
+            'no_charge'        => (bool) ($data['no_charge'] ?? false),
+            'no_charge_reason' => $data['no_charge_reason'] ?? null,
         ]);
 
         // Move the prospect into "agendado" once it has at least one scheduled install.
@@ -437,7 +535,7 @@ class CustomerInstallationController extends Controller
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
             'status'         => 'in:pendiente,completada,cancelada',
-        ]);
+        ] + $this->noChargeRules());
 
         if (array_key_exists('technician_id', $data)) {
             $data['technician_id'] = $this->validateTechnician(
@@ -451,6 +549,8 @@ class CustomerInstallationController extends Controller
         } elseif (isset($data['status']) && $data['status'] !== 'completada') {
             $data['completed_at'] = null;
         }
+
+        $data = $this->guardNoChargeChange($request, $installation, $data);
 
         $installation->update($data);
 
@@ -489,7 +589,7 @@ class CustomerInstallationController extends Controller
             'customer_retention' => 'nullable|boolean',
             'special_attention'  => 'nullable|boolean',
             'promotion_notes'    => 'nullable|string',
-        ]);
+        ] + $this->noChargeRules());
 
         // additional_charges siempre refleja la suma de los adicionales itemizados
         // cuando el cliente los envía; así los reportes agregados siguen cuadrando.
@@ -505,13 +605,33 @@ class CustomerInstallationController extends Controller
             $data['additional_charges'] = array_sum(array_column($items, 'amount'));
         }
 
+        $data = $this->guardNoChargeChange($request, $installation, $data);
+
+        // La marca puede venir en esta misma petición, así que se razona sobre
+        // el estado RESULTANTE y no sobre el guardado.
+        $sinCobro = array_key_exists('no_charge', $data)
+            ? (bool) $data['no_charge']
+            : (bool) $installation->no_charge;
+
+        if ($sinCobro) {
+            $this->assertFreeVisitHasNoMoney($installation, $data);
+        }
+
         $installation->update($data);
         $installation->refresh();
 
         $invoice        = null;
         $invoiceWarning = null;
 
-        if ($installation->customer_id) {
+        if ($sinCobro) {
+            // Aquí está el nudo de todo el cambio: se guarda la cartera (el
+            // acuerdo de pago, las notas, la retención) pero NO se emite ni se
+            // recalcula factura. Antes, cualquier guardado creaba una factura
+            // —aunque fuera de $0— y el cliente aparecía con un documento de
+            // cobro por una visita que iba de regalo.
+            $invoiceWarning = 'Esta orden está marcada sin cobro al cliente: no se generó factura. '
+                . 'Los equipos cargados siguen descontados del inventario.';
+        } elseif ($installation->customer_id) {
             $invoice = $billingService->upsertInstallationInvoice($installation, $installation->tenant_id);
         } else {
             $invoiceWarning = 'No se generó factura: la instalación no tiene un cliente asignado aún.';
@@ -523,6 +643,47 @@ class CustomerInstallationController extends Controller
             'invoice'         => $invoice?->load('items'),
             'invoice_warning' => $invoiceWarning,
         ]);
+    }
+
+    /**
+     * Una orden sin cobro no puede llevar cifras encima.
+     *
+     * No se ponen en cero por las bravas: borrar dinero en silencio es
+     * exactamente cómo se pierde la pista de un abono que el cliente SÍ
+     * entregó. Si la orden traía valores, quien la marca tiene que decidir qué
+     * hace con ellos —y si hubo un abono, hay que devolverlo o moverlo, no
+     * hacerlo desaparecer con una casilla.
+     *
+     * Se mira el estado resultante: lo que trae la petición si viene, y lo que
+     * ya estaba guardado si no.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function assertFreeVisitHasNoMoney(CustomerInstallation $installation, array $data): void
+    {
+        $valor = function (string $campo) use ($data, $installation) {
+            return (float) (array_key_exists($campo, $data)
+                ? ($data[$campo] ?? 0)
+                : ($installation->{$campo} ?? 0));
+        };
+
+        $items = array_key_exists('additional_items', $data)
+            ? ($data['additional_items'] ?? [])
+            : ($installation->additional_items ?? []);
+
+        $conCifras = $valor('installation_cost') > 0
+            || $valor('additional_charges') > 0
+            || $valor('discount') > 0
+            || $valor('payment_received') > 0
+            || array_sum(array_map(fn ($it) => (float) ($it['amount'] ?? 0), $items ?: [])) > 0;
+
+        if ($conCifras) {
+            throw ValidationException::withMessages([
+                'no_charge' => 'Esta orden está marcada sin cobro al cliente, así que no puede llevar '
+                    . 'valor de instalación, adicionales, descuento ni abono recibido. '
+                    . 'Deja esos campos en cero, o quita la marca si sí hay que cobrarla.',
+            ]);
+        }
     }
 
     public function destroy(Request $request, $installationId)

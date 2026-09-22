@@ -117,6 +117,26 @@
                     />
                 </div>
 
+                <!-- Sin cobro al cliente. Aquí es donde el detalle manda a
+                     quien necesita volver a hacer cobrable la visita. -->
+                <div class="mb-6 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+                    <label class="flex items-start gap-2 cursor-pointer">
+                        <input v-model="form.no_charge" type="checkbox"
+                            class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+                        <span>
+                            <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+                            <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                                Mantenimiento o garantía. Los equipos entregados salen igual del inventario y son
+                                gasto de la empresa, pero el ticket no admite cargos mientras esté marcado.
+                            </span>
+                        </span>
+                    </label>
+                    <input v-if="form.no_charge" v-model="form.no_charge_reason" type="text" maxlength="255"
+                        placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+                        class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    <p v-if="errors.no_charge" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ errors.no_charge[0] || errors.no_charge }}</p>
+                </div>
+
                 <!-- Botones -->
                 <div class="flex gap-3">
                     <button
@@ -170,7 +190,9 @@ const form = ref({
     description: '',
     category: '',
     priority: '',
-    status: ''
+    status: '',
+    no_charge: false,
+    no_charge_reason: '',
 })
 
 // PR #2. Separado de `form` a propósito: el diagnóstico se envía sólo si el
@@ -214,7 +236,9 @@ const loadTicket = async () => {
             category: ticket.category,
             priority: ticket.priority,
             status: ticket.status,
-            staff_id: ticket.staff_id || ''
+            staff_id: ticket.staff_id || '',
+            no_charge: !!ticket.no_charge,
+            no_charge_reason: ticket.no_charge_reason || '',
         }
 
         // El backend devuelve { code, label } o null por campo. Al formulario

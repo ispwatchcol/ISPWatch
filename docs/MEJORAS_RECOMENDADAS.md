@@ -2419,6 +2419,42 @@ simplemente desaparece un bloque de la pantalla. El beneficio es cosmético y el
 sola pasada, con conteo previo y posterior de filas afectadas, y aceptando ambas claves durante
 un ciclo de despliegue.
 
+### 📋 P-48 · El equipo regalado en una visita sin cobro no aparece como gasto, salvo que el ISP haya encendido el interruptor
+
+La marca `no_charge` (2026-09-22) resuelve el cobro: la visita no factura. Lo que **no**
+resuelve es el otro lado del asiento — cuánto le costó ese mantenimiento a la empresa.
+
+El gasto del equipo se registra al **entrar** al inventario, y sólo si el ISP activó
+`inventory_entry_creates_expense` (§ 62 de la bitácora), que hoy **viene apagado en todos**.
+Para un ISP que no lo tenga encendido y que además no registre a mano la factura del
+proveedor, una visita de garantía no aparece en ningún informe de gastos: el equipo se fue de
+la bodega y la contabilidad no se enteró.
+
+**Por qué no se arregló aquí.** Crear el gasto al entregar el equipo duplicaría el de la
+compra para todos los que sí tienen el interruptor encendido, y un balance que miente por
+exceso de gastos es tan malo como el que miente por defecto. Elegir entre las dos fechas —
+compra o entrega— es una decisión contable del ISP, no de un PR de producto.
+
+**Lo que hay mientras tanto:** el detalle de la orden muestra el **costo interno** de la
+visita (suma de `installation_equipment.unit_price`), pero es por orden y no hay informe
+agregado: nadie puede responder «cuánto me costaron los mantenimientos gratis de este mes»
+sin abrirlas una por una.
+
+**Recomendación.** Un informe de visitas sin cobro con su costo interno acumulado, por
+periodo y por técnico. Es la pregunta que el ISP va a hacer en cuanto empiece a usar la
+marca, y los datos ya están todos en la base.
+
+### 📋 P-49 · Los equipos del ticket (KAN-92) todavía no saben de la marca «sin cobro»
+
+`feat/kan92-equipos-en-ticket` trae el backend para descargar y retirar equipos desde un
+ticket, espejo del de instalaciones, y está **sin mergear y sin pantalla**. Su hoja tendrá
+que mostrar la marca `support_ticket.no_charge` igual que la de la instalación —el técnico
+que cambia un router en garantía necesita ver «no le cobres» donde está trabajando— y el
+costo interno de esos equipos.
+
+No es un fallo de ninguna de las dos ramas: es una costura que sólo existe cuando las dos
+estén en `main`, y se anota aquí para que no se descubra en producción.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2529,6 +2565,8 @@ un ciclo de despliegue.
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
 | **P-44** *(inventario)* | `serial`/`mac` se comparan distinto según entren por el formulario o por la carga masiva | El mismo equipo entra dos veces escrito distinto, y esas filas bloquean después una carga masiva entera | 🟡 Media | ✅ Resuelto 2026-09-21 · migrado en ambos esquemas · 0 duplicados en producción |
 | **P-46** | Tras un despliegue, el navegador sigue mostrando la aplicación vieja | Le pasa a cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5 | 🟡 Media | ✅ Resuelto 2026-09-21 (`no-store` + aviso de versión nueva) |
+| **P-48** | El equipo entregado en una visita sin cobro no genera gasto si el ISP no encendió `inventory_entry_creates_expense` | El mantenimiento gratis no aparece en ningún informe de gastos, y no hay costo interno agregado | 🟡 Media | 📋 Pendiente · decisión contable del ISP + informe de visitas sin cobro |
+| **P-49** | La pantalla de equipos del ticket (KAN-92, sin mergear) no muestra la marca «sin cobro» | El técnico que cambia un router en garantía no vería «no le cobres» donde está trabajando | 🟢 Baja | 📋 Pendiente · costura entre dos ramas, al mergear KAN-92 |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
 | **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
 | **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |

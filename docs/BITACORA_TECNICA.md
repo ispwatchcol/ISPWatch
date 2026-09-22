@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-11 · Rama: `feat/permiso-ver-costo-instalacion`
+**Última actualización:** 2026-09-22 · Rama: `feat/ot-sin-cobro-mantenimiento`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **La visita de garantía dependía de que nadie escribiera un precio (2026-09-22, § 70):**
+  cambiar el router quemado de un cliente consume inventario pero no se le cobra, y no había
+  forma de decirlo. Nueva marca `no_charge` en la orden de instalación y en el ticket: la orden
+  no emite factura y el ticket no admite cargos. El equipo sale igual de la bodega.
 - **El técnico veía la instalación pero no cuánto costaba (2026-09-11, § 64):** el bloque de
   cartera de la orden estaba gobernado por `edit_discount` —«Editar Descuento» en la pantalla de
   roles—, así que no había casilla que un administrador pudiera reconocer y el rol Técnico no
@@ -7352,3 +7356,61 @@ Lo que habría cazado esto es una prueba que parta de los permisos que un rol `a
 verdad** tras las migraciones, y no de los que el test le concede. Es lo que hace ahora
 `TicketReopenTest`: reproduce los 17 permisos medidos en la base y comprueba, desde ahí, que la
 migración cierra el hueco.
+
+---
+
+## 70. La visita de garantía dependía de que nadie escribiera un precio — 2026-09-22
+
+**Lo que pidió el cliente.** Que se pueda poner un equipo en un mantenimiento sin que eso le
+genere un cobro al abonado: el equipo se descuenta de la bodega y es un gasto de la empresa,
+pero el cliente no paga. Un botón al crear la orden de trabajo.
+
+**Qué había realmente.** Ninguna de las dos puertas por las que entra una visita tenía cómo
+decir «esto no se cobra»:
+
+- **Orden de instalación.** El cobro era manual —alguien escribía el valor en el bloque de
+  cartera— así que en teoría bastaba con no escribir nada. En la práctica no había ninguna
+  marca: cualquiera podía poner un valor tres semanas después, y el guardado de la cartera
+  emitía factura aunque el total fuera $0. La orden de un router cambiado por garantía y la de
+  una instalación a la que todavía no le han puesto precio eran **indistinguibles**.
+- **Ticket de soporte.** El interruptor «Cargo Asociado» del alta viene apagado, y eso sólo
+  significa que ese día no se cobró: `POST /support/{id}/charge` sigue abierto toda la vida del
+  ticket. Apagado no es prohibido.
+
+**Lo que se hizo.** Una marca —`no_charge` + `no_charge_reason`— en `customer_installations` y
+en `support_ticket`, con los mismos nombres a los dos lados porque es la misma decisión de
+negocio. En la orden salta `InstallationBillingService` (no se emite ni se recalcula factura);
+en el ticket, el endpoint de cargo responde 422.
+
+**Tres decisiones que conviene no revertir por descuido:**
+
+1. **No es un catálogo de tipos de orden.** «Qué se fue a hacer» y «si se cobra» son preguntas
+   distintas: hay mantenimientos que sí se cobran y traslados regalados por retención. Atar el
+   cobro al tipo obliga a desdoblar el catálogo en cuanto aparece la primera excepción.
+2. **Las cifras no se ponen en cero solas.** Una orden marcada que traiga valor, adicionales,
+   descuento o **abono recibido** se rechaza con 422. Con el abono es donde importa: ese dinero
+   el cliente lo entregó de verdad, y hacerlo desaparecer con una casilla es exactamente el
+   fallo del § «borrar una factura pagada deja el dinero suelto». La pantalla sí limpia sola
+   los tres precios de lista, delante de quien marca la casilla; el abono no.
+3. **La marca NO se filtra por permiso**, a diferencia del resto de la cartera. El técnico sin
+   `view_installation_cost` no ve cifras pero sí ve «no le cobres» — es quien está en la casa
+   del cliente decidiendo si le pide plata. No revela ningún importe.
+
+**Puertas.** Marcarla al **crear** no exige permiso de facturación: quien agenda es quien sabe
+si va de garantía, y exigir `edit_discount` ahí dejaría el botón inservible justo para quien lo
+usa. **Cambiarla después** sí: `edit_discount` en la orden, `ticket_edit` en el ticket, y en el
+ticket además queda un evento `no_charge_changed` en el historial inalterable. Y no se puede
+marcar una orden que **ya facturó**: primero se anula la factura en Facturación, porque aquí el
+dinero se anula y no se destruye.
+
+**Detalle que costó un 403 fantasma en pruebas.** Los formularios reenvían el objeto entero,
+marca incluida, y mandan `''` donde la base guarda `NULL`. Sin normalizar ambos lados, corregir
+la dirección de una orden le habría dado un 403 a quien no tiene permisos de cartera.
+
+**Gasto: no se crea ninguno nuevo.** El equipo ya se contabiliza al ENTRAR al inventario, si el
+ISP encendió `inventory_entry_creates_expense` (§ 62). Crear un gasto al entregarlo duplicaría
+el de la compra. Lo que sí se muestra en la orden es el **costo interno** de la visita, sumando
+`installation_equipment.unit_price`.
+
+**Pendiente.** `migrate:both` antes de desplegar. Y cuando se mergee KAN-92 (equipos en el
+ticket), su pantalla tendrá que respetar la marca igual que la hoja de la instalación.

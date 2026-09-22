@@ -252,7 +252,7 @@ tecleada. La decisión se toma sobre la configuración **resuelta**, nunca sobre
 | `CustomerProvisioningService` | 338 | Aprovisionar un cliente según el **método de control** del router |
 | `RouterProvisioningService` | 218 | Suspender/reactivar en el router |
 | `RouterPolicyInstallerService` | 151 | Instalar reglas de bloqueo en el router |
-| `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento) |
+| `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento). **No se llama** si la orden está marcada `no_charge` |
 | `PaymentReminderService` | 209 | Recordatorios de pago (email/WhatsApp): **un mensaje por cliente** con todas sus facturas pendientes |
 | `TrafficHistoryService` | 164 | Muestreo y agregación de tráfico WAN |
 | `VpnService` | 945 | Generación y verificación de scripts de túnel (WireGuard v7 · L2TP/IPSec v6) |
@@ -370,6 +370,36 @@ la vista previa pero que no llegaba a existir.
 **Idempotencia.** No hay riesgo de doble cobro: la corrida mensual comprueba el solape de
 periodos (`monthlyInvoiceExists`) antes de crear nada, así que al llegar su día ve el mes
 ya facturado y lo salta.
+
+### La visita que no se le cobra al cliente (2026-09-21)
+
+Un mantenimiento o una garantía —se quema el router, el técnico lo cambia— consume
+inventario pero no genera ingreso. El equipo sale de la bodega y lo asume la empresa; el
+cliente no paga nada.
+
+`customer_installations.no_charge` y `support_ticket.no_charge` son la misma marca en los
+dos módulos por los que entra una visita, y cada uno la aplica donde emite dinero:
+
+| Módulo | Qué hace la marca |
+|---|---|
+| Orden de instalación | `CustomerInstallationController::updateBilling()` **salta** `InstallationBillingService`: se guarda la cartera (acuerdo, notas, retención) y no se emite ni se recalcula factura. La orden además no admite cifras |
+| Ticket de soporte | `POST /support/{id}/charge` responde 422. El cambio de la marca queda en `support_ticket_history` (`no_charge_changed`) |
+
+**Por qué una marca y no un catálogo de tipos de orden.** «Qué se fue a hacer» y «si se
+cobra» son dos preguntas distintas: hay mantenimientos que sí se cobran —el cliente rompió
+el equipo— y traslados regalados por retención. Atar el cobro al tipo obliga a desdoblar el
+catálogo en cuanto aparece la primera excepción, que aparece siempre. Un tipo de orden, si
+se pide, será una columna aparte que no entra en conflicto con ésta.
+
+**Por qué no se ponen las cifras en cero solas.** Borrar dinero en silencio es como se
+pierde la pista de un abono que el cliente sí entregó. Una orden con valores puestos se
+rechaza con un mensaje, y quien la marca decide qué hace con ellos. Es el mismo criterio
+que impide borrar facturas (§ *Anulación de facturas*): el dinero se anula, no se destruye.
+
+**El gasto del equipo regalado ya estaba contabilizado** —si el ISP encendió
+`inventory_entry_creates_expense`, al entrar el equipo al inventario— así que esta marca no
+crea ningún gasto nuevo: crearlo duplicaría el de la compra. La pantalla de la orden sí
+muestra el **costo interno** de la visita, sumando `installation_equipment.unit_price`.
 
 **Cuándo NO factura** (devuelve `null`, sin error, y deja el motivo en el log):
 

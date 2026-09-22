@@ -201,6 +201,10 @@ class SupportTicketController extends Controller
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
             // PR #2: el diagnóstico se puede capturar ya desde el alta, aunque lo
             // habitual sea rellenarlo después de la visita.
+            // La visita que no se le cobra al cliente: se decide al abrir la
+            // orden, que es cuando se sabe si va por garantía.
+            'no_charge'        => 'nullable|boolean',
+            'no_charge_reason' => 'nullable|string|max:255',
         ] + $this->reglasDeDiagnostico($tenantId), $this->mensajesDeDiagnostico());
 
         // PR B · La ruta ya exigió `ticket_create`, que cubre el acto de abrir
@@ -234,6 +238,11 @@ class SupportTicketController extends Controller
                 // dejarlo escrito aquí habría obligado a desplegar código para
                 // cambiar el primer paso del flujo.
                 'status' => $this->catalogs->estadoInicial() ?? SupportTicket::STATUS_OPEN,
+                // Al abrir el ticket no se exige permiso aparte para marcarla:
+                // forma parte de radicar la visita. Cambiarla después sí pasa
+                // por `ticket_edit` y queda en el historial.
+                'no_charge'        => (bool) ($data['no_charge'] ?? false),
+                'no_charge_reason' => $data['no_charge_reason'] ?? null,
             ] + $this->diagnosticoDe($data));
 
             if (!empty($data['sectorial_id'])) {
@@ -326,6 +335,8 @@ class SupportTicketController extends Controller
             'staff_id' => 'sometimes|nullable|exists:users,id',
             'sectorial_id' => 'sometimes|nullable|integer|exists:sectorial,id',
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
+            'no_charge' => 'sometimes|boolean',
+            'no_charge_reason' => 'sometimes|nullable|string|max:255',
             // PR #2. El tenant sale del ticket y no del usuario: `findOrFail` ya
             // pasó por el scope global de BelongsToTenant, así que el ticket es
             // forzosamente del ISP de quien pide, y usar su tenant deja el
@@ -361,7 +372,24 @@ class SupportTicketController extends Controller
         DB::beginTransaction();
 
         try {
+            $marcaAntes = (bool) $ticket->no_charge;
+
             $ticket->update($data);
+
+            // Perdonar —o dejar de perdonar— el cobro de una visita es una
+            // decisión de dinero, y el expediente tiene que decir quién la tomó
+            // y cuándo. Sin esto, un ticket podría pasar de gratis a cobrable
+            // la víspera de facturarlo sin que quedara rastro.
+            if (array_key_exists('no_charge', $data) && (bool) $data['no_charge'] !== $marcaAntes) {
+                SupportTicketHistory::registrar(
+                    $ticket,
+                    SupportTicketHistory::NO_CHARGE,
+                    field: 'no_charge',
+                    oldValue: $marcaAntes ? 'sin cobro al cliente' : 'se le cobra al cliente',
+                    newValue: $ticket->no_charge ? 'sin cobro al cliente' : 'se le cobra al cliente',
+                    metadata: array_filter(['reason' => $ticket->no_charge_reason]),
+                );
+            }
 
             // Aquí había un bloque que estampaba `resolved_at` cuando el `PUT`
             // movía el estado a resuelto. Ya no puede ocurrir: `status` salió de
@@ -476,6 +504,12 @@ class SupportTicketController extends Controller
         // Confirmar la causa es una potestad aparte en el requerimiento: el
         // documento se la da al Supervisor, no a quien diagnostica.
         'confirmed_cause' => Permissions::TICKET_CONFIRM_CAUSE,
+        // Perdonar el cobro de una visita es editar el ticket, no facturarlo:
+        // se queda con `ticket_edit` por coherencia con el resto de este
+        // controlador —el cargo mismo tampoco exige un permiso de facturación—
+        // y lo que lo hace revisable es que el cambio queda en el historial.
+        'no_charge'        => Permissions::TICKET_EDIT,
+        'no_charge_reason' => Permissions::TICKET_EDIT,
     ];
 
     /**
@@ -1404,6 +1438,21 @@ class SupportTicketController extends Controller
     public function generateCharge(Request $request, $id)
     {
         $ticket = SupportTicket::findOrFail($id);
+
+        // La marca es una PROHIBICIÓN, no un valor por defecto. El interruptor
+        // «Cargo Asociado» del alta ya venía apagado, y eso no impedía nada:
+        // este endpoint sigue abierto toda la vida del ticket, así que la
+        // visita que el técnico dio por regalada se podía facturar un mes
+        // después sin que nadie lo notara. Quitar la marca es posible —exige
+        // `ticket_edit` y queda en el historial—, pero hay que hacerlo a
+        // propósito.
+        if ($ticket->no_charge) {
+            return response()->json([
+                'message' => 'Este ticket está marcado sin cobro al cliente, así que no puede generar cargos. '
+                    . 'Quita la marca en el ticket si finalmente hay que cobrarlo.',
+                'errors'  => ['no_charge' => ['El ticket está marcado sin cobro al cliente.']],
+            ], 422);
+        }
 
         $data = $request->validate([
             'items'               => 'required|array|min:1',

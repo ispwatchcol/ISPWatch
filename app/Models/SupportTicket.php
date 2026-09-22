@@ -80,12 +80,18 @@ class SupportTicket extends Model
         'result',
         'resolved_at',
         'closed_at',
+        // La visita que no se le cobra al cliente. No es un estado del ticket
+        // ni un diagnóstico: es una decisión de dinero, y por eso cambiarla
+        // deja rastro en `support_ticket_history`.
+        'no_charge',
+        'no_charge_reason',
     ];
 
     protected $casts = [
         'resolved_at' => 'datetime',
         'closed_at'   => 'datetime',
         'deleted_at'  => 'datetime',
+        'no_charge'   => 'boolean',
     ];
 
     /**

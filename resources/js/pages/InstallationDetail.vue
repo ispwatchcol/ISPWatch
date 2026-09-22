@@ -39,7 +39,20 @@
             class="text-[10px] uppercase bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded">
             Pre-venta
           </span>
+          <span v-if="installation.no_charge"
+            class="text-[10px] uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded">
+            Sin cobro
+          </span>
         </h2>
+
+        <!-- El técnico sin permiso de cartera NO ve el bloque de dinero, y es
+             justo a él a quien hay que decírselo: es el que está en la casa del
+             cliente decidiendo si le pide plata. -->
+        <p v-if="installation.no_charge"
+          class="mb-4 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+          Esta orden es <strong>sin cobro al cliente</strong>: no cobres nada en sitio ni se le genera factura.
+          <span v-if="installation.no_charge_reason"> Motivo: {{ installation.no_charge_reason }}.</span>
+        </p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
           <div>
             <p class="text-xs text-gray-500 dark:text-gray-400 uppercase">{{ installation.is_prospect ? 'Prospecto' : 'Cliente' }}</p>
@@ -292,6 +305,9 @@
             Sólo aparece lo que tienes asignado{{ technicianSourceName ? ` y lo de ${technicianSourceName}` : '' }}.
             Cada línea se descuenta del inventario y queda registrada en el historial del equipo.
           </p>
+          <p v-if="installation.no_charge" class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+            Esta orden es sin cobro: lo que cargues aquí sale igual de la bodega y lo asume la empresa.
+          </p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -421,6 +437,10 @@
             class="text-[10px] uppercase bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded">
             Solo lectura
           </span>
+          <span v-if="billing.no_charge"
+            class="text-[10px] uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded">
+            Sin cobro
+          </span>
         </h2>
 
         <!-- Factura vinculada (aparece tras el primer guardado) -->
@@ -457,6 +477,32 @@
 
         <div v-if="canEditBilling" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
+          <!-- Sin cobro al cliente. Va ARRIBA del todo y no al final: es la
+               pregunta que decide si el resto del bloque tiene sentido. -->
+          <div class="sm:col-span-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input v-model="billing.no_charge" @change="onNoChargeToggle" type="checkbox"
+                class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+              <span>
+                <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+                <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                  Mantenimiento o garantía. Los equipos se descuentan igual del inventario y siguen siendo
+                  gasto de la empresa, pero esta orden no genera factura.
+                </span>
+              </span>
+            </label>
+            <input v-if="billing.no_charge" v-model="billing.no_charge_reason" type="text" maxlength="255"
+              placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+              class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <p v-if="billingErrors.no_charge" class="mt-2 text-xs text-red-600 dark:text-red-400">
+              {{ billingErrors.no_charge[0] }}
+            </p>
+            <p v-if="billing.no_charge && equipmentTotal > 0" class="mt-2 text-xs text-amber-800 dark:text-amber-300">
+              Costo interno de esta visita: <strong>{{ fmtMoney(equipmentTotal) }}</strong> en equipos y materiales.
+              No se le factura al cliente.
+            </p>
+          </div>
+
           <!-- Acuerdo de pago -->
           <div class="sm:col-span-2">
             <label class="flex items-center gap-2 cursor-pointer">
@@ -469,8 +515,9 @@
           <!-- Valor de instalación -->
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Valor de instalación</label>
-            <input v-model="billing.installation_cost" type="number" min="0" step="0.01" placeholder="0"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+            <input v-model="billing.installation_cost" type="number" min="0" step="0.01"
+              :disabled="billing.no_charge" :placeholder="billing.no_charge ? 'Sin cobro' : '0'"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{ 'border-red-400 dark:border-red-500': billingErrors.installation_cost }" />
             <p v-if="billingErrors.installation_cost" class="mt-1 text-xs text-red-500">{{ billingErrors.installation_cost[0] }}</p>
           </div>
@@ -479,12 +526,18 @@
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Adicionales (concepto y precio)</label>
 
-            <div v-if="!billing.additional_items.length"
+            <div v-if="billing.no_charge"
+              class="text-xs text-amber-700 dark:text-amber-300 border border-dashed border-amber-300 dark:border-amber-700 rounded-lg px-3 py-3 mb-2">
+              Orden sin cobro: no se le facturan adicionales al cliente. Los equipos que cargues en la hoja
+              salen igual del inventario.
+            </div>
+
+            <div v-else-if="!billing.additional_items.length"
               class="text-xs text-gray-400 dark:text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-3 py-3 mb-2">
               Sin adicionales. Agrega por ejemplo un router adicional con su precio.
             </div>
 
-            <div v-for="(item, idx) in billing.additional_items" :key="idx" class="flex gap-2 mb-2">
+            <div v-for="(item, idx) in billing.no_charge ? [] : billing.additional_items" :key="idx" class="flex gap-2 mb-2">
               <input v-model="item.description" type="text" placeholder="Ej: Router adicional TP-Link"
                 class="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
                 :class="{ 'border-red-400 dark:border-red-500': billingErrors[`additional_items.${idx}.description`] }" />
@@ -497,7 +550,7 @@
               </button>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2">
+            <div v-if="!billing.no_charge" class="flex flex-wrap items-center gap-2">
               <button @click="addChargeRow" type="button"
                 class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 px-3 py-1.5 rounded-lg transition">
                 + Agregar adicional
@@ -515,8 +568,9 @@
           <!-- Descuento -->
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Descuento</label>
-            <input v-model="billing.discount" type="number" min="0" step="0.01" placeholder="0"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+            <input v-model="billing.discount" type="number" min="0" step="0.01"
+              :disabled="billing.no_charge" :placeholder="billing.no_charge ? 'Sin cobro' : '0'"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{ 'border-red-400 dark:border-red-500': billingErrors.discount }" />
             <p v-if="billingErrors.discount" class="mt-1 text-xs text-red-500">{{ billingErrors.discount[0] }}</p>
           </div>
@@ -826,6 +880,8 @@ const sheet = ref({
 const savingSheet = ref(false)
 
 const billing = ref({
+  no_charge:          false,
+  no_charge_reason:   '',
   payment_agreement:  false,
   installation_cost:  null,
   additional_items:   [],
@@ -1118,6 +1174,8 @@ const loadInstallation = async ({ silent = false } = {}) => {
             ? [{ description: 'Cargos adicionales', amount: Number(data.additional_charges) }]
             : [])
       billing.value = {
+        no_charge:          !!data.no_charge,
+        no_charge_reason:   data.no_charge_reason   ?? '',
         payment_agreement:  data.payment_agreement  ?? false,
         installation_cost:  data.installation_cost  ?? null,
         additional_items:   items,
@@ -1246,6 +1304,23 @@ const saveSheet = async () => {
   }
 }
 
+/**
+ * Al marcar «sin cobro» se limpian los precios delante de quien lo marca, para
+ * que no quede una cifra colgada que el servidor acabaría rechazando.
+ *
+ * `payment_received` NO se toca a propósito: eso es plata que el cliente ya
+ * entregó. Si la hay, el guardado falla con un mensaje que lo explica, y quien
+ * marca la orden tiene que decidir qué hace con ese dinero — devolverlo o
+ * dejarlo como saldo a favor— en vez de verlo desaparecer de la pantalla.
+ */
+const onNoChargeToggle = () => {
+  if (!billing.value.no_charge) return
+  billing.value.installation_cost = null
+  billing.value.additional_items  = []
+  billing.value.discount          = null
+  billing.value.discount_reason   = ''
+}
+
 const saveBilling = async () => {
   savingBilling.value = true
   billingErrors.value = {}
@@ -1255,6 +1330,8 @@ const saveBilling = async () => {
       .filter(it => (it.description ?? '').trim() !== '' || toNum(it.amount) !== null)
       .map(it => ({ description: (it.description ?? '').trim(), amount: Number(it.amount) || 0 }))
     const payload = {
+      no_charge:          billing.value.no_charge,
+      no_charge_reason:   billing.value.no_charge_reason || null,
       payment_agreement:  billing.value.payment_agreement,
       installation_cost:  toNum(billing.value.installation_cost),
       additional_items:   items,
@@ -1271,7 +1348,11 @@ const saveBilling = async () => {
     const { data } = await api.customers.updateInstallationBilling(installationId.value, payload)
     // Refresh installation with new invoice_id / invoice_number / invoice_status
     if (data.installation) installation.value = data.installation
-    if (data.invoice_warning) {
+    if (data.installation?.no_charge) {
+      // No es un fallo: es lo que se pidió. Pintarlo en rojo entrenaría a la
+      // gente a ignorar los avisos rojos que sí importan.
+      toast.value?.success('Cartera guardada', 'Orden sin cobro: no se generó factura.')
+    } else if (data.invoice_warning) {
       toast.value?.error('Sin factura', data.invoice_warning)
     } else if (data.invoice) {
       toast.value?.success('Cartera guardada', `Factura #${data.invoice.number} generada correctamente.`)
