@@ -57,6 +57,11 @@ class ProductionDatabaseGuard
      *    `sqlite :memory:` y `tests/TestCase.php` aborta si se encuentra
      *    conectada a una base real. Frenarla aquí bloqueaba la suite entera en
      *    cualquier máquina cuyo .env apunte a Supabase.
+     *  · `inventory:duplicate-identifiers` — su razón de existir es mirar los
+     *    duplicados de PRODUCCIÓN antes de aplicar la migración que los sella
+     *    (KAN-100). Exigirle confirmación al único comando que hay que correr
+     *    contra producción para decidir si migrar sería llevar la contraria a
+     *    su propósito. No escribe nada: sólo agrupa y cuenta.
      */
     private const ALLOWED_COMMANDS = [
         'about',
@@ -67,6 +72,7 @@ class ProductionDatabaseGuard
         'env',
         'help',
         'inspire',
+        'inventory:duplicate-identifiers',
         'list',
         'migrate:status',
         'route:list',
