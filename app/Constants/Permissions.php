@@ -137,6 +137,15 @@ class Permissions
     const TICKET_RESTORE         = 'ticket_restore';
     const TICKET_MANAGE_CATALOGS = 'ticket_manage_catalogs';
     const TICKET_EXPORT          = 'ticket_export';
+    /**
+     * PR F1 · Registrar y gestionar intervenciones tecnicas del ticket.
+     *
+     * Permiso propio y no `ticket_edit` porque la seccion 18 le da la
+     * «visita» al Tecnico de campo, a quien la matriz de permisos NIEGA
+     * `ticket_edit`. Meterlo ahi le daria de paso editar asunto, categoria
+     * y asignacion, que es justo lo que ese rol no debe tocar.
+     */
+    const TICKET_INTERVENE       = 'ticket_intervene';
 
     /**
      * Los que todavía NO gobiernan ninguna acción del sistema.
@@ -296,6 +305,7 @@ class Permissions
                 self::TICKET_ARCHIVE => 'Tickets · archivar expediente',
                 self::TICKET_RESTORE => 'Tickets · restaurar expediente archivado',
                 self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar catálogos (aún sin uso)',
+                self::TICKET_INTERVENE => 'Tickets · registrar intervenciones técnicas',
                 self::TICKET_EXPORT => 'Tickets · métricas y exportación',
                 self::VIEW_SUPPORT => 'Ver Soporte Técnico',
             ],

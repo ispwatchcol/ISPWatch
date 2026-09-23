@@ -7697,3 +7697,123 @@ silencioso. Se corrigió localizando el perfil por `user_id` a partir del correo
 único y refleja la relación real del esquema. Verificado compilando ambas consultas con la
 gramática de PostgreSQL: la vieja emite `order by "id" desc` (exactamente el SQL del log de CI)
 y la nueva no menciona `id` por ningún lado. Queda como trampa #60 del manual de desarrollador.
+
+---
+
+## 74. Una visita que se puede borrar no es evidencia — 2026-09-23
+
+PR F1 del módulo de tickets: intervenciones técnicas (§ 14 de la Solicitud Maestra). La parte
+interesante no fue la tabla, sino qué se decidió **no** poder hacer con ella.
+
+### El requisito
+
+> «Un ticket puede tener múltiples intervenciones. Cada una debe registrar fecha/hora, tipo
+> remoto o presencial, técnico, diagnóstico encontrado, acción, materiales, equipos
+> retirados/instalados, evidencia, resultado y siguiente paso.»
+
+Materiales y equipos quedaron fuera a propósito: son el PR F3 y dependen de una decisión sin
+tomar (**D-14**, si mover o no el kardex de inventario). Meterlos aquí habría mezclado una
+funcionalidad nueva con el único cambio capaz de desincronizar el inventario físico.
+
+### `SoftDeletes` no era la respuesta, aunque el ticket sí lo use
+
+El primer diseño llevaba `deleted_at`, por simetría con `support_ticket`. El equipo lo vetó, y
+tenía razón. La simetría era falsa:
+
+- Archivar un **ticket** es una operación de negocio: reversible, con permiso propio, con
+  motivo y auditada (PR C). El expediente sigue existiendo, sólo sale de la bandeja.
+- Una **intervención** es la constancia de que alguien fue, miró y actuó. Marcarla como
+  borrada la saca del expediente sin que el histórico cuente por qué.
+
+Y eso choca de frente con el § 15.10: «El cierre no debe borrar la causa sospechada, **las
+intervenciones** ni los estados anteriores».
+
+Un borrado blando aquí habría sido una puerta trasera con nombre respetable. De ahí que la
+tabla no tenga `deleted_at`, que no exista endpoint de borrado, que el cliente de API no tenga
+método, que la pantalla no tenga botón, y que el modelo lance una excepción en `deleting` para
+que tampoco se pueda desde un comando de consola.
+
+### La inmutabilidad sin salida es inutilizable
+
+Si una visita no se borra ni se edita, un dato mal anotado se queda mal para siempre. Por eso
+el cerrojo tiene una llave documentada:
+
+```
+finished_at NULL  → en curso, editable
+finished_at lleno → cerrada; corregir exige REABRIR con motivo de 10 a 500 caracteres
+```
+
+Reabrir deja `intervention_reopened` con actor, fecha, el sello anterior en `old_value` y el
+motivo en `metadata`. El mínimo de diez caracteres existe para que «ok» no cuente como
+justificación.
+
+El cerrojo vive en **dos** sitios: el controlador, que devuelve 422 explicando qué hacer, y el
+hook `saving` del modelo, para que un camino nuevo no se lo salte en silencio. El del modelo
+distingue campos de contenido de `finished_at`: cerrar una intervención abierta es legítimo;
+tocar el hallazgo de una ya cerrada, no.
+
+### La foránea compuesta, y por qué una simple no bastaba
+
+La evidencia se enlaza a la intervención con tres columnas sobre
+`support_ticket_attachment` —no una tabla nueva: el archivo ya está en el bucket privado y ya
+se sirve por un endpoint que comprueba tenant y ticket—.
+
+Con `intervention_id` a secas, nada impediría colgar una evidencia del ticket 10 de una
+intervención del ticket 77. Y esa tabla es justo donde más duele: **no tiene `tenant_id`**, lo
+deriva del ticket. Un enlace cruzado no sólo mezclaría expedientes, podría cruzar ISPs.
+
+```sql
+FOREIGN KEY (intervention_id, ticket_id)
+REFERENCES ticket_intervention (id, support_ticket_id)
+```
+
+Por eso `ticket_intervention` lleva `UNIQUE(id, support_ticket_id)` además del
+`UNIQUE(support_ticket_id, sequence)`: sin él la foránea compuesta no se puede declarar.
+
+**Se crea sólo en PostgreSQL.** SQLite no admite añadir foráneas a una tabla existente con
+`ALTER TABLE`. El test correspondiente se salta allí con un mensaje explícito, y el CI lo
+cubre. Verificado además a mano contra PostgreSQL 18.3 en base desechable: ocho comprobaciones,
+incluida la que importa — el enlace cruzado se rechaza.
+
+### Lo que salió al escribir los tests
+
+Tres fallos, todos del test y no del código, y los tres instructivos:
+
+1. **`$a + $b` en PHP conserva las claves de `$a`.** El helper `cuerpo($extra)` devolvía
+   `[defaults] + $extra`, así que los valores por defecto ganaban y `$extra` no servía para
+   nada. Tres tests pasaban o fallaban por la razón equivocada.
+2. **El `UserFactory` sólo llena `name`**, no `user_name`/`user_lastname`. El nombre congelado
+   salía vacío y el test lo achacaba al código.
+3. **`open → servicio_restablecido` no es una transición válida.** El camino remoto real es
+   `open → en_diagnostico_remoto → servicio_restablecido`, que además es justo el indicador de
+   «resolución remota» del § 17.
+
+Y un cuarto, ya conocido de PRs anteriores: un test que afirma «la interfaz no menciona X»
+falla si el propio comentario que explica por qué no se menciona X escribe X. Van dos veces.
+
+### Decisiones registradas
+
+| ID | Decisión |
+|---|---|
+| **S-2** | `kind` sólo `remoto` o `presencial`: son los dos que nombra el documento |
+| **S-3** | Un acompañante por intervención — la § 14 lo dice en singular |
+| **D-14** | F3 registrará equipos y materiales de forma declarativa; **no** moverá el kardex sin decisión posterior |
+| **D-15** | El cierre **no** exige intervenciones: ninguna de las diez reglas del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita |
+
+### Deuda que queda
+
+- **El `unique(device_id)` de `installation_equipment`** —«un equipo físico no puede estar
+  instalado en dos casas a la vez»— quedará con un agujero si F3 registra equipos instalados
+  fuera de esa tabla. Hay que resolverlo **en el diseño de F3**, no al implementarlo.
+- **El técnico se sigue eligiendo de una lista filtrada por nombre de rol** en otras pantallas
+  (`'técnico' || 'tecnico'`). Aquí se pasa la lista de personal y la validación real la hace el
+  backend contra el tenant, pero la heurística del nombre sigue viva en `SupportEdit.vue`.
+- **F1-08 queda cumplido; F1-12 y F1-09 no.** Materiales, equipos y pruebas estructuradas son
+  F3 y F2.
+
+### Lección
+
+La pregunta útil al añadir una entidad al expediente no es «¿qué campos lleva?» sino «¿puede
+desaparecer?». De la respuesta salen el `deleted_at`, el endpoint de borrado, el cerrojo de
+edición y la forma de corregir. Empezar por los campos habría dado una tabla correcta y una
+garantía inexistente.

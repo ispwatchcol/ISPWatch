@@ -1994,6 +1994,83 @@ siempre.
 
 Marcarlo al **crear** el ticket no exige permiso aparte: va dentro de `ticket_create`.
 
+### Intervenciones técnicas del ticket (PR F1 · 2026-09-23)
+
+Fuente: Solicitud Maestra § 14. Todas bajo `auth:sanctum` + `deny_api_clients` +
+`permission:ticket_view`; las de escritura exigen además **`ticket_intervene`**.
+
+| Método | Ruta | Permiso | Qué hace |
+|---|---|---|---|
+| `GET` | `/api/support/{ticket}/interventions` | `ticket_view` | Lista las visitas con su evidencia enlazada |
+| `POST` | `/api/support/{ticket}/interventions` | `+ ticket_intervene` | Registra una intervención |
+| `PUT` | `/api/support/{ticket}/interventions/{id}` | `+ ticket_intervene` | Edita una **en curso** |
+| `POST` | `/api/support/{ticket}/interventions/{id}/reopen` | `+ ticket_intervene` | Reabre una finalizada, con motivo |
+| `POST` | `/api/support/{ticket}/interventions/{id}/evidence` | `+ ticket_intervene` | Enlaza un adjunto ya subido a la visita |
+
+**No existe `DELETE`.** Una intervención no se borra: si está mal se reabre con motivo y se
+corrige, y la corrección queda en el historial (§ 15.10). La ruta devuelve **405**.
+
+#### Cuerpo del alta
+
+```json
+{
+  "kind": "presencial",
+  "technician_id": 34,
+  "assistant_id": 41,
+  "started_at": "2026-09-23T08:00:00",
+  "finished_at": null,
+  "finding": "Cable deteriorado entre PoE y CPE.",
+  "action_taken": "Cambio de cable y realineación.",
+  "outcome": "Servicio restablecido en sitio.",
+  "next_step": "Vigilar 24 horas."
+}
+```
+
+`kind`, `technician_id` y `started_at` son obligatorios. `kind` sólo admite `remoto` o
+`presencial`. En la edición todos son opcionales.
+
+`technician_id` y `assistant_id` se validan **contra el tenant de quien pide**, no contra
+`users` entero: un id de otro ISP devuelve 422. El número de la intervención (`sequence`) lo
+calcula el servidor, correlativo por ticket.
+
+#### Respuestas de error
+
+| Situación | Código | Cuerpo |
+|---|---|---|
+| Ticket archivado | **404** | Está fuera de la operación; hay que restaurarlo primero |
+| Ticket o intervención de otro ISP | **404** | No se confirma que exista |
+| Editar una finalizada | **422** | `error: intervention_finished` |
+| Reabrir una en curso | **422** | `error: intervention_not_finished` |
+| Reabrir sin motivo o con menos de 10 caracteres | **422** | `errors.reason` |
+| Sin `ticket_intervene` | **403** | — |
+
+#### Enlazar evidencia
+
+```json
+{ "attachment_id": 12, "evidence_type": "foto_sitio", "description": "Cable dañado antes del cambio." }
+```
+
+**No sube nada**: el archivo entra por el camino de siempre (`PUT /api/support/{id}` con
+`attachments[]`), que ya lo deja en el bucket privado. Aquí sólo se dice de qué visita salió.
+El adjunto debe pertenecer al mismo ticket — si no, **404**, y en PostgreSQL además lo impide
+una clave foránea compuesta.
+
+#### Lo que la respuesta NO trae
+
+`file_path` dejó de serializarse en los adjuntos. Es la ruta interna del bucket; el archivo se
+pide por `url` (vista previa, `inline`) o `download_url` (descarga, `attachment`), que pasan
+por el endpoint autenticado.
+
+**`/v1/partner` no cambia.** Las intervenciones, como el diagnóstico, las notas y los
+adjuntos, viven sólo en la API del panel. Exponerlas al integrador es la decisión **D-07**,
+todavía sin tomar, y hay un test que impide que se filtren por descuido.
+
+#### Eventos que deja en el historial
+
+`intervention_started` · `intervention_finished` · `intervention_edited` ·
+`intervention_reopened` (con `field: finished_at`, el sello anterior en `old_value` y el motivo
+en `metadata.reason`).
+
 ### Workflow formal del ticket (2026-09-19)
 
 Fuente: Solicitud Maestra §7 (ciclo de vida), §15 (reglas de cierre) y §18 (roles). CNO

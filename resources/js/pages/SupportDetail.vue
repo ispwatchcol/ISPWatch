@@ -256,6 +256,16 @@
                         </dl>
                     </div>
 
+                    <!-- Intervenciones tecnicas (PR F1 - seccion 14) -->
+                    <TicketInterventions
+                        ref="interventionsRef"
+                        :ticket-id="ticketId"
+                        :puede-intervenir="canIntervene"
+                        :ticket-archivado="!!ticket.is_archived"
+                        :tecnicos="staffList"
+                        @cambio="loadTicket"
+                    />
+
                     <!-- Historial inalterable (PR #3 · F1-17) -->
                     <div v-if="canViewHistory" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-1">
@@ -982,6 +992,7 @@ import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NotificationToast from '../components/NotificationToast.vue'
+import TicketInterventions from '../components/TicketInterventions.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 
 // R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan abajo porque
@@ -1003,6 +1014,25 @@ const canEdit = computed(() => authStore.hasPermission('ticket_edit'))
 const canNote = computed(() => authStore.hasPermission('ticket_note'))
 const canViewHistory = computed(() => authStore.hasPermission('ticket_view_history'))
 const canAttach = computed(() => authStore.hasPermission('ticket_attach'))
+// PR F1 - registrar intervenciones tecnicas (seccion 14).
+const canIntervene = computed(() => authStore.hasPermission('ticket_intervene'))
+
+// Personal del tenant para los desplegables de tecnico y acompanante. El
+// backend valida ademas que el id pertenezca al tenant: esta lista es comodidad
+// de la interfaz, nunca la autorizacion.
+const staffList = ref([])
+const interventionsRef = ref(null)
+
+const loadStaff = async () => {
+    try {
+        const { data } = await api.staff.getAll()
+        staffList.value = data.data || []
+    } catch (e) {
+        // Sin lista, los desplegables quedan vacios pero el resto de la pantalla
+        // sigue funcionando. No se rompe el detalle del ticket por esto.
+        staffList.value = []
+    }
+}
 // PR C · Archivar y restaurar. CNO los aprobó para «Administradores y
 // Propietarios»; en ISPWatch «Propietario» no existe como rol, así que la
 // migración los concede a `code = 'admin'` y el superadministrador pasa por su
@@ -1806,6 +1836,8 @@ onMounted(() => {
     loadCharges()
     cargarHistorial(1)
     cargarWorkflow()
+    // PR F1: solo hace falta para poblar los desplegables de la intervencion.
+    if (canIntervene.value) loadStaff()
 })
 </script>
 
