@@ -4,10 +4,17 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-22 · Rama: `feat/payments-reconnection-warning`
+**Última actualización:** 2026-09-23 · Rama: `fix/notify-invoice-bulk-reminders`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **«No enviar notificaciones de factura» no sobrevivía a un envío masivo (2026-09-23, § 73):**
+  la preferencia se guardaba y se respetaba bien en los dos caminos automáticos, pero el
+  recordatorio **masivo** la ignoraba — heredaba por delegación la excepción del envío
+  individual, que sí es intencional. El cliente que pidió silencio recibía el mensaje igual al
+  entrar su factura en una selección del listado. Ahora el masivo comprueba `notify_invoice` y
+  `exclude_from_billing` justo antes de cada envío, y el omitido se reporta como `skipped`,
+  nunca como `failed`.
 - **El cliente pagaba, la pantalla decía «reactivado», y nadie había tocado el router
   (2026-09-22, § 72):** con el cliente sin router asignado, la reconexión salía con
   `router_ok = true` —el valor por defecto de la variable, no la confirmación de ningún
@@ -984,6 +991,7 @@ Decisiones deliberadas cuya justificación está documentada en el propio códig
 | El guard de `notify_invoice` vive **dentro** de `BillingService::notifyInvoiceCreated()` (tras la factura ya creada), no en `createMonthlyInvoiceFor()` | La creación de la factura y el envío de notificación ya estaban desacoplados por un `try/catch` (un fallo de notificación no revierte la factura); el guard nuevo es una condición más en ese mismo punto de salida, sin tocar el flujo de generación |
 | `PaymentReminderService::sendDueReminders()` filtra `notify_invoice=true` en la **query** de selección de perfiles, no dentro del loop de envío | Sigue el mismo patrón ya usado ahí para `exclude_from_billing`: más barato excluir en SQL que iterar y descartar, y mantiene un único lugar por leer para saber quién entra al recordatorio |
 | `PaymentReminderController::sendReminder()` (envío manual de un agente desde la ficha de una factura puntual) **no** respeta `notify_invoice` | Es una decisión explícita de un humano en el momento, distinta del envío automático que el flag está pensado para silenciar; se documenta como excepción intencional, no como deuda pendiente |
+| **La excepción anterior NO se extiende a `sendBulkReminders()`** (corregido el 2026-09-23, § 73) | El masivo no es una decisión por cliente: el operador marca casillas en el listado —o «seleccionar todo»— y dispara sobre el lote. Heredaba la exención sólo porque estaba implementado llamando a `sendReminder()` en un bucle, no porque se hubiera decidido. Ahora comprueba `notify_invoice` y `exclude_from_billing` antes de cada envío y devuelve el omitido como `skipped`, nunca como `failed` |
 | **Auditoría de Finanzas (2026-08-05)**: el debounce que faltaba en `InvoicesList.vue` se trató como **bug de correctitud**, no como optimización | Sin `requestId`, dos respuestas del buscador pueden llegar desordenadas y la lenta pinta resultados obsoletos sobre los recientes — el usuario ve datos viejos indistinguibles de los correctos. `PaymentsList.vue` ya tenía resuelto el patrón completo (debounce 400 ms + guard + `refreshing` en vez de vaciar la tabla); se copió literal en vez de inventar una variante |
 | Gastos: la búsqueda usa las macros `whereLike`/`orWhereLike`, nunca `LIKE` ni `ilike` a pelo | `LIKE` distingue mayúsculas en PostgreSQL pero no en SQLite: escrito a mano pasa los tests y falla en producción (ya ocurrió en la búsqueda de Facturación, ver `SearchMacrosServiceProvider`). El test lo deja explícito buscando "arriendo" contra un registro guardado como "Arriendo" |
 | Los índices nuevos son `(tenant_id, issue_date)` y `(tenant_id, expense_date)`, pese a que ya existían índices sobre esas tablas | Ninguno cubría el acceso real del listado —filtrar por tenant **y** ordenar por fecha a la vez—: `invoices_tenant_period_idx` es sobre `period_start` (el filtro por período, no el orden por emisión) y en `expenses` los tres índices eran de una sola columna |
@@ -7579,3 +7587,96 @@ resolverse. En todos se verifica además que **el pago quedó aplicado y la fact
 `AutoReconnectOnPaymentTest` y `RepairPaidSuspendedTest` necesitaron routers de prueba
 realistas (con credenciales y dirección): antes daba igual qué llevara la fila porque el
 servicio iba mockeado entero, y ahora el preflight la lee.
+
+---
+
+## 73. «No enviar notificaciones de factura» no sobrevivía a un envío masivo — 2026-09-23
+
+**Lo que reportó el cliente.** Quiere que el sistema le siga generando sus facturas, pero no
+quiere recordatorios por correo ni WhatsApp. Tiene la casilla puesta y los mensajes le siguen
+llegando.
+
+**Lo que se auditó primero.** Antes de tocar nada se trazó la preferencia completa
+(`customer_profile.notify_invoice`, booleano, `NOT NULL`, default `true`) por todas sus capas:
+formulario → `StoreCustomerRequest`/validación de `update` → controlador → modelo → columna, y
+de vuelta a la UI. **Todo eso estaba bien**, incluido el detalle que más suele romperse: la
+actualización parcial usa `array_key_exists`, así que editar la dirección de un cliente
+silenciado no le vuelve a encender el aviso por omisión.
+
+También estaba bien la separación respecto de «No facturar a este cliente»
+(`exclude_from_billing`): silenciar el aviso no saca al cliente del ciclo, no toca su estado de
+servicio y no altera mora ni corte. La factura se sigue emitiendo con su saldo por cobrar.
+
+**Los cuatro caminos que pueden sacar un mensaje de facturación**, y lo que hacía cada uno:
+
+| Camino | Qué es | ¿Respetaba la preferencia? |
+|---|---|---|
+| `BillingService::notifyInvoiceCreated()` | Aviso automático de factura nueva | **Sí**, guard dentro del método |
+| `PaymentReminderService::sendDueReminders()` | Recordatorio automático (scheduler) | **Sí**, filtrado en la query de perfiles |
+| `PaymentReminderController::sendReminder()` | Manual, UNA factura | **No** — excepción deliberada y documentada desde el 2026-08-05 |
+| `PaymentReminderController::sendBulkReminders()` | Manual, EN MASA | **No** — y aquí estaba el defecto |
+
+**La causa raíz.** El masivo está implementado llamando al individual en un bucle:
+
+```php
+foreach ($request->invoice_ids as $invoiceId) {
+    $response = $this->sendReminder($request, $invoiceId);   // ← hereda la exención
+```
+
+De modo que heredaba la excepción del envío individual **por delegación, no por decisión**. Y
+las dos cosas no se parecen: el individual es un agente que abre UNA factura y decide sobre ESE
+caso; el masivo es un operador que marca casillas en el listado —o pulsa «seleccionar todo»— y
+dispara sobre el lote. Ahí no hay ninguna decisión por cliente que pueda justificar pasar por
+encima de lo que el cliente pidió.
+
+El manual de usuario ya prometía lo contrario sin matices: *«sólo apaga el aviso de
+correo/WhatsApp de factura nueva y los recordatorios de pago»*. Frente a lo documentado, esto
+era un defecto, no una excepción.
+
+De paso, el masivo tampoco respetaba `exclude_from_billing`: un cliente «no facturar» —que por
+definición está fuera de todo el ciclo automático, avisos incluidos— también recibía su
+recordatorio si su factura entraba en la selección.
+
+**La corrección, acotada al masivo.** `sendBulkReminders()` consulta ahora las dos banderas
+**justo antes de cada envío** (no al armar el lote: entre que el operador marcó la casilla y
+pulsó el botón, alguien pudo silenciar al cliente) y se salta al que pidió no recibir nada.
+
+`sendReminder()` **no se tocó**: su excepción sigue siendo intencional y ahora tiene una prueba
+que la fija, para que nadie la «arregle» sin enterarse de que era deliberada.
+
+**Un omitido no es un fallo.** Se contabiliza aparte (`summary.skipped`) y nunca como `failed`:
+contarlo como fallo mandaría al operador a investigar una avería inexistente, y un lote entero
+de clientes silenciados habría pintado un error rojo sobre una operación que hizo exactamente lo
+que debía. Por eso `success` es `true` cuando nada falló, aunque todo se haya omitido.
+
+**Trazabilidad sin datos de contacto.** Cada omitido vuelve con `skipped: true` y un `reason`
+normalizado (`notify_invoice_disabled` / `excluded_from_billing`), y se registra en el log del
+servidor con el id de la factura y el motivo — **sin** correo ni teléfono. La factura omitida
+**no** actualiza `last_reminder_sent`: no se envió nada, y marcarla consumiría el ciclo de
+recordatorio de ese periodo, de modo que si el cliente vuelve a pedir los mensajes el ciclo
+seguiría dado por avisado.
+
+**Lo que se comprobó y NO se cambió.**
+
+- **No hay colas.** Ni `InvoiceCreatedMail` ni `PaymentReminderMail` implementan `ShouldQueue`:
+  los envíos son síncronos y la preferencia se lee en el mismo instante del envío. No existe el
+  escenario de «un job encolado antes de activar la preferencia»; la comprobación tardía que
+  pedía el requisito ya es, de hecho, lo que ocurre.
+- **No existen avisos de pago recibido, suspensión ni reconexión.** `WhatsAppService` sólo
+  expone `sendPaymentReminder()` y `sendInvoiceCreated()`, y en `app/Mail` no hay ningún
+  mailable de esos tipos. No se amplió la preferencia a casos que no existen.
+- **Aislamiento por sede.** `Invoice` usa `BelongsToTenant`, así que un id de otra sede no
+  resuelve y el masivo no lo alcanza. Queda fijado con una prueba.
+- **La casilla sólo existe al EDITAR**, no al crear: `CustomerAdd.vue` no la monta, aunque el
+  backend sí acepta `notify_invoice` en el alta. El manual la documentaba bajo «5.2 Crear un
+  cliente», que es donde el operador iba a buscarla sin encontrarla. Se corrigió **el manual**,
+  no el formulario: que todo cliente nuevo nazca con el aviso encendido es el comportamiento
+  registrado (ver P-RADIUS-3), y añadir el control al alta es una decisión de producto, no la
+  corrección de un defecto. Anotado como P-53.
+
+**Pruebas.** `NotifyInvoicePreferenceTest`, 19 casos: persistencia (alta, edición, relectura,
+actualización parcial que omite el campo), separación respecto de `exclude_from_billing`,
+factura que se sigue generando, los cuatro caminos de envío con la preferencia encendida y
+apagada, lote mixto, omitido ≠ fallido, ausencia de datos de contacto en la traza, y aislamiento
+por sede. Los tres casos del masivo se escribieron **antes** de la corrección y fallaban;
+el resto pasaba desde el principio y quedan como red de seguridad.
