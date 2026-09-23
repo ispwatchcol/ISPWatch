@@ -7680,3 +7680,20 @@ factura que se sigue generando, los cuatro caminos de envío con la preferencia 
 apagada, lote mixto, omitido ≠ fallido, ausencia de datos de contacto en la traza, y aislamiento
 por sede. Los tres casos del masivo se escribieron **antes** de la corrección y fallaban;
 el resto pasaba desde el principio y quedan como red de seguridad.
+
+**Coletilla: el CI de PostgreSQL cazó un fallo que SQLite escondía.** Dos de esos casos
+localizaban el perfil recién creado con `CustomerProfile::where('name', …)->latest('id')`.
+`customer_profile` **no tiene columna `id`** —su clave primaria es `user_id`—, así que
+PostgreSQL rechazó la consulta con *column "id" does not exist* y el job falló.
+
+Lo interesante es por qué pasaba en SQLite. No es que SQLite resolviera `id` a algo: es que un
+identificador entrecomillado que no corresponde a ninguna columna **se interpreta como literal
+de texto**. Comprobado en el propio esquema de pruebas: `order by "columna_inventada"` también
+se acepta. De modo que `order by "id"` ordenaba por la cadena `'id'` — o sea, no ordenaba nada,
+y `first()` devolvía una fila arbitraria. El test pasaba sólo porque había una única candidata.
+
+No era, por tanto, un problema exclusivo de portabilidad: en SQLite el `latest()` era un no-op
+silencioso. Se corrigió localizando el perfil por `user_id` a partir del correo del alta, que es
+único y refleja la relación real del esquema. Verificado compilando ambas consultas con la
+gramática de PostgreSQL: la vieja emite `order by "id" desc` (exactamente el SQL del log de CI)
+y la nueva no menciona `id` por ningún lado. Queda como trampa #60 del manual de desarrollador.

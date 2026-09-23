@@ -146,6 +146,24 @@ class NotifyInvoicePreferenceTest extends TestCase
         return User::factory()->create(['tenant_id' => $tenant->id, 'role_id' => $role->id]);
     }
 
+    /**
+     * El perfil recién creado, localizado por el correo del alta.
+     *
+     * Por `user_id` y NUNCA por `latest('id')`: `customer_profile` no tiene
+     * columna `id` — su clave primaria es `user_id`. PostgreSQL rechaza el
+     * `order by "id"` de plano; SQLite lo ACEPTA, porque un identificador
+     * entrecomillado que no resuelve a ninguna columna lo trata como literal de
+     * texto (comprobado: `order by "columna_inventada"` también pasa). Es decir
+     * que en SQLite ese orden no ordenaba nada y `first()` devolvía una fila
+     * cualquiera; el test pasaba sólo porque había una sola candidata.
+     */
+    private function profileByEmail(string $email): CustomerProfile
+    {
+        $user = User::where('email', $email)->firstOrFail();
+
+        return CustomerProfile::where('user_id', $user->id)->firstOrFail();
+    }
+
     // ── 1. Persistencia: guardar, releer, actualización parcial ──────
 
     #[Test]
@@ -154,16 +172,18 @@ class NotifyInvoicePreferenceTest extends TestCase
         $tenant = Tenant::factory()->create();
         Sanctum::actingAs($this->userWith($tenant, [Permissions::ADD_CLIENTS, Permissions::VIEW_CLIENTS]));
 
+        $email = uniqid() . '@example.test';
+
         $this->postJson('/api/customers', [
             'user_name' => 'cliente' . uniqid(),
-            'email'     => uniqid() . '@example.test',
+            'email'     => $email,
             'password'  => 'Secreta123',
             'cedula'    => (string) random_int(100000000, 999999999),
             'name'      => 'Ana',
             'last_name' => 'Gómez',
         ])->assertCreated();
 
-        $profile = CustomerProfile::where('name', 'Ana')->latest('id')->first();
+        $profile = $this->profileByEmail($email);
         $this->assertTrue((bool) $profile->notify_invoice, 'Un alta nueva nace con el aviso ENCENDIDO.');
     }
 
@@ -173,17 +193,19 @@ class NotifyInvoicePreferenceTest extends TestCase
         $tenant = Tenant::factory()->create();
         Sanctum::actingAs($this->userWith($tenant, [Permissions::ADD_CLIENTS, Permissions::VIEW_CLIENTS]));
 
-        $res = $this->postJson('/api/customers', [
+        $email = uniqid() . '@example.test';
+
+        $this->postJson('/api/customers', [
             'user_name'      => 'cliente' . uniqid(),
-            'email'          => uniqid() . '@example.test',
+            'email'          => $email,
             'password'       => 'Secreta123',
-            'cedula'    => (string) random_int(100000000, 999999999),
+            'cedula'         => (string) random_int(100000000, 999999999),
             'name'           => 'Silenciado',
             'last_name'      => 'Perez',
             'notify_invoice' => false,
         ])->assertCreated();
 
-        $profile = CustomerProfile::where('name', 'Silenciado')->latest('id')->first();
+        $profile = $this->profileByEmail($email);
         $this->assertFalse((bool) $profile->notify_invoice);
 
         // Y vuelve a la UI tal cual se guardó (es lo que rellena el toggle).
