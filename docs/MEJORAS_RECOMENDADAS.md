@@ -705,7 +705,7 @@ cubra las cuatro combinaciones.
 
 ### 🟡 P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa
 
-Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 73 de la bitácora).
+Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 74 de la bitácora).
 
 Con `radius = true`, ISPWatch no abre una sola sesión contra el equipo. Aun así,
 `StoreRouterRequest` y `UpdateRouterRequest` siguen exigiendo `ip` (con formato de IP
@@ -739,7 +739,7 @@ recibir llamadas por dos números distintos en dos pantallas de la misma app.
 > saldo a favor a una factura baja `balance_due` y baja el saldo **sin crear asignación**, así
 > que ese dinero salía de los dos términos de la resta: el informe **denunciaba a todo cliente
 > que alguna vez hubiera gastado su saldo**, por el importe exacto que gastó. El tercer término
-> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 74).
+> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 75).
 >
 > **Antes de tocar un solo peso**, volver a correr:
 > ```
@@ -2560,6 +2560,27 @@ reconexión quedó pendiente, no que se hizo.
 **Recomendación.** Si en operación aparece con frecuencia suficiente para molestar, añadir
 `pendiente_en_curso` a `ReconnectionOutcome` con su mensaje propio («hay una reconexión en curso,
 espera unos segundos y vuelve a mirar») y ningún botón de reintento.
+
+### 🟢 P-53 · «No enviar notificaciones de factura» no se puede marcar al CREAR el cliente
+
+Detectado el 2026-09-23 auditando la preferencia (§ 73 de la bitácora).
+
+El backend acepta `notify_invoice` en el alta: está validado en `StoreCustomerRequest` y el
+controlador lo persiste con `?? true`. Lo que no existe es el control en el formulario —
+`CustomerAdd.vue` sólo monta «No facturar a este cliente»; la casilla de notificaciones vive
+únicamente en `CustomerEdit.vue`. El manual de usuario la documentaba bajo «5.2 Crear un
+cliente», que es justo donde el operador iba a buscarla sin encontrarla.
+
+**Por qué no se añadió al arreglar el § 73.** Que cada alta nazca con el aviso encendido es el
+comportamiento registrado (ver P-RADIUS-3, que lo menciona como estado actual conocido), no un
+descuido. Añadir el control al alta es una decisión de producto —cambia lo que un operador puede
+configurar en el onboarding—, no la corrección de un defecto, y aquel PR estaba acotado al
+camino de envío. Se corrigió el manual para que diga dónde está la casilla de verdad.
+
+**Recomendación.** Si el ISP da de alta clientes que ya piden silencio desde el primer día,
+montar el mismo toggle en `CustomerAdd.vue` (el campo ya viaja en el `POST /api/customers`, así
+que es sólo interfaz) y revertir la aclaración del manual. Mientras tanto, el camino es
+guardar y editar.
 
 ## 8. Tabla consolidada
 
