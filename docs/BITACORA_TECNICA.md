@@ -8,12 +8,26 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
-- **Un desfase de tres millones, y ninguna forma de saber de quién era la culpa (2026-09-22, § 73):**
+- **Un desfase de tres millones, y ninguna forma de saber de quién era la culpa (2026-09-22, § 74):**
   un cliente reportó un descuadre contra su Excel y no teníamos con qué responder si el error era
   nuestro o suyo. Nuevo `billing:audit-books` (catorce invariantes contables, lector puro) y
   `billing:statement` (el mes bajo todos los criterios defendibles, con el precio de cada
   diferencia). Por el camino: el verificador de dinero huérfano estaba mal planteado y denunciaba
   a quien gastara su saldo a favor, y el excedente cobrado en una instalación se perdía de los libros.
+- **El manual no mencionaba un método de control que el formulario sí ofrecía
+  (2026-09-22, § 73):** la opción **RADIUS (AAA)** llevaba mes y medio en la ficha del router
+  y el Centro de Ayuda seguía listando cinco métodos. Artículo nuevo sembrado por migración
+  —no por seeder, que en producción no corre—, corrección del artículo que describía el diseño
+  archivado del § 33, y cuatro deudas anotadas: el código ya se comportaba bien, lo que
+  faltaba era contarlo.
+- **El cliente pagaba, la pantalla decía «reactivado», y nadie había tocado el router
+  (2026-09-22, § 72):** con el cliente sin router asignado, la reconexión salía con
+  `router_ok = true` —el valor por defecto de la variable, no la confirmación de ningún
+  equipo— y el cajero leía el aviso verde sobre un servicio que seguía cortado. Ahora hay un
+  vocabulario cerrado de desenlaces (`ReconnectionOutcome`), se comprueba que el equipo sea
+  operable ANTES de intentar, y lo pendiente queda como alerta persistente en la ficha con
+  botón de reintento para quien tenga `execute_mass_actions`. Regla: **pago confirmado ≠
+  reconexión confirmada**.
 - **«No se pudo crear la queue» cuando la queue nunca se intentó (2026-09-22, § 71):** el
   router rechazaba las credenciales del CORE y el panel lo reportaba como un fallo del comando.
   Tercer caso propio en `DetectsSshExecFailures` con su diagnóstico, y de paso el escapado de la
@@ -7472,7 +7486,115 @@ el primero sigue ahí.
 
 ---
 
-## 72. El manual no mencionaba un método de control que el formulario sí ofrecía — 2026-09-22
+## 72. El cliente pagaba, la pantalla decía «reactivado», y nadie había tocado el router — 2026-09-22
+
+**Lo que vio el ISP.** Un cliente suspendido por mora paga en el mostrador. La pantalla
+responde en verde: *«Pago registrado y cliente reactivado»*. El cliente se va. El servicio
+sigue cortado. Nadie se entera hasta que el cliente vuelve a llamar.
+
+**Lo que pasó de verdad.** `BillingService::reactivateIfCleared()` arrancaba la variable del
+desenlace del equipo en `$routerOk = true` y sólo la sobrescribía si había router **y** IP:
+
+```php
+$routerOk = true;
+if ($profile->router_id && $profile->ip_user) {
+    $routerOk = app(RouterProvisioningService::class)->unsuspendCustomer(...);
+}
+```
+
+Un cliente **sin router asignado** no entraba nunca en ese `if`. Salía con `router_ok = true`
+—el valor por defecto, no una confirmación de nadie— y el frontend pintaba el aviso verde
+porque su condición era exactamente `r.reactivated && r.router_ok`. El caso que más falta
+hacía avisar era, literalmente, el que devolvía éxito limpio. Reproducido antes de tocar nada:
+
+```
+reactivation = {"was_suspended":true,"reactivated":true,"router_ok":true,
+                "message":"...quedó reactivado automáticamente..."}
+```
+
+**Por qué no lo cazó ninguna prueba.** `AutoReconnectOnPaymentTest` cubría siete escenarios
+—corte automático, corte manual, corte en `failed`, sin log, abono parcial, retirado, router
+que responde `false`— y ninguno con `router_id` nulo. El camino sin equipo no estaba probado
+porque no se veía como un camino: se veía como «no aplica».
+
+**La corrección de fondo: dos hechos, dos nombres.** Pago confirmado ≠ reconexión confirmada.
+El resultado viajaba como tres booleanos y un texto libre, y esa forma no permite decir *por
+qué* no se reconectó. Ahora hay un vocabulario cerrado, `App\Support\ReconnectionOutcome`, con
+ocho desenlaces: `reactivado_automaticamente`, `ya_reactivado`, `no_aplica` y cinco pendientes
+(`pendiente_router_no_asignado`, `pendiente_sin_router_configurado`,
+`pendiente_router_no_disponible`, `pendiente_configuracion_incompleta`,
+`pendiente_error_mikrotik`). Cada uno trae su motivo legible y su acción recomendada.
+
+`router_ok` ya no es un valor por defecto: es `outcome === reactivado_automaticamente`.
+
+**Se comprueba ANTES de intentar, no después.** `App\Services\ReconnectionPreflight` mira la
+ficha y el equipo antes de abrir nada: sin router asignado, router que no existe en esta sede,
+equipo `inactive`/`maintenance` o con `falla_general`, credenciales del RouterBoard vacías, IP
+del cliente vacía, o sin dirección a la que discar. Son condiciones que **no se distinguen
+después del hecho**: lanzar un SSH contra una dirección vacía vuelve como un timeout genérico
+que el operador lee como «el router está caído» y se va a revisar un equipo que está bien.
+
+**Lo que NO cambió, a propósito.** El estado en la BD se sigue corrigiendo a `activo` aunque el
+equipo no confirme. Es la decisión del § anterior sobre `billing:reconcile-suspensions`, que
+barre por `status = false` y volvería a cortar a un cliente que ya pagó. Lo que cambia es que
+eso ya no se llama «reactivado»: `reactivated` significa «se levantó el corte en la BD» y
+`outcome` dice si el servicio está realmente arriba. Los dos viajan juntos y pueden diverger —
+cuando divergen, es exactamente el caso que hay que gritar.
+
+El pago tampoco se revierte nunca por un problema de router: se registra en su transacción, la
+reconexión corre **después del commit**, y la respuesta sigue siendo `201` con el problema
+dentro del cuerpo. Un `500` haría creer al cajero que el pago no entró.
+
+**Dónde vive el estado pendiente.** En `suspension_action_logs`, que ya lleva el ciclo entero
+de cortes; no hay tabla nueva. Se le añadió una columna `outcome` (nullable, indexada) porque
+`reason` responde otra pregunta —qué *originó* la acción: manual, corte por mora,
+reconciliación, pago— y `error_message` es texto libre del equipo, que no se puede filtrar ni
+contar ni enseñar. El `router_id` de esa tabla ya era nullable, así que el caso «sin router
+asignado» —el que no dejaba ni una línea de rastro— por fin queda registrado.
+
+**La alerta persiste.** El aviso del momento del cobro se lo lleva el cajero al cerrar la
+pantalla, pero el cliente sigue sin servicio. `GET /api/billing/customers/{id}/balance` devuelve
+ahora `suspension.reconnection`, y la ficha del cliente pinta un banner rojo mientras el caso
+siga abierto. Se apaga solo cuando se resuelve: el reintento pisa el motivo anterior, y
+`pendingReconnectionFor()` exige además que la fila no esté cerrada en `success` — una alerta
+que no se apaga cuando el problema se arregla deja de creerse.
+
+**Reintento.** `POST /api/billing/customers/{customerId}/retry-reconnection`, detrás de
+`execute_mass_actions` — el mismo permiso con el que ya se operan los cortes fallidos.
+`register_payments` NO alcanza: cobrar en el mostrador y escribir en un RouterBoard son
+atribuciones distintas. Dos candados contra reintentos duplicados: un `Cache::lock` por cliente
+en el endpoint (devuelve `409` si ya hay uno en curso) y otro dentro del propio intento, porque
+dos procesos escribiendo la misma lista del RouterBoard es la carrera que produce falsos
+positivos.
+
+**Sin secretos.** Lo que viaja al navegador es el código del desenlace, su motivo y su acción:
+ni IP, ni usuario, ni contraseña, ni el `error_message` crudo del MikroTik. El detalle técnico
+se queda en el log del servidor. Hay una prueba que lo fija contra fugas.
+
+**Auditoría.** `payment.reconnection` deja pago y desenlace en la MISMA entrada de
+`audit_logs`, con `correlation_id`: la pregunta que hay que poder responder meses después no es
+«¿entró el pago?» ni «¿se reconectó?» por separado, sino «este cliente pagó el día tal, ¿se le
+restableció el servicio, y si no, por qué». Con motivo normalizado esa consulta se cuenta, no
+se lee. El reintento manual deja su propia entrada, `reconnection.retried`.
+
+**Deuda que este trabajo deja anotada.** El bloqueo por reintento simultáneo se reporta como
+`pendiente_error_mikrotik`, que es el desenlace más cercano del vocabulario pero no es
+literalmente cierto (no se llegó a hablar con el equipo). La acción que necesita el operador
+—verificar y reintentar— es idéntica, así que se prefirió eso a inventar un noveno estado.
+Anotado en MEJORAS_RECOMENDADAS junto con el hallazgo aparte de que `POST /api/billing/payments`
+acepta el `tenant_id` que le manda el navegador.
+
+**Pruebas.** `PaymentReconnectionWarningTest`, 19 casos: los cinco motivos pendientes, el
+camino feliz, cliente no suspendido, idempotencia, reintento autorizado, reintento sin permiso,
+aislamiento por sede, no fuga de secretos, persistencia de la alerta y su apagado al
+resolverse. En todos se verifica además que **el pago quedó aplicado y la factura saldada**.
+`AutoReconnectOnPaymentTest` y `RepairPaidSuspendedTest` necesitaron routers de prueba
+realistas (con credenciales y dirección): antes daba igual qué llevara la fila porque el
+servicio iba mockeado entero, y ahora el preflight la lee.
+
+---
+
+## 73. El manual no mencionaba un método de control que el formulario sí ofrecía — 2026-09-22
 
 **Cómo apareció.** Un cliente que está montando su propio FreeRADIUS escribió con ocho
 preguntas sobre la opción **RADIUS (AAA)** de la ficha del router: si deja el equipo bajo
@@ -7528,7 +7650,7 @@ contrapartida abierta del § 33.
 
 ---
 
-## 73. Un desfase de tres millones, y ninguna forma de saber de quién era la culpa — 2026-09-22
+## 74. Un desfase de tres millones, y ninguna forma de saber de quién era la culpa — 2026-09-22
 
 **El detonante.** Chaguaní reportó un descuadre de ~$3.000.000 entre su Excel y la plataforma.
 La pregunta operativa no era cuánto habíamos facturado: era **si el error era nuestro o suyo**,

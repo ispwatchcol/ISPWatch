@@ -251,6 +251,7 @@ tecleada. La decisión se toma sobre la configuración **resuelta**, nunca sobre
 | `OverdueSuspensionService` | 412 | Corte automático por mora según config del router |
 | `CustomerProvisioningService` | 338 | Aprovisionar un cliente según el **método de control** del router |
 | `RouterProvisioningService` | 218 | Suspender/reactivar en el router |
+| `ReconnectionPreflight` | 103 | ¿Se **puede** operar el equipo de este cliente? Se responde antes de abrir nada contra él |
 | `RouterPolicyInstallerService` | 151 | Instalar reglas de bloqueo en el router |
 | `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento). **No se llama** si la orden está marcada `no_charge` |
 | `PaymentReminderService` | 209 | Recordatorios de pago (email/WhatsApp): **un mensaje por cliente** con todas sus facturas pendientes |
@@ -1208,6 +1209,65 @@ devuelve al cajero en la respuesta del pago (`reactivation.router_ok = false`).
 
 El aviso **previo** al cobro lo sirve `suspensionStatusFor()`, que evalúa exactamente las
 mismas dos señales para que el aviso y la acción no puedan contradecirse.
+
+### El desenlace de la reconexión: por qué es un código y no un booleano
+
+Corolario del apartado anterior. Si la BD se corrige aunque el equipo no confirme, entonces
+**«el cliente quedó activo» y «el servicio está arriba» son dos afirmaciones distintas**, y el
+sistema las estaba devolviendo como una sola: tres booleanos y un texto libre. Esa forma no
+permite decir *por qué* no se reconectó — y en el caso de un cliente sin router asignado
+devolvía, literalmente, éxito (§ 72 de `BITACORA_TECNICA.md`).
+
+```
+registerPayment()                    ← transacción: pago + asignación a facturas
+        │ commit
+        ▼
+reactivateIfCleared()                ← nunca lanza; el pago ya está guardado
+        │
+        ├── ¿cortado? ¿sin vencidas?  → si no: no_aplica / ya_reactivado
+        │
+        ▼
+attemptReconnection()
+        │
+        ├── ReconnectionPreflight    ← ¿se PUEDE operar este equipo?
+        │     router asignado · configurado en la sede · activo y sin falla
+        │     general · con credenciales · IP del cliente · dirección a la que discar
+        │        └── si algo falta → pendiente_* SIN tocar el equipo
+        │
+        ├── Cache::lock por cliente  ← una reconexión por servicio a la vez
+        │     └── RouterProvisioningService::unsuspendCustomer()
+        │             true  → reactivado_automaticamente
+        │             false → pendiente_error_mikrotik
+        ▼
+recordReconnectionOutcome()          ← estampa el motivo en suspension_action_logs
+```
+
+**Tres piezas nuevas**, ninguna con tabla propia:
+
+| Pieza | Responsabilidad |
+|---|---|
+| `App\Support\ReconnectionOutcome` | El vocabulario cerrado: 8 códigos, cada uno con su motivo legible y su acción recomendada. Sin IPs ni credenciales: se pinta en pantalla |
+| `App\Services\ReconnectionPreflight` | Decide si el equipo es operable **antes** de abrir nada contra él |
+| `suspension_action_logs.outcome` | Dónde persiste el motivo. Columna nueva en la tabla que ya llevaba el ciclo de cortes |
+
+**Por qué el preflight va antes y no después.** «Sin router asignado» y «el router respondió con
+error» tienen responsables y soluciones distintas, y después del hecho son indistinguibles:
+lanzar un SSH contra una dirección vacía vuelve como un timeout genérico, que el operador lee
+como «el equipo está caído» y se va a auditar un router que está perfectamente.
+
+**Por qué no hay tabla nueva.** El ciclo corte/reconexión ya vive entero en
+`suspension_action_logs` (acción, estado, intentos, backoff, error). Lo que faltaba era el
+*motivo* en un vocabulario que se pueda contar y filtrar; `reason` responde otra pregunta y
+`error_message` es texto libre del RouterOS. Su `router_id` ya era nullable, así que el caso que
+no dejaba ningún rastro —cliente sin equipo asignado— por fin queda escrito.
+
+**Dos candados contra reconexiones simultáneas** del mismo servicio: uno en el endpoint de
+reintento (`409` si ya hay una corriendo) y otro dentro del intento. Dos procesos escribiendo la
+misma lista del RouterBoard es la carrera que produce falsos positivos.
+
+La alerta **persiste** mientras el problema siga abierto: `pendingReconnectionFor()` la sirve
+desde el log y la pinta la ficha del cliente, no sólo la pantalla del cobro. Se apaga sola
+cuando un reintento cierra el caso.
 
 ---
 

@@ -993,11 +993,46 @@ Y al guardar el recaudo te dice cómo terminó:
 
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
-| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router confirmó la reconexión | Nada |
-| 🔴 *Pago registrado — revisar reconexión* | Quedó activo en el sistema, pero el **router no confirmó** | Ir a **Acciones masivas → reconexiones fallidas** y reintentar |
+| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router **confirmó** la reconexión | Nada |
+| 🔴 *Pago registrado — el servicio NO quedó reactivado* | El dinero entró, pero el servicio **sigue cortado** | Leer el motivo y hacer lo que indica el aviso (ver abajo) |
 | 🟠 *Pago registrado — sigue suspendido* | Le quedan facturas **vencidas** sin pagar | Cobrar el resto; el mensaje dice cuántas faltan |
 
 El mismo aviso sale en la pestaña **Facturación** de la ficha del cliente.
+
+#### ⚠️ «El servicio NO quedó reactivado»: qué es y qué hacer
+
+Es el aviso más importante de esta pantalla. Significa exactamente esto:
+
+> **El pago SÍ se registró.** La factura quedó paga y el dinero está contabilizado. No lo
+> vuelvas a cobrar. Lo que no se pudo hacer es **volver a prender el servicio**, y el cliente
+> se va a ir creyendo que ya tiene internet.
+
+El aviso es rojo, ocupa su propio recuadro y **no se va solo**: sigue visible en la pestaña
+**Facturación** de la ficha del cliente hasta que el problema se resuelva. Siempre dice el
+motivo y qué hacer:
+
+| Motivo | Qué pasó | Qué hacer |
+|---|---|---|
+| **Sin router asignado** | El cliente no tiene ningún router en su ficha de servicio | Asignarle el router en la ficha del cliente y reintentar |
+| **Router no configurado** | El router del cliente no está dado de alta en el sistema | Crearlo en **Routers** y volver a asignarlo al cliente |
+| **Router no disponible** | El equipo está inactivo, en mantenimiento o con falla general | Revisar el estado del router; reintentar cuando vuelva |
+| **Configuración incompleta** | Faltan datos para operar el equipo (acceso del router o IP del cliente) | Completar los datos que falten y reintentar |
+| **Error de comunicación** | No se pudo hablar con el router | Reintentar; si sigue fallando, revisar la conexión del equipo |
+
+**Botón «Reintentar reconexión».** Aparece sólo si tu usuario tiene permiso para ejecutar
+acciones masivas. Si no lo ves, no es un error: pásale el caso a quien administre los routers,
+o reconecta al cliente a mano en el equipo. Mientras un reintento está corriendo el botón se
+bloquea; si alguien más lo está intentando a la vez, el sistema avisa en vez de duplicar la
+operación.
+
+> 💡 **Por qué el pago se guarda igual.** Cobrar y reconectar son dos cosas distintas. Que el
+> router no responda no es razón para perder un recaudo ni para hacer que el cliente pague dos
+> veces: el dinero queda registrado y el problema del equipo se resuelve aparte.
+
+> ⚠️ **Ojo con el cliente que figura ACTIVO y sigue sin internet.** Cuando el pago cubre la
+> deuda, el sistema marca al cliente como activo aunque el router no haya confirmado — si no lo
+> hiciera, el proceso automático de cortes volvería a cortarlo por moroso al día siguiente. Por
+> eso la alerta roja existe: es la única señal de que el equipo todavía no se enteró.
 
 ### 8.2.1 Abonos parciales: el saldo pasa a la próxima factura
 

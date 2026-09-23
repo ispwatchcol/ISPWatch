@@ -705,7 +705,7 @@ cubra las cuatro combinaciones.
 
 ### 🟡 P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa
 
-Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 70 de la bitácora).
+Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 73 de la bitácora).
 
 Con `radius = true`, ISPWatch no abre una sola sesión contra el equipo. Aun así,
 `StoreRouterRequest` y `UpdateRouterRequest` siguen exigiendo `ip` (con formato de IP
@@ -739,7 +739,7 @@ recibir llamadas por dos números distintos en dos pantallas de la misma app.
 > saldo a favor a una factura baja `balance_due` y baja el saldo **sin crear asignación**, así
 > que ese dinero salía de los dos términos de la resta: el informe **denunciaba a todo cliente
 > que alguna vez hubiera gastado su saldo**, por el importe exacto que gastó. El tercer término
-> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 73).
+> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 74).
 >
 > **Antes de tocar un solo peso**, volver a correr:
 > ```
@@ -2524,6 +2524,42 @@ ciegas. La contraseña se pudo arreglar sola porque es un literal, no un fragmen
 **Recomendación.** Escapar `$` en `coreSshExecCommand()` para el comando también, con una
 prueba que fije el comando emitido byte a byte, y verificarlo contra el CORE de pruebas antes
 de desplegar.
+
+### 🟠 P-51 · `POST /api/billing/payments` acepta el `tenant_id` que le manda el navegador
+
+Detectado el 2026-09-22 trabajando en el aviso de reconexión pendiente (§ 72 de la bitácora).
+`BillingController::registerPayment()` hace `$data = $request->all()` y `BillingService` lee
+`$data['tenant_id']` tal cual para crear el `Payment`. El valor lo pone el **frontend** desde la
+sesión guardada en el navegador (`RegisterPayment.vue` y `CustomerBilling.vue` lo envían en el
+cuerpo), no el servidor desde el token.
+
+`created_by` sí se sella desde la sesión y se documenta como «nunca desde el cuerpo»; el
+`tenant_id` del mismo endpoint no tiene esa protección. `Payment` usa `BelongsToTenant`, pero su
+gancho de creación sólo rellena el campo **cuando viene vacío**: un valor explícito gana.
+
+**Por qué no se corrigió en este PR.** El campo es hoy parte del contrato que los dos formularios
+envían, y cambiarlo sin tocar el frontend a la vez es arriesgar el registro de pagos, que es el
+camino de dinero más usado del sistema. Es un hallazgo independiente del trabajo de reconexión y
+merece su propio cambio y sus propias pruebas.
+
+**Recomendación.** Sellar `tenant_id` desde `$request->user()->tenant_id` en el controlador,
+ignorando lo que traiga el cuerpo (igual que `created_by`), dejar de enviarlo desde las dos
+pantallas, y fijarlo con una prueba que intente cobrar contra otra sede y espere un rechazo.
+
+### 🟢 P-52 · «Reconexión ya en curso» se reporta como `pendiente_error_mikrotik`
+
+Del mismo trabajo (§ 72). Cuando dos reconexiones del mismo servicio coinciden, la segunda no se
+lanza —el candado hace su trabajo— y el desenlace se informa como `pendiente_error_mikrotik`,
+que es el código más cercano del vocabulario pero no es literalmente cierto: no se llegó a hablar
+con el equipo.
+
+Se prefirió eso a inventar un noveno estado porque **la acción que necesita el operador es
+idéntica** (verificar y reintentar) y porque el aviso nunca miente en lo que importa: dice que la
+reconexión quedó pendiente, no que se hizo.
+
+**Recomendación.** Si en operación aparece con frecuencia suficiente para molestar, añadir
+`pendiente_en_curso` a `ReconnectionOutcome` con su mensaje propio («hay una reconexión en curso,
+espera unos segundos y vuelve a mirar») y ningún botón de reintento.
 
 ## 8. Tabla consolidada
 

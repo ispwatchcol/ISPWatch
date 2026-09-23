@@ -846,6 +846,59 @@ mismo código funciona, así que el error sólo aparece donde menos se mira.
 Los umbrales son constantes de clase, no datos de fuera: interpólalos y no hay nada que
 inyectar. Los bindings de **texto** (`LOWER(name) = ?`) no están afectados.
 
+### Pago confirmado ≠ reconexión confirmada
+
+Cuando un cliente suspendido por mora paga, ocurren **dos cosas distintas** que el sistema
+tiene que contar por separado:
+
+1. El **pago**, que es una operación financiera: se aplica dentro de una transacción y no se
+   revierte nunca por un problema de router.
+2. La **reconexión**, que depende de un equipo que puede no existir, no estar asignado, no
+   tener credenciales o no responder.
+
+La reconexión corre **después del commit** del pago (`BillingService::registerPayment()`), no
+lanza nunca, y su resultado viaja en la respuesta. Si falla, el endpoint **sigue devolviendo
+`201`**: un `500` haría creer al cajero que el pago no entró, y volvería a cobrarlo.
+
+**El desenlace se nombra, no se deduce.** Usa `App\Support\ReconnectionOutcome`, un vocabulario
+cerrado de ocho códigos (uno de éxito, `ya_reactivado`, `no_aplica` y cinco `pendiente_*`). Cada
+código trae su `message()` para el operador y su `action()` con la acción recomendada.
+
+Tres reglas al tocar este camino:
+
+- **Nunca supongas éxito por defecto.** El bug que originó esto era literalmente eso: un
+  `$routerOk = true` que sólo se sobrescribía si había router e IP, así que un cliente sin
+  router salía con «reactivado» sin que nadie hubiera tocado ningún equipo. Si no hubo
+  confirmación del equipo, **no hubo reconexión**.
+- **`reactivated` y `router_ok` responden preguntas distintas.** El primero es «se levantó el
+  corte en la BD», el segundo es «el equipo confirmó». Pueden diverger, y cuando divergen el
+  cliente pagó y sigue sin servicio. La BD se corrige igual a `activo` a propósito (si no,
+  `billing:reconcile-suspensions` barre por `status = false` y vuelve a cortar a quien ya pagó);
+  lo que no se puede hacer es llamar a eso «reconectado».
+- **Si la condición se puede detectar antes, detéctala antes.** `ReconnectionPreflight` mira la
+  ficha y el equipo antes de abrir nada. Lanzar un SSH sin datos no falla limpio: vuelve como un
+  timeout genérico que el operador lee como «router caído» y se va a revisar un equipo sano.
+
+Lo pendiente se registra en `suspension_action_logs.outcome` (**no** hay tabla nueva; `reason`
+responde otra pregunta —qué originó la acción— y `error_message` es texto libre del equipo). De
+ahí lo lee la alerta persistente de la ficha del cliente, vía
+`BillingService::pendingReconnectionFor()`.
+
+**Nada de secretos en la respuesta.** Lo que llega al navegador es el código, su motivo y su
+acción: ni IP, ni usuario, ni contraseña, ni el error crudo del MikroTik. El detalle técnico se
+queda en el log del servidor. Hay una prueba que lo fija.
+
+El reintento manual (`POST /api/billing/customers/{id}/retry-reconnection`) exige
+`execute_mass_actions`, no `register_payments`: cobrar en el mostrador y escribir en un
+RouterBoard son atribuciones distintas. Va con candado por cliente (`409` si ya hay uno en
+curso), porque dos procesos escribiendo la misma lista del RouterBoard es la carrera que
+produce falsos positivos.
+
+> **Al testear este camino, los routers de prueba necesitan credenciales y dirección.** Antes
+> daba igual qué llevara la fila porque `RouterProvisioningService` iba mockeado entero; ahora
+> el preflight la lee, y un `Router::create(['name', 'tenant_id', 'status'])` a secas se
+> clasifica —correctamente— como `pendiente_configuracion_incompleta`.
+
 ### Git
 
 - **Nunca hagas push directo a `main`**: `main` es producción y despliega automáticamente.

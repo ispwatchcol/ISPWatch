@@ -354,6 +354,13 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::get('/billing/suspension-logs/stats',       [SuspensionActionLogController::class, 'stats']);
         Route::post('/billing/suspension-logs/{id}/retry', [SuspensionActionLogController::class, 'retry']);
         Route::post('/billing/suspension-logs/reconcile',  [SuspensionActionLogController::class, 'reconcile']);
+
+        // Reintento de reconexión por CLIENTE. Va aquí, y no con el resto de
+        // facturación, porque escribe en el RouterBoard: `register_payments`
+        // autoriza a cobrar, no a operar equipos. El caso "cliente sin router
+        // asignado" no tiene fila de log que reintentar, por eso se direcciona
+        // por cliente y no por log.
+        Route::post('/billing/customers/{customerId}/retry-reconnection', [BillingController::class, 'retryReconnection']);
     });
 
     // ─── BITÁCORA DE AUDITORÍA (quién movió plata y cuándo) ───
