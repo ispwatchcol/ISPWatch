@@ -251,6 +251,7 @@ tecleada. La decisión se toma sobre la configuración **resuelta**, nunca sobre
 | `OverdueSuspensionService` | 412 | Corte automático por mora según config del router |
 | `CustomerProvisioningService` | 338 | Aprovisionar un cliente según el **método de control** del router |
 | `RouterProvisioningService` | 218 | Suspender/reactivar en el router |
+| `ReconnectionPreflight` | 103 | ¿Se **puede** operar el equipo de este cliente? Se responde antes de abrir nada contra él |
 | `RouterPolicyInstallerService` | 151 | Instalar reglas de bloqueo en el router |
 | `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento). **No se llama** si la orden está marcada `no_charge` |
 | `PaymentReminderService` | 209 | Recordatorios de pago (email/WhatsApp): **un mensaje por cliente** con todas sus facturas pendientes |
@@ -1060,6 +1061,34 @@ servicio.
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`
 para poder distinguir un fallo real de una salida vacía.
 
+**La contraseña se escapa aparte, y con tres caracteres** (2026-09-22). Viaja dentro de una
+cadena entrecomillada de RouterOS, donde `\` escapa, `$` interpola una variable y `"` cierra
+la cadena. Hasta este cambio sólo se neutralizaban las comillas, así que una clave con `\` o
+con `$` llegaba deformada al cliente y volvía como `authentication failure` — idéntica a una
+credencial equivocada, y por eso irresoluble desde el panel. Lo hace un único `strtr()`:
+encadenar `str_replace()` volvería a escapar las barras que introdujo el reemplazo anterior.
+
+#### Los tres desenlaces de un `ssh-exec`, y por qué se distinguen
+
+`DetectsSshExecFailures` clasifica la salida antes de que ningún manager la interprete. Los
+tres casos terminan en «no se cargó al router», pero mandan a sitios distintos:
+
+| Salida del CORE | Qué pasó | Dónde está el remedio |
+|---|---|---|
+| `<connection failed>`, `action timed out`, `connection refused` | La sesión SSH **no se abrió**. En el cliente no corrió nada | IP overlay obsoleta, puerto SSH, `available from` del servicio |
+| `authentication failure` | La sesión se abrió y el cliente **rechazó la clave**. Tampoco corrió nada | Credenciales del router en ISPWatch, `address=` del usuario de RouterOS, o la IP ahora es de otro equipo |
+| `bad parameter`, `no such item`, `exit-code ≠ 0` | El cliente ejecutó y **rechazó el comando** | El plan/perfil, el nombre de la cola, la sintaxis |
+
+El del medio es el que se añadió el 2026-09-22, y hasta entonces caía en el tercer cajón:
+la palabra «failure» hace match con el vocabulario de error genérico, así que un rechazo de
+credenciales se reportaba como «no se pudo crear/actualizar la queue» y mandaba al operador a
+revisar una cola que nunca se llegó a intentar.
+
+**La trampa del segundo caso** —y la razón de que el mensaje la nombre explícitamente— es que
+la sesión la abre **el CORE desde su IP overlay**, no ISPWatch. Un usuario de RouterOS
+restringido con `address=` a la IP vieja rechaza la contraseña **correcta**, mientras esa
+misma contraseña entra sin problema desde el portátil del operador.
+
 **El tiempo de espera es parte del contrato, no un detalle.** El primer salto
 (APP→CORE) es rápido; el segundo (CORE→RB) incluye un *handshake* SSH completo
 contra un equipo pequeño al otro lado del overlay y tarda con frecuencia más de
@@ -1204,6 +1233,84 @@ devuelve al cajero en la respuesta del pago (`reactivation.router_ok = false`).
 
 El aviso **previo** al cobro lo sirve `suspensionStatusFor()`, que evalúa exactamente las
 mismas dos señales para que el aviso y la acción no puedan contradecirse.
+
+### El desenlace de la reconexión: por qué es un código y no un booleano
+
+Corolario del apartado anterior. Si la BD se corrige aunque el equipo no confirme, entonces
+**«el cliente quedó activo» y «el servicio está arriba» son dos afirmaciones distintas**, y el
+sistema las estaba devolviendo como una sola: tres booleanos y un texto libre. Esa forma no
+permite decir *por qué* no se reconectó — y en el caso de un cliente sin router asignado
+devolvía, literalmente, éxito (§ 72 de `BITACORA_TECNICA.md`).
+
+```
+registerPayment()                    ← transacción: pago + asignación a facturas
+        │ commit
+        ▼
+reactivateIfCleared()                ← nunca lanza; el pago ya está guardado
+        │
+        ├── ¿cortado? ¿sin vencidas?  → si no: no_aplica / ya_reactivado
+        │
+        ▼
+attemptReconnection()
+        │
+        ├── ReconnectionPreflight    ← ¿se PUEDE operar este equipo?
+        │     router asignado · configurado en la sede · activo y sin falla
+        │     general · con credenciales · IP del cliente · dirección a la que discar
+        │        └── si algo falta → pendiente_* SIN tocar el equipo
+        │
+        ├── Cache::lock por cliente  ← una reconexión por servicio a la vez
+        │     └── RouterProvisioningService::unsuspendCustomer()
+        │             true  → reactivado_automaticamente
+        │             false → pendiente_error_mikrotik
+        ▼
+recordReconnectionOutcome()          ← estampa el motivo en suspension_action_logs
+```
+
+**Tres piezas nuevas**, ninguna con tabla propia:
+
+| Pieza | Responsabilidad |
+|---|---|
+| `App\Support\ReconnectionOutcome` | El vocabulario cerrado: 8 códigos, cada uno con su motivo legible y su acción recomendada. Sin IPs ni credenciales: se pinta en pantalla |
+| `App\Services\ReconnectionPreflight` | Decide si el equipo es operable **antes** de abrir nada contra él |
+| `suspension_action_logs.outcome` | Dónde persiste el motivo. Columna nueva en la tabla que ya llevaba el ciclo de cortes |
+
+**Por qué el preflight va antes y no después.** «Sin router asignado» y «el router respondió con
+error» tienen responsables y soluciones distintas, y después del hecho son indistinguibles:
+lanzar un SSH contra una dirección vacía vuelve como un timeout genérico, que el operador lee
+como «el equipo está caído» y se va a auditar un router que está perfectamente.
+
+**Por qué no hay tabla nueva.** El ciclo corte/reconexión ya vive entero en
+`suspension_action_logs` (acción, estado, intentos, backoff, error). Lo que faltaba era el
+*motivo* en un vocabulario que se pueda contar y filtrar; `reason` responde otra pregunta y
+`error_message` es texto libre del RouterOS. Su `router_id` ya era nullable, así que el caso que
+no dejaba ningún rastro —cliente sin equipo asignado— por fin queda escrito.
+
+#### La misma pregunta, en las seis puertas (2026-09-23)
+
+El preflight protege el camino del **pago**. Pero a empujar algo al router se entra por seis
+puertas —el panel (activar y suspender), el reintento manual de un log fallido, el corte
+automático por mora, el reconciliador y la reactivación al pagar— y las otras cinco seguían
+marcando a ciegas: contra un equipo sin credenciales, la sesión SSH no falla, **espera**, y se
+lleva el tiempo de espera completo.
+
+Por eso `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()` —el punto por el
+que pasan las seis— hacen la comprobación justo detrás de la de RADIUS, y devuelven `false` con
+la razón escrita en `suspension_action_logs` sin abrir nada.
+
+**Qué necesita un router para ser operable lo define `Router::manageabilityIssue()`, y lo define
+una sola vez.** `ReconnectionPreflight` delega ahí esa parte en vez de repetir la lista de
+campos: dos definiciones de lo mismo empiezan iguales y terminan distintas, y la que se queda
+corta es siempre la que nadie recuerda actualizar. Lo que el preflight **no** delega es el
+motivo que viaja al navegador, que sigue siendo el código cerrado de `ReconnectionOutcome` y
+nunca el texto que nombra qué campo falta.
+
+**Dos candados contra reconexiones simultáneas** del mismo servicio: uno en el endpoint de
+reintento (`409` si ya hay una corriendo) y otro dentro del intento. Dos procesos escribiendo la
+misma lista del RouterBoard es la carrera que produce falsos positivos.
+
+La alerta **persiste** mientras el problema siga abierto: `pendingReconnectionFor()` la sirve
+desde el log y la pinta la ficha del cliente, no sólo la pantalla del cobro. Se apaga sola
+cuando un reintento cierra el caso.
 
 ---
 

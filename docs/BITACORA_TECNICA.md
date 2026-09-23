@@ -8,10 +8,18 @@
 
 Últimos bloques de trabajo, unificados en esta rama:
 
-- **Un 504 al recaudar, y de ahí los cobros dobles (2026-09-23, § 72):** el pago se guardaba
-  y la pantalla decía que no, porque la reconexión esperaba a un router sin configurar hasta
-  que el gateway cortaba. Ahora se comprueba antes si al equipo se le puede hablar; si no, el
-  cliente queda suspendido y el cajero decide si lo activa igualmente.
+- **El cliente pagaba, la pantalla decía «reactivado», y nadie había tocado el router
+  (2026-09-22, § 72):** con el cliente sin router asignado, la reconexión salía con
+  `router_ok = true` —el valor por defecto de la variable, no la confirmación de ningún
+  equipo— y el cajero leía el aviso verde sobre un servicio que seguía cortado. Ahora hay un
+  vocabulario cerrado de desenlaces (`ReconnectionOutcome`), se comprueba que el equipo sea
+  operable ANTES de intentar, y lo pendiente queda como alerta persistente en la ficha con
+  botón de reintento para quien tenga `execute_mass_actions`. Regla: **pago confirmado ≠
+  reconexión confirmada**.
+- **«No se pudo crear la queue» cuando la queue nunca se intentó (2026-09-22, § 71):** el
+  router rechazaba las credenciales del CORE y el panel lo reportaba como un fallo del comando.
+  Tercer caso propio en `DetectsSshExecFailures` con su diagnóstico, y de paso el escapado de la
+  contraseña, que sólo cubría las comillas y deformaba las claves con `\` o `$`.
 - **La visita de garantía dependía de que nadie escribiera un precio (2026-09-22, § 70):**
   cambiar el router quemado de un cliente consume inventario pero no se le cobra, y no había
   forma de decirlo. Nueva marca `no_charge` en la orden de instalación y en el ticket: la orden
@@ -367,7 +375,7 @@ ISPWatch/
 | `SshTunnel.php` | 207 | Conexión SSH individual |
 | `RouterEndpointResolver.php` | 157 | Resuelve la IP real desde `/ppp active` del CORE y la reescribe en BD |
 | `Concerns/BuildsCoreSshExec.php` | — | Construye la línea `/system ssh-exec` (puerto + escapado) |
-| `Concerns/DetectsSshExecFailures.php` | — | Distingue fallo real de salida vacía |
+| `Concerns/DetectsSshExecFailures.php` | — | Clasifica la salida del `ssh-exec`: no conectó / rechazó la clave / rechazó el comando / salida vacía |
 | `Concerns/NormalizesRouterComment.php` | — | Normaliza comentarios de objetos |
 | `Concerns/VerifiesRouterOsObjectState.php` | — | Verifica que el objeto quedó como se pidió |
 
@@ -693,6 +701,7 @@ VPN; lectura de interfaces; historial de tráfico; falla masiva.
 | Perfil HotSpot no se crea | `/ip hotspot user profile` **no acepta `comment`** y el comando entero falla |
 | Cliente en la lista de morosos sigue navegando | Faltaba `place-before`, dependencia de `out-interface=wan`, sin flush de conntrack y sin regla de acceso al portal (los cuatro corregidos) |
 | "Actualiza pero no carga a la RB" | Timeout del gateway en el push PPPoE síncrono, no un error de datos |
+| `authentication failure (/system/ssh-exec; line 1)` | El CORE abrió la sesión y el router **rechazó la clave**: credenciales cambiadas, usuario de RouterOS limitado por `address=`, la IP ahora es de otro equipo, o una contraseña con `\` o `$` que llegaba deformada (las tres primeras se revisan; la cuarta se corrigió el 2026-09-22) |
 
 ---
 
@@ -7421,46 +7430,190 @@ ticket), su pantalla tendrá que respetar la marca igual que la hoja de la insta
 
 ---
 
-## 72. Un 504 al recaudar, y de ahí los cobros dobles — 2026-09-23
+## 71. «No se pudo crear la queue» cuando la queue nunca se intentó — 2026-09-22
 
-**Lo que reportó el ISP.** Al registrar un pago, la pantalla respondía *«Request failed with
-status code 504»*. El cajero lo leía como «no se registró» y volvía a cobrar.
+**Lo que vio el ISP.** Al guardar un cliente: *«Datos guardados, pero no se pudo cargar al
+router: No se pudo crear/actualizar la queue. Detalle del router: failure: authentication
+failure (/system/ssh-exec; line 1)»*.
 
-**Lo que pasaba de verdad.** El pago **sí** quedaba guardado: `registerPayment()` confirma la
-transacción —pago + aplicación a facturas— y sólo DESPUÉS intenta reconectar al cliente en el
-router, todavía dentro de la misma petición HTTP. Ese cliente tenía los routers dados de alta
-a medias: sin VPN, sin RADIUS y sin credenciales. Contra un equipo así la sesión SSH no falla,
-**espera**; y son dos encadenadas, la del `RouterEndpointResolver` y la del `ssh-exec`. El
-gateway cortaba la petición antes de que terminaran.
+**Lo que pasó de verdad.** El CORE abrió la sesión SSH contra el router del cliente y el
+router **rechazó el usuario y la contraseña**. En el router no se ejecutó ni una línea: la
+queue no falló, la queue ni se intentó. El mensaje mandaba a revisar la cola, el plan y el
+perfil — tres sitios donde no había nada que ver.
 
-O sea: el dinero entraba, la pantalla decía que no, y el mostrador lo cobraba otra vez.
+**Por qué el mensaje mentía.** `DetectsSshExecFailures` ya distinguía dos desenlaces: «el
+CORE no pudo ni conectarse» (con mensaje propio y muy explicativo, § 40-41) y «el cliente
+ejecutó y rechazó el comando». El rechazo de credenciales es un TERCER caso y no estaba
+contemplado: no hace match con el detector de conexión —el TCP sí se estableció— pero la
+palabra «failure» sí coincide con el vocabulario de error genérico, así que caía en el
+segundo cajón. Un fallo de autenticación se reportaba con el texto de un fallo de comando.
 
-**Por qué no se vio antes.** La reconexión sólo corre cuando el cliente **estaba cortado** y el
-pago le deja el saldo en cero — justo el recaudo más común del mostrador, el del moroso que
-viene a pagar para que le devuelvan el servicio. Un pago de un cliente al día no pasa por ahí
-y responde rápido.
+Ahora hay `isSshExecAuthFailure()` + `sshExecAuthFailureMessage()`, y los **nueve** puntos
+que consultan el detector comprueban el caso nuevo antes del genérico: queue, PCQ, hotspot,
+lease DHCP, binding IP/MAC, perfil y secret PPPoE, desaprovisionamiento y la verificación
+post-intento.
 
-**El arreglo.** `Router::manageabilityIssue()`: una comprobación de base de datos, sin red, que
-responde si al equipo se le puede hablar —por RADIUS, o con credenciales más IP o usuario de
-VPN— y si no, devuelve la razón redactada para quien la va a leer, que es el cajero. Se
-consulta en `suspendCustomer()`, en `unsuspendCustomer()` y en `reactivateIfCleared()`, que son
-las puertas por las que se entra a empujar algo al router.
+**La trampa que el mensaje nombra explícitamente.** La sesión la abre **el CORE desde su IP
+overlay**, no ISPWatch. Un usuario de RouterOS con `address=` apuntando a la IP vieja —o a la
+de ISPWatch— rechaza la contraseña CORRECTA, mientras esa misma contraseña entra sin problema
+desde el portátil del operador. Desde el panel ese caso es idéntico al de una credencial
+cambiada, y por eso el texto pide mirar `/user print detail` antes de dar por buena la clave.
 
-**La decisión de diseño que importa.** Con el equipo sin configurar, el cliente **NO se da por
-reactivado**. Podría haberse marcado activo «porque ya no debe», y era tentador: deja la
-pantalla bonita. Pero nadie le levantó el corte en la red, así que el panel estaría diciendo
-una cosa y el equipo haciendo otra — y el ISP lo descubriría por la llamada del cliente que
-pagó y sigue sin internet. Se deja suspendido y se le ofrece al cajero el botón **Activar
-igualmente**, que llama al endpoint de activación manual de siempre y queda en `audit_logs`
-con su autor. Automatizar esa mentira habría sido peor que el 504.
+**Y una causa que además se corrigió.** `BuildsCoreSshExec` escapaba sólo las comillas de la
+contraseña. Dentro de una cadena de RouterOS `\` también escapa y `$` interpola una variable,
+así que una clave con cualquiera de los dos llegaba deformada al cliente y volvía como
+`authentication failure` — indistinguible de una credencial equivocada, e imposible de
+diagnosticar desde el panel. Se neutralizan los tres caracteres con un único `strtr()`:
+encadenar `str_replace()` volvería a escapar las barras que introdujo el reemplazo anterior.
+Para una clave sin esos caracteres el comando emitido es byte a byte el de siempre.
 
-**Efecto colateral en las pruebas, y lo que enseña.** Cuatro suites creaban su router con
-`name`, `tenant_id` y `status` y nada más — un equipo que en producción no existe, porque no
-habría forma de administrarlo. Con la guarda puesta, esas pruebas empezaron a fallar y dejaron
-a la vista que el fixture modelaba algo imposible. Ahora nacen con IP y credenciales.
+**Lo que NO se tocó.** El aviso también recuerda no reintentar en bucle: tras varios fallos
+RouterOS bloquea la IP de origen (la del CORE) por *login protection*, y el síntoma cambia a
+«no conecta», que es otro problema — y el operador acaba diagnosticando el segundo mientras
+el primero sigue ahí.
 
-**Lo que NO se tocó.** El tiempo que tarda una reconexión contra un router **bien** configurado
-sigue siendo el que era, y sigue corriendo dentro de la petición. Si ese camino también empieza
-a dar 504 —routers lentos, no inexistentes— el arreglo es otro: acotar el intento y dejar que
-lo termine el failover que ya existe (`suspension_action_logs` + `billing:reconcile-suspensions`).
-Queda anotado en MEJORAS_RECOMENDADAS como P-51.
+---
+
+## 72. El cliente pagaba, la pantalla decía «reactivado», y nadie había tocado el router — 2026-09-22
+
+**Lo que vio el ISP.** Un cliente suspendido por mora paga en el mostrador. La pantalla
+responde en verde: *«Pago registrado y cliente reactivado»*. El cliente se va. El servicio
+sigue cortado. Nadie se entera hasta que el cliente vuelve a llamar.
+
+**Lo que pasó de verdad.** `BillingService::reactivateIfCleared()` arrancaba la variable del
+desenlace del equipo en `$routerOk = true` y sólo la sobrescribía si había router **y** IP:
+
+```php
+$routerOk = true;
+if ($profile->router_id && $profile->ip_user) {
+    $routerOk = app(RouterProvisioningService::class)->unsuspendCustomer(...);
+}
+```
+
+Un cliente **sin router asignado** no entraba nunca en ese `if`. Salía con `router_ok = true`
+—el valor por defecto, no una confirmación de nadie— y el frontend pintaba el aviso verde
+porque su condición era exactamente `r.reactivated && r.router_ok`. El caso que más falta
+hacía avisar era, literalmente, el que devolvía éxito limpio. Reproducido antes de tocar nada:
+
+```
+reactivation = {"was_suspended":true,"reactivated":true,"router_ok":true,
+                "message":"...quedó reactivado automáticamente..."}
+```
+
+**Por qué no lo cazó ninguna prueba.** `AutoReconnectOnPaymentTest` cubría siete escenarios
+—corte automático, corte manual, corte en `failed`, sin log, abono parcial, retirado, router
+que responde `false`— y ninguno con `router_id` nulo. El camino sin equipo no estaba probado
+porque no se veía como un camino: se veía como «no aplica».
+
+**La corrección de fondo: dos hechos, dos nombres.** Pago confirmado ≠ reconexión confirmada.
+El resultado viajaba como tres booleanos y un texto libre, y esa forma no permite decir *por
+qué* no se reconectó. Ahora hay un vocabulario cerrado, `App\Support\ReconnectionOutcome`, con
+ocho desenlaces: `reactivado_automaticamente`, `ya_reactivado`, `no_aplica` y cinco pendientes
+(`pendiente_router_no_asignado`, `pendiente_sin_router_configurado`,
+`pendiente_router_no_disponible`, `pendiente_configuracion_incompleta`,
+`pendiente_error_mikrotik`). Cada uno trae su motivo legible y su acción recomendada.
+
+`router_ok` ya no es un valor por defecto: es `outcome === reactivado_automaticamente`.
+
+**Se comprueba ANTES de intentar, no después.** `App\Services\ReconnectionPreflight` mira la
+ficha y el equipo antes de abrir nada: sin router asignado, router que no existe en esta sede,
+equipo `inactive`/`maintenance` o con `falla_general`, credenciales del RouterBoard vacías, IP
+del cliente vacía, o sin dirección a la que discar. Son condiciones que **no se distinguen
+después del hecho**: lanzar un SSH contra una dirección vacía vuelve como un timeout genérico
+que el operador lee como «el router está caído» y se va a revisar un equipo que está bien.
+
+**Lo que NO cambió, a propósito.** El estado en la BD se sigue corrigiendo a `activo` aunque el
+equipo no confirme. Es la decisión del § anterior sobre `billing:reconcile-suspensions`, que
+barre por `status = false` y volvería a cortar a un cliente que ya pagó. Lo que cambia es que
+eso ya no se llama «reactivado»: `reactivated` significa «se levantó el corte en la BD» y
+`outcome` dice si el servicio está realmente arriba. Los dos viajan juntos y pueden diverger —
+cuando divergen, es exactamente el caso que hay que gritar.
+
+El pago tampoco se revierte nunca por un problema de router: se registra en su transacción, la
+reconexión corre **después del commit**, y la respuesta sigue siendo `201` con el problema
+dentro del cuerpo. Un `500` haría creer al cajero que el pago no entró.
+
+**Dónde vive el estado pendiente.** En `suspension_action_logs`, que ya lleva el ciclo entero
+de cortes; no hay tabla nueva. Se le añadió una columna `outcome` (nullable, indexada) porque
+`reason` responde otra pregunta —qué *originó* la acción: manual, corte por mora,
+reconciliación, pago— y `error_message` es texto libre del equipo, que no se puede filtrar ni
+contar ni enseñar. El `router_id` de esa tabla ya era nullable, así que el caso «sin router
+asignado» —el que no dejaba ni una línea de rastro— por fin queda registrado.
+
+**La alerta persiste.** El aviso del momento del cobro se lo lleva el cajero al cerrar la
+pantalla, pero el cliente sigue sin servicio. `GET /api/billing/customers/{id}/balance` devuelve
+ahora `suspension.reconnection`, y la ficha del cliente pinta un banner rojo mientras el caso
+siga abierto. Se apaga solo cuando se resuelve: el reintento pisa el motivo anterior, y
+`pendingReconnectionFor()` exige además que la fila no esté cerrada en `success` — una alerta
+que no se apaga cuando el problema se arregla deja de creerse.
+
+**Reintento.** `POST /api/billing/customers/{customerId}/retry-reconnection`, detrás de
+`execute_mass_actions` — el mismo permiso con el que ya se operan los cortes fallidos.
+`register_payments` NO alcanza: cobrar en el mostrador y escribir en un RouterBoard son
+atribuciones distintas. Dos candados contra reintentos duplicados: un `Cache::lock` por cliente
+en el endpoint (devuelve `409` si ya hay uno en curso) y otro dentro del propio intento, porque
+dos procesos escribiendo la misma lista del RouterBoard es la carrera que produce falsos
+positivos.
+
+**Sin secretos.** Lo que viaja al navegador es el código del desenlace, su motivo y su acción:
+ni IP, ni usuario, ni contraseña, ni el `error_message` crudo del MikroTik. El detalle técnico
+se queda en el log del servidor. Hay una prueba que lo fija contra fugas.
+
+**Auditoría.** `payment.reconnection` deja pago y desenlace en la MISMA entrada de
+`audit_logs`, con `correlation_id`: la pregunta que hay que poder responder meses después no es
+«¿entró el pago?» ni «¿se reconectó?» por separado, sino «este cliente pagó el día tal, ¿se le
+restableció el servicio, y si no, por qué». Con motivo normalizado esa consulta se cuenta, no
+se lee. El reintento manual deja su propia entrada, `reconnection.retried`.
+
+**Deuda que este trabajo deja anotada.** El bloqueo por reintento simultáneo se reporta como
+`pendiente_error_mikrotik`, que es el desenlace más cercano del vocabulario pero no es
+literalmente cierto (no se llegó a hablar con el equipo). La acción que necesita el operador
+—verificar y reintentar— es idéntica, así que se prefirió eso a inventar un noveno estado.
+Anotado en MEJORAS_RECOMENDADAS junto con el hallazgo aparte de que `POST /api/billing/payments`
+acepta el `tenant_id` que le manda el navegador.
+
+**Pruebas.** `PaymentReconnectionWarningTest`, 19 casos: los cinco motivos pendientes, el
+camino feliz, cliente no suspendido, idempotencia, reintento autorizado, reintento sin permiso,
+aislamiento por sede, no fuga de secretos, persistencia de la alerta y su apagado al
+resolverse. En todos se verifica además que **el pago quedó aplicado y la factura saldada**.
+`AutoReconnectOnPaymentTest` y `RepairPaidSuspendedTest` necesitaron routers de prueba
+realistas (con credenciales y dirección): antes daba igual qué llevara la fila porque el
+servicio iba mockeado entero, y ahora el preflight la lee.
+
+---
+
+## 73. El mismo 504, en las otras cinco puertas — 2026-09-23
+
+Continuación del § 72, y conviene leerlos juntos: **dos personas atacaron el mismo reporte del
+ISP el mismo día, por caminos distintos**. El § 72 resolvió el camino del pago con un preflight
+y un vocabulario de desenlaces. Esta entrada cierra lo que quedaba fuera.
+
+**Lo que quedaba fuera.** A empujar algo al router se entra por seis puertas: el panel (activar
+y suspender), el reintento manual de un log fallido, el corte automático por mora, el
+reconciliador y la reactivación al pagar. El preflight cubre la última. Las otras cinco seguían
+marcando a ciegas contra un equipo sin credenciales — y ahí la sesión SSH no falla, **espera**.
+Activar a mano a un cliente de ese ISP desde su ficha se habría quedado colgado igual que el
+recaudo, con el mismo final: un 504 y un operador repitiendo la operación.
+
+La comprobación va ahora en `RouterProvisioningService::suspendCustomer()` y
+`unsuspendCustomer()`, que es por donde pasan las seis, justo detrás de la guarda de RADIUS.
+Devuelve `false` con la razón escrita en `suspension_action_logs` y sin abrir nada.
+
+**Una definición, no dos.** `Router::manageabilityIssue()` es el único sitio que sabe qué
+necesita un router para ser operable —credenciales, y dirección o identidad de VPN— y
+`ReconnectionPreflight` delega ahí esa parte en vez de repetir la lista de campos. Dos
+definiciones de lo mismo empiezan iguales y terminan distintas; la que se queda corta es
+siempre la que nadie recuerda actualizar. El preflight conserva lo suyo: el estado del cliente,
+la disponibilidad del equipo y la traducción al código cerrado que viaja al navegador.
+
+**Lo que enseñaron las pruebas.** Cuatro suites creaban su router con `name`, `tenant_id` y
+`status`, nada más. Con la guarda puesta se pusieron en rojo, y lo que enseñaron no fue un fallo
+del código sino del fixture: modelaban un equipo que en producción no puede existir, porque no
+habría forma de administrarlo. Ahora nacen con IP y credenciales. Es el mismo patrón del § 72 —
+«ninguna prueba lo cubría porque todas asumían el caso bueno»— visto desde el otro lado.
+
+**Lo que sigue abierto.** Contra un router **sí** configurado, la reconexión sigue corriendo
+dentro de la petición del pago: dos sesiones SSH encadenadas. Si ese equipo está lento vuelve el
+504, con otra causa y el mismo daño. Y el recaudo sigue sin idempotencia: dos pagos idénticos,
+mismo cliente, mismo monto y mismo comprobante, entran sin una sola advertencia. Anotado como
+P-53.

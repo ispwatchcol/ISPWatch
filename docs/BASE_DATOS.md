@@ -835,15 +835,31 @@ Registra el resultado por **(tenant, cliente, periodo, acción)** — hay un ín
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `router_id` / `customer_id` / `ip` | | Contexto |
+| `router_id` / `customer_id` / `ip` | | Contexto. **`router_id` es nullable**: el caso «cliente sin router asignado» no tiene equipo que anotar y es justo el que hay que ver |
 | `action` | varchar(255) | CHECK: `SUSPEND`, `UNSUSPEND`, `INSTALL_POLICY` |
-| `reason` | varchar(40) | `manual`, `auto_cut_overdue`, `reconcile`, `auto_reconnect_paid` |
+| `reason` | varchar(40) | Qué **originó** la acción: `manual`, `auto_cut_overdue`, `reconcile`, `auto_reconnect_paid` |
+| `outcome` | varchar(40) | Cómo **terminó**, normalizado (`App\Support\ReconnectionOutcome`). Nullable e indexada |
 | `status` | varchar(255) | CHECK: `success`, `failed`, `pending` |
 | `attempts` | smallint | Máx. 4 |
 | `next_retry_at` | timestamp | Backoff 30 min / 2h / 6h / 24h |
-| `error_message` | text | |
+| `error_message` | text | Texto libre del equipo. **No se expone al navegador** |
 
 Backoff más agresivo que en facturación por diseño: *un corte sin aplicar es fuga de ingreso*.
+
+**`outcome` vs `reason`: responden preguntas distintas** y por eso son dos columnas. `reason`
+dice qué disparó la acción; `outcome` dice cómo acabó, en vocabulario cerrado:
+`reactivado_automaticamente`, `ya_reactivado`, `no_aplica`, `pendiente_router_no_asignado`,
+`pendiente_sin_router_configurado`, `pendiente_router_no_disponible`,
+`pendiente_configuracion_incompleta`, `pendiente_error_mikrotik`.
+
+Se añadió (migración `2026_09_22_000001`) para poder **contar y filtrar** los motivos por los que
+una reconexión queda pendiente. `error_message` no sirve para eso: es texto libre del RouterOS,
+no se agrupa, y arrastra IPs y detalles del equipo que no pueden salir a pantalla. Las filas
+anteriores quedan en `NULL` — adivinarles el motivo sería inventar datos en una bitácora.
+
+Una fila con `outcome` pendiente **y** `status` distinto de `success` es lo que mantiene
+encendida la alerta de reconexión en la ficha del cliente
+(`SuspensionActionLog::pendingReconnectionFor()`). Ver § 72 de `BITACORA_TECNICA.md`.
 
 ### 4.12 `sectorial` — Elementos de red
 
@@ -1473,7 +1489,7 @@ Agregado permanente.
 | `sectorial` | `parent_id` |
 | `sectorial_history/note/photo` | `(sectorial_id, created_at)` |
 | `support_ticket` | `sectorial_id` |
-| `suspension_action_logs` | `action`, `next_retry_at`, `(customer_id, created_at)`, `(router_id, action)` |
+| `suspension_action_logs` | `action`, `outcome`, `next_retry_at`, `(customer_id, created_at)`, `(router_id, action)` |
 | `traffic_samples` | `(router_id, sampled_at)`, `sampled_at` |
 
 ---

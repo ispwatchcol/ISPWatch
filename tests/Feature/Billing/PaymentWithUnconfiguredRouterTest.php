@@ -2,17 +2,15 @@
 
 namespace Tests\Feature\Billing;
 
-use App\Constants\Permissions;
-use App\Models\AuditLog;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
-use App\Models\Role;
 use App\Models\Router;
 use App\Models\SuspensionActionLog;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Services\RouterProvisioningService;
+use App\Support\ReconnectionOutcome;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,11 +31,14 @@ use Tests\TestCase;
  * LO QUE ESTA SUITE FIJA
  *
  *  1. A un router sin datos de acceso no se le intenta nada. Ni una sesión.
- *  2. El cliente NO se da por reactivado: nadie le levantó el corte en el
- *     equipo, así que sigue suspendido y la respuesta lo dice.
- *  3. El cajero puede activarlo igualmente en el sistema, a propósito y con su
- *     nombre en la bitácora — que es distinto de que el sistema lo haga solo.
- *  4. El router gestionable (por VPN o por RADIUS) se comporta como siempre.
+ *  2. El desenlace del EQUIPO se cuenta aparte del pago y nunca como éxito:
+ *     queda `pendiente_configuracion_incompleta`, con su acción recomendada.
+ *  3. El router gestionable (por VPN o por RADIUS) se comporta como siempre.
+ *
+ * Qué NO fija esta suite, y de quién es: el estado comercial del cliente tras
+ * el pago lo decide `reactivateIfCleared()` —hoy lo deja activo en la BD para
+ * que el reconciliador no lo vuelva a cortar por `status = false`— y eso vive
+ * en PaymentReconnectionWarningTest, que es donde se diseñó.
  */
 class PaymentWithUnconfiguredRouterTest extends TestCase
 {
@@ -145,9 +146,9 @@ class PaymentWithUnconfiguredRouterTest extends TestCase
         $resultado = $this->pagar($tenant, $user);
 
         $this->assertTrue($resultado['was_suspended']);
-        $this->assertTrue($resultado['router_unmanageable']);
-        $this->assertFalse($resultado['reactivated']);
-        $this->assertStringContainsString('no tiene dirección IP ni usuario de VPN', $resultado['message']);
+        $this->assertSame(ReconnectionOutcome::PENDIENTE_CONFIGURACION_INCOMPLETA, $resultado['outcome']);
+        $this->assertFalse($resultado['router_ok'], 'Nadie confirmó nada en el equipo.');
+        $this->assertTrue($resultado['pending'], 'La reconexión queda pendiente, no resuelta.');
     }
 
     #[Test]
@@ -174,63 +175,22 @@ class PaymentWithUnconfiguredRouterTest extends TestCase
     }
 
     #[Test]
-    public function el_cliente_sigue_suspendido_porque_nadie_le_levanto_el_corte(): void
+    public function el_desenlace_queda_escrito_como_pendiente_y_no_como_exito(): void
     {
         $tenant = Tenant::factory()->create();
         $router = $this->routerSinConfigurar($tenant);
         $user   = $this->clienteCortado($tenant, $router);
 
-        $this->pagar($tenant, $user);
+        $resultado = $this->pagar($tenant, $user);
 
-        $perfil = CustomerProfile::where('user_id', $user->id)->first();
-
-        $this->assertFalse((bool) $perfil->status);
-        $this->assertSame('suspendido', $perfil->service_status);
-
-        $this->assertSame(
-            0,
-            SuspensionActionLog::where('customer_id', $user->id)
-                ->where('action', SuspensionActionLog::ACTION_UNSUSPEND)
-                ->count(),
-            'No se intentó reconectar, así que no hay nada que anotar en el failover.'
-        );
-    }
-
-    // ── La salida que decide el cajero ──────────────────────────────────
-
-    #[Test]
-    public function el_cajero_puede_activarlo_igualmente_y_queda_su_nombre(): void
-    {
-        $tenant = Tenant::factory()->create();
-
-        // `CheckPermission` deja pasar siempre a `role_id == 1`: se quema uno.
-        Role::create([
-            'name' => 'Superadmin global', 'code' => 'superadmin',
-            'permissions' => ['*'], 'tenant_id' => null,
-        ]);
-
-        $router = $this->routerSinConfigurar($tenant);
-        $user   = $this->clienteCortado($tenant, $router);
-        $this->pagar($tenant, $user);
-
-        $rol = Role::create([
-            'name' => 'Cajero', 'code' => 'staff',
-            'permissions' => [Permissions::ACTIVATE_DEACTIVATE_CLIENTS, Permissions::VIEW_CLIENTS],
-            'tenant_id' => $tenant->id,
-        ]);
-        $cajero = User::factory()->create(['tenant_id' => $tenant->id, 'role_id' => $rol->id]);
-
-        $this->actingAs($cajero)
-            ->postJson("/api/customers/{$user->id}/activate")
-            ->assertOk();
-
+        // El cliente queda activo en la BD a propósito —si no, el reconciliador
+        // volvería a cortarlo por `status = false`— pero el desenlace del EQUIPO
+        // se cuenta aparte y en ningún caso como reconectado. Pago confirmado no
+        // es reconexión confirmada.
         $this->assertTrue((bool) CustomerProfile::where('user_id', $user->id)->first()->status);
-
-        $this->assertDatabaseHas('audit_logs', [
-            'action'   => 'customer.activated_manually',
-            'model_id' => $user->id,
-            'user_id'  => $cajero->id,
-        ]);
+        $this->assertTrue($resultado['pending']);
+        $this->assertNotSame(ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE, $resultado['outcome']);
+        $this->assertNotSame('', trim((string) $resultado['action']), 'El aviso tiene que decir qué hacer.');
     }
 
     // ── Lo que no debe cambiar ──────────────────────────────────────────
@@ -253,7 +213,6 @@ class PaymentWithUnconfiguredRouterTest extends TestCase
 
         $resultado = $this->pagar($tenant, $user);
 
-        $this->assertFalse($resultado['router_unmanageable']);
         $this->assertTrue($resultado['reactivated']);
         $this->assertTrue((bool) CustomerProfile::where('user_id', $user->id)->first()->status);
     }
@@ -276,9 +235,9 @@ class PaymentWithUnconfiguredRouterTest extends TestCase
 
         $resultado = $this->pagar($tenant, $user);
 
-        $this->assertFalse($resultado['router_unmanageable']);
         $this->assertTrue($resultado['reactivated']);
         $this->assertTrue($resultado['router_ok']);
+        $this->assertSame(ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE, $resultado['outcome']);
     }
 
     // ── La regla, en el modelo ──────────────────────────────────────────

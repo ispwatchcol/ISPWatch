@@ -725,24 +725,46 @@ firma presencial y la remota producen el **mismo PDF** con el mismo valor legal,
 diferencia sutil entre ambas —la detección de tinta, sobre todo— sería un contrato firmado
 en blanco según por dónde entró el cliente.
 
-### Nada de red dentro de una petición sin haberla acotado antes
+### Los cuatro desenlaces de un `ssh-exec` (y el que falta si añades uno)
 
-Cualquier camino que empuje algo a un router tiene que preguntar primero
-`Router::manageabilityIssue()`. Es una comprobación de base de datos, sin red, y evita el
-único fallo que no se ve venir: contra un equipo dado de alta a medias, la sesión SSH no
-falla — **espera**, y se lleva por delante el tiempo del gateway.
+Todo empuje al router del cliente pasa por el CORE con `/system ssh-exec`, y su salida se
+clasifica en `DetectsSshExecFailures` **antes** de que ningún manager la interprete:
 
-Cuando eso ocurre dentro de una petición que además escribe dinero, el resultado es el peor
-posible: el registro se guarda, el usuario ve un 504 y repite la operación. Así aparecieron
-los cobros dobles del recaudo (§ 72 de la bitácora).
+| Detector | Qué ocurrió | Qué NO hay que revisar |
+|---|---|---|
+| `isSshExecConnectionFailure()` | La sesión no se abrió | Ni el comando, ni las credenciales |
+| `isSshExecAuthFailure()` | Se abrió y el cliente rechazó la clave | Ni el comando, ni el plan/perfil |
+| salida vacía | No se puede confirmar nada | — (se trata como fallo a propósito) |
+| `isSshExecCommandFailure()` | El cliente ejecutó y rechazó la orden | — |
 
-Dos reglas que se siguen de ahí:
+Los tres primeros significan **que en el router no corrió nada**. Reportarlos con el texto
+del cuarto —que es lo que pasaba con el fallo de autenticación hasta el 2026-09-22— manda al
+operador a revisar una cola, un plan o un perfil que nunca se llegaron a tocar.
 
-1. **La comprobación va en el servicio compartido**, no en cada llamador. A suspender y
-   reconectar se entra por seis puertas; poner la guarda en una deja cinco abiertas.
-2. **Si el equipo no se puede tocar, no se finge el estado.** El cliente que pagó sigue
-   suspendido y se le ofrece al operador activarlo a mano. Marcarlo activo «porque ya no
-   debe» deja el panel diciendo una cosa y el equipo haciendo otra.
+**Si añades un camino nuevo que empuje al router**, las cuatro comprobaciones van en ese
+orden y las cuatro son obligatorias. El orden importa: `authentication failure` contiene la
+palabra «failure», así que el detector genérico se lo come si va primero.
+
+**El escapado de la contraseña no es el del comando.** El comando lleva una capa de
+`addslashes()`; la contraseña se neutraliza aparte con `strtr()` sobre `\`, `$` y `"`, porque
+dentro de una cadena de RouterOS los tres significan algo. Nunca encadenes `str_replace()`
+ahí: el segundo reemplazo vuelve a escapar las barras que metió el primero.
+
+### Nada de red dentro de una petición sin preguntar antes
+
+Cualquier camino que empuje algo a un router pregunta primero si el equipo se puede gestionar.
+La pregunta se hace en dos alturas y cada una tiene su sitio:
+
+| Pregunta | Quién la responde | Dónde se usa |
+|---|---|---|
+| ¿Este **router** es operable? (credenciales, y dirección o VPN) | `Router::manageabilityIssue()` | `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()` |
+| ¿Se dan las condiciones para reconectar a **este cliente**? | `ReconnectionPreflight::check()` | `BillingService::reactivateIfCleared()` |
+
+La segunda delega la primera. **No repitas la lista de campos** en un tercer sitio: contra un
+equipo dado de alta a medias la sesión SSH no falla, espera, y si eso ocurre dentro de una
+petición que además escribe dinero, el gateway la corta con un 504, el usuario ve un error por
+algo que sí se guardó y lo repite. Así aparecieron los cobros dobles del recaudo (§ 72 y § 73
+de la bitácora).
 
 ### Una marca que impide cobrar (`no_charge`)
 
@@ -777,6 +799,59 @@ redirige a `/`; un cliente final sin sesión acabaría mirando la pantalla de ac
 panel sin entender qué pasó. Usa una instancia propia de axios
 (`services/api/public-contract.js` es el patrón).
 10. **Las búsquedas de texto usan `whereLike`/`orWhereLike`**, jamás `like` ni `ilike` a pelo.
+
+### Pago confirmado ≠ reconexión confirmada
+
+Cuando un cliente suspendido por mora paga, ocurren **dos cosas distintas** que el sistema
+tiene que contar por separado:
+
+1. El **pago**, que es una operación financiera: se aplica dentro de una transacción y no se
+   revierte nunca por un problema de router.
+2. La **reconexión**, que depende de un equipo que puede no existir, no estar asignado, no
+   tener credenciales o no responder.
+
+La reconexión corre **después del commit** del pago (`BillingService::registerPayment()`), no
+lanza nunca, y su resultado viaja en la respuesta. Si falla, el endpoint **sigue devolviendo
+`201`**: un `500` haría creer al cajero que el pago no entró, y volvería a cobrarlo.
+
+**El desenlace se nombra, no se deduce.** Usa `App\Support\ReconnectionOutcome`, un vocabulario
+cerrado de ocho códigos (uno de éxito, `ya_reactivado`, `no_aplica` y cinco `pendiente_*`). Cada
+código trae su `message()` para el operador y su `action()` con la acción recomendada.
+
+Tres reglas al tocar este camino:
+
+- **Nunca supongas éxito por defecto.** El bug que originó esto era literalmente eso: un
+  `$routerOk = true` que sólo se sobrescribía si había router e IP, así que un cliente sin
+  router salía con «reactivado» sin que nadie hubiera tocado ningún equipo. Si no hubo
+  confirmación del equipo, **no hubo reconexión**.
+- **`reactivated` y `router_ok` responden preguntas distintas.** El primero es «se levantó el
+  corte en la BD», el segundo es «el equipo confirmó». Pueden diverger, y cuando divergen el
+  cliente pagó y sigue sin servicio. La BD se corrige igual a `activo` a propósito (si no,
+  `billing:reconcile-suspensions` barre por `status = false` y vuelve a cortar a quien ya pagó);
+  lo que no se puede hacer es llamar a eso «reconectado».
+- **Si la condición se puede detectar antes, detéctala antes.** `ReconnectionPreflight` mira la
+  ficha y el equipo antes de abrir nada. Lanzar un SSH sin datos no falla limpio: vuelve como un
+  timeout genérico que el operador lee como «router caído» y se va a revisar un equipo sano.
+
+Lo pendiente se registra en `suspension_action_logs.outcome` (**no** hay tabla nueva; `reason`
+responde otra pregunta —qué originó la acción— y `error_message` es texto libre del equipo). De
+ahí lo lee la alerta persistente de la ficha del cliente, vía
+`BillingService::pendingReconnectionFor()`.
+
+**Nada de secretos en la respuesta.** Lo que llega al navegador es el código, su motivo y su
+acción: ni IP, ni usuario, ni contraseña, ni el error crudo del MikroTik. El detalle técnico se
+queda en el log del servidor. Hay una prueba que lo fija.
+
+El reintento manual (`POST /api/billing/customers/{id}/retry-reconnection`) exige
+`execute_mass_actions`, no `register_payments`: cobrar en el mostrador y escribir en un
+RouterBoard son atribuciones distintas. Va con candado por cliente (`409` si ya hay uno en
+curso), porque dos procesos escribiendo la misma lista del RouterBoard es la carrera que
+produce falsos positivos.
+
+> **Al testear este camino, los routers de prueba necesitan credenciales y dirección.** Antes
+> daba igual qué llevara la fila porque `RouterProvisioningService` iba mockeado entero; ahora
+> el preflight la lee, y un `Router::create(['name', 'tenant_id', 'status'])` a secas se
+> clasifica —correctamente— como `pendiente_configuracion_incompleta`.
 
 ### Git
 

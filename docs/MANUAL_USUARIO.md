@@ -271,6 +271,27 @@ Si la carga en segundo plano falla (o el router la tenía apagada), entra a la f
 y usa el botón de **aprovisionar**. Ese botón exige que el cliente tenga **router**, **plan** e
 **IP** asignados; si le falta alguno te lo dice y no hace nada.
 
+#### Qué significa cada aviso de «no se pudo cargar al router»
+
+El cliente **siempre queda guardado**; lo que falla es la parte del equipo de red. El texto del
+aviso dice en qué punto se cortó, y cada punto se arregla en un sitio distinto:
+
+| Si el aviso dice… | Qué pasó | Dónde mirar |
+|---|---|---|
+| `authentication failure` | El sistema llegó al router y el **router rechazó la clave**. En el equipo no se ejecutó nada | El usuario y la contraseña de ESE router en **Routers → Editar**. Si estás seguro de que son correctos, mira el punto siguiente |
+| `<connection failed>` · `action timed out` | No se pudo ni abrir la sesión con el router | La IP del router (puede haber cambiado al reconectar el túnel), el **Puerto SSH** y que el servicio SSH acepte al CORE |
+| `bad parameter` · `no such item` | El router **sí ejecutó** y rechazó la orden | El plan o el perfil que falta en ese equipo, según diga el detalle |
+
+> 🔐 **La trampa del primer caso.** Quien se conecta al router **es el CORE**, no ISPWatch ni tu
+> computador. Si el usuario de RouterOS está limitado a una dirección concreta (`address=` en
+> `/user print detail`), rechaza la contraseña **correcta** aunque a ti esa misma clave te
+> funcione perfectamente desde tu equipo. Es el caso que más tiempo hace perder, porque todo
+> parece estar bien.
+>
+> **No insistas dándole al botón.** Tras varios intentos fallidos el router bloquea por un rato
+> la dirección desde la que se intenta —la del CORE— y el aviso cambia a «no conecta». Entonces
+> estarás persiguiendo un problema distinto del que tenías.
+
 ### 5.3 Editar un cliente
 
 En la lista, pulsa el icono de **editar**. Verás el mismo formulario con los datos actuales,
@@ -972,36 +993,46 @@ Y al guardar el recaudo te dice cómo terminó:
 
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
-| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router confirmó la reconexión | Nada |
-| 🔴 *Pago registrado — revisar reconexión* | Quedó activo en el sistema, pero el **router no confirmó** | Ir a **Acciones masivas → reconexiones fallidas** y reintentar |
+| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router **confirmó** la reconexión | Nada |
+| 🔴 *Pago registrado — el servicio NO quedó reactivado* | El dinero entró, pero el servicio **sigue cortado** | Leer el motivo y hacer lo que indica el aviso (ver abajo) |
 | 🟠 *Pago registrado — sigue suspendido* | Le quedan facturas **vencidas** sin pagar | Cobrar el resto; el mensaje dice cuántas faltan |
-| 🟠 *…pero NO se pudo reconectar: el router no está configurado* | El equipo de ese cliente **no tiene ni VPN ni RADIUS ni credenciales**, así que ISPWatch no puede levantarle el corte | Configurar el router (**Routers → Editar**). Mientras tanto, el botón **Activar igualmente en el sistema** lo deja activo en ISPWatch |
 
 El mismo aviso sale en la pestaña **Facturación** de la ficha del cliente.
 
-#### Cuando el router del cliente no está configurado
+#### ⚠️ «El servicio NO quedó reactivado»: qué es y qué hacer
 
-**El pago siempre queda registrado.** Eso ocurre primero y no depende del equipo de red.
+Es el aviso más importante de esta pantalla. Significa exactamente esto:
 
-Antes, en este caso la pantalla se quedaba esperando al router hasta que el navegador
-mostraba *«Request failed with status code 504»*. El cobro **sí** había entrado, pero el
-cajero creía que no y volvía a cobrarlo: de ahí salían los cobros dobles. Desde el
-2026-09-23 el sistema comprueba **antes** si al router se le puede hablar, y si no, responde
-en el acto diciendo por qué.
+> **El pago SÍ se registró.** La factura quedó paga y el dinero está contabilizado. No lo
+> vuelvas a cobrar. Lo que no se pudo hacer es **volver a prender el servicio**, y el cliente
+> se va a ir creyendo que ya tiene internet.
 
-El cliente **queda suspendido a propósito**: nadie pudo levantarle el corte en el equipo, y
-marcarlo activo sería decir en el panel algo distinto de lo que pasa en la red. Tienes dos
-caminos:
+El aviso es rojo, ocupa su propio recuadro y **no se va solo**: sigue visible en la pestaña
+**Facturación** de la ficha del cliente hasta que el problema se resuelva. Siempre dice el
+motivo y qué hacer:
 
-1. **Configurar el router** —lo correcto— y luego activar al cliente. Con el equipo
-   configurado, el próximo pago lo reconecta solo.
-2. **Activar igualmente en el sistema**, con el botón que aparece en el mismo aviso. El
-   cliente queda activo en ISPWatch aunque su equipo siga como esté. Queda registrado quién
-   lo activó y cuándo.
+| Motivo | Qué pasó | Qué hacer |
+|---|---|---|
+| **Sin router asignado** | El cliente no tiene ningún router en su ficha de servicio | Asignarle el router en la ficha del cliente y reintentar |
+| **Router no configurado** | El router del cliente no está dado de alta en el sistema | Crearlo en **Routers** y volver a asignarlo al cliente |
+| **Router no disponible** | El equipo está inactivo, en mantenimiento o con falla general | Revisar el estado del router; reintentar cuando vuelva |
+| **Configuración incompleta** | Faltan datos para operar el equipo (acceso del router o IP del cliente) | Completar los datos que falten y reintentar |
+| **Error de comunicación** | No se pudo hablar con el router | Reintentar; si sigue fallando, revisar la conexión del equipo |
 
-> Si el router de ese ISP lo gestiona un **servidor RADIUS externo**, no hay nada que
-> configurar por VPN: basta con marcar la casilla **RADIUS** en la ficha del router y el
-> sistema deja de intentar escribirle.
+**Botón «Reintentar reconexión».** Aparece sólo si tu usuario tiene permiso para ejecutar
+acciones masivas. Si no lo ves, no es un error: pásale el caso a quien administre los routers,
+o reconecta al cliente a mano en el equipo. Mientras un reintento está corriendo el botón se
+bloquea; si alguien más lo está intentando a la vez, el sistema avisa en vez de duplicar la
+operación.
+
+> 💡 **Por qué el pago se guarda igual.** Cobrar y reconectar son dos cosas distintas. Que el
+> router no responda no es razón para perder un recaudo ni para hacer que el cliente pague dos
+> veces: el dinero queda registrado y el problema del equipo se resuelve aparte.
+
+> ⚠️ **Ojo con el cliente que figura ACTIVO y sigue sin internet.** Cuando el pago cubre la
+> deuda, el sistema marca al cliente como activo aunque el router no haya confirmado — si no lo
+> hiciera, el proceso automático de cortes volvería a cortarlo por moroso al día siguiente. Por
+> eso la alerta roja existe: es la única señal de que el equipo todavía no se enteró.
 
 ### 8.2.1 Abonos parciales: el saldo pasa a la próxima factura
 

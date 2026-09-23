@@ -89,6 +89,17 @@ class CustomerDeprovisionManager
                 ];
             }
 
+            // Mismo motivo que arriba: el rechazo de credenciales no ejecutó
+            // ningún remove, y decir «falló el comando» mandaría a revisar el
+            // router en vez de la clave guardada.
+            if ($output !== '' && $this->isSshExecAuthFailure($output)) {
+                return [
+                    'success'    => false,
+                    'statements' => $statements,
+                    'message'    => $this->sshExecAuthFailureMessage($routerIp, $output, $routerSshPort),
+                ];
+            }
+
             // A diferencia de un `ensure*`, aquí la salida vacía SÍ es el
             // resultado esperado: un barrido de removes silenciosos no imprime
             // nada. Lo que no se puede distinguir es "borró" de "el ssh-exec

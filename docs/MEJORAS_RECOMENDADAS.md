@@ -2455,32 +2455,84 @@ costo interno de esos equipos.
 No es un fallo de ninguna de las dos ramas: es una costura que sólo existe cuando las dos
 estén en `main`, y se anota aquí para que no se descubra en producción.
 
-### 📋 P-51 · La reconexión al pagar sigue siendo síncrona para los routers que SÍ están configurados
+### 📋 P-50 · El `$` sigue sin escaparse en el COMANDO, sólo en la contraseña
 
-El arreglo del 2026-09-23 elimina el 504 del caso que lo disparaba —el router sin configurar,
-que hacía esperar el tiempo de espera completo— pero no cambia la forma del camino feliz: con
-un router bien configurado, registrar un pago sigue abriendo **dos sesiones SSH encadenadas**
-dentro de la petición HTTP (el resolver y el `ssh-exec`), y eso son decenas de segundos.
+El arreglo del 2026-09-22 neutraliza `\`, `$` y `"` en la contraseña, pero el comando que
+viaja en el mismo `ssh-exec` sigue pasando sólo por `addslashes()`, que escapa `\` y `"` y
+**no toca el `$`**. Dentro de una cadena de RouterOS el `$` interpola una variable.
 
-Basta con que ese router esté lento, saturado o con el túnel inestable para que vuelva el
-mismo 504 y, con él, el mismo riesgo de cobro doble. La causa sería distinta; el síntoma y el
-daño, idénticos.
+Por dónde puede entrar: el comentario de la cola y del secret lleva el **nombre del cliente**,
+que se translitera a ASCII (`Str::ascii`) — y `$` es ASCII, así que sobrevive. Un cliente
+apellidado, literalmente, «Ca$h» produciría un comando con una variable inexistente en medio.
 
-**Por qué no se resolvió aquí.** El comentario del código dice por qué se hizo síncrono: que
-el cajero vea el desenlace sin depender de que haya un worker de cola vivo. Cambiarlo a
-asíncrono sin más le quita esa respuesta, y hacerlo bien exige decidir cómo se la devuelve
-(sondeo desde la pantalla, o un aviso posterior). Es una decisión de producto, no una línea.
+No se corrigió aquí a propósito: `addslashes()` está en el camino de TODOS los comandos, y
+cambiarlo sin una prueba contra un RouterOS real es cambiarle el escapado a nueve managers a
+ciegas. La contraseña se pudo arreglar sola porque es un literal, no un fragmento de guion.
 
-**Recomendación.** Acotar el intento con un presupuesto de tiempo (~15-20 s) dentro de la
-petición: si el router responde, el cajero ve el resultado como hoy; si no, el pago responde
-igual con «reconexión en curso» y la termina el failover que ya existe
-(`suspension_action_logs` con reintentos + `billing:reconcile-suspensions`). `executeSsh()` ya
-acepta un tiempo de espera por comando, así que no hace falta infraestructura nueva.
+**Recomendación.** Escapar `$` en `coreSshExecCommand()` para el comando también, con una
+prueba que fije el comando emitido byte a byte, y verificarlo contra el CORE de pruebas antes
+de desplegar.
 
-**Y la red de seguridad que falta en cualquier caso:** el recaudo no tiene idempotencia. Dos
-pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobante, entran sin
-una sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal
-contado.
+### 🟠 P-51 · `POST /api/billing/payments` acepta el `tenant_id` que le manda el navegador
+
+Detectado el 2026-09-22 trabajando en el aviso de reconexión pendiente (§ 72 de la bitácora).
+`BillingController::registerPayment()` hace `$data = $request->all()` y `BillingService` lee
+`$data['tenant_id']` tal cual para crear el `Payment`. El valor lo pone el **frontend** desde la
+sesión guardada en el navegador (`RegisterPayment.vue` y `CustomerBilling.vue` lo envían en el
+cuerpo), no el servidor desde el token.
+
+`created_by` sí se sella desde la sesión y se documenta como «nunca desde el cuerpo»; el
+`tenant_id` del mismo endpoint no tiene esa protección. `Payment` usa `BelongsToTenant`, pero su
+gancho de creación sólo rellena el campo **cuando viene vacío**: un valor explícito gana.
+
+**Por qué no se corrigió en este PR.** El campo es hoy parte del contrato que los dos formularios
+envían, y cambiarlo sin tocar el frontend a la vez es arriesgar el registro de pagos, que es el
+camino de dinero más usado del sistema. Es un hallazgo independiente del trabajo de reconexión y
+merece su propio cambio y sus propias pruebas.
+
+**Recomendación.** Sellar `tenant_id` desde `$request->user()->tenant_id` en el controlador,
+ignorando lo que traiga el cuerpo (igual que `created_by`), dejar de enviarlo desde las dos
+pantallas, y fijarlo con una prueba que intente cobrar contra otra sede y espere un rechazo.
+
+### 🟢 P-52 · «Reconexión ya en curso» se reporta como `pendiente_error_mikrotik`
+
+Del mismo trabajo (§ 72). Cuando dos reconexiones del mismo servicio coinciden, la segunda no se
+lanza —el candado hace su trabajo— y el desenlace se informa como `pendiente_error_mikrotik`,
+que es el código más cercano del vocabulario pero no es literalmente cierto: no se llegó a hablar
+con el equipo.
+
+Se prefirió eso a inventar un noveno estado porque **la acción que necesita el operador es
+idéntica** (verificar y reintentar) y porque el aviso nunca miente en lo que importa: dice que la
+reconexión quedó pendiente, no que se hizo.
+
+**Recomendación.** Si en operación aparece con frecuencia suficiente para molestar, añadir
+`pendiente_en_curso` a `ReconnectionOutcome` con su mensaje propio («hay una reconexión en curso,
+espera unos segundos y vuelve a mirar») y ningún botón de reintento.
+
+### 📋 P-53 · La reconexión al pagar sigue siendo síncrona, y el recaudo no tiene idempotencia
+
+El preflight (§ 72) quita el 504 del caso que lo disparó —el router sin configurar— y la guarda
+del servicio compartido (§ 73) lo quita de las otras cinco puertas. Pero el camino feliz no
+cambió de forma: con un router **bien** configurado, registrar un pago sigue abriendo **dos
+sesiones SSH encadenadas** dentro de la petición HTTP, y eso son decenas de segundos.
+
+Basta con que ese equipo esté lento, saturado o con el túnel inestable para que vuelva el mismo
+504. Causa distinta, daño idéntico.
+
+**Por qué no se resolvió.** El código explica por qué se hizo síncrono: que el cajero vea el
+desenlace sin depender de que haya un worker de cola vivo. Volverlo asíncrono sin más le quita
+esa respuesta, y hacerlo bien obliga a decidir cómo se la devuelve — sondeo desde la pantalla, o
+aviso posterior. Es una decisión de producto.
+
+**Recomendación.** Acotar el intento con un presupuesto de tiempo (~15-20 s): si el router
+responde, el cajero ve el resultado como hoy; si no, el pago responde igual y la reconexión la
+termina el failover que ya existe (`suspension_action_logs` + `billing:reconcile-suspensions`).
+`executeSsh()` ya acepta un tiempo de espera por comando.
+
+**Y la red de seguridad que falta pase lo que pase:** el recaudo no tiene idempotencia. Dos
+pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobante, entran sin una
+sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal contado — y
+es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 
 ## 8. Tabla consolidada
 
@@ -2585,7 +2637,7 @@ contado.
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
-| **P-51** | La reconexión al pagar abre dos sesiones SSH dentro de la petición HTTP | Con un router lento vuelve el 504 del recaudo, y con él el cobro doble; además el recaudo no tiene idempotencia | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar de pagos repetidos |
+| **P-53** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
@@ -2595,6 +2647,7 @@ contado.
 | **P-46** | Tras un despliegue, el navegador sigue mostrando la aplicación vieja | Le pasa a cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5 | 🟡 Media | ✅ Resuelto 2026-09-21 (`no-store` + aviso de versión nueva) |
 | **P-48** | El equipo entregado en una visita sin cobro no genera gasto si el ISP no encendió `inventory_entry_creates_expense` | El mantenimiento gratis no aparece en ningún informe de gastos, y no hay costo interno agregado | 🟡 Media | 📋 Pendiente · decisión contable del ISP + informe de visitas sin cobro |
 | **P-49** | La pantalla de equipos del ticket (KAN-92, sin mergear) no muestra la marca «sin cobro» | El técnico que cambia un router en garantía no vería «no le cobres» donde está trabajando | 🟢 Baja | 📋 Pendiente · costura entre dos ramas, al mergear KAN-92 |
+| **P-50** | `addslashes()` no escapa el `$` del comando que corre en el router | Un nombre de cliente con `$` mete una variable inexistente en medio del comando | 🟢 Baja | 📋 Pendiente · toca el escapado de los nueve managers, exige prueba contra RouterOS real |
 | **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
 | **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
 | **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |

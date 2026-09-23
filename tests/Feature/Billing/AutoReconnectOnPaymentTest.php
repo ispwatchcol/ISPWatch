@@ -93,19 +93,25 @@ class AutoReconnectOnPaymentTest extends TestCase
         return $user;
     }
 
+    /**
+     * Un router REALMENTE operable: activo, con dirección y con credenciales.
+     *
+     * Las tres cosas hacen falta desde que existe ReconnectionPreflight, que
+     * comprueba que se pueda operar el equipo ANTES de intentarlo — un router
+     * sin credenciales no autentica contra el cliente ni por API ni por
+     * ssh-exec, así que ahora se clasifica como configuración incompleta en vez
+     * de disparar un intento condenado a un timeout genérico. Antes daba igual
+     * qué llevara la fila porque el servicio iba mockeado entero.
+     */
     private function router(Tenant $tenant): Router
     {
         return Router::create([
-            'name'      => 'Router ' . uniqid(),
-            'tenant_id' => $tenant->id,
-            'status'    => 'active',
-            // Credenciales de acceso: sin ellas el router no es gestionable
-            // y el aprovisionamiento lo rechaza antes de intentar nada (ver
-            // Router::manageabilityIssue). Un router de prueba sin datos de
-            // acceso no representa a ningún equipo real.
-            'ip'          => '172.16.16.' . random_int(2, 250),
-            'user_rb'     => 'ispwatch',
-            'password_rb' => 'secreto',
+            'name'        => 'Router ' . uniqid(),
+            'tenant_id'   => $tenant->id,
+            'status'      => 'active',
+            'ip'          => '10.10.0.1',
+            'user_rb'     => 'admin',
+            'password_rb' => 'clave-rb',
         ]);
     }
 
@@ -272,7 +278,14 @@ class AutoReconnectOnPaymentTest extends TestCase
         $this->assertTrue($payment->reactivation['was_suspended']);
         $this->assertTrue($payment->reactivation['reactivated']);
         $this->assertFalse($payment->reactivation['router_ok']);
-        $this->assertStringContainsString('NO confirmó', $payment->reactivation['message']);
+
+        // El motivo se afirma por el código normalizado y no por el texto: el
+        // mensaje es de cara al operador y puede reescribirse, el código no.
+        $this->assertSame(
+            \App\Support\ReconnectionOutcome::PENDIENTE_ERROR_MIKROTIK,
+            $payment->reactivation['outcome']
+        );
+        $this->assertTrue($payment->reactivation['pending']);
     }
 
     /**
