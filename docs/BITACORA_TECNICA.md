@@ -7697,3 +7697,156 @@ silencioso. Se corrigió localizando el perfil por `user_id` a partir del correo
 único y refleja la relación real del esquema. Verificado compilando ambas consultas con la
 gramática de PostgreSQL: la vieja emite `order by "id" desc` (exactamente el SQL del log de CI)
 y la nueva no menciona `id` por ningún lado. Queda como trampa #60 del manual de desarrollador.
+
+---
+
+## 74. En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte — 2026-09-23
+
+**Lo que se reportó.** «En los tickets no se deja asignar equipos al cliente al cual se le está
+creando el ticket».
+
+**Lo que se encontró al auditar el flujo.** No era un permiso mal puesto ni un botón escondido:
+**la mitad del módulo no estaba construida.**
+
+| Pieza | Estado antes |
+|---|---|
+| Tabla que liga equipo ↔ cliente | `installation_equipment`, y cuelga **sólo** de `customer_installations` (FK `installation_id`, CASCADE) |
+| Método del ledger que deja un equipo en casa del cliente | `assignDeviceToInstallation()`, y **exige** una `CustomerInstallation` |
+| Endpoints | `/api/installations/{id}/equipment*`. Para `/api/support/{id}` había mensajes, adjuntos, transiciones, historial y cargos — ninguno de equipos |
+| Desde la ficha del equipo en Inventario | `InventoryDeviceController::update()` sólo mueve custodia entre usuario y sucursal, y se niega explícitamente a tocar un equipo `installed` |
+
+Es decir: **el único camino para que un equipo quedara en casa de un cliente era una orden de
+instalación.** En una visita de soporte donde se cambia el router, lo que el técnico podía hacer
+era escribir «router nuevo» a mano en el bloque *Cargo Asociado* —cuyos ítems son texto libre:
+`description`, `quantity`, `unit_price`— y facturarlo. El equipo **nunca salía del inventario**,
+nunca quedaba a nombre del cliente y nunca aparecía en el kardex.
+
+El propio ticket prometía lo contrario. El aviso de «Sin cobro al cliente» dice *«Los equipos que
+se entreguen salen igual del inventario y son gasto de la empresa»* — una frase copiada de la
+orden de instalación (§ 70) que en un ticket no se cumplía, porque no había por dónde.
+
+**Y había un segundo agujero, más grande, que el primero tapaba.** El **retiro no existía en
+ninguna parte del sistema**. Un equipo que llegaba a `status = installed` sólo salía de ahí
+borrando la línea de la instalación (`releaseFromInstallation()`), que es una corrección de
+captura —«cargué la LDF equivocada»— y no un retiro: borra la historia de la visita en la que el
+equipo se entregó. Como en la operación real la visita de soporte casi siempre **cambia** un
+equipo por otro, registrar sólo la entrega dejaba el router viejo marcado en casa del cliente
+para siempre.
+
+### Lo que se construyó
+
+**`ticket_equipment`, tabla propia y no una columna más.** La razón no es de estilo: una
+instalación sólo **entrega** —el cliente empieza sin nada— y una visita de soporte se mueve en
+**dos sentidos**. La tabla lleva `direction`:
+
+- `out` → salió del inventario y quedó en casa del cliente.
+- `in` → volvió de casa del cliente al inventario (bodega o mochila del técnico).
+
+Un cambio de router son dos líneas del mismo ticket. `source_type`/`source_id` es el custodio
+interno del **otro extremo** —de dónde salió si es `out`, a dónde volvió si es `in`—, porque sin
+eso deshacer una línea no sabría a quién devolverle la existencia.
+
+**Cuatro métodos nuevos en `InventoryLedger`**, que sigue siendo el único sitio del sistema que
+mueve existencias: `assignDeviceToTicket()`, `assignMaterialToTicket()`,
+`returnDeviceFromTicket()` y `releaseFromTicket()`. Todo dentro de `DB::transaction`, todo
+dejando su línea en `inventory_movements` —que estrena `support_ticket_id`, porque el kardex ya
+sabía decir «salió por la instalación #40» y ahora tiene que saber decir «salió por el ticket
+#312»—.
+
+**`canTakeFrom()` pasó a aceptar `CustomerInstallation|SupportTicket`.** El «técnico asignado a
+la visita» es `technician_id` en una y `staff_id` en el otro; la regla de custodia es la misma y
+no se duplicó. Se añadió `assertCanHandOverTo()` para el sentido contrario: quien **recibe** el
+equipo retirado responde por él, así que nadie se lo mete en la mochila a otro técnico. Comparte
+la comprobación y cambia el mensaje, porque el usuario está haciendo otra cosa.
+
+**La lista de lo retirable sale de `inventory_device`, no de las hojas de instalación.** Lo que
+importa es dónde está el equipo **hoy**, no por qué papel llegó ahí — así también aparece un
+aparato que entró por carga masiva, que no tiene hoja ninguna.
+
+### El invariante que había que corregir para que el retiro sirviera de algo
+
+`installation_equipment.device_id` era **único**. La restricción decía «un equipo físico no puede
+estar instalado en dos casas a la vez» pero la implementaba como «un equipo no puede aparecer en
+dos hojas nunca». Mientras la única forma de devolver algo fue borrar la línea, las dos frases
+coincidían.
+
+Con el retiro ya no: el equipo se retira en un ticket —y la hoja de la instalación vieja **se
+queda**, que es lo correcto, porque ese día sí se entregó— y al reinstalarlo en otro cliente el
+INSERT chocaba contra el unique. El aparato quedaba inservible para el resto de su vida útil sin
+que nadie entendiera por qué.
+
+Hoy es un índice normal (`2026_09_23_000003`). El invariante real no se perdió: vive en
+`inventory_device.status` + `customer_id`, que es **una fila por aparato**, y el ledger se niega
+a entregar un equipo que ya esté `installed`. Hay una prueba que instala, retira y reinstala en
+otro cliente, precisamente para que nadie reponga el unique sin enterarse.
+
+### Dos decisiones de diseño que conviene no revertir
+
+**Cargar un equipo no lo cobra.** Se consideró facturarlo automáticamente y se descartó: hay
+equipos que se entregan por garantía, por retención o por daño propio, y un cobro automático
+obligaría a andar borrando facturas —que es justamente lo que el proyecto tiene prohibido
+(§ *Anulación de facturas*)—. La línea guarda `unit_price` **congelado del catálogo** y la
+interfaz ofrece «+ Cobrar equipo del ticket», que lo precarga **editable** en el formulario de
+cargo. Facturar sigue siendo una decisión de quien pulsa *Generar Cargo*, con su bloqueo por
+`no_charge` intacto.
+
+Las líneas `in` nacen con `unit_price = null`. No es un olvido: un retiro no se cobra, y dejar
+ahí una cifra invitaría a arrastrarla al cargo por descuido. Los retiros tampoco aparecen en el
+desplegable de cobro.
+
+**Las rutas NO van en el grupo `staff_profile`.** Ese middleware no comprueba una capacidad:
+comprueba que el **código de rol** sea `admin` o `staff`. Todo el resto de `/api/support/*` vive
+ahí, y meter los equipos dentro habría dejado fuera justo al **técnico de campo**
+(`code = 'technician'`), que es quien carga el equipo en la visita. Van al lado de las de
+instalación, que están fuera por el mismo motivo.
+
+Los permisos son los **ya existentes** (`view_support` / `ticket_view` / `ticket_edit`, con
+semántica OR). Un permiso nuevo nace apagado en todos los roles ya sembrados y habría dejado a
+los administradores actuales sin ver la sección hasta que alguien corriera un backfill — que es
+exactamente lo que pasó con `manage_document_templates` en § 69.
+
+### La rama que ya existía, y por qué no se retomó
+
+A mitad del trabajo apareció en `MEJORAS_RECOMENDADAS.md` (P-49) una nota que registraba
+`feat/kan92-equipos-en-ticket`: el **backend** de esto mismo, del 2026-09-12, sin mergear, sin
+pantalla y sin documentación. Se solapaba casi entero con lo nuevo. Se decidió seguir con la
+implementación nueva —que ya tenía pantalla, documentación y suite completa en verde— y **tomar
+de la vieja lo que le faltaba**, en vez de descartar cualquiera de las dos a ciegas.
+
+Lo que se recogió: **retirar dando de baja**. Un router que vuelve quemado no es una devolución.
+Si entrara a bodega como disponible, alguien lo prometería en la siguiente instalación. Hoy
+`source_type: 'scrap'` deja el equipo en `retired`, sin custodio, y escribe `baja` en el kardex
+en vez de `devolucion`; el botón se pone rojo y avisa antes de hacerlo.
+
+Lo que se descartó, y por qué: su `retrieveFromCustomer()` **borraba** las líneas de
+`installation_equipment` del equipo al retirarlo. El propio comentario lo explicaba —«el índice
+único de `device_id` bloquearía volver a cargarlo»—, o sea que destruía el registro de una visita
+que sí ocurrió para sortear una restricción mal planteada. Aquí se hizo al revés: se relajó el
+unique y la hoja vieja se conserva. También se descartó su endpoint `/equipment/retrieve` aparte,
+porque entregar y retirar son la misma operación con el signo cambiado y partirlas en dos rutas
+duplica la validación de custodia.
+
+### Lo que se comprobó y NO se cambió
+
+- **`releaseFromInstallation()` sigue igual.** Es la corrección de captura, y borrar la línea es
+  lo correcto ahí: nadie entregó nada todavía. El retiro de verdad es otra cosa y ahora tiene su
+  propio camino.
+- **El bloqueo por `no_charge` del ticket.** Un ticket marcado sin cobro sigue admitiendo equipos
+  —salen igual del inventario y son gasto de la empresa, que es lo que la interfaz prometía— y
+  sigue respondiendo 422 al intentar facturarlo.
+- **El expediente archivado.** Se puede **consultar** su hoja de equipos (los movimientos son
+  parte del expediente) pero no escribirla: un archivado está fuera de la operación.
+
+**Cobertura.** `tests/Feature/Support/TicketEquipmentTest.php`, 16 pruebas: entrega, retiro,
+baja por daño, materiales por cantidad, deshacer en los tres sentidos, custodia ajena rechazada,
+bodega sin `view_inventory`, equipo de otro cliente, `scrap` como origen rechazado, ticket
+archivado, evento de historial, y la reinstalación tras el retiro que fija el unique relajado.
+Suite completa en verde.
+
+**Deuda consciente.** El retiro sólo admite equipos con serial: un consumible no vuelve, que es
+correcto para el caso real pero deja sin camino la corrección a la baja de una cantidad mal
+capturada (P-54). Y la hoja de equipos todavía no muestra la marca `no_charge` del ticket ni el
+costo interno acumulado de la visita, que era la costura que P-49 anticipaba.
+
+---
+

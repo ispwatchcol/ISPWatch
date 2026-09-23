@@ -18,6 +18,7 @@ use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
@@ -177,6 +178,27 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         ->middleware('permission:view_support');
     Route::delete('/installations/{installation}/equipment/{item}', [InstallationEquipmentController::class, 'destroy'])
         ->middleware('permission:view_support');
+
+    // Equipos y materiales de una visita de SOPORTE. Van aquí y no en el grupo
+    // `staff_profile` de más abajo por una razón operativa: ese grupo sólo deja
+    // pasar los códigos de rol `admin` y `staff`, y quien carga el equipo en la
+    // visita es el TÉCNICO DE CAMPO. Metidas allí, la sección existiría para
+    // todos menos para quien tiene que usarla — que es exactamente el motivo
+    // por el que las de instalación tampoco están dentro.
+    //
+    // Los permisos son los que ya existen: uno nuevo nace apagado en todos los
+    // roles ya sembrados y dejaría a los administradores actuales sin ver la
+    // sección hasta que alguien corriera un backfill. La regla de qué puede
+    // tomar cada quien —lo suyo, lo del técnico asignado, las bodegas sólo con
+    // permiso de inventario— la aplica InventoryLedger, no la ruta.
+    Route::get('/support/{id}/equipment', [TicketEquipmentController::class, 'index'])
+        ->middleware('permission:view_support,ticket_view');
+    Route::get('/support/{id}/equipment/available', [TicketEquipmentController::class, 'available'])
+        ->middleware('permission:view_support,ticket_view');
+    Route::post('/support/{id}/equipment', [TicketEquipmentController::class, 'store'])
+        ->middleware('permission:view_support,ticket_edit');
+    Route::delete('/support/{id}/equipment/{item}', [TicketEquipmentController::class, 'destroy'])
+        ->middleware('permission:view_support,ticket_edit');
 
     // ─── PROSPECTS ───
     // El alta de cliente lee el prospecto y lo marca como convertido, así que

@@ -1056,7 +1056,38 @@ $this->ledger->assignMaterialToInstallation($installation, $stock, 4.0, 'user', 
 
 // Deshacer: devuelve la existencia a quien la aportó (source_type/source_id de la línea)
 $this->ledger->releaseFromInstallation($item, $actor);
+
+// ── Lo mismo desde un TICKET de soporte (2026-09-23) ──
+$this->ledger->assignDeviceToTicket($ticket, $device, $actor);
+$this->ledger->assignMaterialToTicket($ticket, $stock, 4.0, 'user', $tech->id, $actor);
+
+// Y lo que la instalación no sabe hacer: RETIRAR de casa del cliente.
+// El 3.º/4.º parámetro es el DESTINO (a dónde vuelve), no el origen.
+$this->ledger->returnDeviceFromTicket($ticket, $device, 'branch', $branch->id, $actor);
+
+// Deshacer, en cualquiera de los dos sentidos: una entrega vuelve a quien la
+// aportó, un retiro vuelve a casa del cliente.
+$this->ledger->releaseFromTicket($item, $actor);
 ```
+
+**El ticket mueve inventario en dos sentidos; la instalación sólo en uno.** Por eso
+`ticket_equipment` es una tabla propia con `direction` (`out`/`in`) y no una columna más en
+`installation_equipment`. Un cambio de router son dos líneas del mismo ticket.
+
+`canTakeFrom()` acepta `CustomerInstallation|SupportTicket`: el «técnico asignado a la visita» es
+`technician_id` en una y `staff_id` en el otro (`assignedTechnicianId()` lo resuelve). Si algún
+día aparece una tercera clase de visita, es ese `match` el que hay que ampliar — no duplicar la
+regla de custodia.
+
+> **`assertCanHandOverTo()` no es lo mismo que `assertCanTakeFrom()` aunque compartan la
+> comprobación.** Quien **recibe** un equipo retirado responde por él: dejar que cualquiera
+> meta un aparato en la mochila de otro técnico es el mismo problema que dejar que se lo saque,
+> visto del revés. Los mensajes son distintos porque el usuario está haciendo otra cosa.
+
+**Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
+`unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar
+sigue siendo `generateCharge()` con su propio bloqueo por `no_charge`. Y las líneas `in` nacen
+con `unit_price = null` a propósito — un precio ahí acabaría arrastrado al cargo por descuido.
 
 Para añadir un tipo de movimiento nuevo: constante en `InventoryMovement`, método público en el
 ledger que llame a `record()` dentro de su `DB::transaction`, y una entrada en el `match` de
@@ -1497,6 +1528,8 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 37 | **El tenant NUNCA sale de un parámetro de la petición** | Dos casos vivos encontrados el 2026-08-06: `billing/stats` lo leía de `?tenant=` (cualquiera con `view_billing` podía pedir las finanzas de otra empresa cambiando la URL) y `routers/{id}/free-ips` de `?tenant_id=` con un `if ($tenantId)` que, al no llegar nunca desde el frontend, dejaba la consulta **sin filtro** y escondía IPs libres. Deriva siempre de `$request->user()->tenant_id`, o usa `BelongsToTenant` — y desconfía de todo `if ($tenantId)`: un filtro condicional es un filtro que algún día no se aplica |
 | 36 | **Un `whereIn` polimórfico con NULL no filtra: usa un índice único sin nulos** | En `inventory_balances` el custodio es `holder_type` + `holder_id` **NOT NULL** en vez de `branch_id`/`user_id` nulables, porque el índice único `(tenant_id, stock_id, holder_type, holder_id)` es lo que impide saldos duplicados — y en PostgreSQL **dos NULL son distintos entre sí**, así que un único sobre columnas nulables deja pasar duplicados en silencio. Si necesitas unicidad sobre "una de dos referencias", conviértelo en par tipo+id antes que en dos columnas nulables |
 | 38 | **Un `try/catch` NO protege una transacción de PostgreSQL: hace falta un SAVEPOINT** | Una sentencia que falla deja la transacción **abortada**, y desde ahí toda consulta revienta con `SQLSTATE[25P02] current transaction is aborted` aunque la excepción se haya atrapado — sólo un `ROLLBACK` la desbloquea, y sólo un `ROLLBACK TO SAVEPOINT` sin perder lo anterior. `MoneyAuditObserver::write()` tenía el `try` y aun así tumbaba el `Payment::create()` que auditaba. Toda escritura accesoria que no deba tumbar la operación principal (bitácora, métricas, notificaciones) va envuelta en `Connection::transaction()`, que emite el SAVEPOINT solo cuando ya hay transacción abierta. **En sqlite la diferencia es invisible**, así que esto sólo lo caza el job de PostgreSQL del CI. Ver `BITACORA_TECNICA.md` § 28 |
+| 52 | **Un `unique` que codifica «no a la vez» como «nunca»** | `installation_equipment.device_id` era único para impedir que un equipo estuviera instalado en dos casas **a la vez**. Mientras la única forma de devolver algo fue *borrar* la línea de la hoja, las dos lecturas coincidían. Al añadir el retiro desde un ticket —que respeta la hoja vieja como historia— reinstalar ese equipo en otro cliente reventaba el INSERT, y el aparato quedaba inservible para el resto de su vida útil sin que nadie entendiera por qué. Un invariante temporal («no a la vez») va en la fila que representa el estado actual (`inventory_device.status`), no en la tabla que acumula historia. Ver `BITACORA_TECNICA.md` § 74 |
+| 53 | **Meter una ruta en el grupo `staff_profile` sin mirar quién la va a usar** | Ese middleware no comprueba una capacidad: comprueba que el **código de rol** sea `admin` o `staff`. Todo `/api/support/*` vive ahí, así que la primera versión de los equipos del ticket habría dejado fuera justo al **técnico de campo** (`code = 'technician'`), que es quien carga el equipo en la visita. Las rutas de equipo —de instalación y de ticket— van fuera del grupo, con `permission:` a secas. Antes de añadir una ruta a un grupo, mira qué rol la va a ejecutar en la calle |
 | 51 | **Tocar una ruta de `v1/partner` sin tocar el OpenAPI** | `docs/openapi/ispwatch-partner-v1.yaml` es el archivo que el integrador **compila**, no que lee: con él genera su cliente y valida sus respuestas. Un endpoint nuevo sin documentar, uno documentado que ya no existe, o un `ability` que no coincide, rompen su integración semanas después y en su entorno — donde lo primero que se sospecha es su código. `PartnerOpenApiContractTest` compara rutas y `x-ability` en los dos sentidos y falla en el mismo PR |
 | 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` **borra y vuelve a sembrar todo**, y `migrate:both` corre los seeders **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
 | 43 | **`customer_profile.service_id` NO es un servicio: es el PLAN** | FK a `service_plan.id`, pese al nombre (`Plan::find($customer->service_id)` en `CustomerProvisioningService`). Cualquiera que lo mapee a un "id de servicio" —sobre todo integrando con un sistema externo que sí distingue cliente de servicio— correlaciona clientes contra planes y **no ve ningún error**. El id de servicio de verdad es `user_services.id`. La API pública ya lo expone renombrado como `plan.id` justamente para no propagar la trampa |

@@ -2444,16 +2444,37 @@ sin abrirlas una por una.
 periodo y por técnico. Es la pregunta que el ISP va a hacer en cuanto empiece a usar la
 marca, y los datos ya están todos en la base.
 
-### 📋 P-49 · Los equipos del ticket (KAN-92) todavía no saben de la marca «sin cobro»
+### ✅ P-49 · Los equipos del ticket (KAN-92) — RESUELTO el 2026-09-23
 
-`feat/kan92-equipos-en-ticket` trae el backend para descargar y retirar equipos desde un
-ticket, espejo del de instalaciones, y está **sin mergear y sin pantalla**. Su hoja tendrá
-que mostrar la marca `support_ticket.no_charge` igual que la de la instalación —el técnico
-que cambia un router en garantía necesita ver «no le cobres» donde está trabajando— y el
-costo interno de esos equipos.
+Se implementó completo en `feat/ticket-equipment` (§ 74 de `BITACORA_TECNICA.md`): tabla
+`ticket_equipment` con `direction`, cuatro métodos nuevos en `InventoryLedger`, endpoints,
+**pantalla** en el detalle del ticket y documentación en los siete manuales.
 
-No es un fallo de ninguna de las dos ramas: es una costura que sólo existe cuando las dos
-estén en `main`, y se anota aquí para que no se descubra en producción.
+**La rama `feat/kan92-equipos-en-ticket` se abandona.** Traía el backend del 2026-09-12 y se
+solapaba casi entero con lo nuevo; se recogió de ella el caso que le faltaba a la
+implementación nueva —**retirar dando de baja** el equipo que volvió quemado— y se descartó su
+`retrieveFromCustomer()`, que borraba las líneas de `installation_equipment` del equipo para
+sortear el `unique(device_id)`: eso destruye el registro de una visita que sí ocurrió. El unique
+se relajó en su lugar (ver la trampa #52 del manual de desarrollador).
+
+**Lo que sí queda pendiente de aquella nota:** la hoja de equipos del ticket **no muestra** la
+marca `support_ticket.no_charge` ni el costo interno acumulado de la visita. El bloque de Cargos
+sí la muestra, unos centímetros más abajo, pero el técnico que cambia un router en garantía la
+necesita donde está trabajando. Se une a P-48: el informe de visitas sin cobro con su costo
+interno sigue sin existir, y ahora tendría que sumar las dos tablas
+(`installation_equipment` + `ticket_equipment` con `direction = 'out'`).
+
+### 📋 P-54 · El material gastado en un ticket no se puede devolver, sólo deshacer
+
+En `ticket_equipment` el retiro (`direction = 'in'`) admite **sólo equipos con serial**. Un
+consumible no vuelve —cuatro RJ45 ponchados no se recuperan—, lo cual es correcto para el caso
+real, pero deja sin camino el error de captura descubierto tarde: si alguien cargó 40 metros de
+cable en vez de 4 y ya pasaron días, la única salida es la papelera de esa línea, que devuelve
+**toda** la cantidad a quien la aportó. No hay forma de corregir a la baja.
+
+No es urgente —la papelera + volver a cargar la cifra correcta resuelve el caso— pero cuando
+aparezca el primer inventario descuadrado por esto, la respuesta es una corrección de cantidad
+sobre la línea, no un retiro de material.
 
 ### 📋 P-50 · El `$` sigue sin escaparse en el COMANDO, sólo en la contraseña
 
@@ -2695,7 +2716,7 @@ Y las cinco del inventario con custodia (2026-08-06), que van juntas y en este o
 | `..._130100_add_custody_to_inventory_device_table` | `status` + `customer_id` + índices | Hace backfill: lo asignado pasa a `assigned` |
 | `..._130200_create_inventory_balances_table` | Saldos de consumibles | — |
 | `..._130300_create_inventory_movements_table` | Kardex append-only | — |
-| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` **único** |
+| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` único **hasta el 2026-09-23** (lo relaja `..._000003`, ver § 74) |
 
 ### 4. Sincronizar permisos tras cada despliegue
 

@@ -46,6 +46,19 @@ class SupportTicketHistory extends Model
     public const ATTACHMENT_ADDED  = 'attachment_added';
     public const CHARGE_CREATED    = 'charge_created';
 
+    /**
+     * Movimiento de inventario hecho desde el ticket: lo que se le entregó al
+     * cliente en la visita y lo que se le retiró.
+     *
+     * Eventos propios y no `note_added`, aunque la nota fuera más barata: esto
+     * es un aparato que cambió de manos y que alguien tiene que poder rastrear
+     * sin leer el expediente entero. El sentido —entrega o retiro— viaja en
+     * `metadata.direction`, no en el tipo, para que «qué se movió en este
+     * ticket» sea una sola consulta.
+     */
+    public const EQUIPMENT_ADDED   = 'equipment_added';
+    public const EQUIPMENT_REMOVED = 'equipment_removed';
+
     // PR C · Archivado. Los dos eventos que registran que un expediente salió
     // de la operación ordinaria y que volvió. El motivo —obligatorio— viaja en
     // `metadata`, no en `new_value`: es prosa de 10 a 500 caracteres, no un

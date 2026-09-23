@@ -489,6 +489,116 @@
                         </div>
                     </Teleport>
                    
+                   <!-- Equipos y materiales de la visita.
+                        Descuentan del inventario de quien los aporta y quedan
+                        en el kardex: cargar un equipo aquí es sacarlo de la
+                        bodega de verdad, no anotarlo. -->
+                    <div v-if="puedeVerEquipos" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="flex justify-between items-center mb-1">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Equipos de la visita</h2>
+                            <span v-if="equipmentItems.length" class="text-xs text-blue-600 dark:text-blue-400">
+                                {{ equipmentItems.length }} línea(s) · {{ formatCurrency(equipmentTotal) }}
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                            Lo que se le entrega al cliente y lo que se le retira. Cada línea mueve el inventario
+                            de verdad y queda en el historial del equipo.
+                        </p>
+
+                        <ul v-if="equipmentItems.length" class="space-y-2 mb-4">
+                            <li v-for="item in equipmentItems" :key="item.id"
+                                class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border"
+                                :class="item.is_return
+                                    ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-900/40'
+                                    : 'bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-700'">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-medium text-gray-800 dark:text-white truncate">
+                                        <span :class="item.is_return ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
+                                            {{ item.is_return ? '←' : '→' }}
+                                        </span>
+                                        {{ item.label }}
+                                    </p>
+                                    <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                                        {{ item.is_return ? (item.is_scrapped ? 'Retirado y dado de baja' : 'Retirado del cliente') : (item.is_device ? 'Equipo entregado' : 'Material usado') }}
+                                        <template v-if="!item.is_device"> · {{ item.quantity }}{{ item.unit ? ' ' + item.unit : '' }}</template>
+                                        <template v-if="item.unit_price != null"> · {{ formatCurrency(item.unit_price * item.quantity) }}</template>
+                                    </p>
+                                </div>
+                                <button v-if="canEdit" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
+                                    :title="item.is_return ? 'Deshacer el retiro' : 'Devolver al inventario'"
+                                    class="shrink-0 p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-50">
+                                    <v-icon name="md-delete" class="w-4 h-4" />
+                                </button>
+                            </li>
+                        </ul>
+                        <p v-else class="text-sm text-gray-500 dark:text-gray-400 italic mb-4">
+                            Todavía no se ha movido ningún equipo en este ticket.
+                        </p>
+
+                        <div v-if="canEdit && !ticket.archived_at" class="space-y-3 border-t border-gray-100 dark:border-gray-700 pt-4">
+                            <!-- Entregar un equipo con serial -->
+                            <div>
+                                <select v-model.number="devicePick" @change="addDevice" :disabled="equipmentBusy"
+                                    class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50">
+                                    <option :value="null">+ Entregar equipo con serial…</option>
+                                    <optgroup v-for="grupo in devicesByHolder" :key="grupo.label" :label="grupo.label">
+                                        <option v-for="d in grupo.items" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+                                    </optgroup>
+                                </select>
+                                <p v-if="equipmentLoaded && !availableDevices.length" class="mt-1 text-xs text-blue-600 dark:text-blue-400">
+                                    No tienes equipos con serial disponibles. Pide que te los entreguen en Inventario → Entregas.
+                                </p>
+                            </div>
+
+                            <!-- Retirar un equipo que el cliente ya tiene -->
+                            <div v-if="installedDevices.length" class="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
+                                <select v-model.number="returnPick" :disabled="equipmentBusy"
+                                    class="px-3 py-2 text-sm rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
+                                    <option :value="null">− Retirar equipo del cliente…</option>
+                                    <option v-for="d in installedDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+                                </select>
+                                <select v-model="returnTarget" :disabled="equipmentBusy"
+                                    class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
+                                    <option v-for="s in returnTargets" :key="`${s.type}-${s.id}`" :value="`${s.type}:${s.id ?? ''}`">
+                                        {{ s.label }}
+                                    </option>
+                                </select>
+                                <button @click="retireDevice" type="button" :disabled="!returnPick || equipmentBusy"
+                                    class="px-4 py-2 text-sm text-white rounded-lg transition disabled:opacity-50"
+                                    :class="vaADarDeBaja ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'">
+                                    {{ vaADarDeBaja ? 'Retirar y dar de baja' : 'Retirar' }}
+                                </button>
+                                <p v-if="vaADarDeBaja" class="sm:col-span-3 text-xs text-red-600 dark:text-red-400">
+                                    El equipo saldrá del inventario como dado de baja y no volverá a aparecer como
+                                    disponible. Úsalo sólo si volvió inservible.
+                                </p>
+                            </div>
+
+                            <!-- Materiales -->
+                            <div v-if="availableMaterials.length" class="grid grid-cols-1 sm:grid-cols-[1fr_6rem_auto] gap-2">
+                                <select v-model="materialPick" :disabled="equipmentBusy"
+                                    class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50">
+                                    <option :value="null">+ Agregar material…</option>
+                                    <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
+                                        {{ materialLabel(m) }}
+                                    </option>
+                                </select>
+                                <input v-model.number="materialQty" type="number" min="0.01" step="0.01" onwheel="this.blur()"
+                                    :disabled="equipmentBusy"
+                                    class="charge-num px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50" />
+                                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
+                                    Agregar
+                                </button>
+                            </div>
+                        </div>
+
+                        <p v-if="canEdit && !ticket.archived_at" class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+                            El equipo entregado queda a nombre del cliente y el retirado vuelve al inventario.
+                            Cobrarlo es aparte: usa «Cobrar equipo del ticket» en Cargos.
+                        </p>
+                    </div>
+
                    <!-- Cargos del Ticket (Staff Only) -->
                     <div v-if="canEdit" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
@@ -578,10 +688,26 @@
                                 </div>
                             </div>
 
-                            <button @click="addChargeItem" class="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 flex items-center gap-1">
-                                <v-icon name="md-add" class="w-4 h-4" />
-                                Agregar ítem
-                            </button>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button @click="addChargeItem" class="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 flex items-center gap-1">
+                                    <v-icon name="md-add" class="w-4 h-4" />
+                                    Agregar ítem
+                                </button>
+
+                                <!-- El equipo ya salió del inventario; esto sólo
+                                     trae su descripción y su precio al cargo para
+                                     no volver a teclearlos. Lo que se cobra sigue
+                                     decidiéndolo quien factura: la línea entra
+                                     editable como cualquier otra. Los retiros no
+                                     aparecen — no se cobra lo que se recogió. -->
+                                <select v-if="cobrables.length" v-model.number="chargePick" @change="addChargeFromEquipment"
+                                    class="text-sm bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
+                                    <option :value="null">+ Cobrar equipo del ticket</option>
+                                    <option v-for="it in cobrables" :key="it.id" :value="it.id">
+                                        {{ it.label }}{{ it.unit_price != null ? ` — ${formatCurrency(it.unit_price * it.quantity)}` : '' }}
+                                    </option>
+                                </select>
+                            </div>
 
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Fecha de vencimiento (opcional)</label>
@@ -983,6 +1109,7 @@ import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NotificationToast from '../components/NotificationToast.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+import ticketEquipmentApi from '@/services/api/ticket-equipment'
 
 // R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan abajo porque
 // se deciden por código —que es estable— y son presentación.
@@ -1141,6 +1268,235 @@ const submitCharge = async () => {
         toast.value?.error('Error', msg)
     } finally {
         submittingCharge.value = false
+    }
+}
+
+// ── Equipos y materiales de la visita ────────────────────────────────────
+//
+// Lo que se puede mover lo decide el SERVIDOR en /equipment/available: lo que
+// tiene encima quien opera, lo del técnico asignado al ticket, y las bodegas
+// sólo si administra inventario. Aquí no se filtra nada — pintar una lista más
+// larga que la que el backend acepta sólo sirve para que el usuario elija algo
+// que le va a ser rechazado.
+const equipmentItems = ref([])
+const availableDevices = ref([])
+const availableMaterials = ref([])
+const installedDevices = ref([])
+const equipmentSources = ref([])
+// Destinos de un retiro = los custodios + la baja. Va aparte de `sources`
+// porque la chatarra no es un sitio del que se pueda TOMAR nada.
+const returnTargets = ref([])
+const equipmentLoaded = ref(false)
+const equipmentBusy = ref(false)
+
+const devicePick = ref(null)
+const returnPick = ref(null)
+const returnTarget = ref(null)
+const materialPick = ref(null)
+const materialQty = ref(1)
+
+// Ver la hoja va con ver el ticket; moverla exige `ticket_edit` y lo vuelve a
+// comprobar el servidor. Se muestra en solo lectura a quien no puede editar
+// porque saber qué equipo se le dejó al cliente es parte de leer el expediente.
+const puedeVerEquipos = computed(() => authStore.hasPermission('ticket_view') || authStore.hasPermission('view_support'))
+
+const equipmentTotal = computed(() =>
+    equipmentItems.value.reduce(
+        (sum, it) => sum + (it.is_return ? 0 : (Number(it.unit_price) || 0) * (Number(it.quantity) || 0)),
+        0,
+    )
+)
+
+// Sólo las entregas se pueden cobrar. Un retiro es algo que el cliente
+// devolvió; ofrecerlo en el cargo sería invitar a facturárselo.
+const cobrables = computed(() => equipmentItems.value.filter(it => !it.is_return))
+
+// Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
+// lo que está eligiendo sale de su mochila o de la bodega.
+const devicesByHolder = computed(() => {
+    const grupos = new Map()
+    for (const d of availableDevices.value) {
+        const clave = d.source_label || 'Inventario'
+        if (!grupos.has(clave)) grupos.set(clave, [])
+        grupos.get(clave).push(d)
+    }
+    return [...grupos.entries()].map(([label, items]) => ({ label, items }))
+})
+
+const deviceLabel = (d) => {
+    const partes = [`${d.brand ?? ''} ${d.model ?? ''}`.trim() || 'Equipo']
+    if (d.serial) partes.push(`S/N ${d.serial}`)
+    else if (d.mac) partes.push(d.mac)
+    return partes.join(' · ')
+}
+
+// La baja pinta el botón en rojo y avisa: no es un destino más, es sacar el
+// equipo del inventario para siempre.
+const vaADarDeBaja = computed(() => (returnTarget.value || '').startsWith('scrap:'))
+
+const materialLabel = (m) => {
+    const nombre = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
+    return `${nombre} — ${m.quantity}${m.unit ? ' ' + m.unit : ''} en ${m.source_label}`
+}
+
+const loadEquipment = async () => {
+    if (!puedeVerEquipos.value) return
+    try {
+        const { data } = await ticketEquipmentApi.list(ticketId)
+        equipmentItems.value = Array.isArray(data) ? data : []
+    } catch (e) {
+        // No bloquea el expediente: sin permiso, la hoja se ve sin equipos.
+        console.error('Error cargando equipos del ticket:', e)
+    }
+}
+
+const loadAvailableEquipment = async () => {
+    if (!canEdit.value) return
+    try {
+        const { data } = await ticketEquipmentApi.available(ticketId)
+        availableDevices.value   = data?.devices   ?? []
+        availableMaterials.value = data?.materials ?? []
+        installedDevices.value   = data?.installed ?? []
+        equipmentSources.value   = data?.sources   ?? []
+        returnTargets.value      = data?.return_targets ?? data?.sources ?? []
+
+        // Destino por defecto del retiro: quien está operando. Es lo que pasa
+        // de verdad — el técnico se lleva el equipo en la mano— y evita que
+        // alguien lo mande a una bodega a la que el aparato nunca llegó.
+        if (!returnTarget.value && returnTargets.value.length) {
+            const yo = returnTargets.value[0]
+            returnTarget.value = `${yo.type}:${yo.id ?? ''}`
+        }
+
+        equipmentLoaded.value = true
+    } catch (e) {
+        console.error('Error cargando inventario disponible:', e)
+    }
+}
+
+/** Respuesta común a toda alta: refresca la hoja y lo que queda disponible. */
+const aplicarRespuestaEquipo = async (data, titulo) => {
+    equipmentItems.value = data.equipment ?? equipmentItems.value
+    await loadAvailableEquipment()
+    // Los avisos del ledger son gastos que no se pudieron registrar. Callarlos
+    // dejaría el balance descuadrado sin que nadie se entere.
+    const avisos = data.avisos ?? []
+    if (avisos.length) toast.value?.info('Revisa el inventario', avisos.join(' '))
+    else toast.value?.success(titulo, data.message)
+}
+
+const errorDeEquipo = (e, porDefecto) => {
+    const errores = e.response?.data?.errors
+    const detalle = errores ? Object.values(errores)[0]?.[0] : e.response?.data?.message
+    toast.value?.error('Error', detalle || porDefecto)
+}
+
+const addDevice = async () => {
+    const id = devicePick.value
+    devicePick.value = null
+    if (!id) return
+
+    equipmentBusy.value = true
+    try {
+        const { data } = await ticketEquipmentApi.add(ticketId, { device_id: id })
+        await aplicarRespuestaEquipo(data, 'Equipo entregado')
+        cargarHistorial(1)
+    } catch (e) {
+        errorDeEquipo(e, 'No se pudo cargar el equipo.')
+    } finally {
+        equipmentBusy.value = false
+    }
+}
+
+const retireDevice = async () => {
+    if (!returnPick.value || !returnTarget.value) return
+
+    const [tipo, id] = returnTarget.value.split(':')
+
+    equipmentBusy.value = true
+    try {
+        const { data } = await ticketEquipmentApi.add(ticketId, {
+            direction: 'in',
+            device_id: returnPick.value,
+            source_type: tipo,
+            source_id: id === '' ? null : Number(id),
+        })
+        returnPick.value = null
+        await aplicarRespuestaEquipo(data, 'Equipo retirado')
+        cargarHistorial(1)
+    } catch (e) {
+        errorDeEquipo(e, 'No se pudo retirar el equipo.')
+    } finally {
+        equipmentBusy.value = false
+    }
+}
+
+const addMaterial = async () => {
+    const m = materialPick.value
+    if (!m || !(materialQty.value > 0)) return
+
+    equipmentBusy.value = true
+    try {
+        const { data } = await ticketEquipmentApi.add(ticketId, {
+            stock_id: m.stock_id,
+            quantity: materialQty.value,
+            source_type: m.source_type,
+            source_id: m.source_id,
+        })
+        materialPick.value = null
+        materialQty.value = 1
+        await aplicarRespuestaEquipo(data, 'Material cargado')
+        cargarHistorial(1)
+    } catch (e) {
+        errorDeEquipo(e, 'No se pudo cargar el material.')
+    } finally {
+        equipmentBusy.value = false
+    }
+}
+
+const removeEquipment = async (item) => {
+    equipmentBusy.value = true
+    try {
+        const { data } = await ticketEquipmentApi.remove(ticketId, item.id)
+        equipmentItems.value = data.equipment ?? []
+        await loadAvailableEquipment()
+        toast.value?.success('Listo', data.message)
+        cargarHistorial(1)
+    } catch (e) {
+        errorDeEquipo(e, 'No se pudo deshacer la línea.')
+    } finally {
+        equipmentBusy.value = false
+    }
+}
+
+/**
+ * Trae al formulario de cargo un equipo ya entregado.
+ *
+ * NO cobra nada por sí mismo: copia la descripción y el precio congelado de la
+ * línea para que nadie los vuelva a teclear —y los teclee mal—. La decisión de
+ * facturarlo sigue siendo de quien pulsa «Generar Cargo».
+ */
+const chargePick = ref(null)
+
+const addChargeFromEquipment = () => {
+    const item = cobrables.value.find(x => x.id === chargePick.value)
+    chargePick.value = null
+    if (!item) return
+
+    const linea = {
+        description: item.label,
+        quantity: item.is_device ? 1 : Number(item.quantity) || 1,
+        unit: item.is_device ? 'Unidad' : (item.unit || 'Unidad'),
+        unit_price: item.unit_price != null ? Number(item.unit_price) : 0,
+    }
+
+    // La primera fila nace vacía; se reemplaza en vez de dejar un ítem en
+    // blanco que impediría enviar el formulario.
+    const primera = chargeForm.value.items[0]
+    if (chargeForm.value.items.length === 1 && !primera.description.trim() && !primera.unit_price) {
+        chargeForm.value.items.splice(0, 1, linea)
+    } else {
+        chargeForm.value.items.push(linea)
     }
 }
 
@@ -1456,6 +1812,17 @@ const etiquetaDeEvento = (evento) => {
             return meta.invoice_number
                 ? `Se generó el cargo ${meta.invoice_number}`
                 : 'Se generó un cargo'
+        case 'equipment_added':
+            if (meta.direction === 'in') {
+                return meta.scrapped
+                    ? `Se le retiró al cliente ${meta.label || 'un equipo'} y se dio de baja`
+                    : `Se le retiró al cliente ${meta.label || 'un equipo'}`
+            }
+            return `Se le entregó al cliente ${meta.label || 'un equipo'}`
+        case 'equipment_removed':
+            return meta.direction === 'in'
+                ? `Se deshizo el retiro de ${meta.label || 'un equipo'}`
+                : `Se deshizo la entrega de ${meta.label || 'un equipo'}`
         case 'no_charge_changed': {
             const sinCobro = evento.new_value === 'sin cobro al cliente'
             const motivo = meta.reason ? ` (${meta.reason})` : ''
@@ -1806,6 +2173,8 @@ onMounted(() => {
     loadCharges()
     cargarHistorial(1)
     cargarWorkflow()
+    loadEquipment()
+    loadAvailableEquipment()
 })
 </script>
 

@@ -397,7 +397,10 @@ erDiagram
     inventory_stock ||--o{ inventory_movements : "kardex"
     inventory_device ||--o{ inventory_movements : "kardex"
     customer_installations ||--o{ installation_equipment : "equipos usados"
-    inventory_device ||--o| installation_equipment : "instalado en"
+    inventory_device ||--o{ installation_equipment : "instalado en"
+    support_ticket ||--o{ ticket_equipment : "equipos de la visita"
+    inventory_device ||--o{ ticket_equipment : "entregado / retirado"
+    support_ticket ||--o{ inventory_movements : "kardex"
 
     inventory_movements ||--o| expenses : "gasto automático"
     expense_categories ||--o{ expenses : ""
@@ -1243,8 +1246,39 @@ Sube en cada alta, retiro o reetiquetado.
 | `inventory_branch` | `name`, `dir`, `numero` varchar(30) — **texto, no entero** (ver nota abajo) |
 | `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `customer_id`, `status`, `serial`, `mac` |
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
-| `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `customer_id`, `notes`, `created_by`, `created_at` |
+| `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `support_ticket_id`, `customer_id`, `notes`, `created_by`, `created_at` |
 | `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+| `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+
+> **`ticket_equipment` no es una copia de `installation_equipment`.** Existe aparte porque la
+> visita de soporte mueve inventario en **dos sentidos** y la instalación sólo en uno:
+>
+> - `direction = 'out'` → salió del inventario y quedó en casa del cliente.
+> - `direction = 'in'` → volvió de casa del cliente al inventario (el router viejo del cambio).
+>
+> `source_type`/`source_id` es el custodio interno del **otro extremo**: de dónde salió cuando
+> es `out`, a dónde volvió cuando es `in`. Sin eso, deshacer una línea no sabría a quién
+> devolverle la existencia. En un retiro admite además **`scrap`**, que no es un custodio sino
+> la baja: el equipo volvió quemado y no vuelve a circular (`inventory_device.status` pasa a
+> `retired` y el kardex escribe `baja`). Distinguirlo no es un matiz — un aparato muerto
+> devuelto a bodega cuenta como disponible.
+>
+> `unit_price` congela el precio del catálogo al momento de la visita —para que el ticket de
+> ayer no cambie de costo si mañana sube el router— y va **NULL en las líneas `in`**: un retiro
+> no se cobra, y dejar ahí un precio invitaría a arrastrarlo al cargo del ticket.
+>
+> **No lleva `unique` sobre `device_id`,** a diferencia de `installation_equipment`: un mismo
+> equipo entra y sale varias veces a lo largo de su vida y cada paso es una fila. El invariante
+> real —un equipo físico no está en dos casas a la vez— lo sostiene `inventory_device.status`,
+> que es una sola fila por aparato, y lo aplica `InventoryLedger`.
+
+> **`installation_equipment.device_id` dejó de ser único el 2026-09-23.** La restricción decía
+> «un equipo no puede estar instalado en dos casas a la vez» pero la implementaba como «un
+> equipo no puede aparecer en dos hojas nunca». Mientras la única forma de devolver algo fue
+> borrar la línea de la hoja, las dos frases coincidían; con el retiro desde un ticket ya no.
+> El equipo se retira —y la hoja vieja se queda como historia, que es lo correcto— y al
+> reinstalarlo en otro cliente el INSERT chocaba contra el unique, dejando el aparato inservible
+> para el resto de su vida útil. Hoy es un índice normal (migración `2026_09_23_000003`).
 
 > **`inventory_branch.numero` es texto a propósito.** Nació como `integer` (int4, tope
 > 2.147.483.647) y **todo celular colombiano lo desborda**: 3001234567 es 3.001.234.567. La
@@ -1354,10 +1388,16 @@ Agregado permanente.
 | `inventory_movements.device_id` | `inventory_device.id` | SET NULL |
 | `inventory_movements.stock_id` | `inventory_stock.id` | SET NULL |
 | `inventory_movements.installation_id` | `customer_installations.id` | SET NULL |
+| `inventory_movements.support_ticket_id` | `support_ticket.id` | SET NULL |
 | `inventory_movements.customer_id` / `created_by` | `users.id` | SET NULL |
 | `installation_equipment.installation_id` | `customer_installations.id` | CASCADE |
-| `installation_equipment.device_id` | `inventory_device.id` | SET NULL (**único**) |
+| `installation_equipment.device_id` | `inventory_device.id` | SET NULL (índice **no** único desde 2026-09-23) |
 | `installation_equipment.stock_id` | `inventory_stock.id` | SET NULL |
+| `ticket_equipment.ticket_id` | `support_ticket.id` | CASCADE |
+| `ticket_equipment.device_id` | `inventory_device.id` | SET NULL |
+| `ticket_equipment.stock_id` | `inventory_stock.id` | SET NULL |
+| `ticket_equipment.tenant_id` | `tenant.id` | CASCADE |
+| `ticket_equipment.created_by` | `users.id` | SET NULL |
 | `inventory_provider.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_stock.tenant_id` | `tenant.id` | SET NULL |
 | `invoice_carryovers.customer_id` | `users.id` | **SET NULL** (P-43) |

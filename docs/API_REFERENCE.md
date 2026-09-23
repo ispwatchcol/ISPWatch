@@ -1938,6 +1938,10 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `POST` | `/api/support/{id}/reopen` | `staff_profile` + `ticket_reopen` | **Reabre** un ticket cerrado |
 | `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
 | `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
+| `GET` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_view` | Equipos movidos en la visita (ver §16.1) |
+| `GET` | `/api/support/{id}/equipment/available` | `view_support` **o** `ticket_view` | Qué se puede entregar o retirar |
+| `POST` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_edit` | Entrega o **retira** un equipo del cliente |
+| `DELETE` | `/api/support/{id}/equipment/{item}` | `view_support` **o** `ticket_edit` | Deshace la línea |
 | `GET` | `/api/support/{ticket}/attachments/{attachment}` | `ticket_view_evidence` | Vista previa del adjunto (`inline`) |
 | `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
 | `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |
@@ -2157,6 +2161,80 @@ Laravel con los eventos más recientes primero. Acepta `per_page` (máx. 100).
 
 > **Nada de esto está en `/v1/partner`.** Catálogos, diagnóstico e historial viven sólo en la
 > API del panel; exponerlos al integrador es una decisión abierta (D-07).
+
+---
+
+### 16.1 Equipos de una visita de soporte (2026-09-23)
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `GET` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_view` | Líneas movidas en el ticket (entregas y retiros) |
+| `GET` | `/api/support/{id}/equipment/available` | `view_support` **o** `ticket_view` | Qué puede mover **este** usuario en **este** ticket |
+| `POST` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_edit` | Entrega un equipo o material, o **retira** uno del cliente |
+| `DELETE` | `/api/support/{id}/equipment/{item}` | `view_support` **o** `ticket_edit` | Deshace la línea y deja el inventario como estaba |
+
+> **Estas cuatro rutas NO exigen `staff_profile`**, a diferencia del resto de `/api/support/*`.
+> Ese middleware sólo deja pasar los códigos de rol `admin` y `staff`, y quien carga el equipo en
+> la visita es el **técnico de campo**. Metidas en ese grupo, la sección existiría para todos
+> menos para quien tiene que usarla — que es el mismo motivo por el que las de instalación
+> tampoco están dentro. Los permisos son los **ya existentes**: uno nuevo nace apagado en todos
+> los roles ya sembrados y dejaría a los administradores actuales sin la sección hasta que
+> alguien corriera un backfill (ver §69 de `BITACORA_TECNICA.md`).
+
+**El ticket mueve inventario en dos sentidos**, que es lo que lo distingue de la orden de
+instalación. `direction` lo decide:
+
+| `direction` | Campos | Qué hace |
+|---|---|---|
+| `out` (por defecto) | `device_id` | Entrega un equipo con serial: queda `installed` a nombre del cliente del ticket |
+| `out` | `stock_id`, `quantity`, `source_type`, `source_id` | Gasta material del custodio indicado |
+| `in` | `device_id`, `source_type`, `source_id` | **Retira** del cliente un equipo que ya tenía y lo devuelve al inventario |
+| `in` | `device_id`, `source_type: 'scrap'` | **Retira y da de baja**: el equipo volvió inservible y no vuelve a circular |
+
+En `direction: 'in'`, `source_type`/`source_id` es **el destino** —a dónde va el equipo—, no el
+origen. `source_type: 'branch'` admite `source_id: null` («bodega sin sucursal»);
+`source_type: 'user'` lo exige; `source_type: 'scrap'` no lleva id.
+
+> **`scrap` no es un custodio, es la baja.** El equipo pasa a `status = retired`, sin
+> `customer_id` ni `user_id`, y el kardex escribe `baja` en vez de `devolucion`. Se distingue
+> del retiro normal porque **un aparato muerto devuelto a bodega cuenta como disponible**, y
+> alguien lo va a prometer en la siguiente instalación. Como origen de una entrega responde
+> **422**: de la chatarra no sale nada. Deshacer la línea revierte también la baja y el equipo
+> vuelve a figurar en casa del cliente.
+
+`available` responde `{ sources, devices, materials, installed, return_targets }`, ya filtrado
+por custodia: lo del propio usuario, lo del **técnico asignado al ticket** (`staff_id`) y las
+bodegas sólo si tiene `view_inventory`. `installed` es lo que el cliente tiene encima hoy —la
+lista de lo retirable— y sale de `inventory_device`, no de las hojas de instalación: lo que
+importa es dónde está el equipo ahora, no por qué papel llegó ahí, así que también aparece un
+aparato que entró por carga masiva. `return_targets` son los destinos válidos de un retiro:
+`sources` **más** la baja, que va aparte porque de ella no se puede tomar nada.
+
+Respuestas de error que conviene esperar (todas **422**, con el motivo en `errors`):
+
+| Caso | Clave |
+|---|---|
+| El equipo ya está instalado en otro cliente | `device_id` |
+| Se intenta retirar un equipo instalado en **otro** cliente | `device_id` |
+| Se intenta retirar algo que no está instalado en nadie | `device_id` |
+| El equipo lo tiene otro técnico en custodia | `source` |
+| Se devuelve a bodega sin `view_inventory` | `destination` |
+| El ticket está **archivado** o no tiene cliente | `ticket` |
+
+Un ticket archivado **sí** se puede consultar (`GET` responde 200): los equipos que se movieron
+son parte del expediente. Lo que no admite es escritura.
+
+Cada alta y cada baja deja además un evento en el historial del ticket
+(`equipment_added` / `equipment_removed`, con `metadata.direction`, `metadata.label` y
+`metadata.scrapped`) y una
+línea de kardex con `inventory_movements.support_ticket_id` apuntando al ticket. Todas las
+escrituras pasan por `InventoryLedger`: **no existe forma de mover existencias sin dejar el
+rastro**, porque el saldo y el historial se escriben en la misma transacción.
+
+**Cargar un equipo NO lo cobra.** La respuesta trae `item.unit_price` con el precio congelado del
+catálogo para que la interfaz lo precargue en el formulario de cargo, pero facturar sigue siendo
+`POST /api/support/{id}/charge`, con su propia decisión y su propio bloqueo por `no_charge`. Las
+líneas `in` llegan con `unit_price: null`: un retiro no se cobra.
 
 ---
 
