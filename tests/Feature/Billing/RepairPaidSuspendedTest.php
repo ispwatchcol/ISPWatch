@@ -37,6 +37,13 @@ class RepairPaidSuspendedTest extends TestCase
             'name'      => 'Router ' . uniqid(),
             'tenant_id' => $tenant->id,
             'status'    => 'active',
+            // Credenciales de acceso: sin ellas el router no es gestionable
+            // y el aprovisionamiento lo rechaza antes de intentar nada (ver
+            // Router::manageabilityIssue). Un router de prueba sin datos de
+            // acceso no representa a ningún equipo real.
+            'ip'          => '172.16.16.' . random_int(2, 250),
+            'user_rb'     => 'ispwatch',
+            'password_rb' => 'secreto',
         ]);
     }
 

@@ -2455,6 +2455,33 @@ costo interno de esos equipos.
 No es un fallo de ninguna de las dos ramas: es una costura que sólo existe cuando las dos
 estén en `main`, y se anota aquí para que no se descubra en producción.
 
+### 📋 P-51 · La reconexión al pagar sigue siendo síncrona para los routers que SÍ están configurados
+
+El arreglo del 2026-09-23 elimina el 504 del caso que lo disparaba —el router sin configurar,
+que hacía esperar el tiempo de espera completo— pero no cambia la forma del camino feliz: con
+un router bien configurado, registrar un pago sigue abriendo **dos sesiones SSH encadenadas**
+dentro de la petición HTTP (el resolver y el `ssh-exec`), y eso son decenas de segundos.
+
+Basta con que ese router esté lento, saturado o con el túnel inestable para que vuelva el
+mismo 504 y, con él, el mismo riesgo de cobro doble. La causa sería distinta; el síntoma y el
+daño, idénticos.
+
+**Por qué no se resolvió aquí.** El comentario del código dice por qué se hizo síncrono: que
+el cajero vea el desenlace sin depender de que haya un worker de cola vivo. Cambiarlo a
+asíncrono sin más le quita esa respuesta, y hacerlo bien exige decidir cómo se la devuelve
+(sondeo desde la pantalla, o un aviso posterior). Es una decisión de producto, no una línea.
+
+**Recomendación.** Acotar el intento con un presupuesto de tiempo (~15-20 s) dentro de la
+petición: si el router responde, el cajero ve el resultado como hoy; si no, el pago responde
+igual con «reconexión en curso» y la termina el failover que ya existe
+(`suspension_action_logs` con reintentos + `billing:reconcile-suspensions`). `executeSsh()` ya
+acepta un tiempo de espera por comando, así que no hace falta infraestructura nueva.
+
+**Y la red de seguridad que falta en cualquier caso:** el recaudo no tiene idempotencia. Dos
+pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobante, entran sin
+una sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal
+contado.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2558,6 +2585,7 @@ estén en `main`, y se anota aquí para que no se descubra en producción.
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
+| **P-51** | La reconexión al pagar abre dos sesiones SSH dentro de la petición HTTP | Con un router lento vuelve el 504 del recaudo, y con él el cobro doble; además el recaudo no tiene idempotencia | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar de pagos repetidos |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |

@@ -975,8 +975,33 @@ Y al guardar el recaudo te dice cómo terminó:
 | 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router confirmó la reconexión | Nada |
 | 🔴 *Pago registrado — revisar reconexión* | Quedó activo en el sistema, pero el **router no confirmó** | Ir a **Acciones masivas → reconexiones fallidas** y reintentar |
 | 🟠 *Pago registrado — sigue suspendido* | Le quedan facturas **vencidas** sin pagar | Cobrar el resto; el mensaje dice cuántas faltan |
+| 🟠 *…pero NO se pudo reconectar: el router no está configurado* | El equipo de ese cliente **no tiene ni VPN ni RADIUS ni credenciales**, así que ISPWatch no puede levantarle el corte | Configurar el router (**Routers → Editar**). Mientras tanto, el botón **Activar igualmente en el sistema** lo deja activo en ISPWatch |
 
 El mismo aviso sale en la pestaña **Facturación** de la ficha del cliente.
+
+#### Cuando el router del cliente no está configurado
+
+**El pago siempre queda registrado.** Eso ocurre primero y no depende del equipo de red.
+
+Antes, en este caso la pantalla se quedaba esperando al router hasta que el navegador
+mostraba *«Request failed with status code 504»*. El cobro **sí** había entrado, pero el
+cajero creía que no y volvía a cobrarlo: de ahí salían los cobros dobles. Desde el
+2026-09-23 el sistema comprueba **antes** si al router se le puede hablar, y si no, responde
+en el acto diciendo por qué.
+
+El cliente **queda suspendido a propósito**: nadie pudo levantarle el corte en el equipo, y
+marcarlo activo sería decir en el panel algo distinto de lo que pasa en la red. Tienes dos
+caminos:
+
+1. **Configurar el router** —lo correcto— y luego activar al cliente. Con el equipo
+   configurado, el próximo pago lo reconecta solo.
+2. **Activar igualmente en el sistema**, con el botón que aparece en el mismo aviso. El
+   cliente queda activo en ISPWatch aunque su equipo siga como esté. Queda registrado quién
+   lo activó y cuándo.
+
+> Si el router de ese ISP lo gestiona un **servidor RADIUS externo**, no hay nada que
+> configurar por VPN: basta con marcar la casilla **RADIUS** en la ficha del router y el
+> sistema deja de intentar escribirle.
 
 ### 8.2.1 Abonos parciales: el saldo pasa a la próxima factura
 

@@ -1313,15 +1313,19 @@ class BillingService
      * Nunca lanza: un fallo del router no puede revertir ni romper el pago ya
      * guardado. El detalle vuelve al llamador para que el cajero lo vea.
      *
-     * @return array{was_suspended:bool,reactivated:bool,router_ok:bool,message:string}
+     * @return array{was_suspended:bool,reactivated:bool,router_ok:bool,router_unmanageable:bool,customer_id:int,message:string}
      */
     public function reactivateIfCleared(int $customerId): array
     {
         $result = [
-            'was_suspended' => false,
-            'reactivated'   => false,
-            'router_ok'     => false,
-            'message'       => '',
+            'was_suspended'       => false,
+            'reactivated'         => false,
+            'router_ok'           => false,
+            // El equipo no tiene por dónde ser gestionado (ni VPN ni RADIUS).
+            // La pantalla del recaudo lo usa para ofrecer «activar igualmente».
+            'router_unmanageable' => false,
+            'customer_id'         => $customerId,
+            'message'             => '',
         ];
 
         try {
@@ -1364,6 +1368,32 @@ class BillingService
             if ($overdue > 0) {
                 $result['message'] = "El cliente sigue suspendido: aún tiene {$overdue} factura(s) vencida(s) sin pagar.";
                 return $result;
+            }
+
+            // EL EQUIPO SIN CONFIGURAR SE DETECTA ANTES DE MARCARLO.
+            //
+            // Un router dado de alta a medias —sin VPN, sin RADIUS, sin
+            // credenciales— no responde, y el intento consume el tiempo de
+            // espera de dos sesiones SSH DENTRO de esta petición, que es la que
+            // registra el pago. El gateway la cortaba con un 504 y el cajero
+            // veía un error por un pago que sí se había guardado: de ahí salían
+            // los cobros dobles.
+            //
+            // Aquí no se reactiva a nadie. El cliente queda como está —cortado—
+            // porque nadie puede levantarle el corte en el equipo, y la
+            // respuesta trae la razón y el ofrecimiento de activarlo igualmente
+            // en el sistema, que es una decisión del cajero y no del código.
+            if ($profile->router_id) {
+                $router = Router::find($profile->router_id);
+
+                if ($router && ($problema = $router->manageabilityIssue())) {
+                    $result['router_unmanageable'] = true;
+                    $result['message'] = 'El cliente ya no tiene facturas vencidas, pero NO se pudo reconectar: '
+                        . $problema
+                        . ' El pago quedó registrado y el cliente sigue suspendido.';
+
+                    return $result;
+                }
             }
 
             // Sin router o sin IP no hay nada que desbloquear en el equipo, pero

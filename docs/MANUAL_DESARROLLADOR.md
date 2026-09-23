@@ -725,6 +725,25 @@ firma presencial y la remota producen el **mismo PDF** con el mismo valor legal,
 diferencia sutil entre ambas —la detección de tinta, sobre todo— sería un contrato firmado
 en blanco según por dónde entró el cliente.
 
+### Nada de red dentro de una petición sin haberla acotado antes
+
+Cualquier camino que empuje algo a un router tiene que preguntar primero
+`Router::manageabilityIssue()`. Es una comprobación de base de datos, sin red, y evita el
+único fallo que no se ve venir: contra un equipo dado de alta a medias, la sesión SSH no
+falla — **espera**, y se lleva por delante el tiempo del gateway.
+
+Cuando eso ocurre dentro de una petición que además escribe dinero, el resultado es el peor
+posible: el registro se guarda, el usuario ve un 504 y repite la operación. Así aparecieron
+los cobros dobles del recaudo (§ 72 de la bitácora).
+
+Dos reglas que se siguen de ahí:
+
+1. **La comprobación va en el servicio compartido**, no en cada llamador. A suspender y
+   reconectar se entra por seis puertas; poner la guarda en una deja cinco abiertas.
+2. **Si el equipo no se puede tocar, no se finge el estado.** El cliente que pagó sigue
+   suspendido y se le ofrece al operador activarlo a mano. Marcarlo activo «porque ya no
+   debe» deja el panel diciendo una cosa y el equipo haciendo otra.
+
 ### Una marca que impide cobrar (`no_charge`)
 
 `customer_installations.no_charge` y `support_ticket.no_charge` marcan la visita que **no

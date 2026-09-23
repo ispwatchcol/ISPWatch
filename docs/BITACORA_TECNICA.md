@@ -4,10 +4,14 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-22 · Rama: `feat/ot-sin-cobro-mantenimiento`
+**Última actualización:** 2026-09-23 · Rama: `fix/pago-sin-router-configurado`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **Un 504 al recaudar, y de ahí los cobros dobles (2026-09-23, § 72):** el pago se guardaba
+  y la pantalla decía que no, porque la reconexión esperaba a un router sin configurar hasta
+  que el gateway cortaba. Ahora se comprueba antes si al equipo se le puede hablar; si no, el
+  cliente queda suspendido y el cajero decide si lo activa igualmente.
 - **La visita de garantía dependía de que nadie escribiera un precio (2026-09-22, § 70):**
   cambiar el router quemado de un cliente consume inventario pero no se le cobra, y no había
   forma de decirlo. Nueva marca `no_charge` en la orden de instalación y en el ticket: la orden
@@ -7414,3 +7418,49 @@ el de la compra. Lo que sí se muestra en la orden es el **costo interno** de la
 
 **Pendiente.** `migrate:both` antes de desplegar. Y cuando se mergee KAN-92 (equipos en el
 ticket), su pantalla tendrá que respetar la marca igual que la hoja de la instalación.
+
+---
+
+## 72. Un 504 al recaudar, y de ahí los cobros dobles — 2026-09-23
+
+**Lo que reportó el ISP.** Al registrar un pago, la pantalla respondía *«Request failed with
+status code 504»*. El cajero lo leía como «no se registró» y volvía a cobrar.
+
+**Lo que pasaba de verdad.** El pago **sí** quedaba guardado: `registerPayment()` confirma la
+transacción —pago + aplicación a facturas— y sólo DESPUÉS intenta reconectar al cliente en el
+router, todavía dentro de la misma petición HTTP. Ese cliente tenía los routers dados de alta
+a medias: sin VPN, sin RADIUS y sin credenciales. Contra un equipo así la sesión SSH no falla,
+**espera**; y son dos encadenadas, la del `RouterEndpointResolver` y la del `ssh-exec`. El
+gateway cortaba la petición antes de que terminaran.
+
+O sea: el dinero entraba, la pantalla decía que no, y el mostrador lo cobraba otra vez.
+
+**Por qué no se vio antes.** La reconexión sólo corre cuando el cliente **estaba cortado** y el
+pago le deja el saldo en cero — justo el recaudo más común del mostrador, el del moroso que
+viene a pagar para que le devuelvan el servicio. Un pago de un cliente al día no pasa por ahí
+y responde rápido.
+
+**El arreglo.** `Router::manageabilityIssue()`: una comprobación de base de datos, sin red, que
+responde si al equipo se le puede hablar —por RADIUS, o con credenciales más IP o usuario de
+VPN— y si no, devuelve la razón redactada para quien la va a leer, que es el cajero. Se
+consulta en `suspendCustomer()`, en `unsuspendCustomer()` y en `reactivateIfCleared()`, que son
+las puertas por las que se entra a empujar algo al router.
+
+**La decisión de diseño que importa.** Con el equipo sin configurar, el cliente **NO se da por
+reactivado**. Podría haberse marcado activo «porque ya no debe», y era tentador: deja la
+pantalla bonita. Pero nadie le levantó el corte en la red, así que el panel estaría diciendo
+una cosa y el equipo haciendo otra — y el ISP lo descubriría por la llamada del cliente que
+pagó y sigue sin internet. Se deja suspendido y se le ofrece al cajero el botón **Activar
+igualmente**, que llama al endpoint de activación manual de siempre y queda en `audit_logs`
+con su autor. Automatizar esa mentira habría sido peor que el 504.
+
+**Efecto colateral en las pruebas, y lo que enseña.** Cuatro suites creaban su router con
+`name`, `tenant_id` y `status` y nada más — un equipo que en producción no existe, porque no
+habría forma de administrarlo. Con la guarda puesta, esas pruebas empezaron a fallar y dejaron
+a la vista que el fixture modelaba algo imposible. Ahora nacen con IP y credenciales.
+
+**Lo que NO se tocó.** El tiempo que tarda una reconexión contra un router **bien** configurado
+sigue siendo el que era, y sigue corriendo dentro de la petición. Si ese camino también empieza
+a dar 504 —routers lentos, no inexistentes— el arreglo es otro: acotar el intento y dejar que
+lo termine el failover que ya existe (`suspension_action_logs` + `billing:reconcile-suspensions`).
+Queda anotado en MEJORAS_RECOMENDADAS como P-51.

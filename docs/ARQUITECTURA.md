@@ -1029,6 +1029,32 @@ corta, y es deliberado — el propio script de provisión abre TCP 22/8291/8728 
 gestión pero **no** abre ICMP, así que un cliente bien configurado con *drop* por defecto en
 el chain `input` no contesta ping y se administra sin problema.
 
+### Antes de marcar: ¿este router se puede gestionar? (2026-09-23)
+
+`Router::manageabilityIssue()` responde con una consulta a la base y sin tocar la red. Es la
+primera compuerta de `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()`,
+justo detrás de la de RADIUS.
+
+| Estado del router | Qué pasa |
+|---|---|
+| `radius = true` | Gestionable por delegación: no hay nada que escribirle |
+| Con credenciales **y** (IP **o** usuario de VPN) | Gestionable: sigue el camino normal |
+| Sin credenciales, o sin IP y sin VPN | **Se rechaza aquí**, con la razón escrita, y queda un log `failed` en `suspension_action_logs` |
+
+**Por qué importa dónde vive esta comprobación.** La reconexión automática al pagar
+(`BillingService::reactivateIfCleared()`) corre **dentro** de la petición HTTP que registra el
+pago. Contra un equipo sin configurar, esa llamada encadena dos sesiones SSH —la del
+resolver y la del `ssh-exec`— y espera los dos tiempos de espera completos; el gateway corta
+con un **504** y el cajero ve un error por un pago que **sí** se guardó, porque la transacción
+confirma antes. De ahí salían los cobros dobles: vuelve a cobrar «porque falló».
+
+`reactivateIfCleared()` comprueba lo mismo antes de llamar al servicio y, si el equipo no es
+gestionable, **no da al cliente por reactivado**: nadie le levantó el corte, así que sigue
+suspendido y la respuesta del pago lo dice. La salida es una decisión humana —el botón
+«Activar igualmente» del recaudo, que llama al endpoint de activación manual de siempre y
+queda en `audit_logs` con su autor— y no un automatismo que mienta sobre el estado del
+servicio.
+
 **Escapado de comandos:** el comando interno usa comillas planas `"` (no `\"`), y una
 única capa de `addslashes()` la aplica `coreSshExecCommand()`. Todo *statement* va
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`

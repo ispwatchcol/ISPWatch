@@ -65,6 +65,19 @@ class RouterProvisioningService
                 return true;
             }
 
+            if ($problema = $router->manageabilityIssue()) {
+                // Un equipo sin datos de acceso no se cuelga esperando: se
+                // rechaza aquí, con la razón escrita. Intentarlo cuesta el
+                // tiempo de espera completo de dos sesiones SSH y termina en el
+                // mismo sitio, pero con el operador mirando un reloj.
+                Log::warning("[RouterProvisioning] Corte imposible, router {$routerId} sin configurar: {$problema}");
+                $this->markLogFailed(
+                    $this->openLogFor($customerId, $routerId, SuspensionActionLog::ACTION_SUSPEND, (string) (CustomerProfile::where('user_id', $customerId)->value('ip_user') ?? ''), $reason),
+                    $problema
+                );
+                return false;
+            }
+
             $customer = CustomerProfile::where('user_id', $customerId)->first();
             if (!$customer) {
                 throw new \Exception("Customer profile for user {$customerId} not found");
@@ -118,6 +131,17 @@ class RouterProvisioningService
             if ($this->isExternallyManaged($router)) {
                 Log::info("Unsuspend delegado al AAA externo: cliente {$customerId}, router {$routerId}. ISPWatch no escribe en este equipo.");
                 return true;
+            }
+
+            if ($problema = $router->manageabilityIssue()) {
+                // Mismo criterio que en el corte, y aquí importa más: esta
+                // llamada vive DENTRO de la petición que registra un pago.
+                Log::warning("[RouterProvisioning] Reconexión imposible, router {$routerId} sin configurar: {$problema}");
+                $this->markLogFailed(
+                    $this->openLogFor($customerId, $routerId, SuspensionActionLog::ACTION_UNSUSPEND, (string) (CustomerProfile::where('user_id', $customerId)->value('ip_user') ?? ''), $reason),
+                    $problema
+                );
+                return false;
             }
 
             $customer = CustomerProfile::where('user_id', $customerId)->first();

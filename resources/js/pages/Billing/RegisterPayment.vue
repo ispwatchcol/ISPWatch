@@ -87,8 +87,35 @@ const reactivationClasses = computed(() => {
     if (!r) return ''
     if (r.reactivated && r.router_ok) return 'bg-emerald-100/60 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300'
     if (r.reactivated)                return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+    // Router sin configurar y «sigue debiendo» comparten color: en los dos el
+    // cliente sigue cortado y hay algo que hacer, pero no se rompió nada.
     return 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300'
 })
+
+// ─── Activar igualmente (router sin configurar) ───
+// El pago ya está guardado; esto sólo corrige el estado comercial en ISPWatch.
+// Va contra el mismo endpoint de activación manual de siempre, así que queda en
+// la bitácora como `customer.activated_manually` con su autor.
+const activating = ref(false)
+const activatedAnyway = ref('')
+const activateError = ref('')
+
+const activateAnyway = async () => {
+    const id = reactivation.value?.customer_id || form.value.customer_id
+    if (!id) return
+
+    activating.value = true
+    activateError.value = ''
+    try {
+        const { data } = await api.customers.activate(id)
+        activatedAnyway.value = data?.message || 'Cliente activado en el sistema.'
+        getBalance()
+    } catch (e) {
+        activateError.value = e.response?.data?.message || e.message || 'No se pudo activar el cliente.'
+    } finally {
+        activating.value = false
+    }
+}
 
 const reactivationIcon = computed(() => {
     const r = reactivation.value
@@ -186,6 +213,8 @@ const submitCreditUpdate = async () => {
 const doRegister = async () => {
     showPaymentModal.value = false
     loading.value = true
+    activatedAnyway.value = ''
+    activateError.value = ''
     try {
         const res = await billingService.registerPayment(form.value)
         successInfo.value = res.data
@@ -338,7 +367,28 @@ onMounted(() => {
                             class="mt-4 flex items-start gap-3 rounded-2xl px-4 py-3 border"
                             :class="reactivationClasses">
                             <v-icon :name="reactivationIcon" class="w-5 h-5 shrink-0 mt-0.5" />
-                            <p class="text-sm">{{ reactivation.message }}</p>
+                            <div class="text-sm">
+                                <p>{{ reactivation.message }}</p>
+
+                                <!-- Router sin configurar: el equipo no se puede
+                                     tocar, pero el cajero tiene delante al cliente
+                                     que acaba de pagar. Decide él, y queda en la
+                                     bitácora quién lo activó. -->
+                                <div v-if="reactivation.router_unmanageable" class="mt-3">
+                                    <button v-if="!activatedAnyway" @click="activateAnyway" :disabled="activating"
+                                        type="button"
+                                        class="inline-flex items-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-4 py-2 text-white text-xs font-medium transition">
+                                        <v-icon name="bi-power" class="w-4 h-4" />
+                                        {{ activating ? 'Activando…' : 'Activar igualmente en el sistema' }}
+                                    </button>
+                                    <p v-else class="font-medium">{{ activatedAnyway }}</p>
+                                    <p v-if="activateError" class="mt-1 text-red-600 dark:text-red-400">{{ activateError }}</p>
+                                    <p v-if="!activatedAnyway" class="mt-2 text-xs opacity-80">
+                                        El cliente quedará activo en ISPWatch, pero su equipo seguirá como esté: hay que
+                                        configurar el router para que el corte y la reconexión funcionen de verdad.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
