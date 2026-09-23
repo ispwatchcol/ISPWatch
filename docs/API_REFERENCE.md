@@ -1495,6 +1495,45 @@ activo del catálogo (`equipos`, `tv`…); por defecto `additional`.
 > de comprobar el nulo: con `customer_id` nulo devolvía **500**. Se corrigió el 2026-09-09, a
 > la vez que se volvía alcanzable.
 
+**Las dos rutas NO tratan igual las preferencias del cliente**, y la diferencia es deliberada:
+
+| Ruta | ¿Respeta `notify_invoice` / `exclude_from_billing`? | Por qué |
+|---|---|---|
+| `send-reminder` (individual) | **No** | Un agente abre UNA factura y decide sobre ESE caso: es una acción humana puntual, no el envío automático que la preferencia silencia |
+| `bulk-reminders` (masivo) | **Sí** | El operador marca casillas en el listado, o «seleccionar todo». No hay decisión por cliente, así que manda la preferencia |
+
+**`POST /api/billing/invoices/bulk-reminders`** — cuerpo: `{"invoice_ids": [1, 2, 3]}`.
+
+Las preferencias se consultan **justo antes de cada envío**, sobre el estado actual del
+cliente: entre que el operador marcó la casilla y pulsó el botón, alguien pudo silenciarlo.
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "Recordatorios enviados: 1 exitosos, 1 omitidos por preferencia del cliente, 0 fallidos",
+  "summary": { "total": 2, "success": 1, "skipped": 1, "failed": 0 },
+  "results": {
+    "41": { "success": true,  "notification_type": "email", "results": { "email": { "success": true } } },
+    "42": {
+      "success": false,
+      "skipped": true,
+      "reason":  "notify_invoice_disabled",
+      "message": "Omitido: el cliente pidió no recibir notificaciones de factura."
+    }
+  }
+}
+```
+
+`reason` es `notify_invoice_disabled` o `excluded_from_billing`. Un omitido **no** cuenta como
+`failed`: no es una avería que haya que investigar, es la preferencia del cliente aplicada. Por
+eso `success` es `true` cuando nada falló, aunque el lote entero se haya omitido.
+
+Una factura omitida **no** actualiza `last_reminder_sent`: no se envió nada, y marcarla
+consumiría el ciclo de recordatorio de ese periodo. El omitido se registra en el log del
+servidor con el id de la factura y el motivo, **sin** correo ni teléfono.
+
 ### Tipos de factura (catálogo)
 
 Mismo permiso que las formas de pago: **`view_billing`**.
