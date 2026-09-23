@@ -187,8 +187,11 @@ class BooksStatementTest extends TestCase
     #[Test]
     public function el_listado_de_recaudos_y_el_panel_no_suman_lo_mismo(): void
     {
+        // `void` es el único estado distinto de `completed` que admite el enum
+        // de la columna; PostgreSQL rechaza cualquier otro con un CHECK y SQLite
+        // no, así que un valor inventado sólo falla en CI.
         $this->payment(80000);
-        $this->payment(25000, ['status' => 'pending']);
+        $this->payment(25000, ['status' => 'void']);
 
         $e = $this->agosto();
 

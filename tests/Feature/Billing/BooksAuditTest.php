@@ -386,7 +386,11 @@ class BooksAuditTest extends TestCase
         $this->invoice($tenant, $customer, 60000);
         $pago = $this->pay($tenant, $customer, 60000);
 
-        $pago->forceFill(['status' => 'pending'])->save();
+        // `void` y no un estado inventado: la columna es un enum de dos valores
+        // (`completed`, `void`) y PostgreSQL lo hace cumplir con un CHECK. SQLite
+        // no lo mira, así que un estado imposible pasa en local y revienta en CI
+        // — y además probaría una fila que la base nunca va a contener.
+        $pago->forceFill(['status' => 'void'])->save();
 
         $h = $this->audit($tenant->id);
 
