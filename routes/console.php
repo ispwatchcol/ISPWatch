@@ -47,6 +47,18 @@ Schedule::command('billing:verify-cuts')->dailyAt('07:00');
 // Tras las otras dos auditorías: si la mensual no corrió, eso se avisa primero.
 Schedule::command('billing:verify-orphan-payments')->dailyAt('08:00');
 
+// Cierre de libros: TODAS las invariantes contables, no sólo la de caja — que
+// cada factura cuadre con lo que se le aplicó, que el saldo a favor cuadre con
+// su libro de movimientos, que ningún pago de una empresa haya aterrizado en la
+// factura de otra. No escribe nada.
+//
+// Existe porque el descuadre lo tiene que encontrar el sistema, no el cliente
+// con un Excel en la mano. `--mail` para que salga del log y llegue a alguien;
+// `--warnings-ok` para que sólo los descuadres de dinero manden correo: si un
+// aviso alertara todas las noches, se acabaría silenciando el comando entero y
+// con él los críticos.
+Schedule::command('billing:audit-books --mail --warnings-ok')->dailyAt('08:30');
+
 // Salud del túnel por router (handshake WireGuard / sesión L2TP). Cubre el
 // punto ciego que dejó a CORE_TOCAIMA 8 días caído sin que nada avisara: el
 // failover de cortes solo ve fallos POR CLIENTE, nunca "este router no está".

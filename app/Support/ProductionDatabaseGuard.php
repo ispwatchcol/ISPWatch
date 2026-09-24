@@ -62,9 +62,17 @@ class ProductionDatabaseGuard
      *    (KAN-100). Exigirle confirmación al único comando que hay que correr
      *    contra producción para decidir si migrar sería llevar la contraria a
      *    su propósito. No escribe nada: sólo agrupa y cuenta.
+     *  · `billing:audit-books` y `billing:statement` — por la misma razón: se
+     *    inventaron para auditar los libros DE PRODUCCIÓN cuando un cliente
+     *    reclama un descuadre. Son lectores puros (ni un UPDATE, ni un INSERT)
+     *    y frenarlos aquí sería frenar justo el diagnóstico. Ojo: `audit-books`
+     *    manda correo con `--mail`, que no es escritura en la base pero sí sale
+     *    al mundo — por defecto no lo hace.
      */
     private const ALLOWED_COMMANDS = [
         'about',
+        'billing:audit-books',
+        'billing:statement',
         'config:show',
         'db:monitor',
         'db:show',
