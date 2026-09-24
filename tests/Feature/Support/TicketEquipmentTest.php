@@ -785,7 +785,10 @@ class TicketEquipmentTest extends TestCase
             'tenant_id' => $this->tenant->id,
             'customer_id' => $this->customer->id,
             'scheduled_date' => now()->subMonth(),
-            'status' => 'completed',
+            // `customer_installations.status` es enum('pendiente','completada',
+            // 'cancelada'). SQLite no lo hace cumplir y PostgreSQL si, con un
+            // CHECK: un valor en ingles aqui pasa en local y revienta en el CI.
+            'status' => 'completada',
         ]);
         InstallationEquipment::create([
             'tenant_id' => $this->tenant->id,
