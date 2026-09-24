@@ -69,7 +69,18 @@ class ReconnectionPreflight
         // 5. Faltan datos para operar: credenciales del equipo o IP del cliente.
         //    Se mira que existan, NUNCA su contenido, y no se registra cuál de
         //    las dos falta en nada que llegue al navegador.
-        if (trim((string) $router->user_rb) === '' || trim((string) $router->password_rb) === '') {
+        // QUÉ NECESITA UN ROUTER PARA SER OPERABLE lo define el propio modelo
+        // (`Router::manageabilityIssue()`), y lo define UNA vez: la misma
+        // pregunta se la hacen el corte, la reconexión manual, las acciones
+        // masivas y el reconciliador desde RouterProvisioningService. Repetir
+        // aquí la lista de campos dejaría dos definiciones que empiezan iguales
+        // y terminan distintas — y la que se quedaría corta es siempre la que
+        // nadie recuerda actualizar.
+        //
+        // Lo que NO se delega es el motivo: hacia el navegador viaja el código
+        // cerrado de ReconnectionOutcome, nunca el texto que nombra qué campo
+        // falta.
+        if ($router->manageabilityIssue() !== null) {
             return ReconnectionOutcome::PENDIENTE_CONFIGURACION_INCOMPLETA;
         }
 

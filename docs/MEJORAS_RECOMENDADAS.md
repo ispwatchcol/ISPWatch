@@ -703,6 +703,26 @@ que `BillingService::notifyInvoiceCreated()` consulte antes que la del cliente, 
 precedencia grupo → cliente. Es chico, pero toca el camino de facturación: va con test que
 cubra las cuatro combinaciones.
 
+### 🟡 P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa
+
+Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 75 de la bitácora).
+
+Con `radius = true`, ISPWatch no abre una sola sesión contra el equipo. Aun así,
+`StoreRouterRequest` y `UpdateRouterRequest` siguen exigiendo `ip` (con formato de IP
+válido), `user_rb`, `password_rb` y `firmware_version`. El provisioning ya los ignora
+—`CustomerProvisioningService` se salta el pre-check de credenciales para routers RADIUS—,
+así que la validación pide datos que ninguna ruta del sistema va a leer.
+
+Muerde justo en el caso que el modo habilita: usar routers como **agrupadores lógicos**
+sin Mikrotik detrás. El operador tiene que inventarse una IP y unas credenciales para poder
+guardar. Hoy el manual lo explica ("puedes poner valores de relleno"), que es documentar el
+síntoma.
+
+**Recomendación.** Hacerlos condicionales al método ya normalizado. El trait
+`NormalizesRouterControlMode` expone `normalizedControlMode()` precisamente para esto, y su
+comentario ya anticipaba el caso. Cuidado con el orden: la normalización corre en
+`prepareForValidation()`, así que la regla condicional ve el modo definitivo. Va con test de
+que un router RADIUS guarda con esos campos vacíos y uno no-RADIUS los sigue exigiendo.
 ### 🟡 P-RADIUS-2 · Doble contabilidad de tráfico sin fuente autoritativa
 
 `radius_sessions` (octetos por sesión, vía Accounting) y el historial WAN existente
@@ -714,7 +734,22 @@ recibir llamadas por dos números distintos en dos pantallas de la misma app.
 
 ### 🔴 P-00 · 91 clientes con dinero recibido que no respalda nada (producción)
 
-Detectado el 2026-08-13 con el comando nuevo `billing:verify-orphan-payments`, que comprueba
+> ⚠️ **La cifra de abajo está inflada y hay que volver a medirla (2026-09-22).** Se obtuvo con
+> la versión del comando que comparaba contra `credit_balance`, el **saldo actual**. Aplicar
+> saldo a favor a una factura baja `balance_due` y baja el saldo **sin crear asignación**, así
+> que ese dinero salía de los dos términos de la resta: el informe **denunciaba a todo cliente
+> que alguna vez hubiera gastado su saldo**, por el importe exacto que gastó. El tercer término
+> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 76).
+>
+> **Antes de tocar un solo peso**, volver a correr:
+> ```
+> php artisan billing:verify-orphan-payments --limit=100
+> php artisan billing:audit-books --detail=C6
+> ```
+> Lo mismo vale para el hallazgo de «9 clientes con $1.252.000 fuera del pipeline»: parte podía
+> ser saldo a favor legítimamente consumido.
+
+Detectado el 2026-08-13 con el comando `billing:verify-orphan-payments`, que comprueba
 por cliente la invariante `sum(pagos) == sum(aplicado a facturas) + saldo a favor`:
 
 | Medida | Valor |
@@ -738,6 +773,23 @@ devolver el importe al saldo a favor o reasignar el pago a la factura que corres
 **Antes de empezar, desplegar `feat/money-audit-trail`**: parte del descuadre puede venir del
 bug de anulación de pagos que esa rama arregla, y sin ella las correcciones no quedan
 registradas en el libro de auditoría — que es justamente lo que se necesita aquí.
+
+### 🟠 P-00b · Recaudos y Finanzas no suman el mismo mes
+
+El listado de **Recaudos** suma todos los pagos a propósito («lo que está en la tabla es dinero
+efectivamente recibido»); el panel de **Finanzas** filtra `status = 'completed'`. Cualquier pago
+con otro estado sale en una pantalla y no en la otra, y el cliente ve dos recaudos distintos del
+mismo mes sin que nada se lo explique.
+
+Hoy los dos caminos que crean pagos (`BillingService::registerPayment()` e
+`InstallationBillingService`) escriben `completed`, así que **el riesgo es de datos heredados o
+de un tercer camino futuro**, no del flujo actual. `billing:audit-books` lo reporta como `C10` y
+`billing:statement` le pone precio a la diferencia.
+
+**Recomendación.** Decidir **un** criterio y aplicarlo en los dos sitios. Si se mantiene el
+filtro, el listado debería excluir igual y decirlo en pantalla; si no, quitarlo del panel. Lo
+que no puede quedarse es la divergencia silenciosa: es exactamente la forma de descuadre que un
+cliente descubre con un Excel.
 
 ### 📋 P-0 · La devolución de saldo al borrar una factura no des-consume el origen
 
@@ -2464,7 +2516,7 @@ necesita donde está trabajando. Se une a P-48: el informe de visitas sin cobro 
 interno sigue sin existir, y ahora tendría que sumar las dos tablas
 (`installation_equipment` + `ticket_equipment` con `direction = 'out'`).
 
-### 📋 P-54 · El material gastado en un ticket no se puede devolver, sólo deshacer
+### 📋 P-57 · El material gastado en un ticket no se puede devolver, sólo deshacer
 
 En `ticket_equipment` el retiro (`direction = 'in'`) admite **sólo equipos con serial**. Un
 consumible no vuelve —cuatro RJ45 ponchados no se recuperan—, lo cual es correcto para el caso
@@ -2550,6 +2602,31 @@ camino de envío. Se corrigió el manual para que diga dónde está la casilla d
 montar el mismo toggle en `CustomerAdd.vue` (el campo ya viaja en el `POST /api/customers`, así
 que es sólo interfaz) y revertir la aclaración del manual. Mientras tanto, el camino es
 guardar y editar.
+
+### 📋 P-54 · La reconexión al pagar sigue siendo síncrona, y el recaudo no tiene idempotencia
+
+El preflight (§ 72) quita el 504 del caso que lo disparó —el router sin configurar— y la guarda
+del servicio compartido (§ 74) lo quita de las otras cinco puertas. Pero el camino feliz no
+cambió de forma: con un router **bien** configurado, registrar un pago sigue abriendo **dos
+sesiones SSH encadenadas** dentro de la petición HTTP, y eso son decenas de segundos.
+
+Basta con que ese equipo esté lento, saturado o con el túnel inestable para que vuelva el mismo
+504. Causa distinta, daño idéntico.
+
+**Por qué no se resolvió.** El código explica por qué se hizo síncrono: que el cajero vea el
+desenlace sin depender de que haya un worker de cola vivo. Volverlo asíncrono sin más le quita
+esa respuesta, y hacerlo bien obliga a decidir cómo se la devuelve — sondeo desde la pantalla, o
+aviso posterior. Es una decisión de producto.
+
+**Recomendación.** Acotar el intento con un presupuesto de tiempo (~15-20 s): si el router
+responde, el cajero ve el resultado como hoy; si no, el pago responde igual y la reconexión la
+termina el failover que ya existe (`suspension_action_logs` + `billing:reconcile-suspensions`).
+`executeSsh()` ya acepta un tiempo de espera por comando.
+
+**Y la red de seguridad que falta pase lo que pase:** el recaudo no tiene idempotencia. Dos
+pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobante, entran sin una
+sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal contado — y
+es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 
 ## 8. Tabla consolidada
 
@@ -2648,12 +2725,16 @@ guardar y editar.
 | **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
 | **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
+| **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | 📋 Pendiente |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
+| **P-54** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
+| **P-55** | El `unique(device_id)` de `installation_equipment` («un equipo, una casa») quedara con un agujero si el PR F3 registra equipos instalados desde un ticket, fuera de esa tabla | Un mismo equipo fisico podria figurar instalado en una casa y entregado en otra sin que nada lo impida | 🟠 Media | 📋 Pendiente · **resolver en el DISEÑO de F3**, no al implementarlo |
+| **P-56** | `SupportEdit.vue` sigue eligiendo tecnico filtrando la lista por NOMBRE de rol (`'técnico' \|\| 'tecnico'`) | Un tenant que llame «Campo» a su rol tecnico se queda sin candidatos, y la pantalla no explica por que | 🟡 Baja | 📋 Pendiente · el PR F1 ya no depende de esa heuristica: valida contra el tenant en el backend |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |

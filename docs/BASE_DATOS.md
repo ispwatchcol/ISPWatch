@@ -1207,6 +1207,83 @@ permiso `view_audit_log` de administración cuando el historial lo tiene que ver
 el ticket con `view_support`, y su clave es `model_type`+`model_id` sin FK al ticket. Se
 sigue el patrón de `sectorial_history`.
 
+### 4.15c `ticket_intervention` — visitas y atenciones remotas
+
+Añadida por el **PR F1** para el requisito **F1-08**. La § 14 de la Solicitud Maestra lo pide
+literal: «Un ticket puede tener múltiples intervenciones. Cada una debe registrar fecha/hora,
+tipo remoto o presencial, técnico, diagnóstico encontrado, acción, materiales, equipos
+retirados/instalados, evidencia, resultado y siguiente paso.»
+
+Materiales y equipos **no** están aquí: son el PR F3, y dependen de la decisión **D-14** sobre
+si mover o no el kardex de inventario.
+
+| Columna | Nota |
+|---|---|
+| `tenant_id` | Estampado desde el ticket, como en `support_ticket_history`. Permite filtrar sin join |
+| `support_ticket_id` | FK **RESTRICT**. El ticket no se borra (PR A); si alguien lo intentara, la base debe negarse antes que llevarse el expediente |
+| `sequence` | El «Número» de la § 14, correlativo **por ticket**. Único junto a `support_ticket_id` |
+| `kind` | `remoto` \| `presencial`. Los dos únicos que nombra el documento (decisión **S-2**) |
+| `technician_id`, `assistant_id` | FK **SET NULL**. Un acompañante por intervención (decisión **S-3**) |
+| `technician_name`, `assistant_name` | Nombre **congelado** al registrar, patrón `author_name` de H-6. Dar de baja al técnico no deja la visita sin autor |
+| `started_at`, `finished_at` | `finished_at` `NULL` = en curso. Es además el **cerrojo de edición** |
+| `finding`, `action_taken`, `outcome`, `next_step` | Hallazgo, acción, resultado y próximo paso, en texto |
+| `created_by` | FK **SET NULL** |
+
+**Índices:** `UNIQUE(support_ticket_id, sequence)` · `UNIQUE(id, support_ticket_id)` ·
+`INDEX(tenant_id, support_ticket_id)`.
+
+El segundo único no es redundante: existe para que `support_ticket_attachment` pueda declarar
+una **clave foránea compuesta** contra él. Ver 4.15d.
+
+#### No tiene `deleted_at`, y no es un olvido
+
+El ticket sí usa `SoftDeletes`, porque archivar un expediente entero es una operación de
+negocio reversible y auditada (PR C). Una intervención es otra cosa: el registro de que
+alguien fue, miró y actuó. Un borrado blando aquí sería una puerta trasera — bastaría marcar
+la fila para que la visita desapareciera del expediente sin que el histórico lo contara, y el
+§ 15.10 lo prohíbe: «El cierre no debe borrar la causa sospechada, **las intervenciones** ni
+los estados anteriores».
+
+Tampoco hay borrado físico: no existe endpoint, y el modelo bloquea `deleting`.
+
+La corrección va por otro camino:
+
+| `finished_at` | Estado | Qué se puede hacer |
+|---|---|---|
+| `NULL` | En curso | Editar directamente |
+| Lleno | Finalizada | **No se edita.** Hay que reabrirla con motivo de 10–500 caracteres, lo que deja `intervention_reopened` en el historial |
+
+### 4.15d Evidencia enlazada a la intervención
+
+El PR F1 añade tres columnas **nullable** a `support_ticket_attachment`, y no una tabla de
+evidencias aparte: el archivo ya vive en el bucket privado y ya se sirve por un endpoint que
+comprueba tenant y ticket. Duplicarlo daría dos copias del mismo byte y dos sitios donde
+comprobar permisos.
+
+| Columna | Nota |
+|---|---|
+| `intervention_id` | La «intervención relacionada» de la § 14. `NULL` es válido: la evidencia que manda el cliente al abrir el ticket no pertenece a ninguna visita |
+| `evidence_type` | El «Tipo». Texto libre: la § 14 los enumera en prosa sin asignarles código, igual que las subcausas del Anexo A.2 — criterio ya cerrado por el cliente en **D-06** |
+| `description` | La «descripción» |
+
+**Clave foránea COMPUESTA** `(intervention_id, ticket_id)` → `ticket_intervention (id,
+support_ticket_id)`, con `ON DELETE RESTRICT`.
+
+Con una foránea simple, nada impediría colgar una evidencia del ticket 10 de una intervención
+del ticket 77, y el aislamiento dependería de que ningún `where` se olvide. Esta tabla es
+justo donde eso más duele: **no tiene `tenant_id`** —lo deriva del ticket— así que un enlace
+cruzado no sólo mezclaría expedientes, podría cruzar ISPs.
+
+**Diferencia por motor:** la foránea se crea **sólo en PostgreSQL**. SQLite no admite añadir
+una foránea a una tabla existente con `ALTER TABLE`; allí la garantía la aportan el índice
+único y la validación del servicio, y el test correspondiente se salta con un mensaje
+explícito. Verificado contra PostgreSQL 18.3: el enlace cruzado se rechaza.
+
+`file_path` pasó además a `$hidden` en el modelo. Es la ruta interna del bucket, no le sirve a
+nadie del otro lado —el archivo se pide por `url` / `download_url`, que pasan por el endpoint
+autenticado— y publicarla describe la organización del almacenamiento a quien no tiene por qué
+conocerla.
+
 ### 4.15b Catálogos del ticket
 
 Siete tablas con un núcleo común: `code` (estable e **inmutable**), `label` (visible y

@@ -4,10 +4,40 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-23 · Rama: `fix/notify-invoice-bulk-reminders`
+**Última actualización:** 2026-09-24 · Rama: `feat/ticket-equipment`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte
+  (2026-09-24, § 78):** el inventario sólo sabía salir por una orden de instalación, y un equipo
+  que llegaba a `installed` sólo salía de ahí **borrando** la línea de la hoja — que es destruir
+  el registro de una visita que sí ocurrió. Nueva tabla `ticket_equipment` con `direction`,
+  permiso propio `ticket_equipment`, y **nada se borra**: deshacer una línea escribe una
+  **reversa auditada** con actor, motivo y fecha, y las dos líneas siguen a la vista.
+- **Una visita que se puede borrar no es evidencia (2026-09-23, § 77):** PR F1 del módulo de
+  tickets, las intervenciones técnicas del § 14 de la Solicitud Maestra. Lo que decide el diseño
+  no es qué campos lleva la tabla sino **qué no se puede hacer con ella**: sin `deleted_at`, sin
+  ruta de borrado, y una intervención finalizada no se edita — se **reabre con motivo** y la
+  corrección queda en el historial. La evidencia ya subida se **enlaza** sin duplicar archivos,
+  y una FK compuesta impide colgar de una intervención la evidencia de otro ticket.
+- **Un desfase de tres millones, y ninguna forma de saber de quién era la culpa (2026-09-22, § 76):**
+  un cliente reportó un descuadre contra su Excel y no teníamos con qué responder si el error era
+  nuestro o suyo. Nuevo `billing:audit-books` (catorce invariantes contables, lector puro) y
+  `billing:statement` (el mes bajo todos los criterios defendibles, con el precio de cada
+  diferencia). Por el camino: el verificador de dinero huérfano estaba mal planteado y denunciaba
+  a quien gastara su saldo a favor, y el excedente cobrado en una instalación se perdía de los libros.
+- **El manual no mencionaba un método de control que el formulario sí ofrecía
+  (2026-09-22, § 75):** la opción **RADIUS (AAA)** llevaba mes y medio en la ficha del router
+  y el Centro de Ayuda seguía listando cinco métodos. Artículo nuevo sembrado por migración
+  —no por seeder, que en producción no corre—, corrección del artículo que describía el diseño
+  archivado del § 33, y cuatro deudas anotadas: el código ya se comportaba bien, lo que
+  faltaba era contarlo.
+- **El mismo 504, en las otras cinco puertas (2026-09-23, § 74):** el § 72 blindó el camino del
+  pago con un preflight, pero a empujar algo al router se entra por **seis** puertas y las otras
+  cinco seguían marcando a ciegas contra un equipo sin credenciales — donde la sesión SSH no
+  falla, **espera**. La comprobación vive ahora en `RouterProvisioningService::suspendCustomer()`
+  y `unsuspendCustomer()`, por donde pasan las seis. `Router::manageabilityIssue()` es la **única**
+  definición de qué necesita un equipo para ser operable, y `ReconnectionPreflight` delega ahí.
 - **«No enviar notificaciones de factura» no sobrevivía a un envío masivo (2026-09-23, § 73):**
   la preferencia se guardaba y se respetaba bien en los dos caminos automáticos, pero el
   recordatorio **masivo** la ignoraba — heredaba por delegación la excepción del envío
@@ -7700,7 +7730,330 @@ y la nueva no menciona `id` por ningún lado. Queda como trampa #60 del manual d
 
 ---
 
-## 74. En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte — 2026-09-23
+## 74. El mismo 504, en las otras cinco puertas — 2026-09-23
+
+Continuación del § 72, y conviene leerlos juntos: **dos personas atacaron el mismo reporte del
+ISP el mismo día, por caminos distintos**. El § 72 resolvió el camino del pago con un preflight
+y un vocabulario de desenlaces. Esta entrada cierra lo que quedaba fuera.
+
+**Lo que quedaba fuera.** A empujar algo al router se entra por seis puertas: el panel (activar
+y suspender), el reintento manual de un log fallido, el corte automático por mora, el
+reconciliador y la reactivación al pagar. El preflight cubre la última. Las otras cinco seguían
+marcando a ciegas contra un equipo sin credenciales — y ahí la sesión SSH no falla, **espera**.
+Activar a mano a un cliente de ese ISP desde su ficha se habría quedado colgado igual que el
+recaudo, con el mismo final: un 504 y un operador repitiendo la operación.
+
+La comprobación va ahora en `RouterProvisioningService::suspendCustomer()` y
+`unsuspendCustomer()`, que es por donde pasan las seis, justo detrás de la guarda de RADIUS.
+Devuelve `false` con la razón escrita en `suspension_action_logs` y sin abrir nada.
+
+**Una definición, no dos.** `Router::manageabilityIssue()` es el único sitio que sabe qué
+necesita un router para ser operable —credenciales, y dirección o identidad de VPN— y
+`ReconnectionPreflight` delega ahí esa parte en vez de repetir la lista de campos. Dos
+definiciones de lo mismo empiezan iguales y terminan distintas; la que se queda corta es
+siempre la que nadie recuerda actualizar. El preflight conserva lo suyo: el estado del cliente,
+la disponibilidad del equipo y la traducción al código cerrado que viaja al navegador.
+
+**Lo que enseñaron las pruebas.** Cuatro suites creaban su router con `name`, `tenant_id` y
+`status`, nada más. Con la guarda puesta se pusieron en rojo, y lo que enseñaron no fue un fallo
+del código sino del fixture: modelaban un equipo que en producción no puede existir, porque no
+habría forma de administrarlo. Ahora nacen con IP y credenciales. Es el mismo patrón del § 72 —
+«ninguna prueba lo cubría porque todas asumían el caso bueno»— visto desde el otro lado.
+
+**Lo que sigue abierto.** Contra un router **sí** configurado, la reconexión sigue corriendo
+dentro de la petición del pago: dos sesiones SSH encadenadas. Si ese equipo está lento vuelve el
+504, con otra causa y el mismo daño. Y el recaudo sigue sin idempotencia: dos pagos idénticos,
+mismo cliente, mismo monto y mismo comprobante, entran sin una sola advertencia. Anotado como
+P-54.
+
+---
+
+## 75. El manual no mencionaba un método de control que el formulario sí ofrecía — 2026-09-22
+
+**Cómo apareció.** Un cliente que está montando su propio FreeRADIUS escribió con ocho
+preguntas sobre la opción **RADIUS (AAA)** de la ficha del router: si deja el equipo bajo
+gestión externa, qué campos siguen siendo obligatorios, qué deja de ejecutar ISPWatch, y
+cómo funciona entonces el corte por mora. Preguntas razonables, todas respondibles.
+
+El problema no era la respuesta. Era que **el manual no contestaba ninguna**. El artículo
+del Centro de Ayuda «El método de control del router» listaba **cinco** métodos: RADIUS
+(AAA) no aparecía, pese a estar en el formulario desde el § 32 (2026-08-14). Un mes y
+medio con una opción visible en la interfaz y ausente de la ayuda.
+
+**Lo que estaba bien en el código.** La revisión confirmó que el comportamiento ya era
+correcto y no hubo que tocarlo: `provisionByControlMode()` resuelve RADIUS y retorna antes
+de abrir nada, y la compuerta `isExternallyManaged()` de `RouterProvisioningService` cubre
+las seis puertas de suspender/reconectar. Lo único que faltaba era contarlo.
+
+**Un error de fondo en `MANUAL_USUARIO.md`.** Decía que con RADIUS «el router pregunta e
+**ISPWatch responde**». Eso describe el diseño de `rlm_rest` que se archivó en el § 33,
+no el actual: hoy responde el servidor del ISP y ISPWatch se queda con lo comercial. Es la
+clase de frase que hace que un integrador diseñe su parte al revés, así que se corrigió.
+
+**Dónde va la documentación.** En el **Centro de Ayuda de la aplicación**, que es donde el
+operador la busca — no en un documento de arquitectura. Artículo nuevo «RADIUS (AAA):
+cuando otro sistema gestiona la red», ubicado justo detrás del artículo de métodos de
+control: quien acaba de leer los seis es exactamente quien necesita este.
+
+**La trampa que casi deja el trabajo sin efecto.** La primera versión de la migración daba
+por existente la categoría «Routers y Red» y salía sin hacer nada si faltaba. Pero esa
+categoría la crea `HelpCenterSeeder`, **que no corre en producción** — allí el Centro de
+Ayuda sólo tiene lo que alguna migración haya sembrado. La migración habría sido un no-op
+silencioso justo en el único entorno donde alguien lee el manual. Lo destaparon las pruebas,
+no la lectura del código. Ahora la categoría y el artículo de método de control se crean si
+faltan, y sus datos viajan en el archivo compartido.
+
+**Reescribir contenido existente, sin pisar al usuario.** Las migraciones del Centro de
+Ayuda no sobrescriben por regla: si un superadmin editó un artículo, su versión manda. Pero
+aquí había que corregir uno ya publicado. La condición lo resuelve sin excepción a la regla:
+se actualiza **sólo si el texto guardado no menciona RADIUS**. Si alguien ya lo documentó por
+su cuenta, no se toca. Va con `UPPER(content) NOT LIKE` y no `ILIKE`, que sqlite no conoce y
+reventaría la suite entera (§ tests sobre sqlite).
+
+**Deuda que se documentó en vez de esconder.** Con RADIUS activo, el formulario del router
+**sigue exigiendo** IP, usuario, contraseña y firmware, que en ese modo no se usan jamás.
+Se optó por decirlo en el manual («puedes poner valores de relleno») antes que dejar al
+operador descubriéndolo contra un 422. El arreglo real —hacerlos condicionales al modo— está
+anotado en `MEJORAS_RECOMENDADAS.md`; el trait `NormalizesRouterControlMode` ya expone
+`normalizedControlMode()` precisamente para eso.
+
+**Lo que sigue sin resolverse.** ISPWatch ordena el corte y publica el evento, pero **no puede
+verificar que se aplicó**: la Partner API es de sólo lectura y no hay canal de vuelta. El
+manual ahora lo dice con todas las letras en vez de dejarlo implícito. Sigue siendo la
+contrapartida abierta del § 33.
+
+
+---
+
+## 76. Un desfase de tres millones, y ninguna forma de saber de quién era la culpa — 2026-09-22
+
+**El detonante.** Chaguaní reportó un descuadre de ~$3.000.000 entre su Excel y la plataforma.
+La pregunta operativa no era cuánto habíamos facturado: era **si el error era nuestro o suyo**,
+y no teníamos ninguna herramienta para responderla. Sin eso, la única salida es discutir cifras
+a ciegas contra una planilla que no controlamos.
+
+No somos un software contable, pero llevamos las cuentas del ISP. Esa distinción no exime de
+cuadrar: exime de emitir documentos fiscales, no de que el dinero recibido esté donde dice.
+
+### El modelo de dinero, que estaba sin escribir
+
+Auditar exigió primero **escribir la ecuación** que el módulo cumple sin haberla enunciado
+nunca. Una factura se salda por cuatro caminos distintos, y **sólo uno deja fila en
+`payment_allocations`**:
+
+| Camino | Dónde queda |
+|---|---|
+| Pago asignado | `payment_allocations.amount` |
+| Saldo a favor aplicado | `customer_credits` (`applied`, negativo) — **no** crea asignación |
+| Faltante de un abono parcial | `invoices.carried_out` → `invoice_carryovers` |
+| Anulación | `balance_due = 0`, `carried_out = 0` |
+
+De ahí:
+
+```
+balance_due == total − asignado − saldo_aplicado − arrastrado_fuera
+```
+
+`carried_in` **no** entra: el arrastre que cobra la factura ya se sumó a `total` como un ítem,
+y contarlo otra vez lo duplicaría.
+
+### El verificador que teníamos estaba mal planteado
+
+`billing:verify-orphan-payments` comprobaba `recibido == asignado + credit_balance`, contra el
+**saldo actual**. Pero `applyCreditToInvoice()` baja `balance_due` y baja `credit_balance` **sin
+crear asignación**: a partir de ese momento ese dinero no está en ninguno de los dos términos y
+la resta da positivo.
+
+Es decir: **denunciaba a todo cliente que alguna vez hubiera gastado su saldo a favor**, por el
+importe exacto que gastó. No era un descuadre — era el saldo a favor funcionando como se
+diseñó — y esos falsos positivos enterraban a los de verdad. El término correcto es lo
+**ganado** (`earned` − `reversed`), que sí es estable: un peso que entra o se aplica a una
+factura, o se vuelve saldo.
+
+Esto obliga a releer con cautela el hallazgo previo de «9 clientes con $1.252.000 fuera del
+pipeline»: una parte podía ser saldo a favor legítimamente consumido.
+
+### Lo que se construyó
+
+**`BooksAuditService` + `billing:audit-books`** — catorce invariantes, lector puro, se puede
+correr contra producción sin riesgo. `C1` ecuación de la factura · `C2` anuladas con saldo vivo ·
+`C3` factura contra sus renglones · `C4` estado vs saldo · `C5` pagos sobre-asignados ·
+`C6` caja del cliente · `C7` libro de saldo vs su caché · `C8` **fugas entre empresas** ·
+`C9` asignaciones huérfanas · `C10` pagos que el panel no ve · `C11` dinero sin titular ·
+`C12` números repetidos · `C13` arrastre incoherente · `C14` posibles duplicados de caja.
+
+Agendado a las 08:30 con `--mail --warnings-ok`: **sólo los críticos mandan correo**. Un aviso
+alertando todas las noches acaba silenciando el comando entero, y con él los críticos.
+
+**`BooksStatementService` + `billing:statement`** — el que responde la pregunta de Chaguaní.
+En vez de dar una cifra y discutirla, calcula el mes bajo **todos los criterios defendibles** y
+**pone precio a cada diferencia**: anuladas incluidas o no, por periodo o por emisión, sólo
+mensualidades, por fecha de pago o de digitación, recaudos sin titular. Con `--target=3000000`
+señala cuál explica el desfase reclamado.
+
+Si una coincide, es criterio y no defecto, y la discusión termina en un minuto sin tocar la
+base. Si ninguna, el problema es nuestro y toca `billing:audit-books`.
+
+### Dos defectos reales encontrados por el camino
+
+**El excedente del cobro de una instalación se perdía.** `syncPayment()` asignaba
+`min(recibido, total)` y **la diferencia no iba a ninguna parte**: ni asignada ni acreditada.
+El instalador que cobraba $150.000 por una instalación de $100.000 dejaba $50.000 fuera de los
+libros. Ahora `syncExcessCredit()` los acredita, y cuadra contra lo ya acreditado para que
+corregir el cobro varias veces no sume saldo de nuevo. Bajarlo sólo devuelve lo que ninguna
+factura consumió — misma doctrina que `reverseForPayment()` y los arrastres.
+
+**Recalcular el saldo de una instalación borraba el crédito aplicado.** `balance_due = total −
+allocated` ignoraba el saldo a favor, que no deja asignación: el cliente volvía a deber algo ya
+pagado. Ahora resta también `customer_credits.applied`.
+
+### La trampa que casi vuelve mudo al auditor
+
+`whereRaw('ABS(...) > ?', [0.01])` **no funciona en SQLite**: PDO manda los float como texto y
+SQLite ordena todo número por debajo de cualquier texto, así que la comparación da **siempre
+falso**. Con `<=`, siempre verdadero.
+
+El auditor no fallaba: **se volvía mudo**, que en un auditor es peor. Las pruebas de libros
+sanos pasaban porque la consulta no devolvía nunca nada. La tolerancia va ahora **interpolada**
+como literal (`'… > ' . self::TOLERANCIA`), nunca atada. Se revisó el resto del repositorio: los
+demás `whereRaw` con binding son de texto (`LOWER(x) = ?`) y no están afectados.
+
+**Regla que queda:** ningún umbral numérico va como binding en SQL crudo.
+
+### Pruebas
+
+29 nuevas. La mitad que más importa es la de **silencio**: un cliente que gastó su saldo, un
+abono parcial con arrastre, una factura anulada y una instalación con excedente corregido a la
+baja **no producen ni un hallazgo**. Un auditor que grita por movimientos legítimos se acaba
+silenciando. Suite completa: 1458 en verde.
+
+`C12` se probó al revés de lo previsto: el número repetido ya lo impide un índice único
+`(tenant_id, number)`, así que la prueba verifica **esa** defensa —la que de verdad protege la
+identidad fiscal del documento— y `C12` queda como red por si el índice falta en algún esquema.
+
+---
+
+## 77. Una visita que se puede borrar no es evidencia — 2026-09-23
+
+PR F1 del módulo de tickets: intervenciones técnicas (§ 14 de la Solicitud Maestra). La parte
+interesante no fue la tabla, sino qué se decidió **no** poder hacer con ella.
+
+### El requisito
+
+> «Un ticket puede tener múltiples intervenciones. Cada una debe registrar fecha/hora, tipo
+> remoto o presencial, técnico, diagnóstico encontrado, acción, materiales, equipos
+> retirados/instalados, evidencia, resultado y siguiente paso.»
+
+Materiales y equipos quedaron fuera a propósito: son el PR F3 y dependen de una decisión sin
+tomar (**D-14**, si mover o no el kardex de inventario). Meterlos aquí habría mezclado una
+funcionalidad nueva con el único cambio capaz de desincronizar el inventario físico.
+
+### `SoftDeletes` no era la respuesta, aunque el ticket sí lo use
+
+El primer diseño llevaba `deleted_at`, por simetría con `support_ticket`. El equipo lo vetó, y
+tenía razón. La simetría era falsa:
+
+- Archivar un **ticket** es una operación de negocio: reversible, con permiso propio, con
+  motivo y auditada (PR C). El expediente sigue existiendo, sólo sale de la bandeja.
+- Una **intervención** es la constancia de que alguien fue, miró y actuó. Marcarla como
+  borrada la saca del expediente sin que el histórico cuente por qué.
+
+Y eso choca de frente con el § 15.10: «El cierre no debe borrar la causa sospechada, **las
+intervenciones** ni los estados anteriores».
+
+Un borrado blando aquí habría sido una puerta trasera con nombre respetable. De ahí que la
+tabla no tenga `deleted_at`, que no exista endpoint de borrado, que el cliente de API no tenga
+método, que la pantalla no tenga botón, y que el modelo lance una excepción en `deleting` para
+que tampoco se pueda desde un comando de consola.
+
+### La inmutabilidad sin salida es inutilizable
+
+Si una visita no se borra ni se edita, un dato mal anotado se queda mal para siempre. Por eso
+el cerrojo tiene una llave documentada:
+
+```
+finished_at NULL  → en curso, editable
+finished_at lleno → cerrada; corregir exige REABRIR con motivo de 10 a 500 caracteres
+```
+
+Reabrir deja `intervention_reopened` con actor, fecha, el sello anterior en `old_value` y el
+motivo en `metadata`. El mínimo de diez caracteres existe para que «ok» no cuente como
+justificación.
+
+El cerrojo vive en **dos** sitios: el controlador, que devuelve 422 explicando qué hacer, y el
+hook `saving` del modelo, para que un camino nuevo no se lo salte en silencio. El del modelo
+distingue campos de contenido de `finished_at`: cerrar una intervención abierta es legítimo;
+tocar el hallazgo de una ya cerrada, no.
+
+### La foránea compuesta, y por qué una simple no bastaba
+
+La evidencia se enlaza a la intervención con tres columnas sobre
+`support_ticket_attachment` —no una tabla nueva: el archivo ya está en el bucket privado y ya
+se sirve por un endpoint que comprueba tenant y ticket—.
+
+Con `intervention_id` a secas, nada impediría colgar una evidencia del ticket 10 de una
+intervención del ticket 77. Y esa tabla es justo donde más duele: **no tiene `tenant_id`**, lo
+deriva del ticket. Un enlace cruzado no sólo mezclaría expedientes, podría cruzar ISPs.
+
+```sql
+FOREIGN KEY (intervention_id, ticket_id)
+REFERENCES ticket_intervention (id, support_ticket_id)
+```
+
+Por eso `ticket_intervention` lleva `UNIQUE(id, support_ticket_id)` además del
+`UNIQUE(support_ticket_id, sequence)`: sin él la foránea compuesta no se puede declarar.
+
+**Se crea sólo en PostgreSQL.** SQLite no admite añadir foráneas a una tabla existente con
+`ALTER TABLE`. El test correspondiente se salta allí con un mensaje explícito, y el CI lo
+cubre. Verificado además a mano contra PostgreSQL 18.3 en base desechable: ocho comprobaciones,
+incluida la que importa — el enlace cruzado se rechaza.
+
+### Lo que salió al escribir los tests
+
+Tres fallos, todos del test y no del código, y los tres instructivos:
+
+1. **`$a + $b` en PHP conserva las claves de `$a`.** El helper `cuerpo($extra)` devolvía
+   `[defaults] + $extra`, así que los valores por defecto ganaban y `$extra` no servía para
+   nada. Tres tests pasaban o fallaban por la razón equivocada.
+2. **El `UserFactory` sólo llena `name`**, no `user_name`/`user_lastname`. El nombre congelado
+   salía vacío y el test lo achacaba al código.
+3. **`open → servicio_restablecido` no es una transición válida.** El camino remoto real es
+   `open → en_diagnostico_remoto → servicio_restablecido`, que además es justo el indicador de
+   «resolución remota» del § 17.
+
+Y un cuarto, ya conocido de PRs anteriores: un test que afirma «la interfaz no menciona X»
+falla si el propio comentario que explica por qué no se menciona X escribe X. Van dos veces.
+
+### Decisiones registradas
+
+| ID | Decisión |
+|---|---|
+| **S-2** | `kind` sólo `remoto` o `presencial`: son los dos que nombra el documento |
+| **S-3** | Un acompañante por intervención — la § 14 lo dice en singular |
+| **D-14** | F3 registrará equipos y materiales de forma declarativa; **no** moverá el kardex sin decisión posterior |
+| **D-15** | El cierre **no** exige intervenciones: ninguna de las diez reglas del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita |
+
+### Deuda que queda
+
+- **El `unique(device_id)` de `installation_equipment`** —«un equipo físico no puede estar
+  instalado en dos casas a la vez»— quedará con un agujero si F3 registra equipos instalados
+  fuera de esa tabla. Hay que resolverlo **en el diseño de F3**, no al implementarlo.
+- **El técnico se sigue eligiendo de una lista filtrada por nombre de rol** en otras pantallas
+  (`'técnico' || 'tecnico'`). Aquí se pasa la lista de personal y la validación real la hace el
+  backend contra el tenant, pero la heurística del nombre sigue viva en `SupportEdit.vue`.
+- **F1-08 queda cumplido; F1-12 y F1-09 no.** Materiales, equipos y pruebas estructuradas son
+  F3 y F2.
+
+### Lección
+
+La pregunta útil al añadir una entidad al expediente no es «¿qué campos lleva?» sino «¿puede
+desaparecer?». De la respuesta salen el `deleted_at`, el endpoint de borrado, el cerrojo de
+edición y la forma de corregir. Empezar por los campos habría dado una tabla correcta y una
+garantía inexistente.
+
+---
+
+## 78. En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte — 2026-09-23
 
 **Lo que se reportó.** «En los tickets no se deja asignar equipos al cliente al cual se le está
 creando el ticket».
@@ -7845,8 +8198,5 @@ Suite completa en verde.
 
 **Deuda consciente.** El retiro sólo admite equipos con serial: un consumible no vuelve, que es
 correcto para el caso real pero deja sin camino la corrección a la baja de una cantidad mal
-capturada (P-54). Y la hoja de equipos todavía no muestra la marca `no_charge` del ticket ni el
+capturada (P-57). Y la hoja de equipos todavía no muestra la marca `no_charge` del ticket ni el
 costo interno acumulado de la visita, que era la costura que P-49 anticipaba.
-
----
-

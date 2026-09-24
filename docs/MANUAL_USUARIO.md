@@ -1375,18 +1375,45 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 | **HotSpot** | Clientes que entran con usuario y contraseña en un portal |
 | **PPPoE** | Clientes con usuario y contraseña de conexión |
 | **DHCP Leases** | Asignación fija por dirección MAC |
-| **RADIUS (AAA)** | Tienes un servidor RADIUS que autentica a los clientes |
+| **RADIUS (AAA)** | Tienes tu propio servidor de autenticación y es él quien gestiona la red |
 
 > **RADIUS funciona al revés que los demás.** Con los otros métodos, ISPWatch entra al
 > router y escribe la configuración de cada cliente. Con RADIUS es el router el que
-> pregunta e ISPWatch responde, así que **los clientes ya no se cargan uno por uno en el
+> **pregunta a tu servidor**, así que **los clientes ya no se cargan uno por uno en el
 > Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
 > por demora.
 >
-> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**.
-> La configuración del servidor RADIUS (secreto compartido, puertos, perfiles) se hace
-> **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para que
-> el sistema deje de escribirle configuración por su cuenta.
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE** y una
+> IP asignada. La configuración del servidor (secreto compartido, puertos, perfiles) se
+> hace **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para
+> que el sistema deje de escribirle configuración por su cuenta.
+
+**ISPWatch no responde las consultas RADIUS.** Quien autentica es tu servidor; ISPWatch
+se queda con la parte comercial. En un router con este método:
+
+- **Deja de hacer**: cargar clientes en el Mikrotik, crear queues, listas PCQ, usuarios
+  de HotSpot, secrets PPPoE o leases DHCP, instalar reglas de bloqueo, y **cortar o
+  reconectar** en el equipo.
+- **Sigue haciendo**: facturar, calcular la mora, **decidir a quién cortar y cuándo**, y
+  reactivar al cliente en cuanto paga.
+
+El corte por mora funciona así: ISPWatch pasa el servicio a **suspendido** y publica el
+cambio; **tu sistema lo ejecuta**. Al pagar, lo reactiva y publica la reconexión.
+Ten presente que **ISPWatch no puede comprobar que el corte se aplicó**: eso ocurre en tu
+servidor. En los otros métodos verifica y reintenta; aquí la verificación es tuya.
+
+Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos
+y datos de VPN**. El formulario todavía exige nombre, IP, usuario y contraseña del equipo,
+versión de firmware y estado, aunque en este modo no se usen. Como ISPWatch no se conecta
+a ningún equipo, **un router puede ser sólo un agrupador** y no un Mikrotik real — útil
+para separar clientes por criterio propio, ya que la facturación se configura por router.
+Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP.
+
+> El método es **por router, no por cliente**. Para probarlo, crea un router aparte, mueve
+> un solo cliente y valida el ciclo completo antes de tocar el resto.
+>
+> Todo esto está también en el Centro de Ayuda de la aplicación, en *Routers y Red →
+> «RADIUS (AAA): cuando otro sistema gestiona la red»*.
 
 Y dos opciones **adicionales** que se suman al método elegido:
 
@@ -1706,6 +1733,63 @@ cualquier punto del trabajo y se vuelve cuando la espera termina.
 > **«Servicio restablecido» no es «Cerrado».** Restablecido es el momento en que vuelve la
 > conectividad. Cerrado significa que la causa, la acción y el resultado quedaron documentados.
 > Son dos fechas distintas y el sistema guarda las dos.
+
+### 14.2.2 Registrar una intervención
+
+Una intervención es cada vez que alguien **atiende** el ticket: una visita al domicilio o una
+atención remota. Un ticket puede tener las que hagan falta.
+
+En el detalle del ticket, bloque **Intervenciones** → **+ Registrar intervención**:
+
+| Campo | Qué poner |
+|---|---|
+| **Tipo** | Presencial si hubo desplazamiento; Remota si se atendió desde la oficina |
+| **Inicio** | Cuándo empezó la atención |
+| **Técnico responsable** | Quien atendió. Sólo aparece personal de tu operador |
+| **Acompañante** | Opcional, si fueron dos |
+| **Hallazgo** | Qué se encontró al llegar |
+| **Acción realizada** | Qué se hizo |
+| **Resultado** | Cómo terminó |
+| **Próximo paso** | Qué queda pendiente, si algo |
+
+Si la atención ya terminó, marca **«Marcar como finalizada al guardar»** e indica la hora de
+fin. Si sigue en curso, déjala abierta y ciérrala después con el botón **Finalizar**.
+
+Las intervenciones se numeran solas: 1, 2, 3… dentro de cada ticket.
+
+### 14.2.3 Corregir una intervención ya finalizada
+
+**Una intervención finalizada no se puede editar.** No es un fallo de la pantalla: es
+deliberado. La intervención es la constancia de que alguien fue y actuó, y si pudiera
+modificarse sin dejar rastro dejaría de servir como evidencia.
+
+Tampoco se puede **borrar**. No hay botón de eliminar en ninguna parte.
+
+Para corregirla:
+
+1. Pulsa **Reabrir** en la intervención.
+2. Escribe el motivo (entre 10 y 500 caracteres). Es obligatorio.
+3. La intervención vuelve a quedar editable.
+4. Corrige lo que haga falta y vuelve a finalizarla.
+
+Todo eso queda en el **Historial** del ticket: quién reabrió, cuándo y por qué. La versión
+anterior no se pierde ni se sobrescribe en silencio.
+
+> **Un ticket archivado no admite intervenciones.** Si necesitas registrar una, restaura el
+> expediente primero.
+
+### 14.2.4 Evidencia de la visita
+
+Las fotos y archivos se suben como siempre, desde **Archivos Adjuntos** del ticket. Después
+puedes decir de qué intervención salió cada uno, para que el expediente muestre la evidencia
+junto a la visita que la produjo.
+
+El archivo **no se duplica**: es el mismo adjunto, sólo que ahora se sabe a qué visita
+pertenece.
+
+> **¿No ves el bloque de Intervenciones o no puedes registrar ninguna?** Necesitas el permiso
+> *«Tickets · registrar intervenciones técnicas»*. Quien ya podía adjuntar evidencia lo
+> recibió automáticamente; si te falta, pídeselo a quien administre los roles.
 
 ### 14.3 Cerrar y reabrir un ticket
 

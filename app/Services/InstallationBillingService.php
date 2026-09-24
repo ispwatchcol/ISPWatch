@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\CustomerCredit;
 use App\Models\CustomerInstallation;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -139,6 +140,13 @@ class InstallationBillingService
         $existingPayment = $allocation?->payment;
 
         if ($received > 0) {
+            // El pago sobre el que hay que cuadrar el excedente. Se asigna en
+            // cada rama y no con `$existingPayment ?? $payment`: cuando hay un
+            // pago viejo pero su asignacion se perdio, la rama que corre es la
+            // de creacion, y aquella expresion habria acreditado el excedente
+            // sobre el pago equivocado.
+            $pagoVigente = null;
+
             if ($existingPayment && $allocation) {
                 $existingPayment->update([
                     'amount' => $received,
@@ -146,6 +154,7 @@ class InstallationBillingService
                     'notes'  => $installation->payment_notes  ?: $existingPayment->notes,
                 ]);
                 $allocation->update(['amount' => $toAllocate]);
+                $pagoVigente = $existingPayment;
             } else {
                 $payment = Payment::create([
                     'tenant_id'    => $tenantId,
@@ -161,7 +170,16 @@ class InstallationBillingService
                     'invoice_id' => $invoice->id,
                     'amount'     => $toAllocate,
                 ]);
+                $pagoVigente = $payment;
             }
+
+            // El instalador cobró más de lo que valía la instalación: ese
+            // excedente es dinero recibido, y hasta ahora no iba a ninguna
+            // parte. `$toAllocate` es min(recibido, total), así que la
+            // diferencia no quedaba ni asignada a la factura ni como saldo a
+            // favor: desaparecía de los libros y sólo reaparecía como un
+            // descuadre de caja (BooksAuditService C6).
+            $this->syncExcessCredit($pagoVigente, $received - $toAllocate);
         } else {
             // Remove the installation payment; leave any manual payments untouched
             if ($allocation) {
@@ -170,14 +188,28 @@ class InstallationBillingService
             if ($existingPayment) {
                 $existingPayment->refresh();
                 if ($existingPayment->allocations()->count() === 0) {
+                    // Devolver el saldo a favor que hubiera generado este pago
+                    // ANTES de borrarlo: si no, el movimiento `earned` queda
+                    // apuntando a un pago que ya no existe y el saldo del
+                    // cliente conserva plata que nunca entró.
+                    CustomerCredit::reverseForPayment($existingPayment);
                     $existingPayment->delete();
                 }
             }
         }
 
         // Recalculate balance from ALL allocations (covers manual payments too)
-        $allocated          = (float) PaymentAllocation::where('invoice_id', $invoice->id)->sum('amount');
-        $invoice->balance_due = max(0.0, $total - $allocated);
+        $allocated = (float) PaymentAllocation::where('invoice_id', $invoice->id)->sum('amount');
+
+        // El saldo a favor también salda facturas, y NO deja fila en
+        // `payment_allocations`. Sin este término, recalcular el saldo aquí
+        // borraba el crédito ya aplicado a esta factura y el cliente volvía a
+        // deber algo que ya había pagado.
+        $creditApplied = abs((float) CustomerCredit::where('to_invoice_id', $invoice->id)
+            ->where('type', CustomerCredit::TYPE_APPLIED)
+            ->sum('amount'));
+
+        $invoice->balance_due = max(0.0, $total - $allocated - $creditApplied);
 
         $invoice->status = match (true) {
             $total <= 0                    => 'paid',
@@ -186,6 +218,68 @@ class InstallationBillingService
             default                        => 'issued',
         };
         $invoice->save();
+    }
+
+    /**
+     * Deja el saldo a favor generado por este pago en exactamente $excedente.
+     *
+     * El cobro de una instalación puede cambiar varias veces (el instalador
+     * corrige lo recibido, se aplica un descuento, cambia el valor), así que no
+     * basta con acreditar una vez: hay que cuadrar contra lo que ya se acreditó
+     * antes, o cada edición sumaría saldo de nuevo.
+     *
+     * Bajar el excedente sólo devuelve la parte que todavía no consumió ninguna
+     * factura — la misma doctrina de `reverseForPayment()` y de los arrastres:
+     * lo que ya viajó a otra factura se queda donde está, porque quitarlo
+     * cobraría dos veces.
+     */
+    private function syncExcessCredit(?Payment $payment, float $excedente): void
+    {
+        $excedente = round(max(0.0, $excedente), 2);
+
+        // Sin titular no hay libro de saldo al que apuntar (P-43): el pago
+        // existe por su valor contable, pero un saldo A FAVOR DE alguien no
+        // significa nada sin ese alguien.
+        if (!$payment || !$payment->customer_id) {
+            return;
+        }
+
+        $ganado    = (float) CustomerCredit::where('from_payment_id', $payment->id)
+            ->where('type', CustomerCredit::TYPE_EARNED)->sum('amount');
+        $revertido = abs((float) CustomerCredit::where('from_payment_id', $payment->id)
+            ->where('type', CustomerCredit::TYPE_REVERSED)->sum('amount'));
+
+        $vigente = round($ganado - $revertido, 2);
+        $delta   = round($excedente - $vigente, 2);
+
+        if (abs($delta) < 0.01) {
+            return;
+        }
+
+        if ($delta > 0) {
+            CustomerCredit::earn(
+                $payment,
+                $delta,
+                "Excedente del cobro de instalación (pago #{$payment->id})"
+            );
+
+            return;
+        }
+
+        // El excedente bajó: se devuelve lo devolvible y se vuelve a dejar el
+        // que corresponda. Si lo ya consumido supera el excedente nuevo no se
+        // hace nada más: ese saldo ya pagó facturas y no se puede deshacer.
+        $r = CustomerCredit::reverseForPayment($payment);
+
+        $porReponer = round($excedente - $r['kept'], 2);
+
+        if ($porReponer > 0) {
+            CustomerCredit::earn(
+                $payment,
+                $porReponer,
+                "Excedente del cobro de instalación (pago #{$payment->id})"
+            );
+        }
     }
 
     /**

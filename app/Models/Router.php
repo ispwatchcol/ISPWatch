@@ -154,6 +154,69 @@ class Router extends Model
     }
 
     /**
+     * ¿Se puede gestionar este equipo, o no hay por dónde entrarle?
+     *
+     * Devuelve `null` cuando sí, y si no, la razón EN CASTELLANO y lista para
+     * enseñar: quien la lee es el cajero que acaba de recibir un pago, no un
+     * programador leyendo un log.
+     *
+     * POR QUÉ ESTO EXISTE
+     *
+     * Un router dado de alta a medias —con nombre y poco más— no se distingue
+     * de uno sano hasta que alguien intenta empujarle algo. Entonces el CORE
+     * marca una dirección que no existe, o entrega credenciales vacías, y la
+     * petición se queda esperando el tiempo de espera completo. Cuando eso
+     * ocurre DENTRO de una petición HTTP —registrar un pago, por ejemplo— el
+     * gateway la corta con un 504 y el cajero ve un error por algo que sí se
+     * guardó. Ahí nacen los cobros dobles: vuelve a cobrar «porque falló».
+     *
+     * La comprobación es de base de datos, sin red: o están los datos, o no.
+     *
+     * TRES CAMINOS VÁLIDOS, no uno:
+     *
+     *  1. RADIUS. El estado del abonado no vive en el equipo, así que no hay
+     *     nada que escribirle: gestionable por delegación.
+     *  2. Overlay VPN (lo normal): identidad en el túnel + credenciales.
+     *  3. Dirección alcanzable directa + credenciales, para el equipo que el
+     *     CORE ve sin pasar por el túnel.
+     */
+    public function manageabilityIssue(): ?string
+    {
+        if ($this->usesRadius()) {
+            return null;
+        }
+
+        $faltantes = [];
+
+        // Sin dirección NI identidad de túnel no hay a dónde marcar. Se piden
+        // «una de las dos» y no ambas: hay equipos que viven en el overlay y
+        // cuya IP la reescribe el resolver, y otros con dirección fija.
+        if (blank($this->ip) && blank($this->vpn_username)) {
+            $faltantes[] = 'no tiene dirección IP ni usuario de VPN';
+        }
+
+        if (blank($this->user_rb) || blank($this->password_rb)) {
+            $faltantes[] = 'le faltan el usuario y la contraseña del equipo';
+        }
+
+        if ($faltantes === []) {
+            return null;
+        }
+
+        $nombre = $this->name ?: "#{$this->id}";
+
+        return "El router «{$nombre}» " . implode(' y ', $faltantes)
+            . ', así que ISPWatch no puede configurarlo. Complétalo en Routers → Editar, '
+            . 'o márcalo como RADIUS si lo gestiona un AAA externo.';
+    }
+
+    /** Atajo legible del anterior. */
+    public function isManageable(): bool
+    {
+        return $this->manageabilityIssue() === null;
+    }
+
+    /**
      * ¿El firmware admite WireGuard? Existe desde RouterOS 7.1; en v6 no hay.
      *
      * El campo llega en tres formatos —"7.23.1 (stable)" de /system resource,

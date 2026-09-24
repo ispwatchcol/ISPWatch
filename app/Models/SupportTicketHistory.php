@@ -90,6 +90,20 @@ class SupportTicketHistory extends Model
      */
     public const NO_CHARGE         = 'no_charge_changed';
 
+    /**
+     * PR F1 - intervenciones tecnicas (seccion 14).
+     *
+     * `intervention_reopened` es el que sostiene la regla de preservacion:
+     * una intervencion finalizada no se edita, se REABRE con motivo. Sin
+     * este evento la correccion seria invisible y el registro dejaria de
+     * ser auditable, que es justo lo que se quiere evitar al no dar
+     * borrado.
+     */
+    public const INTERVENTION_STARTED  = 'intervention_started';
+    public const INTERVENTION_FINISHED = 'intervention_finished';
+    public const INTERVENTION_EDITED   = 'intervention_edited';
+    public const INTERVENTION_REOPENED = 'intervention_reopened';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

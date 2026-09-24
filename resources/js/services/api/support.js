@@ -94,6 +94,26 @@ export default {
     },
     // PR #3 · Historial inalterable. Sólo lectura: no hay create/update/delete
     // aquí ni en el backend, y el modelo lanza si alguien lo intenta.
+    // PR F1 · Intervenciones tecnicas (seccion 14).
+    //
+    // Aqui NO hay metodo de borrado, y no es un olvido: una intervencion no se
+    // borra. Si esta mal se reabre con motivo y se corrige, y la correccion
+    // queda en el historial del ticket.
+    getInterventions(ticketId) {
+        return apiClient.get(`/support/${ticketId}/interventions`)
+    },
+    createIntervention(ticketId, data) {
+        return apiClient.post(`/support/${ticketId}/interventions`, data)
+    },
+    updateIntervention(ticketId, interventionId, data) {
+        return apiClient.put(`/support/${ticketId}/interventions/${interventionId}`, data)
+    },
+    reopenIntervention(ticketId, interventionId, reason) {
+        return apiClient.post(`/support/${ticketId}/interventions/${interventionId}/reopen`, { reason })
+    },
+    linkInterventionEvidence(ticketId, interventionId, data) {
+        return apiClient.post(`/support/${ticketId}/interventions/${interventionId}/evidence`, data)
+    },
     getHistory(ticketId, page = 1) {
         return apiClient.get(`/support/${ticketId}/history`, { params: { page } })
     },

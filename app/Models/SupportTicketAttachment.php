@@ -17,8 +17,26 @@ class SupportTicketAttachment extends Model
         'file_name',
         'file_path',
         'file_size',
-        'mime_type'
+        'mime_type',
+        // PR F1 - los tres datos que la seccion 14 pide para la evidencia y que
+        // esta tabla no tenia: «Tipo, archivo, fecha, usuario, descripcion e
+        // intervencion relacionada». Archivo, fecha y usuario ya estaban.
+        'intervention_id',
+        'evidence_type',
+        'description',
     ];
+
+    /**
+     * `file_path` NO sale en el JSON.
+     *
+     * Es la ruta interna dentro del bucket privado. No le sirve a nadie del otro
+     * lado —el archivo se pide por `url` / `download_url`, que pasan por el
+     * endpoint autenticado— y publicarla describe la organizacion del
+     * almacenamiento a quien no tiene por que conocerla. Se oculta al enlazar la
+     * evidencia a la intervencion porque es cuando este modelo empieza a
+     * viajar anidado y en mas sitios.
+     */
+    protected $hidden = ['file_path'];
 
     protected $appends = ['url', 'download_url', 'author_label'];
 
@@ -54,6 +72,17 @@ class SupportTicketAttachment extends Model
     public function ticket()
     {
         return $this->belongsTo(SupportTicket::class, 'ticket_id');
+    }
+
+    /**
+     * La visita que produjo esta evidencia, si vino de una (seccion 14).
+     *
+     * NULL es normal y valido: la evidencia que manda el cliente al abrir
+     * el ticket no pertenece a ninguna intervencion.
+     */
+    public function intervention()
+    {
+        return $this->belongsTo(TicketIntervention::class, 'intervention_id');
     }
 
     public function user()

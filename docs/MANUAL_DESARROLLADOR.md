@@ -512,6 +512,8 @@ idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van
 | `billing:retry-failed` | Reintenta filas `failed` con `next_retry_at` vencido |
 | `billing:verify-monthly` | Auditoría de no-show. **No escribe nada** |
 | `billing:verify-orphan-payments {--tenant=} {--min=} {--limit=} {--no-mail}` | Auditoría de caja: dinero recibido que no respalda factura ni saldo a favor. **No escribe nada** |
+| `billing:audit-books {--tenant=} {--detail=C1,C6} {--limit=} {--json} {--mail} {--warnings-ok}` | **Cierre de libros**: las catorce invariantes contables. **No escribe nada**. Sale con 1 si hay críticos |
+| `billing:statement --tenant= {--month=YYYY-MM} {--since=} {--target=} {--tolerance=} {--json}` | Extracto conciliable de un mes bajo todos los criterios. `--target` señala qué diferencia explica el desfase que reclama un cliente. **No escribe nada** |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
 | `billing:generate-tenant {tenant} {period} {--dry-run}` | Facturación puntual por tenant |
@@ -750,6 +752,22 @@ palabra «failure», así que el detector genérico se lo come si va primero.
 dentro de una cadena de RouterOS los tres significan algo. Nunca encadenes `str_replace()`
 ahí: el segundo reemplazo vuelve a escapar las barras que metió el primero.
 
+### Nada de red dentro de una petición sin preguntar antes
+
+Cualquier camino que empuje algo a un router pregunta primero si el equipo se puede gestionar.
+La pregunta se hace en dos alturas y cada una tiene su sitio:
+
+| Pregunta | Quién la responde | Dónde se usa |
+|---|---|---|
+| ¿Este **router** es operable? (credenciales, y dirección o VPN) | `Router::manageabilityIssue()` | `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()` |
+| ¿Se dan las condiciones para reconectar a **este cliente**? | `ReconnectionPreflight::check()` | `BillingService::reactivateIfCleared()` |
+
+La segunda delega la primera. **No repitas la lista de campos** en un tercer sitio: contra un
+equipo dado de alta a medias la sesión SSH no falla, espera, y si eso ocurre dentro de una
+petición que además escribe dinero, el gateway la corta con un 504, el usuario ve un error por
+algo que sí se guardó y lo repite. Así aparecieron los cobros dobles del recaudo (§ 72 y § 73
+de la bitácora).
+
 ### Una marca que impide cobrar (`no_charge`)
 
 `customer_installations.no_charge` y `support_ticket.no_charge` marcan la visita que **no
@@ -783,6 +801,66 @@ redirige a `/`; un cliente final sin sesión acabaría mirando la pantalla de ac
 panel sin entender qué pasó. Usa una instancia propia de axios
 (`services/api/public-contract.js` es el patrón).
 10. **Las búsquedas de texto usan `whereLike`/`orWhereLike`**, jamás `like` ni `ilike` a pelo.
+
+### La ecuación del libro (todo lo que toque dinero)
+
+Antes de tocar facturación, ten presente que **una factura se salda por cuatro caminos y
+sólo uno deja fila en `payment_allocations`**:
+
+| Camino | Dónde queda |
+|---|---|
+| Pago asignado | `payment_allocations.amount` |
+| Saldo a favor aplicado | `customer_credits` (`applied`, negativo). **No crea asignación** |
+| Faltante de un abono parcial | `invoices.carried_out` → `invoice_carryovers` |
+| Anulación | `balance_due = 0`, `carried_out = 0` |
+
+De ahí las dos invariantes que `BooksAuditService` verifica y que **tu código debe conservar**:
+
+```
+balance_due == total − asignado − saldo_aplicado − arrastrado_fuera     (por factura)
+recibido    == asignado + ganado                                        (por cliente)
+```
+
+Tres consecuencias prácticas:
+
+1. **Nunca recalcules `balance_due` como `total − allocated`.** Es la forma más fácil de
+   borrar un saldo a favor ya aplicado y dejar al cliente debiendo algo que pagó. Resta
+   también `customer_credits.applied` (`InstallationBillingService::syncPayment()` es el
+   ejemplo, y es donde ya pasó).
+
+2. **«Ganado» es `earned` menos `reversed`, no `credit_balance`.** El saldo actual no sirve
+   para cuadrar caja: aplicarlo a una factura lo baja sin dejar asignación, y entonces ese
+   dinero desaparece de los dos lados de la resta. Comparar contra `credit_balance` denunciaba
+   a todo cliente que hubiera gastado su saldo.
+
+3. **`carried_in` ya está dentro de `total`.** Entra como un ítem más de la factura; sumarlo
+   aparte lo duplica.
+
+Si recibes dinero por un camino nuevo, **acredita el excedente**: lo que no se asigna a una
+factura tiene que volverse saldo a favor, o desaparece de los libros. Se comprueba corriendo
+`php artisan billing:audit-books --tenant=N` — si tu cambio está bien, no sale ningún hallazgo.
+
+**Añadir una comprobación nueva:** un método `protected` en `BooksAuditService`, su nombre en
+el array de `run()`, y devuélvela por `hallazgo()` pasando la **expresión SQL** del importe (no
+el alias del `SELECT`: el agregado es otra consulta y el alias no existe ahí). Marca `critical`
+sólo si hay plata que no cuadra; lo demás es `warning`, o el correo diario se vuelve ruido.
+
+### Trampa: un umbral numérico jamás va como binding en SQL crudo
+
+```php
+->whereRaw('ABS(x - y) > ?', [0.01])   // ✗ en SQLite: SIEMPRE falso
+->whereRaw('ABS(x - y) > ' . 0.01)     // ✓
+```
+
+PDO manda los `float` como **texto**, y SQLite —donde corren las pruebas— ordena todo número
+por debajo de cualquier texto: `25000 > '0.01'` es **falso**. Con `<=`, siempre verdadero.
+
+Lo grave es que no falla: **enmudece**. Una comprobación así no revienta, simplemente deja de
+encontrar nada, y las pruebas del caso sano pasan por la razón equivocada. En PostgreSQL el
+mismo código funciona, así que el error sólo aparece donde menos se mira.
+
+Los umbrales son constantes de clase, no datos de fuera: interpólalos y no hay nada que
+inyectar. Los bindings de **texto** (`LOWER(name) = ?`) no están afectados.
 
 ### Pago confirmado ≠ reconexión confirmada
 
@@ -1380,6 +1458,86 @@ Cuatro reglas que no son opcionales:
 
 ---
 
+
+### Ejemplo: extender el expediente del ticket con una entidad nueva
+
+El PR F1 (intervenciones técnicas) es la plantilla. Si mañana toca añadir mediciones (F2) o
+materiales (F3), el camino ya está trillado y conviene repetirlo.
+
+**1 · Decide si la entidad puede desaparecer.** Es la pregunta que gobierna todo lo demás.
+
+- El **ticket** usa `SoftDeletes`: archivarlo es una operación de negocio reversible y
+  auditada (PR C).
+- Una **intervención** no: es la constancia de que alguien fue y actuó. Por eso
+  `ticket_intervention` **no tiene `deleted_at`**, no tiene endpoint de borrado, y el modelo
+  bloquea `deleting`.
+
+Un borrado blando en una entidad de evidencia es una puerta trasera: basta marcar la fila para
+que desaparezca del expediente sin que el histórico lo cuente. El § 15.10 del requerimiento lo
+prohíbe expresamente.
+
+**2 · Si no se borra, define cómo se corrige.** La inmutabilidad sin salida es inutilizable.
+En intervenciones el cerrojo es `finished_at`:
+
+```
+finished_at NULL  → en curso, editable
+finished_at lleno → cerrada; corregir exige REABRIR con motivo (10–500 caracteres)
+```
+
+El cerrojo va en **dos sitios**: el controlador (que devuelve un 422 explicando qué hacer) y
+el hook `saving` del modelo (para que un camino nuevo no se lo salte en silencio).
+
+**3 · Congela lo que pueda desaparecer.** `technician_name` se copia al registrar, igual que
+`author_name` en notas y adjuntos (H-6) y el titular en `invoices` (P-43). Las FK a `users`
+van a `SET NULL`, nunca `CASCADE`: dar de baja a un empleado no puede borrar lo que hizo.
+
+**4 · Si una tabla hija debe pertenecer al mismo padre, dilo en la base.** El caso de la
+evidencia:
+
+```sql
+ALTER TABLE support_ticket_attachment
+ADD CONSTRAINT support_ticket_attachment_intervention_fk
+FOREIGN KEY (intervention_id, ticket_id)
+REFERENCES ticket_intervention (id, support_ticket_id)
+```
+
+Requiere un `UNIQUE(id, support_ticket_id)` en la tabla referenciada, que por eso existe
+además del `UNIQUE(support_ticket_id, sequence)`.
+
+Con una foránea simple, colgar una evidencia del ticket 10 de una intervención del ticket 77
+sólo lo impediría el `where` del controlador. Y `support_ticket_attachment` **no tiene
+`tenant_id`** —lo deriva del ticket—, así que ese cruce podría saltar de ISP.
+
+> **Ojo con SQLite.** No admite añadir foráneas a una tabla existente con `ALTER TABLE`, así
+> que la restricción se crea sólo bajo `pgsql` y el test correspondiente se salta con
+> `markTestSkipped` y un mensaje que dice por qué. No lo silencies: el CI sí corre PostgreSQL.
+
+**5 · Correlativos: calcula dentro de una transacción y garantiza en la base.**
+
+```php
+SupportTicket::whereKey($id)->lockForUpdate()->first();
+$siguiente = (int) TicketIntervention::where('support_ticket_id', $id)->max('sequence') + 1;
+```
+
+El `lockForUpdate` serializa el cálculo; el `UNIQUE(support_ticket_id, sequence)` es la
+garantía real. En SQLite el lock no emite SQL, pero el motor serializa las escrituras y el
+índice sigue protegiendo.
+
+**6 · Permiso nuevo ⇒ backfill en el MISMO PR.** `ticket_close_override` se declaró sin
+repartirse y quedó inalcanzable (**P-52**). Un permiso sin backfill no es una capacidad nueva,
+es una función muerta. El backfill de `ticket_intervene` concede a quien ya tenía
+`ticket_attach`, recorre `role` fila a fila —`permissions` es JSON y los operadores difieren
+entre motores— y salta los roles con comodín `*`.
+
+**7 · Escrituras sobre ticket archivado.** Usa `SupportTicket::findOrFail()` sin
+`withTrashed()`: el scope global de `SoftDeletes` lo deja fuera y responde 404. Para **leer**,
+`withTrashed()` condicionado a `ticket_archive`/`ticket_restore`, porque el expediente
+archivado sigue siendo consultable para quien puede verlo.
+
+**8 · Componente Vue aparte.** `SupportDetail.vue` pasa de 1 800 líneas. `TicketInterventions.vue`
+recibe `puedeIntervenir` y `ticketArchivado` como props y emite `cambio`; la autorización real
+la pone siempre el servidor. Y usa la escala con nombre (`z-app-modal`), no un `z-[9999]`
+suelto — hay un test que lo vigila.
 
 ### Ejemplo: agregar o cambiar un código de catálogo del ticket
 
