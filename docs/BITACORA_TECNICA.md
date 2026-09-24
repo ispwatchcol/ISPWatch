@@ -4,10 +4,16 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-23 · Rama: `fix/notify-invoice-bulk-reminders`
+**Última actualización:** 2026-09-23 · Rama: `fix/pago-sin-router-configurado`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
+- **El mismo 504, en las otras cinco puertas (2026-09-23, § 74):** el § 72 blindó el camino del
+  pago con un preflight, pero a empujar algo al router se entra por **seis** puertas y las otras
+  cinco seguían marcando a ciegas contra un equipo sin credenciales — donde la sesión SSH no
+  falla, **espera**. La comprobación vive ahora en `RouterProvisioningService::suspendCustomer()`
+  y `unsuspendCustomer()`, por donde pasan las seis. `Router::manageabilityIssue()` es la **única**
+  definición de qué necesita un equipo para ser operable, y `ReconnectionPreflight` delega ahí.
 - **«No enviar notificaciones de factura» no sobrevivía a un envío masivo (2026-09-23, § 73):**
   la preferencia se guardaba y se respetaba bien en los dos caminos automáticos, pero el
   recordatorio **masivo** la ignoraba — heredaba por delegación la excepción del envío
@@ -7697,3 +7703,41 @@ silencioso. Se corrigió localizando el perfil por `user_id` a partir del correo
 único y refleja la relación real del esquema. Verificado compilando ambas consultas con la
 gramática de PostgreSQL: la vieja emite `order by "id" desc` (exactamente el SQL del log de CI)
 y la nueva no menciona `id` por ningún lado. Queda como trampa #60 del manual de desarrollador.
+
+---
+
+## 74. El mismo 504, en las otras cinco puertas — 2026-09-23
+
+Continuación del § 72, y conviene leerlos juntos: **dos personas atacaron el mismo reporte del
+ISP el mismo día, por caminos distintos**. El § 72 resolvió el camino del pago con un preflight
+y un vocabulario de desenlaces. Esta entrada cierra lo que quedaba fuera.
+
+**Lo que quedaba fuera.** A empujar algo al router se entra por seis puertas: el panel (activar
+y suspender), el reintento manual de un log fallido, el corte automático por mora, el
+reconciliador y la reactivación al pagar. El preflight cubre la última. Las otras cinco seguían
+marcando a ciegas contra un equipo sin credenciales — y ahí la sesión SSH no falla, **espera**.
+Activar a mano a un cliente de ese ISP desde su ficha se habría quedado colgado igual que el
+recaudo, con el mismo final: un 504 y un operador repitiendo la operación.
+
+La comprobación va ahora en `RouterProvisioningService::suspendCustomer()` y
+`unsuspendCustomer()`, que es por donde pasan las seis, justo detrás de la guarda de RADIUS.
+Devuelve `false` con la razón escrita en `suspension_action_logs` y sin abrir nada.
+
+**Una definición, no dos.** `Router::manageabilityIssue()` es el único sitio que sabe qué
+necesita un router para ser operable —credenciales, y dirección o identidad de VPN— y
+`ReconnectionPreflight` delega ahí esa parte en vez de repetir la lista de campos. Dos
+definiciones de lo mismo empiezan iguales y terminan distintas; la que se queda corta es
+siempre la que nadie recuerda actualizar. El preflight conserva lo suyo: el estado del cliente,
+la disponibilidad del equipo y la traducción al código cerrado que viaja al navegador.
+
+**Lo que enseñaron las pruebas.** Cuatro suites creaban su router con `name`, `tenant_id` y
+`status`, nada más. Con la guarda puesta se pusieron en rojo, y lo que enseñaron no fue un fallo
+del código sino del fixture: modelaban un equipo que en producción no puede existir, porque no
+habría forma de administrarlo. Ahora nacen con IP y credenciales. Es el mismo patrón del § 72 —
+«ninguna prueba lo cubría porque todas asumían el caso bueno»— visto desde el otro lado.
+
+**Lo que sigue abierto.** Contra un router **sí** configurado, la reconexión sigue corriendo
+dentro de la petición del pago: dos sesiones SSH encadenadas. Si ese equipo está lento vuelve el
+504, con otra causa y el mismo daño. Y el recaudo sigue sin idempotencia: dos pagos idénticos,
+mismo cliente, mismo monto y mismo comprobante, entran sin una sola advertencia. Anotado como
+P-54.

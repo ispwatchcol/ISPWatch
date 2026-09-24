@@ -750,6 +750,22 @@ palabra «failure», así que el detector genérico se lo come si va primero.
 dentro de una cadena de RouterOS los tres significan algo. Nunca encadenes `str_replace()`
 ahí: el segundo reemplazo vuelve a escapar las barras que metió el primero.
 
+### Nada de red dentro de una petición sin preguntar antes
+
+Cualquier camino que empuje algo a un router pregunta primero si el equipo se puede gestionar.
+La pregunta se hace en dos alturas y cada una tiene su sitio:
+
+| Pregunta | Quién la responde | Dónde se usa |
+|---|---|---|
+| ¿Este **router** es operable? (credenciales, y dirección o VPN) | `Router::manageabilityIssue()` | `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()` |
+| ¿Se dan las condiciones para reconectar a **este cliente**? | `ReconnectionPreflight::check()` | `BillingService::reactivateIfCleared()` |
+
+La segunda delega la primera. **No repitas la lista de campos** en un tercer sitio: contra un
+equipo dado de alta a medias la sesión SSH no falla, espera, y si eso ocurre dentro de una
+petición que además escribe dinero, el gateway la corta con un 504, el usuario ve un error por
+algo que sí se guardó y lo repite. Así aparecieron los cobros dobles del recaudo (§ 72 y § 73
+de la bitácora).
+
 ### Una marca que impide cobrar (`no_charge`)
 
 `customer_installations.no_charge` y `support_ticket.no_charge` marcan la visita que **no
