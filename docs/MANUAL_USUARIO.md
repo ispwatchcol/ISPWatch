@@ -1375,18 +1375,45 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 | **HotSpot** | Clientes que entran con usuario y contraseña en un portal |
 | **PPPoE** | Clientes con usuario y contraseña de conexión |
 | **DHCP Leases** | Asignación fija por dirección MAC |
-| **RADIUS (AAA)** | Tienes un servidor RADIUS que autentica a los clientes |
+| **RADIUS (AAA)** | Tienes tu propio servidor de autenticación y es él quien gestiona la red |
 
 > **RADIUS funciona al revés que los demás.** Con los otros métodos, ISPWatch entra al
 > router y escribe la configuración de cada cliente. Con RADIUS es el router el que
-> pregunta e ISPWatch responde, así que **los clientes ya no se cargan uno por uno en el
+> **pregunta a tu servidor**, así que **los clientes ya no se cargan uno por uno en el
 > Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
 > por demora.
 >
-> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**.
-> La configuración del servidor RADIUS (secreto compartido, puertos, perfiles) se hace
-> **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para que
-> el sistema deje de escribirle configuración por su cuenta.
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE** y una
+> IP asignada. La configuración del servidor (secreto compartido, puertos, perfiles) se
+> hace **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para
+> que el sistema deje de escribirle configuración por su cuenta.
+
+**ISPWatch no responde las consultas RADIUS.** Quien autentica es tu servidor; ISPWatch
+se queda con la parte comercial. En un router con este método:
+
+- **Deja de hacer**: cargar clientes en el Mikrotik, crear queues, listas PCQ, usuarios
+  de HotSpot, secrets PPPoE o leases DHCP, instalar reglas de bloqueo, y **cortar o
+  reconectar** en el equipo.
+- **Sigue haciendo**: facturar, calcular la mora, **decidir a quién cortar y cuándo**, y
+  reactivar al cliente en cuanto paga.
+
+El corte por mora funciona así: ISPWatch pasa el servicio a **suspendido** y publica el
+cambio; **tu sistema lo ejecuta**. Al pagar, lo reactiva y publica la reconexión.
+Ten presente que **ISPWatch no puede comprobar que el corte se aplicó**: eso ocurre en tu
+servidor. En los otros métodos verifica y reintenta; aquí la verificación es tuya.
+
+Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos
+y datos de VPN**. El formulario todavía exige nombre, IP, usuario y contraseña del equipo,
+versión de firmware y estado, aunque en este modo no se usen. Como ISPWatch no se conecta
+a ningún equipo, **un router puede ser sólo un agrupador** y no un Mikrotik real — útil
+para separar clientes por criterio propio, ya que la facturación se configura por router.
+Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP.
+
+> El método es **por router, no por cliente**. Para probarlo, crea un router aparte, mueve
+> un solo cliente y valida el ciclo completo antes de tocar el resto.
+>
+> Todo esto está también en el Centro de Ayuda de la aplicación, en *Routers y Red →
+> «RADIUS (AAA): cuando otro sistema gestiona la red»*.
 
 Y dos opciones **adicionales** que se suman al método elegido:
 

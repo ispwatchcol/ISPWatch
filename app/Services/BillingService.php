@@ -2373,15 +2373,32 @@ class BillingService
      *
      * La invariante que comprueba es la más simple que tiene el módulo:
      *
-     *     todo peso que entró está aplicado a una factura, o está en el saldo a favor
+     *     todo peso que entró está aplicado a una factura, o se volvió saldo a favor
      *
-     *     sum(payments.amount) == sum(payment_allocations.amount) + credit_balance
+     *     sum(payments.amount) == sum(payment_allocations.amount) + sum(credits earned)
      *
      * Cuando la resta da positivo hay dinero recibido que no respalda ninguna
      * factura y tampoco figura como saldo: entró por caja y el sistema no sabe
      * decir qué pagó. Da igual qué lo provocó —borrar una factura pagada y no
      * reaplicar el saldo, un ajuste manual del saldo a la baja, o un pago que
      * nunca se asignó—: el síntoma es el mismo y es el que hay que ver.
+     *
+     * ── Corrección: antes se comparaba contra `credit_balance` ───────────────
+     *
+     * El tercer término era el SALDO ACTUAL del cliente, y estaba mal. Cuando
+     * el saldo a favor paga una factura, `applyCreditToInvoice()` baja
+     * `balance_due` y baja `credit_balance` SIN crear ninguna asignación: a
+     * partir de ese momento ese dinero no estaba ni en `payment_allocations`
+     * ni en `credit_balance`, y la resta daba positivo.
+     *
+     * Es decir: el informe denunciaba a TODO cliente que alguna vez hubiera
+     * gastado su saldo a favor, por el importe exacto que gastó. No era un
+     * descuadre — era el saldo a favor funcionando como se diseñó — y esos
+     * falsos positivos enterraban a los de verdad.
+     *
+     * Se compara contra lo GANADO (`earned`), que es inmutable: un peso que
+     * entra o se aplica a una factura, o se vuelve saldo. Qué pase después con
+     * ese saldo es otro libro, y lo vigila `BooksAuditService` (C7).
      *
      * Se mide por cliente y no en total porque el total se compensa solo: a un
      * cliente le sobra lo que a otro le falta y el descuadre desaparece.
@@ -2418,6 +2435,18 @@ class BillingService
             ->groupBy('p.customer_id')
             ->pluck('aplicado', 'customer_id');
 
+        // Lo que se volvió saldo a favor. `earned` y no `credit_balance`: ver
+        // el docblock — comparar contra el saldo actual denunciaba a todo el
+        // que hubiera gastado su saldo.
+        $ganado = DB::table('customer_credits')
+            // `earned` menos `reversed`: revertir un excedente lo saca del
+            // saldo, y seguir contandolo dejaria de cuadrar la caja.
+            ->whereIn('type', [CustomerCredit::TYPE_EARNED, CustomerCredit::TYPE_REVERSED])
+            ->whereIn('customer_id', $entrado->keys())
+            ->selectRaw('customer_id, sum(amount) as ganado')
+            ->groupBy('customer_id')
+            ->pluck('ganado', 'customer_id');
+
         $perfiles = DB::table('customer_profile')
             ->whereIn('user_id', $entrado->keys())
             ->get(['user_id', 'name', 'last_name', 'credit_balance'])
@@ -2430,7 +2459,7 @@ class BillingService
 
             $recibido = (float) $fila->entrado;
             $enFacturas = (float) ($aplicado[$customerId] ?? 0);
-            $enSaldo = (float) ($perfil->credit_balance ?? 0);
+            $enSaldo = (float) ($ganado[$customerId] ?? 0);
             $suelto = round($recibido - $enFacturas - $enSaldo, 2);
 
             // Redondeo: los importes son decimal(·,2) y un céntimo suelto es

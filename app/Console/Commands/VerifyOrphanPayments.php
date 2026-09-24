@@ -50,14 +50,14 @@ class VerifyOrphanPayments extends Command
             ->values();
 
         if ($filas->isEmpty()) {
-            $this->info('✓ Todo el dinero recibido está aplicado a facturas o figura como saldo a favor.');
+            $this->info('✓ Todo el dinero recibido está aplicado a facturas o se volvió saldo a favor.');
             return Command::SUCCESS;
         }
 
         $limite = (int) $this->option('limit');
 
         $this->table(
-            ['Cliente', 'Pagos', 'Recibido', 'En facturas', 'En saldo a favor', 'SIN RESPALDO'],
+            ['Cliente', 'Pagos', 'Recibido', 'En facturas', 'Se volvio saldo', 'SIN RESPALDO'],
             $filas->take($limite)->map(fn ($f) => [
                 $f['cliente'],
                 $f['pagos'],
@@ -101,7 +101,7 @@ class VerifyOrphanPayments extends Command
         }
 
         $lineas = $filas->take(30)->map(fn ($f) => sprintf(
-            '  • %s — recibido $%s, en facturas $%s, en saldo $%s → sin respaldo $%s',
+            '  • %s — recibido $%s, en facturas $%s, se volvio saldo $%s → sin respaldo $%s',
             $f['cliente'],
             $this->money($f['recibido']),
             $this->money($f['en_facturas']),
