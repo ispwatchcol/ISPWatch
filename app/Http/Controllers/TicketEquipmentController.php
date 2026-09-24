@@ -257,13 +257,13 @@ class TicketEquipmentController extends Controller
         // quien audita el ticket no se entera de que hubo un equipo de por medio.
         SupportTicketHistory::registrar(
             $ticket,
-            SupportTicketHistory::EQUIPMENT_ADDED,
+            $this->eventoDe($item),
             metadata: [
                 'direction' => $item->direction,
                 'label'     => $item->label(),
                 'quantity'  => (float) $item->quantity,
                 'serial'    => $item->device?->serial,
-                'scrapped'  => $item->source_type === InventoryMovement::HOLDER_SCRAP,
+                'line_id'   => $item->id,
             ],
         );
 
@@ -277,6 +277,25 @@ class TicketEquipmentController extends Controller
             'equipment' => $this->rows($ticket),
             'avisos'    => $this->ledger->avisosDeGasto(),
         ], 201);
+    }
+
+    /**
+     * Qué evento de historial le corresponde a la línea recién escrita.
+     *
+     * El tipo lo dice todo y `metadata` no hace falta leerlo: la baja es un
+     * evento propio y no un retiro con una bandera, porque «qué equipos se
+     * dieron de baja» es una pregunta que se hace sola y no debería obligar a
+     * abrir un JSON para responderla.
+     */
+    private function eventoDe(TicketEquipment $item): string
+    {
+        if (!$item->isReturn()) {
+            return SupportTicketHistory::EQUIPMENT_DELIVERED;
+        }
+
+        return $item->source_type === InventoryMovement::HOLDER_SCRAP
+            ? SupportTicketHistory::EQUIPMENT_SCRAPPED
+            : SupportTicketHistory::EQUIPMENT_RETURNED;
     }
 
     /** Retira del cliente un equipo que ya tenía instalado. */
@@ -341,34 +360,54 @@ class TicketEquipmentController extends Controller
     }
 
     /**
-     * Quita una línea y deja el inventario como estaba: la entrega vuelve a
+     * REVIERTE una línea y deja el inventario como estaba: la entrega vuelve a
      * quien la aportó, el retiro vuelve a casa del cliente.
+     *
+     * Se llama `destroy` porque es el gesto de la papelera en la pantalla, pero
+     * no destruye nada: la línea se marca como revertida —con actor, motivo y
+     * fecha— y sigue viéndose en la hoja. El motivo es OBLIGATORIO, igual que
+     * al reabrir una intervención: una corrección sin motivo se puede
+     * constatar, pero no auditar.
      */
     public function destroy(Request $request, $ticketId, $itemId)
     {
         $ticket = $this->resolveTicket($request, $ticketId);
         $this->assertOperable($ticket);
 
+        $datos = $request->validate([
+            'reason' => ['required', 'string', 'min:10', 'max:500'],
+        ], [
+            'reason.required' => 'Explica por qué se deshace este movimiento de equipo.',
+            'reason.min'      => 'El motivo debe tener al menos 10 caracteres.',
+            'reason.max'      => 'El motivo no puede superar los 500 caracteres.',
+        ]);
+
         $item = TicketEquipment::where('ticket_id', $ticket->id)->findOrFail($itemId);
 
-        $etiqueta = $item->fresh(['stock', 'device.stock'])->label();
-        $eraRetiro = $item->isReturn();
+        $etiqueta      = $item->fresh(['stock', 'device.stock'])->label();
+        $eventoOriginal = $this->eventoDe($item);
+        $eraRetiro     = $item->isReturn();
 
-        $this->ledger->releaseFromTicket($item, $request->user());
+        // NO borra: revierte el inventario y marca la línea, que se queda a la
+        // vista con su motivo. El modelo bloquea `deleting` por si acaso.
+        $this->ledger->reverseTicketLine($item, $request->user(), $datos['reason']);
 
         SupportTicketHistory::registrar(
             $ticket,
-            SupportTicketHistory::EQUIPMENT_REMOVED,
+            SupportTicketHistory::EQUIPMENT_REVERSED,
             metadata: [
                 'direction' => $eraRetiro ? TicketEquipment::DIRECTION_IN : TicketEquipment::DIRECTION_OUT,
                 'label'     => $etiqueta,
+                'of_event'  => $eventoOriginal,
+                'reason'    => $datos['reason'],
+                'line_id'   => $item->id,
             ],
         );
 
         return response()->json([
             'message'   => $eraRetiro
-                ? 'Retiro deshecho: el equipo vuelve a figurar en casa del cliente.'
-                : 'Equipo devuelto al inventario.',
+                ? 'Retiro deshecho: el equipo vuelve a figurar en casa del cliente. La línea queda en la hoja, marcada.'
+                : 'Entrega deshecha: el equipo vuelve al inventario. La línea queda en la hoja, marcada.',
             'equipment' => $this->rows($ticket),
         ]);
     }
@@ -426,6 +465,9 @@ class TicketEquipmentController extends Controller
 
     private function rows(SupportTicket $ticket)
     {
+        // TODAS, tambien las revertidas: la hoja del ticket es un expediente y
+        // una linea que se movio tiene que constar aunque se deshiciera. La
+        // pantalla las distingue con `is_reversed`.
         return TicketEquipment::with(['stock', 'device.stock'])
             ->where('ticket_id', $ticket->id)
             ->orderBy('id')
@@ -456,6 +498,12 @@ class TicketEquipmentController extends Controller
             'source_type' => $item->source_type,
             'source_id'   => $item->source_id,
             'notes'       => $item->notes,
+            // La línea revertida SE SIGUE VIENDO —por eso no hay SoftDeletes—
+            // pero la pantalla la pinta tachada y no la suma al total.
+            'is_reversed'      => $item->isReversed(),
+            'reversed_at'      => optional($item->reversed_at)->toIso8601String(),
+            'reversed_by_name' => $item->reversed_by_name,
+            'reversal_reason'  => $item->reversal_reason,
         ];
     }
 }

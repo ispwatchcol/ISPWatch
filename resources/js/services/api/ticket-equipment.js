@@ -22,9 +22,17 @@ export default {
     add(ticketId, payload) {
         return apiClient.post(`/support/${ticketId}/equipment`, payload)
     },
-    // Deshace la línea: la entrega vuelve a quien la aportó, el retiro vuelve
-    // a casa del cliente.
-    remove(ticketId, itemId) {
-        return apiClient.delete(`/support/${ticketId}/equipment/${itemId}`)
+    // REVIERTE la línea: la entrega vuelve a quien la aportó, el retiro vuelve
+    // a casa del cliente. No borra nada —la línea se queda marcada en la hoja,
+    // con actor, motivo y fecha—, y por eso el motivo es obligatorio.
+    //
+    // Viaja en el CUERPO de un DELETE, que axios admite con `data`. Podría
+    // haber sido un POST a ‹/reverse›, pero el gesto de la pantalla es la
+    // papelera y el verbo la acompaña; lo que cambia es la semántica del
+    // servidor, no la del botón.
+    remove(ticketId, itemId, reason) {
+        return apiClient.delete(`/support/${ticketId}/equipment/${itemId}`, {
+            data: { reason },
+        })
     },
 }

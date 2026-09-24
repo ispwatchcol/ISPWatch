@@ -221,6 +221,61 @@ que el documento lo pida, y la reapertura ya es auditada, que es la garantía qu
 
 ---
 
+
+## 3quater. Permiso 22 · `ticket_equipment` (PR F3 · 2026-09-24)
+
+El PR F3 añade el **22**, y cierra la otra mitad de la frase de la § 18.
+
+| # | Acción | Permiso | N1 | N2 | Campo | Superv. | Auditor |
+|---|---|---|---|---|---|---|---|
+| 22 | Entregar y retirar equipos en la visita | `ticket_equipment` | ⚠️ | ✅ | ✅ | ✅ | ❌ |
+
+### Por qué otro permiso, habiendo ya tres candidatos
+
+La § 18 le da al Técnico de campo «visita, evidencias, **materiales, equipos**, pruebas finales
+y propuesta de cierre». El permiso 21 cubrió «visita» y «evidencias»; éste cubre «materiales» y
+«equipos». Los tres candidatos que ya existían fallaban, cada uno por su lado:
+
+| Candidato | Por qué no |
+|---|---|
+| `ticket_edit` | La matriz de la § 3 se lo **niega** al Técnico de campo (fila 3). Reusarlo dejaba la sección existiendo para todos menos para quien tiene que usarla — y dársela le daría de paso asunto, categoría y asignación |
+| `ticket_intervene` | Describe **relatar** la visita. Mover un aparato descuenta existencias y cambia la custodia de un bien: un ISP puede querer que su técnico cuente lo que hizo sin autorizarle a sacar equipos de la bodega |
+| `view_support` | Es de **lectura**. La primera versión lo usó en un OR y el resultado fue que un permiso de lectura autorizaba mover inventario |
+
+### La trampa del OR, que es lo que obligó a rehacerlo
+
+`CheckPermission` tiene semántica **OR**, documentada en su propio docblock:
+`permission:a,b` deja pasar a quien tenga **cualquiera** de los dos.
+
+Las rutas nacieron con `permission:view_support,ticket_edit`, pensando «hace falta ver soporte
+**y** poder editar». Lo que decían de verdad era «basta con `view_support`». Y a la vez la
+pantalla exigía `ticket_edit` a secas, con lo que backend y frontend discrepaban **en
+direcciones opuestas**: la API dejaba pasar a quien no debía, y la interfaz escondía el bloque
+justo a quien el documento se lo asigna.
+
+Regla que queda: **para gobernar una escritura, un solo permiso**. El OR es para datos de
+referencia que una pantalla necesita aunque el permiso dueño no sea suyo.
+
+### Reparto
+
+`2026_09_24_000001_grant_ticket_equipment_to_intervene_roles.php` concede `ticket_equipment` a
+todo rol que ya tenga `ticket_intervene`. Es el conjunto de quien atiende en campo, que es el
+mismo del que sale el permiso 21 — coinciden **hoy**, aunque signifiquen cosas distintas.
+
+No llega a `client` ni a `accounting`, y no por una exclusión escrita: ninguno de los dos
+interviene. Idempotente, no toca los roles con comodín `*`, y el `down()` retira sólo lo que
+concedió.
+
+**Con backfill en el mismo PR**, por P-52: un permiso nuevo sin reparto no es una capacidad
+nueva, es una función muerta.
+
+### Lo que este permiso NO gobierna
+
+La regla de **de dónde** puede tomar cada quien —lo suyo, lo del técnico asignado a la visita,
+las bodegas sólo con permiso de inventario— la sigue aplicando `InventoryLedger`, no la ruta.
+La ruta dice **quién** entra; el ledger dice **de dónde** puede sacar. Un técnico con
+`ticket_equipment` pero sin `view_inventory` sigue sin poder tomar de una bodega.
+
 ## 3bis. PR B · Transición a los permisos granulares — **implementado**
 
 Los 20 permisos existen y **cada ruta de ticket exige el suyo**. Lo que **no** se hace aquí es

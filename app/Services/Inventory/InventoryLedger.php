@@ -581,19 +581,39 @@ class InventoryLedger
     }
 
     /**
-     * Deshace una línea del ticket y deja el inventario como estaba antes.
+     * REVIERTE una línea del ticket: deja el inventario como estaba antes y
+     * marca la línea como revertida, con actor, motivo y fecha.
      *
      * Deshacer una ENTREGA devuelve la existencia a quien la aportó: es el
      * «cargué el router equivocado» del técnico. Deshacer un RETIRO hace lo
      * contrario —el equipo vuelve a casa del cliente—, porque un retiro mal
      * anotado deja al cliente sin el aparato que sigue teniendo encima.
+     *
+     * LA LÍNEA NO SE BORRA, y ése es el cambio que pedía la auditoría. Antes
+     * esto terminaba en `$item->delete()`: el kardex conservaba el movimiento y
+     * su compensación, pero la hoja del ticket perdía la única prueba dentro
+     * del expediente de que aquel aparato llegó a moverse. Ahora la línea se
+     * queda, marcada, y quien audite el ticket ve las dos cosas: que hubo un
+     * equipo y que alguien lo deshizo, cuándo y por qué.
+     *
+     * Reversa de una reversa: no. Una línea ya revertida no se vuelve a tocar;
+     * si hay que rehacer el movimiento se carga de nuevo, y quedan las tres.
      */
-    public function releaseFromTicket(TicketEquipment $item, User $actor): void
+    public function reverseTicketLine(TicketEquipment $item, User $actor, string $motivo): TicketEquipment
     {
-        DB::transaction(function () use ($item, $actor) {
+        if ($item->isReversed()) {
+            throw ValidationException::withMessages([
+                'item' => 'Esta línea ya se revirtió el '
+                    . $item->reversed_at->format('d/m/Y H:i')
+                    . '. Si hay que volver a mover el equipo, cárgalo otra vez.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($item, $actor, $motivo) {
             // withTrashed: un ticket archivado sigue necesitando poder corregir
             // su hoja, y sin esto la relación devolvería null y el movimiento
-            // quedaría sin cliente.
+            // quedaría sin cliente. Que el ticket archivado NO admita cambios lo
+            // decide el controlador, que es quien conoce la operación.
             $ticket     = SupportTicket::withTrashed()->withoutTenantScope()->find($item->ticket_id);
             $customerId = $ticket?->user_id ? (int) $ticket->user_id : null;
             $backType   = $item->source_type ?? InventoryMovement::HOLDER_USER;
@@ -608,6 +628,20 @@ class InventoryLedger
                 if ($customerId === null) {
                     throw ValidationException::withMessages([
                         'item' => 'El ticket ya no tiene cliente, así que no hay a quién devolverle el equipo. Muévelo desde Inventario.',
+                    ]);
+                }
+
+                // El invariante manda incluso al deshacer: si mientras tanto el
+                // aparato se instaló en OTRA casa, reponerlo aquí lo pondría en
+                // dos a la vez. Es el mismo `status` que guardan las dos rutas
+                // de entrega, comprobado también en el camino de vuelta.
+                if ($device
+                    && $device->status === InventoryDevice::STATUS_INSTALLED
+                    && (int) $device->customer_id !== $customerId) {
+                    throw ValidationException::withMessages([
+                        'item' => "El equipo {$this->deviceName($device)} ya está instalado en otro cliente: "
+                            . 'deshacer este retiro lo pondría en dos casas a la vez. '
+                            . 'Retíralo de allí primero.',
                     ]);
                 }
 
@@ -634,12 +668,10 @@ class InventoryLedger
                     'to_id'             => $customerId,
                     'support_ticket_id' => $item->ticket_id,
                     'customer_id'       => $customerId,
-                    'notes'             => 'Se deshace el retiro registrado en el ticket.',
+                    'notes'             => 'Se deshace el retiro registrado en el ticket: ' . $motivo,
                 ], $actor);
 
-                $item->delete();
-
-                return;
+                return $this->marcarRevertida($item, $actor, $motivo);
             }
 
             // Era una entrega: la existencia vuelve a quien la aportó.
@@ -661,11 +693,31 @@ class InventoryLedger
                 'to_id'             => $backId,
                 'support_ticket_id' => $item->ticket_id,
                 'customer_id'       => $customerId,
-                'notes'             => 'Se deshace la entrega registrada en el ticket.',
+                'notes'             => 'Se deshace la entrega registrada en el ticket: ' . $motivo,
             ], $actor);
 
-            $item->delete();
+            return $this->marcarRevertida($item, $actor, $motivo);
         });
+    }
+
+    /**
+     * Estampa la reversa sobre la línea. El nombre del actor se congela por lo
+     * mismo que en las intervenciones: dar de baja al empleado no puede dejar
+     * la corrección sin autor.
+     */
+    private function marcarRevertida(TicketEquipment $item, User $actor, string $motivo): TicketEquipment
+    {
+        $nombre = trim(($actor->user_name ?? '') . ' ' . ($actor->user_lastname ?? ''))
+            ?: ($actor->name ?? null);
+
+        $item->forceFill([
+            'reversed_at'      => now(),
+            'reversed_by'      => $actor->id,
+            'reversed_by_name' => $nombre,
+            'reversal_reason'  => $motivo,
+        ])->save();
+
+        return $item;
     }
 
     /**

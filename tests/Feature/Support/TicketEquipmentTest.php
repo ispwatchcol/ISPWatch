@@ -37,6 +37,7 @@ class TicketEquipmentTest extends TestCase
     private Tenant $tenant;
     private User $admin;
     private User $technician;
+    private User $miron;
     private User $customer;
     private InventoryBranch $branch;
     private SupportTicket $ticket;
@@ -50,12 +51,23 @@ class TicketEquipmentTest extends TestCase
         $adminRole = Role::create([
             'name' => 'Admin', 'code' => 'admin', 'permissions' => ['*'], 'tenant_id' => $this->tenant->id,
         ]);
-        // El técnico de campo: ve soporte pero NO administra inventario. Es el
-        // rol que tiene que poder usar esto y el que no debe tocar la bodega.
+        // El técnico de campo: ve soporte, registra la visita y mueve el equipo
+        // de esa visita, pero NO administra inventario y —esto es lo que
+        // importa— **no tiene `ticket_edit`**. La matriz de la § 3 se lo niega,
+        // y la § 18 le da igualmente «materiales, equipos». Si la seccion
+        // dependiera de `ticket_edit`, existiria para todos menos para el.
         $techRole = Role::create([
             'name'        => 'Técnico',
             'code'        => 'technician',
-            'permissions' => ['view_support'],
+            'permissions' => ['view_support', 'ticket_view', 'ticket_intervene', 'ticket_equipment'],
+            'tenant_id'   => $this->tenant->id,
+        ]);
+
+        // Mirar el modulo de soporte no autoriza a sacar aparatos de la bodega.
+        $mironRole = Role::create([
+            'name'        => 'Consulta',
+            'code'        => 'viewer',
+            'permissions' => ['view_support', 'ticket_view'],
             'tenant_id'   => $this->tenant->id,
         ]);
 
@@ -64,6 +76,9 @@ class TicketEquipmentTest extends TestCase
         ]);
         $this->technician = User::factory()->create([
             'tenant_id' => $this->tenant->id, 'role_id' => $techRole->id,
+        ]);
+        $this->miron = User::factory()->create([
+            'tenant_id' => $this->tenant->id, 'role_id' => $mironRole->id,
         ]);
 
         $this->customer = User::factory()->create(['tenant_id' => $this->tenant->id]);
@@ -157,7 +172,7 @@ class TicketEquipmentTest extends TestCase
             ->assertCreated();
 
         $evento = SupportTicketHistory::withoutTenantScope()
-            ->where('event_type', SupportTicketHistory::EQUIPMENT_ADDED)
+            ->where('event_type', SupportTicketHistory::EQUIPMENT_DELIVERED)
             ->firstOrFail();
 
         $this->assertSame('out', $evento->metadata['direction']);
@@ -300,13 +315,21 @@ class TicketEquipmentTest extends TestCase
 
         $itemId = $creado->json('item.id');
 
-        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}")->assertOk();
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", [
+            'reason' => 'Cargue el router equivocado al ticket.',
+        ])->assertOk();
 
         $device->refresh();
         $this->assertSame(InventoryDevice::STATUS_ASSIGNED, $device->status);
         $this->assertSame((int) $this->technician->id, (int) $device->user_id);
         $this->assertNull($device->customer_id);
-        $this->assertSame(0, TicketEquipment::withoutTenantScope()->count());
+
+        // La linea NO desaparece: sigue en la hoja, marcada, con actor y motivo.
+        $linea = TicketEquipment::withoutTenantScope()->findOrFail($itemId);
+        $this->assertNotNull($linea->reversed_at);
+        $this->assertSame((int) $this->technician->id, (int) $linea->reversed_by);
+        $this->assertSame('Cargue el router equivocado al ticket.', $linea->reversal_reason);
+        $this->assertSame(1, TicketEquipment::withoutTenantScope()->count());
     }
 
     #[Test]
@@ -323,8 +346,9 @@ class TicketEquipmentTest extends TestCase
             'source_id'   => $this->technician->id,
         ])->assertCreated();
 
-        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/" . $creado->json('item.id'))
-            ->assertOk();
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/" . $creado->json('item.id'), [
+            'reason' => 'Anote el movimiento en el ticket que no era.',
+        ])->assertOk();
 
         $viejo->refresh();
         $this->assertSame(InventoryDevice::STATUS_INSTALLED, $viejo->status);
@@ -451,8 +475,9 @@ class TicketEquipmentTest extends TestCase
             'source_type' => 'scrap',
         ])->assertCreated();
 
-        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/" . $creado->json('item.id'))
-            ->assertOk();
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/" . $creado->json('item.id'), [
+            'reason' => 'Anote el movimiento en el ticket que no era.',
+        ])->assertOk();
 
         $quemado->refresh();
         $this->assertSame(InventoryDevice::STATUS_INSTALLED, $quemado->status);
@@ -482,5 +507,396 @@ class TicketEquipmentTest extends TestCase
             ->assertStatus(422);
 
         $this->assertSame((int) $otro->id, (int) $device->fresh()->customer_id);
+    }
+
+    // ── Permisos ──────────────────────────────────────────────────────────
+    //
+    // `CheckPermission` tiene semántica OR: `permission:a,b` deja pasar a quien
+    // tenga cualquiera de los dos. La primera versión de estas rutas usaba
+    // `permission:view_support,ticket_edit`, con lo que `view_support` —un
+    // permiso de LECTURA que tiene todo el módulo— bastaba para descontar
+    // existencias y cambiar la custodia de un bien.
+
+    #[Test]
+    public function view_support_alone_cannot_move_inventory(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        Sanctum::actingAs($this->miron);
+
+        $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertForbidden();
+
+        $this->assertSame(0, TicketEquipment::withoutTenantScope()->count());
+
+        $device->refresh();
+        $this->assertSame(InventoryDevice::STATUS_ASSIGNED, $device->status);
+    }
+
+    #[Test]
+    public function view_support_alone_cannot_even_read_the_sheet(): void
+    {
+        // Mismo permiso para leer y para escribir, a propósito: si la pantalla
+        // se abriera con `view_support` mostraría una sección que la API va a
+        // rechazar en cuanto el técnico pulse algo.
+        Sanctum::actingAs($this->miron);
+
+        $this->getJson("/api/support/{$this->ticket->id}/equipment")->assertForbidden();
+        $this->getJson("/api/support/{$this->ticket->id}/equipment/available")->assertForbidden();
+    }
+
+    #[Test]
+    public function view_support_alone_cannot_reverse_a_line(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        Sanctum::actingAs($this->miron);
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", [
+            'reason' => 'Intento deshacerlo sin tener permiso.',
+        ])->assertForbidden();
+
+        $this->assertNull(TicketEquipment::withoutTenantScope()->findOrFail($itemId)->reversed_at);
+    }
+
+    #[Test]
+    public function a_technician_without_ticket_edit_can_still_move_equipment(): void
+    {
+        // La regla que motivó el permiso propio. El técnico de campo NO tiene
+        // `ticket_edit` —la matriz se lo niega— y aun así la § 18 le da
+        // «materiales, equipos». Con `ticket_equipment` entra.
+        $this->assertFalse($this->technician->hasPermission('ticket_edit'));
+        $this->assertTrue($this->technician->hasPermission('ticket_equipment'));
+
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->technician, 'SN-NUEVO');
+
+        Sanctum::actingAs($this->technician);
+
+        $this->getJson("/api/support/{$this->ticket->id}/equipment/available")->assertOk();
+
+        $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated();
+    }
+
+    #[Test]
+    public function the_backfill_grants_equipment_to_whoever_already_intervenes(): void
+    {
+        $conVisita = Role::create([
+            'name' => 'Campo', 'code' => 'campo',
+            'permissions' => ['view_support', 'ticket_intervene'], 'tenant_id' => $this->tenant->id,
+        ]);
+        $sinVisita = Role::create([
+            'name' => 'Caja', 'code' => 'accounting',
+            'permissions' => ['view_support', 'view_billing'], 'tenant_id' => $this->tenant->id,
+        ]);
+        $portal = Role::create([
+            'name' => 'Cliente', 'code' => 'client',
+            'permissions' => ['view_own_tickets'], 'tenant_id' => $this->tenant->id,
+        ]);
+        $comodin = Role::create([
+            'name' => 'Dios', 'code' => 'root',
+            'permissions' => ['*'], 'tenant_id' => $this->tenant->id,
+        ]);
+
+        $migracion = require database_path('migrations/2026_09_24_000001_grant_ticket_equipment_to_intervene_roles.php');
+        $migracion->up();
+
+        $permisos = fn (Role $r) => Role::withoutGlobalScope('tenant')->findOrFail($r->id)->permissions;
+
+        $this->assertContains('ticket_equipment', $permisos($conVisita));
+        // Ni contabilidad ni el portal del cliente mueven aparatos.
+        $this->assertNotContains('ticket_equipment', $permisos($sinVisita));
+        $this->assertNotContains('ticket_equipment', $permisos($portal));
+        // El comodín no se toca: ya lo tiene todo y añadirlo sería ruido.
+        $this->assertSame(['*'], $permisos($comodin));
+
+        // Idempotente: correrla dos veces no duplica ni reordena.
+        $antes = $permisos($conVisita);
+        $migracion->up();
+        $this->assertSame($antes, $permisos($conVisita));
+
+        // Y se puede revertir sin llevarse por delante lo que ya estaba.
+        $migracion->down();
+        $this->assertNotContains('ticket_equipment', $permisos($conVisita));
+        $this->assertContains('ticket_intervene', $permisos($conVisita));
+    }
+
+    // ── Preservación ──────────────────────────────────────────────────────
+
+    #[Test]
+    public function a_ticket_equipment_line_cannot_be_deleted(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        $linea = TicketEquipment::withoutTenantScope()->findOrFail($itemId);
+
+        $this->expectException(\RuntimeException::class);
+        $linea->delete();
+    }
+
+    #[Test]
+    public function reversing_requires_a_reason(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}")
+            ->assertStatus(422)->assertJsonValidationErrors('reason');
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", ['reason' => 'corto'])
+            ->assertStatus(422)->assertJsonValidationErrors('reason');
+
+        // El inventario no se movió en ninguno de los dos intentos.
+        $device->refresh();
+        $this->assertSame(InventoryDevice::STATUS_INSTALLED, $device->status);
+    }
+
+    #[Test]
+    public function a_reversal_is_audited_in_the_ticket_history(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", [
+            'reason' => 'El router que se dejo fue el de la caja de al lado.',
+        ])->assertOk();
+
+        $evento = SupportTicketHistory::withoutTenantScope()
+            ->where('event_type', SupportTicketHistory::EQUIPMENT_REVERSED)
+            ->firstOrFail();
+
+        $this->assertSame('El router que se dejo fue el de la caja de al lado.', $evento->metadata['reason']);
+        $this->assertSame(SupportTicketHistory::EQUIPMENT_DELIVERED, $evento->metadata['of_event']);
+
+        // Y el evento original sigue ahí: el expediente cuenta las dos cosas.
+        $this->assertTrue(
+            SupportTicketHistory::withoutTenantScope()
+                ->where('event_type', SupportTicketHistory::EQUIPMENT_DELIVERED)->exists()
+        );
+    }
+
+    #[Test]
+    public function a_reversed_line_is_still_listed(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", [
+            'reason' => 'Se cargo al ticket que no era, se corrige.',
+        ])->assertOk();
+
+        // Sigue en la hoja. No hay SoftDeletes justamente para esto.
+        $this->getJson("/api/support/{$this->ticket->id}/equipment")
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.id', $itemId)
+            ->assertJsonPath('0.is_reversed', true)
+            ->assertJsonPath('0.reversal_reason', 'Se cargo al ticket que no era, se corrige.');
+    }
+
+    #[Test]
+    public function a_line_cannot_be_reversed_twice(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        $cuerpo = ['reason' => 'Primera correccion del movimiento.'];
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", $cuerpo)->assertOk();
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", $cuerpo)->assertStatus(422);
+
+        // Y el inventario no se movió dos veces.
+        $this->assertSame(
+            1,
+            InventoryMovement::withoutTenantScope()
+                ->where('type', InventoryMovement::TYPE_DEVOLUCION)->count()
+        );
+    }
+
+    #[Test]
+    public function an_archived_ticket_cannot_reverse_either(): void
+    {
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-NUEVO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated()->json('item.id');
+
+        $this->ticket->delete();
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", [
+            'reason' => 'Intento corregirlo con el expediente archivado.',
+        ])->assertStatus(422);
+
+        $this->assertNull(TicketEquipment::withoutTenantScope()->findOrFail($itemId)->reversed_at);
+    }
+
+    #[Test]
+    public function undoing_a_retrieval_is_refused_if_the_device_moved_on(): void
+    {
+        // El invariante manda también en el camino de vuelta: si mientras tanto
+        // el aparato se instaló en otra casa, reponerlo aquí lo pondría en dos.
+        $viejo = $this->deviceInstalledAt($this->serializedStock('RB941'), $this->customer, 'SN-VIEJO');
+
+        $itemId = $this->postJson("/api/support/{$this->ticket->id}/equipment", [
+            'direction' => 'in', 'device_id' => $viejo->id,
+            'source_type' => 'user', 'source_id' => $this->admin->id,
+        ])->assertCreated()->json('item.id');
+
+        $otro = User::factory()->create(['tenant_id' => $this->tenant->id]);
+        $viejo->refresh();
+        $viejo->update(['status' => InventoryDevice::STATUS_INSTALLED, 'customer_id' => $otro->id]);
+
+        $this->deleteJson("/api/support/{$this->ticket->id}/equipment/{$itemId}", [
+            'reason' => 'Quiero deshacer el retiro aunque ya este en otra casa.',
+        ])->assertStatus(422);
+
+        $viejo->refresh();
+        $this->assertSame((int) $otro->id, (int) $viejo->customer_id);
+    }
+
+    // ── Borrado de un equipo del inventario ───────────────────────────────
+
+    #[Test]
+    public function a_device_with_installation_history_can_be_deleted_once_back_in_stock(): void
+    {
+        // El hallazgo de la auditoría. `InventoryDeviceController::destroy`
+        // rechazaba borrar CUALQUIER equipo que tuviera una línea de
+        // instalación, y desde que el retiro por ticket conserva esa línea
+        // —a propósito— el aparato quedaba imposible de eliminar para siempre,
+        // con un mensaje además falso: «está instalado en casa de un cliente».
+        $stock  = $this->serializedStock('RB941');
+        $device = $this->deviceHeldBy($stock, null, 'SN-HISTORICO');
+
+        $instalacion = CustomerInstallation::create([
+            'tenant_id' => $this->tenant->id,
+            'customer_id' => $this->customer->id,
+            'scheduled_date' => now()->subMonth(),
+            'status' => 'completed',
+        ]);
+        InstallationEquipment::create([
+            'tenant_id' => $this->tenant->id,
+            'installation_id' => $instalacion->id,
+            'device_id' => $device->id,
+            'stock_id' => $stock->id,
+            'quantity' => 1,
+        ]);
+
+        // Está en bodega: no hay nada instalado en casa de nadie.
+        $this->assertSame(InventoryDevice::STATUS_STOCK, $device->fresh()->status);
+
+        $this->deleteJson("/api/inventory/{$device->id}")->assertOk();
+
+        $this->assertNull(InventoryDevice::withoutTenantScope()->find($device->id));
+    }
+
+    #[Test]
+    public function a_device_referenced_by_a_ticket_cannot_be_deleted(): void
+    {
+        // La otra mitad del hallazgo: `ticket_equipment.device_id` es
+        // `nullOnDelete`, así que borrar el equipo dejaría la hoja de la visita
+        // sin serial y el expediente sin saber qué router se movió.
+        $device = $this->deviceHeldBy($this->serializedStock(), $this->admin, 'SN-EN-TICKET');
+
+        $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => $device->id])
+            ->assertCreated();
+
+        // Se retira a bodega: ya no está en casa de nadie, y aun así no se borra.
+        $this->postJson("/api/support/{$this->ticket->id}/equipment", [
+            'direction' => 'in', 'device_id' => $device->id,
+            'source_type' => 'branch', 'source_id' => $this->branch->id,
+        ])->assertCreated();
+
+        $this->assertSame(InventoryDevice::STATUS_STOCK, $device->fresh()->status);
+
+        $this->deleteJson("/api/inventory/{$device->id}")
+            ->assertStatus(422)->assertJsonValidationErrors('device');
+
+        $this->assertNotNull(InventoryDevice::withoutTenantScope()->find($device->id));
+
+        // Y las dos líneas del ticket conservan su serial.
+        $this->assertSame(
+            2,
+            TicketEquipment::withoutTenantScope()->where('device_id', $device->id)->count()
+        );
+    }
+
+    #[Test]
+    public function a_device_installed_at_a_customer_still_cannot_be_deleted(): void
+    {
+        $device = $this->deviceInstalledAt($this->serializedStock(), $this->customer, 'SN-PUESTO');
+
+        $this->deleteJson("/api/inventory/{$device->id}")
+            ->assertStatus(422)->assertJsonValidationErrors('device');
+
+        $this->assertNotNull(InventoryDevice::withoutTenantScope()->find($device->id));
+    }
+
+    // ── Aislamiento y contrato ────────────────────────────────────────────
+
+    #[Test]
+    public function the_ticket_of_another_tenant_is_not_reachable(): void
+    {
+        $otroTenant = Tenant::factory()->create();
+        $otroRol = Role::create([
+            'name' => 'Admin', 'code' => 'admin', 'permissions' => ['*'], 'tenant_id' => $otroTenant->id,
+        ]);
+        $ajeno = User::factory()->create(['tenant_id' => $otroTenant->id, 'role_id' => $otroRol->id]);
+
+        Sanctum::actingAs($ajeno);
+
+        $this->getJson("/api/support/{$this->ticket->id}/equipment")->assertNotFound();
+        $this->postJson("/api/support/{$this->ticket->id}/equipment", ['device_id' => 1])->assertNotFound();
+    }
+
+    #[Test]
+    public function a_device_from_another_tenant_cannot_be_delivered(): void
+    {
+        // Lo sostiene el scope global de `BelongsToTenant` sobre InventoryDevice,
+        // pero conviene fijarlo: si alguien le quitara el trait, el `findOrFail`
+        // del controlador pasaria a aceptar el id de cualquier empresa.
+        $otroTenant = Tenant::factory()->create();
+
+        $stockAjeno = new InventoryStock([
+            'brand' => 'TP-LINK', 'model' => 'AJENO', 'price' => 90000, 'is_serialized' => true,
+        ]);
+        $stockAjeno->tenant_id = $otroTenant->id;
+        $stockAjeno->save();
+
+        // OJO: `tenant_id` no es fillable. Pasarlo por `create()` lo descarta en
+        // silencio y el hook `creating` estampa el tenant AUTENTICADO, con lo
+        // que el equipo acabaria siendo propio y la prueba no probaria nada.
+        $deviceAjeno = new InventoryDevice([
+            'stock_id'  => $stockAjeno->id,
+            'serial'    => 'SN-DE-OTRA-EMPRESA',
+            'status'    => InventoryDevice::STATUS_STOCK,
+        ]);
+        $deviceAjeno->tenant_id = $otroTenant->id;
+        $deviceAjeno->save();
+
+        $this->assertNotSame((int) $this->tenant->id, (int) $deviceAjeno->tenant_id);
+
+        $this->postJson("/api/support/{$this->ticket->id}/equipment", [
+            'device_id' => $deviceAjeno->id,
+        ])->assertNotFound();
+
+        $this->assertSame(0, TicketEquipment::withoutTenantScope()->count());
+
+        $deviceAjeno->refresh();
+        $this->assertSame(InventoryDevice::STATUS_STOCK, $deviceAjeno->status);
+        $this->assertNull($deviceAjeno->customer_id);
     }
 }

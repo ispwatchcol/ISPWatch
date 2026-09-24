@@ -148,6 +148,29 @@ class Permissions
     const TICKET_INTERVENE       = 'ticket_intervene';
 
     /**
+     * PR F3 - Entregar y retirar equipos y materiales desde un ticket.
+     *
+     * Permiso propio, y ninguno de los que ya habia servia:
+     *
+     *  - `ticket_edit` gobierna el CONTENIDO del expediente (asunto, categoria,
+     *    asignacion). La matriz de la seccion 3 se lo NIEGA al Tecnico de campo,
+     *    que es justo quien carga el equipo en la visita. Reusarlo dejaba la
+     *    seccion existiendo para todos menos para quien tiene que usarla.
+     *  - `ticket_intervene` describe registrar la VISITA. Mover un aparato es
+     *    otra capacidad: descuenta existencias, cambia la custodia de un bien y
+     *    escribe en el kardex. Un ISP puede querer que su tecnico relate la
+     *    visita sin autorizarle a sacar equipos de bodega.
+     *  - `view_support` es de LECTURA. Gobernar con el una escritura de
+     *    inventario es lo que hacian las rutas de instalacion, y por la
+     *    semantica OR de CheckPermission bastaba con el para mover existencias.
+     *
+     * Nace apagado y se reparte por backfill a quien ya tenga
+     * `ticket_intervene`: quien registra la visita es el candidato natural, y
+     * asi el permiso no llega vacio a ningun rol (leccion de P-52).
+     */
+    const TICKET_EQUIPMENT       = 'ticket_equipment';
+
+    /**
      * Los que todavía NO gobiernan ninguna acción del sistema.
      *
      * Se declaran para que la matriz quede completa y el cliente pueda repartir
@@ -306,6 +329,7 @@ class Permissions
                 self::TICKET_RESTORE => 'Tickets · restaurar expediente archivado',
                 self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar catálogos (aún sin uso)',
                 self::TICKET_INTERVENE => 'Tickets · registrar intervenciones técnicas',
+                self::TICKET_EQUIPMENT => 'Tickets · entregar y retirar equipos en la visita',
                 self::TICKET_EXPORT => 'Tickets · métricas y exportación',
                 self::VIEW_SUPPORT => 'Ver Soporte Técnico',
             ],

@@ -1325,7 +1325,7 @@ Sube en cada alta, retiro o reetiquetado.
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
 | `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `support_ticket_id`, `customer_id`, `notes`, `created_by`, `created_at` |
 | `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
-| `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+| `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`reversed_at`**, `reversed_by`, `reversed_by_name`, `reversal_reason` |
 
 > **`ticket_equipment` no es una copia de `installation_equipment`.** Existe aparte porque la
 > visita de soporte mueve inventario en **dos sentidos** y la instalación sólo en uno:
@@ -1348,6 +1348,27 @@ Sube en cada alta, retiro o reetiquetado.
 > equipo entra y sale varias veces a lo largo de su vida y cada paso es una fila. El invariante
 > real —un equipo físico no está en dos casas a la vez— lo sostiene `inventory_device.status`,
 > que es una sola fila por aparato, y lo aplica `InventoryLedger`.
+
+> **Una línea de `ticket_equipment` no se borra nunca.** Deshacer un movimiento no lo borra: lo
+> **revierte**. `reversed_at` marca la línea, `reversed_by` + `reversed_by_name` congelan quién
+> y `reversal_reason` guarda el motivo, que es obligatorio. La fila **se queda y se sigue
+> mostrando** en la hoja del ticket, tachada.
+>
+> **No hay `deleted_at`, y no es un olvido.** `SoftDeletes` ocultaría la línea de toda consulta
+> por omisión, que es justo lo contrario de lo que se busca: un aparato que cambió de manos
+> tiene que constar en el expediente aunque el movimiento se deshiciera. Misma decisión que
+> `ticket_intervention` (§ 77). El modelo bloquea `deleting` con una excepción.
+>
+> `reversed_by` es **`SET NULL`**: dar de baja a un empleado no puede borrar el rastro de lo que
+> hizo, y por eso el nombre va congelado al lado.
+
+> **El invariante «un equipo no está en dos casas a la vez» NO vive en un `unique`.** Vive en
+> `inventory_device.status` + `customer_id`, que es **una fila por aparato**, y lo comprueban las
+> cuatro rutas del ledger que pueden dejar un equipo en un cliente: `transferDevice`,
+> `assignDeviceToInstallation`, `assignDeviceToTicket` y `reverseTicketLine`. El
+> `unique(device_id)` de `installation_equipment` decía algo más fuerte —«un equipo no aparece
+> en dos hojas **nunca**»— y se relajó a índice normal (`2026_09_23_000003`), porque la hoja
+> vieja se conserva como historia cuando el equipo se retira por un ticket. Ver P-55, resuelto.
 
 > **`installation_equipment.device_id` dejó de ser único el 2026-09-23.** La restricción decía
 > «un equipo no puede estar instalado en dos casas a la vez» pero la implementaba como «un

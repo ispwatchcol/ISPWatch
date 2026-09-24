@@ -1938,10 +1938,48 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `POST` | `/api/support/{id}/reopen` | `staff_profile` + `ticket_reopen` | **Reabre** un ticket cerrado |
 | `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
 | `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
-| `GET` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_view` | Equipos movidos en la visita (ver §16.1) |
-| `GET` | `/api/support/{id}/equipment/available` | `view_support` **o** `ticket_view` | Qué se puede entregar o retirar |
-| `POST` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_edit` | Entrega o **retira** un equipo del cliente |
-| `DELETE` | `/api/support/{id}/equipment/{item}` | `view_support` **o** `ticket_edit` | Deshace la línea |
+| `GET` | `/api/support/{id}/equipment` | `ticket_equipment` | Equipos movidos en la visita, **incluidas las líneas revertidas** (ver §16.1) |
+| `GET` | `/api/support/{id}/equipment/available` | `ticket_equipment` | Qué se puede entregar o retirar |
+| `POST` | `/api/support/{id}/equipment` | `ticket_equipment` | Entrega o **retira** un equipo del cliente |
+| `DELETE` | `/api/support/{id}/equipment/{item}` | `ticket_equipment` | **Revierte** la línea (no la borra). Exige `reason` en el cuerpo |
+
+> **Un solo permiso, y a propósito.** `CheckPermission` tiene semántica **OR**:
+> `permission:view_support,ticket_edit` deja pasar a quien tenga cualquiera de los dos, y
+> `view_support` lo tiene todo el módulo de soporte. Gobernar así una escritura significaba que
+> un permiso de **lectura** autorizaba descontar existencias y cambiar la custodia de un bien.
+> Las cuatro rutas exigen `ticket_equipment` a secas, en lectura y en escritura.
+>
+> `ticket_equipment` se reparte por backfill a todo rol que ya tenga `ticket_intervene`
+> (`2026_09_24_000001`). No es lo mismo que `ticket_intervene` —relatar la visita y sacar un
+> aparato de la bodega son capacidades distintas— pero sí es, hoy, el mismo conjunto de gente.
+
+**`DELETE` no borra: revierte.** El cuerpo es obligatorio:
+
+```json
+{ "reason": "El router que se dejo fue el de la caja de al lado." }
+```
+
+`reason` va de 10 a 500 caracteres. Sin él responde `422`. El inventario vuelve a su sitio —la
+entrega al custodio que la aportó, el retiro a casa del cliente— y la línea **se queda en la
+hoja**, marcada. Revertir dos veces la misma línea responde `422`.
+
+Cada fila de la respuesta añade cuatro campos:
+
+| Campo | Qué dice |
+|---|---|
+| `is_reversed` | `true` si el movimiento se deshizo. La línea **sigue apareciendo** |
+| `reversed_at` | Cuándo, ISO-8601 |
+| `reversed_by_name` | Quién, congelado al revertir |
+| `reversal_reason` | Por qué |
+
+Las revertidas **no suman** al total de la visita ni aparecen como cobrables.
+
+**Historial.** Cada movimiento deja un evento propio en `support_ticket_history`:
+`equipment_delivered`, `equipment_returned`, `equipment_scrapped` y `equipment_reversed` —este
+último con `of_event` y `reason` en `metadata`.
+
+**El contrato de socios no cambia.** `/v1/partner` no expone equipos, ni seriales, ni la hoja de
+la visita.
 | `GET` | `/api/support/{ticket}/attachments/{attachment}` | `ticket_view_evidence` | Vista previa del adjunto (`inline`) |
 | `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
 | `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |

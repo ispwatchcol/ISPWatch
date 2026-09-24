@@ -8053,7 +8053,7 @@ garantía inexistente.
 
 ---
 
-## 78. En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte — 2026-09-23
+## 78. En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte — 2026-09-24
 
 **Lo que se reportó.** «En los tickets no se deja asignar equipos al cliente al cual se le está
 creando el ticket».
@@ -8153,10 +8153,102 @@ ahí, y meter los equipos dentro habría dejado fuera justo al **técnico de cam
 (`code = 'technician'`), que es quien carga el equipo en la visita. Van al lado de las de
 instalación, que están fuera por el mismo motivo.
 
-Los permisos son los **ya existentes** (`view_support` / `ticket_view` / `ticket_edit`, con
-semántica OR). Un permiso nuevo nace apagado en todos los roles ya sembrados y habría dejado a
-los administradores actuales sin ver la sección hasta que alguien corriera un backfill — que es
-exactamente lo que pasó con `manage_document_templates` en § 69.
+**Permiso propio: `ticket_equipment`.** La primera versión reusó los permisos ya existentes
+(`view_support` / `ticket_view` / `ticket_edit`) por miedo a que uno nuevo naciera apagado y
+dejara a los administradores sin ver la sección — el problema de `manage_document_templates`
+del § 69. La auditoría de integración lo tumbó, por dos motivos que se refuerzan:
+
+1. **`CheckPermission` tiene semántica OR.** `permission:view_support,ticket_edit` deja pasar a
+   quien tenga **cualquiera** de los dos, y `view_support` lo tiene todo el módulo de soporte.
+   Es decir: un permiso de **lectura** autorizaba descontar existencias y cambiar la custodia de
+   un bien. No era un matiz de diseño, era un agujero.
+2. **Y a la vez la pantalla exigía `ticket_edit`**, que la matriz de la § 3 le **niega** al
+   Técnico de campo. Backend y frontend discrepaban en direcciones opuestas: la API dejaba pasar
+   a quien no debía, y la interfaz escondía la sección justo a quien la § 18 se la asigna
+   («visita, evidencias, **materiales, equipos**…»).
+
+Ahora las cuatro rutas exigen **`ticket_equipment` a secas**, en lectura y en escritura, y la
+pantalla se abre con ese mismo permiso — si se abriera con uno más laxo mostraría una sección
+que la API va a rechazar en cuanto el técnico pulse algo.
+
+El miedo al permiso apagado se resuelve como lo resolvió el § 77: **con backfill en el mismo
+PR**. Se concede a todo rol que ya tenga `ticket_intervene`, que es el conjunto de quien
+registra la visita — equipos e intervención salen de la misma frase del requerimiento. A
+`client` y a `accounting` no les llega, y no por una exclusión escrita: ninguno de los dos
+interviene. Un permiso nuevo sin backfill no es una capacidad nueva, es una función muerta
+(**P-52**).
+
+**Y no se reusó `ticket_intervene`**, aunque el backfill salga de él. Relatar la visita y sacar
+un aparato de la bodega son capacidades distintas: un ISP puede querer que su técnico cuente lo
+que hizo sin autorizarle a mover existencias. El backfill dice *a quién se le da hoy*, no *qué
+significa*.
+
+### Deshacer una línea dejó de ser un DELETE
+
+La primera versión revertía el inventario y acto seguido borraba la fila de `ticket_equipment`.
+El kardex quedaba entero —el movimiento y su compensación— pero la hoja del ticket perdía la
+única prueba **dentro del expediente** de que aquel aparato llegó a moverse. Quien auditara el
+ticket veía una visita sin equipos, sin forma de saber que hubo uno, ni quién lo quitó, ni por
+qué.
+
+Es exactamente lo que el § 77 acababa de prohibir para las intervenciones —«una visita que se
+puede borrar no es evidencia»— y no hay razón para que un aparato que cambió de manos tenga
+menos garantías que el relato de la visita. Peor: aquí hay un bien físico de por medio.
+
+`InventoryLedger::releaseFromTicket()` pasó a ser **`reverseTicketLine()`**:
+
+- El inventario vuelve a su sitio igual que antes (la entrega al custodio que la aportó, el
+  retiro a casa del cliente, incluida la baja).
+- La línea **se queda**, con `reversed_at`, `reversed_by`, `reversed_by_name` congelado y
+  `reversal_reason`. El motivo es **obligatorio**, de 10 a 500 caracteres, igual que al reabrir
+  una intervención: una corrección sin motivo se puede constatar, pero no auditar.
+- El modelo bloquea `deleting` con una excepción, para que tampoco desaparezca por un comando de
+  consola o un `delete()` despistado en un test.
+- **No se usa `SoftDeletes`**, y es la misma decisión del § 77: un `deleted_at` escondería la
+  línea de toda consulta por omisión, que es justo lo contrario de lo que se busca. La línea
+  revertida **sigue viéndose** en la hoja, tachada, con su autor y su motivo al lado.
+- Lo que sí deja de contar es el dinero: los totales de la visita y la lista de cobrables
+  excluyen las revertidas. Se ven, pero no suman.
+
+Una línea ya revertida no se revierte otra vez (422): si hay que rehacer el movimiento se carga
+de nuevo, y quedan las tres.
+
+**Cuatro eventos de historial, no dos.** `equipment_added` / `equipment_removed` metían el
+sentido en `metadata.direction` y la baja en `metadata.scrapped`, así que «qué se le entregó»,
+«qué se le retiró» y «qué se dio de baja» no se podían responder con un `where` sobre
+`event_type`, que es el único campo indexado. Y `equipment_removed` **nombraba mal el hecho**: no
+se quitó un equipo del ticket, se revirtió un movimiento. Ahora son
+`equipment_delivered`, `equipment_returned`, `equipment_scrapped` y `equipment_reversed`, este
+último con `of_event` y `reason` en `metadata`.
+
+### Los dos agujeros del borrado de inventario
+
+Relajar el `unique(device_id)` destapó dos fallos en `InventoryDeviceController::destroy()`, un
+archivo que este PR no tocaba y que la auditoría encontró por el lado de la consecuencia.
+
+**1. El equipo imposible de eliminar.** El guard rechazaba el borrado si
+`InstallationEquipment::where('device_id', …)->exists()`. Eso era un proxy válido de «está
+puesto en casa de alguien» **mientras la única forma de devolver un equipo fuera borrar esa
+línea**. Desde que el retiro por ticket la conserva —a propósito—, el proxy pasó a mentir: un
+aparato ya devuelto a bodega seguía teniéndola y el guard lo rechazaba **para siempre**, con un
+mensaje además falso («está instalado en casa de un cliente») y sin salida posible, porque el
+operador ya lo había devuelto. El aparato quedaba inservible para el resto de su vida útil sin
+que nadie entendiera por qué — que es, palabra por palabra, el mismo daño que este PR decía
+estar arreglando por el lado del `INSERT`.
+
+Ahora «dónde está hoy» lo responde sólo `inventory_device.status`, que es quien lo sabe.
+
+**2. El serial que se perdía por el lado nuevo.** El guard no miraba `ticket_equipment`, cuyo
+`device_id` es `nullOnDelete`. Un equipo entregado sólo por ticket y luego devuelto a bodega se
+podía borrar, y al hacerlo las líneas del ticket se quedaban sin serial. El kardex sobrevive
+—`device_serial` va congelado como texto— pero el ticket no, y es el ticket el que se audita
+cuando el cliente reclama. Ahora hay una segunda guarda con su propio mensaje: para sacarlo del
+inventario está la baja, que sí queda escrita.
+
+**La asimetría que queda anotada, no resuelta:** el mismo argumento de `SET NULL` vale para
+`installation_equipment`, y ahí el borrado **sí** se permite. Es una decisión consciente de
+alcance —la pide el caso real del equipo devuelto que hay que dar de baja del inventario— y
+queda como **P-58**.
 
 ### La rama que ya existía, y por qué no se retomó
 
@@ -8190,11 +8282,22 @@ duplica la validación de custodia.
 - **El expediente archivado.** Se puede **consultar** su hoja de equipos (los movimientos son
   parte del expediente) pero no escribirla: un archivado está fuera de la operación.
 
-**Cobertura.** `tests/Feature/Support/TicketEquipmentTest.php`, 16 pruebas: entrega, retiro,
-baja por daño, materiales por cantidad, deshacer en los tres sentidos, custodia ajena rechazada,
+**Cobertura.** `tests/Feature/Support/TicketEquipmentTest.php`, **32 pruebas**: entrega, retiro,
+baja por daño, materiales por cantidad, reversa en los tres sentidos, custodia ajena rechazada,
 bodega sin `view_inventory`, equipo de otro cliente, `scrap` como origen rechazado, ticket
-archivado, evento de historial, y la reinstalación tras el retiro que fija el unique relajado.
-Suite completa en verde.
+archivado —también para la reversa—, los cuatro eventos de historial, y la reinstalación tras el
+retiro que fija el unique relajado.
+
+Y las que añadió la adaptación: `view_support` a secas no mueve inventario **ni lee la hoja**,
+el técnico **sin `ticket_edit`** sí la usa, el backfill llega a quien interviene y no a
+contabilidad ni al portal del cliente, el motivo de reversa es obligatorio, la línea revertida
+**sigue apareciendo** en el listado, no se revierte dos veces, deshacer un retiro se rechaza si
+el aparato ya se instaló en otra casa, el equipo con historial de instalación **sí** se borra
+una vez en bodega, el referenciado por un ticket **no**, y el aislamiento por empresa.
+
+En `tests/Feature/Inventory/InventoryDeviceCrudTest.php` cambió de sentido una prueba que
+fijaba la regla vieja: ahora comprueba que un equipo devuelto a bodega **sí** se puede eliminar
+aunque conserve su línea de instalación. Suite completa en verde.
 
 **Deuda consciente.** El retiro sólo admite equipos con serial: un consumible no vuelve, que es
 correcto para el caso real pero deja sin camino la corrección a la baja de una cantidad mal

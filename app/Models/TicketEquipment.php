@@ -38,12 +38,56 @@ class TicketEquipment extends Model
         'source_id',
         'notes',
         'created_by',
+        'reversed_at',
+        'reversed_by',
+        'reversed_by_name',
+        'reversal_reason',
     ];
 
     protected $casts = [
-        'quantity'   => 'decimal:2',
-        'unit_price' => 'decimal:2',
+        'quantity'    => 'decimal:2',
+        'unit_price'  => 'decimal:2',
+        'reversed_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // Sin endpoint de borrado, y la prohibicion vive tambien aqui: la hoja
+        // del ticket no pierde una linea ni por un comando de consola ni por un
+        // `delete()` despistado en un test. Mismo criterio que
+        // `SupportTicketHistory` y que `TicketIntervention` del PR F1.
+        //
+        // Un aparato que cambio de manos deja rastro o no lo deja. Deshacer la
+        // captura no es deshacer el hecho: la linea se marca revertida, con
+        // actor y motivo, y se queda a la vista.
+        static::deleting(function (self $linea) {
+            throw new \RuntimeException(
+                'Una linea de equipos no se borra. Si la captura es incorrecta, '
+                . 'reviertela (DELETE /api/support/{ticket}/equipment/{id} con motivo): '
+                . 'el inventario vuelve a su sitio y la correccion queda en el expediente.'
+            );
+        });
+    }
+
+    /** True cuando la linea fue deshecha y ya no cuenta para el inventario. */
+    public function isReversed(): bool
+    {
+        return $this->reversed_at !== null;
+    }
+
+    /**
+     * Lineas que siguen contando. Las revertidas se SIGUEN VIENDO en la hoja
+     * -por eso no hay SoftDeletes- pero no suman cantidad ni dinero.
+     */
+    public function scopeVigentes($query)
+    {
+        return $query->whereNull('reversed_at');
+    }
+
+    public function reversedBy()
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
+    }
 
     public function ticket()
     {

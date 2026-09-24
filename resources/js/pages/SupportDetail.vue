@@ -503,7 +503,7 @@
                         Descuentan del inventario de quien los aporta y quedan
                         en el kardex: cargar un equipo aquí es sacarlo de la
                         bodega de verdad, no anotarlo. -->
-                    <div v-if="puedeVerEquipos" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                    <div v-if="puedeEquipos" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-1">
                             <h2 class="text-xl font-bold text-gray-800 dark:text-white">Equipos de la visita</h2>
                             <span v-if="equipmentItems.length" class="text-xs text-blue-600 dark:text-blue-400">
@@ -518,11 +518,14 @@
                         <ul v-if="equipmentItems.length" class="space-y-2 mb-4">
                             <li v-for="item in equipmentItems" :key="item.id"
                                 class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border"
-                                :class="item.is_return
-                                    ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-900/40'
-                                    : 'bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-700'">
+                                :class="item.is_reversed
+                                    ? 'bg-gray-50 dark:bg-gray-800/40 border-dashed border-gray-300 dark:border-gray-600 opacity-70'
+                                    : (item.is_return
+                                        ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-900/40'
+                                        : 'bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-700')">
                                 <div class="min-w-0">
-                                    <p class="text-sm font-medium text-gray-800 dark:text-white truncate">
+                                    <p class="text-sm font-medium truncate"
+                                       :class="item.is_reversed ? 'text-gray-500 dark:text-gray-400 line-through' : 'text-gray-800 dark:text-white'">
                                         <span :class="item.is_return ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
                                             {{ item.is_return ? '←' : '→' }}
                                         </span>
@@ -533,8 +536,14 @@
                                         <template v-if="!item.is_device"> · {{ item.quantity }}{{ item.unit ? ' ' + item.unit : '' }}</template>
                                         <template v-if="item.unit_price != null"> · {{ formatCurrency(item.unit_price * item.quantity) }}</template>
                                     </p>
+                                    <!-- La linea revertida NO se oculta: el expediente tiene que contar
+                                         que el aparato se movio, y quien lo deshizo, cuando y por que. -->
+                                    <p v-if="item.is_reversed" class="mt-1 text-[11px] text-red-500 dark:text-red-400">
+                                        Deshecho{{ item.reversed_by_name ? ' por ' + item.reversed_by_name : '' }}{{ item.reversed_at ? ' · ' + formatDate(item.reversed_at) : '' }}
+                                        <template v-if="item.reversal_reason"> · «{{ item.reversal_reason }}»</template>
+                                    </p>
                                 </div>
-                                <button v-if="canEdit" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
+                                <button v-if="puedeEquipos && !item.is_reversed" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
                                     :title="item.is_return ? 'Deshacer el retiro' : 'Devolver al inventario'"
                                     class="shrink-0 p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-50">
                                     <v-icon name="md-delete" class="w-4 h-4" />
@@ -545,7 +554,7 @@
                             Todavía no se ha movido ningún equipo en este ticket.
                         </p>
 
-                        <div v-if="canEdit && !ticket.archived_at" class="space-y-3 border-t border-gray-100 dark:border-gray-700 pt-4">
+                        <div v-if="puedeEquipos && !ticket.archived_at" class="space-y-3 border-t border-gray-100 dark:border-gray-700 pt-4">
                             <!-- Entregar un equipo con serial -->
                             <div>
                                 <select v-model.number="devicePick" @change="addDevice" :disabled="equipmentBusy"
@@ -603,7 +612,7 @@
                             </div>
                         </div>
 
-                        <p v-if="canEdit && !ticket.archived_at" class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+                        <p v-if="puedeEquipos && !ticket.archived_at" class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
                             El equipo entregado queda a nombre del cliente y el retirado vuelve al inventario.
                             Cobrarlo es aparte: usa «Cobrar equipo del ticket» en Cargos.
                         </p>
@@ -1328,18 +1337,25 @@ const materialQty = ref(1)
 // Ver la hoja va con ver el ticket; moverla exige `ticket_edit` y lo vuelve a
 // comprobar el servidor. Se muestra en solo lectura a quien no puede editar
 // porque saber qué equipo se le dejó al cliente es parte de leer el expediente.
-const puedeVerEquipos = computed(() => authStore.hasPermission('ticket_view') || authStore.hasPermission('view_support'))
+// PR F3 - permiso propio, y el MISMO para ver y para mover. El backend exige
+// `ticket_equipment` a secas en las cuatro rutas: si la pantalla se abriera con
+// `view_support` mostraria una seccion que la API va a rechazar.
+const puedeEquipos = computed(() => authStore.hasPermission('ticket_equipment'))
 
+// Las lineas revertidas se VEN pero no suman: siguen en la hoja porque el
+// expediente tiene que contar que aquel aparato se movio, y no cuentan porque
+// el movimiento ya se deshizo.
 const equipmentTotal = computed(() =>
     equipmentItems.value.reduce(
-        (sum, it) => sum + (it.is_return ? 0 : (Number(it.unit_price) || 0) * (Number(it.quantity) || 0)),
+        (sum, it) => sum + ((it.is_return || it.is_reversed) ? 0 : (Number(it.unit_price) || 0) * (Number(it.quantity) || 0)),
         0,
     )
 )
 
 // Sólo las entregas se pueden cobrar. Un retiro es algo que el cliente
 // devolvió; ofrecerlo en el cargo sería invitar a facturárselo.
-const cobrables = computed(() => equipmentItems.value.filter(it => !it.is_return))
+// Una entrega deshecha ya no se cobra: el equipo volvio al inventario.
+const cobrables = computed(() => equipmentItems.value.filter(it => !it.is_return && !it.is_reversed))
 
 // Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
 // lo que está eligiendo sale de su mochila o de la bodega.
@@ -1370,7 +1386,7 @@ const materialLabel = (m) => {
 }
 
 const loadEquipment = async () => {
-    if (!puedeVerEquipos.value) return
+    if (!puedeEquipos.value) return
     try {
         const { data } = await ticketEquipmentApi.list(ticketId)
         equipmentItems.value = Array.isArray(data) ? data : []
@@ -1484,10 +1500,28 @@ const addMaterial = async () => {
     }
 }
 
+/**
+ * Deshace una linea. NO la borra: el backend la marca como revertida y la deja
+ * en la hoja. Por eso pide motivo, igual que reabrir una intervencion: una
+ * correccion sin motivo se puede constatar, pero no auditar.
+ */
 const removeEquipment = async (item) => {
+    const motivo = (window.prompt(
+        item.is_return
+            ? 'Motivo para deshacer este retiro (minimo 10 caracteres):'
+            : 'Motivo para deshacer esta entrega (minimo 10 caracteres):',
+    ) || '').trim()
+
+    if (!motivo) return
+
+    if (motivo.length < 10) {
+        toast.value?.error('Falta el motivo', 'El motivo debe tener al menos 10 caracteres.')
+        return
+    }
+
     equipmentBusy.value = true
     try {
-        const { data } = await ticketEquipmentApi.remove(ticketId, item.id)
+        const { data } = await ticketEquipmentApi.remove(ticketId, item.id, motivo)
         equipmentItems.value = data.equipment ?? []
         await loadAvailableEquipment()
         toast.value?.success('Listo', data.message)
@@ -1842,17 +1876,17 @@ const etiquetaDeEvento = (evento) => {
             return meta.invoice_number
                 ? `Se generó el cargo ${meta.invoice_number}`
                 : 'Se generó un cargo'
-        case 'equipment_added':
-            if (meta.direction === 'in') {
-                return meta.scrapped
-                    ? `Se le retiró al cliente ${meta.label || 'un equipo'} y se dio de baja`
-                    : `Se le retiró al cliente ${meta.label || 'un equipo'}`
-            }
+        case 'equipment_delivered':
             return `Se le entregó al cliente ${meta.label || 'un equipo'}`
-        case 'equipment_removed':
-            return meta.direction === 'in'
-                ? `Se deshizo el retiro de ${meta.label || 'un equipo'}`
-                : `Se deshizo la entrega de ${meta.label || 'un equipo'}`
+        case 'equipment_returned':
+            return `Se le retiró al cliente ${meta.label || 'un equipo'}`
+        case 'equipment_scrapped':
+            return `Se le retiró al cliente ${meta.label || 'un equipo'} y se dio de baja`
+        case 'equipment_reversed': {
+            const que = meta.direction === 'in' ? 'el retiro' : 'la entrega'
+            const por = meta.reason ? ` · «${meta.reason}»` : ''
+            return `Se deshizo ${que} de ${meta.label || 'un equipo'}${por}`
+        }
         case 'no_charge_changed': {
             const sinCobro = evento.new_value === 'sin cobro al cliente'
             const motivo = meta.reason ? ` (${meta.reason})` : ''
