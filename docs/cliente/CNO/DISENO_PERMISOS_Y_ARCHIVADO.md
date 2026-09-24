@@ -151,6 +151,76 @@ deriva entre sedes.
 
 ---
 
+## 3ter. Permiso 21 · `ticket_intervene` (PR F1 · 2026-09-23)
+
+La matriz de la § 3 se cerró con 20 permisos. El PR F1 añade el **21**.
+
+| # | Acción | Permiso | N1 | N2 | Campo | Superv. | Auditor |
+|---|---|---|---|---|---|---|---|
+| 21 | Registrar y gestionar intervenciones | `ticket_intervene` | ⚠️ | ✅ | ✅ | ✅ | ❌ |
+
+### Por qué un permiso propio y no `ticket_edit`
+
+La § 18 le da al **Técnico de campo** «visita, evidencias, materiales, equipos, pruebas
+finales y propuesta de cierre». Pero la matriz de la § 3 le **niega** `ticket_edit` (fila 3).
+
+Si la intervención viajara dentro de `ticket_edit`, dárselo al técnico de campo le daría de
+paso editar asunto, categoría y asignación — justo lo que ese rol no debe tocar. Y no dárselo
+lo dejaría sin poder registrar la visita, que es su función principal. El permiso separado es
+lo que permite cumplir las dos mitades de la frase del documento.
+
+Lo que **no** necesita permiso nuevo, porque ya existe:
+
+| Capacidad | Permiso reutilizado |
+|---|---|
+| Adjuntar la evidencia de la visita | `ticket_attach` |
+| Ver o descargar esa evidencia | `ticket_view_evidence` |
+| Leer las intervenciones | `ticket_view` |
+| Proponer el cierre tras la visita | `ticket_transition` (sin cambios) |
+
+`N2` lo recibe porque la § 18 le da «intervenciones remotas» de forma explícita. `N1` queda en
+⚠️: el documento no le asigna intervenciones, pero tampoco se las niega. `Auditor` en ❌, por
+«revisión **sin alterar** el expediente».
+
+### El backfill, y la lección de P-52
+
+`ticket_close_override`, `ticket_reopen` y `ticket_manage_catalogs` se declararon en el PR B
+sin concedérselos a nadie. El resultado está anotado como **P-52**: el cierre con excepción
+quedó inalcanzable por cualquier vía. **Un permiso declarado y no repartido no es una
+capacidad nueva, es una función muerta.**
+
+Por eso el reparto va en el mismo PR que la funcionalidad:
+
+```
+2026_09_23_000003_grant_ticket_intervene_to_support_roles.php
+```
+
+Concede `ticket_intervene` a **todo rol que hoy tenga `ticket_attach`**. Es el conjunto más
+cercano a «quien atiende el ticket sobre el terreno»: evidencia e intervención salen de la
+misma frase de la § 18, así que quien ya podía adjuntar es exactamente quien debe poder
+registrar la visita.
+
+No se usa `view_support` como criterio —que es lo que hizo el PR B— porque desde aquel
+backfill los permisos granulares ya existen, y `ticket_attach` describe mejor la capacidad
+real que el permiso heredado.
+
+Idempotente: sólo añade lo que falta, no reordena, salta los roles con comodín `*` y recorre
+`role` fila a fila porque `permissions` es JSON y los operadores difieren entre PostgreSQL y
+SQLite. El `down()` retira sólo lo que concedió, lo que es seguro porque el permiso nace aquí.
+
+### Lo que este permiso NO gobierna
+
+**Borrar una intervención.** No existe esa capacidad, para ningún rol, por ninguna vía. El
+§ 15.10 exige que el cierre no borre las intervenciones, así que la tabla no tiene
+`deleted_at`, no hay endpoint, el modelo bloquea `deleting` y la pantalla no tiene botón.
+
+Corregir una visita finalizada exige **reabrirla** con motivo de 10 a 500 caracteres, lo que
+deja `intervention_reopened` en el historial con actor, fecha y motivo. Quien puede reabrir es
+quien puede intervenir: separar un `ticket_intervene_reopen` habría multiplicado la matriz sin
+que el documento lo pida, y la reapertura ya es auditada, que es la garantía que importa.
+
+---
+
 ## 3bis. PR B · Transición a los permisos granulares — **implementado**
 
 Los 20 permisos existen y **cada ruta de ticket exige el suyo**. Lo que **no** se hace aquí es

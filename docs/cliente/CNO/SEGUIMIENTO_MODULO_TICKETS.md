@@ -136,11 +136,11 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-05** | Campos condicionales radio / FTTH | ⚪ Pendiente | No existe | Diseño posterior | Tras PR #2 |
 | **F1-06** | Asociación zona, nodo, AP/OLT, PON, CPE/ONU | 🟡 Parcial | `support_ticket.sectorial_id` | Ampliar jerarquía | — |
 | **F1-07** | Snapshot histórico de infraestructura | ⚪ Pendiente | `sectorial_id` es FK viva, no snapshot | Diseño posterior | Tras F1-06 |
-| **F1-08** | Varias intervenciones por ticket | ⚪ Pendiente | `support_ticket_message` son comentarios | **PR #5** | — |
-| **F1-09** | Pruebas iniciales y finales estructuradas | ⚪ Pendiente | No existe | Tras PR #5 | — |
+| **F1-08** | Varias intervenciones por ticket | 🟢 **Cumplido** | `ticket_intervention`: N visitas por ticket con numero correlativo, tipo remoto/presencial, tecnico y acompanante con nombre congelado, inicio/fin, hallazgo, accion, resultado y proximo paso. Evidencia enlazada a su visita. **Sin borrado**: corregir una finalizada exige reabrirla con motivo | — | **PR F1** |
+| **F1-09** | Pruebas iniciales y finales estructuradas | ⚪ Pendiente | No existe | **PR F2** | Cierra parte de **P-50** |
 | **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido; se exigen **3 de las 10 reglas** del §15 (causa confirmada, acción, resultado). Las otras necesitan campos que el ticket aún no captura | **PR #4** + PR #5 | — |
 | **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
-| **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones | **PR #5** | — |
+| **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones. **No se reutiliza**: su `installation_id` es NOT NULL con CASCADE y un ticket no tiene instalacion | **PR F3** | **D-14** y **P-55** |
 | **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`; `router_outage_events` es base parcial | **PR #6** | — |
@@ -733,17 +733,65 @@ a quien el ISP designe, o el cierre especial sigue inalcanzable.
 reabrir, porque el §19.5 pide que los timestamps no se sobrescriban y la fecha de aquel cierre
 sigue siendo un hecho.
 
-### PR #5 · Intervenciones
+### PR #5 · Intervenciones — dividido en F1 / F2 / F3
+
+El alcance original («intervenciones con materiales y equipos» en un solo PR) se partió en
+tres tras el análisis de diseño del 2026-09-23. La razón: **materiales y equipos son el único
+bloque capaz de desincronizar el inventario físico**, y dependen de una decisión sin tomar
+(**D-14**). Mezclarlos con la funcionalidad base habría obligado a revertir las intervenciones
+si algo fallaba en el inventario.
+
+#### PR F1 · Intervenciones y evidencia enlazada — **implementado**
 
 | Campo | Detalle |
 |---|---|
-| **Objetivo** | Registrar N intervenciones por ticket con materiales y equipos |
-| **Cubre** | F1-08, F1-12, F1-09 (base) |
-| **Alcance** | Tabla de intervenciones (tipo, técnico, inicio/fin, hallazgo, acción, resultado, próximo paso) y equipos retirados/instalados |
-| **Dependencias** | PR #3 |
-| **Pruebas** | Un ticket admite varias intervenciones; cada una conserva su evidencia |
-| **Aceptación** | Se registra una visita con técnico, hallazgo, acción, materiales y resultado |
+| **Objetivo** | Registrar N visitas o atenciones remotas por ticket, con su evidencia |
+| **Cubre** | **F1-08 (cumplido)** |
+| **Alcance** | Tabla `ticket_intervention` (número correlativo, tipo remoto/presencial, técnico y acompañante con nombre congelado, inicio/fin, hallazgo, acción, resultado, próximo paso). Tres columnas sobre `support_ticket_attachment` para enlazar la evidencia. Permiso `ticket_intervene` con backfill. Componente `TicketInterventions.vue` |
+| **Migraciones** | 3 · tabla, columnas de evidencia con FK compuesta, backfill de permiso |
+| **Pruebas** | `tests/Feature/Support/TicketInterventionTest.php` — 38 pruebas |
+| **Aceptación** | Se registran dos visitas con técnico, tiempos, hallazgo, acción, resultado y próximo paso; cada una conserva su evidencia; el historial dice quién y cuándo |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**La regla que gobierna el diseño.** El § 15.10 dice que «el cierre no debe borrar la causa
+sospechada, **las intervenciones** ni los estados anteriores». Por eso `ticket_intervention`
+**no tiene `deleted_at`**, no hay endpoint de borrado, el cliente de API no tiene método y la
+pantalla no tiene botón. El modelo además bloquea `deleting`.
+
+Corregir una visita finalizada exige **reabrirla** con motivo de 10 a 500 caracteres, lo que
+deja `intervention_reopened` en el historial con actor, fecha y motivo. Es la contrapartida de
+no poder borrar: sin una vía de corrección auditada, la inmutabilidad sería inutilizable.
+
+**No toca** workflow, cierre, mediciones, materiales, equipos, inventario, routers, facturas
+ni `/v1/partner`. El cierre **no** exige intervenciones (**D-15**): ninguna de las diez reglas
+del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita.
+
+#### PR F2 · Pruebas iniciales y finales — pendiente
+
+| Campo | Detalle |
+|---|---|
+| **Cubre** | F1-09 · cierra parte de **P-50** |
+| **Alcance** | `ticket_measurement` con los seis campos del § 12 (tipo, resultado, unidad, fecha/hora, origen, fase), razón y justificación cuando no hay medición final (§ 13), y enganche con las reglas de cierre |
+| **Dependencias** | PR F1 |
 | **Estado** | ⚪ Pendiente |
+
+`test_type` será **texto libre con sugerencias documentales** (decisión **S-4**). El § 12
+enumera las métricas en prosa por tecnología sin asignarles código, exactamente como las
+subcausas del Anexo A.2 — y el cliente ya cerró ese criterio en **D-06**.
+
+#### PR F3 · Materiales y equipos — pendiente
+
+| Campo | Detalle |
+|---|---|
+| **Cubre** | F1-12 |
+| **Alcance** | Registro **declarativo** de equipos instalados/retirados y materiales, con snapshot de marca, modelo, serial, MAC, condición y propiedad |
+| **Dependencias** | PR F1 + **D-14** |
+| **Estado** | ⚪ Pendiente |
+
+**No moverá el kardex** sin decisión posterior (**D-14**). Y antes de implementarlo hay que
+resolver **P-55**: el `unique(device_id)` de `installation_equipment` —«un equipo físico no
+puede estar instalado en dos casas a la vez»— quedaría con un agujero si se registran equipos
+instalados fuera de esa tabla.
 
 ### PR #6 · Incidentes, duplicados y tickets relacionados
 
@@ -796,6 +844,8 @@ sigue siendo un hecho.
 | **D-11** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («cierre… según la Solicitud Maestra»). *Enunciado original:* **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
 | **D-12** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («reapertura… según la Solicitud Maestra»). *Enunciado original:* **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
 | **D-13** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** (va dentro de «roles y permisos»). *Enunciado original:* **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
+| **D-14** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿Instalar o retirar un equipo desde un ticket debe mover el kardex de inventario? El documento no lo dice | **Por defecto: NO.** El PR F3 registrara de forma declarativa. Moverlo exige permiso propio y resolver el choque con `unique(device_id)` (**P-55**) | PR F3, F1-12 |
+| **D-15** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿El cierre debe exigir al menos una intervencion? | **Por defecto: NO.** Ninguna de las diez reglas del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita. Exigirlas bloquearia tickets legitimos | PR #4, PR F1 |
 
 ---
 
@@ -912,3 +962,4 @@ sigue siendo un hecho.
 | 2026-09-13 | **PR C implementado**: archivado reversible y auditado de tickets (`deleted_at` + `archived_by` + `archived_reason`), con motivo obligatorio, doble confirmación escribiendo el número, bloqueo de tickets activos salvo duplicado/error de registro y bloqueo con cargos sin anular. Eventos `ticket_archived` / `ticket_restored`. Listado de archivados y restauración desde la interfaz. **El PR D queda absorbido**. Detectada y anotada la deuda **P-48** | David Gómez | *(PR abierto)* |
 | 2026-09-19 | **PR #4 implementado**: workflow formal de tickets. 9 estados del flujo + 9 auxiliares de la §7 sembrados literales; matriz explícita de transiciones; el `PUT` deja de mover el estado; propuesta de cierre, cierre con requisitos del §15, cierre especial auditado y reapertura, cada uno con su permiso. Los cuatro estados viejos se conservan como `legacy` con equivalencia, así que **el contrato del integrador no cambia**. **F1-04 pasa a cumplido; F1-10 queda parcial** (3 de las 10 reglas de cierre son exigibles con el modelo actual). **D-03 deja de bloquear** | David Gómez | *(PR abierto)* |
 | 2026-09-21 | **Correctivo de reapertura**: el humo del PR #4 encontró que un Administrador no podía reabrir el ticket #39. Causa raíz: `ticket_reopen` nunca se repartió —los roles `admin` tenían 17 de 20 permisos `ticket_*`—. Migración idempotente para `code = 'admin'`; la pareja `cerrado → reabierto` queda explícita en `TicketWorkflow::REAPERTURA` sin abrir la transición genérica; `GET .../transitions` ahora dice **por qué** una acción no está disponible. `ticket_close_override` sigue sin repartir a conciencia (**P-52**) | David Gómez | *(PR abierto)* |
+| 2026-09-23 | **PR F1 implementado**: intervenciones tecnicas del § 14 con numero correlativo, tecnico y acompanante congelados, cerrojo de edicion por `finished_at` y reapertura auditada con motivo. Evidencia enlazada sin duplicar archivos, con FK compuesta que impide el cruce entre tickets. Permiso `ticket_intervene` con backfill compatible. **F1-08 pasa a cumplido.** El PR #5 se dividio en F1/F2/F3; nuevas decisiones D-14 y D-15, nueva deuda P-55 y P-56 | — | *(PR abierto)* |

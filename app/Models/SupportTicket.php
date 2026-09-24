@@ -471,6 +471,19 @@ class SupportTicket extends Model
         return $this->hasMany(Invoice::class, 'ticket_id')->orderBy('created_at', 'desc');
     }
 
+    /**
+     * Las visitas y atenciones remotas del ticket (seccion 14, PR F1).
+     *
+     * Ordenadas por `sequence` y no por fecha: el correlativo es el que ve
+     * el tecnico («la segunda visita»), y dos intervenciones registradas
+     * el mismo dia se ordenarian de forma arbitraria por `created_at`.
+     */
+    public function interventions()
+    {
+        return $this->hasMany(TicketIntervention::class, 'support_ticket_id')
+            ->orderBy('sequence');
+    }
+
     public function sectorial()
     {
         return $this->belongsTo(Sectorial::class, 'sectorial_id');

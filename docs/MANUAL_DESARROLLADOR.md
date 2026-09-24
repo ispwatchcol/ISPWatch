@@ -1428,6 +1428,86 @@ Cuatro reglas que no son opcionales:
 ---
 
 
+### Ejemplo: extender el expediente del ticket con una entidad nueva
+
+El PR F1 (intervenciones técnicas) es la plantilla. Si mañana toca añadir mediciones (F2) o
+materiales (F3), el camino ya está trillado y conviene repetirlo.
+
+**1 · Decide si la entidad puede desaparecer.** Es la pregunta que gobierna todo lo demás.
+
+- El **ticket** usa `SoftDeletes`: archivarlo es una operación de negocio reversible y
+  auditada (PR C).
+- Una **intervención** no: es la constancia de que alguien fue y actuó. Por eso
+  `ticket_intervention` **no tiene `deleted_at`**, no tiene endpoint de borrado, y el modelo
+  bloquea `deleting`.
+
+Un borrado blando en una entidad de evidencia es una puerta trasera: basta marcar la fila para
+que desaparezca del expediente sin que el histórico lo cuente. El § 15.10 del requerimiento lo
+prohíbe expresamente.
+
+**2 · Si no se borra, define cómo se corrige.** La inmutabilidad sin salida es inutilizable.
+En intervenciones el cerrojo es `finished_at`:
+
+```
+finished_at NULL  → en curso, editable
+finished_at lleno → cerrada; corregir exige REABRIR con motivo (10–500 caracteres)
+```
+
+El cerrojo va en **dos sitios**: el controlador (que devuelve un 422 explicando qué hacer) y
+el hook `saving` del modelo (para que un camino nuevo no se lo salte en silencio).
+
+**3 · Congela lo que pueda desaparecer.** `technician_name` se copia al registrar, igual que
+`author_name` en notas y adjuntos (H-6) y el titular en `invoices` (P-43). Las FK a `users`
+van a `SET NULL`, nunca `CASCADE`: dar de baja a un empleado no puede borrar lo que hizo.
+
+**4 · Si una tabla hija debe pertenecer al mismo padre, dilo en la base.** El caso de la
+evidencia:
+
+```sql
+ALTER TABLE support_ticket_attachment
+ADD CONSTRAINT support_ticket_attachment_intervention_fk
+FOREIGN KEY (intervention_id, ticket_id)
+REFERENCES ticket_intervention (id, support_ticket_id)
+```
+
+Requiere un `UNIQUE(id, support_ticket_id)` en la tabla referenciada, que por eso existe
+además del `UNIQUE(support_ticket_id, sequence)`.
+
+Con una foránea simple, colgar una evidencia del ticket 10 de una intervención del ticket 77
+sólo lo impediría el `where` del controlador. Y `support_ticket_attachment` **no tiene
+`tenant_id`** —lo deriva del ticket—, así que ese cruce podría saltar de ISP.
+
+> **Ojo con SQLite.** No admite añadir foráneas a una tabla existente con `ALTER TABLE`, así
+> que la restricción se crea sólo bajo `pgsql` y el test correspondiente se salta con
+> `markTestSkipped` y un mensaje que dice por qué. No lo silencies: el CI sí corre PostgreSQL.
+
+**5 · Correlativos: calcula dentro de una transacción y garantiza en la base.**
+
+```php
+SupportTicket::whereKey($id)->lockForUpdate()->first();
+$siguiente = (int) TicketIntervention::where('support_ticket_id', $id)->max('sequence') + 1;
+```
+
+El `lockForUpdate` serializa el cálculo; el `UNIQUE(support_ticket_id, sequence)` es la
+garantía real. En SQLite el lock no emite SQL, pero el motor serializa las escrituras y el
+índice sigue protegiendo.
+
+**6 · Permiso nuevo ⇒ backfill en el MISMO PR.** `ticket_close_override` se declaró sin
+repartirse y quedó inalcanzable (**P-52**). Un permiso sin backfill no es una capacidad nueva,
+es una función muerta. El backfill de `ticket_intervene` concede a quien ya tenía
+`ticket_attach`, recorre `role` fila a fila —`permissions` es JSON y los operadores difieren
+entre motores— y salta los roles con comodín `*`.
+
+**7 · Escrituras sobre ticket archivado.** Usa `SupportTicket::findOrFail()` sin
+`withTrashed()`: el scope global de `SoftDeletes` lo deja fuera y responde 404. Para **leer**,
+`withTrashed()` condicionado a `ticket_archive`/`ticket_restore`, porque el expediente
+archivado sigue siendo consultable para quien puede verlo.
+
+**8 · Componente Vue aparte.** `SupportDetail.vue` pasa de 1 800 líneas. `TicketInterventions.vue`
+recibe `puedeIntervenir` y `ticketArchivado` como props y emite `cambio`; la autorización real
+la pone siempre el servidor. Y usa la escala con nombre (`z-app-modal`), no un `z-[9999]`
+suelto — hay un test que lo vigila.
+
 ### Ejemplo: agregar o cambiar un código de catálogo del ticket
 
 Los catálogos del ticket (`ticket_status`, `ticket_priority`, `ticket_category`,

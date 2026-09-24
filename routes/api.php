@@ -17,6 +17,7 @@ use App\Http\Controllers\SectorialNoteController;
 use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
+use App\Http\Controllers\TicketInterventionController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
@@ -541,6 +542,22 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
             ->middleware('permission:ticket_view_evidence');
         Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download'])
             ->middleware('permission:ticket_view_evidence');
+
+        // PR F1 · Intervenciones tecnicas (seccion 14). Antes del apiResource,
+        // por lo mismo que los adjuntos: `support/{support}` casaria con
+        // `support/{id}/interventions` si fueran despues.
+        //
+        // NO HAY RUTA DE BORRADO, y no es un olvido. Una intervencion no se
+        // borra: si esta mal se reabre con motivo y se corrige, y la correccion
+        // queda en el historial. El modelo bloquea ademas `deleting`.
+        Route::get('/support/{ticket}/interventions', [TicketInterventionController::class, 'index']);
+
+        Route::middleware('permission:ticket_intervene')->group(function () {
+            Route::post('/support/{ticket}/interventions', [TicketInterventionController::class, 'store']);
+            Route::put('/support/{ticket}/interventions/{intervention}', [TicketInterventionController::class, 'update']);
+            Route::post('/support/{ticket}/interventions/{intervention}/reopen', [TicketInterventionController::class, 'reopen']);
+            Route::post('/support/{ticket}/interventions/{intervention}/evidence', [TicketInterventionController::class, 'linkEvidence']);
+        });
 
         // PR #3 · Historial inalterable (F1-17). Sólo lectura: no hay ruta de
         // edición ni de borrado, y el modelo lanza si alguien lo intenta por
