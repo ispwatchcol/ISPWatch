@@ -1032,6 +1032,32 @@ corta, y es deliberado — el propio script de provisión abre TCP 22/8291/8728 
 gestión pero **no** abre ICMP, así que un cliente bien configurado con *drop* por defecto en
 el chain `input` no contesta ping y se administra sin problema.
 
+### Antes de marcar: ¿este router se puede gestionar? (2026-09-23)
+
+`Router::manageabilityIssue()` responde con una consulta a la base y sin tocar la red. Es la
+primera compuerta de `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()`,
+justo detrás de la de RADIUS.
+
+| Estado del router | Qué pasa |
+|---|---|
+| `radius = true` | Gestionable por delegación: no hay nada que escribirle |
+| Con credenciales **y** (IP **o** usuario de VPN) | Gestionable: sigue el camino normal |
+| Sin credenciales, o sin IP y sin VPN | **Se rechaza aquí**, con la razón escrita, y queda un log `failed` en `suspension_action_logs` |
+
+**Por qué importa dónde vive esta comprobación.** La reconexión automática al pagar
+(`BillingService::reactivateIfCleared()`) corre **dentro** de la petición HTTP que registra el
+pago. Contra un equipo sin configurar, esa llamada encadena dos sesiones SSH —la del
+resolver y la del `ssh-exec`— y espera los dos tiempos de espera completos; el gateway corta
+con un **504** y el cajero ve un error por un pago que **sí** se guardó, porque la transacción
+confirma antes. De ahí salían los cobros dobles: vuelve a cobrar «porque falló».
+
+`reactivateIfCleared()` comprueba lo mismo antes de llamar al servicio y, si el equipo no es
+gestionable, **no da al cliente por reactivado**: nadie le levantó el corte, así que sigue
+suspendido y la respuesta del pago lo dice. La salida es una decisión humana —el botón
+«Activar igualmente» del recaudo, que llama al endpoint de activación manual de siempre y
+queda en `audit_logs` con su autor— y no un automatismo que mienta sobre el estado del
+servicio.
+
 **Escapado de comandos:** el comando interno usa comillas planas `"` (no `\"`), y una
 única capa de `addslashes()` la aplica `coreSshExecCommand()`. Todo *statement* va
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`
@@ -1260,6 +1286,25 @@ como «el equipo está caído» y se va a auditar un router que está perfectame
 *motivo* en un vocabulario que se pueda contar y filtrar; `reason` responde otra pregunta y
 `error_message` es texto libre del RouterOS. Su `router_id` ya era nullable, así que el caso que
 no dejaba ningún rastro —cliente sin equipo asignado— por fin queda escrito.
+
+#### La misma pregunta, en las seis puertas (2026-09-23)
+
+El preflight protege el camino del **pago**. Pero a empujar algo al router se entra por seis
+puertas —el panel (activar y suspender), el reintento manual de un log fallido, el corte
+automático por mora, el reconciliador y la reactivación al pagar— y las otras cinco seguían
+marcando a ciegas: contra un equipo sin credenciales, la sesión SSH no falla, **espera**, y se
+lleva el tiempo de espera completo.
+
+Por eso `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()` —el punto por el
+que pasan las seis— hacen la comprobación justo detrás de la de RADIUS, y devuelven `false` con
+la razón escrita en `suspension_action_logs` sin abrir nada.
+
+**Qué necesita un router para ser operable lo define `Router::manageabilityIssue()`, y lo define
+una sola vez.** `ReconnectionPreflight` delega ahí esa parte en vez de repetir la lista de
+campos: dos definiciones de lo mismo empiezan iguales y terminan distintas, y la que se queda
+corta es siempre la que nadie recuerda actualizar. Lo que el preflight **no** delega es el
+motivo que viaja al navegador, que sigue siendo el código cerrado de `ReconnectionOutcome` y
+nunca el texto que nombra qué campo falta.
 
 **Dos candados contra reconexiones simultáneas** del mismo servicio: uno en el endpoint de
 reintento (`409` si ya hay una corriendo) y otro dentro del intento. Dos procesos escribiendo la

@@ -705,7 +705,7 @@ cubra las cuatro combinaciones.
 
 ### 🟡 P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa
 
-Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 74 de la bitácora).
+Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 75 de la bitácora).
 
 Con `radius = true`, ISPWatch no abre una sola sesión contra el equipo. Aun así,
 `StoreRouterRequest` y `UpdateRouterRequest` siguen exigiendo `ip` (con formato de IP
@@ -739,7 +739,7 @@ recibir llamadas por dos números distintos en dos pantallas de la misma app.
 > saldo a favor a una factura baja `balance_due` y baja el saldo **sin crear asignación**, así
 > que ese dinero salía de los dos términos de la resta: el informe **denunciaba a todo cliente
 > que alguna vez hubiera gastado su saldo**, por el importe exacto que gastó. El tercer término
-> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 75).
+> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 76).
 >
 > **Antes de tocar un solo peso**, volver a correr:
 > ```
@@ -2582,6 +2582,31 @@ montar el mismo toggle en `CustomerAdd.vue` (el campo ya viaja en el `POST /api/
 que es sólo interfaz) y revertir la aclaración del manual. Mientras tanto, el camino es
 guardar y editar.
 
+### 📋 P-54 · La reconexión al pagar sigue siendo síncrona, y el recaudo no tiene idempotencia
+
+El preflight (§ 72) quita el 504 del caso que lo disparó —el router sin configurar— y la guarda
+del servicio compartido (§ 74) lo quita de las otras cinco puertas. Pero el camino feliz no
+cambió de forma: con un router **bien** configurado, registrar un pago sigue abriendo **dos
+sesiones SSH encadenadas** dentro de la petición HTTP, y eso son decenas de segundos.
+
+Basta con que ese equipo esté lento, saturado o con el túnel inestable para que vuelva el mismo
+504. Causa distinta, daño idéntico.
+
+**Por qué no se resolvió.** El código explica por qué se hizo síncrono: que el cajero vea el
+desenlace sin depender de que haya un worker de cola vivo. Volverlo asíncrono sin más le quita
+esa respuesta, y hacerlo bien obliga a decidir cómo se la devuelve — sondeo desde la pantalla, o
+aviso posterior. Es una decisión de producto.
+
+**Recomendación.** Acotar el intento con un presupuesto de tiempo (~15-20 s): si el router
+responde, el cajero ve el resultado como hoy; si no, el pago responde igual y la reconexión la
+termina el failover que ya existe (`suspension_action_logs` + `billing:reconcile-suspensions`).
+`executeSsh()` ya acepta un tiempo de espera por comando.
+
+**Y la red de seguridad que falta pase lo que pase:** el recaudo no tiene idempotencia. Dos
+pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobante, entran sin una
+sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal contado — y
+es exactamente lo que le pasó a este ISP antes de los dos arreglos.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2686,6 +2711,7 @@ guardar y editar.
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
+| **P-54** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
