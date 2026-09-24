@@ -299,6 +299,48 @@ cualquier custodio —recoger lo que un técnico no usó es su función— porqu
 `view_inventory` y el movimiento queda escrito. Lo que nunca se permite es *consumir* existencias
 ajenas en silencio.
 
+**4. Por dónde sale el inventario: la visita.** Hay dos puertas, y hasta el 2026-09-23 sólo
+estaba construida una.
+
+| Puerta | Tabla de líneas | Sentidos | Método del ledger |
+|---|---|---|---|
+| Orden de instalación | `installation_equipment` | sólo entrega | `assignDeviceToInstallation()` / `assignMaterialToInstallation()` |
+| **Ticket de soporte** | `ticket_equipment` | entrega **y retiro** | `assignDeviceToTicket()` / `assignMaterialToTicket()` / `returnDeviceFromTicket()` |
+
+La instalación sólo entrega: el cliente empieza sin nada. **La visita de soporte casi siempre
+cambia un equipo por otro**, y ése es el motivo de que `ticket_equipment` sea una tabla propia y
+no una columna más: lleva `direction` (`out` = se le dejó al cliente, `in` = se le retiró). Un
+cambio de router son dos líneas del mismo ticket.
+
+Antes de esto, el retiro no existía en **ninguna** parte del sistema. Un equipo que llegaba a
+`status = installed` sólo salía de ahí borrando la línea de la instalación, que es una corrección
+de captura y no un retiro: borraba la historia de la visita en la que se entregó. Y como en la
+práctica la mitad de los equipos se entregan en un ticket, lo que ocurría era que el técnico
+cobraba el router escribiendo la descripción a mano en «Cargo Asociado» y el aparato seguía
+figurando disponible en bodega para siempre.
+
+`canTakeFrom()` pasó a aceptar `CustomerInstallation|SupportTicket`: el «técnico asignado a la
+visita» es `technician_id` en una y `staff_id` en el otro, y la regla de custodia es la misma.
+`assertCanHandOverTo()` es su espejo para el sentido contrario —quien **recibe** el equipo
+retirado responde por él, así que nadie se lo mete en la mochila a otro técnico—.
+
+**El retiro tiene tres destinos, y el tercero no es un custodio.** Un equipo puede volver a la
+mochila del técnico, a una bodega, o **de baja** (`scrap`): volvió quemado y no vuelve a
+circular. La distinción no es cosmética — un aparato muerto devuelto a bodega cuenta como
+disponible y alguien lo va a prometer en la siguiente instalación. La baja no comprueba custodia
+(no hay nadie que responda por la chatarra) y escribe `baja` en el kardex en vez de `devolucion`.
+
+**Cargar un equipo no es cobrarlo.** La línea guarda `unit_price` congelado del catálogo y la
+interfaz ofrece «Cobrar equipo del ticket», que lo **precarga editable** en el formulario de
+cargo; facturar sigue siendo una decisión aparte, con su propio bloqueo por `no_charge`. Las
+líneas `in` nacen sin precio: un retiro no se cobra, y dejar ahí una cifra invitaría a
+arrastrarla al cargo por descuido.
+
+Efecto colateral que hubo que corregir para que el retiro sirviera de algo:
+`installation_equipment.device_id` era **único**, así que un equipo devuelto no se podía instalar
+nunca más en otro cliente. Hoy es un índice normal; el invariante real —un equipo no está en dos
+casas a la vez— lo sostiene `inventory_device.status`, que es una fila por aparato.
+
 ### Composición de la factura mensual
 
 Todo lo que entra en la mensualidad de un cliente se arma en un único método,

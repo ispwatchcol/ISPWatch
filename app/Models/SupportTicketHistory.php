@@ -46,6 +46,37 @@ class SupportTicketHistory extends Model
     public const ATTACHMENT_ADDED  = 'attachment_added';
     public const CHARGE_CREATED    = 'charge_created';
 
+    /**
+     * PR F3 · Movimiento de inventario hecho desde el ticket.
+     *
+     * Eventos propios y no `note_added`, aunque la nota fuera más barata: esto
+     * es un aparato que cambió de manos y que alguien tiene que poder rastrear
+     * sin leer el expediente entero.
+     *
+     * CUATRO TIPOS Y NO DOS, Y EL SENTIDO **NO** VIAJA EN `metadata`
+     *
+     * La primera versión tenía `equipment_added` / `equipment_removed` y metía
+     * entrega-o-retiro en `metadata.direction` y la baja en `metadata.scrapped`.
+     * Leerlo exigía abrir el JSON, y las tres preguntas que de verdad se le
+     * hacen a este historial —«qué se le entregó», «qué se le retiró», «qué
+     * se dio de baja»— no se podían responder con un `where` sobre
+     * `event_type`, que es el único campo indexado.
+     *
+     * Y sobre todo: `equipment_removed` nombraba mal lo que pasó. No se quitó
+     * un equipo del ticket —la línea sigue ahí—, se **revirtió** un movimiento.
+     * Un tipo que miente sobre el hecho es peor que uno que falta.
+     *
+     *   · `equipment_delivered` — salió de la bodega y quedó en casa del cliente.
+     *   · `equipment_returned`  — volvió del cliente al inventario.
+     *   · `equipment_scrapped`  — volvió quemado y no vuelve a circular.
+     *   · `equipment_reversed`  — alguien deshizo uno de los tres, con motivo.
+     *     En `metadata` van `of_event` (cuál se deshizo) y `reason`.
+     */
+    public const EQUIPMENT_DELIVERED = 'equipment_delivered';
+    public const EQUIPMENT_RETURNED  = 'equipment_returned';
+    public const EQUIPMENT_SCRAPPED  = 'equipment_scrapped';
+    public const EQUIPMENT_REVERSED  = 'equipment_reversed';
+
     // PR C · Archivado. Los dos eventos que registran que un expediente salió
     // de la operación ordinaria y que volvió. El motivo —obligatorio— viaja en
     // `metadata`, no en `new_value`: es prosa de 10 a 500 caracteres, no un

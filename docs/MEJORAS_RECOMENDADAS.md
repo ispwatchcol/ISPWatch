@@ -2496,16 +2496,37 @@ sin abrirlas una por una.
 periodo y por técnico. Es la pregunta que el ISP va a hacer en cuanto empiece a usar la
 marca, y los datos ya están todos en la base.
 
-### 📋 P-49 · Los equipos del ticket (KAN-92) todavía no saben de la marca «sin cobro»
+### ✅ P-49 · Los equipos del ticket (KAN-92) — RESUELTO el 2026-09-23
 
-`feat/kan92-equipos-en-ticket` trae el backend para descargar y retirar equipos desde un
-ticket, espejo del de instalaciones, y está **sin mergear y sin pantalla**. Su hoja tendrá
-que mostrar la marca `support_ticket.no_charge` igual que la de la instalación —el técnico
-que cambia un router en garantía necesita ver «no le cobres» donde está trabajando— y el
-costo interno de esos equipos.
+Se implementó completo en `feat/ticket-equipment` (§ 74 de `BITACORA_TECNICA.md`): tabla
+`ticket_equipment` con `direction`, cuatro métodos nuevos en `InventoryLedger`, endpoints,
+**pantalla** en el detalle del ticket y documentación en los siete manuales.
 
-No es un fallo de ninguna de las dos ramas: es una costura que sólo existe cuando las dos
-estén en `main`, y se anota aquí para que no se descubra en producción.
+**La rama `feat/kan92-equipos-en-ticket` se abandona.** Traía el backend del 2026-09-12 y se
+solapaba casi entero con lo nuevo; se recogió de ella el caso que le faltaba a la
+implementación nueva —**retirar dando de baja** el equipo que volvió quemado— y se descartó su
+`retrieveFromCustomer()`, que borraba las líneas de `installation_equipment` del equipo para
+sortear el `unique(device_id)`: eso destruye el registro de una visita que sí ocurrió. El unique
+se relajó en su lugar (ver la trampa #52 del manual de desarrollador).
+
+**Lo que sí queda pendiente de aquella nota:** la hoja de equipos del ticket **no muestra** la
+marca `support_ticket.no_charge` ni el costo interno acumulado de la visita. El bloque de Cargos
+sí la muestra, unos centímetros más abajo, pero el técnico que cambia un router en garantía la
+necesita donde está trabajando. Se une a P-48: el informe de visitas sin cobro con su costo
+interno sigue sin existir, y ahora tendría que sumar las dos tablas
+(`installation_equipment` + `ticket_equipment` con `direction = 'out'`).
+
+### 📋 P-57 · El material gastado en un ticket no se puede devolver, sólo deshacer
+
+En `ticket_equipment` el retiro (`direction = 'in'`) admite **sólo equipos con serial**. Un
+consumible no vuelve —cuatro RJ45 ponchados no se recuperan—, lo cual es correcto para el caso
+real, pero deja sin camino el error de captura descubierto tarde: si alguien cargó 40 metros de
+cable en vez de 4 y ya pasaron días, la única salida es la papelera de esa línea, que devuelve
+**toda** la cantidad a quien la aportó. No hay forma de corregir a la baja.
+
+No es urgente —la papelera + volver a cargar la cifra correcta resuelve el caso— pero cuando
+aparezca el primer inventario descuadrado por esto, la respuesta es una corrección de cantidad
+sobre la línea, no un retiro de material.
 
 ### 📋 P-50 · El `$` sigue sin escaparse en el COMANDO, sólo en la contraseña
 
@@ -2712,8 +2733,10 @@ es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
 | **P-54** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
-| **P-55** | El `unique(device_id)` de `installation_equipment` («un equipo, una casa») quedara con un agujero si el PR F3 registra equipos instalados desde un ticket, fuera de esa tabla | Un mismo equipo fisico podria figurar instalado en una casa y entregado en otra sin que nada lo impida | 🟠 Media | 📋 Pendiente · **resolver en el DISEÑO de F3**, no al implementarlo |
+| **P-55** | El `unique(device_id)` de `installation_equipment` («un equipo, una casa») quedaria con un agujero al registrar equipos instalados desde un ticket | Un mismo equipo fisico podria figurar instalado en una casa y entregado en otra sin que nada lo impida | 🟠 Media | ✅ **Resuelto 2026-09-24** (§ 78): el unique se relajo a indice normal y el invariante paso a `inventory_device.status` + `customer_id`, que es UNA fila por aparato, comprobado en las CUATRO rutas que pueden dejar un equipo en un cliente |
 | **P-56** | `SupportEdit.vue` sigue eligiendo tecnico filtrando la lista por NOMBRE de rol (`'técnico' \|\| 'tecnico'`) | Un tenant que llame «Campo» a su rol tecnico se queda sin candidatos, y la pantalla no explica por que | 🟡 Baja | 📋 Pendiente · el PR F1 ya no depende de esa heuristica: valida contra el tenant en el backend |
+| **P-58** | Borrar un equipo del inventario deja sin serial su linea historica de `installation_equipment` (`device_id` es `SET NULL`) | La hoja de aquella instalacion conserva marca y modelo pero pierde el serial; el kardex si lo conserva congelado. En `ticket_equipment` esto SI se frena, y la asimetria es consciente | 🟡 Baja | 📋 Pendiente · decidir si el guard de borrado se extiende a `installation_equipment` o si el serial se congela en la linea, como ya hace el kardex |
+| **P-59** | Los estados de `customer_installations` se teclean como cadena suelta, y la columna es un `enum` en castellano (`pendiente`/`completada`/`cancelada`) mientras `payments.status` es en ingles (`completed`) | SQLite no hace cumplir el enum y PostgreSQL si: un valor mal escrito pasa la suite en local y solo revienta en el job de Postgres. Ya ocurrio al adaptar el PR F3 | 🟡 Baja | 📋 Pendiente · constantes o enum respaldado en `CustomerInstallation` y usarlas en codigo y pruebas. Ver trampa #63 |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
@@ -2776,7 +2799,7 @@ Y las cinco del inventario con custodia (2026-08-06), que van juntas y en este o
 | `..._130100_add_custody_to_inventory_device_table` | `status` + `customer_id` + índices | Hace backfill: lo asignado pasa a `assigned` |
 | `..._130200_create_inventory_balances_table` | Saldos de consumibles | — |
 | `..._130300_create_inventory_movements_table` | Kardex append-only | — |
-| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` **único** |
+| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` único **hasta el 2026-09-23** (lo relaja `..._000003`, ver § 74) |
 
 ### 4. Sincronizar permisos tras cada despliegue
 

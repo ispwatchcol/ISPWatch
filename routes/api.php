@@ -19,6 +19,7 @@ use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\TicketInterventionController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
@@ -178,6 +179,36 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         ->middleware('permission:view_support');
     Route::delete('/installations/{installation}/equipment/{item}', [InstallationEquipmentController::class, 'destroy'])
         ->middleware('permission:view_support');
+
+    // Equipos y materiales de una visita de SOPORTE. Van aquí y no en el grupo
+    // `staff_profile` de más abajo por una razón operativa: ese grupo sólo deja
+    // pasar los códigos de rol `admin` y `staff`, y quien carga el equipo en la
+    // visita es el TÉCNICO DE CAMPO. Metidas allí, la sección existiría para
+    // todos menos para quien tiene que usarla — que es exactamente el motivo
+    // por el que las de instalación tampoco están dentro.
+    //
+    // UN SOLO PERMISO POR RUTA, Y A PROPÓSITO. `CheckPermission` tiene semántica
+    // **OR**: `permission:view_support,ticket_edit` deja pasar a quien tenga
+    // cualquiera de los dos, y `view_support` lo tiene todo el módulo. Gobernar
+    // así una escritura significa que un permiso de LECTURA autoriza descontar
+    // existencias y cambiar la custodia de un bien. Por eso aquí va
+    // `ticket_equipment` a secas, en lectura y en escritura.
+    //
+    // La regla de qué puede tomar cada quien —lo suyo, lo del técnico asignado,
+    // las bodegas sólo con permiso de inventario— la sigue aplicando
+    // InventoryLedger, no la ruta: la ruta dice QUIÉN entra, el ledger dice DE
+    // DÓNDE puede tomar.
+    Route::get('/support/{id}/equipment', [TicketEquipmentController::class, 'index'])
+        ->middleware('permission:ticket_equipment');
+    Route::get('/support/{id}/equipment/available', [TicketEquipmentController::class, 'available'])
+        ->middleware('permission:ticket_equipment');
+    Route::post('/support/{id}/equipment', [TicketEquipmentController::class, 'store'])
+        ->middleware('permission:ticket_equipment');
+    // No es un borrado: escribe una REVERSA auditada y deja las dos líneas a la
+    // vista. El verbo se conserva porque es el gesto de la papelera en la
+    // pantalla, pero nada desaparece. Ver TicketEquipment y el § 78.
+    Route::delete('/support/{id}/equipment/{item}', [TicketEquipmentController::class, 'destroy'])
+        ->middleware('permission:ticket_equipment');
 
     // ─── PROSPECTS ───
     // El alta de cliente lee el prospecto y lo marca como convertido, así que

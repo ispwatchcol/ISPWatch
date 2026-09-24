@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\InstallationEquipment;
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
+use App\Models\TicketEquipment;
 use App\Services\Inventory\InventoryExpenseRecorder;
 use App\Services\Inventory\InventoryLedger;
 use App\Support\InventoryIdentifier;
@@ -133,21 +133,53 @@ class InventoryDeviceController extends Controller
     /**
      * Remove the specified device from storage.
      *
-     * Un equipo que está en casa de un cliente no se borra: installation_equipment
-     * apunta a él con SET NULL, así que el DELETE no falla — deja la línea de la
-     * instalación sin equipo y nadie vuelve a saber qué router quedó instalado.
-     * Para sacarlo del inventario está la baja (/inventory/{id}/retire), que sí
-     * queda escrita en el kardex.
+     * DOS GUARDAS, Y CADA UNA RESPONDE UNA PREGUNTA DISTINTA.
+     *
+     * 1. ¿Está AHORA en casa de un cliente? Lo dice `inventory_device.status`,
+     *    que es una sola fila por aparato. Para sacarlo del inventario está la
+     *    baja (`/inventory/{id}/retire`), que sí queda escrita en el kardex.
+     *
+     * 2. ¿Hay algún documento que lo nombre y que perdería el serial si se
+     *    borra? Las líneas de instalación y las de ticket apuntan al equipo con
+     *    `SET NULL`, así que el DELETE no falla: deja el documento sin equipo y
+     *    nadie vuelve a saber qué router quedó ahí.
+     *
+     * POR QUÉ LA PRIMERA GUARDA YA NO MIRA `installation_equipment`
+     *
+     * Mirarla era correcto mientras la ÚNICA forma de devolver un equipo fuera
+     * BORRAR su línea de la hoja: si la fila existía, el aparato estaba puesto.
+     * Desde que el retiro por ticket existe, esa línea se CONSERVA a propósito
+     * —es el registro de una visita que sí ocurrió— y un equipo ya devuelto a
+     * bodega seguía teniéndola. El guard lo rechazaba para siempre, con un
+     * mensaje además falso —«está instalado en casa de un cliente»— y sin
+     * salida posible: el operador YA lo había devuelto. El aparato quedaba
+     * inservible para el resto de su vida útil sin que nadie entendiera por qué.
+     *
+     * Ahora «dónde está hoy» lo responde sólo `status`, que es quien lo sabe, y
+     * el historial documental se protege aparte y con su propio mensaje.
      */
     public function destroy(InventoryDevice $inventory)
     {
-        $installed = $inventory->status === InventoryDevice::STATUS_INSTALLED
-            || InstallationEquipment::where('device_id', $inventory->id)->exists();
-
-        if ($installed) {
+        if ($inventory->status === InventoryDevice::STATUS_INSTALLED) {
             throw ValidationException::withMessages([
                 'device' => 'Este equipo está instalado en casa de un cliente y no se puede eliminar. '
                     . 'Devuélvelo a bodega o dale de baja para sacarlo del inventario.',
+            ]);
+        }
+
+        // Borrarlo dejaría la hoja de la visita sin equipo: `ticket_equipment`
+        // lo referencia con `nullOnDelete`, así que el serial desaparecería del
+        // expediente. El kardex conserva `device_serial` congelado, pero el
+        // ticket no —y es el ticket el que se audita cuando el cliente reclama.
+        //
+        // withoutTenantScope: el equipo pudo moverse en el ticket de otra sede
+        // del mismo grupo, y el rastro vale igual. La pregunta aquí es «¿alguien
+        // lo nombra?», no «¿lo nombra alguien de los míos?».
+        if (TicketEquipment::withoutTenantScope()->where('device_id', $inventory->id)->exists()) {
+            throw ValidationException::withMessages([
+                'device' => 'Este equipo se movió en la visita de al menos un ticket y borrarlo dejaría '
+                    . 'esa hoja sin serial. Para sacarlo del inventario dale de baja: '
+                    . 'queda en el kardex y el ticket conserva su historia.',
             ]);
         }
 

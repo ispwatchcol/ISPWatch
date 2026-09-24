@@ -1669,6 +1669,74 @@ Dentro del ticket puedes:
   > **El interruptor «Cargo Asociado» del alta no bastaba.** Que venga apagado sólo significa
   > que ese día no se cobró; el ticket seguía admitiendo cargos para siempre. La marca es lo
   > otro: una prohibición.
+- **Entregar y retirar equipos**, en el bloque **Equipos de la visita** (nuevo el 2026-09-24).
+
+### 14.2.2 Equipos de la visita
+
+Hasta ahora, para dejarle un equipo a un cliente había que abrir una **orden de instalación**.
+En una visita de soporte no había forma: el técnico cambiaba el router y sólo podía escribir a
+mano «router nuevo» en el cargo, así que **el equipo seguía figurando disponible en la bodega
+para siempre** y el viejo se quedaba marcado como instalado en casa del cliente.
+
+Ahora el ticket tiene su propio bloque, y funciona en los dos sentidos:
+
+- **Entregar equipo con serial.** Se elige de una lista agrupada por quién lo tiene. Queda a
+  nombre del cliente del ticket y sale de tu inventario.
+- **Retirar equipo del cliente.** Aparece lo que ese cliente tiene instalado hoy. Eliges a dónde
+  va —a tu nombre, a una bodega, o **de baja** si volvió inservible— y el equipo deja de figurar
+  en su casa.
+  > **«Dar de baja» no es lo mismo que devolver.** Un router quemado devuelto a la bodega vuelve
+  > a contar como disponible, y alguien lo va a prometer en la siguiente instalación. Si el
+  > equipo no sirve, márcalo de baja: el botón se pone rojo y te lo advierte. Si te equivocas,
+  > la papelera deshace el movimiento y el equipo vuelve a figurar en casa del cliente.
+- **Agregar material** (RJ45, cable, conectores) con su cantidad, igual que en la instalación.
+
+> Sólo ves lo que **tú** tienes asignado, más lo del técnico asignado al ticket. Las bodegas sólo
+> si administras inventario. Si no ves nada, pide que te entreguen equipos en
+> *Inventarios → Entregas y traspasos*.
+>
+> Cada línea **mueve el inventario de verdad** y queda en el historial del equipo y del ticket.
+
+#### ¿Quién puede usar este bloque?
+
+Hace falta el permiso **«Tickets · entregar y retirar equipos en la visita»**
+(`ticket_equipment`), en *Configuración → Roles*. Al actualizar, se le concedió solo a los roles
+que ya tenían **«Tickets · registrar intervenciones técnicas»**, que son los que atienden en
+campo. Si tu técnico no ve el bloque, es esa casilla.
+
+**No hace falta «Editar contenido del ticket».** Es a propósito: el técnico de campo carga el
+equipo de su visita sin poder cambiar el asunto, la categoría ni a quién está asignado.
+
+#### Deshacer un movimiento
+
+El botón de la papelera **no borra la línea**: la deshace y la deja escrita.
+
+- Te pide un **motivo** (mínimo 10 caracteres). Es obligatorio.
+- El inventario vuelve a su sitio: una entrega vuelve a quien la aportó, un retiro vuelve a
+  figurar en casa del cliente.
+- La línea **sigue en la hoja**, tachada, con quién la deshizo, cuándo y por qué. No suma al
+  total de la visita ni se puede cobrar.
+
+> **Por qué no desaparece.** La hoja de equipos es parte del expediente del ticket. Que un
+> aparato haya entrado y salido es un hecho, y borrarlo dejaría al que audita el ticket meses
+> después viendo una visita sin equipos, sin forma de saber que hubo uno. Es la misma regla de
+> las intervenciones: se corrige, no se borra.
+>
+> Un movimiento ya deshecho no se vuelve a deshacer. Si hay que mover el equipo otra vez,
+> cárgalo de nuevo y quedan las tres líneas.
+>
+> Un **expediente archivado** no admite ni cargar ni deshacer: restáuralo primero.
+
+**Cargar un equipo no lo cobra.** Son dos cosas separadas a propósito: hay equipos que se
+entregan por garantía y no se facturan. Cuando sí haya que cobrarlo, abre **Nuevo Cargo** y usa
+el desplegable **«+ Cobrar equipo del ticket»**: trae la descripción y el precio del catálogo ya
+puestos, y los puedes cambiar antes de generar la factura.
+
+> Los equipos **retirados** no aparecen en ese desplegable. No se le cobra al cliente lo que se
+> le recogió.
+>
+> Si el ticket está marcado **Sin cobro al cliente**, los equipos se siguen cargando y
+> descontando del inventario —son gasto de la empresa—, pero el ticket no admite cargos.
 
 ### 14.2.1 El ciclo de vida del ticket
 

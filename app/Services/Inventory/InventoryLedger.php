@@ -9,6 +9,8 @@ use App\Models\InventoryBalance;
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
+use App\Models\SupportTicket;
+use App\Models\TicketEquipment;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -350,6 +352,452 @@ class InventoryLedger
         });
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Visita de soporte.
+    //
+    // Mismo kardex y mismos custodios que la instalación, con una diferencia
+    // que manda sobre el diseño: la visita de soporte se mueve en DOS
+    // sentidos. Un cambio de router entrega uno y retira otro, y si sólo se
+    // registrara la entrega el equipo viejo se quedaría marcado como instalado
+    // en casa del cliente para siempre.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Descarga un equipo serializado del custodio y lo deja instalado en el
+     * cliente del ticket. Devuelve la línea creada.
+     */
+    public function assignDeviceToTicket(
+        SupportTicket $ticket,
+        InventoryDevice $device,
+        User $actor,
+        ?string $notes = null
+    ): TicketEquipment {
+        $customerId = $this->ticketCustomerId($ticket);
+
+        if ($device->status === InventoryDevice::STATUS_INSTALLED) {
+            throw ValidationException::withMessages([
+                'device_id' => (int) $device->customer_id === $customerId
+                    ? "El equipo {$this->deviceName($device)} ya figura instalado en este cliente."
+                    : "El equipo {$this->deviceName($device)} ya está instalado en otro cliente.",
+            ]);
+        }
+
+        if ($device->status === InventoryDevice::STATUS_RETIRED) {
+            throw ValidationException::withMessages([
+                'device_id' => "El equipo {$this->deviceName($device)} está dado de baja.",
+            ]);
+        }
+
+        $source = $this->currentHolderOf($device);
+        $this->assertCanTakeFrom($actor, $source['type'], $source['id'], $ticket);
+
+        return DB::transaction(function () use ($ticket, $device, $actor, $source, $notes, $customerId) {
+            $device->status      = InventoryDevice::STATUS_INSTALLED;
+            $device->customer_id = $customerId;
+            $device->save();
+
+            $item = new TicketEquipment([
+                'ticket_id'   => $ticket->id,
+                'stock_id'    => $device->stock_id,
+                'device_id'   => $device->id,
+                'direction'   => TicketEquipment::DIRECTION_OUT,
+                'quantity'    => 1,
+                'unit_price'  => $device->stock?->price,
+                'source_type' => $source['type'],
+                'source_id'   => $source['id'],
+                'notes'       => $notes,
+                'created_by'  => $actor->id,
+            ]);
+            $item->tenant_id = $ticket->tenant_id;
+            $item->save();
+
+            $this->record($ticket->tenant_id, [
+                'stock_id'          => $device->stock_id,
+                'device_id'         => $device->id,
+                'device_serial'     => $device->serial,
+                'type'              => InventoryMovement::TYPE_INSTALACION,
+                'quantity'          => 1,
+                'from_type'         => $source['type'],
+                'from_id'           => $source['id'],
+                'to_type'           => InventoryMovement::HOLDER_CUSTOMER,
+                'to_id'             => $customerId,
+                'support_ticket_id' => $ticket->id,
+                'customer_id'       => $customerId,
+                'notes'             => $notes,
+            ], $actor);
+
+            return $item;
+        });
+    }
+
+    /**
+     * Descuenta cantidad de un consumible del custodio y la deja en el ticket.
+     */
+    public function assignMaterialToTicket(
+        SupportTicket $ticket,
+        InventoryStock $stock,
+        float $quantity,
+        string $sourceType,
+        int $sourceId,
+        User $actor,
+        ?string $notes = null
+    ): TicketEquipment {
+        $customerId = $this->ticketCustomerId($ticket);
+
+        if ($quantity <= 0) {
+            throw ValidationException::withMessages([
+                'quantity' => 'La cantidad debe ser mayor que cero.',
+            ]);
+        }
+
+        $this->assertCanTakeFrom($actor, $sourceType, $sourceId, $ticket);
+
+        return DB::transaction(function () use ($ticket, $stock, $quantity, $sourceType, $sourceId, $actor, $notes, $customerId) {
+            $this->decrementBalance($stock, $sourceType, $sourceId, $quantity);
+
+            $item = new TicketEquipment([
+                'ticket_id'   => $ticket->id,
+                'stock_id'    => $stock->id,
+                'device_id'   => null,
+                'direction'   => TicketEquipment::DIRECTION_OUT,
+                'quantity'    => $quantity,
+                'unit_price'  => $stock->price,
+                'source_type' => $sourceType,
+                'source_id'   => $sourceId,
+                'notes'       => $notes,
+                'created_by'  => $actor->id,
+            ]);
+            $item->tenant_id = $ticket->tenant_id;
+            $item->save();
+
+            $this->record($ticket->tenant_id, [
+                'stock_id'          => $stock->id,
+                'type'              => InventoryMovement::TYPE_INSTALACION,
+                'quantity'          => $quantity,
+                'from_type'         => $sourceType,
+                'from_id'           => $sourceId,
+                'to_type'           => InventoryMovement::HOLDER_CUSTOMER,
+                'to_id'             => $customerId,
+                'support_ticket_id' => $ticket->id,
+                'customer_id'       => $customerId,
+                'notes'             => $notes,
+            ], $actor);
+
+            return $item;
+        });
+    }
+
+    /**
+     * Retira de casa del cliente un equipo que estaba instalado y lo devuelve
+     * al inventario: a la mochila de un técnico o a una bodega.
+     *
+     * Esto no existía en ninguna parte del sistema. Un equipo que llegaba a
+     * `installed` sólo salía de ahí borrando la línea de la instalación, que es
+     * una corrección de captura y no un retiro: borraba la historia de la visita
+     * en la que se entregó. Aquí la entrega vieja se respeta y el retiro se
+     * escribe como lo que es, un movimiento nuevo en sentido contrario.
+     */
+    public function returnDeviceFromTicket(
+        SupportTicket $ticket,
+        InventoryDevice $device,
+        string $toType,
+        ?int $toId,
+        User $actor,
+        ?string $notes = null
+    ): TicketEquipment {
+        // `scrap` es el tercer destino y no un custodio: el equipo que se recoge
+        // quemado no vuelve a circular. Distinguirlo importa porque un aparato
+        // muerto devuelto a bodega cuenta como disponible, y alguien lo va a
+        // prometer en la siguiente instalación.
+        $esBaja = $toType === InventoryMovement::HOLDER_SCRAP;
+
+        $customerId = $this->ticketCustomerId($ticket);
+
+        if ($device->status !== InventoryDevice::STATUS_INSTALLED) {
+            throw ValidationException::withMessages([
+                'device_id' => "El equipo {$this->deviceName($device)} no figura instalado en casa de ningún cliente, así que no hay nada que retirar.",
+            ]);
+        }
+
+        if ((int) $device->customer_id !== $customerId) {
+            throw ValidationException::withMessages([
+                'device_id' => "El equipo {$this->deviceName($device)} está instalado en otro cliente. Desde este ticket sólo se retiran los equipos de su propio cliente.",
+            ]);
+        }
+
+        // Quien recibe el equipo responde por él, así que valen las mismas
+        // reglas de custodia que para tomarlo: nadie le mete un aparato en la
+        // mochila a otro técnico sin que él lo sepa. La baja no tiene custodio
+        // que responda, así que no se comprueba nada — y queda en el kardex
+        // como `baja`, que es lo que la hace auditable.
+        if (!$esBaja) {
+            $this->assertCanHandOverTo($actor, $toType, $toId, $ticket);
+        }
+
+        return DB::transaction(function () use ($ticket, $device, $toType, $toId, $actor, $notes, $customerId, $esBaja) {
+            if ($esBaja) {
+                $device->status      = InventoryDevice::STATUS_RETIRED;
+                $device->customer_id = null;
+                $device->user_id     = null;
+                $device->save();
+            } else {
+                $this->placeDeviceWith($device, $toType, $toId);
+            }
+
+            $item = new TicketEquipment([
+                'ticket_id'   => $ticket->id,
+                'stock_id'    => $device->stock_id,
+                'device_id'   => $device->id,
+                'direction'   => TicketEquipment::DIRECTION_IN,
+                'quantity'    => 1,
+                // Un retiro no se cobra. El precio va en blanco para que nadie
+                // lo arrastre por descuido al cargo del ticket.
+                'unit_price'  => null,
+                'source_type' => $toType,
+                'source_id'   => $toId,
+                'notes'       => $notes,
+                'created_by'  => $actor->id,
+            ]);
+            $item->tenant_id = $ticket->tenant_id;
+            $item->save();
+
+            $this->record($ticket->tenant_id, [
+                'stock_id'          => $device->stock_id,
+                'device_id'         => $device->id,
+                'device_serial'     => $device->serial,
+                'type'              => $esBaja ? InventoryMovement::TYPE_BAJA : InventoryMovement::TYPE_DEVOLUCION,
+                'quantity'          => 1,
+                'from_type'         => InventoryMovement::HOLDER_CUSTOMER,
+                'from_id'           => $customerId,
+                'to_type'           => $toType,
+                'to_id'             => $esBaja ? null : $toId,
+                'support_ticket_id' => $ticket->id,
+                'customer_id'       => $customerId,
+                'notes'             => $notes,
+            ], $actor);
+
+            return $item;
+        });
+    }
+
+    /**
+     * REVIERTE una línea del ticket: deja el inventario como estaba antes y
+     * marca la línea como revertida, con actor, motivo y fecha.
+     *
+     * Deshacer una ENTREGA devuelve la existencia a quien la aportó: es el
+     * «cargué el router equivocado» del técnico. Deshacer un RETIRO hace lo
+     * contrario —el equipo vuelve a casa del cliente—, porque un retiro mal
+     * anotado deja al cliente sin el aparato que sigue teniendo encima.
+     *
+     * LA LÍNEA NO SE BORRA, y ése es el cambio que pedía la auditoría. Antes
+     * esto terminaba en `$item->delete()`: el kardex conservaba el movimiento y
+     * su compensación, pero la hoja del ticket perdía la única prueba dentro
+     * del expediente de que aquel aparato llegó a moverse. Ahora la línea se
+     * queda, marcada, y quien audite el ticket ve las dos cosas: que hubo un
+     * equipo y que alguien lo deshizo, cuándo y por qué.
+     *
+     * Reversa de una reversa: no. Una línea ya revertida no se vuelve a tocar;
+     * si hay que rehacer el movimiento se carga de nuevo, y quedan las tres.
+     */
+    public function reverseTicketLine(TicketEquipment $item, User $actor, string $motivo): TicketEquipment
+    {
+        if ($item->isReversed()) {
+            throw ValidationException::withMessages([
+                'item' => 'Esta línea ya se revirtió el '
+                    . $item->reversed_at->format('d/m/Y H:i')
+                    . '. Si hay que volver a mover el equipo, cárgalo otra vez.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($item, $actor, $motivo) {
+            // withTrashed: un ticket archivado sigue necesitando poder corregir
+            // su hoja, y sin esto la relación devolvería null y el movimiento
+            // quedaría sin cliente. Que el ticket archivado NO admita cambios lo
+            // decide el controlador, que es quien conoce la operación.
+            $ticket     = SupportTicket::withTrashed()->withoutTenantScope()->find($item->ticket_id);
+            $customerId = $ticket?->user_id ? (int) $ticket->user_id : null;
+            $backType   = $item->source_type ?? InventoryMovement::HOLDER_USER;
+            $backId     = $item->source_id   ?? $actor->id;
+
+            $device = $item->device_id
+                ? InventoryDevice::withoutTenantScope()->find($item->device_id)
+                : null;
+
+            if ($item->isReturn()) {
+                // Era un retiro: se revierte volviendo a instalarlo en el cliente.
+                if ($customerId === null) {
+                    throw ValidationException::withMessages([
+                        'item' => 'El ticket ya no tiene cliente, así que no hay a quién devolverle el equipo. Muévelo desde Inventario.',
+                    ]);
+                }
+
+                // El invariante manda incluso al deshacer: si mientras tanto el
+                // aparato se instaló en OTRA casa, reponerlo aquí lo pondría en
+                // dos a la vez. Es el mismo `status` que guardan las dos rutas
+                // de entrega, comprobado también en el camino de vuelta.
+                if ($device
+                    && $device->status === InventoryDevice::STATUS_INSTALLED
+                    && (int) $device->customer_id !== $customerId) {
+                    throw ValidationException::withMessages([
+                        'item' => "El equipo {$this->deviceName($device)} ya está instalado en otro cliente: "
+                            . 'deshacer este retiro lo pondría en dos casas a la vez. '
+                            . 'Retíralo de allí primero.',
+                    ]);
+                }
+
+                if ($device) {
+                    // Sirve igual para deshacer una baja: el equipo dado por
+                    // muerto vuelve a figurar en casa del cliente, que es donde
+                    // sigue estando mientras nadie pase a recogerlo.
+                    $device->status      = InventoryDevice::STATUS_INSTALLED;
+                    $device->customer_id = $customerId;
+                    $device->save();
+                }
+
+                $this->record($item->tenant_id, [
+                    'stock_id'          => $item->stock_id,
+                    'device_id'         => $item->device_id,
+                    'device_serial'     => $device?->serial,
+                    'type'              => InventoryMovement::TYPE_INSTALACION,
+                    'quantity'          => 1,
+                    'from_type'         => $backType,
+                    // La chatarra no tiene custodio: un id ahí señalaría a una
+                    // persona que nunca tuvo el equipo.
+                    'from_id'           => $backType === InventoryMovement::HOLDER_SCRAP ? null : $backId,
+                    'to_type'           => InventoryMovement::HOLDER_CUSTOMER,
+                    'to_id'             => $customerId,
+                    'support_ticket_id' => $item->ticket_id,
+                    'customer_id'       => $customerId,
+                    'notes'             => 'Se deshace el retiro registrado en el ticket: ' . $motivo,
+                ], $actor);
+
+                return $this->marcarRevertida($item, $actor, $motivo);
+            }
+
+            // Era una entrega: la existencia vuelve a quien la aportó.
+            if ($device) {
+                $this->placeDeviceWith($device, $backType, $backId);
+            } elseif ($stock = InventoryStock::withoutTenantScope()->find($item->stock_id)) {
+                $this->incrementBalance($stock, $backType, (int) $backId, (float) $item->quantity);
+            }
+
+            $this->record($item->tenant_id, [
+                'stock_id'          => $item->stock_id,
+                'device_id'         => $item->device_id,
+                'device_serial'     => $device?->serial,
+                'type'              => InventoryMovement::TYPE_DEVOLUCION,
+                'quantity'          => $item->quantity,
+                'from_type'         => InventoryMovement::HOLDER_CUSTOMER,
+                'from_id'           => $customerId,
+                'to_type'           => $backType,
+                'to_id'             => $backId,
+                'support_ticket_id' => $item->ticket_id,
+                'customer_id'       => $customerId,
+                'notes'             => 'Se deshace la entrega registrada en el ticket: ' . $motivo,
+            ], $actor);
+
+            return $this->marcarRevertida($item, $actor, $motivo);
+        });
+    }
+
+    /**
+     * Estampa la reversa sobre la línea. El nombre del actor se congela por lo
+     * mismo que en las intervenciones: dar de baja al empleado no puede dejar
+     * la corrección sin autor.
+     */
+    private function marcarRevertida(TicketEquipment $item, User $actor, string $motivo): TicketEquipment
+    {
+        $nombre = trim(($actor->user_name ?? '') . ' ' . ($actor->user_lastname ?? ''))
+            ?: ($actor->name ?? null);
+
+        $item->forceFill([
+            'reversed_at'      => now(),
+            'reversed_by'      => $actor->id,
+            'reversed_by_name' => $nombre,
+            'reversal_reason'  => $motivo,
+        ])->save();
+
+        return $item;
+    }
+
+    /**
+     * Equipos que el cliente tiene instalados hoy. Es la lista de lo que se le
+     * puede retirar en una visita.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, InventoryDevice>
+     */
+    public function devicesInstalledFor(int $customerId)
+    {
+        return InventoryDevice::with(['stock:id,brand,model,price,is_serialized,unit'])
+            ->where('status', InventoryDevice::STATUS_INSTALLED)
+            ->where('customer_id', $customerId)
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** Deja el equipo en manos de un custodio interno (usuario o bodega). */
+    private function placeDeviceWith(InventoryDevice $device, ?string $holderType, ?int $holderId): void
+    {
+        if ($holderType === InventoryMovement::HOLDER_USER) {
+            $device->status  = InventoryDevice::STATUS_ASSIGNED;
+            $device->user_id = $holderId;
+        } else {
+            $device->status    = InventoryDevice::STATUS_STOCK;
+            $device->user_id   = null;
+            $device->branch_id = $holderId;
+        }
+
+        $device->customer_id = null;
+        $device->save();
+    }
+
+    /** El cliente del ticket, o un error claro si el ticket no tiene ninguno. */
+    private function ticketCustomerId(SupportTicket $ticket): int
+    {
+        if (!$ticket->user_id) {
+            throw ValidationException::withMessages([
+                'ticket' => 'El ticket no tiene un cliente asociado, así que no hay a quién entregarle ni a quién retirarle equipos.',
+            ]);
+        }
+
+        return (int) $ticket->user_id;
+    }
+
+    /** El técnico asignado a la visita, cualquiera que sea su forma. */
+    private function assignedTechnicianId(CustomerInstallation|SupportTicket|null $context): ?int
+    {
+        $id = match (true) {
+            $context instanceof CustomerInstallation => $context->technician_id,
+            $context instanceof SupportTicket        => $context->staff_id,
+            default                                  => null,
+        };
+
+        return $id === null ? null : (int) $id;
+    }
+
+    /**
+     * Espejo de assertCanTakeFrom para el sentido contrario. Misma regla —lo
+     * mío y lo del técnico de la visita siempre, las bodegas con permiso de
+     * inventario— con el mensaje que corresponde a estar entregando y no
+     * tomando.
+     */
+    private function assertCanHandOverTo(
+        User $actor,
+        ?string $holderType,
+        ?int $holderId,
+        CustomerInstallation|SupportTicket|null $context = null
+    ): void {
+        if ($this->canTakeFrom($actor, $holderType, $holderId, $context)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'destination' => $holderType === InventoryMovement::HOLDER_USER
+                ? 'No puedes dejar el equipo a nombre de otro técnico. Recíbelo tú y traspásalo desde Inventario → Entregas.'
+                : 'No tienes permiso para devolver equipos a la bodega. Recíbelo a tu nombre y que lo ingrese quien administre el inventario.',
+        ]);
+    }
+
     /**
      * Da de baja un equipo (dañado, perdido, devuelto al proveedor).
      */
@@ -386,15 +834,16 @@ class InventoryLedger
         User $actor,
         ?string $holderType,
         ?int $holderId,
-        ?CustomerInstallation $installation = null
+        CustomerInstallation|SupportTicket|null $context = null
     ): bool {
         if ($holderType === InventoryMovement::HOLDER_USER) {
             if ((int) $holderId === (int) $actor->id) {
                 return true;
             }
 
-            return $installation?->technician_id !== null
-                && (int) $holderId === (int) $installation->technician_id;
+            $tecnico = $this->assignedTechnicianId($context);
+
+            return $tecnico !== null && (int) $holderId === $tecnico;
         }
 
         if ($holderType === InventoryMovement::HOLDER_BRANCH || $holderType === null) {
@@ -431,9 +880,9 @@ class InventoryLedger
         User $actor,
         ?string $holderType,
         ?int $holderId,
-        ?CustomerInstallation $installation = null
+        CustomerInstallation|SupportTicket|null $context = null
     ): void {
-        if ($this->canTakeFrom($actor, $holderType, $holderId, $installation)) {
+        if ($this->canTakeFrom($actor, $holderType, $holderId, $context)) {
             return;
         }
 
