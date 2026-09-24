@@ -242,10 +242,24 @@ Si no aplica, el bloque no aparece.
 - **No facturar a este cliente**: lo saca de **todo** el ciclo automático. No recibe factura,
   ni recordatorio, ni notificación, ni corte. Úsalo para casos especiales (cortesías
   institucionales, pruebas).
-- **No enviar notificaciones de factura**: a diferencia de la anterior, **no** afecta la
-  facturación — la factura se sigue generando cada mes y la mora/corte funcionan igual.
-  Sólo apaga el aviso de correo/WhatsApp de factura nueva y los recordatorios de pago.
-  Úsalo para clientes que piden explícitamente no recibir esos mensajes.
+- **No enviar notificaciones de factura** *(sólo al **editar** un cliente, no al crearlo)*: a
+  diferencia de la anterior, **no** afecta la facturación — la factura se sigue generando cada
+  mes y la mora/corte funcionan igual. Sólo apaga el aviso de correo/WhatsApp de factura nueva
+  y los recordatorios de pago. Úsalo para clientes que piden explícitamente no recibir esos
+  mensajes.
+
+  > **Dónde está.** Todo cliente nuevo nace con las notificaciones **encendidas**. Para
+  > apagarlas, guarda el cliente y luego ábrelo en **Clientes → editar**: la casilla está en el
+  > mismo bloque de opciones, debajo de «No facturar a este cliente».
+
+  > **Qué apaga exactamente.** El aviso automático de factura nueva, el recordatorio
+  > automático de pago, y los **recordatorios masivos** que se lanzan desde el listado de
+  > facturas. En un envío masivo el cliente silenciado aparece como *«omitido por preferencia
+  > del cliente»*, que **no** es un error: es la preferencia aplicada.
+  >
+  > **Lo único que sigue saliendo** es el recordatorio que envías **factura por factura** desde
+  > la propia factura. Ahí estás decidiendo tú, sobre ese caso concreto, en ese momento — el
+  > sistema no te lo bloquea. Si el cliente pidió silencio absoluto, evita también ese botón.
 
 **Guardar**
 

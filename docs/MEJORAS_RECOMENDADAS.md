@@ -2509,10 +2509,31 @@ reconexión quedó pendiente, no que se hizo.
 `pendiente_en_curso` a `ReconnectionOutcome` con su mensaje propio («hay una reconexión en curso,
 espera unos segundos y vuelve a mirar») y ningún botón de reintento.
 
-### 📋 P-53 · La reconexión al pagar sigue siendo síncrona, y el recaudo no tiene idempotencia
+### 🟢 P-53 · «No enviar notificaciones de factura» no se puede marcar al CREAR el cliente
+
+Detectado el 2026-09-23 auditando la preferencia (§ 73 de la bitácora).
+
+El backend acepta `notify_invoice` en el alta: está validado en `StoreCustomerRequest` y el
+controlador lo persiste con `?? true`. Lo que no existe es el control en el formulario —
+`CustomerAdd.vue` sólo monta «No facturar a este cliente»; la casilla de notificaciones vive
+únicamente en `CustomerEdit.vue`. El manual de usuario la documentaba bajo «5.2 Crear un
+cliente», que es justo donde el operador iba a buscarla sin encontrarla.
+
+**Por qué no se añadió al arreglar el § 73.** Que cada alta nazca con el aviso encendido es el
+comportamiento registrado (ver P-RADIUS-3, que lo menciona como estado actual conocido), no un
+descuido. Añadir el control al alta es una decisión de producto —cambia lo que un operador puede
+configurar en el onboarding—, no la corrección de un defecto, y aquel PR estaba acotado al
+camino de envío. Se corrigió el manual para que diga dónde está la casilla de verdad.
+
+**Recomendación.** Si el ISP da de alta clientes que ya piden silencio desde el primer día,
+montar el mismo toggle en `CustomerAdd.vue` (el campo ya viaja en el `POST /api/customers`, así
+que es sólo interfaz) y revertir la aclaración del manual. Mientras tanto, el camino es
+guardar y editar.
+
+### 📋 P-54 · La reconexión al pagar sigue siendo síncrona, y el recaudo no tiene idempotencia
 
 El preflight (§ 72) quita el 504 del caso que lo disparó —el router sin configurar— y la guarda
-del servicio compartido (§ 73) lo quita de las otras cinco puertas. Pero el camino feliz no
+del servicio compartido (§ 74) lo quita de las otras cinco puertas. Pero el camino feliz no
 cambió de forma: con un router **bien** configurado, registrar un pago sigue abriendo **dos
 sesiones SSH encadenadas** dentro de la petición HTTP, y eso son decenas de segundos.
 
@@ -2637,7 +2658,7 @@ es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
-| **P-53** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
+| **P-54** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
