@@ -1475,6 +1475,85 @@ Cuatro reglas que no son opcionales:
 ---
 
 
+### Ejemplo: añadir una regla de cierre al § 15
+
+El PR F2 metió la **regla 5** —«exigir prueba final o justificación de por qué no fue
+posible»— y el camino no fue el que parecía.
+
+**1 · Mira si tu regla tiene la forma de las demás.** `TicketWorkflow::REQUISITOS_DE_CIERRE`
+es un mapa `campo => descripción`, y `requisitosFaltantes()` hace un `blank($ticket->{$campo})`.
+Eso sirve para nueve de las diez reglas del § 15, que son todas «¿está lleno este campo?».
+
+La quinta no: se cumple con una consulta a **otra tabla** («¿hay alguna medición con
+`phase = final`?») **o** con un par de columnas que tienen que venir las dos. Forzarla en el
+mapa habría obligado a que la constante dejara de ser declarativa.
+
+Va aparte, en un método propio:
+
+```php
+private function faltaPruebaFinal(SupportTicket $ticket): bool
+{
+    if (TicketMeasurement::tienePruebaFinal((int) $ticket->getKey())) return false;
+
+    return blank($ticket->final_test_waiver_reason) || blank($ticket->final_test_waiver_note);
+}
+```
+
+Es el mismo patrón que ya usaba la regla 9 (solución temporal), que tampoco es un campo.
+
+**2 · Súmala en LOS TRES sitios.** Es el error fácil:
+
+| Sitio | Por qué |
+|---|---|
+| `cerrar()` | La regla en sí |
+| `proposeClosure()` | El § 18 pone «pruebas finales» y «propuesta de cierre» en la misma frase |
+| `transitions` (endpoint) | Para que la pantalla lo avise **antes** de abrir el modal |
+
+Si se te olvida el tercero, la interfaz dirá «listo para cerrar» y el cierre responderá 422 —
+justo lo que ese endpoint existe para evitar.
+
+**3 · Si la regla admite una excepción documentada, persístela ANTES de evaluar.** El orden
+importa: `faltaPruebaFinal()` lee el ticket, así que la justificación tiene que estar guardada
+cuando se evalúe. Y deja **evento propio**, no basta con el del cierre: tiene que poder
+consultarse aunque el ticket se reabra después.
+
+**4 · Una lista «cerrada» que el documento no enumera se compone con su vocabulario, no se
+inventa.** El § 13 pide «seleccionar una razón» y no da la lista. Las cinco razones salen de
+A.4 R14/R15, A.1 S09, § 7 y la familia NF del Anexo A.2, más `otro`, que el § 15.8 exige que
+siempre pida explicación. Queda registrada como decisión pendiente del cliente (**D-16**).
+
+Ventaja de que viva en PHP y no en un catálogo de base: cambiarla es un cambio de lista
+cerrada, no de código inmutable, así que no arrastra el coste de la R1. Desventaja: exige
+desplegar. Aquí compensa porque **gobierna una validación** — poder editarla en caliente
+cambiaría cuándo se puede cerrar un ticket sin revisión.
+
+**5 · Cuenta con romper los tests que codificaban el contrato anterior.** El PR F2 rompió
+nueve. Ninguno era un bug: cerraban tickets sin medición final, que hasta ese día era legal.
+
+La regla **no se toca** para que pasen. Se actualiza el helper compartido —`ticketCerrable()`,
+un solo sitio— y la prueba que contaba requisitos. Y la medición se inserta por SQL directo en
+esos archivos: prueban el *workflow*, y hacerla pasar por el controlador de mediciones los
+acoplaría a los permisos de otro módulo.
+
+**6 · Elige el tipo mirando los EJEMPLOS del documento, no la intuición.** `value` es texto y
+no `decimal` porque el § 13 mezcla «PPPoE conectado» con «RSSI –76 dBm» en la misma frase. Un
+decimal habría obligado a partir la medición en dos tablas o a perder la mitad de los casos.
+
+**7 · Clave foránea compuesta: mejor al crear la tabla.** La del PR F1 sobre
+`support_ticket_attachment` hubo que añadirla con `ALTER TABLE` y quedó **sólo en
+PostgreSQL** —SQLite no lo admite—. `ticket_measurement` nace con ella y la aplican los dos
+motores:
+
+```php
+$table->foreign(['intervention_id', 'support_ticket_id'], 'ticket_measurement_intervention_fk')
+    ->references(['id', 'support_ticket_id'])
+    ->on('ticket_intervention')
+    ->onDelete('restrict');
+```
+
+Requiere el `UNIQUE(id, support_ticket_id)` en la tabla referenciada, que por eso existe en
+`ticket_intervention` además del `UNIQUE(support_ticket_id, sequence)`.
+
 ### Ejemplo: extender el expediente del ticket con una entidad nueva
 
 El PR F1 (intervenciones técnicas) es la plantilla. Si mañana toca añadir mediciones (F2) o

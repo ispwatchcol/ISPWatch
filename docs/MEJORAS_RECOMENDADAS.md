@@ -2363,11 +2363,17 @@ reapertura; si designan otro rol, es configuración y no código.
 
 ---
 
-### 🟠 P-50 · Seis de las diez reglas de cierre del § 15 no son exigibles todavía
+### 🟠 P-50 · Cinco de las diez reglas de cierre del § 15 no son exigibles todavía
 
-El workflow formal exige **tres** de las diez reglas obligatorias de cierre de la Solicitud
-Maestra —causa confirmada, acción y resultado— y una cuarta se cumple por construcción. Las
-otras seis **no se comprueban** porque el ticket no captura los datos que harían falta:
+> **Actualizado el 2026-09-25 (PR F2).** La **regla 5** —«exigir prueba final o justificación
+> de por qué no fue posible»— **ya es exigible**: el ticket captura mediciones estructuradas
+> con fase, y sin una de fase `final` el cierre pide razón de lista cerrada más justificación.
+> Se aplica también al proponer. Quedan cinco.
+
+El workflow formal exige ahora **cuatro** de las diez reglas obligatorias de cierre de la
+Solicitud Maestra —causa confirmada, acción, resultado y prueba final o justificación— y una
+quinta se cumple por construcción. Las otras cinco **no se comprueban** porque el ticket no
+captura los datos que harían falta:
 
 | Regla § 15 | Qué falta |
 |---|---|
@@ -2730,13 +2736,14 @@ es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
-| **P-50** | Seis de las diez reglas de cierre del § 15 no son exigibles: faltan los campos de pruebas finales, infraestructura «no aplica» y validación del cliente | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 📋 Pendiente · alcance del PR #5 |
+| **P-50** | Cinco de las diez reglas de cierre del § 15 no son exigibles: faltan infraestructura «no aplica», validación del cliente separada de la restauración técnica y el seguimiento de solución temporal / pendiente de tercero | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 🟡 **Parcial**: la regla 5 (prueba final o justificación) quedó cubierta por el **PR F2** el 2026-09-25 |
 | **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
 | **P-54** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
 | **P-55** | El `unique(device_id)` de `installation_equipment` («un equipo, una casa») quedaria con un agujero al registrar equipos instalados desde un ticket | Un mismo equipo fisico podria figurar instalado en una casa y entregado en otra sin que nada lo impida | 🟠 Media | ✅ **Resuelto 2026-09-24** (§ 78): el unique se relajo a indice normal y el invariante paso a `inventory_device.status` + `customer_id`, que es UNA fila por aparato, comprobado en las CUATRO rutas que pueden dejar un equipo en un cliente |
 | **P-56** | `SupportEdit.vue` sigue eligiendo tecnico filtrando la lista por NOMBRE de rol (`'técnico' \|\| 'tecnico'`) | Un tenant que llame «Campo» a su rol tecnico se queda sin candidatos, y la pantalla no explica por que | 🟡 Baja | 📋 Pendiente · el PR F1 ya no depende de esa heuristica: valida contra el tenant en el backend |
 | **P-58** | Borrar un equipo del inventario deja sin serial su linea historica de `installation_equipment` (`device_id` es `SET NULL`) | La hoja de aquella instalacion conserva marca y modelo pero pierde el serial; el kardex si lo conserva congelado. En `ticket_equipment` esto SI se frena, y la asimetria es consciente | 🟡 Baja | 📋 Pendiente · decidir si el guard de borrado se extiende a `installation_equipment` o si el serial se congela en la linea, como ya hace el kardex |
 | **P-59** | Los estados de `customer_installations` se teclean como cadena suelta, y la columna es un `enum` en castellano (`pendiente`/`completada`/`cancelada`) mientras `payments.status` es en ingles (`completed`) | SQLite no hace cumplir el enum y PostgreSQL si: un valor mal escrito pasa la suite en local y solo revienta en el job de Postgres. Ya ocurrio al adaptar el PR F3 | 🟡 Baja | 📋 Pendiente · constantes o enum respaldado en `CustomerInstallation` y usarlas en codigo y pruebas. Ver trampa #63 |
+| **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
 | **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |

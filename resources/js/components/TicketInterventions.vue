@@ -296,7 +296,7 @@ const props = defineProps({
     tecnicos: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['cambio'])
+const emit = defineEmits(['cambio', 'cargadas'])
 
 const camposDeTexto = [
     { clave: 'finding', etiqueta: 'Hallazgo' },
@@ -365,6 +365,10 @@ async function cargar() {
         error.value = ''
         const { data } = await api.support.getInterventions(props.ticketId)
         intervenciones.value = data.data ?? []
+        // PR F2: las mediciones pueden colgar de una visita, y el desplegable
+        // que las ofrece vive en otro componente. Se publica la lista en vez de
+        // pedirla dos veces al servidor.
+        emit('cargadas', intervenciones.value)
     } catch (e) {
         error.value = e.response?.data?.message || 'No se pudieron cargar las intervenciones.'
     } finally {

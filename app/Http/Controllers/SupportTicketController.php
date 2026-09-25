@@ -11,6 +11,8 @@ use App\Models\SupportTicketHistory;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Support\TicketCatalogs;
+use App\Models\TicketMeasurement;
+use App\Support\TicketMeasurements;
 use App\Support\TicketWorkflow;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -902,6 +904,13 @@ class SupportTicketController extends Controller
 
         $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
 
+        // PR F2 - la regla 5 del parrafo 15 tambien cuenta aqui. Sin esto la
+        // pantalla diria «listo para cerrar» y el cierre respondaria 422, que es
+        // justo lo que este endpoint existe para evitar.
+        if ($this->faltaPruebaFinal($ticket)) {
+            $faltantes['prueba_final'] = 'Medición final o justificación de por qué no fue posible (regla 5 del § 15)';
+        }
+
         // POR QUÉ no se puede reabrir, además de si se puede.
         //
         // Sin esto, un administrador abría un ticket cerrado y no veía el botón
@@ -1046,13 +1055,26 @@ class SupportTicketController extends Controller
         }
 
         $data = $request->validate(
-            ['reason' => self::REGLA_MOTIVO],
-            self::MENSAJES_MOTIVO + [
+            ['reason' => self::REGLA_MOTIVO] + $this->reglasDeExencion(),
+            self::MENSAJES_MOTIVO + $this->mensajesDeExencion() + [
                 'reason.required' => 'La observación técnica de la propuesta es obligatoria.',
             ],
         );
 
-        if ($faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_PROPUESTA)) {
+        $this->aplicarExencionDePruebaFinal($ticket, $data);
+
+        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_PROPUESTA);
+
+        // PR F2 - la regla 5 se exige TAMBIEN al proponer, no solo al cerrar. El
+        // parrafo 18 le da al Tecnico de campo «pruebas finales y propuesta de
+        // cierre» en la misma frase: es el mismo momento del trabajo, y dejarlo
+        // solo para el cierre trasladaria al supervisor un dato que solo tiene
+        // quien estuvo en sitio.
+        if ($this->faltaPruebaFinal($ticket)) {
+            $faltantes['prueba_final'] = 'Medición final o justificación de por qué no fue posible (regla 5 del § 15)';
+        }
+
+        if ($faltantes) {
             return $this->rechazarPorRequisitos($faltantes, 'proponer el cierre');
         }
 
@@ -1139,12 +1161,24 @@ class SupportTicketController extends Controller
             ? ['reason' => self::REGLA_MOTIVO]
             : ['reason' => 'nullable|string|max:500'];
 
-        $data = $request->validate($reglas, self::MENSAJES_MOTIVO + [
+        $data = $request->validate($reglas + $this->reglasDeExencion(), self::MENSAJES_MOTIVO + $this->mensajesDeExencion() + [
             'reason.required' => 'El cierre excepcional exige explicar por qué se autoriza sin '
                 . 'cumplir todos los requisitos.',
         ]);
 
+        // PR F2 - antes de contar lo que falta: si viene la justificacion de por
+        // que no hubo medicion final, se guarda, porque `faltaPruebaFinal()` la
+        // lee del ticket.
+        $this->aplicarExencionDePruebaFinal($ticket, $data);
+
         $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
+
+        // Regla 5 del parrafo 15. Va aparte de `REQUISITOS_DE_CIERRE` porque se
+        // cumple de dos maneras -medicion final O justificacion- y aquella
+        // constante solo sabe comparar campos del ticket contra `blank()`.
+        if ($this->faltaPruebaFinal($ticket)) {
+            $faltantes['prueba_final'] = 'Medición final o justificación de por qué no fue posible (regla 5 del § 15)';
+        }
 
         // §15.9: una solución temporal no se cierra sin «seguimiento o
         // autorización». El cierre excepcional ES esa autorización.
@@ -1378,6 +1412,96 @@ class SupportTicketController extends Controller
     }
 
     /** @param array<string, string> $faltantes */
+    /**
+     * PR F2 - regla 5 del parrafo 15: «Exigir prueba final o justificacion de
+     * por que no fue posible».
+     *
+     * Es la unica regla del parrafo 15 con una O: se cumple de dos maneras
+     * distintas, y por eso no cabe en `REQUISITOS_DE_CIERRE`, que compara campos
+     * del ticket contra `blank()`. Aqui hay que mirar OTRA tabla.
+     *
+     * La justificacion vale solo si viene COMPLETA -razon y nota-, porque el
+     * parrafo 13 pide «seleccionar una razon y escribir la justificacion», con la
+     * conjuncion. Media justificacion no explica nada.
+     */
+    private function faltaPruebaFinal(SupportTicket $ticket): bool
+    {
+        if (TicketMeasurement::tienePruebaFinal((int) $ticket->getKey())) {
+            return false;
+        }
+
+        return blank($ticket->final_test_waiver_reason) || blank($ticket->final_test_waiver_note);
+    }
+
+    /**
+     * Reglas para declarar por que NO hubo medicion final.
+     *
+     * La razon es de lista cerrada -el parrafo 13 dice «seleccionar»- y la nota es
+     * obligatoria en cuanto llega una razon. Sin `required_with` se podria
+     * mandar la razon sola y quedarnos con la mitad de lo que el documento pide.
+     *
+     * @return array<string, mixed>
+     */
+    private function reglasDeExencion(): array
+    {
+        return [
+            'final_test_waiver_reason' => [
+                'sometimes', 'nullable',
+                Rule::in(TicketMeasurements::codigosDeRazon()),
+            ],
+            'final_test_waiver_note' => [
+                'required_with:final_test_waiver_reason', 'nullable',
+                'string', 'min:10', 'max:500',
+            ],
+        ];
+    }
+
+    /** @return array<string, string> */
+    private function mensajesDeExencion(): array
+    {
+        return [
+            'final_test_waiver_reason.in' => 'Esa razon no esta en la lista de motivos admitidos.',
+            'final_test_waiver_note.required_with' => 'Indica tambien la justificacion: el documento pide razon Y explicacion.',
+            'final_test_waiver_note.min' => 'La justificacion debe explicar el caso: minimo 10 caracteres.',
+        ];
+    }
+
+    /**
+     * Guarda la exencion, si viene, ANTES de comprobar los requisitos.
+     *
+     * El orden importa: `faltaPruebaFinal()` lee el ticket, asi que la exencion
+     * tiene que estar persistida cuando se evalue. Deja evento propio -no basta
+     * con el del cierre- porque el parrafo 15.5 convierte esto en una excepcion
+     * documentada, y tiene que poder consultarse aunque el ticket se reabra
+     * despues.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function aplicarExencionDePruebaFinal(SupportTicket $ticket, array $data): void
+    {
+        $razon = $data['final_test_waiver_reason'] ?? null;
+
+        if (blank($razon)) {
+            return;
+        }
+
+        $ticket->forceFill([
+            'final_test_waiver_reason' => $razon,
+            'final_test_waiver_note'   => $data['final_test_waiver_note'] ?? null,
+        ])->save();
+
+        SupportTicketHistory::registrar(
+            $ticket,
+            SupportTicketHistory::FINAL_TEST_WAIVED,
+            field: 'final_test_waiver_reason',
+            newValue: $razon,
+            metadata: [
+                'reason_label' => TicketMeasurements::razonesSinPruebaFinal()[$razon] ?? null,
+                'note'         => $data['final_test_waiver_note'] ?? null,
+            ],
+        );
+    }
+
     private function rechazarPorRequisitos(array $faltantes, string $accion)
     {
         return response()->json([

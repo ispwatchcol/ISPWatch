@@ -815,6 +815,16 @@ class TicketInterventionTest extends TestCase
             ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'servicio_restablecido'])
             ->assertOk();
 
+        // PR F2 - la regla 5 del § 15 exige medicion final o justificacion. Se
+        // registra por SQL directo: este test prueba que NO hacen falta
+        // INTERVENCIONES, no el modulo de mediciones.
+        DB::table('ticket_measurement')->insert([
+            'tenant_id' => $ticket->tenant_id, 'support_ticket_id' => $ticket->id,
+            'test_type' => 'latencia', 'value' => '25', 'unit' => 'ms',
+            'measured_at' => now(), 'source' => 'CPE', 'phase' => 'final',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         $this->actingAs($gestor)
             ->postJson("/api/support/{$ticket->id}/propose-closure", [
                 'reason' => 'Servicio estable tras la atención remota.',

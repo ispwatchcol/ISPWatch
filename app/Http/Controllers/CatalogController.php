@@ -7,6 +7,7 @@ use App\Models\ScriptVersion;
 use App\Models\TypeBilling;
 use App\Models\User;
 use App\Support\TicketCatalogs;
+use App\Support\TicketMeasurements;
 use Illuminate\Http\Request;
 
 /**
@@ -67,6 +68,30 @@ class CatalogController extends Controller
             'causes'     => $presentarDiagnostico(TicketCatalogs::CAUSE),
             'actions'    => $presentarDiagnostico(TicketCatalogs::SOLUTION),
             'results'    => $presentarDiagnostico(TicketCatalogs::RESULT),
+
+            // PR F2 - vocabulario de las mediciones tecnicas (secciones 12 y 13).
+            //
+            // Viven en `App\Support\TicketMeasurements` y no en una tabla de
+            // catalogo: las fases y las razones gobiernan la regla de cierre, y
+            // poder editarlas en caliente cambiaria cuando se puede cerrar un
+            // ticket sin desplegar ni revisar.
+            //
+            // Van igualmente por aqui para que la interfaz no las escriba a
+            // mano, que es el problema que la R2 resolvio con los otros
+            // catalogos.
+            'measurement_phases' => collect(TicketMeasurements::fases())
+                ->map(fn ($label, $code) => ['code' => $code, 'label' => $label])
+                ->values(),
+
+            // Lista CERRADA: el parrafo 13 dice «seleccionar una razon».
+            'final_test_waiver_reasons' => collect(TicketMeasurements::razonesSinPruebaFinal())
+                ->map(fn ($label, $code) => ['code' => $code, 'label' => $label])
+                ->values(),
+
+            // Lista ABIERTA: sugerencias transcritas del parrafo 12, agrupadas por
+            // tecnologia. NO son codigos y `test_type` sigue siendo texto libre
+            // (decision S-4, coherente con D-06).
+            'measurement_suggestions' => TicketMeasurements::sugerenciasPorTecnologia(),
 
             // Para que un consumidor sepa si su copia sigue vigente sin
             // volver a descargarla entera.

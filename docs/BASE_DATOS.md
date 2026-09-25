@@ -1284,6 +1284,97 @@ nadie del otro lado —el archivo se pide por `url` / `download_url`, que pasan 
 autenticado— y publicarla describe la organización del almacenamiento a quien no tiene por qué
 conocerla.
 
+### 4.15e `ticket_measurement` — mediciones técnicas estructuradas
+
+Añadida por el **PR F2** para el requisito **F1-09**. El § 12 de la Solicitud Maestra pide,
+literal: «Cada medición debe guardar **tipo de prueba, resultado, unidad, fecha/hora, origen y
+fase**. Los resultados no deben quedar únicamente en observaciones.»
+
+Las seis están aquí una a una.
+
+| Columna | Nota |
+|---|---|
+| `tenant_id` | Estampado desde el ticket, como en `support_ticket_history` y `ticket_intervention` |
+| `support_ticket_id` | FK **RESTRICT**: el ticket no se borra, y si alguien lo intentara la base debe negarse antes que llevarse las mediciones |
+| `intervention_id` | De qué visita salió, si salió de una. **NULL es normal**: el diagnóstico remoto inicial se toma antes de que exista ninguna intervención |
+| `test_type` | **Texto libre.** Ver abajo |
+| `value` | **Texto, no número.** Ver abajo |
+| `unit` | Nullable: «conectado» no tiene unidad |
+| `measured_at` | Cuándo se tomó, que no es cuándo se registró |
+| `source` | El «origen» del § 12: CPE, OLT, RADIUS, manual… |
+| `phase` | `inicial` \| `seguimiento` \| `final` |
+| `recorded_by`, `recorded_by_name` | Quién la tomó, con el nombre **congelado** (patrón H-6) |
+
+**Índices:** `(tenant_id, support_ticket_id)` · `(support_ticket_id, phase)`.
+
+El segundo sostiene la regla de cierre: «¿tiene este ticket alguna medición final?» se
+consulta en cada propuesta, en cada cierre y en cada carga del detalle.
+
+#### `test_type` es texto libre, y es deliberado
+
+El § 12 enumera las mediciones en prosa y por tecnología —«RSSI; SNR; CCQ; ruido; Tx/Rx…»—
+**sin asignarles código**, exactamente como el Anexo A.2 hace con las subcausas. El cliente
+cerró ese criterio el 11/09/2026 (**D-06**): mantenerlas como referencia y no crear códigos
+individuales.
+
+Las listas del documento viajan como **sugerencias** en `App\Support\TicketMeasurements` y
+alimentan un `<datalist>`; no son valores seleccionables ni códigos de catálogo.
+
+#### `value` es texto, no decimal
+
+Los ejemplos del § 13 mezclan los dos tipos en la misma frase: «PPPoE conectado; RSSI –76 dBm;
+CCQ 54 %; latencia 104 ms». Forzar `decimal` obligaría a partir la medición en dos tablas o a
+perder «PPPoE conectado», que es una medición tan válida como las otras. El requerimiento pide
+«resultado», no «valor numérico».
+
+#### Clave foránea compuesta, esta vez en los dos motores
+
+`(intervention_id, support_ticket_id)` → `ticket_intervention (id, support_ticket_id)`, con
+`ON DELETE RESTRICT`. Impide que una medición del ticket 10 cuelgue de una intervención del
+ticket 77.
+
+A diferencia de la del PR F1 sobre `support_ticket_attachment` —que sólo existe en PostgreSQL
+porque allí hubo que añadirla con `ALTER TABLE` a una tabla ya creada, cosa que SQLite no
+admite— **ésta funciona en ambos motores**: la tabla nace con ella.
+
+#### Sin `deleted_at`
+
+Por lo mismo que `ticket_intervention`, y con un motivo adicional: el § 15.5 convierte la
+medición final en **requisito de cierre**. Poder esconderla —aun blandamente— equivaldría a
+poder saltarse el requisito sin que constara. No hay endpoint de borrado y el modelo bloquea
+`deleting`.
+
+Corregir sí se puede, mientras el ticket no esté cerrado, y cada corrección deja
+`measurement_updated` en el historial con el valor anterior y el nuevo.
+
+### 4.15f La justificación de la medición final ausente
+
+Dos columnas nullable sobre `support_ticket`, añadidas por el PR F2:
+
+| Columna | Nota |
+|---|---|
+| `final_test_waiver_reason` | Código de la lista **cerrada** de `TicketMeasurements::razonesSinPruebaFinal()` |
+| `final_test_waiver_note` | La justificación en texto, obligatoria junto a la razón |
+
+El § 15.5 exige «prueba final **o** justificación de por qué no fue posible», y el § 13
+precisa cómo: «el usuario deberá **seleccionar una razón y escribir la justificación**».
+Nótese la conjunción — son dos campos, no uno.
+
+**Viven en `support_ticket` y no en `ticket_measurement`** porque describen la **ausencia** de
+una medición. Una fila en la tabla de mediciones que dijera «aquí no hay medición» sería una
+contradicción, y rompería la consulta que sostiene la regla: «¿existe alguna fila con
+`phase = final`?» pasaría a tener que distinguir filas reales de filas-marcador. Es el mismo
+criterio por el que `no_charge_reason` vive en el ticket.
+
+Nullable las dos: lo normal es cerrar **con** medición final. La regla que las exige vive en
+el controlador de cierre, no en un `NOT NULL` que habría roto todos los tickets ya cerrados.
+
+**La lista de razones la define el equipo, no el documento.** El § 13 pide «seleccionar» —es
+decir, lista cerrada— pero en ninguna sección la enumera. Se compuso con vocabulario que el
+documento ya usa (R14, R15, S09, § 7 y la familia NF del Anexo A.2), más `otro`, que el § 15.8
+exige que siempre pida explicación. Queda registrada como **D-16** para que el cliente la
+confirme.
+
 ### 4.15b Catálogos del ticket
 
 Siete tablas con un núcleo común: `code` (estable e **inmutable**), `label` (visible y
