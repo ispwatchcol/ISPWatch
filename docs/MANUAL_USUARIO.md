@@ -1819,6 +1819,60 @@ pertenece.
 > *«Tickets · registrar intervenciones técnicas»*. Quien ya podía adjuntar evidencia lo
 > recibió automáticamente; si te falta, pídeselo a quien administre los roles.
 
+### 14.2.5 Registrar pruebas técnicas
+
+Las pruebas son las mediciones del servicio: señal, latencia, potencia óptica, estado del
+PPPoE… Sirven para dos cosas: dejar por escrito **cómo estaba** el servicio y **cómo quedó**.
+
+En el detalle del ticket, bloque **Pruebas técnicas** → **+ Registrar medición**:
+
+| Campo | Qué poner |
+|---|---|
+| **Tipo de prueba** | Qué se midió. Campo libre, con sugerencias del documento del cliente |
+| **Resultado** | El valor. Admite números (`-76`, `93`) y texto (`conectado`) |
+| **Unidad** | `dBm`, `%`, `ms`… Se deja vacía si no aplica |
+| **Fecha y hora** | Cuándo se tomó, que no siempre es cuándo se registra |
+| **Origen** | De dónde salió: CPE, OLT, RADIUS, medición manual |
+| **Fase** | **Inicial**, **Seguimiento** o **Final** |
+| **Intervención** | De qué visita salió, si salió de una. Puede quedar en «Ninguna» |
+
+La tabla de arriba del bloque compara **Inicial → Seguimiento → Final** por cada tipo de
+prueba, para ver de un vistazo si el servicio mejoró.
+
+> **Sugerencias, no lista cerrada.** El tipo de prueba es un campo libre. Las sugerencias
+> salen del documento del cliente y están agrupadas por tecnología (común, radio, FTTH), pero
+> puedes escribir cualquier otra.
+
+### 14.2.6 Para cerrar hace falta una prueba final
+
+Desde ahora, **un ticket no se cierra sin medición final** — o sin explicar por qué no fue
+posible tomarla. Es una regla del documento del cliente, no una decisión de la herramienta.
+
+El aviso aparece en dos sitios, siempre **antes** de intentar cerrar:
+
+- En el bloque de Pruebas técnicas, si todavía no hay ninguna final.
+- En la lista de «requisitos que faltan» del panel de gestión del ticket.
+
+Si no pudiste medir, al proponer o cerrar el ticket la pantalla te pedirá dos cosas:
+
+1. **Una razón**, de una lista: el cliente no permitió continuar · no fue posible contactarlo ·
+   equipo apagado o sin energía · pendiente de un tercero · otro.
+2. **Una justificación** escrita, entre 10 y 500 caracteres. Es obligatoria siempre, no sólo
+   con «otro»: la razón dice *qué* pasó, la justificación dice *qué pasó en este ticket*.
+
+Las dos quedan en el historial con tu nombre y la fecha.
+
+### 14.2.7 Corregir una medición
+
+Una medición **no se borra**. Si tecleaste mal un valor, pulsa **Corregir** y arréglalo: el
+historial guarda el valor anterior y el nuevo.
+
+Sólo se puede mientras el ticket siga abierto. Una vez cerrado, el expediente no se retoca —
+si de verdad hace falta, primero hay que reabrir el ticket, y eso también queda registrado.
+
+> **¿No ves el bloque o no puedes registrar?** Necesitas el permiso *«Tickets · registrar
+> intervenciones técnicas»*, el mismo que las visitas.
+
 ### 14.3 Cerrar y reabrir un ticket
 
 **Proponer el cierre.** Cuando el técnico termina, pulsa **Proponer cierre**. Esto **no cierra**

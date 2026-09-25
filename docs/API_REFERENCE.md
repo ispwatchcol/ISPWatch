@@ -2036,6 +2036,131 @@ siempre.
 
 Marcarlo al **crear** el ticket no exige permiso aparte: va dentro de `ticket_create`.
 
+### Pruebas técnicas del ticket (PR F2 · 2026-09-25)
+
+Fuente: Solicitud Maestra § 12 (mediciones), § 13 (comparación inicial/final) y § 15.5 (regla
+de cierre). Todas bajo `auth:sanctum` + `deny_api_clients` + `permission:ticket_view`; las de
+escritura exigen además **`ticket_intervene`**.
+
+| Método | Ruta | Permiso | Qué hace |
+|---|---|---|---|
+| `GET` | `/api/support/{ticket}/measurements` | `ticket_view` | Mediciones, comparación y estado de la regla 5 |
+| `POST` | `/api/support/{ticket}/measurements` | `+ ticket_intervene` | Registra una medición |
+| `PUT` | `/api/support/{ticket}/measurements/{id}` | `+ ticket_intervene` | Corrige una, mientras el ticket siga abierto |
+
+**No existe `DELETE`** (devuelve 405). Una medición es la constancia de lo que se leyó, y el
+§ 15.5 la convierte en requisito de cierre: poder esconderla equivaldría a poder saltarse el
+requisito sin que constara.
+
+**Mismo permiso que las intervenciones**, sin uno nuevo: el § 18 le da al Técnico de campo
+«visita, evidencias, materiales, equipos, **pruebas finales**» en una sola frase, así que
+partirlo en dos permisos separaría una capacidad que el documento describe como una.
+
+#### Cuerpo del alta
+
+```json
+{
+  "test_type": "RSSI",
+  "value": "-76",
+  "unit": "dBm",
+  "measured_at": "2026-09-25T08:00:00",
+  "source": "CPE",
+  "phase": "inicial",
+  "intervention_id": 12
+}
+```
+
+Las seis del § 12 son obligatorias salvo `unit` («conectado» no tiene unidad).
+`intervention_id` es opcional y debe pertenecer al mismo ticket — si no, **422**
+`intervention_not_in_ticket`, y en la base lo impide además una clave foránea compuesta.
+
+`phase` sólo admite `inicial`, `seguimiento` o `final`. `test_type` es **texto libre**: el
+§ 12 enumera las mediciones en prosa sin asignarles código (criterio **D-06**).
+
+#### Respuesta de la lectura
+
+```json
+{
+  "data": [ /* mediciones, con su intervención */ ],
+  "comparison": [
+    { "test_type": "RSSI", "initial": "-76 dBm", "follow_up": null,
+      "final": "-64 dBm", "complete": true }
+  ],
+  "final_test": {
+    "present": true,
+    "waiver": null
+  }
+}
+```
+
+`comparison` arma el «antes y después» del § 13 en el servidor, no en el navegador, para que
+la regla de emparejamiento sea una sola y esté probada. Toma la **última** medición de cada
+fase por tipo: si se volvió a medir, la buena es la de después.
+
+#### La regla 5 del § 15 en propuesta y cierre
+
+> «Exigir prueba final o justificación de por qué no fue posible.»
+
+Es la única regla del § 15 con una **O**. Se aplica en `POST /support/{id}/propose-closure` y
+en `POST /support/{id}/close`, y aparece en `closure_requirements.missing` del endpoint
+`GET /support/{id}/transitions` para que la pantalla lo diga **antes** de abrir el modal.
+
+Se cumple de dos maneras:
+
+1. Existe al menos una medición con `phase = final`.
+2. O se envían, en el mismo POST del cierre:
+
+```json
+{
+  "reason": "…",
+  "final_test_waiver_reason": "cliente_no_permitio",
+  "final_test_waiver_note": "El abonado se retiró antes de terminar."
+}
+```
+
+`final_test_waiver_reason` es de **lista cerrada** —el § 13 dice «seleccionar»— y la nota es
+obligatoria en cuanto llega una razón (`required_with`), con 10 a 500 caracteres. Media
+justificación no explica nada.
+
+Los cinco códigos admitidos se publican en `GET /api/catalogs/ticket`:
+
+| Código | Etiqueta | Origen en el documento |
+|---|---|---|
+| `cliente_no_permitio` | El cliente no permitió continuar | A.4 R14 · A.2 NF |
+| `no_fue_posible_contactar` | No fue posible contactar al cliente | A.4 R15 · § 7 · A.2 NF |
+| `equipo_sin_energia` | Equipo apagado o sin energía | A.1 S09 |
+| `pendiente_tercero` | Pendiente de un tercero | § 7 · A.4 R11 |
+| `otro` | Otro (explicar en la justificación) | § 15.8 |
+
+El **cierre excepcional** (`/close-exception`) sigue pudiendo saltársela como cualquier otro
+requisito, y entonces «Medición final o justificación…» aparece en
+`metadata.requisitos_incumplidos` del evento.
+
+#### Ampliación de `GET /api/catalogs/ticket`
+
+**Aditiva**: las claves anteriores no cambian de forma. Se añaden
+
+- `measurement_phases` — las tres fases con etiqueta.
+- `final_test_waiver_reasons` — la lista **cerrada** de arriba.
+- `measurement_suggestions` — sugerencias de `test_type` agrupadas por tecnología
+  (Común / Radio / FTTH), transcritas del § 12. **No son códigos.**
+
+#### Eventos que deja en el historial
+
+`measurement_recorded` (con el tipo en `field` y el valor legible en `new_value`) ·
+`measurement_updated` (con valor anterior y nuevo) · `final_test_waived` (con la razón en
+`new_value` y la justificación en `metadata.note`).
+
+#### Lo que no cambia
+
+Un ticket **cerrado** no admite mediciones nuevas ni correcciones (**422**
+`ticket_already_closed`); el camino es reabrirlo, que ya existe y deja evento. Un ticket
+**archivado** responde **404**.
+
+**`/v1/partner` no cambia.** Las mediciones, como el diagnóstico, las intervenciones, las
+notas y los adjuntos, viven sólo en la API del panel (decisión **D-07**), con test de que no
+se filtran.
+
 ### Intervenciones técnicas del ticket (PR F1 · 2026-09-23)
 
 Fuente: Solicitud Maestra § 14. Todas bajo `auth:sanctum` + `deny_api_clients` +

@@ -34,6 +34,12 @@ const causes = ref([])
 const actions = ref([])
 const results = ref([])
 
+// PR F2 - vocabulario de las mediciones tecnicas (secciones 12 y 13). Llega en la
+// misma respuesta: la pantalla de soporte los necesita a la vez.
+const measurementPhases = ref([])
+const finalTestWaiverReasons = ref([])
+const measurementSuggestions = ref({})
+
 const cargado = ref(false)
 const error = ref(false)
 
@@ -57,6 +63,9 @@ async function cargar(forzar = false) {
             causes.value = data.causes ?? []
             actions.value = data.actions ?? []
             results.value = data.results ?? []
+            measurementPhases.value = data.measurement_phases ?? []
+            finalTestWaiverReasons.value = data.final_test_waiver_reasons ?? []
+            measurementSuggestions.value = data.measurement_suggestions ?? {}
             cargado.value = true
         })
         .catch(() => {
@@ -73,6 +82,9 @@ async function cargar(forzar = false) {
             causes.value = []
             actions.value = []
             results.value = []
+            measurementPhases.value = []
+            finalTestWaiverReasons.value = []
+            measurementSuggestions.value = {}
             error.value = true
         })
         .finally(() => { enVuelo = null })
@@ -95,6 +107,9 @@ export function useTicketCatalogs() {
         causes,
         actions,
         results,
+        measurementPhases,
+        finalTestWaiverReasons,
+        measurementSuggestions,
         cargado,
         error,
         cargar,
@@ -106,5 +121,7 @@ export function useTicketCatalogs() {
         causeLabel: (code) => etiqueta(causes, code),
         actionLabel: (code) => etiqueta(actions, code),
         resultLabel: (code) => etiqueta(results, code),
+        measurementPhaseLabel: (code) => etiqueta(measurementPhases, code),
+        waiverReasonLabel: (code) => etiqueta(finalTestWaiverReasons, code),
     }
 }

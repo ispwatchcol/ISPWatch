@@ -119,11 +119,34 @@ class TicketWorkflowTest extends TestCase
     /** Un ticket con el expediente completo: causa confirmada, acción y resultado. */
     private function ticketCerrable(string $estado = TicketWorkflow::SERVICIO_RESTABLECIDO): SupportTicket
     {
-        return $this->ticket($estado, [
+        $ticket = $this->ticket($estado, [
             'confirmed_cause' => 'RF',
             'solution'        => 'AC02',
             'result'          => 'R01',
         ]);
+
+        // PR F2 - la regla 5 del § 15 («exigir prueba final o justificacion»)
+        // entro en vigor con las mediciones estructuradas. Un ticket «cerrable»
+        // tiene que cumplirla igual que las otras tres, asi que se le registra
+        // la medicion final.
+        //
+        // Se inserta por SQL directo y no por el endpoint: este archivo prueba
+        // el WORKFLOW, y hacerlo pasar por el controlador de mediciones lo
+        // acoplaria a los permisos y las reglas de otro modulo.
+        DB::table('ticket_measurement')->insert([
+            'tenant_id'         => $ticket->tenant_id,
+            'support_ticket_id' => $ticket->id,
+            'test_type'         => 'RSSI',
+            'value'             => '-64',
+            'unit'              => 'dBm',
+            'measured_at'       => now(),
+            'source'            => 'CPE',
+            'phase'             => 'final',
+            'created_at'        => now(),
+            'updated_at'        => now(),
+        ]);
+
+        return $ticket;
     }
 
     private function mover(SupportTicket $ticket, string $destino, ?User $como = null)
@@ -762,6 +785,14 @@ class TicketWorkflowTest extends TestCase
             ->getJson("/api/support/{$ticket->id}/transitions")->assertOk()->json();
 
         $this->assertFalse($datos['closure_requirements']['complete']);
-        $this->assertCount(2, $datos['closure_requirements']['missing']);
+
+        // Tres desde el PR F2: causa confirmada, resultado y la regla 5 del § 15
+        // -medicion final o justificacion-. `solution` si esta puesta.
+        $this->assertCount(3, $datos['closure_requirements']['missing']);
+
+        $anunciados = implode(' | ', $datos['closure_requirements']['missing']);
+        $this->assertStringContainsString('Causa confirmada', $anunciados);
+        $this->assertStringContainsString('Resultado técnico', $anunciados);
+        $this->assertStringContainsString('Medición final', $anunciados);
     }
 }

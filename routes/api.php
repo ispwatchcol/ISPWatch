@@ -18,6 +18,7 @@ use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\TicketInterventionController;
+use App\Http\Controllers\TicketMeasurementController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
@@ -582,12 +583,24 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // borra: si esta mal se reabre con motivo y se corrige, y la correccion
         // queda en el historial. El modelo bloquea ademas `deleting`.
         Route::get('/support/{ticket}/interventions', [TicketInterventionController::class, 'index']);
+        Route::get('/support/{ticket}/measurements', [TicketMeasurementController::class, 'index']);
 
         Route::middleware('permission:ticket_intervene')->group(function () {
             Route::post('/support/{ticket}/interventions', [TicketInterventionController::class, 'store']);
             Route::put('/support/{ticket}/interventions/{intervention}', [TicketInterventionController::class, 'update']);
             Route::post('/support/{ticket}/interventions/{intervention}/reopen', [TicketInterventionController::class, 'reopen']);
             Route::post('/support/{ticket}/interventions/{intervention}/evidence', [TicketInterventionController::class, 'linkEvidence']);
+
+            // PR F2 - mediciones tecnicas (secciones 12 y 13). Mismo permiso que
+            // las intervenciones: la seccion 18 le da al Tecnico de campo
+            // «visita, evidencias, materiales, equipos, pruebas finales» en una
+            // sola frase, asi que separarlas en dos permisos partiria una
+            // capacidad que el documento describe como una.
+            //
+            // NO HAY RUTA DE BORRADO: una medicion es la constancia de lo que se
+            // leyo, y el parrafo 15.5 la hace requisito de cierre.
+            Route::post('/support/{ticket}/measurements', [TicketMeasurementController::class, 'store']);
+            Route::put('/support/{ticket}/measurements/{measurement}', [TicketMeasurementController::class, 'update']);
         });
 
         // PR #3 · Historial inalterable (F1-17). Sólo lectura: no hay ruta de

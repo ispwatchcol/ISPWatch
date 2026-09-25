@@ -122,6 +122,17 @@ class SupportTicketHistory extends Model
     public const INTERVENTION_EDITED   = 'intervention_edited';
     public const INTERVENTION_REOPENED = 'intervention_reopened';
 
+    /**
+     * PR F2 - mediciones tecnicas (secciones 12, 13 y 15.5).
+     *
+     * `final_test_waived` es el que sostiene la regla 5 del parrafo 15: cuando un
+     * ticket se cierra SIN medicion final, el expediente tiene que decir con que
+     * razon y con que justificacion. Sin este evento la excepcion seria invisible.
+     */
+    public const MEASUREMENT_RECORDED = 'measurement_recorded';
+    public const MEASUREMENT_UPDATED  = 'measurement_updated';
+    public const FINAL_TEST_WAIVED    = 'final_test_waived';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

@@ -85,6 +85,10 @@ class SupportTicket extends Model
         // deja rastro en `support_ticket_history`.
         'no_charge',
         'no_charge_reason',
+        // PR F2 - por que no hubo medicion final (seccion 13 y 15.5). La razon
+        // es de lista cerrada y la justificacion es obligatoria junto a ella.
+        'final_test_waiver_reason',
+        'final_test_waiver_note',
     ];
 
     protected $casts = [
@@ -478,6 +482,19 @@ class SupportTicket extends Model
      * el tecnico («la segunda visita»), y dos intervenciones registradas
      * el mismo dia se ordenarian de forma arbitraria por `created_at`.
      */
+    /**
+     * Mediciones tecnicas del ticket (seccion 12, PR F2).
+     *
+     * Ordenadas por `measured_at` y no por `id`: la comparacion inicial/final
+     * del parrafo 13 es cronologica, y una medicion puede registrarse despues de
+     * haberse tomado.
+     */
+    public function measurements()
+    {
+        return $this->hasMany(TicketMeasurement::class, 'support_ticket_id')
+            ->orderBy('measured_at');
+    }
+
     public function interventions()
     {
         return $this->hasMany(TicketIntervention::class, 'support_ticket_id')

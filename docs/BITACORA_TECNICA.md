@@ -8303,3 +8303,111 @@ aunque conserve su línea de instalación. Suite completa en verde.
 correcto para el caso real pero deja sin camino la corrección a la baja de una cantidad mal
 capturada (P-57). Y la hoja de equipos todavía no muestra la marca `no_charge` del ticket ni el
 costo interno acumulado de la visita, que era la costura que P-49 anticipaba.
+
+---
+
+## 79. La única regla de cierre con una «O» — 2026-09-25
+
+PR F2 del módulo de tickets: pruebas técnicas estructuradas (§ 12, § 13 y § 15.5 de la
+Solicitud Maestra). Lo interesante no fue la tabla —seis columnas que el documento dicta una a
+una— sino la regla de cierre que activa.
+
+### Nueve reglas dicen «exigir X». La quinta dice «exigir X o Y»
+
+El § 15 enumera diez reglas de cierre. Nueve se comprueban igual: ¿está lleno este campo del
+ticket? Por eso `TicketWorkflow::REQUISITOS_DE_CIERRE` es un mapa `campo => descripción` y
+`requisitosFaltantes()` hace un `blank($ticket->{$campo})`.
+
+La quinta no encaja:
+
+> «Exigir prueba final **o** justificación de por qué no fue posible.»
+
+Se cumple de dos maneras distintas, y ninguna es un campo del ticket: la primera es una
+consulta a **otra tabla** («¿existe alguna medición con `phase = final`?»), la segunda es un
+par de columnas que tienen que venir **las dos**.
+
+Meterla a la fuerza en `REQUISITOS_DE_CIERRE` habría obligado a que la constante dejara de ser
+declarativa. Va aparte, en `faltaPruebaFinal()`, y se suma a `$faltantes` en los tres sitios
+que las consultan: `proposeClosure`, `cerrar` y el endpoint `transitions` —que es el que
+permite a la pantalla avisar **antes** de abrir el modal—. Es el mismo patrón que ya usaba la
+regla 9 (solución temporal), que tampoco es un campo.
+
+### El documento exige una lista cerrada y no la da
+
+§ 13: «Cuando no sea posible obtener la medición final, el usuario deberá **seleccionar una
+razón** y escribir la justificación».
+
+«Seleccionar» significa lista cerrada. Pero el documento no la enumera en ninguna sección.
+
+Se compuso con vocabulario que el documento **ya** usa, en vez de inventar conceptos:
+`cliente_no_permitio` (A.4 R14 y A.2 NF), `no_fue_posible_contactar` (R15, § 7, NF),
+`equipo_sin_energia` (A.1 S09), `pendiente_tercero` (§ 7 y R11) y `otro`, que el § 15.8 exige
+que siempre pida explicación. Registrada como **D-16** para que el cliente la confirme o la
+sustituya.
+
+La justificación es obligatoria en los cinco casos, no sólo en `otro`: el § 13 pide razón
+**y** justificación, con la conjunción. Una razón sin texto no explica por qué no se pudo
+medir *este* ticket.
+
+### Dónde viven las dos columnas, y por qué no en la tabla de mediciones
+
+`final_test_waiver_reason` y `final_test_waiver_note` están en `support_ticket`. Describen la
+**ausencia** de una medición: una fila en `ticket_measurement` que dijera «aquí no hay
+medición» sería una contradicción, y rompería la consulta que sostiene la regla —«¿existe
+alguna fila con `phase = final`?» pasaría a tener que distinguir filas reales de
+filas-marcador—.
+
+### Dos decisiones de tipo que parecen menores y no lo son
+
+**`value` es texto, no `decimal`.** Los ejemplos del § 13 mezclan los dos tipos en la misma
+frase: «PPPoE conectado; RSSI –76 dBm; CCQ 54 %; latencia 104 ms». Un `decimal` habría
+obligado a partir la medición en dos tablas o a perder «PPPoE conectado», que es una medición
+tan válida como las otras. El documento pide «resultado», no «valor numérico».
+
+**`test_type` es libre, no catálogo.** El § 12 enumera las métricas en prosa y por tecnología
+sin asignarles código, igual que el Anexo A.2 con las subcausas — y el cliente cerró ese
+criterio el 11/09/2026 (**D-06**). Las listas del documento viajan como sugerencias para un
+`<datalist>`; el campo acepta lo que el técnico escriba.
+
+### La foránea compuesta, esta vez en los dos motores
+
+`(intervention_id, support_ticket_id)` → `ticket_intervention (id, support_ticket_id)`, igual
+que en el PR F1 para los adjuntos. Con la diferencia de que **aquí sí funciona en SQLite**:
+allí hubo que añadirla con `ALTER TABLE` a una tabla que ya existía —cosa que SQLite no
+admite— y quedó sólo en PostgreSQL. La tabla de mediciones nace con la restricción, así que
+los dos motores la aplican y el test correspondiente ya no se salta.
+
+Verificado además a mano contra PostgreSQL 18.3: trece comprobaciones, incluidas el cruce
+entre tickets rechazado, el `RESTRICT` sobre intervención y ticket, la supervivencia a la baja
+del técnico y los acentos y el signo menos unicode.
+
+### Ocho tests rotos, y ninguno era un bug
+
+Al correr la suite completa fallaron ocho pruebas de `TicketWorkflowTest` y una de
+`TicketInterventionTest`. Todas por la misma razón: cerraban tickets sin medición final, que
+hasta hoy era legal.
+
+Es el cambio de comportamiento que el cliente pidió, así que **no se tocó la regla**. Se
+actualizó el helper `ticketCerrable()` —un solo sitio— para que registre la medición final, y
+se ajustó la prueba que contaba requisitos, que ahora anuncia tres en vez de dos. La medición
+se inserta por SQL directo a propósito: ese archivo prueba el *workflow*, y hacerla pasar por
+el controlador de mediciones lo acoplaría a los permisos de otro módulo.
+
+### Deuda que queda
+
+- **D-16 sin confirmar.** La lista de razones es nuestra, derivada del vocabulario del
+  documento. Si el cliente la cambia es un cambio de lista cerrada, no de código inmutable de
+  catálogo, así que no arrastra el coste de la R1.
+- **P-50 sigue parcial.** De las diez reglas del § 15 ahora son exigibles cuatro (1, 2, 3 y
+  5). Faltan la infraestructura «no aplica», la validación del cliente separada de la
+  restauración técnica, y el seguimiento de solución temporal / pendiente de tercero.
+- **La comparación del § 13 empareja por `test_type` literal.** «RSSI» y «rssi» son tipos
+  distintos. Con texto libre era inevitable sin inventar una normalización que el documento no
+  pide; las sugerencias reducen el problema pero no lo eliminan.
+
+### Lección
+
+Antes de meter una regla nueva en la estructura que ya existe, conviene leer si tiene la misma
+forma que las demás. Nueve reglas eran «campo lleno»; la décima parecía una más y era una
+disyunción entre una tabla y un par de columnas. Forzarla en el mapa declarativo habría
+costado más que ponerla aparte.

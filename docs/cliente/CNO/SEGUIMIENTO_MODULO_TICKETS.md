@@ -137,7 +137,7 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-06** | Asociación zona, nodo, AP/OLT, PON, CPE/ONU | 🟡 Parcial | `support_ticket.sectorial_id` | Ampliar jerarquía | — |
 | **F1-07** | Snapshot histórico de infraestructura | ⚪ Pendiente | `sectorial_id` es FK viva, no snapshot | Diseño posterior | Tras F1-06 |
 | **F1-08** | Varias intervenciones por ticket | 🟢 **Cumplido** | `ticket_intervention`: N visitas por ticket con numero correlativo, tipo remoto/presencial, tecnico y acompanante con nombre congelado, inicio/fin, hallazgo, accion, resultado y proximo paso. Evidencia enlazada a su visita. **Sin borrado**: corregir una finalizada exige reabrirla con motivo | — | **PR F1** |
-| **F1-09** | Pruebas iniciales y finales estructuradas | ⚪ Pendiente | No existe | **PR F2** | Cierra parte de **P-50** |
+| **F1-09** | Pruebas iniciales y finales estructuradas | 🟢 **Cumplido** | `ticket_measurement` con los seis campos del § 12; comparación inicial/seguimiento/final del § 13; la regla 5 del § 15 es exigible en propuesta y cierre | — | **PR F2** · lista de razones: **D-16** |
 | **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido; se exigen **3 de las 10 reglas** del §15 (causa confirmada, acción, resultado). Las otras necesitan campos que el ticket aún no captura | **PR #4** + PR #5 | — |
 | **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
 | **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones. **No se reutiliza**: su `installation_id` es NOT NULL con CASCADE y un ticket no tiene instalacion | **PR F3** | **D-14** y **P-55** |
@@ -766,18 +766,42 @@ no poder borrar: sin una vía de corrección auditada, la inmutabilidad sería i
 ni `/v1/partner`. El cierre **no** exige intervenciones (**D-15**): ninguna de las diez reglas
 del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita.
 
-#### PR F2 · Pruebas iniciales y finales — pendiente
+#### PR F2 · Pruebas técnicas estructuradas — **implementado**
 
 | Campo | Detalle |
 |---|---|
-| **Cubre** | F1-09 · cierra parte de **P-50** |
-| **Alcance** | `ticket_measurement` con los seis campos del § 12 (tipo, resultado, unidad, fecha/hora, origen, fase), razón y justificación cuando no hay medición final (§ 13), y enganche con las reglas de cierre |
-| **Dependencias** | PR F1 |
-| **Estado** | ⚪ Pendiente |
+| **Objetivo** | Registrar mediciones con estructura, comparar antes/después y hacer exigible la regla 5 del § 15 |
+| **Cubre** | **F1-09 (cumplido)** · cierra la regla 5 de **P-50** |
+| **Alcance** | Tabla `ticket_measurement` con los seis campos del § 12 (tipo, resultado, unidad, fecha/hora, origen, fase) más la intervención de la que salió. Dos columnas en `support_ticket` para la razón y la justificación del § 13. Comparación inicial/seguimiento/final. Componente `TicketMeasurements.vue` |
+| **Migraciones** | 2 · tabla de mediciones, columnas de justificación |
+| **Permiso** | **Ninguno nuevo**: `ticket_intervene`, el mismo de las visitas |
+| **Pruebas** | `tests/Feature/Support/TicketMeasurementTest.php` — 41 pruebas |
+| **Aceptación** | Se registra una medición inicial y una final con los seis datos; la comparación las enfrenta; sin final el cierre exige razón **y** justificación |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
 
-`test_type` será **texto libre con sugerencias documentales** (decisión **S-4**). El § 12
-enumera las métricas en prosa por tecnología sin asignarles código, exactamente como las
-subcausas del Anexo A.2 — y el cliente ya cerró ese criterio en **D-06**.
+**La regla 5 ya es exigible.** El § 15.5 pide «prueba final **o** justificación de por qué no
+fue posible». Es la única de las diez con una **O**: se cumple con una medición de fase
+`final`, o con la pareja razón + justificación. Se aplica en la **propuesta** y en el
+**cierre**, y el endpoint de transiciones la anuncia para que la pantalla avise antes de abrir
+el modal. El cierre excepcional sigue pudiendo saltársela, dejando constancia.
+
+**`test_type` es texto libre** (decisión **S-4**). El § 12 enumera las métricas en prosa por
+tecnología sin asignarles código, igual que el Anexo A.2 con las subcausas — criterio que el
+cliente cerró en **D-06**. Las listas del documento viajan como sugerencias, no como valores
+seleccionables.
+
+**Sin permiso nuevo.** El § 18 le da al Técnico de campo «visita, evidencias, materiales,
+equipos, **pruebas finales**» en una sola frase: partirlo separaría una capacidad que el
+documento describe como una.
+
+**No se borra una medición.** Es la constancia de lo que se leyó, y la regla 5 la convierte en
+requisito de cierre: poder esconderla equivaldría a poder saltarse el requisito sin que
+constara. Se puede **corregir** mientras el ticket siga abierto, y la corrección queda en el
+historial con el valor anterior y el nuevo.
+
+**La lista de razones la define el equipo** (**D-16**, nueva). El § 13 pide «seleccionar» —es
+decir, lista cerrada— pero no la enumera en ninguna sección. Se compuso con vocabulario que el
+documento ya usa; queda pendiente de que el cliente la confirme.
 
 #### PR F3 · Materiales y equipos — pendiente
 
@@ -846,6 +870,7 @@ instalados fuera de esa tabla.
 | **D-13** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** (va dentro de «roles y permisos»). *Enunciado original:* **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
 | **D-14** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿Instalar o retirar un equipo desde un ticket debe mover el kardex de inventario? El documento no lo dice | **Por defecto: NO.** El PR F3 registrara de forma declarativa. Moverlo exige permiso propio y resolver el choque con `unique(device_id)` (**P-55**) | PR F3, F1-12 |
 | **D-15** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿El cierre debe exigir al menos una intervencion? | **Por defecto: NO.** Ninguna de las diez reglas del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita. Exigirlas bloquearia tickets legitimos | PR #4, PR F1 |
+| **D-16** | **Lista de razones para cerrar sin medicion final.** El § 13 pide «seleccionar una razon» —lista cerrada— pero no la enumera en ninguna seccion | El equipo la compuso con vocabulario que el documento YA usa: R14, R15, S09, § 7 y la familia NF del Anexo A.2, mas `otro` (§ 15.8). **Falta que el cliente la confirme o la sustituya.** Cambiarla es barato: es lista cerrada, no codigo inmutable de catalogo | F1-09, regla 5 del § 15 |
 
 ---
 
@@ -963,3 +988,4 @@ instalados fuera de esa tabla.
 | 2026-09-19 | **PR #4 implementado**: workflow formal de tickets. 9 estados del flujo + 9 auxiliares de la §7 sembrados literales; matriz explícita de transiciones; el `PUT` deja de mover el estado; propuesta de cierre, cierre con requisitos del §15, cierre especial auditado y reapertura, cada uno con su permiso. Los cuatro estados viejos se conservan como `legacy` con equivalencia, así que **el contrato del integrador no cambia**. **F1-04 pasa a cumplido; F1-10 queda parcial** (3 de las 10 reglas de cierre son exigibles con el modelo actual). **D-03 deja de bloquear** | David Gómez | *(PR abierto)* |
 | 2026-09-21 | **Correctivo de reapertura**: el humo del PR #4 encontró que un Administrador no podía reabrir el ticket #39. Causa raíz: `ticket_reopen` nunca se repartió —los roles `admin` tenían 17 de 20 permisos `ticket_*`—. Migración idempotente para `code = 'admin'`; la pareja `cerrado → reabierto` queda explícita en `TicketWorkflow::REAPERTURA` sin abrir la transición genérica; `GET .../transitions` ahora dice **por qué** una acción no está disponible. `ticket_close_override` sigue sin repartir a conciencia (**P-52**) | David Gómez | *(PR abierto)* |
 | 2026-09-23 | **PR F1 implementado**: intervenciones tecnicas del § 14 con numero correlativo, tecnico y acompanante congelados, cerrojo de edicion por `finished_at` y reapertura auditada con motivo. Evidencia enlazada sin duplicar archivos, con FK compuesta que impide el cruce entre tickets. Permiso `ticket_intervene` con backfill compatible. **F1-08 pasa a cumplido.** El PR #5 se dividio en F1/F2/F3; nuevas decisiones D-14 y D-15, nueva deuda P-55 y P-56 | — | *(PR abierto)* |
+| 2026-09-25 | **PR F2 implementado**: mediciones tecnicas estructuradas con los seis campos del § 12, comparacion inicial/seguimiento/final del § 13 y la **regla 5 del § 15 ya exigible** en propuesta y cierre —medicion final O razon de lista cerrada mas justificacion—. **F1-09 pasa a cumplido.** Sin permiso nuevo: reutiliza `ticket_intervene`. Nueva decision **D-16** (la lista de razones la define el equipo y falta confirmacion del cliente). Nueve pruebas del workflow se actualizaron porque el cierre cambio de contrato, sin debilitar la regla | — | *(PR abierto)* |

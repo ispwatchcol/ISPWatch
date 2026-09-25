@@ -73,12 +73,19 @@ export default {
     },
 
     /** Propuesta de cierre: NO cierra. Deja el ticket en observación. */
-    proposeClosure(ticketId, reason) {
-        return apiClient.post(`/support/${ticketId}/propose-closure`, { reason })
+    // `extra` lleva, cuando hace falta, la justificacion de por que no hubo
+    // medicion final (regla 5 del parrafo 15): `final_test_waiver_reason` y
+    // `final_test_waiver_note`. Se manda en el mismo POST que el cierre porque
+    // es ahi donde el documento la exige.
+    proposeClosure(ticketId, reason, extra = {}) {
+        return apiClient.post(`/support/${ticketId}/propose-closure`, { reason, ...extra })
     },
 
-    closeTicket(ticketId, reason = null) {
-        return apiClient.post(`/support/${ticketId}/close`, reason ? { reason } : {})
+    closeTicket(ticketId, reason = null, extra = {}) {
+        return apiClient.post(`/support/${ticketId}/close`, {
+            ...(reason ? { reason } : {}),
+            ...extra,
+        })
     },
 
     /** Cierre especial: exige motivo y registra qué requisito faltó. */
@@ -113,6 +120,20 @@ export default {
     },
     linkInterventionEvidence(ticketId, interventionId, data) {
         return apiClient.post(`/support/${ticketId}/interventions/${interventionId}/evidence`, data)
+    },
+    // PR F2 - mediciones tecnicas (secciones 12 y 13).
+    //
+    // Aqui tampoco hay metodo de borrado: una medicion es la constancia de lo
+    // que se leyo, y el parrafo 15.5 la hace requisito de cierre. Si el valor
+    // esta mal se corrige, y la correccion queda en el historial.
+    getMeasurements(ticketId) {
+        return apiClient.get(`/support/${ticketId}/measurements`)
+    },
+    createMeasurement(ticketId, data) {
+        return apiClient.post(`/support/${ticketId}/measurements`, data)
+    },
+    updateMeasurement(ticketId, measurementId, data) {
+        return apiClient.put(`/support/${ticketId}/measurements/${measurementId}`, data)
     },
     getHistory(ticketId, page = 1) {
         return apiClient.get(`/support/${ticketId}/history`, { params: { page } })

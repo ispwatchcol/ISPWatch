@@ -264,6 +264,17 @@
                         :ticket-archivado="!!ticket.is_archived"
                         :tecnicos="staffList"
                         @cambio="loadTicket"
+                        @cargadas="interventionsForSelect = $event"
+                    />
+
+                    <!-- Pruebas tecnicas (PR F2 - secciones 12 y 13) -->
+                    <TicketMeasurements
+                        ref="measurementsRef"
+                        :ticket-id="ticketId"
+                        :puede-medir="canIntervene"
+                        :bloqueado="!!ticket.is_archived || workflow.isTerminal"
+                        :intervenciones="interventionsForSelect"
+                        @cambio="alCambiarMedicion"
                     />
 
                     <!-- Historial inalterable (PR #3 · F1-17) -->
@@ -1080,6 +1091,47 @@
                             </ul>
                         </div>
 
+                        <!-- PR F2 - regla 5 del parrafo 15: prueba final O
+                             justificacion. Solo aparece cuando de verdad falta,
+                             y solo en propuesta y cierre ordinario: el cierre
+                             excepcional ya documenta el requisito incumplido por
+                             otra via. -->
+                        <div
+                            v-if="pideJustificacionDePruebaFinal"
+                            class="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/25"
+                        >
+                            <p class="text-xs text-amber-900 dark:text-amber-200">
+                                Este ticket no tiene medición final. Indica por qué no fue posible tomarla.
+                            </p>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 dark:text-gray-200">
+                                    Razón <span class="text-red-500">*</span>
+                                </label>
+                                <select
+                                    v-model="exencionPruebaFinal.reason"
+                                    class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                                >
+                                    <option :value="null">— Seleccionar —</option>
+                                    <option v-for="r in finalTestWaiverReasons" :key="r.code" :value="r.code">
+                                        {{ r.label }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-700 dark:text-gray-200">
+                                    Justificación <span class="text-red-500">*</span>
+                                </label>
+                                <textarea
+                                    v-model="exencionPruebaFinal.note"
+                                    rows="2"
+                                    placeholder="Entre 10 y 500 caracteres"
+                                    class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                                ></textarea>
+                            </div>
+                        </div>
+
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
                                 {{ accion.etiquetaMotivo }}
@@ -1128,6 +1180,7 @@ import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NotificationToast from '../components/NotificationToast.vue'
 import TicketInterventions from '../components/TicketInterventions.vue'
+import TicketMeasurements from '../components/TicketMeasurements.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import ticketEquipmentApi from '@/services/api/ticket-equipment'
 
@@ -1137,6 +1190,8 @@ const {
     statuses,
     cargar: cargarCatalogos,
     statusLabel, priorityLabel, categoryLabel,
+    // PR F2 - lista CERRADA de razones para cerrar sin medicion final (§ 13).
+    finalTestWaiverReasons,
 } = useTicketCatalogs()
 
 const router = useRouter()
@@ -1158,6 +1213,24 @@ const canIntervene = computed(() => authStore.hasPermission('ticket_intervene'))
 // de la interfaz, nunca la autorizacion.
 const staffList = ref([])
 const interventionsRef = ref(null)
+const measurementsRef = ref(null)
+
+// Visitas del ticket, para que una medicion pueda colgar de una. Se llenan desde
+// el componente de intervenciones al cargar; si aun no hay, el desplegable sale
+// vacio y la medicion se guarda sin intervencion, que es un caso valido.
+const interventionsForSelect = ref([])
+
+/**
+ * Una medicion nueva puede cambiar si el ticket ya se puede cerrar: la regla 5
+ * del parrafo 15 exige prueba final o justificacion. Por eso se recalcula el
+ * workflow, no solo se repinta la lista.
+ */
+// PR F2 - lo que se manda al cerrar cuando no hubo medicion final.
+const exencionPruebaFinal = ref({ reason: null, note: '' })
+
+const alCambiarMedicion = async () => {
+    await cargarWorkflow()
+}
 
 const loadStaff = async () => {
     try {
@@ -2191,6 +2264,28 @@ const abrirAccion = (clave, destino = null) => {
 const cerrarAccion = () => {
     accion.value = null
     accionDestino.value = null
+    exencionPruebaFinal.value = { reason: null, note: '' }
+}
+
+/**
+ * Solo se pide la justificacion cuando de verdad falta la medicion final, y solo
+ * en propuesta y cierre ordinario. El cierre EXCEPCIONAL no la pide: ya deja
+ * constancia del requisito incumplido por su propia via, y pedirla ahi seria
+ * exigir dos veces lo mismo.
+ */
+const pideJustificacionDePruebaFinal = computed(() =>
+    ['propose', 'close'].includes(accion.value?.clave)
+    && workflow.value.closureRequirements.missing.some((m) => m.includes('Medición final')),
+)
+
+/** La exencion solo viaja si el usuario la lleno; si no, el backend la exige. */
+const exencion = () => {
+    if (!pideJustificacionDePruebaFinal.value || !exencionPruebaFinal.value.reason) return {}
+
+    return {
+        final_test_waiver_reason: exencionPruebaFinal.value.reason,
+        final_test_waiver_note: exencionPruebaFinal.value.note,
+    }
 }
 
 const ejecutarAccion = async () => {
@@ -2204,8 +2299,8 @@ const ejecutarAccion = async () => {
         const { data } = await (() => {
             switch (accion.value.clave) {
                 case 'transition': return api.support.updateStatus(ticketId, accionDestino.value.code, motivo)
-                case 'propose':    return api.support.proposeClosure(ticketId, motivo)
-                case 'close':      return api.support.closeTicket(ticketId, motivo)
+                case 'propose':    return api.support.proposeClosure(ticketId, motivo, exencion())
+                case 'close':      return api.support.closeTicket(ticketId, motivo, exencion())
                 case 'exception':  return api.support.closeException(ticketId, motivo)
                 case 'reopen':     return api.support.reopen(ticketId, motivo)
             }
