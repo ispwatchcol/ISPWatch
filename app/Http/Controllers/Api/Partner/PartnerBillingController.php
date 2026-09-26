@@ -111,6 +111,13 @@ class PartnerBillingController extends PartnerController
 
         $query = Payment::query()
             ->where('payments.tenant_id', $tenantId)
+            // Forma de pago vigente del catálogo (KAN-109). La condición de
+            // tenant en el join es redundante con la foránea, y a propósito:
+            // una fila mal enlazada no puede sacar el nombre de otro ISP.
+            ->leftJoin('payment_methods', function ($join) {
+                $join->on('payment_methods.id', '=', 'payments.payment_method_id')
+                    ->on('payment_methods.tenant_id', '=', 'payments.tenant_id');
+            })
             ->select([
                 'payments.id',
                 'payments.customer_id',
@@ -118,6 +125,8 @@ class PartnerBillingController extends PartnerController
                 'payments.amount',
                 'payments.payment_date',
                 'payments.method',
+                'payments.payment_method_id',
+                'payment_methods.name as payment_method_name',
                 'payments.reference',
                 'payments.status',
                 'payments.created_at',
@@ -148,7 +157,11 @@ class PartnerBillingController extends PartnerController
             'customer_name' => $row->customer_name,
             'amount'       => $row->amount,
             'payment_date' => $row->payment_date,
+            // Texto con el que se registró; no cambia aunque se renombre el catálogo.
             'method'       => $row->method,
+            // Null si el pago no está enlazado (método histórico).
+            'payment_method_id'   => $row->payment_method_id ? (int) $row->payment_method_id : null,
+            'payment_method_name' => $row->payment_method_name,
             'reference'    => $row->reference,
             'status'       => $row->status,
             'created_at'   => $row->created_at,

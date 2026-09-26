@@ -387,7 +387,7 @@ onMounted(() => {
                                     <div class="font-medium text-slate-900 dark:text-white">
                                         {{ customerDisplayName(payment.customer, payment.customer_name) }}
                                     </div>
-                                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ payment.method }} • {{ payment.payment_date }}</div>
+                                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ payment.payment_method?.name || payment.method }} • {{ payment.payment_date }}</div>
                                 </div>
                             </div>
                             <div class="text-right">

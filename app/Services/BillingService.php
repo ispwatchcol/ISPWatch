@@ -1253,12 +1253,19 @@ class BillingService
     public function registerPayment(array $data): Payment
     {
         $payment = DB::transaction(function () use ($data) {
+            $method = $this->resolvePaymentMethod(
+                $data['tenant_id'] ?? null,
+                $data['payment_method_id'] ?? null,
+                $data['method'] ?? null,
+            );
+
             $payment = Payment::create([
                 'tenant_id' => $data['tenant_id'],
                 'customer_id' => $data['customer_id'],
                 'amount' => $data['amount'],
                 'payment_date' => $data['payment_date'],
-                'method' => $data['method'] ?? 'cash',
+                'method' => $method['method'],
+                'payment_method_id' => $method['payment_method_id'],
                 'reference' => $data['reference'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'status' => 'completed',
@@ -2579,13 +2586,12 @@ class BillingService
                 $this->reversePaymentAllocations($payment);
             }
 
-            $payment->update([
+            $payment->update(array_merge([
                 'amount'       => $data['amount']       ?? $payment->amount,
                 'payment_date' => $data['payment_date'] ?? $payment->payment_date,
-                'method'       => $data['method']       ?? $payment->method,
                 'reference'    => array_key_exists('reference', $data) ? $data['reference'] : $payment->reference,
                 'notes'        => array_key_exists('notes', $data) ? $data['notes'] : $payment->notes,
-            ]);
+            ], $this->paymentMethodChange($payment, $data)));
 
             if ($amountChanged) {
                 $this->allocatePayment($payment);
@@ -2593,6 +2599,81 @@ class BillingService
 
             return $payment->load('allocations');
         });
+    }
+
+    /**
+     * Forma de pago de un pago NUEVO: el id del catálogo manda; el texto es la
+     * vía de compatibilidad para quien todavía manda sólo el nombre (clientes
+     * de API, la facturación de instalaciones, un bundle viejo en caché).
+     *
+     * Con id, el texto se copia del catálogo en ese momento: queda como
+     * constancia de con qué nombre se cobró. Con sólo texto, se enlaza si el
+     * nombre coincide con UNA forma de pago del tenant; si no, se guarda el
+     * texto sin enlace, igual que antes de KAN-109.
+     *
+     * El id se busca en el tenant del PAGO. Un id de otro tenant es un error de
+     * quien llama —el controlador ya lo rechazó con 422—, no algo que se pueda
+     * resolver en silencio usando el texto.
+     *
+     * @return array{method:string, payment_method_id:?int}
+     */
+    public function resolvePaymentMethod(?int $tenantId, mixed $paymentMethodId, ?string $method): array
+    {
+        $linker = app(PaymentMethodLinker::class);
+
+        if ($paymentMethodId !== null && $paymentMethodId !== '') {
+            $catalog = $linker->findInTenant($tenantId, (int) $paymentMethodId);
+
+            if (!$catalog) {
+                throw new \InvalidArgumentException('La forma de pago indicada no pertenece a este ISP.');
+            }
+
+            return ['method' => $catalog->name, 'payment_method_id' => (int) $catalog->id];
+        }
+
+        $text = trim((string) $method) !== '' ? $method : 'cash';
+
+        return ['method' => $text, 'payment_method_id' => $linker->matchByName($tenantId, $text)];
+    }
+
+    /**
+     * Qué cambia de la forma de pago al EDITAR un pago. Vacío = nada.
+     *
+     * La regla es que el pago conserva lo que tiene salvo que se pida
+     * explícitamente otra forma de pago:
+     *
+     *  - id vacío o nulo, o texto vacío: no cambia nada. Es lo que llega de un
+     *    select que se abrió sin selección, y tomarlo como "quitar la forma de
+     *    pago" borraría el dato real del pago (el riesgo que describe KAN-109).
+     *  - el mismo id que ya tiene: no cambia nada, ni siquiera el texto. Si la
+     *    forma de pago se renombró, el pago sigue diciendo con qué nombre se
+     *    registró; corregir el monto no es motivo para reescribir eso.
+     *  - otro id: se cambian id y texto, como en un alta.
+     *  - sólo texto (clientes viejos), distinto del actual: se trata como un
+     *    alta por nombre. El mismo texto que ya tiene no cambia nada.
+     *
+     * @return array{method?:string, payment_method_id?:?int}
+     */
+    private function paymentMethodChange(Payment $payment, array $data): array
+    {
+        $tenantId = $payment->tenant_id ? (int) $payment->tenant_id : null;
+        $newId    = $data['payment_method_id'] ?? null;
+
+        if ($newId !== null && $newId !== '') {
+            if ((int) $newId === (int) $payment->payment_method_id) {
+                return [];
+            }
+
+            return $this->resolvePaymentMethod($tenantId, $newId, null);
+        }
+
+        $text = $data['method'] ?? null;
+
+        if ($text === null || trim((string) $text) === '' || $text === $payment->method) {
+            return [];
+        }
+
+        return $this->resolvePaymentMethod($tenantId, null, $text);
     }
 
     /**
