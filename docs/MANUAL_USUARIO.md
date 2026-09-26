@@ -1097,7 +1097,7 @@ Para acotar la lista:
 | Fecha | Dos casillas: **desde** y **hasta** (ambas fechas incluidas). Puedes usar solo una |
 | Cliente | Nombre, apellido, nombre completo o cédula |
 | Monto | Dos casillas: **mínimo** y **máximo** |
-| Método | Lista con tus formas de pago |
+| Método | Lista con tus formas de pago, **incluidas las desactivadas** (salen con «(inactiva)»). Trae también los pagos registrados antes de que le cambiaras el nombre a esa forma de pago |
 | Referencia | Parte del número de comprobante |
 | Registrado por | Nombre del usuario que lo registró. Escribe `sistema` para ver los pagos automáticos (los de instalación, que no los registró una persona) |
 | Facturas afectadas | Número (o parte) de una factura cubierta por el recaudo |
@@ -1107,6 +1107,17 @@ los filtros de golpe.
 
 También puedes **ordenar** pulsando en los títulos **Fecha**, **Monto**, **Método** y
 **Referencia**; el segundo clic invierte el orden.
+
+**Si le cambias el nombre a una forma de pago** (en *Formas de pago*), los pagos que ya
+tenía pasan a mostrarse con el nombre nuevo y siguen saliendo en su filtro: no se pierde
+ninguno. Pasando el mouse por encima del método ves con qué nombre se registró cada pago,
+si era distinto.
+
+**Pagos con la marca «histórico»:** son pagos cuya forma de pago no está en tu catálogo —
+por ejemplo, porque le cambiaste el nombre antes de la actualización del 26/09/2026, o
+porque vinieron de una integración con otro nombre. Se muestran con el nombre con que se
+registraron, y ese nombre **no se pierde**. Para pasarlos a una forma de pago de tu
+catálogo, edita el pago y elígela.
 
 **Los colores de la lista:** cada forma de pago tiene su color fijo, para distinguirlas
 de un vistazo. Los números de **Facturas afectadas** usan el mismo código de color que
@@ -1123,6 +1134,15 @@ En el pie de la tabla eliges cuántos recaudos ver por página (15, 25, 50, 100 
 
 Desde la lista de pagos. Al eliminarlo, las facturas que había cubierto vuelven a quedar
 con saldo.
+
+Al **editar** un pago, el campo **Método** abre siempre con la forma de pago que tiene el
+pago, aunque le hayas cambiado el nombre, la hayas desactivado o sea un método histórico
+(sale como «… (histórico)»). Si sólo corriges el monto, la fecha o la referencia, **la
+forma de pago no cambia**. Sólo cambia si eliges otra en la lista.
+
+> **Borrar o desactivar una forma de pago:** si la **desactivas**, ya no se ofrece para
+> pagos nuevos pero los que ya tiene siguen enlazados a ella. Si la **borras**, esos pagos
+> quedan como «histórico» con su nombre original. Si sólo quieres retirarla, desactívala.
 
 ### 8.4.1 Anular una factura
 

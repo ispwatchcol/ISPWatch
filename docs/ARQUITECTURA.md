@@ -254,6 +254,7 @@ tecleada. La decisión se toma sobre la configuración **resuelta**, nunca sobre
 | `ReconnectionPreflight` | 103 | ¿Se **puede** operar el equipo de este cliente? Se responde antes de abrir nada contra él |
 | `RouterPolicyInstallerService` | 151 | Instalar reglas de bloqueo en el router |
 | `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento). **No se llama** si la orden está marcada `no_charge` |
+| `PaymentMethodLinker` | 202 | Único criterio para enlazar un pago con su forma de pago del catálogo (`payment_method_id`): mismo tenant, nombre normalizado, coincidencia **única**. Lo usan el alta de pagos, la facturación de instalaciones, la migración y `payments:link-methods` (KAN-109) |
 | `PaymentReminderService` | 209 | Recordatorios de pago (email/WhatsApp): **un mensaje por cliente** con todas sus facturas pendientes |
 | `TrafficHistoryService` | 164 | Muestreo y agregación de tráfico WAN |
 | `VpnService` | 945 | Generación y verificación de scripts de túnel (WireGuard v7 · L2TP/IPSec v6) |

@@ -514,6 +514,7 @@ idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van
 | `billing:verify-orphan-payments {--tenant=} {--min=} {--limit=} {--no-mail}` | Auditoría de caja: dinero recibido que no respalda factura ni saldo a favor. **No escribe nada** |
 | `billing:audit-books {--tenant=} {--detail=C1,C6} {--limit=} {--json} {--mail} {--warnings-ok}` | **Cierre de libros**: las catorce invariantes contables. **No escribe nada**. Sale con 1 si hay críticos |
 | `billing:statement --tenant= {--month=YYYY-MM} {--since=} {--target=} {--tolerance=} {--json}` | Extracto conciliable de un mes bajo todos los criterios. `--target` señala qué diferencia explica el desfase que reclama un cliente. **No escribe nada** |
+| `payments:link-methods {--tenant=} {--apply}` | Enlaza pagos con su forma de pago del catálogo (`payment_method_id`) por nombre **único** del mismo tenant y reporta por tenant lo que queda como «método histórico». **Sin `--apply` no escribe** y funciona incluso antes de la migración. Idempotente. Ver KAN-109 |
 | `billing:send-reminders` | Recordatorios de pago |
 | `billing:void-courtesy {period?}` | Anula facturas de planes de cortesía |
 | `billing:generate-tenant {tenant} {period} {--dry-run}` | Facturación puntual por tenant |
@@ -801,6 +802,36 @@ redirige a `/`; un cliente final sin sesión acabaría mirando la pantalla de ac
 panel sin entender qué pasó. Usa una instancia propia de axios
 (`services/api/public-contract.js` es el patrón).
 10. **Las búsquedas de texto usan `whereLike`/`orWhereLike`**, jamás `like` ni `ilike` a pelo.
+
+### La forma de pago de un pago va por id, nunca por nombre (KAN-109)
+
+`payments` tiene dos columnas de forma de pago y **no son intercambiables**:
+
+| Columna | Qué es | Quién la escribe |
+|---|---|---|
+| `payment_method_id` | Referencia estable al catálogo (FK SET NULL) | Alta, edición cuando se elige **otra** forma de pago, relleno |
+| `method` | Nombre con que se registró el pago (constancia) | Alta, y edición sólo cuando se elige **otra** forma de pago. **Nunca** un renombrado ni el relleno |
+
+Reglas para quien toque pagos:
+
+- **Filtrar, agrupar o reportar por forma de pago = por `payment_method_id`.** Comparar por
+  `method` era el bug: tras un renombrado, los pagos anteriores quedaban fuera. Para
+  **mostrar**, usa `Payment::methodLabel()` (nombre vigente si está enlazado; si no, el texto)
+  y carga la relación `paymentMethod:id,name` para no hacer N+1.
+- **Para crear un pago fuera de `registerPayment`** (como `InstallationBillingService`), pasa
+  por `BillingService::resolvePaymentMethod($tenantId, $id, $texto)`. No copies la
+  lógica: el criterio de emparejamiento vive sólo en `PaymentMethodLinker` (mismo tenant,
+  `trim` + `mb_strtolower`, coincidencia **única**), y lo comparten el alta, la migración y
+  el comando. Si divergen, lo que enlaza el relleno y lo que enlaza el alta dejan de cuadrar.
+- **Un valor vacío nunca borra la forma de pago.** En edición, `payment_method_id` nulo y
+  `method` vacío significan "no tocar". Un select que abre sin selección no puede ser una
+  orden de borrado.
+- **No se "arreglan" pagos históricos adivinando.** Si un texto no empareja (nombre viejo,
+  `cash`, duplicado en el catálogo), el pago se queda sin enlace y con su texto. Mapear un
+  nombre viejo a una forma de pago actual cambia la contabilidad de ese pago: es decisión del
+  ISP y se hace editando el pago, que queda auditado (`MoneyAuditObserver` vigila `method` y
+  `payment_method_id`).
+- La prueba que ancla todo esto es `tests/Feature/Billing/PaymentMethodLinkTest.php`.
 
 ### La ecuación del libro (todo lo que toque dinero)
 

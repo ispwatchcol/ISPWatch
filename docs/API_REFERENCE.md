@@ -1260,7 +1260,8 @@ combinan con `AND`:
 | `customer` | texto | Nombre, apellido, **nombre completo**, cédula, usuario o correo |
 | `customer_id` | entero | Un cliente exacto |
 | `reference` | texto | Referencia (coincidencia parcial) |
-| `method` | texto | Forma de pago exacta |
+| `payment_method_id` | entero | Forma de pago del catálogo. **Es el filtro que usa la pantalla** (KAN-109): incluye los pagos registrados antes de renombrarla. Un id de otro tenant no devuelve nada |
+| `method` | texto | Texto exacto con que se registró el pago. Se conserva por compatibilidad; tras un renombrado deja fuera los pagos con el nombre anterior |
 | `registered_by` | texto | Quién lo registró. `sistema` \| `system` \| `automatico` = pagos sin `created_by` |
 | `invoice` | texto | Número de alguna factura cubierta por el recaudo (`allocations.invoice.number`) |
 | `date_from`, `date_to` | fecha | Rango de `payment_date`, inclusive |
@@ -1294,10 +1295,26 @@ del **filtro completo** (no de la página):
 | `customer_id` | **requerido**, existe en `users` |
 | `amount` | **requerido**, numérico ≥ 0.01 |
 | `payment_date` | **requerido**, fecha |
-| `method` | **requerido** |
+| `payment_method_id` | entero, debe ser una forma de pago **del tenant de la sesión** (si no, 422) |
+| `method` | texto ≤ 255. **Requerido sólo si no viene `payment_method_id`** |
 | `reference`, `notes` | opcionales |
 
 `created_by` se sella desde la sesión, **nunca** desde el cuerpo.
+
+**Forma de pago (KAN-109, 2026-09-26).** Con `payment_method_id`, el servidor guarda el id y
+copia en `method` el nombre vigente del catálogo como constancia. Con sólo `method` (clientes
+anteriores), el pago se enlaza si el texto coincide con **una única** forma de pago del tenant
+(ignorando mayúsculas y espacios en los extremos); si no, se guarda el texto sin enlace, como
+antes. `cash` no se traduce a «Efectivo»: se guarda tal cual. La respuesta incluye
+`payment_method_id`.
+
+**`PUT /api/billing/payments/{id}`** — `amount`, `payment_date`, `reference`, `notes`,
+`payment_method_id` y `method`, todos opcionales. La forma de pago **sólo cambia si se pide
+otra**: `payment_method_id` nulo/vacío, `method` vacío, el mismo id que ya tiene o el mismo
+texto que ya tiene no modifican nada — ni siquiera reescriben el nombre de un pago cuya forma
+de pago se renombró. Un id de otro tenant responde **422**. La respuesta incluye
+`allocations` y `payment_method` (`id`, `name`, `is_active`, o `null` si el pago no está
+enlazado).
 
 **Efectos secundarios importantes:**
 1. El pago se **asigna automáticamente** a las facturas pendientes (más antigua primero).
@@ -1488,6 +1505,10 @@ activo del catálogo (`equipos`, `tv`…); por defecto `additional`.
 | `GET` | `/api/billing/whatsapp-status` | Estado de la integración WhatsApp |
 | `GET/POST` | `/api/billing/payment-methods` | Lista / crea forma de pago |
 | `PUT/DELETE` | `/api/billing/payment-methods/{id}` | Actualiza / elimina |
+
+> **Renombrar ya no afecta a los pagos** (KAN-109): se referencian por id. Borrar una forma de
+> pago deja sus pagos sin enlace (`payment_method_id = null`) y con el texto con que se
+> registraron; para retirarla conservando el enlace, desactívala (`is_active: false`).
 
 > **`send-reminder` responde 404 si la factura ya no tiene titular** — el cliente se dio de
 > baja y la factura se conserva por su valor contable (P-43). No hay a quién enviarle nada.
@@ -2897,6 +2918,11 @@ red de cada punto.
 
 `from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación
 (tickets) o programada (instalaciones). `per_page` tiene tope de **100**.
+
+`/payments` incluye `payment_method_id` y `payment_method_name` desde 2026-09-26 (KAN-109):
+la forma de pago del catálogo y su nombre **vigente**, o `null` en pagos no enlazados. Son
+campos **añadidos**: `method` sigue siendo el texto con que se registró el pago y no cambia
+aunque el ISP renombre la forma de pago.
 
 `/installations` incluye `no_charge` (boolean) desde 2026-09-21. Es un campo **añadido**,
 no un cambio de contrato: sin él, una visita de garantía viaja como una orden de $0 y el
