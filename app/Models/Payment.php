@@ -22,7 +22,10 @@ class Payment extends Model
         'customer_document',
         'amount',
         'payment_date',
+        // Texto con el que se registró el pago: se conserva aunque el catálogo
+        // cambie. La referencia estable es payment_method_id (KAN-109).
         'method',
+        'payment_method_id',
         'reference',
         'notes',
         'status',
@@ -73,6 +76,22 @@ class Payment extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Forma de pago del catálogo. Null en pagos cuyo texto no empareja con
+     * ninguna (método histórico) o cuya forma de pago se borró: en ese caso
+     * `method` es lo que se muestra. Ver PaymentMethodLinker.
+     */
+    public function paymentMethod()
+    {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id');
+    }
+
+    /** Nombre a mostrar: el vigente del catálogo si está enlazado, si no el texto con que se registró. */
+    public function methodLabel(): string
+    {
+        return $this->paymentMethod?->name ?? (string) $this->method;
     }
 
     public function allocations()

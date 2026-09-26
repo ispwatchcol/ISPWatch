@@ -2634,6 +2634,64 @@ pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobant
 sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal contado — y
 es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 
+### 📋 P-61 · El catálogo de formas de pago admite nombres repetidos
+
+`payment_methods` no tiene índice único por `(tenant_id, nombre)`. El alta y la edición lo
+validan en PHP, pero el auto-sembrado de `PaymentMethodController::index()` no tiene candado:
+dos primeras visitas simultáneas siembran el catálogo por duplicado. Desde KAN-109 esto tiene
+consecuencia visible: un pago registrado **por texto** cuyo nombre coincide con dos formas de
+pago no se enlaza a ninguna (sería adivinar), y queda como «histórico».
+
+**Recomendación.** Reportar primero los duplicados reales por tenant, fusionarlos a mano (con
+decisión del ISP sobre a cuál apuntan sus pagos) y después crear un índice único sobre
+`(tenant_id, lower(name))` en PostgreSQL. El sembrado debería ir en `firstOrCreate` dentro de
+un lock.
+
+### 📋 P-62 · `POST /billing/payments` toma el `tenant_id` del cuerpo de la petición
+
+`BillingController::registerPayment()` pasa `$request->all()` al servicio y
+`BillingService::registerPayment()` escribe `'tenant_id' => $data['tenant_id']`. El front lo
+manda con el tenant de la sesión, pero nada lo impone: un usuario con `view_billing` puede
+enviar otro `tenant_id` y el pago se crea en ese tenant (el hook de `BelongsToTenant` sólo
+completa el campo cuando viene vacío). `customer_id` se valida con un `exists` sin tenant.
+
+Detectado revisando KAN-109; **no se corrigió en esa rama** porque cambia el contrato de un
+flujo de dinero y merece su propia prueba de aislamiento. KAN-109 sí evita que la forma de
+pago cruce tenants: se valida contra el tenant de la sesión y se resuelve contra el del pago,
+y si no coinciden responde 422 (`PaymentMethodLinkTest`).
+
+**Recomendación.** Sellar `tenant_id` desde `$request->user()->tenant_id` igual que
+`created_by`, y validar `customer_id` contra el tenant. Prioridad alta: es escritura de
+dinero entre tenants.
+
+### 📋 P-63 · Los pagos con nombres renombrados antes de KAN-109 quedan como «histórico»
+
+La migración de KAN-109 sólo enlaza pagos cuyo texto coincide con una forma de pago
+**vigente**. Los que se registraron con un nombre que después se renombró —el caso concreto
+de Chaguaní que originó la tarjeta— no tienen coincidencia y quedan con su texto y sin
+enlace: no se perdió nada, pero siguen fuera del filtro por forma de pago. Tampoco se enlaza
+`cash`, el valor por defecto de la API vieja.
+
+No hay rastro de qué nombre anterior corresponde a qué forma de pago actual (los renombrados
+del catálogo no se auditaban), así que decidirlo es del ISP. Hoy se corrige pago a pago
+desde el modal de edición, que queda auditado.
+
+**Recomendación.** Correr `php artisan payments:link-methods` (sólo lectura) contra
+producción para dimensionar el caso por tenant. Si son muchos, un `--map="Nombre viejo=ID"`
+explícito, con `--apply`, reporte previo y auditoría por pago; y un filtro por «métodos
+históricos» en Recaudos para poder encontrarlos. Además, auditar los renombrados del
+catálogo desde ya.
+
+### 📋 P-64 · Quedan dos lugares donde la forma de pago sigue siendo texto
+
+- `customer_installations.payment_method` es texto libre. El pago que genera ya se enlaza al
+  catálogo (KAN-109), pero la orden en sí conserva el nombre: si el catálogo se renombra, la
+  orden muestra el nombre viejo (se conserva como opción en el select, así que no se pierde).
+- Ordenar Recaudos por **Método** ordena por el texto con que se registró cada pago, no por
+  el nombre vigente del catálogo.
+
+Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2743,6 +2801,10 @@ es exactamente lo que le pasó a este ISP antes de los dos arreglos.
 | **P-56** | `SupportEdit.vue` sigue eligiendo tecnico filtrando la lista por NOMBRE de rol (`'técnico' \|\| 'tecnico'`) | Un tenant que llame «Campo» a su rol tecnico se queda sin candidatos, y la pantalla no explica por que | 🟡 Baja | 📋 Pendiente · el PR F1 ya no depende de esa heuristica: valida contra el tenant en el backend |
 | **P-58** | Borrar un equipo del inventario deja sin serial su linea historica de `installation_equipment` (`device_id` es `SET NULL`) | La hoja de aquella instalacion conserva marca y modelo pero pierde el serial; el kardex si lo conserva congelado. En `ticket_equipment` esto SI se frena, y la asimetria es consciente | 🟡 Baja | 📋 Pendiente · decidir si el guard de borrado se extiende a `installation_equipment` o si el serial se congela en la linea, como ya hace el kardex |
 | **P-59** | Los estados de `customer_installations` se teclean como cadena suelta, y la columna es un `enum` en castellano (`pendiente`/`completada`/`cancelada`) mientras `payments.status` es en ingles (`completed`) | SQLite no hace cumplir el enum y PostgreSQL si: un valor mal escrito pasa la suite en local y solo revienta en el job de Postgres. Ya ocurrio al adaptar el PR F3 | 🟡 Baja | 📋 Pendiente · constantes o enum respaldado en `CustomerInstallation` y usarlas en codigo y pruebas. Ver trampa #63 |
+| **P-61** | `payment_methods` admite nombres repetidos por tenant (sin índice único; el auto-sembrado no tiene candado) | Un pago registrado por texto con un nombre repetido no se enlaza a ninguna forma de pago y queda como «histórico» | 🟡 Media | 📋 Pendiente · reportar y fusionar duplicados, luego índice único |
+| **P-62** | `POST /billing/payments` toma `tenant_id` del cuerpo y valida `customer_id` sin tenant | Un usuario con `view_billing` puede crear un pago en otro tenant | 🔴 Alta | 📋 Pendiente · sellar `tenant_id` desde la sesión. Detectado en KAN-109, fuera de su alcance |
+| **P-63** | Pagos registrados con un nombre que se renombró antes de KAN-109 (y los `cash` de la API) quedan sin enlace | Siguen fuera del filtro por forma de pago; su texto se conserva | 🟡 Media | 📋 Pendiente · dimensionar con `payments:link-methods`; el mapeo es decisión del ISP |
+| **P-64** | `customer_installations.payment_method` sigue siendo texto, y el orden por Método usa el texto de registro | Cosmético: la orden muestra el nombre viejo tras un renombrado | 🟢 Baja | 📋 Pendiente |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

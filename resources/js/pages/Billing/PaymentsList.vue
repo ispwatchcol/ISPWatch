@@ -12,7 +12,12 @@ import { downloadBlob, filenameFromResponse } from '@/utils/download'
 import { invoiceTypeLabel, invoiceTypeColor, loadInvoiceTypes } from '@/utils/invoiceType'
 
 const payments       = ref({ data: [] })
+// Catálogo COMPLETO, inactivas incluidas: una forma de pago desactivada sigue
+// teniendo pagos que filtrar y que mostrar. Para registrar o cambiar a una
+// forma de pago sólo se ofrecen las activas.
 const paymentMethods = ref([])
+const activePaymentMethods = computed(() => paymentMethods.value.filter(m => m.is_active))
+const methodOptionLabel = (m) => m.is_active ? m.name : `${m.name} (inactiva)`
 
 // Totales del filtro completo, calculados por el servidor. No se derivan de
 // `payments.data`: eso sumaría sólo la página visible.
@@ -30,7 +35,9 @@ const emptyFilters = () => ({
     search:        '',
     customer:      '',
     reference:     '',
-    method:        '',
+    // Por id, no por nombre: el nombre se puede cambiar en el catálogo y los
+    // pagos viejos guardan el anterior (KAN-109).
+    payment_method_id: '',
     registered_by: '',
     invoice:       '',
     date_from:     '',
@@ -59,7 +66,7 @@ const showEditModal  = ref(false)
 const editTarget     = ref(null)
 const editSaving     = ref(false)
 const editError      = ref('')
-const editForm       = ref({ amount: 0, payment_date: '', method: '', reference: '', notes: '' })
+const editForm       = ref({ amount: 0, payment_date: '', payment_method_id: null, reference: '', notes: '' })
 
 // ── Delete modal ──────────────────────────────────────────────────────────────
 const showDeleteModal  = ref(false)
@@ -146,7 +153,7 @@ const exportCsv = async () => {
 const loadPaymentMethods = async () => {
     try {
         const { data } = await apiClient.get('/billing/payment-methods')
-        paymentMethods.value = data.filter(m => m.is_active)
+        paymentMethods.value = Array.isArray(data) ? data : []
     } catch (e) { /* ignore */ }
 }
 
@@ -212,6 +219,16 @@ const METHOD_COLORS = [
     'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
 ]
 
+// Nombre vigente del catálogo si el pago está enlazado; si no, el texto con
+// que se registró (método histórico: su nombre ya no está en el catálogo).
+const methodLabel = (p) => p.payment_method?.name || p.method
+
+const methodTitle = (p) => {
+    if (!p.payment_method_id) return 'Método histórico: este nombre no corresponde a ninguna forma de pago del catálogo'
+    if (p.method && p.method !== p.payment_method?.name) return `Registrado como «${p.method}»`
+    return ''
+}
+
 const methodColor = (method) => {
     const name = String(method || '').trim().toLowerCase()
     if (!name) return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
@@ -232,13 +249,34 @@ const registeredBy = (p) => {
 const fmt = (n) => Number(n || 0).toLocaleString('es-CO')
 
 // ── Edit ──────────────────────────────────────────────────────────────────────
+// Opciones del select de edición. Siempre incluye el método REAL del pago,
+// aunque se haya renombrado, desactivado o nunca haya estado en el catálogo:
+// un select que abre vacío invita a elegir cualquier cosa y guardar, y eso
+// sobrescribía el dato verdadero (KAN-109).
+const editMethodOptions = computed(() => {
+    const p = editTarget.value
+    const options = activePaymentMethods.value.map(m => ({ id: m.id, label: m.name }))
+    if (!p) return options
+
+    if (!p.payment_method_id) {
+        return [{ id: null, label: `${p.method} (histórico)` }, ...options]
+    }
+    if (!options.some(o => o.id === p.payment_method_id)) {
+        const current = p.payment_method || paymentMethods.value.find(m => m.id === p.payment_method_id)
+        options.unshift({ id: p.payment_method_id, label: current ? methodOptionLabel(current) : p.method })
+    }
+    return options
+})
+
 const openEdit = (payment) => {
     editTarget.value = payment
     editError.value  = ''
     editForm.value = {
         amount:       Number(payment.amount),
         payment_date: String(payment.payment_date).split('T')[0],
-        method:       payment.method,
+        // null = el pago no está enlazado al catálogo. El select lo muestra
+        // como su método histórico y, si nadie elige otro, no se envía nada.
+        payment_method_id: payment.payment_method_id ?? null,
         reference:    payment.reference || '',
         notes:        payment.notes || '',
     }
@@ -253,7 +291,13 @@ const saveEdit = async () => {
     }
     editSaving.value = true
     try {
-        await billingService.updatePayment(editTarget.value.id, editForm.value)
+        // La forma de pago sólo viaja si se eligió OTRA. Nunca se manda vacía:
+        // así un select sin selección no puede borrar la del pago (KAN-109).
+        const { payment_method_id, ...payload } = editForm.value
+        if (payment_method_id && payment_method_id !== editTarget.value.payment_method_id) {
+            payload.payment_method_id = payment_method_id
+        }
+        await billingService.updatePayment(editTarget.value.id, payload)
         showEditModal.value = false
         await fetchPayments()
     } catch (e) {
@@ -360,9 +404,9 @@ const confirmDelete = async () => {
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Método</label>
-                    <select v-model="filters.method" :class="panelInputClass">
+                    <select v-model="filters.payment_method_id" :class="panelInputClass">
                         <option value="">Todos</option>
-                        <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
+                        <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.id">{{ methodOptionLabel(pm) }}</option>
                     </select>
                 </div>
                 <div>
@@ -472,9 +516,9 @@ const confirmDelete = async () => {
                                 </div>
                             </th>
                             <th class="px-4 pb-3 pt-0 align-top">
-                                <select v-model="filters.method" :class="columnInputClass">
+                                <select v-model="filters.payment_method_id" :class="columnInputClass">
                                     <option value="">Todos</option>
-                                    <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
+                                    <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.id">{{ methodOptionLabel(pm) }}</option>
                                 </select>
                             </th>
                             <th class="px-4 pb-3 pt-0 align-top">
@@ -533,9 +577,10 @@ const confirmDelete = async () => {
                             </td>
                             <td class="px-4 py-4 text-center">
                                 <span class="px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wider whitespace-nowrap"
-                                    :class="methodColor(payment.method)">
-                                    {{ payment.method }}
+                                    :class="methodColor(methodLabel(payment))" :title="methodTitle(payment)">
+                                    {{ methodLabel(payment) }}
                                 </span>
+                                <div v-if="!payment.payment_method_id" class="mt-1 text-[10px] text-slate-400 dark:text-slate-500">histórico</div>
                             </td>
                             <td class="px-4 py-4 font-mono text-sm text-slate-500 dark:text-slate-400">
                                 {{ payment.reference || 'N/A' }}
@@ -605,8 +650,8 @@ const confirmDelete = async () => {
                             {{ customerName(payment) }}
                         </div>
                         <span class="px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wider whitespace-nowrap"
-                            :class="methodColor(payment.method)">
-                            {{ payment.method }}
+                            :class="methodColor(methodLabel(payment))" :title="methodTitle(payment)">
+                            {{ methodLabel(payment) }}
                         </span>
                     </div>
 
@@ -700,10 +745,13 @@ const confirmDelete = async () => {
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Método</label>
-                                <select v-model="editForm.method"
+                                <select v-model="editForm.payment_method_id"
                                     class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                                    <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
+                                    <option v-for="opt in editMethodOptions" :key="opt.id ?? 'historico'" :value="opt.id">{{ opt.label }}</option>
                                 </select>
+                                <p v-if="editTarget && !editTarget.payment_method_id" class="mt-1 text-[11px] text-slate-400">
+                                    Método histórico: se conserva si no eliges otro.
+                                </p>
                             </div>
                         </div>
 

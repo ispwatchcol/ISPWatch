@@ -426,9 +426,9 @@
               <div class="grid grid-cols-2 gap-4">
                 <div>
                   <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Forma de Pago</label>
-                  <select v-model="payForm.method"
+                  <select v-model="payForm.payment_method_id"
                     class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.name">{{ pm.name }}</option>
+                    <option v-for="pm in paymentMethods" :key="pm.id" :value="pm.id">{{ pm.name }}</option>
                   </select>
                 </div>
                 <div>
@@ -577,7 +577,7 @@ async function openMovementsModal () {
 
 const payForm = ref({
   amount: 0,
-  method: '',
+  payment_method_id: null,
   payment_date: new Date().toISOString().split('T')[0],
   reference: '',
   notes: '',
@@ -653,7 +653,8 @@ const openPaymentModal = (inv) => {
   modalError.value    = ''
   payForm.value = {
     amount: inv ? Number(inv.balance_due) : Number(netBalance.value) || 0,
-    method: paymentMethods.value[0]?.name ?? '',
+    // Por id del catálogo, no por nombre (KAN-109).
+    payment_method_id: paymentMethods.value[0]?.id ?? null,
     payment_date: new Date().toISOString().split('T')[0],
     reference: '',
     notes: '',
@@ -674,7 +675,7 @@ const submitPayment = async () => {
       customer_id:  props.customerId,
       amount:       payForm.value.amount,
       payment_date: payForm.value.payment_date,
-      method:       payForm.value.method,
+      payment_method_id: payForm.value.payment_method_id,
       reference:    payForm.value.reference || null,
       notes:        payForm.value.notes || null,
     }

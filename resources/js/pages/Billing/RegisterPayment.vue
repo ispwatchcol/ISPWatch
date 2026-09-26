@@ -17,7 +17,9 @@ const form = ref({
     customer_id: '',
     amount: 0,
     payment_date: new Date().toISOString().split('T')[0],
-    method: '',
+    // Por id del catálogo: el servidor copia el nombre vigente como constancia
+    // y el pago sobrevive a que la forma de pago se renombre (KAN-109).
+    payment_method_id: null,
     reference: '',
     notes: '',
     tenant_id: null
@@ -175,8 +177,8 @@ const fetchPaymentMethods = async () => {
     try {
         const { data } = await apiClient.get('/billing/payment-methods')
         paymentMethods.value = data.filter(m => m.is_active)
-        if (paymentMethods.value.length > 0 && !form.value.method) {
-            form.value.method = paymentMethods.value[0].name
+        if (paymentMethods.value.length > 0 && !form.value.payment_method_id) {
+            form.value.payment_method_id = paymentMethods.value[0].id
         }
     } catch (e) {
         console.error(e)
@@ -325,9 +327,9 @@ onMounted(() => {
                                 <div>
                                     <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Forma de Pago</label>
                                     <SearchableSelect
-                                        v-model="form.method"
+                                        v-model="form.payment_method_id"
                                         :items="paymentMethods"
-                                        item-key="name"
+                                        item-key="id"
                                         item-label="name"
                                         item-icon="bi-credit-card"
                                         placeholder="Seleccione forma de pago"

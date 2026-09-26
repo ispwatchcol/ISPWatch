@@ -264,7 +264,9 @@ class BillingController extends Controller
                     // la columna cuando el cliente ya no existe (P-43).
                     $payment->customerDisplayName(),
                     $this->csvMoney($payment->amount),
-                    $payment->method,
+                    // Nombre vigente del catálogo: el reporte tiene que cuadrar
+                    // con el filtro, que va por id (KAN-109).
+                    $payment->methodLabel(),
                     $payment->reference ?? '',
                     $quien,
                     $facturas !== '' ? $facturas : 'Saldo a favor',
@@ -649,7 +651,10 @@ class BillingController extends Controller
             'customer_id' => 'required|exists:users,id',
             'amount' => 'required|numeric|min:0.01',
             'payment_date' => 'required|date',
-            'method' => 'required',
+            // Forma de pago del catálogo por id (KAN-109). `method` como texto
+            // sigue valiendo para los clientes que aún no mandan el id.
+            'payment_method_id' => ['nullable', 'integer', $this->tenantPaymentMethodRule($request)],
+            'method' => 'required_without:payment_method_id|nullable|string|max:255',
         ]);
 
         // Stamp the staff user who registered the payment (from the auth token,
@@ -665,6 +670,10 @@ class BillingController extends Controller
 
         try {
             $payment = $this->billingService->registerPayment($data);
+        } catch (\InvalidArgumentException $e) {
+            // Forma de pago de otro tenant que se coló por un tenant_id del
+            // cuerpo distinto al de la sesión: es un dato inválido, no un fallo.
+            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             \Log::error('Error al registrar pago: ' . $e->getMessage(), [
                 'customer_id'    => $data['customer_id'] ?? null,
@@ -783,14 +792,17 @@ class BillingController extends Controller
         $data = $request->validate([
             'amount'       => 'sometimes|numeric|min:0.01',
             'payment_date' => 'sometimes|date',
-            'method'       => 'sometimes|string',
+            // Vacío o nulo = no tocar la forma de pago: es lo que manda un
+            // select abierto sin selección, y no puede borrar el dato (KAN-109).
+            'method'            => 'sometimes|nullable|string|max:255',
+            'payment_method_id' => ['sometimes', 'nullable', 'integer', $this->tenantPaymentMethodRule($request)],
             'reference'    => 'nullable|string|max:255',
             'notes'        => 'nullable|string',
         ]);
 
         $payment = $this->billingService->updatePayment($payment, $data);
 
-        return response()->json($payment->load('allocations'));
+        return response()->json($payment->load(['allocations', 'paymentMethod:id,name,is_active']));
     }
 
     // Delete Payment
@@ -849,6 +861,16 @@ class BillingController extends Controller
      * del tenant (tipo del sistema o propio) y estar activo. Se rechaza el slug
      * de otro tenant, que si no permitiría etiquetar facturas con tipos ajenos.
      */
+    /**
+     * La forma de pago tiene que ser del catálogo del tenant de la sesión.
+     * Sin esto, un id de otro ISP pasaría la validación con un `exists` plano.
+     */
+    private function tenantPaymentMethodRule(Request $request): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('payment_methods', 'id')
+            ->where('tenant_id', (int) $request->user()?->tenant_id);
+    }
+
     private function invoiceTypeRule(Request $request): \Closure
     {
         $tenantId = $request->user()?->tenant_id;
@@ -985,7 +1007,10 @@ class BillingController extends Controller
             'customer'      => 'nullable|string|max:255',
             'customer_id'   => 'nullable|integer',
             'reference'     => 'nullable|string|max:255',
-            'method'        => 'nullable|string|max:100',
+            // Texto exacto con que se registró el pago. Se mantiene por
+            // compatibilidad; la pantalla filtra por payment_method_id.
+            'method'        => 'nullable|string|max:255',
+            'payment_method_id' => 'nullable|integer',
             'registered_by' => 'nullable|string|max:255',
             'invoice'       => 'nullable|string|max:100',
             'date_from'     => 'nullable|date',
@@ -1014,6 +1039,7 @@ class BillingController extends Controller
             'allocations:id,payment_id,invoice_id,amount',
             'allocations.invoice:id,number,invoice_type',
             'creator:id,name,user_name,user_lastname',
+            'paymentMethod:id,name,is_active',
         ]);
 
         // Búsqueda general: referencia o cliente.
@@ -1036,6 +1062,14 @@ class BillingController extends Controller
 
         if (!empty($f['reference'])) {
             $query->whereLike('reference', $f['reference']);
+        }
+
+        // Por id y no por nombre: el nombre del catálogo se puede cambiar y
+        // los pagos anteriores al cambio guardan el nombre viejo (KAN-109). El
+        // global scope de Payment ya acota al tenant, así que un id ajeno
+        // simplemente no encuentra nada.
+        if (!empty($f['payment_method_id'])) {
+            $query->where('payment_method_id', $f['payment_method_id']);
         }
 
         if (!empty($f['method'])) {
@@ -1181,7 +1215,7 @@ class BillingController extends Controller
         $recentPayments = Payment::where('tenant_id', $tenantId)
             ->where('status', 'completed')
             ->whereBetween('payment_date', [$start, $end])
-            ->with('customer.customerProfile')
+            ->with(['customer.customerProfile', 'paymentMethod:id,name'])
             ->orderBy('created_at', 'desc')->limit(5)->get();
 
         return response()->json([

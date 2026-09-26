@@ -295,6 +295,7 @@ erDiagram
     service_plan ||--o{ invoices : "service_id"
     tenant ||--o{ invoices : ""
     tenant ||--o{ payment_methods : ""
+    payment_methods ||--o{ payments : "payment_method_id (KAN-109)"
     tenant ||--o{ invoice_types : "NULL = del sistema"
     invoices ||--o{ billing_action_logs : "invoice_id"
     invoices ||--o{ invoice_carryovers : "from_invoice_id (dejó saldo)"
@@ -759,15 +760,38 @@ adicional recurrente, `service`, `adjustment`…), `description`, `quantity` num
 **`payments`** — `tenant_id`, `customer_id` (**FK SET NULL** desde P-43), `customer_name`
 varchar(160) y `customer_document` varchar(40) — el titular congelado al registrar el pago,
 igual que en `invoices` —, `amount` numeric(15,2),
-`payment_date` date, `method` (default `cash`), `reference`, `notes`,
+`payment_date` date, `method` (default `cash`), `payment_method_id` (FK → `payment_methods.id`,
+**SET NULL**, nullable — KAN-109), `reference`, `notes`,
 `status` CHECK `completed`\|`void`, `created_by` (FK → `users.id`, quién registró el pago).
+
+> **Forma de pago: dos columnas con papeles distintos (KAN-109, 2026-09-26).**
+> `payment_method_id` es la referencia estable: la que usan el filtro de Recaudos, el CSV y
+> el dashboard, y la que sobrevive a que la forma de pago se renombre en el catálogo.
+> `method` es el **nombre con que se registró el pago**, copiado del catálogo en ese momento,
+> y **nadie lo reescribe**: ni un renombrado, ni el relleno, ni editar el monto del pago.
+> Sólo cambia cuando alguien elige explícitamente otra forma de pago.
+>
+> `payment_method_id` queda en NULL cuando el texto no corresponde a ninguna forma de pago
+> del catálogo del tenant ("método histórico": típicamente un nombre que se renombró antes
+> de esta migración, o el `cash` por defecto de la API), cuando corresponde a **más de una**
+> (el catálogo admite duplicados, ver MEJORAS P-61) o cuando la forma de pago se borró.
+> En esos casos se muestra `method`. El emparejamiento vive sólo en
+> `App\Services\PaymentMethodLinker`: mismo tenant, `trim` + minúsculas Unicode, y
+> coincidencia única.
+>
+> La migración `2026_09_26_000001` rellenó la columna con ese criterio; `php artisan
+> payments:link-methods` reporta por tenant lo que quedó sin enlazar (sin `--apply` no
+> escribe). Revertirla sólo quita la columna: el texto de los pagos nunca se tocó.
 
 **`payment_allocations`** — tabla pivote N:M con importe: `payment_id`, `invoice_id`
 (ambos FK CASCADE) y `amount` numeric(15,2). Permite que un pago cubra varias facturas y
 que una factura reciba varios pagos.
 
 **`payment_methods`** — formas de pago por tenant (`name`, `description`, `is_active`).
-Semilla: Efectivo, Tarjeta, Corresponsal, Transacción.
+Semilla: Efectivo, Tarjeta, Corresponsal, Transacción. Renombrar una forma de pago ya no
+deja fuera los pagos anteriores: los pagos la referencian por `payment_method_id`. Borrarla
+deja esos pagos con `payment_method_id = NULL` y su texto original; para retirarla sin
+perder el enlace, se desactiva (`is_active = false`).
 
 ### 4.9.1 `additional_services` y `customer_additional_services` — Servicios adicionales recurrentes
 
@@ -1610,6 +1634,7 @@ Agregado permanente.
 | `payment_allocations.payment_id` | `payments.id` | CASCADE |
 | `payment_methods.tenant_id` | `tenant.id` | CASCADE |
 | `payments.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `payments.payment_method_id` | `payment_methods.id` | **SET NULL** (KAN-109) |
 | `payments.tenant_id` | `tenant.id` | NO ACTION |
 | `role.tenant_id` | `tenant.id` | CASCADE |
 | `router.billing_router_id` | `billing.id` | SET NULL |
@@ -1705,7 +1730,7 @@ Agregado permanente.
 | `expenses` | `expense_date`, `status`, `tenant_id`, `(tenant_id, expense_date)` |
 | `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, `(tenant_id, issue_date)`, **parcial** `due_date WHERE balance_due > 0` |
 | `payment_allocations` | `payment_id`, `invoice_id` |
-| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)` |
+| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)`, `payment_method_id` |
 | `user_services` | `(user_id, status)` |
 | `invoice_carryovers` | `(customer_id, status)`, `(tenant_id, status)`, `from_invoice_id`, `to_invoice_id` |
 | `invoice_types` | `tenant_id` |

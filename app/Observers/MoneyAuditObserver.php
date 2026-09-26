@@ -53,6 +53,9 @@ class MoneyAuditObserver
             'payment_date' => 'fecha',
             'status'       => 'estado',
             'method'       => 'método',
+            // Cambiar de forma de pago cambia las dos; enlazar un pago
+            // histórico a su forma de pago sólo cambia esta (KAN-109).
+            'payment_method_id' => 'forma de pago (catálogo)',
         ],
         Invoice::class => [
             // balance_due queda fuera: cambia en cada pago y esos ya dejan

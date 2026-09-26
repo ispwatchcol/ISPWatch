@@ -8411,3 +8411,83 @@ Antes de meter una regla nueva en la estructura que ya existe, conviene leer si 
 forma que las demás. Nueve reglas eran «campo lleno»; la décima parecía una más y era una
 disyunción entre una tabla y un par de columnas. Forzarla en el mapa declarativo habría
 costado más que ponerla aparte.
+
+## 80. Renombrar una forma de pago dejaba sin forma de pago a los pagos anteriores — 2026-09-26
+
+KAN-109. Chaguaní registró pagos bajo una forma de pago, la renombró en el catálogo y esos
+pagos «quedaron sin» ella: desaparecían del filtro por método y del CSV, y el modal de edición
+los abría con el select vacío.
+
+### Causa raíz
+
+`payments.method` era la **única** referencia a la forma de pago, y es texto: el nombre
+copiado del catálogo al registrar. `PaymentMethodController@update` renombra bien la fila del
+catálogo —no hay huérfanos de FK ni catálogo duplicado por importaciones—, pero los pagos se
+quedan con el nombre anterior congelado. Tres consecuencias:
+
+1. `filteredPaymentsQuery()` filtraba con `where('method', $nombre)`, y el select de la
+   pantalla sólo ofrece nombres **vigentes**: lo cobrado antes del renombrado no aparecía
+   filtrando por ninguna opción. Lo mismo en el CSV, que comparte la consulta.
+2. El select del modal de edición se precargaba con el nombre viejo, que no coincidía con
+   ninguna opción. Abría vacío, y elegir cualquier cosa para «arreglarlo» sobrescribía el dato
+   real del pago. El riesgo era de pérdida de dato, no de apariencia.
+3. El select sólo listaba formas de pago **activas**: desactivar una producía el mismo efecto
+   que renombrarla. Esto no estaba en la tarjeta; salió revisando el flujo.
+
+### Diseño
+
+- **`payments.payment_method_id`** (FK nullable, `SET NULL`) es la referencia estable. Filtro,
+  CSV y dashboard van por id y muestran el nombre **vigente**.
+- **`payments.method` no se reescribe nunca.** Queda como constancia del nombre con que se
+  cobró. Sólo cambia cuando alguien elige explícitamente otra forma de pago. Ni un renombrado,
+  ni el relleno, ni editar el monto lo tocan: la tarjeta pedía no perder lo histórico, y
+  sobreescribirlo con el nombre del catálogo habría sido otra forma de perderlo.
+- **Un vacío no borra.** En edición, `payment_method_id` nulo o `method` vacío significan «no
+  tocar». Es la defensa del lado servidor; la de la pantalla es que el select siempre incluye
+  el método real del pago (renombrado, inactivo o histórico).
+- **El criterio de emparejamiento vive en un solo sitio**, `PaymentMethodLinker`: mismo
+  tenant, `trim` + `mb_strtolower`, coincidencia **única**. Lo usan la migración, el comando
+  `payments:link-methods`, el alta por texto (API vieja) y la facturación de instalaciones.
+  Es la lección del § 60: el criterio escrito dos veces es lo que se desincroniza en silencio.
+  Se hace en PHP y no con `LOWER()` en SQL porque el `LOWER` de SQLite sólo baja ASCII
+  («TRANSACCIÓN» ≠ «transacción») y la suite rápida habría probado otra regla que producción.
+- **Compatibilidad.** `method` sigue aceptándose al registrar y al editar, y como filtro de
+  texto exacto. La API partner añade `payment_method_id` y `payment_method_name` sin cambiar
+  `method`.
+
+### Lo que NO se hizo, a propósito
+
+**No se enlazan los nombres viejos.** Los pagos de Chaguaní que motivaron la tarjeta llevan un
+nombre que ya no está en el catálogo, así que el relleno los deja sin enlace. No queda rastro
+de qué nombre anterior corresponde a qué forma de pago actual —los renombrados del catálogo no
+se auditaban—, y elegirlo cambiaría la contabilidad de esos pagos. Lo mismo con `cash`, el
+valor por defecto de la API vieja: traducirlo a «Efectivo» sería una suposición. Queda como
+P-63, con el comando en sólo lectura para dimensionarlo por tenant. Ahora al menos no se
+pierden: se muestran con su nombre y la marca «histórico», y el modal ya no invita a
+sobrescribirlos.
+
+**Duplicados.** El catálogo no impide dos formas de pago con el mismo nombre (P-61). Si un
+texto coincide con dos, no se enlaza a ninguna.
+
+### Migración y despliegue
+
+`2026_09_26_000001` añade la columna, su índice (PostgreSQL no indexa solo las foráneas) y la
+rellena. El relleno emite **una sentencia por (tenant, forma de pago)**, no por pago, y sólo
+escribe la columna nueva donde está vacía: no toca `method` ni `updated_at`. La prueba lo
+comprueba comparando las filas antes y después.
+
+Rollback: `down()` quita FK, índice y columna. Como el texto nunca cambió, revertir sólo pierde
+los enlaces, y volver a migrar los recalcula. Probado en `PaymentMethodLinkTest`.
+
+### Hallazgo fuera de alcance
+
+`POST /billing/payments` toma `tenant_id` del cuerpo (P-62). No se tocó en esta rama; la forma
+de pago, eso sí, no puede cruzar tenants aunque ese dato venga manipulado.
+
+### Lección
+
+Cuando una columna de texto hace de referencia, el bug aparece el día en que el catálogo
+cambia, y aparece lejos: el renombrado funciona perfecto y lo que se rompe es un filtro en
+otra pantalla. La salida no era sincronizar el texto —eso habría reescrito historia contable—
+sino separar las dos cosas que la columna estaba haciendo a la vez: **referencia** (id) y
+**constancia** (texto).

@@ -148,20 +148,31 @@ class InstallationBillingService
             $pagoVigente = null;
 
             if ($existingPayment && $allocation) {
-                $existingPayment->update([
+                // La forma de pago sólo se recalcula si la orden trae una
+                // DISTINTA de la que tiene el pago. Volver a guardar la orden
+                // con el mismo texto no puede desenlazar el pago de su forma
+                // de pago aunque ese nombre ya no esté en el catálogo (KAN-109).
+                $method = [];
+                if ($installation->payment_method && $installation->payment_method !== $existingPayment->method) {
+                    $method = $this->billingService->resolvePaymentMethod($tenantId, null, $installation->payment_method);
+                }
+
+                $existingPayment->update(array_merge([
                     'amount' => $received,
-                    'method' => $installation->payment_method ?: ($existingPayment->method ?: 'cash'),
                     'notes'  => $installation->payment_notes  ?: $existingPayment->notes,
-                ]);
+                ], $method));
                 $allocation->update(['amount' => $toAllocate]);
                 $pagoVigente = $existingPayment;
             } else {
+                $method = $this->billingService->resolvePaymentMethod($tenantId, null, $installation->payment_method);
+
                 $payment = Payment::create([
                     'tenant_id'    => $tenantId,
                     'customer_id'  => $installation->customer_id,
                     'amount'       => $received,
                     'payment_date' => now()->startOfDay(),
-                    'method'       => $installation->payment_method ?: 'cash',
+                    'method'            => $method['method'],
+                    'payment_method_id' => $method['payment_method_id'],
                     'notes'        => $installation->payment_notes,
                     'status'       => 'completed',
                 ]);
