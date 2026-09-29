@@ -2647,7 +2647,7 @@ decisión del ISP sobre a cuál apuntan sus pagos) y después crear un índice �
 `(tenant_id, lower(name))` en PostgreSQL. El sembrado debería ir en `firstOrCreate` dentro de
 un lock.
 
-### 📋 P-62 · `POST /billing/payments` toma el `tenant_id` del cuerpo de la petición
+### ✅ P-62 · `POST /billing/payments` tomaba el `tenant_id` del cuerpo — **resuelta 2026-09-29**
 
 `BillingController::registerPayment()` pasa `$request->all()` al servicio y
 `BillingService::registerPayment()` escribe `'tenant_id' => $data['tenant_id']`. El front lo
@@ -2660,9 +2660,18 @@ flujo de dinero y merece su propia prueba de aislamiento. KAN-109 sí evita que 
 pago cruce tenants: se valida contra el tenant de la sesión y se resuelve contra el del pago,
 y si no coinciden responde 422 (`PaymentMethodLinkTest`).
 
-**Recomendación.** Sellar `tenant_id` desde `$request->user()->tenant_id` igual que
-`created_by`, y validar `customer_id` contra el tenant. Prioridad alta: es escritura de
-dinero entre tenants.
+**Resuelta en KAN-110** (bitácora § 81). El `tenant_id` se sobrescribe desde la sesión después
+de leer el cuerpo —no se valida: sobrescribirlo hace que la pregunta de qué hacer ante un
+valor distinto no exista— y una diferencia con la sesión queda en el log con ruta, usuario e
+IP. `customer_id` pasa a validarse con `Rule::exists('users','id')->where('tenant_id', …)`, y
+`BillingService::registerPayment` exige además que el cliente sea del tenant, por si mañana
+aparece un segundo llamador.
+
+No se rechaza la petición con 422 porque `RegisterPayment.vue` **sí** envía `tenant_id`, tomado
+de la sesión: rechazar rompería el contrato por un campo que el propio sistema manda.
+
+**Dos hallazgos del mismo barrido quedaron fuera a propósito:** P-65 (la misma falla en
+`POST /billing/invoices`) y P-66 (`CustomerProfile` sin scope en los endpoints de saldo).
 
 ### 📋 P-63 · Los pagos con nombres renombrados antes de KAN-109 quedan como «histórico»
 
@@ -2802,9 +2811,11 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-58** | Borrar un equipo del inventario deja sin serial su linea historica de `installation_equipment` (`device_id` es `SET NULL`) | La hoja de aquella instalacion conserva marca y modelo pero pierde el serial; el kardex si lo conserva congelado. En `ticket_equipment` esto SI se frena, y la asimetria es consciente | 🟡 Baja | 📋 Pendiente · decidir si el guard de borrado se extiende a `installation_equipment` o si el serial se congela en la linea, como ya hace el kardex |
 | **P-59** | Los estados de `customer_installations` se teclean como cadena suelta, y la columna es un `enum` en castellano (`pendiente`/`completada`/`cancelada`) mientras `payments.status` es en ingles (`completed`) | SQLite no hace cumplir el enum y PostgreSQL si: un valor mal escrito pasa la suite en local y solo revienta en el job de Postgres. Ya ocurrio al adaptar el PR F3 | 🟡 Baja | 📋 Pendiente · constantes o enum respaldado en `CustomerInstallation` y usarlas en codigo y pruebas. Ver trampa #63 |
 | **P-61** | `payment_methods` admite nombres repetidos por tenant (sin índice único; el auto-sembrado no tiene candado) | Un pago registrado por texto con un nombre repetido no se enlaza a ninguna forma de pago y queda como «histórico» | 🟡 Media | 📋 Pendiente · reportar y fusionar duplicados, luego índice único |
-| **P-62** | `POST /billing/payments` toma `tenant_id` del cuerpo y valida `customer_id` sin tenant | Un usuario con `view_billing` puede crear un pago en otro tenant | 🔴 Alta | 📋 Pendiente · sellar `tenant_id` desde la sesión. Detectado en KAN-109, fuera de su alcance |
+| **P-62** | `POST /billing/payments` tomaba `tenant_id` del cuerpo y validaba `customer_id` sin tenant | Un usuario con `view_billing` podia crear un pago en otro tenant | 🔴 Alta | ✅ **Resuelta 2026-09-29 (KAN-110, § 81)**: el tenant se sella desde la sesion y `customer_id` se valida acotado; guardia adicional en `BillingService` |
 | **P-63** | Pagos registrados con un nombre que se renombró antes de KAN-109 (y los `cash` de la API) quedan sin enlace | Siguen fuera del filtro por forma de pago; su texto se conserva | 🟡 Media | 📋 Pendiente · dimensionar con `payments:link-methods`; el mapeo es decisión del ISP |
 | **P-64** | `customer_installations.payment_method` sigue siendo texto, y el orden por Método usa el texto de registro | Cosmético: la orden muestra el nombre viejo tras un renombrado | 🟢 Baja | 📋 Pendiente |
+| **P-65** | `POST /billing/invoices` (`BillingController::store`) repite el patron de P-62: `tenant_id` requerido desde el cuerpo, `customer_id` con `exists:users,id` sin acotar, y `Invoice::create($data)` con el tenant recibido | Un usuario con permiso de facturacion puede crear una factura en otro operador, a nombre de un cliente ajeno | 🔴 Alta | 📋 Pendiente · detectado en KAN-110 y **deliberadamente fuera de ese PR** para no mezclar dos riesgos; merece tarjeta propia |
+| **P-66** | `updateCreditBalance` y `getCustomerBalance` resuelven `CustomerProfile::where('user_id', …)` y `CustomerProfile` no lleva scope de tenant | El saldo a favor de un cliente de otro operador podria leerse o ajustarse conociendo su `user_id` | 🟠 Media | 📋 Pendiente · detectado en el barrido de KAN-110; falta confirmar si alguna otra capa lo acota |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

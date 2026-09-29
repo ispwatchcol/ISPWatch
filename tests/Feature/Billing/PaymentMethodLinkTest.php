@@ -334,16 +334,34 @@ class PaymentMethodLinkTest extends TestCase
     #[Test]
     public function un_tenant_id_ajeno_en_el_cuerpo_no_logra_enlazar_formas_de_pago_cruzadas(): void
     {
-        // registerPayment toma tenant_id del cuerpo (deuda previa, fuera de
-        // KAN-109). La forma de pago se resuelve contra el tenant del PAGO, así
-        // que el enlace nunca cruza tenants aunque ese dato venga manipulado.
+        // ACTUALIZADO POR KAN-110.
+        //
+        // Cuando se escribió, `registerPayment` tomaba el `tenant_id` del cuerpo
+        // —deuda previa, fuera del alcance de KAN-109— y este test fijaba el
+        // efecto colateral: con un tenant ajeno, la forma de pago propia dejaba
+        // de resolver y salía un 422.
+        //
+        // KAN-110 sella el tenant desde la SESIÓN, así que ese 422 ya no ocurre:
+        // el `tenant_id` manipulado se ignora y el pago se crea en el tenant de
+        // quien lo registra, con su propia forma de pago. La intención original
+        // —que un tenant_id manipulado no produzca un enlace cruzado— se cumple
+        // ahora de forma más fuerte, y así se afirma.
         Sanctum::actingAs($this->staff);
         $propia = $this->metodo($this->tenant, 'Efectivo');
 
         $this->registrar(['tenant_id' => $this->otroTenant->id, 'payment_method_id' => $propia->id])
-            ->assertStatus(422);
+            ->assertCreated();
 
-        $this->assertSame(0, Payment::withoutGlobalScope('tenant')->count());
+        $pago = Payment::withoutGlobalScope('tenant')->sole();
+
+        $this->assertSame($this->tenant->id, (int) $pago->tenant_id, 'El tenant del cuerpo se ignora.');
+        $this->assertSame($propia->id, (int) $pago->payment_method_id);
+
+        $this->assertSame(
+            0,
+            Payment::withoutGlobalScope('tenant')->where('tenant_id', $this->otroTenant->id)->count(),
+            'Nada queda en el ISP ajeno.',
+        );
     }
 
     #[Test]

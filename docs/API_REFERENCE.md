@@ -1197,7 +1197,7 @@ trampa 28 en `MANUAL_DESARROLLADOR.md` antes de cambiar cualquiera de los tres.
 
 | Campo | Reglas |
 |---|---|
-| `customer_id` | **requerido**, existe en `users` |
+| `customer_id` | **requerido**, y debe ser un cliente **del tenant de la sesión** (si no, 422) |
 | `tenant_id` | **requerido** |
 | `issue_date`, `due_date`, `period_start`, `period_end` | **requeridos**, fecha |
 | `total` | numérico ≥ 0 |
@@ -1300,6 +1300,18 @@ del **filtro completo** (no de la página):
 | `reference`, `notes` | opcionales |
 
 `created_by` se sella desde la sesión, **nunca** desde el cuerpo.
+
+**`tenant_id` también se sella desde la sesión (KAN-110, 2026-09-29).** Si el cuerpo trae un
+`tenant_id`, se **ignora**: el pago se crea siempre en el operador de quien lo registra. No se
+rechaza la petición, porque la pantalla de registro envía ese campo de forma legítima —lo toma
+de la propia sesión, así que siempre coincide— y un 422 rompería el contrato. Cuando el valor
+recibido difiere del de la sesión se escribe una advertencia en el log con la ruta, el usuario
+y la IP.
+
+Antes de este cambio el `tenant_id` del cuerpo llegaba tal cual hasta `Payment::create()`, y
+combinado con un `customer_id` sin acotar permitía **registrar un pago entero en otro
+operador**. El mensaje de rechazo del cliente ajeno es «El cliente no pertenece a este
+operador.» en `errors.customer_id`.
 
 **Forma de pago (KAN-109, 2026-09-26).** Con `payment_method_id`, el servidor guarda el id y
 copia en `method` el nombre vigente del catálogo como constancia. Con sólo `method` (clientes

@@ -1250,8 +1250,47 @@ class BillingService
      * @param array $data
      * @return Payment
      */
+    /**
+     * KAN-110 · El pago no puede quedar a nombre de un cliente de otro ISP.
+     *
+     * Una sola consulta indexada dentro de una operacion que ya hace varias.
+     * Se comprueba contra `users`, que es donde vive el `tenant_id` del cliente.
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function exigirClienteDelTenant($tenantId, $customerId): void
+    {
+        if (blank($tenantId)) {
+            throw new \InvalidArgumentException(
+                'El pago no tiene operador asociado: no se puede registrar.'
+            );
+        }
+
+        $esDelTenant = User::where('id', $customerId)
+            ->where('tenant_id', $tenantId)
+            ->exists();
+
+        if (!$esDelTenant) {
+            throw new \InvalidArgumentException(
+                'El cliente no pertenece a este operador.'
+            );
+        }
+    }
+
     public function registerPayment(array $data): Payment
     {
+        // KAN-110 · Defensa en profundidad.
+        //
+        // El controlador ya sella el tenant desde la sesion y valida que el
+        // cliente sea suyo, asi que esto no deberia dispararse nunca por la via
+        // normal. Va aqui porque es ESTE metodo el que escribe la fila: si
+        // manana aparece un segundo llamador —un comando, un job, la API de
+        // socios— el agujero volveria a abrirse sin que nadie lo note.
+        //
+        // `InvalidArgumentException` y no un 500: el controlador ya la captura y
+        // la convierte en 422, que es lo que es — un dato invalido.
+        $this->exigirClienteDelTenant($data['tenant_id'] ?? null, $data['customer_id'] ?? null);
+
         $payment = DB::transaction(function () use ($data) {
             $method = $this->resolvePaymentMethod(
                 $data['tenant_id'] ?? null,
