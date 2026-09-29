@@ -98,6 +98,20 @@ class InventoryEntryExpenseTest extends TestCase
         $this->assertSame(0, Expense::withoutTenantScope()->count());
     }
 
+    /**
+     * Mismo motivo que la categoría de abajo: sin sesión, `create()` descarta el
+     * tenant_id y la bodega quedaba SIN empresa. El ledger ya no acepta como
+     * destino una bodega que no sea del tenant del material.
+     */
+    private function bodega(string $name): InventoryBranch
+    {
+        $bodega = new InventoryBranch(['name' => $name]);
+        $bodega->tenant_id = $this->tenant->id;
+        $bodega->save();
+
+        return $bodega;
+    }
+
     #[Test]
     public function encendido_crea_el_gasto_por_precio_por_cantidad(): void
     {
@@ -126,7 +140,7 @@ class InventoryEntryExpenseTest extends TestCase
         $this->encender();
 
         $stock = $this->stock(1500, serializado: false);
-        $bodega = InventoryBranch::create(['name' => 'Bodega', 'tenant_id' => $this->tenant->id]);
+        $bodega = $this->bodega('Bodega');
 
         // Sin origen = ENTRADA (compra), que es lo que dispara el gasto.
         app(InventoryLedger::class)->transferQuantity(
@@ -144,8 +158,8 @@ class InventoryEntryExpenseTest extends TestCase
         $this->encender();
 
         $stock  = $this->stock(1500, serializado: false);
-        $origen = InventoryBranch::create(['name' => 'Bodega A', 'tenant_id' => $this->tenant->id]);
-        $destino = InventoryBranch::create(['name' => 'Bodega B', 'tenant_id' => $this->tenant->id]);
+        $origen  = $this->bodega('Bodega A');
+        $destino = $this->bodega('Bodega B');
 
         $ledger = app(InventoryLedger::class);
         $ledger->transferQuantity($stock, null, null, 'branch', $origen->id, 40, $this->actor);

@@ -219,11 +219,16 @@ class InventoryDeviceController extends Controller
     {
         $tenantId = $request->user()?->tenant_id;
 
+        // `exists:tabla,id` a secas no mira el tenant: aceptaba el modelo, el
+        // proveedor, la bodega o la persona de otra empresa como custodio del
+        // equipo propio.
+        $delTenant = fn (string $tabla) => Rule::exists($tabla, 'id')->where('tenant_id', $tenantId);
+
         return [
-            'stock_id'    => 'nullable|integer|exists:inventory_stock,id',
-            'provider_id' => 'nullable|integer|exists:inventory_provider,id',
-            'user_id'     => 'nullable|integer|exists:users,id',
-            'branch_id'   => 'nullable|integer|exists:inventory_branch,id',
+            'stock_id'    => ['nullable', 'integer', $delTenant('inventory_stock')],
+            'provider_id' => ['nullable', 'integer', $delTenant('inventory_provider')],
+            'user_id'     => ['nullable', 'integer', $delTenant('users')],
+            'branch_id'   => ['nullable', 'integer', $delTenant('inventory_branch')],
             'serial'      => ['nullable', 'string', 'max:255', $this->uniqueIgnoringCase('serial', $tenantId, $device, 'Ya tienes otro equipo registrado con este serial.')],
             'mac'         => ['nullable', 'string', 'max:255', $this->uniqueIgnoringCase('mac', $tenantId, $device, 'Ya tienes otro equipo registrado con esta MAC.')],
         ];

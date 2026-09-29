@@ -1921,6 +1921,23 @@ una fila de saldo real suya con ese material, exista o no el custodio.
 > puede inventar un `source_id` para crear existencias de la nada. El **destino** sí sigue
 > teniendo que existir — mandar material a un custodio inventado lo haría desaparecer otra vez.
 
+#### Bodegas y personas siempre del mismo tenant (P-67)
+
+Toda bodega o persona con id que actúe como custodio tiene que pertenecer al tenant de la
+sesión. Si no, **422**, sin mover nada:
+
+| Endpoint | Campo | Cuándo |
+|---|---|---|
+| `POST /api/inventory/transfers` | `to_id` | Destino (bodega o persona) de otra empresa |
+| `POST /api/support/{id}/equipment` | `destination` | Retiro (`direction: in`) hacia bodega o persona de otra empresa. La baja (`scrap`) no tiene custodio y no se comprueba |
+| `POST /api/support/{id}/equipment` | `source` | Consumo de material desde bodega o persona de otra empresa (antes respondía `quantity`) |
+| `POST /api/installations/{id}/equipment` | `source` | Ídem, en la hoja de instalación |
+| `POST /api/inventory` y `PUT/PATCH /api/inventory/{id}` | `stock_id`, `provider_id`, `branch_id`, `user_id` | Referencia a un registro de otra empresa |
+
+La bodega «sin sucursal» (`source_id` ausente o null) sigue siendo un destino válido para
+**equipos**. Una persona sin id no lo es, y el ledger sólo acepta como custodio interno los tipos
+`branch` y `user`: cualquier otro se rechaza aunque llegue sin pasar por la validación del request.
+
 #### Una sola carga de inventario por empresa a la vez
 
 `POST /api/import/inventory` responde **409** si ya hay una importación en curso para el mismo
