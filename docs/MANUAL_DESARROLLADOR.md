@@ -1062,6 +1062,62 @@ Route::middleware(['permission:view_reports'])->group(function () {
 **7. Documentación** — actualiza `API_REFERENCE.md`, `BITACORA_TECNICA.md`,
 `MANUAL_USUARIO.md` y `BASE_DATOS.md` según corresponda.
 
+### Ejemplo: un endpoint que CREA algo de un tenant
+
+`BelongsToTenant` da una falsa sensación de estar cubierto. Hace dos cosas, y sólo una sirve
+aquí:
+
+```php
+static::addGlobalScope('tenant', …);          // filtra lo que se LEE
+static::creating(function ($model) {
+    if (empty($model->tenant_id)) { … }       // rellena sólo si viene VACÍO
+});
+```
+
+El scope protege `SELECT` y `findOrFail`. En un alta con el `tenant_id` **ya puesto en el
+cuerpo**, ninguna de las dos aplica: el hook no lo corrige porque no está vacío. Así se creaban
+pagos en otro operador (**KAN-110**, bitácora § 81), con `Payment` teniendo el trait.
+
+**Dos reglas, en este orden:**
+
+**1 · Sobrescribe el `tenant_id` desde la sesión después de leer el cuerpo.** No lo valides:
+validar obliga a decidir qué hacer cuando no coincide; sobrescribir hace que la pregunta no
+exista.
+
+```php
+$data = $request->all();
+$data['tenant_id'] = $this->sellarTenant($request, $data['tenant_id'] ?? null);
+```
+
+No devuelvas 422 por un `tenant_id` distinto sin mirar antes el frontend: varias pantallas lo
+envían de forma legítima, tomándolo de la sesión, y rechazarlo rompe el contrato. Registra la
+diferencia en el log —un cliente legítimo nunca la produce— y sigue.
+
+**2 · Acota al tenant toda clave foránea a una entidad con dueño.**
+
+```php
+// MAL: comprueba que existe, no que sea tuyo.
+'customer_id' => 'required|exists:users,id',
+
+// BIEN: acota en la misma consulta, y no se puede olvidar en un segundo paso.
+'customer_id' => ['required', 'integer',
+    Rule::exists('users', 'id')->where('tenant_id', $request->user()?->tenant_id)],
+```
+
+Esto importa sobre todo con **`User`, `Role`, `CustomerProfile`, `Billing` y
+`BulkProvisionRun`**, que están en la tabla de excepciones deliberadas de `ARQUITECTURA.md` §9:
+no tienen scope automático, así que cada referencia se acota a mano o no se acota.
+
+**3 · Si el servicio es quien escribe la fila, ponle su propia guarda.** El controlador es el
+único llamador *hoy*. Una comprobación de pertenencia dentro del servicio cuesta una consulta
+indexada y evita que un segundo llamador —un comando, un job, la API de socios— reabra el
+agujero sin que nadie lo note. Lanza `InvalidArgumentException`: el controlador ya la traduce a
+422, que es lo que es.
+
+**4 · Comprueba que tus pruebas fallan sin el arreglo.** Revierte sólo los archivos de código,
+deja el test, y corre. Si no falla, está pasando por la razón equivocada. En KAN-110 fallaron
+seis de trece — las seis que cubrían el agujero.
+
 ### Ejemplo: exponer datos nuevos en la API pública
 
 La API de integraciones (`/api/v1/partner`) es un **contrato con un tercero** y su

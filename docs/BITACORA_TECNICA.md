@@ -8491,3 +8491,108 @@ cambia, y aparece lejos: el renombrado funciona perfecto y lo que se rompe es un
 otra pantalla. La salida no era sincronizar el texto —eso habría reescrito historia contable—
 sino separar las dos cosas que la columna estaba haciendo a la vez: **referencia** (id) y
 **constancia** (texto).
+
+---
+
+## 81. El scope de tenant protege lo que se lee, no lo que se escribe — 2026-09-29
+
+**KAN-110.** Un usuario con `view_billing` podía registrar un pago entero en otro operador
+cambiando dos campos del cuerpo de la petición.
+
+Salió como hallazgo fuera de alcance al cerrar KAN-109 (forma de pago por id). Allí se blindó
+que la *forma de pago* no cruzara de tenant; el `tenant_id` del propio pago se quedó sin
+tocar, anotado como **P-62**.
+
+### Causa raíz
+
+Dos fallos que por separado no bastaban y juntos sí.
+
+**Uno.** `BillingController::registerPayment` armaba el payload con `$request->all()` y se lo
+pasaba al servicio, que hacía `Payment::create(['tenant_id' => $data['tenant_id'], …])`.
+
+Lo interesante es por qué el *global scope* no lo atrapó. `Payment` **sí** usa
+`BelongsToTenant`. Pero ese trait hace dos cosas distintas:
+
+```php
+static::addGlobalScope('tenant', …);          // filtra lo que se LEE
+static::creating(function ($model) {
+    if (empty($model->tenant_id)) { … }       // rellena sólo si viene VACÍO
+});
+```
+
+El scope filtra lecturas. El hook rellena la columna **cuando falta**. Aquí no faltaba: venía
+llena, con el valor que quisiera el cliente. Ninguna de las dos protecciones aplica a una
+escritura que trae el dato puesto.
+
+**Dos.** `'customer_id' => 'required|exists:users,id'`, sin acotar por tenant. `exists` es una
+comprobación de existencia, no de pertenencia. Y `User` está en la lista de excepciones
+deliberadas al scope automático —el login necesita buscar antes de saber de qué tenant es
+quien entra—, así que ahí no había red que valiera.
+
+Con `tenant_id` y `customer_id` de otro ISP, el pago se creaba completo y a nombre de un
+cliente ajeno.
+
+### Por qué se sella en vez de rechazar
+
+La primera opción era devolver 422 cuando el `tenant_id` del cuerpo no coincidiera con el de
+la sesión. Se descartó al mirar el frontend: `RegisterPayment.vue` **sí** manda `tenant_id`,
+tomándolo de `user.value.tenant_id`. Es decir, la petición legítima lleva ese campo y siempre
+coincide.
+
+Rechazar habría roto el contrato por un valor que el propio sistema envía, y habría convertido
+en error casos inocuos —un cliente con el tenant viejo en memoria tras cambiar de sesión—. Se
+sobrescribe: el pago queda siempre en el tenant correcto, nadie se rompe, y **una diferencia
+entre lo recibido y la sesión se escribe en el log** con ruta, usuario e IP, porque un cliente
+legítimo nunca la produce.
+
+Es el mismo criterio que ya aplicaba `index()` unas líneas más arriba: *«Never accept tenant_id
+from query params»*.
+
+### La defensa en el servicio
+
+`BillingService::registerPayment` es quien escribe la fila, y hoy tiene un solo llamador. Se le
+añadió `exigirClienteDelTenant()`, que lanza `InvalidArgumentException` —el controlador ya la
+captura y la convierte en 422, desde KAN-109—.
+
+No es redundancia por gusto: si mañana aparece un segundo llamador —un comando, un job, la API
+de socios— el agujero volvería a abrirse sin que nadie lo note. Cuesta una consulta indexada
+dentro de una operación que ya hace varias.
+
+### Un test que codificaba el bug
+
+`PaymentMethodLinkTest::un_tenant_id_ajeno_en_el_cuerpo_no_logra_enlazar_formas_de_pago_cruzadas`
+empezó a fallar. No era una regresión: ese test afirmaba el **efecto colateral** del propio
+fallo. Con el `tenant_id` del cuerpo mandando, una forma de pago propia no resolvía contra el
+tenant ajeno y salía 422; el test daba ese 422 por buena señal.
+
+Sellado el tenant, el 422 desaparece: el valor manipulado se ignora y el pago se crea con la
+forma de pago propia, en el tenant propio. La **intención** del test —que un `tenant_id`
+manipulado no produzca un enlace cruzado— se cumple ahora de forma más fuerte, y así se
+reescribió. La corrección no se tocó para que pasara.
+
+### Cómo se comprobó que las pruebas sirven
+
+Escritas las trece, se revirtieron **sólo los dos archivos de código** —dejando el test— y se
+volvió a correr: **seis fallaron**, exactamente las que cubren el agujero. Las otras siete
+pasaban ya, y debían: cubren protecciones preexistentes y la preservación del contrato. Sin
+ese paso, un test de seguridad puede estar pasando por la razón equivocada.
+
+### Hallazgos vecinos, reportados y NO corregidos aquí
+
+Se barrieron los flujos de edición, eliminación y vecinos. Resultado:
+
+- **`updatePayment` y `deletePayment` están bien.** Usan `Payment::findOrFail($id)` y el scope
+  global los acota: un pago de otro tenant da 404. Quedó test que lo fija.
+- **`POST /billing/invoices` (`BillingController::store`) tiene el patrón idéntico**:
+  `'tenant_id' => 'required'` desde el cuerpo, `customer_id` sin acotar, `Invoice::create($data)`.
+  Mismo riesgo, distinto recurso. Anotado como **P-65**, prioridad alta. No se tocó para no
+  mezclar dos riesgos en un PR de seguridad.
+- **`updateCreditBalance` y `getCustomerBalance`** resuelven `CustomerProfile::where('user_id', …)`
+  y `CustomerProfile` no lleva scope. Anotado como **P-66**.
+
+### Lección
+
+Un modelo con `BelongsToTenant` da una falsa sensación de estar cubierto. El scope protege el
+`SELECT`; el `INSERT` con el `tenant_id` ya puesto pasa de largo. La pregunta al revisar un
+endpoint de alta no es «¿el modelo tiene el trait?» sino «¿de dónde sale el `tenant_id` que
+acaba en la fila?».

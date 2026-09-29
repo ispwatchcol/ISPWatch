@@ -648,19 +648,39 @@ class BillingController extends Controller
     public function registerPayment(Request $request)
     {
         $request->validate([
-            'customer_id' => 'required|exists:users,id',
+            // KAN-110: acotado al tenant de la sesion. Con `exists:users,id` a
+            // secas, un `customer_id` de otro ISP pasaba la validacion y el pago
+            // se creaba a nombre de un cliente ajeno.
+            'customer_id' => ['required', 'integer', $this->tenantCustomerRule($request)],
             'amount' => 'required|numeric|min:0.01',
             'payment_date' => 'required|date',
             // Forma de pago del catálogo por id (KAN-109). `method` como texto
             // sigue valiendo para los clientes que aún no mandan el id.
             'payment_method_id' => ['nullable', 'integer', $this->tenantPaymentMethodRule($request)],
             'method' => 'required_without:payment_method_id|nullable|string|max:255',
+        ], [
+            'customer_id.exists' => 'El cliente no pertenece a este operador.',
         ]);
 
         // Stamp the staff user who registered the payment (from the auth token,
         // never trusting a client-supplied value).
         $data = $request->all();
         $data['created_by'] = $request->user()?->id;
+
+        // KAN-110 · EL TENANT SALE DE LA SESION, NUNCA DEL CUERPO.
+        //
+        // `$request->all()` arrastra el `tenant_id` que mande el cliente, y el
+        // hook `creating` de BelongsToTenant no lo corrige: solo rellena cuando
+        // viene vacio, y aqui venia lleno. Resultado: un usuario con
+        // `view_billing` podia crear un pago en otro ISP con solo cambiar ese
+        // campo del cuerpo.
+        //
+        // Se sella, no se rechaza. `RegisterPayment.vue` SI manda `tenant_id`
+        // —lo toma de la sesion, asi que siempre coincide—, y devolver 422 por
+        // un valor que el propio frontend envia romperia el contrato de las
+        // peticiones legitimas. Sobrescribirlo deja el pago siempre en el tenant
+        // correcto y no rompe a nadie.
+        $data['tenant_id'] = $this->sellarTenant($request, $data['tenant_id'] ?? null);
 
         // Ata el pago con su intento de reconexión y con las dos entradas que
         // dejan en audit_logs, para poder reconstruir el caso entero después.
@@ -865,6 +885,46 @@ class BillingController extends Controller
      * La forma de pago tiene que ser del catálogo del tenant de la sesión.
      * Sin esto, un id de otro ISP pasaría la validación con un `exists` plano.
      */
+    /**
+     * KAN-110 · El cliente tiene que ser de QUIEN registra el pago.
+     *
+     * Acota el `exists` en la misma consulta, sin un segundo viaje a la base y
+     * sin poder olvidarse. Es el mismo patron que `tenantPaymentMethodRule`,
+     * que el KAN-109 introdujo para la forma de pago.
+     */
+    private function tenantCustomerRule(Request $request): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('users', 'id')
+            ->where('tenant_id', (int) $request->user()?->tenant_id);
+    }
+
+    /**
+     * KAN-110 · Devuelve SIEMPRE el tenant de la sesion, y deja rastro si el
+     * cuerpo traia otro.
+     *
+     * No se rechaza la peticion: el frontend manda `tenant_id` de forma
+     * legitima —lo toma de la sesion— y un 422 por ese campo romperia el
+     * contrato. Pero un valor DISTINTO al de la sesion no es un descuido del
+     * formulario: o alguien manipulo la peticion, o un cliente quedo con un
+     * tenant viejo en memoria. Las dos cosas merecen quedar escritas.
+     */
+    private function sellarTenant(Request $request, $tenantDelCuerpo): ?int
+    {
+        $tenantDeLaSesion = $request->user()?->tenant_id;
+
+        if ($tenantDelCuerpo !== null && (int) $tenantDelCuerpo !== (int) $tenantDeLaSesion) {
+            \Log::warning('Se ignoro un tenant_id del cuerpo distinto al de la sesion', [
+                'ruta'              => $request->path(),
+                'tenant_sesion'     => $tenantDeLaSesion,
+                'tenant_recibido'   => $tenantDelCuerpo,
+                'usuario'           => $request->user()?->id,
+                'ip'                => $request->realIp(),
+            ]);
+        }
+
+        return $tenantDeLaSesion === null ? null : (int) $tenantDeLaSesion;
+    }
+
     private function tenantPaymentMethodRule(Request $request): \Illuminate\Validation\Rules\Exists
     {
         return \Illuminate\Validation\Rule::exists('payment_methods', 'id')

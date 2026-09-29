@@ -1388,6 +1388,33 @@ el test falla si alguna deja de ser cierta:
 | `BulkProvisionRun` | Los jobs en cola leen y escriben la corrida sin sesión; el filtrado se hace explícito en el controlador. |
 | `Billing` | Sólo se llega por `router.billing_router_id`, y `Router` sí lleva scope. Sus filas antiguas tienen `tenant_id NULL`, así que activarlo escondería la configuración de cobro. Deuda anotada. |
 
+### El otro lado del mismo problema: la ESCRITURA (KAN-110, 2026-09-29)
+
+El *global scope* protege las **lecturas** y los `findOrFail`. No protege una escritura que
+trae el `tenant_id` puesto: el hook `creating` de `BelongsToTenant` sólo rellena la columna
+**cuando viene vacía**, así que un `tenant_id` del cuerpo se respeta sin más.
+
+Eso es lo que pasó en `POST /billing/payments`: el controlador armaba el payload con
+`$request->all()`, el `tenant_id` del cuerpo sobrevivía hasta `Payment::create()`, y la regla
+`customer_id => exists:users,id` —sin acotar por tenant— dejaba pasar además un cliente ajeno.
+Con dos campos del cuerpo se creaba un pago completo en otro operador. `Payment` **sí** tiene
+el scope; no sirvió de nada, porque el scope filtra lo que se lee, no lo que se escribe.
+
+Dos reglas que salen de ahí, aplicables a cualquier endpoint de alta:
+
+1. **El `tenant_id` se sobrescribe desde la sesión después de leer el cuerpo**, no se valida.
+   Validar que coincida obliga a decidir qué hacer cuando no coincide; sobrescribirlo hace que
+   la pregunta no exista. Cuando el valor recibido difiere, se registra una advertencia — un
+   cliente legítimo manda el suyo y siempre coincide, así que una diferencia es señal.
+2. **Toda clave foránea a una entidad con dueño se valida acotada al tenant.** `exists:tabla,id`
+   a secas es una comprobación de existencia, no de pertenencia. El patrón del proyecto es
+   `Rule::exists('tabla', 'id')->where('tenant_id', $request->user()?->tenant_id)`, que acota
+   en la misma consulta y no se puede olvidar en un segundo paso.
+
+La segunda regla importa especialmente con `User` y `CustomerProfile`, que están en la tabla
+de excepciones de arriba: al no tener scope automático, **cada** referencia a un cliente desde
+otro módulo tiene que acotarse a mano.
+
 ### Por qué la frontera no puede quedarse en esta capa
 
 El aislamiento es hoy **100 % de aplicación**: si una consulta olvida el filtro, la base
