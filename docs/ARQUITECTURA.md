@@ -363,6 +363,16 @@ El catálogo de planificación (`GET /installations/planning-catalog`) muestra l
 **agregada del tenant**. Sin `view_inventory` no lleva precios ni el desglose por bodega o
 persona; la regla es `InventoryLedger::managesInventory()`, la misma que abre las bodegas.
 
+**Plan por modelo, uso por unidad.** Un producto serializado se planifica como modelo y cantidad;
+al usarlo se elige **una unidad concreta** (`device_id`) y la línea y el kardex guardan esa
+unidad y su serial. Nunca sale como «una cualquiera» del modelo ni como cantidad genérica: el
+servidor rechaza un `stock_id` serializado por la vía de materiales. Las pantallas distinguen
+dos cifras que no son la misma: **«en la empresa, para planificar»** (catálogo agregado) y
+**«a tu alcance, para registrar»** (lo que `/equipment/available` devuelve para ese usuario y esa
+orden o ticket, ya filtrado por las fuentes que puede tomar). El selector de unidades
+(`SerialDevicePicker.vue`) registra sólo con su botón; elegir en la lista o pulsar «Elegir serial»
+en el plan no mueve nada.
+
 **6. Un vacío se explica, no se esconde.** `InventoryAvailability::materialsStatus()` dice por
 qué la lista de consumibles de una orden o un ticket sale vacía: no hay productos «por
 cantidad», ninguno tiene saldo, o el saldo está en custodios de los que ese usuario no puede

@@ -531,8 +531,13 @@ Un **prospecto** es alguien interesado que todavía no es cliente.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
 4. Elige **fecha** y **técnico**.
 5. En **Equipo / Materiales previstos** elige del inventario lo que el técnico debe llevar y
-   cuánto: «30 m de cable UTP», «1 router». Al lado de cada producto ves cuánto hay en toda la
-   empresa. Lo que no esté en el inventario va en **Notas de equipo (texto libre)**.
+   cuánto: «30 m de cable UTP», «1 router». Al lado de cada producto ves cuánto hay **en toda la
+   empresa, para planificar** —no lo que tú o el técnico pueden registrar—. Lo que no esté en el
+   inventario va en **Notas de equipo (texto libre)**.
+   > **Equipos por serial (LDF, routers, ONU…):** aquí sólo se elige el **modelo y la cantidad**.
+   > La unidad concreta —con su serial y su MAC— se elige el día de la instalación, al registrar
+   > la entrega en la hoja de la orden. Consumibles como amarres o RJ45 van por unidades y el
+   > cable por su unidad de medida (metros).
 6. Si la visita **no se le cobra al cliente** —mantenimiento, garantía, cambio de un equipo
    quemado— marca la casilla **Sin cobro al cliente** y, si quieres, escribe el motivo.
 7. Guarda.
@@ -601,16 +606,26 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    >
    > En cores con PPPoE la IP del cliente antes ni se pedía ni se guardaba, así que el
    > técnico llenaba la IP local creyendo que era la del abonado y esa parte se perdía.
-2. **Carga los equipos y materiales** que usó, en *Equipos y materiales usados*. Los equipos con
-   serial se eligen de una lista —agrupada por quién los tiene— y los materiales se agregan con
-   su cantidad ("4 RJ45"). Puedes cargar **todos los que hagan falta**: la antena, el router, el
-   plato y los conectores.
-   > Sólo aparece lo que **tú** tienes asignado, más lo del técnico de esa orden. Si no ves nada,
-   > pide que te entreguen equipos en *Inventarios → Entregas y traspasos*.
+2. **Carga los equipos y materiales** que usó, en *Equipos y materiales usados*. Puedes cargar
+   **todos los que hagan falta**: la LDF, el router, los amarres y el cable.
+   - **Equipos con serial (una unidad concreta).** Eliges la unidad exacta: cada opción muestra
+     *modelo · serial · MAC*, y si falta alguno lo dice («MAC sin informar»). Puedes filtrar por
+     modelo y **buscar por serial o MAC** (sin importar mayúsculas ni los «:»). Elegir en la lista
+     no descuenta nada: la unidad se registra al pulsar **Agregar**, y en la línea queda su serial
+     y su MAC.
+   - **Materiales por cantidad** (amarres y RJ45 por unidades, cable por metros): eliges el
+     material y de quién sale, escribes la cantidad y pulsas **Agregar**.
+   > Sólo aparece lo que **tú** puedes registrar: lo tuyo, lo del técnico de esa orden y —si
+   > administras inventario— las bodegas. El apartado de equipos con serial **siempre se ve**; si
+   > no tienes ninguna unidad a mano, te lo explica y te dice el siguiente paso: pedir que te la
+   > entreguen en *Inventarios → Entregas y traspasos*, o que la registre quien la tenga.
    >
    > **Arriba verás lo previsto en la orden** frente a lo usado («Cable: previsto 30 m, usado
-   > 20 m»). El botón **Preparar** deja listo el material y la cantidad que falta; revisa y pulsa
-   > **Agregar** para descontarlo. Si no hay saldo accesible, lo dice.
+   > 20 m») y, debajo de cada producto, cuánto tienes **tú** a tu alcance para registrarlo —que no
+   > es lo mismo que lo que hay en la empresa—. En los equipos por serial, **Elegir serial** te
+   > lleva al selector ya filtrado por ese modelo; no registra nada, la unidad la eliges tú. En los
+   > materiales, **Preparar** deja listo el material y la cantidad que falta; revisa y pulsa
+   > **Agregar** para descontarlo. Si no hay saldo a tu alcance, lo dice.
    >
    > **La sección de materiales siempre aparece.** Si no hay nada que puedas usar, un recuadro te
    > explica por qué: que no hay productos creados *por cantidad*, que ninguno tiene saldo, o que
@@ -1747,8 +1762,10 @@ para siempre** y el viejo se quedaba marcado como instalado en casa del cliente.
 
 Ahora el ticket tiene su propio bloque, y funciona en los dos sentidos:
 
-- **Entregar equipo con serial.** Se elige de una lista agrupada por quién lo tiene. Queda a
-  nombre del cliente del ticket y sale de tu inventario.
+- **Entregar equipo con serial.** Eliges la unidad exacta —*modelo · serial · MAC*, agrupadas por
+  quién las tiene—, con filtro por modelo y búsqueda por serial o MAC, y pulsas **Entregar**.
+  Queda a nombre del cliente del ticket y sale de tu inventario. Si no tienes ninguna unidad a
+  mano, el apartado sigue visible y explica qué hacer.
 - **Retirar equipo del cliente.** Aparece lo que ese cliente tiene instalado hoy. Eliges a dónde
   va —a tu nombre, a una bodega, o **de baja** si volvió inservible— y el equipo deja de figurar
   en su casa.
@@ -1756,7 +1773,8 @@ Ahora el ticket tiene su propio bloque, y funciona en los dos sentidos:
   > a contar como disponible, y alguien lo va a prometer en la siguiente instalación. Si el
   > equipo no sirve, márcalo de baja: el botón se pone rojo y te lo advierte. Si te equivocas,
   > la papelera deshace el movimiento y el equipo vuelve a figurar en casa del cliente.
-- **Agregar material** (RJ45, cable, conectores) con su cantidad, igual que en la instalación.
+- **Agregar material** (amarres y RJ45 por unidades, cable por metros) con su cantidad, igual que
+  en la instalación. En la misma visita puedes entregar una unidad con serial y gastar materiales.
 
 > Sólo ves lo que **tú** tienes asignado, más lo del técnico asignado al ticket. Las bodegas sólo
 > si administras inventario. Si no ves nada, pide que te entreguen equipos en

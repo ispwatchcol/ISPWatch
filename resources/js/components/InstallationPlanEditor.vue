@@ -2,7 +2,8 @@
   <div>
     <!-- Selector: productos del inventario del tenant, separados en equipos
          (se eligen por serial al usarlos) y materiales (se descuentan por
-         cantidad). La cifra es la disponibilidad agregada de toda la empresa. -->
+         cantidad). La cifra es la disponibilidad agregada de toda la empresa,
+         y se dice así: no es lo que quien planifica puede registrar. -->
     <div v-if="!disabled" class="flex flex-wrap items-center gap-2">
       <select v-model="pick" :disabled="!catalog.length"
         class="flex-1 min-w-[12rem] bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
@@ -10,7 +11,7 @@
         <optgroup v-if="materials.length" label="Materiales (por cantidad)">
           <option v-for="p in materials" :key="p.id" :value="p.id">{{ p.label }} — {{ availableText(p) }}</option>
         </optgroup>
-        <optgroup v-if="devices.length" label="Equipos (por serial)">
+        <optgroup v-if="devices.length" label="Equipos por serial (la unidad se elige al registrar)">
           <option v-for="p in devices" :key="p.id" :value="p.id">{{ p.label }} — {{ availableText(p) }}</option>
         </optgroup>
       </select>
@@ -39,12 +40,16 @@
                 {{ line.is_serialized ? 'Equipo' : 'Material' }}
               </span>
             </p>
+            <p v-if="line.is_serialized" class="text-[11px] text-purple-700 dark:text-purple-300">
+              Aquí se planifica el modelo y la cantidad. La unidad concreta (serial y MAC) se elige en la hoja de
+              la orden al registrar la entrega.
+            </p>
             <p v-if="!line.stock_id" class="text-[11px] text-gray-500 dark:text-gray-400">
               El producto ya no existe en el inventario; se conserva lo que se planificó.
             </p>
-            <p v-else-if="productOf(line) && canViewDetails && productOf(line).holders?.length"
-              class="text-[11px] text-gray-500 dark:text-gray-400">
-              Dónde hay: {{ holdersText(productOf(line)) }}
+            <p v-else-if="productOf(line)" class="text-[11px] text-gray-500 dark:text-gray-400">
+              Para planificar: {{ availableText(productOf(line)) }}
+              <template v-if="canViewDetails && productOf(line).holders?.length"> · Dónde hay: {{ holdersText(productOf(line)) }}</template>
             </p>
           </div>
           <input :value="line.quantity" @input="setField(idx, 'quantity', Number($event.target.value))"
@@ -61,7 +66,7 @@
           type="text" maxlength="255" placeholder="Nota (opcional)"
           class="mt-1.5 w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-gray-700 dark:text-gray-200 text-xs disabled:opacity-60" />
         <p v-if="exceeds(line)" class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-          Supera lo disponible en todo el inventario ({{ fmtQty(productOf(line).available) }}{{ line.unit ? ` ${line.unit}` : '' }}).
+          Supera lo disponible en la empresa ({{ fmtQty(productOf(line).available) }}{{ line.unit ? ` ${line.unit}` : '' }}).
           Se puede planificar igual: no reserva nada, y al usarlo se valida el saldo de quien lo aporte.
         </p>
       </li>
@@ -70,8 +75,9 @@
 
     <p v-if="disabled && disabledReason" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ disabledReason }}</p>
     <p class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+      Las cifras son lo disponible en toda la empresa, para planificar; no son lo que tú puedes registrar.
       Planificar no descuenta ni reserva inventario. Lo que realmente se usa se registra en la hoja de la
-      orden, y eso sí descuenta.
+      orden, con lo que tenga a su alcance quien la registra, y eso sí descuenta.
     </p>
   </div>
 </template>
@@ -116,8 +122,8 @@ const fmtQty = (n) => {
 const unitOf = (p) => p.unit || (p.is_serialized ? 'und.' : '')
 
 const availableText = (p) => (Number(p.available) > 0
-  ? `${fmtQty(p.available)}${unitOf(p) ? ` ${unitOf(p)}` : ''} disponibles`
-  : 'sin existencias')
+  ? `${fmtQty(p.available)}${unitOf(p) ? ` ${unitOf(p)}` : ''} en la empresa`
+  : 'sin existencias en la empresa')
 
 const holdersText = (p) => (p.holders ?? [])
   .map(h => `${h.label} ${fmtQty(h.quantity)}${p.unit ? ` ${p.unit}` : ''}`)
