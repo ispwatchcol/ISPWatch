@@ -1108,6 +1108,13 @@ Esto importa sobre todo con **`User`, `Role`, `CustomerProfile`, `Billing` y
 `BulkProvisionRun`**, que están en la tabla de excepciones deliberadas de `ARQUITECTURA.md` §9:
 no tienen scope automático, así que cada referencia se acota a mano o no se acota.
 
+Y **también con los modelos que sí tienen el trait**: la regla `exists:` consulta con el query
+builder, no con Eloquent, así que se salta el scope global. `exists:inventory_branch,id`
+aceptaba bodegas de otra empresa aunque `InventoryBranch` usa `BelongsToTenant` (bitácora
+§ 82). En inventario, además, toda escritura con custodio pasa por
+`InventoryLedger::assertCustodioDelTenant()`: si agregas un método al ledger que deje
+existencias con una bodega o una persona, llámalo.
+
 **3 · Si el servicio es quien escribe la fila, ponle su propia guarda.** El controlador es el
 único llamador *hoy*. Una comprobación de pertenencia dentro del servicio cuesta una consulta
 indexada y evita que un segundo llamador —un comando, un job, la API de socios— reabra el

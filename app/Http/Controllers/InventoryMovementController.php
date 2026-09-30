@@ -215,7 +215,7 @@ class InventoryMovementController extends Controller
             'notes'                  => 'nullable|string|max:255',
         ]);
 
-        $this->assertHolderExists($data['to_type'], (int) $data['to_id']);
+        $this->assertHolderExists($data['to_type'], (int) $data['to_id'], (int) $request->user()->tenant_id);
 
         if (empty($data['device_ids']) && empty($data['materials'])) {
             throw ValidationException::withMessages([
@@ -323,7 +323,7 @@ class InventoryMovementController extends Controller
         // ("el destino no existe") y mandaría al usuario a revisar el campo que
         // sí estaba bien.
         $existe = $type === InventoryMovement::HOLDER_USER
-            ? User::where('id', $id)->exists()
+            ? User::where('id', $id)->where('tenant_id', $stock->tenant_id)->exists()
             : InventoryBranch::where('id', $id)->exists();
 
         if (! $existe) {
@@ -337,10 +337,12 @@ class InventoryMovementController extends Controller
         // InventoryLedger, que es quien conoce la cantidad exacta disponible.
     }
 
-    private function assertHolderExists(string $type, int $id): void
+    private function assertHolderExists(string $type, int $id, int $tenantId): void
     {
+        // `User` no tiene scope de tenant (InventoryBranch sí): sin el where
+        // explícito, el id de una persona de otra empresa pasaba como destino.
         $exists = $type === InventoryMovement::HOLDER_USER
-            ? User::where('id', $id)->exists()
+            ? User::where('id', $id)->where('tenant_id', $tenantId)->exists()
             : InventoryBranch::where('id', $id)->exists();
 
         if (!$exists) {

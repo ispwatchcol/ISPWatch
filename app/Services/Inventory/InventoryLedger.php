@@ -6,6 +6,7 @@ use App\Constants\Permissions;
 use App\Models\CustomerInstallation;
 use App\Models\InstallationEquipment;
 use App\Models\InventoryBalance;
+use App\Models\InventoryBranch;
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
@@ -75,6 +76,8 @@ class InventoryLedger
                 'to_id' => 'Indica a qué persona se le entrega el equipo.',
             ]);
         }
+
+        $this->assertCustodioDelTenant($toType, $toId, (int) $device->tenant_id, 'to_id');
 
         return DB::transaction(function () use ($device, $toType, $toId, $actor, $notes) {
             $from = $this->currentHolderOf($device);
@@ -148,6 +151,11 @@ class InventoryLedger
                 'quantity' => 'La cantidad debe ser mayor que cero.',
             ]);
         }
+
+        // Sólo el destino: el origen puede ser un custodio ya borrado (rescate
+        // de saldos huérfanos, P-19), y ahí manda que exista la fila de saldo
+        // de ESTE tenant, que decrementBalance ya exige.
+        $this->assertCustodioDelTenant($toType, $toId, (int) $stock->tenant_id, 'to_id');
 
         DB::transaction(function () use ($stock, $fromType, $fromId, $toType, $toId, $quantity, $actor, $notes) {
             if ($fromType !== null && $fromId !== null) {
@@ -252,6 +260,7 @@ class InventoryLedger
             ]);
         }
 
+        $this->assertCustodioDelTenant($sourceType, $sourceId, (int) $installation->tenant_id, 'source');
         $this->assertCanTakeFrom($actor, $sourceType, $sourceId, $installation);
 
         return DB::transaction(function () use ($installation, $stock, $quantity, $sourceType, $sourceId, $actor, $notes) {
@@ -450,6 +459,7 @@ class InventoryLedger
             ]);
         }
 
+        $this->assertCustodioDelTenant($sourceType, $sourceId, (int) $ticket->tenant_id, 'source');
         $this->assertCanTakeFrom($actor, $sourceType, $sourceId, $ticket);
 
         return DB::transaction(function () use ($ticket, $stock, $quantity, $sourceType, $sourceId, $actor, $notes, $customerId) {
@@ -531,6 +541,7 @@ class InventoryLedger
         // que responda, así que no se comprueba nada — y queda en el kardex
         // como `baja`, que es lo que la hace auditable.
         if (!$esBaja) {
+            $this->assertCustodioDelTenant($toType, $toId, (int) $ticket->tenant_id, 'destination');
             $this->assertCanHandOverTo($actor, $toType, $toId, $ticket);
         }
 
@@ -891,6 +902,66 @@ class InventoryLedger
                 ? 'Ese equipo lo tiene otro técnico. Pídele que te lo traspase desde Inventario → Entregas.'
                 : 'No tienes permiso para tomar equipos de la bodega. Usa los que tengas asignados.',
         ]);
+    }
+
+    /**
+     * El custodio interno (bodega o persona) tiene que ser de la MISMA empresa
+     * que la existencia que se mueve.
+     *
+     * Los permisos de arriba no lo cubren: para una bodega sólo preguntan si el
+     * actor administra inventario, no de quién es la bodega, y `User` no tiene
+     * scope de tenant. Sin esto, un retiro desde el ticket con el id de una
+     * bodega ajena dejaba el equipo con un `branch_id` de otra empresa: fuera
+     * del inventario propio y metido en el ajeno.
+     *
+     * Va aquí y no en cada controlador porque el ledger es la única puerta de
+     * escritura del inventario (ver el docblock de la clase).
+     *
+     * Lista CERRADA: sólo bodega o persona. Todos los llamadores quieren un
+     * custodio interno —la baja se aparta antes de llegar aquí—, y un tipo
+     * que no se reconoce no puede darse por bueno: `transferDevice` trata
+     * cualquier tipo que no sea persona como bodega, así que un `customer`
+     * habría dejado el equipo en la bodega con ese id sin comprobar nada.
+     */
+    private function assertCustodioDelTenant(string $holderType, ?int $holderId, int $tenantId, string $campo): void
+    {
+        if ($holderType !== InventoryMovement::HOLDER_BRANCH && $holderType !== InventoryMovement::HOLDER_USER) {
+            throw ValidationException::withMessages([
+                $campo => 'El destino u origen del inventario tiene que ser una bodega o una persona.',
+            ]);
+        }
+
+        if ($holderId === null) {
+            // Bodega «sin sucursal»: vale, no señala a nadie. Sólo puede llegar
+            // desde las operaciones de equipos; las de material exigen un id
+            // por firma, porque un saldo siempre tiene dueño.
+            if ($holderType === InventoryMovement::HOLDER_BRANCH) {
+                return;
+            }
+
+            // Una persona sin id no es nadie. Antes esto lo frenaba sólo de
+            // rebote el `(int) null` de canTakeFrom; aquí se dice explícito.
+            throw ValidationException::withMessages([
+                $campo => 'Indica a qué persona va el equipo.',
+            ]);
+        }
+
+        $existe = $holderType === InventoryMovement::HOLDER_BRANCH
+            ? InventoryBranch::withoutTenantScope()
+                ->whereKey($holderId)
+                ->where('tenant_id', $tenantId)
+                ->exists()
+            : User::whereKey($holderId)
+                ->where('tenant_id', $tenantId)
+                ->exists();
+
+        if (!$existe) {
+            throw ValidationException::withMessages([
+                $campo => $holderType === InventoryMovement::HOLDER_BRANCH
+                    ? 'La bodega seleccionada no existe en esta empresa.'
+                    : 'La persona seleccionada no existe en esta empresa.',
+            ]);
+        }
     }
 
     private function managesInventory(User $actor): bool

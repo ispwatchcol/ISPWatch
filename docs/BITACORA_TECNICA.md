@@ -8596,3 +8596,105 @@ Un modelo con `BelongsToTenant` da una falsa sensación de estar cubierto. El sc
 `SELECT`; el `INSERT` con el `tenant_id` ya puesto pasa de largo. La pregunta al revisar un
 endpoint de alta no es «¿el modelo tiene el trait?» sino «¿de dónde sale el `tenant_id` que
 acaba en la fila?».
+
+## 82. El inventario aceptaba custodios de otra empresa — 2026-09-29
+
+**P-67.** Salió al diagnosticar la solicitud de elegir consumibles del inventario en
+instalaciones y soporte: el retiro de un equipo desde el ticket aceptaba como destino el id de
+una bodega de **otro tenant**, y el equipo del cliente quedaba con ese `branch_id`.
+
+### Causa raíz
+
+Tres caminos, un mismo supuesto equivocado: «si el modelo tiene `BelongsToTenant`, el id está
+acotado».
+
+- **Retiro desde el ticket.** `InventoryLedger::assertCanHandOverTo()` delega en
+  `canTakeFrom()`, que para una bodega sólo pregunta si el actor administra inventario — no de
+  quién es la bodega. `placeDeviceWith()` escribía el `branch_id` tal cual. Para una persona,
+  el único destino ajeno al actor que se admite es el técnico asignado, y `staff_id` se valida
+  con `exists:users,id` sin tenant (P-68).
+- **Entregas.** `InventoryMovementController::assertHolderExists()` hacía
+  `User::where('id', …)->exists()`. `User` es excepción deliberada al scope (ARQUITECTURA § 9),
+  así que una persona de otra empresa pasaba como destino de equipos y de saldos.
+- **Alta y edición de equipos.** `exists:inventory_branch,id` (y `stock`, `provider`, `users`).
+  La regla `exists` consulta con el query builder, **no con Eloquent**: se salta el scope
+  global aunque el modelo tenga el trait. `InventoryBranch` lo tiene y no sirvió de nada.
+
+El consumo de material desde una bodega ajena **no** llegaba a escribir: `decrementBalance()`
+busca el saldo con el `tenant_id` del material y fallaba por «no hay suficiente». Se cubre
+igual, para que el error diga lo que pasa y no dependa de ese efecto colateral.
+
+### Arreglo
+
+- `InventoryLedger::assertCustodioDelTenant()`: bodega o persona con id tiene que pertenecer
+  al tenant de la existencia. Se llama en `transferDevice` (destino), `transferQuantity`
+  (destino), `assignMaterialToInstallation` / `assignMaterialToTicket` (origen) y
+  `returnDeviceFromTicket` (destino, salvo baja). Va en el ledger porque es la única puerta de
+  escritura del inventario.
+- **El origen de `transferQuantity` no se comprueba a propósito**: puede ser un custodio ya
+  borrado (rescate de saldos huérfanos, P-19), y ahí manda que exista la fila de saldo del
+  propio tenant.
+- La bodega «sin sucursal» (`id` null) sigue valiendo como destino.
+- `assertHolderExists` y `assertOrigenUtilizable` acotan `User` por tenant; las reglas del alta
+  de equipos pasan a `Rule::exists(...)->where('tenant_id', …)`.
+
+### Pruebas
+
+`tests/Feature/Inventory/InventoryCrossTenantHolderTest.php`, catorce casos. Revertido sólo el
+código de `app/`, **fallaron siete**: los cuatro caminos con escritura real, los dos de
+material desde bodega ajena (por el mensaje: antes respondía `quantity` en vez de `source`) y
+el consumo de un saldo huérfano (ver abajo). Pasaban ya el control positivo (bodega propia y
+«sin sucursal»), el de catálogo ajeno y los cinco del rescate.
+
+### Tipos desconocidos y custodios nulos
+
+Revisión antes de publicar. La primera versión de `assertCustodioDelTenant()` tenía dos
+aperturas:
+
+- **`default => true`** para cualquier tipo que no fuera bodega o persona. Por HTTP no llega
+  —los requests filtran con `in:branch,user`—, pero el ledger es público y `transferDevice`
+  trata como bodega todo lo que no sea persona: `transferDevice($equipo, 'customer', $id)`
+  dejaba el equipo en la bodega `$id` **sin comprobar nada**. Ahora la lista es cerrada
+  (bodega o persona) y la firma pasa a `string`. La prueba falla con la versión anterior.
+- **`holderId === null` se aceptaba para cualquier tipo.** Sólo la bodega «sin sucursal» es
+  válida sin id, y sólo llega desde operaciones de equipos (las de material exigen `int` por
+  firma: un saldo siempre tiene dueño). La persona sin id ya se rechazaba, pero de rebote: el
+  `(int) null` de `canTakeFrom` no coincidía con ningún id. Ahora se rechaza explícitamente.
+  Esa prueba pasa también con la versión anterior; queda como guardia de regresión.
+
+Con esto, el archivo de pruebas llega a dieciséis casos.
+
+### La excepción del origen huérfano no abre un cruce de tenant
+
+Se probó en negativo antes de darla por buena, y **ya era segura sin este PR**: las cuatro
+pruebas negativas pasan también con el código anterior. La sostienen tres capas
+independientes:
+
+- el material se resuelve con `InventoryStock::findOrFail`, acotado por el scope: un
+  `stock_id` ajeno es 404;
+- la fila de saldo del origen se busca con el `tenant_id` del material (`decrementBalance`) y
+  con el scope de `InventoryBalance` (`assertOrigenUtilizable`): un origen que sólo tiene saldo
+  en otra empresa no encuentra nada que sacar, y responde 422;
+- `/inventory/transfers` exige `view_inventory`: un técnico sin él recibe 403.
+
+Otra empresa tampoco ve nuestros huérfanos en `/inventory/orphan-balances`.
+
+Un caso límite, cubierto con prueba: las filas que P-67 dejó **a nombre de una persona
+ajena** son nuestras (nuestro tenant, nuestro material); la persona ajena nunca pudo verlas.
+Salen como huérfanas y el rescate las devuelve sin crear ni tocar nada del otro tenant.
+
+**Hallazgo al probarlo:** antes de este PR, un saldo huérfano del propio tenant **sí se podía
+gastar directamente** en un ticket o una instalación, con la bodega borrada como origen.
+No cruzaba de empresa, pero se saltaba Entregas, que es donde el rescate deja su nota y exige
+su permiso. `assertCustodioDelTenant()` en el origen del consumo lo cierra: el rescate va
+sólo por Entregas.
+
+`InventoryEntryExpenseTest` creaba sus bodegas con `create(['tenant_id' => …])` sin sesión:
+`tenant_id` no es fillable, así que nacían **sin empresa**. La comprobación nueva las rechazó
+con razón; se corrigió el fixture, no la regla.
+
+### Fuera de alcance, anotado
+
+- **P-68**: `user_id` / `staff_id` de tickets y `user_id` de gastos con `exists:users,id`.
+- **P-69**: borrar una orden de instalación borra en cascada sus líneas sin devolver nada.
+- **P-70**: una línea de equipo se puede cobrar dos veces.
