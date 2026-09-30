@@ -108,8 +108,8 @@
               <td class="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-[180px] truncate" :title="inst.address">
                 {{ inst.address || '—' }}
               </td>
-              <td class="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-[180px] truncate" :title="inst.equipment">
-                {{ inst.equipment || '—' }}
+              <td class="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-[180px] truncate" :title="equipmentSummary(inst)">
+                {{ equipmentSummary(inst) || '—' }}
               </td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap items-center gap-1">
@@ -125,8 +125,9 @@
                     class="text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-2.5 py-1 rounded-lg transition font-medium">
                     Editar
                   </button>
-                  <button @click="remove(inst)"
-                    class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1 rounded-lg transition font-medium">
+                  <button @click="remove(inst)" :disabled="!!deleteBlockedReason(inst)"
+                    :title="deleteBlockedReason(inst) || 'Eliminar la orden'"
+                    class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1 rounded-lg transition font-medium disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
                     Eliminar
                   </button>
                 </div>
@@ -228,12 +229,9 @@
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales previstos</label>
-            <select v-if="availableDevices.length" v-model="equipPick" @change="appendDeviceTo(createForm)"
-              class="w-full mb-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
-              <option :value="null">— Agregar equipo desde inventario —</option>
-              <option v-for="d in availableDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-            </select>
-            <input v-model="createForm.equipment" type="text" placeholder="Se llena al elegir del inventario, o escribe manualmente"
+            <InstallationPlanEditor v-model="createForm.planned_items" />
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mt-3 mb-1">Notas de equipo (texto libre)</label>
+            <input v-model="createForm.equipment" type="text" maxlength="255" placeholder="Opcional: lo que no esté en el inventario"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
           </div>
           <div class="sm:col-span-2">
@@ -331,8 +329,11 @@
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
               <option value="pendiente">Pendiente</option>
               <option value="completada">Completada</option>
-              <option value="cancelada">Cancelada</option>
+              <option value="cancelada" :disabled="!!editForm.cancel_blocked && editForm.original_status !== 'cancelada'">Cancelada</option>
             </select>
+            <p v-if="editForm.cancel_blocked && editForm.original_status !== 'cancelada'" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              {{ editForm.cancel_blocked }}
+            </p>
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Técnico</label>
@@ -348,14 +349,14 @@
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales</label>
-            <select v-if="availableDevices.length" v-model="equipPick" @change="appendDeviceTo(editForm)"
-              class="w-full mb-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
-              <option :value="null">— Agregar equipo desde inventario —</option>
-              <option v-for="d in availableDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-            </select>
-            <input v-model="editForm.equipment" type="text"
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Notas de equipo (texto libre)</label>
+            <input v-model="editForm.equipment" type="text" maxlength="255" placeholder="Opcional: lo que no esté en el inventario"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales previstos</label>
+            <InstallationPlanEditor v-model="editForm.planned_items" :disabled="editForm.is_signed"
+              disabled-reason="La orden ya está firmada: el plan queda como estaba." />
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones</label>
@@ -412,11 +413,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import api from '@/services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import InstallationPlanEditor from '@/components/InstallationPlanEditor.vue'
+import {
+  equipmentSummary,
+  deleteBlockedReason,
+  cancelBlockedReason,
+  planPayload,
+  copyPlan,
+} from '@/utils/installationPlan'
 
 const router = useRouter()
 const toast = ref(null)
@@ -427,35 +436,10 @@ const filters = ref({ status: '', from: '', to: '' })
 
 const technicians = ref([])
 
-// Equipos del inventario para autollenar "Equipo / Materiales" sin digitar seriales.
-const inventoryDevices = ref([])
-const equipPick = ref(null)
-
-const availableDevices = computed(() =>
-  inventoryDevices.value.filter(d => !d.user_id)
-)
-
-const deviceLabel = (d) => {
-  const name = `${d.stock?.brand ?? ''} ${d.stock?.model ?? ''}`.trim() || 'Equipo'
-  const parts = [name]
-  if (d.serial) parts.push(`S/N ${d.serial}`)
-  if (d.mac)    parts.push(`MAC ${d.mac}`)
-  return parts.join(' · ')
-}
-
-const appendDeviceTo = (form) => {
-  const d = inventoryDevices.value.find(x => x.id === equipPick.value)
-  equipPick.value = null
-  if (!d) return
-  const label = deviceLabel(d)
-  form.equipment = form.equipment?.trim() ? `${form.equipment.trim()}; ${label}` : label
-}
-
-const loadInventory = async () => {
-  try {
-    const { data } = await api.inventory.getAll()
-    inventoryDevices.value = Array.isArray(data) ? data : []
-  } catch { /* non-blocking: sin permiso de inventario se escribe manual */ }
+/** Avisos de planificación del servidor: informan, no bloquean. */
+const showPlanningWarnings = (data) => {
+  const avisos = data?.planning_warnings ?? []
+  if (avisos.length) toast.value?.info('Revisa el plan', avisos.join(' '))
 }
 
 const blankCreate = () => ({
@@ -466,6 +450,7 @@ const blankCreate = () => ({
   scheduled_date: new Date().toISOString().slice(0, 10),
   technician_id: null,
   equipment: '',
+  planned_items: [],
   notes: '',
   no_charge: false,
   no_charge_reason: '',
@@ -507,7 +492,6 @@ const loadTechnicians = async () => {
 const openCreate = () => {
   createError.value = ''
   createForm.value = blankCreate()
-  equipPick.value = null
   creating.value = true
 }
 
@@ -517,8 +501,12 @@ const submitCreate = async () => {
   if (!createForm.value.scheduled_date) { createError.value = 'La fecha es obligatoria.'; return }
   creatingBusy.value = true
   try {
-    const { data } = await api.customers.createInstallationWithProspect(createForm.value)
+    const { data } = await api.customers.createInstallationWithProspect({
+      ...createForm.value,
+      planned_items: planPayload(createForm.value.planned_items),
+    })
     toast.value?.success('Agendada', 'Prospecto e instalación creados.')
+    showPlanningWarnings(data)
     creating.value = false
     // Va directo al detalle para que el técnico pueda comenzar a llenar la hoja.
     if (data?.installation?.id) {
@@ -543,6 +531,10 @@ const openEdit = (inst) => {
     equipment:  inst.equipment ?? '',
     notes:      inst.notes ?? '',
     status:     inst.status,
+    original_status: inst.status,
+    cancel_blocked: cancelBlockedReason(inst),
+    is_signed:  !!inst.is_signed,
+    planned_items: copyPlan(inst),
     no_charge:  !!inst.no_charge,
     no_charge_reason: inst.no_charge_reason ?? '',
     is_prospect: !!inst.is_prospect,
@@ -575,16 +567,18 @@ const saveEdit = async () => {
       equipment:  editForm.value.equipment,
       notes:      editForm.value.notes,
       status:     editForm.value.status,
+      planned_items: planPayload(editForm.value.planned_items),
     }
     if (editForm.value.is_prospect && editForm.value.prospect) {
       await api.customers.updateInstallationProspect(editing.value, editForm.value.prospect)
     }
-    await api.customers.updateInstallation(editing.value, installationPayload)
+    const { data } = await api.customers.updateInstallation(editing.value, installationPayload)
     toast.value?.success('Actualizada', 'Orden actualizada correctamente.')
+    showPlanningWarnings(data)
     editing.value = null
     await load()
   } catch (err) {
-    editError.value = err.response?.data?.message || 'Error al actualizar.'
+    editError.value = firstError(err) || 'Error al actualizar.'
   } finally {
     saving.value = false
   }
@@ -605,11 +599,23 @@ const confirmDelete = async () => {
     toast.value?.success('Eliminada', 'Orden eliminada correctamente.')
     deleteTarget.value = null
     await load()
-  } catch {
-    toast.value?.error('Error', 'No se pudo eliminar la orden.')
+  } catch (err) {
+    // El servidor dice qué historial se perdería (líneas, firma, factura).
+    toast.value?.error('No se eliminó', err.response?.data?.message || 'No se pudo eliminar la orden.')
+    deleteTarget.value = null
   } finally {
     deleting.value = false
   }
+}
+
+/** Primer mensaje de validación del servidor: es el que explica el motivo. */
+const firstError = (err) => {
+  const errors = err.response?.data?.errors
+  if (errors) {
+    const first = Object.values(errors)[0]
+    if (Array.isArray(first) && first.length) return first[0]
+  }
+  return err.response?.data?.message
 }
 
 const convertToClient = (inst) => {
@@ -632,6 +638,5 @@ const formatDate = (d) => {
 onMounted(() => {
   load()
   loadTechnicians()
-  loadInventory()
 })
 </script>

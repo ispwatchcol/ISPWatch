@@ -10,6 +10,7 @@ use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
 use App\Models\User;
+use App\Services\Inventory\InventoryAvailability;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -24,8 +25,10 @@ use Illuminate\Validation\ValidationException;
  */
 class InstallationEquipmentController extends Controller
 {
-    public function __construct(private InventoryLedger $ledger)
-    {
+    public function __construct(
+        private InventoryLedger $ledger,
+        private InventoryAvailability $availability,
+    ) {
     }
 
     private function resolveInstallation(Request $request, $installationId): CustomerInstallation
@@ -34,6 +37,21 @@ class InstallationEquipmentController extends Controller
         abort_if(!$tenantId, 403, 'No autorizado.');
 
         return CustomerInstallation::where('tenant_id', $tenantId)->findOrFail($installationId);
+    }
+
+    /**
+     * Una orden firmada no admite cambios en sus líneas: lo usado es lo que el
+     * cliente firmó. Corregirlo después exige una corrección auditada, que es
+     * de la entrega B y todavía no existe; hasta entonces, no se toca.
+     */
+    private function assertLinesEditable(CustomerInstallation $installation): void
+    {
+        if ($installation->isSigned()) {
+            throw ValidationException::withMessages([
+                'installation' => 'La orden ya está firmada: sus equipos y materiales no se modifican desde aquí. '
+                    . 'Lo registrado es lo que el cliente firmó.',
+            ]);
+        }
     }
 
     /** Líneas ya cargadas en la orden. */
@@ -135,7 +153,43 @@ class InstallationEquipmentController extends Controller
             'sources'   => $sources,
             'devices'   => $devices,
             'materials' => $balances,
+            // Por qué `materials` puede venir vacío. La sección de consumibles
+            // se muestra SIEMPRE y usa esto para explicarlo, en vez de
+            // desaparecer y dejar a quien la busca sin saber qué falta.
+            'materials_status' => $this->availability->materialsStatus(
+                (int) $installation->tenant_id,
+                $balances->count(),
+                'esta orden'
+            ),
+            'locked' => $this->lockState($installation),
         ]);
+    }
+
+    /**
+     * Si la orden admite cambios en sus líneas, y por qué no. La pantalla lo
+     * usa para esconder los controles; quien decide es store()/destroy().
+     *
+     * @return array{is_locked: bool, reason: string|null, message: string|null}
+     */
+    private function lockState(CustomerInstallation $installation): array
+    {
+        if ($installation->isSigned()) {
+            return [
+                'is_locked' => true,
+                'reason'    => 'signed',
+                'message'   => 'La orden ya está firmada: sus equipos y materiales quedan como se firmaron.',
+            ];
+        }
+
+        if ($installation->status === 'cancelada') {
+            return [
+                'is_locked' => true,
+                'reason'    => 'cancelled',
+                'message'   => 'La orden está cancelada: no se le cargan equipos ni materiales.',
+            ];
+        }
+
+        return ['is_locked' => false, 'reason' => null, 'message' => null];
     }
 
     /**
@@ -145,6 +199,14 @@ class InstallationEquipmentController extends Controller
     {
         $installation = $this->resolveInstallation($request, $installationId);
         $actor        = $request->user();
+
+        $this->assertLinesEditable($installation);
+
+        if ($installation->status === 'cancelada') {
+            throw ValidationException::withMessages([
+                'installation' => 'La orden está cancelada: no se le cargan equipos ni materiales.',
+            ]);
+        }
 
         $data = $request->validate([
             'device_id'   => 'nullable|integer',
@@ -203,18 +265,29 @@ class InstallationEquipmentController extends Controller
     }
 
     /**
-     * Quita una línea y devuelve la existencia a quien la aportó.
+     * Quita una línea capturada por error y devuelve la existencia a quien la
+     * aportó.
+     *
+     * OJO con lo que esto NO es: no es la devolución de un material gastado.
+     * Deshace la captura como si nunca se hubiera usado, así que sólo tiene
+     * sentido antes de la firma y para un error de digitación («cargué la LDF
+     * equivocada», «puse 40 m en vez de 4»). Un consumo real que haya que
+     * revertir, total o parcialmente, necesita la conciliación auditada de la
+     * entrega B. Por eso la firma lo bloquea y la pantalla lo presenta como
+     * «Quitar (error de captura)».
      */
     public function destroy(Request $request, $installationId, $itemId)
     {
         $installation = $this->resolveInstallation($request, $installationId);
+
+        $this->assertLinesEditable($installation);
 
         $item = InstallationEquipment::where('installation_id', $installation->id)->findOrFail($itemId);
 
         $this->ledger->releaseFromInstallation($item, $request->user());
 
         return response()->json([
-            'message'   => 'Equipo devuelto al inventario.',
+            'message'   => 'Línea quitada: la captura se deshizo y la existencia volvió a quien la aportó.',
             'equipment' => $this->rows($installation),
         ]);
     }

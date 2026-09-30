@@ -554,18 +554,34 @@
                                         <template v-if="item.reversal_reason"> · «{{ item.reversal_reason }}»</template>
                                     </p>
                                 </div>
-                                <button v-if="puedeEquipos && !item.is_reversed" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
-                                    :title="item.is_return ? 'Deshacer el retiro' : 'Devolver al inventario'"
-                                    class="shrink-0 p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-50">
-                                    <v-icon name="md-delete" class="w-4 h-4" />
-                                </button>
+                                <div class="shrink-0 flex items-center gap-1">
+                                    <!-- Cobrar NO descuenta: lleva la línea al formulario de cargo. -->
+                                    <button v-if="puedeCobrarLineas && lineaCobrable(item) && !lineasEnElCargo.has(item.id)"
+                                        @click="cobrarLinea(item)" type="button"
+                                        title="Pasar esta línea a un cargo (no vuelve a descontar inventario)"
+                                        class="px-2 py-1 text-xs rounded-md text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition">
+                                        Cobrar
+                                    </button>
+                                    <span v-else-if="lineasEnElCargo.has(item.id)" class="text-[11px] text-indigo-600 dark:text-indigo-400">en el cargo</span>
+                                    <button v-if="puedeEquipos && !item.is_reversed && !equipmentLocked" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
+                                        :title="item.is_return ? 'Deshacer el retiro (con motivo)' : 'Deshacer la captura (con motivo). No es devolución de material gastado.'"
+                                        class="p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-50">
+                                        <v-icon name="md-delete" class="w-4 h-4" />
+                                    </button>
+                                </div>
                             </li>
                         </ul>
                         <p v-else class="text-sm text-gray-500 dark:text-gray-400 italic mb-4">
                             Todavía no se ha movido ningún equipo en este ticket.
                         </p>
 
-                        <div v-if="puedeEquipos && !ticket.archived_at" class="space-y-3 border-t border-gray-100 dark:border-gray-700 pt-4">
+                        <!-- Ticket cerrado o archivado: la hoja se lee, no se mueve. -->
+                        <p v-if="puedeEquipos && equipmentLocked"
+                            class="mb-3 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-gray-700/40 border border-slate-200 dark:border-gray-600 rounded-lg px-3 py-2">
+                            🔒 {{ equipmentLock.message || 'El ticket está cerrado: para mover equipos hay que reabrirlo con motivo.' }}
+                        </p>
+
+                        <div v-if="puedeEquipos && !equipmentLocked" class="space-y-3 border-t border-gray-100 dark:border-gray-700 pt-4">
                             <!-- Entregar un equipo con serial -->
                             <div>
                                 <select v-model.number="devicePick" @change="addDevice" :disabled="equipmentBusy"
@@ -604,7 +620,14 @@
                                 </p>
                             </div>
 
-                            <!-- Materiales -->
+                            <!-- Materiales. La sección se ve SIEMPRE: si no hay
+                                 nada que ofrecer, se explica por qué. -->
+                            <p class="text-xs font-medium text-gray-600 dark:text-gray-300">Materiales por cantidad (cable, conectores…)</p>
+                            <p v-if="equipmentLoaded && !availableMaterials.length"
+                                class="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                                No hay materiales que puedas usar en esta visita.
+                                {{ materialsStatus.message || '' }}
+                            </p>
                             <div v-if="availableMaterials.length" class="grid grid-cols-1 sm:grid-cols-[1fr_6rem_auto] gap-2">
                                 <select v-model="materialPick" :disabled="equipmentBusy"
                                     class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50">
@@ -623,14 +646,16 @@
                             </div>
                         </div>
 
-                        <p v-if="puedeEquipos && !ticket.archived_at" class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+                        <p v-if="puedeEquipos" class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
                             El equipo entregado queda a nombre del cliente y el retirado vuelve al inventario.
-                            Cobrarlo es aparte: usa «Cobrar equipo del ticket» en Cargos.
+                            Cobrarlo es aparte y no vuelve a descontar: usa «Cobrar» en la línea o «Cobrar equipo del
+                            ticket» en Cargos. Deshacer una línea corrige una captura (con motivo); no es la devolución
+                            parcial de material gastado.
                         </p>
                     </div>
 
                    <!-- Cargos del Ticket (Staff Only) -->
-                    <div v-if="canEdit" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                    <div v-if="canEdit" ref="chargesCard" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-xl font-bold text-gray-800 dark:text-white">Cargos del Ticket</h2>
                             <button
@@ -730,13 +755,16 @@
                                      decidiéndolo quien factura: la línea entra
                                      editable como cualquier otra. Los retiros no
                                      aparecen — no se cobra lo que se recogió. -->
-                                <select v-if="cobrables.length" v-model.number="chargePick" @change="addChargeFromEquipment"
+                                <select v-if="cobrablesDisponibles.length" v-model.number="chargePick" @change="addChargeFromEquipment"
                                     class="text-sm bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
                                     <option :value="null">+ Cobrar equipo del ticket</option>
-                                    <option v-for="it in cobrables" :key="it.id" :value="it.id">
-                                        {{ it.label }}{{ it.unit_price != null ? ` — ${formatCurrency(it.unit_price * it.quantity)}` : '' }}
+                                    <option v-for="it in cobrablesDisponibles" :key="it.id" :value="it.id">
+                                        {{ it.is_device ? '' : `${it.quantity}${it.unit ? ' ' + it.unit : ''} · ` }}{{ it.label }}{{ it.unit_price != null ? ` — ${formatCurrency(it.unit_price * it.quantity)}` : '' }}
                                     </option>
                                 </select>
+                                <span v-if="cobrables.length" class="text-[11px] text-gray-500 dark:text-gray-400">
+                                    Trae una línea ya usada: no vuelve a descontar inventario. Los servicios van como ítem manual.
+                                </span>
                             </div>
 
                             <div>
@@ -1174,7 +1202,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
@@ -1428,7 +1456,29 @@ const equipmentTotal = computed(() =>
 // Sólo las entregas se pueden cobrar. Un retiro es algo que el cliente
 // devolvió; ofrecerlo en el cargo sería invitar a facturárselo.
 // Una entrega deshecha ya no se cobra: el equipo volvio al inventario.
-const cobrables = computed(() => equipmentItems.value.filter(it => !it.is_return && !it.is_reversed))
+const lineaCobrable = (it) => !it.is_return && !it.is_reversed
+const cobrables = computed(() => equipmentItems.value.filter(lineaCobrable))
+
+// Lineas que ya estan en el formulario de cargo ABIERTO: no se ofrecen dos
+// veces en el mismo cargo. Entre cargos distintos no hay enlace todavia
+// (P-70): la marca vive solo mientras el formulario esta abierto.
+const lineasEnElCargo = computed(() => new Set(
+    chargeForm.value.items.filter(i => i.source_line_id).map(i => i.source_line_id)
+))
+const cobrablesDisponibles = computed(() => cobrables.value.filter(it => !lineasEnElCargo.value.has(it.id)))
+
+// Cobrar no depende del estado del ticket: un ticket cerrado se sigue
+// cobrando. Lo gobiernan los permisos de siempre de Cargos.
+const puedeCobrarLineas = computed(() => canEdit.value && !ticket.value?.no_charge)
+
+// Ticket cerrado o archivado: la hoja se lee pero no se mueve. Lo dice el
+// servidor en /equipment/available; `workflow.isTerminal` cubre el rato en
+// que esa respuesta todavía no llegó.
+const equipmentLock = ref({ is_locked: false, reason: null, message: null })
+const materialsStatus = ref({ code: 'ok', message: null })
+const equipmentLocked = computed(() =>
+    equipmentLock.value.is_locked || !!ticket.value?.archived_at || !!workflow.value?.isTerminal
+)
 
 // Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
 // lo que está eligiendo sale de su mochila o de la bodega.
@@ -1470,11 +1520,17 @@ const loadEquipment = async () => {
 }
 
 const loadAvailableEquipment = async () => {
-    if (!canEdit.value) return
+    // El mismo permiso que el servidor exige en /equipment/available. Antes
+    // se pedía `ticket_edit`, y el técnico de campo —que mueve equipos con
+    // `ticket_equipment` pero sin `ticket_edit`— veía la sección sin nada que
+    // agregar y sin saber por qué.
+    if (!puedeEquipos.value) return
     try {
         const { data } = await ticketEquipmentApi.available(ticketId)
         availableDevices.value   = data?.devices   ?? []
         availableMaterials.value = data?.materials ?? []
+        materialsStatus.value    = data?.materials_status ?? { code: 'ok', message: null }
+        equipmentLock.value      = data?.locked ?? { is_locked: false, reason: null, message: null }
         installedDevices.value   = data?.installed ?? []
         equipmentSources.value   = data?.sources   ?? []
         returnTargets.value      = data?.return_targets ?? data?.sources ?? []
@@ -1614,17 +1670,17 @@ const removeEquipment = async (item) => {
  * facturarlo sigue siendo de quien pulsa «Generar Cargo».
  */
 const chargePick = ref(null)
+const chargesCard = ref(null)
 
-const addChargeFromEquipment = () => {
-    const item = cobrables.value.find(x => x.id === chargePick.value)
-    chargePick.value = null
-    if (!item) return
-
+const agregarLineaAlCargo = (item) => {
     const linea = {
         description: item.label,
         quantity: item.is_device ? 1 : Number(item.quantity) || 1,
         unit: item.is_device ? 'Unidad' : (item.unit || 'Unidad'),
         unit_price: item.unit_price != null ? Number(item.unit_price) : 0,
+        // Solo para no ofrecerla dos veces en este formulario. No viaja al
+        // servidor: submitCharge arma el payload campo por campo.
+        source_line_id: item.id,
     }
 
     // La primera fila nace vacía; se reemplaza en vez de dejar un ítem en
@@ -1635,6 +1691,22 @@ const addChargeFromEquipment = () => {
     } else {
         chargeForm.value.items.push(linea)
     }
+}
+
+const addChargeFromEquipment = () => {
+    const item = cobrablesDisponibles.value.find(x => x.id === chargePick.value)
+    chargePick.value = null
+    if (!item) return
+    agregarLineaAlCargo(item)
+}
+
+/** «Cobrar» en la línea: abre el cargo con la línea ya cargada. No descuenta. */
+const cobrarLinea = async (item) => {
+    if (!puedeCobrarLineas.value || lineasEnElCargo.value.has(item.id)) return
+    showChargeForm.value = true
+    agregarLineaAlCargo(item)
+    await nextTick()
+    chargesCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 const formatCurrency = (val) => {
@@ -2312,6 +2384,8 @@ const ejecutarAccion = async () => {
         await loadTicket()
         await cargarWorkflow()
         await cargarHistorial(1)
+        // Cerrar o reabrir cambia si la hoja de equipos admite movimientos.
+        await loadAvailableEquipment()
     } catch (err) {
         console.error('Error en la acción del ciclo de vida:', err)
 

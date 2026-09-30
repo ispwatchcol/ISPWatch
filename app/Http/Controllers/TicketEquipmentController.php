@@ -11,7 +11,10 @@ use App\Models\SupportTicket;
 use App\Models\SupportTicketHistory;
 use App\Models\TicketEquipment;
 use App\Models\User;
+use App\Services\Inventory\InventoryAvailability;
 use App\Services\Inventory\InventoryLedger;
+use App\Support\TicketWorkflow;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -29,8 +32,10 @@ use Illuminate\Validation\ValidationException;
  */
 class TicketEquipmentController extends Controller
 {
-    public function __construct(private InventoryLedger $ledger)
-    {
+    public function __construct(
+        private InventoryLedger $ledger,
+        private InventoryAvailability $availability,
+    ) {
     }
 
     /**
@@ -61,6 +66,24 @@ class TicketEquipmentController extends Controller
             throw ValidationException::withMessages([
                 'ticket' => 'Este ticket está archivado. Restáuralo si necesitas mover equipos en él.',
             ]);
+        }
+
+        // Un ticket cerrado no mueve inventario: ni entregas, ni consumos, ni
+        // retiros, ni reversas. Moverlo después del cierre dejaría el
+        // expediente diciendo algo que no se tuvo en cuenta al cerrarlo. El
+        // camino es reabrirlo, que exige `ticket_reopen` y motivo y deja
+        // evento —mismo criterio que las mediciones—. El COBRO de lo ya usado
+        // no pasa por aquí y no se bloquea.
+        if (TicketWorkflow::esTerminal($ticket->status)) {
+            $mensaje = 'El ticket está cerrado: no admite entregas, consumos, retiros ni reversas de equipo. '
+                . 'Si hace falta registrar un movimiento, reábrelo primero (con motivo); así queda constancia de por qué.';
+
+            throw new HttpResponseException(response()->json([
+                'message' => $mensaje,
+                'error'   => 'ticket_already_closed',
+                'status'  => $ticket->status,
+                'errors'  => ['ticket' => [$mensaje]],
+            ], 422));
         }
 
         if (!$ticket->user_id) {
@@ -198,7 +221,36 @@ class TicketEquipmentController extends Controller
                 'id'    => null,
                 'label' => 'Dar de baja (dañado o perdido)',
             ]]),
+            // Por qué `materials` puede venir vacío: la sección se muestra
+            // siempre y lo explica. Ver InventoryAvailability::materialsStatus.
+            'materials_status' => $this->availability->materialsStatus(
+                (int) $ticket->tenant_id,
+                $balances->count(),
+                'esta visita'
+            ),
+            // Si el ticket admite movimientos. La pantalla lo usa para ocultar
+            // los controles; quien decide es assertOperable().
+            'locked' => $this->lockState($ticket),
         ]);
+    }
+
+    /** @return array{is_locked: bool, reason: string|null, message: string|null} */
+    private function lockState(SupportTicket $ticket): array
+    {
+        if ($ticket->trashed()) {
+            return ['is_locked' => true, 'reason' => 'archived', 'message' => 'El ticket está archivado.'];
+        }
+
+        if (TicketWorkflow::esTerminal($ticket->status)) {
+            return [
+                'is_locked' => true,
+                'reason'    => 'closed',
+                'message'   => 'El ticket está cerrado: para entregar, consumir, retirar o deshacer equipos hay '
+                    . 'que reabrirlo con motivo. Cobrar lo ya usado sigue disponible en Cargos.',
+            ];
+        }
+
+        return ['is_locked' => false, 'reason' => null, 'message' => null];
     }
 
     /**
