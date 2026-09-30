@@ -530,11 +530,38 @@ Un **prospecto** es alguien interesado que todavía no es cliente.
 2. Pulsa **Nueva instalación**.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
 4. Elige **fecha** y **técnico**.
-5. Si la visita **no se le cobra al cliente** —mantenimiento, garantía, cambio de un equipo
+5. En **Equipo / Materiales previstos** elige del inventario lo que el técnico debe llevar y
+   cuánto: «30 m de cable UTP», «1 router». Al lado de cada producto ves cuánto hay en toda la
+   empresa. Lo que no esté en el inventario va en **Notas de equipo (texto libre)**.
+6. Si la visita **no se le cobra al cliente** —mantenimiento, garantía, cambio de un equipo
    quemado— marca la casilla **Sin cobro al cliente** y, si quieres, escribe el motivo.
-6. Guarda.
+7. Guarda.
 
 El prospecto queda en estado **agendado**.
+
+> 📦 **Planificar no descuenta nada** (desde el 30/09/2026)
+>
+> Lo previsto es una lista para preparar la visita: **no** saca nada de la bodega ni lo aparta
+> para esta orden. Puedes planificar más de lo que hay —el sistema te avisa, pero te deja—, porque
+> lo que cuenta es el saldo del día de la visita. El inventario se descuenta sólo cuando el
+> técnico registra lo que **de verdad usó** en la hoja de la orden (§ 6.2).
+>
+> - Si tienes permiso de inventario, verás también el precio y **dónde** está cada producto
+>   (qué bodega o qué técnico lo tiene). Sin ese permiso ves sólo la cantidad total.
+> - Si después se cambia el nombre del producto en el inventario, la orden sigue mostrando el
+>   nombre con que se planificó.
+> - Una orden ya **firmada** no deja cambiar su plan.
+> - Las órdenes antiguas conservan lo que tenían escrito a mano.
+
+> 🔒 **Cuándo una orden ya no se puede eliminar ni cancelar**
+>
+> - **Eliminar** queda apagado si la orden ya descargó equipos o materiales del inventario, si
+>   tiene la hoja firmada o si tiene factura. Pasa el ratón sobre el botón para ver el motivo.
+> - **Cancelar** no se puede si la orden ya registra consumo de inventario o está firmada. Lo
+>   usado es real: el cable se gastó y el equipo quedó en casa del cliente. Por ahora la orden se
+>   queda en su estado actual; la forma de conciliar ese consumo llegará más adelante.
+>
+> Una orden sin nada usado (aunque tenga plan) se sigue pudiendo cancelar o eliminar como antes.
 
 > 🎁 **Qué hace exactamente «Sin cobro al cliente»** (desde el 21/09/2026)
 >
@@ -581,8 +608,25 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > Sólo aparece lo que **tú** tienes asignado, más lo del técnico de esa orden. Si no ves nada,
    > pide que te entreguen equipos en *Inventarios → Entregas y traspasos*.
    >
-   > Cada línea **se descuenta del inventario** y queda en el historial del equipo. El botón
-   > **Devolver** deshace la carga y regresa la existencia a su dueño.
+   > **Arriba verás lo previsto en la orden** frente a lo usado («Cable: previsto 30 m, usado
+   > 20 m»). El botón **Preparar** deja listo el material y la cantidad que falta; revisa y pulsa
+   > **Agregar** para descontarlo. Si no hay saldo accesible, lo dice.
+   >
+   > **La sección de materiales siempre aparece.** Si no hay nada que puedas usar, un recuadro te
+   > explica por qué: que no hay productos creados *por cantidad*, que ninguno tiene saldo, o que
+   > el saldo lo tiene una bodega o una persona de la que tú no puedes tomar. Es una explicación
+   > general: si un material concreto no aparece, revisa en *Inventarios → Stock* que esté creado
+   > **por cantidad** y en qué bodega o persona tiene su saldo.
+   >
+   > Cada línea **se descuenta del inventario una sola vez** y queda en el historial del equipo.
+   > El botón **Quitar** sólo sirve para corregir **una captura equivocada antes de firmar**
+   > («cargué el router que no era»): la existencia vuelve a quien la aportó como si nunca se
+   > hubiera usado. **No lo uses para devolver material que sí se gastó** — esa corrección todavía
+   > no existe en el sistema.
+   >
+   > Una vez **firmada** la orden, sus equipos y materiales quedan como se firmaron: no se agregan
+   > ni se quitan líneas (aunque elimines el PDF para volver a firmar). A una orden **cancelada**
+   > no se le cargan equipos.
    >
    > El primer equipo que cargues rellena solo marca, modelo, MAC y serial de la hoja. Ya no hay
    > campo *Modelo de antena*: ese dato sale del equipo que cargaste.
@@ -599,9 +643,12 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > Si la orden está marcada **Sin cobro al cliente**, este bloque aparece con los campos de
    > dinero apagados y no se emite factura. La casilla está arriba del bloque, por si hay que
    > quitarla porque al final sí se cobra.
-   > El desplegable **Cobrar equipo de la instalación** trae los equipos que ya cargaste, con su
-   > precio. Sólo ofrece lo que de verdad se descargó, para que la factura y el acta no digan
-   > cosas distintas.
+   > El desplegable **Cobrar equipo de la instalación** trae los equipos **y materiales** que ya
+   > cargaste, con su precio. También puedes pulsar **Cobrar** en la línea, dentro de la hoja. Sólo
+   > ofrece lo que de verdad se descargó, para que la factura y el acta no digan cosas distintas,
+   > y **cobrar no vuelve a descontar el inventario**. Una línea ya agregada no se vuelve a ofrecer
+   > mientras no guardes; después de guardar, revisa que no la cobres dos veces. Los servicios
+   > (visita, mano de obra) se siguen agregando con **+ Agregar adicional**.
 5. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
    **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
    para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
@@ -1716,6 +1763,26 @@ Ahora el ticket tiene su propio bloque, y funciona en los dos sentidos:
 > *Inventarios → Entregas y traspasos*.
 >
 > Cada línea **mueve el inventario de verdad** y queda en el historial del equipo y del ticket.
+>
+> **La sección de materiales siempre aparece** (desde el 30/09/2026). Si no hay nada que puedas
+> usar, un recuadro explica por qué, igual que en la instalación. Antes, al técnico que no tenía
+> permiso para editar el ticket la lista ni siquiera se le cargaba y el bloque quedaba vacío sin
+> explicación.
+
+#### Cobrar lo usado
+
+Cada entrega o material usado tiene un botón **Cobrar**: abre el formulario de *Cargos del
+Ticket* con esa línea ya cargada (descripción, cantidad y precio). También está el desplegable
+**+ Cobrar equipo del ticket** dentro del formulario. **Cobrar no vuelve a descontar el
+inventario**: el equipo ya salió cuando se registró la entrega. Los servicios (visita técnica,
+mano de obra) se agregan como ítem manual. Una línea ya agregada no se vuelve a ofrecer en el
+mismo cargo; entre cargos distintos, revisa que no se cobre dos veces.
+
+#### Ticket cerrado
+
+Con el ticket **cerrado** la hoja de equipos se puede leer y cobrar, pero **no** se entregan,
+consumen, retiran ni deshacen equipos. Si falta registrar algo, primero **reabre el ticket**
+(pide motivo y queda en el historial) y luego registra el movimiento.
 
 #### ¿Quién puede usar este bloque?
 

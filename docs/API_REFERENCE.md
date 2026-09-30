@@ -623,6 +623,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `POST` | `/api/installations` | auth | Crea instalación **junto con** su prospecto |
 | `GET` | `/api/installations/technicians` | auth | Técnicos disponibles |
 | `GET` | `/api/installations/customers` | auth | Clientes elegibles |
+| `GET` | `/api/installations/planning-catalog` | `view_support` | Productos del tenant para **planificar** la orden, con disponibilidad agregada (2026-09-30) |
 | `GET` | `/api/installations/{installation}` | auth | Detalle |
 | `PUT` | `/api/installations/{installation}/prospect` | auth | Actualiza el prospecto asociado |
 | `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
@@ -632,8 +633,62 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `POST` | `/api/installations/{installation}/sign` | auth | Firma del cliente y del técnico |
 | `GET` | `/api/customers/{customer}/installations` | auth | Instalaciones del cliente |
 | `POST` | `/api/customers/{customer}/installations` | auth | Agenda instalación |
-| `PUT` | `/api/customers/installations/{installation}` | auth | Actualiza |
-| `DELETE` | `/api/customers/installations/{installation}` | auth | Elimina |
+| `PUT` | `/api/customers/installations/{installation}` | auth | Actualiza. **No cancela** una orden con consumo o firmada (`422` en `status`) |
+| `DELETE` | `/api/customers/installations/{installation}` | auth | Elimina. **`409`** si la orden tiene líneas usadas, hoja firmada o factura |
+
+> 📦 **Plan previsto (2026-09-30).** Los tres caminos de alta —`POST /api/installations`,
+> `POST /api/customers/{customer}/installations`, `POST /api/prospects/{prospect}/installations`—
+> y `PUT /api/customers/installations/{installation}` aceptan `planned_items` (máx. 50):
+>
+> ```json
+> { "planned_items": [
+>     { "stock_id": 101, "quantity": 30, "notes": "Poste a 25 m" },
+>     { "id": 7, "quantity": 2 }
+> ] }
+> ```
+>
+> - Una línea **nueva** va por `stock_id` (producto del tenant; uno ajeno → `422` en
+>   `planned_items.N.stock_id`). Una **existente** va por `id` y sólo cambia `quantity` y `notes`:
+>   conserva su `label` y `unit` congeladas. Un `id` de otra orden → `422`.
+> - La lista recibida **reemplaza** el plan: lo que no venga se quita. Sin la clave `planned_items`
+>   el plan no se toca; con `[]` se vacía.
+> - Un producto por serial se planifica en unidades enteras (`422` si no).
+> - En una orden **firmada**, cambiar el plan responde `422` en `planned_items`; reenviar el mismo
+>   plan sí vale.
+> - **No mueve inventario** y admite cantidades mayores que las disponibles: la respuesta trae
+>   `planning_warnings` (array de textos) con lo que supera la disponibilidad del tenant.
+>
+> Cada orden en las respuestas (detalle y listados) añade `planned_items` (`id`, `stock_id`,
+> `label`, `unit`, `is_serialized`, `quantity`, `notes`; **sin precios**), `equipment_items_count`
+> e `is_signed`. El texto libre `equipment` sigue existiendo.
+
+#### `GET /api/installations/planning-catalog`
+
+```json
+{ "can_view_details": false,
+  "products": [ { "id": 101, "label": "GENÉRICO CABLE UTP", "brand": "GENÉRICO", "model": "CABLE UTP",
+                  "unit": "m", "is_serialized": false, "available": 120 } ] }
+```
+
+`available` es la suma del tenant: equipos en bodega o en poder de alguien (no instalados ni de
+baja) o saldo positivo de consumibles. Con `view_inventory` (`can_view_details: true`) cada
+producto añade `price` y `holders` (`type`, `id`, `label`, `quantity`). Sólo lectura: no reserva.
+
+#### Bloqueos de borrado y cancelación
+
+`DELETE /api/customers/installations/{installation}` responde:
+
+```json
+{ "message": "No se puede eliminar esta orden: tiene 2 línea(s) de equipos o materiales descargadas del inventario; …",
+  "error": "installation_has_history",
+  "blocked_by": ["equipment", "signed", "invoice"] }
+```
+
+con `409` si la orden descargó inventario (`equipment`), tiene hoja firmada (`signed`: `signed_at`
+o un documento firmado) o factura (`invoice`). La comprobación es previa: la orden y sus firmas
+quedan intactas. Pasar a `status: cancelada` una orden con líneas usadas o firmada responde `422`
+en `status`. Ninguno de los dos mensajes sugiere deshacer las líneas: el consumo es real y su
+conciliación es posterior (entrega B).
 
 > 💰 **Los campos de cartera se filtran por permiso.** `installation_cost`,
 > `additional_charges`, `additional_items`, `discount`, `discount_reason`,
@@ -1953,11 +2008,22 @@ y el kardex reconoce las filas nuevas por rango de `id`— y el candado cierra l
 | `GET` | `/api/installations/{id}/equipment` | `view_support,view_clients` | Líneas ya descargadas en la orden |
 | `GET` | `/api/installations/{id}/equipment/available` | `view_support` | Qué puede tomar **este** usuario en **esta** orden |
 | `POST` | `/api/installations/{id}/equipment` | `view_support` | Descarga un equipo (`device_id`) o un material (`stock_id` + `quantity` + `source_*`) |
-| `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Devuelve la existencia a quien la aportó |
+| `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Quita una línea **capturada por error** y devuelve la existencia a quien la aportó. No es la devolución de material gastado |
 
-`available` responde `{ sources, devices, materials }`, ya filtrado por custodia: lo del propio
-usuario, lo del técnico asignado a la orden, y las bodegas sólo si tiene `view_inventory`. Cada
-equipo trae `source_type`/`source_id`/`source_label` para que la UI agrupe por custodio.
+`available` responde `{ sources, devices, materials, materials_status, locked }`, ya filtrado por
+custodia: lo del propio usuario, lo del técnico asignado a la orden, y las bodegas sólo si tiene
+`view_inventory`. Cada equipo trae `source_type`/`source_id`/`source_label` para que la UI agrupe
+por custodio.
+
+| Campo (2026-09-30) | Qué dice |
+|---|---|
+| `materials_status.code` | `ok`, `no_consumable_products` (no hay productos «por cantidad»), `no_stock` (ninguno tiene saldo) o `not_accessible` (hay saldo, pero en custodios de los que este usuario no puede tomar) |
+| `materials_status.message` | Explicación para mostrar. Nunca dice dónde está ni cuánto hay |
+| `materials_status.inaccessible_products` | Cuántos productos tienen saldo inaccesible |
+| `locked` | `{ is_locked, reason, message }`; `reason` es `signed`, `cancelled` o `null` |
+
+`POST` y `DELETE` responden `422` (error en `installation`) si la orden está **firmada**; `POST`
+también si está **cancelada**.
 
 Todas las escrituras pasan por `InventoryLedger`, así que **no existe forma de mover existencias
 sin dejar la línea de kardex**: el saldo y el historial se escriben en la misma transacción.
@@ -2023,6 +2089,14 @@ Cada fila de la respuesta añade cuatro campos:
 | `reversal_reason` | Por qué |
 
 Las revertidas **no suman** al total de la visita ni aparecen como cobrables.
+
+**Ticket cerrado (2026-09-30).** En un estado terminal (`cerrado`, `duplicado` y los legacy
+`closed`/`resolved`), `POST` y `DELETE` responden `422` con `error: ticket_already_closed` (y el
+mensaje también en `errors.ticket`): no se entrega, consume, retira ni revierte. Hay que reabrir
+el ticket (`POST /api/support/{id}/reopen`, con `ticket_reopen` y motivo). `GET .../available`
+añade `materials_status` (mismo contrato que en la instalación, con «esta visita») y
+`locked: { is_locked, reason, message }` (`reason` es `closed`, `archived` o `null`). **El cobro no se bloquea**:
+`POST /api/support/{id}/charge` sigue con sus reglas de siempre (`staff_profile`, `no_charge`).
 
 **Historial.** Cada movimiento deja un evento propio en `support_ticket_history`:
 `equipment_delivered`, `equipment_returned`, `equipment_scrapped` y `equipment_reversed` —este
