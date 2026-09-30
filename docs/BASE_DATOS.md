@@ -398,6 +398,8 @@ erDiagram
     inventory_stock ||--o{ inventory_movements : "kardex"
     inventory_device ||--o{ inventory_movements : "kardex"
     customer_installations ||--o{ installation_equipment : "equipos usados"
+    customer_installations ||--o{ installation_planned_items : "plan previsto"
+    inventory_stock ||--o{ installation_planned_items : "producto planificado"
     inventory_device ||--o{ installation_equipment : "instalado en"
     support_ticket ||--o{ ticket_equipment : "equipos de la visita"
     inventory_device ||--o{ ticket_equipment : "entregado / retirado"
@@ -1440,7 +1442,18 @@ Sube en cada alta, retiro o reetiquetado.
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
 | `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `support_ticket_id`, `customer_id`, `notes`, `created_by`, `created_at` |
 | `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+| `installation_planned_items` (2026-09-30) | `installation_id`, `stock_id` (nullable), **`label`** varchar(255), **`unit`** varchar(20), **`is_serialized`** bool, `quantity` numeric(12,2), `notes` varchar(255), `created_by`, `tenant_id` |
 | `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`reversed_at`**, `reversed_by`, `reversed_by_name`, `reversal_reason` |
+
+> **`installation_planned_items` es el PLAN, no el consumo** (migración
+> `2026_09_30_000001`). No pasa por el ledger, no descuenta ni reserva, y admite cantidades
+> mayores que el saldo. `label`, `unit` e `is_serialized` se copian del producto al crear la línea
+> y no se vuelven a tocar: renombrar o borrar el producto (`stock_id` → NULL) no cambia lo
+> planificado. Borrar la orden borra su plan (CASCADE), pero una orden con líneas en
+> `installation_equipment`, firmada o facturada ya no se puede borrar (P-69, bloqueo en
+> `CustomerInstallationController::destroy` y en el `deleting` del modelo). Las órdenes
+> anteriores conservan su texto libre en `customer_installations.equipment`; no se migraron al
+> plan porque ese texto no identifica productos con fiabilidad.
 
 > **`ticket_equipment` no es una copia de `installation_equipment`.** Existe aparte porque la
 > visita de soporte mueve inventario en **dos sentidos** y la instalación sólo en uno:
@@ -1606,6 +1619,10 @@ Agregado permanente.
 | `installation_equipment.installation_id` | `customer_installations.id` | CASCADE |
 | `installation_equipment.device_id` | `inventory_device.id` | SET NULL (índice **no** único desde 2026-09-23) |
 | `installation_equipment.stock_id` | `inventory_stock.id` | SET NULL |
+| `installation_planned_items.installation_id` | `customer_installations.id` | CASCADE (el plan no mueve inventario) |
+| `installation_planned_items.stock_id` | `inventory_stock.id` | SET NULL (etiqueta y unidad congeladas) |
+| `installation_planned_items.tenant_id` | `tenant.id` | CASCADE |
+| `installation_planned_items.created_by` | `users.id` | SET NULL |
 | `ticket_equipment.ticket_id` | `support_ticket.id` | CASCADE |
 | `ticket_equipment.device_id` | `inventory_device.id` | SET NULL |
 | `ticket_equipment.stock_id` | `inventory_stock.id` | SET NULL |

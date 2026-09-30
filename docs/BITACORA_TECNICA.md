@@ -8698,3 +8698,72 @@ con razón; se corrigió el fixture, no la regla.
 - **P-68**: `user_id` / `staff_id` de tickets y `user_id` de gastos con `exists:users,id`.
 - **P-69**: borrar una orden de instalación borra en cascada sus líneas sin devolver nada.
 - **P-70**: una línea de equipo se puede cobrar dos veces.
+
+## 83. Selector de inventario en instalaciones y soporte (entrega A) — 2026-09-30
+
+**Solicitud del cliente:** elegir equipos **y consumibles** (cable) del inventario en vez de
+escribirlos a mano. Se partió en dos entregas; ésta es la A: selectores, visibilidad y
+bloqueos preventivos. La B (conciliación, devoluciones parciales y correcciones auditadas
+después de la firma) queda fuera a propósito.
+
+### Qué había y qué faltaba
+
+- El consumo real ya existía: `installation_equipment` y `ticket_equipment` descuentan por
+  `InventoryLedger`, y «Cobrar equipo…» ya existía en la instalación y en el ticket.
+- Planificar era un texto de 255 caracteres (`customer_installations.equipment`). El selector de
+  la pantalla de agendar pegaba en ese texto el **serial** de un equipo concreto, cargando todo el
+  inventario con `GET /inventory`, y no ofrecía consumibles.
+- El bloque de materiales se **ocultaba** cuando no había saldo accesible, sin decir por qué.
+- **Hallazgo:** en `SupportDetail.vue` la lista de disponibles se cargaba sólo con `ticket_edit`.
+  El técnico de campo (con `ticket_equipment`, sin `ticket_edit`) veía la sección sin nada que
+  agregar. Ahora se carga con `ticket_equipment`, el mismo permiso que exige el servidor.
+- P-69: borrar una orden arrastraba sus líneas (CASCADE) sin devolver nada; cancelarla no las
+  tocaba; tras la firma se podían seguir agregando o quitando líneas.
+
+### Decisiones
+
+- **Tabla propia para el plan** (`installation_planned_items`), no una bandera en
+  `installation_equipment`: una fila que no mueve inventario al lado de otras que sí es el tipo
+  de dato que alguien acaba sumando mal. Planificar no descuenta, no reserva y admite más de lo
+  disponible (con `planning_warnings`): el saldo que manda es el del día de la visita, y el
+  ledger lo vuelve a validar al usar.
+- **Etiqueta, unidad y tipo congelados** en la línea del plan, y sincronización por `id` en vez
+  de borrar y recrear: renombrar o borrar el producto no reescribe lo planificado.
+- **Disponibilidad agregada del tenant** en el catálogo; precio y desglose por custodio sólo con
+  `view_inventory` (`InventoryLedger::managesInventory()`, ahora pública para no duplicar la regla).
+- **El vacío se explica** (`InventoryAvailability::materialsStatus()`): sin productos por
+  cantidad, sin saldo, o saldo inaccesible. Es un diagnóstico general; **no** se dedujo la causa
+  concreta del cable del cliente, que sigue sin comprobarse contra sus datos.
+- **Bloqueos, no conciliación.** Borrar: `409` si hay líneas, firma o factura, y el modelo lanza
+  en `deleting` si hay líneas. Cancelar: `422` si hay líneas o firma — el mensaje **no** sugiere
+  «devolver» las líneas, porque el consumo es real. Firmada: no se cargan ni quitan líneas ni se
+  cambia el plan. Cancelada: no se cargan líneas. Ticket en estado terminal: no se entrega,
+  consume, retira ni revierte (`ticket_already_closed`, como las mediciones); hay que reabrirlo
+  con motivo. El cobro de lo usado no se bloquea.
+- **«Devolver» pasó a llamarse «Quitar»** y se explica como corrección de una captura antes de
+  firmar; su semántica (`releaseFromInstallation`) no cambió. No sirve para devolver material
+  gastado ni se usa para permitir cancelaciones.
+- **Cobrar:** se reutilizan los dos selectores existentes y se añade «Cobrar» en cada línea. Una
+  línea ya agregada no se ofrece dos veces **dentro del mismo formulario**; entre cargos distintos
+  sigue sin enlace (**P-70 queda pendiente**).
+
+### Verificación
+
+- 44 pruebas nuevas (`InstallationInventorySelectorTest`, `TicketEquipmentClosedTicketTest`):
+  aislamiento entre tenants, permisos del catálogo, planificación sin movimientos, consumo sin
+  doble descuento, cobro sin movimientos, bloqueos y registros antiguos.
+- Suite SQLite local: en este equipo Windows App Control bloquea `php_openssl`, `php_fileinfo` y
+  `php_curl` (en Herd y en el PHP de WinGet), y 415 pruebas caen por eso. Se comparó contra
+  `origin/main` en un worktree limpio: **el mismo conjunto exacto de 415 falla allí**, y el resto
+  pasa en ambos (1666 → 1710 pruebas). PostgreSQL y las suites afectadas por esas extensiones
+  quedan para CI.
+- Flujo visual: páginas reales montadas con una API simulada (datos ficticios, sin backend ni
+  base) y capturadas con Edge headless, porque sin `openssl` el backend no puede servir la sesión.
+
+### Fuera de alcance, anotado
+
+- **P-70** (doble cobro entre cargos) sigue pendiente.
+- **P-71**: `CustomerDeletionService` borra las órdenes del cliente con un borrado masivo, que no
+  dispara la guarda del modelo y arrastra sus líneas.
+- **P-72**: `CustomerInstallations.vue` no está montado en ninguna página; se actualizó igual.
+- La entrega B: conciliación, devoluciones parciales y correcciones auditadas después de la firma.

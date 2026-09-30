@@ -43,6 +43,7 @@ use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
 use App\Http\Controllers\InventoryMovementController;
 use App\Http\Controllers\InstallationEquipmentController;
+use App\Http\Controllers\InstallationPlanningController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
@@ -146,6 +147,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::get('/installations/technicians', [CustomerInstallationController::class, 'technicians'])
         ->middleware('permission:view_support');
     Route::get('/installations/customers', [CustomerInstallationController::class, 'customersForInstallation'])
+        ->middleware('permission:view_support');
+    // Catálogo para PLANIFICAR la orden (productos + disponibilidad agregada).
+    // Sólo lectura, no reserva. Va antes de /installations/{installation}
+    // para que el comodín no se lo trague como un id.
+    Route::get('/installations/planning-catalog', [InstallationPlanningController::class, 'catalog'])
         ->middleware('permission:view_support');
     Route::get('/installations/{installation}', [CustomerInstallationController::class, 'show'])
         ->middleware('permission:view_support,view_clients');

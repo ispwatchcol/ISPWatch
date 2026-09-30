@@ -342,6 +342,48 @@ Efecto colateral que hubo que corregir para que el retiro sirviera de algo:
 nunca más en otro cliente. Hoy es un índice normal; el invariante real —un equipo no está en dos
 casas a la vez— lo sostiene `inventory_device.status`, que es una fila por aparato.
 
+**5. Planificar, usar y cobrar son tres actos distintos (2026-09-30, selector de inventario A).**
+
+| Acto | Dónde vive | ¿Mueve inventario? |
+|---|---|---|
+| **Planificar** al agendar/editar la orden | `installation_planned_items` (`InstallationPlanService`) | **No.** No descuenta, no reserva, no escribe kardex |
+| **Usar** en la visita | `installation_equipment` / `ticket_equipment` (`InventoryLedger`) | **Sí, una sola vez** |
+| **Cobrar** lo usado | adicionales de la cartera / cargo del ticket | **No.** Copia descripción y precio congelado |
+
+El plan referencia productos del catálogo del tenant (`stock_id`) y **congela** `label`, `unit` e
+`is_serialized` al crearse: renombrar o borrar el producto no reescribe lo planificado. La
+sincronización conserva las líneas por `id` (una línea reenviada sólo cambia cantidad y notas);
+borrar y recrear en cada guardado habría vuelto a copiar el nombre del catálogo de hoy. Se puede
+planificar más de lo que hay: el servidor lo acepta y devuelve `planning_warnings`, porque el
+saldo que manda es el del momento de usar, y ése lo vuelve a validar el ledger con permiso,
+origen y cantidad. El texto libre `customer_installations.equipment` se conserva para las
+órdenes anteriores y para lo que no está en el inventario.
+
+El catálogo de planificación (`GET /installations/planning-catalog`) muestra la disponibilidad
+**agregada del tenant**. Sin `view_inventory` no lleva precios ni el desglose por bodega o
+persona; la regla es `InventoryLedger::managesInventory()`, la misma que abre las bodegas.
+
+**6. Un vacío se explica, no se esconde.** `InventoryAvailability::materialsStatus()` dice por
+qué la lista de consumibles de una orden o un ticket sale vacía: no hay productos «por
+cantidad», ninguno tiene saldo, o el saldo está en custodios de los que ese usuario no puede
+tomar (sólo el recuento, nunca dónde ni cuánto). Es un diagnóstico **general**: no identifica
+la causa de un producto concreto.
+
+**7. Lo que ya consumió inventario no se borra ni se cancela (P-69, bloqueo preventivo).**
+
+| Operación | Se rechaza si… | Respuesta |
+|---|---|---|
+| Borrar la orden | tiene líneas usadas, hoja firmada o factura | `409 installation_has_history` + `blocked_by` |
+| Cancelar la orden | tiene líneas usadas o está firmada | `422` en `status` |
+| Cargar o quitar líneas | la orden está firmada (y cargar, si está cancelada) | `422` en `installation` |
+| Entregar, consumir, retirar o revertir en un ticket | el ticket está en un estado terminal | `422 ticket_already_closed` |
+
+Además `CustomerInstallation` lanza en `deleting` si tiene líneas, igual que `TicketEquipment`:
+cubre un borrado por consola o por código. La cancelación **no** sugiere deshacer las líneas: el
+consumo es real, y «Quitar» (`releaseFromInstallation`) es la corrección de una captura
+equivocada antes de firmar, no una devolución. La conciliación y las correcciones auditadas
+después de la firma son la entrega B. El cobro de lo ya usado no depende del estado del ticket.
+
 ### Composición de la factura mensual
 
 Todo lo que entra en la mensualidad de un cliente se arma en un único método,

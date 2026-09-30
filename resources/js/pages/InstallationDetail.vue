@@ -84,7 +84,17 @@
           </div>
           <div class="sm:col-span-2">
             <p class="text-xs text-gray-500 dark:text-gray-400 uppercase">Equipo / Materiales previstos</p>
-            <p class="text-gray-800 dark:text-gray-200">{{ installation.equipment || '—' }}</p>
+            <ul v-if="installation.planned_items?.length" class="mt-1 space-y-0.5">
+              <li v-for="p in installation.planned_items" :key="p.id" class="text-gray-800 dark:text-gray-200">
+                {{ fmtQty(p.quantity) }}{{ p.unit ? ` ${p.unit}` : '' }} · {{ p.label }}
+                <span v-if="p.notes" class="text-xs text-gray-500 dark:text-gray-400">— {{ p.notes }}</span>
+              </li>
+            </ul>
+            <p v-if="installation.equipment" class="text-gray-800 dark:text-gray-200"
+              :class="{ 'mt-1 text-xs text-gray-500 dark:text-gray-400': installation.planned_items?.length }">
+              {{ installation.equipment }}
+            </p>
+            <p v-if="!installation.planned_items?.length && !installation.equipment" class="text-gray-800 dark:text-gray-200">—</p>
           </div>
           <div class="sm:col-span-2" v-if="installation.notes">
             <p class="text-xs text-gray-500 dark:text-gray-400 uppercase">Observaciones</p>
@@ -243,6 +253,38 @@
             </span>
           </div>
 
+          <!-- Orden firmada o cancelada: se ve lo usado, no se toca. -->
+          <p v-if="equipmentLock.is_locked"
+            class="mb-3 text-xs text-gray-700 dark:text-gray-300 bg-white/70 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2">
+            🔒 {{ equipmentLock.message }}
+          </p>
+
+          <!-- Plan de la orden frente a lo usado. Planificar no descuenta: esto
+               sólo ayuda a cargar lo previsto sin buscarlo en la lista. -->
+          <div v-if="plannedVsUsed.length" class="mb-3">
+            <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Previsto en la orden</p>
+            <ul class="space-y-1">
+              <li v-for="p in plannedVsUsed" :key="p.id"
+                class="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-700 dark:text-gray-300">
+                <span>
+                  {{ p.label }}: previsto {{ fmtQty(p.quantity) }}{{ p.unitText }},
+                  usado {{ fmtQty(p.used) }}{{ p.unitText }}
+                  <span v-if="p.used >= p.quantity" class="text-emerald-600 dark:text-emerald-400">✓</span>
+                </span>
+                <template v-if="!equipmentLock.is_locked && p.used < p.quantity">
+                  <button v-if="!p.is_serialized && p.source" type="button" @click="useFromPlan(p)" :disabled="equipmentBusy"
+                    class="text-[11px] font-medium text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 px-2 py-0.5 rounded transition disabled:opacity-50">
+                    Preparar {{ fmtQty(p.quantity - p.used) }}{{ p.unitText }}
+                  </button>
+                  <span v-else-if="p.is_serialized" class="text-[11px] text-gray-500 dark:text-gray-400">
+                    elige el serial en «Agregar equipo con serial»
+                  </span>
+                  <span v-else class="text-[11px] text-gray-500 dark:text-gray-400">sin saldo accesible</span>
+                </template>
+              </li>
+            </ul>
+          </div>
+
           <!-- Lo ya descargado -->
           <ul v-if="equipmentItems.length" class="space-y-2 mb-3">
             <li v-for="item in equipmentItems" :key="item.id"
@@ -255,12 +297,22 @@
                 <p class="text-[11px] text-gray-500 dark:text-gray-400">
                   {{ item.is_device ? 'Equipo con serial' : 'Material' }}
                   <span v-if="item.unit_price"> · {{ fmtMoney(item.unit_price * item.quantity) }}</span>
+                  <span v-if="chargedLineIds.has(item.id)" class="text-indigo-600 dark:text-indigo-400"> · en el cobro</span>
                 </p>
               </div>
-              <button @click="removeEquipment(item)" :disabled="equipmentBusy" type="button" title="Devolver al inventario"
-                class="shrink-0 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
-                Devolver
-              </button>
+              <div class="shrink-0 flex items-center gap-1">
+                <!-- Cobrar NO descuenta: copia descripción y precio a la cartera. -->
+                <button v-if="canChargeLines && !chargedLineIds.has(item.id)" @click="chargeLine(item)" type="button"
+                  title="Pasar esta línea al cobro (no vuelve a descontar inventario)"
+                  class="text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-2.5 py-1.5 rounded-lg transition">
+                  Cobrar
+                </button>
+                <button v-if="!equipmentLock.is_locked" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
+                  title="Deshace una captura equivocada antes de firmar. No es devolución de material gastado."
+                  class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
+                  Quitar
+                </button>
+              </div>
             </li>
           </ul>
           <p v-else class="text-xs text-blue-600 dark:text-blue-400 mb-3">
@@ -268,7 +320,7 @@
           </p>
 
           <!-- Agregar equipo con serial -->
-          <div class="space-y-2">
+          <div v-if="!equipmentLock.is_locked" class="space-y-2">
             <select v-if="availableDevices.length" v-model.number="devicePick" @change="addDevice"
               :disabled="equipmentBusy"
               class="w-full bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
@@ -282,28 +334,51 @@
               <RouterLink to="/inventory/transfers" class="underline font-medium">Inventario → Entregas</RouterLink>.
             </p>
 
-            <!-- Agregar material por cantidad -->
-            <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
-              <select v-model="materialPick" :disabled="equipmentBusy"
-                class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
-                <option :value="null">+ Agregar material por cantidad…</option>
-                <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
-                  {{ materialLabel(m) }}
-                </option>
-              </select>
-              <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
-                :disabled="equipmentBusy"
-                class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
-              <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
-                class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
-                Agregar
-              </button>
+            <!-- Agregar material por cantidad. La sección se muestra SIEMPRE:
+                 si no hay nada que ofrecer, se explica por qué en vez de
+                 desaparecer. -->
+            <div ref="materialRow">
+              <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Materiales por cantidad (cable, conectores…)</p>
+              <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
+                <select v-model="materialPick" :disabled="equipmentBusy"
+                  class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
+                  <option :value="null">+ Agregar material por cantidad…</option>
+                  <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
+                    {{ materialLabel(m) }}
+                  </option>
+                </select>
+                <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
+                  :disabled="equipmentBusy"
+                  class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
+                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                  class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
+                  Agregar
+                </button>
+              </div>
+              <p v-else-if="equipmentLoaded"
+                class="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                No hay materiales que puedas usar en esta orden.
+                {{ materialsStatus.message || '' }}
+              </p>
             </div>
           </div>
 
           <p class="mt-2 text-[11px] text-blue-600 dark:text-blue-400">
             Sólo aparece lo que tienes asignado{{ technicianSourceName ? ` y lo de ${technicianSourceName}` : '' }}.
-            Cada línea se descuenta del inventario y queda registrada en el historial del equipo.
+            Cada línea se descuenta del inventario una sola vez y queda registrada en el historial del equipo.
+          </p>
+          <p v-if="!equipmentLock.is_locked && equipmentItems.length" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            «Quitar» sólo corrige una captura equivocada antes de firmar: la existencia vuelve a quien la aportó como
+            si no se hubiera usado. No sirve para devolver material ya gastado; esa corrección todavía no existe.
+          </p>
+          <p v-if="equipmentItems.length" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            <template v-if="canChargeLines">
+              Para cobrar una línea usa «Cobrar» (o «Cobrar equipo de la instalación» en Cartera): pasa la descripción
+              y el precio al cobro sin volver a descontar inventario.
+            </template>
+            <template v-else-if="!installation.no_charge">
+              El cobro de estas líneas lo registra quien tiene permiso de cartera, sin volver a descontar inventario.
+            </template>
           </p>
           <p v-if="installation.no_charge" class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
             Esta orden es sin cobro: lo que cargues aquí sale igual de la bodega y lo asume la empresa.
@@ -426,7 +501,7 @@
 
       <!-- Información de Cartera. Dos modos: edición (edit_discount) y consulta
            (view_installation_cost, pensado para el técnico que va a cobrar). -->
-      <div v-if="showBillingSection"
+      <div v-if="showBillingSection" ref="billingCard"
         class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
           Información de Cartera
@@ -555,14 +630,18 @@
                 class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 px-3 py-1.5 rounded-lg transition">
                 + Agregar adicional
               </button>
-              <select v-if="equipmentItems.length" v-model.number="chargePick" @change="addChargeFromInventory"
+              <select v-if="chargeableLines.length" v-model.number="chargePick" @change="addChargeFromInventory"
                 class="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
                 <option :value="null">+ Cobrar equipo de la instalación</option>
-                <option v-for="it in equipmentItems" :key="it.id" :value="it.id">
-                  {{ it.label }}{{ it.unit_price != null ? ` — ${fmtMoney(it.unit_price * it.quantity)}` : '' }}
+                <option v-for="it in chargeableLines" :key="it.id" :value="it.id">
+                  {{ it.is_device ? '' : `${fmtQty(it.quantity)}${it.unit ? ` ${it.unit}` : ''} · ` }}{{ it.label }}{{ it.unit_price != null ? ` — ${fmtMoney(it.unit_price * it.quantity)}` : '' }}
                 </option>
               </select>
             </div>
+            <p v-if="!billing.no_charge && equipmentItems.length" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              «Cobrar equipo de la instalación» trae una línea ya usada con su precio: no vuelve a descontar inventario.
+              Los servicios (visita, mano de obra) se agregan como adicional manual.
+            </p>
           </div>
 
           <!-- Descuento -->
@@ -911,6 +990,74 @@ const devicePick = ref(null)
 const materialPick = ref(null)
 const materialQty = ref(1)
 const chargePick = ref(null)
+// Lo decide el servidor en /equipment/available: firmada o cancelada, no se
+// cargan ni se quitan líneas.
+const equipmentLock = ref({ is_locked: false, reason: null, message: null })
+// Por qué la lista de materiales puede venir vacía (sin productos por
+// cantidad, sin saldo, o saldo en manos de quien no se puede tomar).
+const materialsStatus = ref({ code: 'ok', message: null })
+const billingCard = ref(null)
+const materialRow = ref(null)
+
+/**
+ * Plan de la orden frente a lo ya usado, por producto. Sólo informa y ayuda a
+ * preparar la carga: usar lo previsto sigue pasando por «Agregar», que es lo
+ * que descuenta y lo que el servidor valida.
+ */
+const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).map(p => {
+  const used = equipmentItems.value
+    .filter(it => p.stock_id && it.stock_id === p.stock_id)
+    .reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+  // De dónde se podría tomar: el renglón accesible con más saldo.
+  const source = availableMaterials.value
+    .filter(m => p.stock_id && m.stock_id === p.stock_id)
+    .sort((a, b) => Number(b.quantity) - Number(a.quantity))[0] ?? null
+  const unit = p.unit || (p.is_serialized ? 'und.' : '')
+  return { ...p, used, source, unitText: unit ? ` ${unit}` : '' }
+}))
+
+const useFromPlan = (p) => {
+  if (!p.source) return
+  const pendiente = Math.max(0, Number(p.quantity) - Number(p.used))
+  const saldo = Number(p.source.quantity) || 0
+  materialPick.value = p.source
+  // Se precarga lo que falta, sin pasar del saldo de la fuente: pedir más
+  // sólo serviría para que el servidor lo rechace.
+  materialQty.value = Math.min(pendiente, saldo)
+  if (saldo < pendiente) {
+    toast.value?.info('Saldo insuficiente', `Faltan ${fmtQty(pendiente)}${p.unitText} y ${p.source.source_label} tiene ${fmtQty(saldo)}${p.unitText}.`)
+  }
+  materialRow.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+// ─── Del uso al cobro ───
+// Cobrar una línea NO descuenta inventario: copia su descripción y su precio
+// congelado a los adicionales de la cartera. Se marca la línea para no
+// ofrecerla dos veces en el MISMO formulario; entre cargos distintos no hay
+// enlace todavía (P-70) y la marca se pierde al recargar.
+const canChargeLines = computed(() => canEditBilling.value && !billing.value.no_charge)
+const chargedLineIds = computed(() => new Set(
+  billing.value.additional_items.filter(it => it.source_line_id).map(it => it.source_line_id)
+))
+const chargeableLines = computed(() => equipmentItems.value.filter(it => !chargedLineIds.value.has(it.id)))
+
+const pushChargeFromLine = (item) => {
+  billing.value.additional_items.push({
+    description: item.is_device
+      ? item.label
+      : `${fmtQty(item.quantity)}${item.unit ? ` ${item.unit}` : ''} · ${item.label}`,
+    amount: item.unit_price != null ? Number(item.unit_price) * Number(item.quantity) : null,
+    source_line_id: item.id,
+  })
+}
+
+const chargeLine = async (item) => {
+  if (!canChargeLines.value || chargedLineIds.value.has(item.id)) return
+  pushChargeFromLine(item)
+  await nextTick()
+  billingCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  toast.value?.info('Agregado al cobro', 'Revisa el precio y guarda la cartera. El inventario no se vuelve a descontar.')
+}
 
 const equipmentTotal = computed(() =>
   equipmentItems.value.reduce((sum, it) => sum + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0), 0)
@@ -963,6 +1110,8 @@ const loadAvailableEquipment = async () => {
     availableDevices.value   = data?.devices   ?? []
     availableMaterials.value = data?.materials ?? []
     equipmentSources.value   = data?.sources   ?? []
+    materialsStatus.value    = data?.materials_status ?? { code: 'ok', message: null }
+    equipmentLock.value      = data?.locked ?? { is_locked: false, reason: null, message: null }
     equipmentLoaded.value = true
   } catch { /* non-blocking: sin permiso de inventario se digita manual */ }
 }
@@ -1029,15 +1178,29 @@ const addMaterial = async () => {
   }
 }
 
+/**
+ * Quita una línea capturada por error. NO es la devolución de un material
+ * gastado: deshace la captura como si nunca se hubiera usado. Por eso se
+ * pregunta antes, y por eso el servidor lo impide una vez firmada la orden.
+ */
 const removeEquipment = async (item) => {
+  const ok = window.confirm(
+    `¿Quitar «${item.label}»?\n\n`
+    + 'Úsalo sólo si la línea se capturó por error: la existencia vuelve a quien la aportó '
+    + 'como si no se hubiera usado. Si el material sí se gastó, no lo quites.'
+  )
+  if (!ok) return
+
   equipmentBusy.value = true
   try {
     const { data } = await installationEquipmentApi.remove(installationId.value, item.id)
     equipmentItems.value = data.equipment ?? []
+    // Si esa línea estaba en el formulario de cobro, deja de estarlo.
+    billing.value.additional_items = billing.value.additional_items.filter(it => it.source_line_id !== item.id)
     await loadAvailableEquipment()
-    toast.value?.success('Devuelto', 'La existencia volvió a quien la aportó.')
+    toast.value?.success('Línea quitada', data.message || 'La captura se deshizo.')
   } catch (e) {
-    toast.value?.error('Error', firstError(e) || 'No se pudo devolver el equipo.')
+    toast.value?.error('Error', firstError(e) || 'No se pudo quitar la línea.')
   } finally {
     equipmentBusy.value = false
   }
@@ -1086,15 +1249,10 @@ const removeChargeRow = (idx) => {
  * mismo hecho, o la factura acaba diciendo algo distinto que el acta.
  */
 const addChargeFromInventory = () => {
-  const item = equipmentItems.value.find(x => x.id === chargePick.value)
+  const item = chargeableLines.value.find(x => x.id === chargePick.value)
   chargePick.value = null
   if (!item) return
-  billing.value.additional_items.push({
-    description: item.is_device
-      ? item.label
-      : `${fmtQty(item.quantity)}${item.unit ? ` ${item.unit}` : ''} · ${item.label}`,
-    amount: item.unit_price != null ? Number(item.unit_price) * Number(item.quantity) : null,
-  })
+  pushChargeFromLine(item)
 }
 
 const additionalTotal = computed(() =>
@@ -1561,7 +1719,8 @@ const sign = async () => {
     await api.customers.signInstallation(installationId.value, payload)
     toast.value?.success('Completada', 'Instalación firmada y orden cerrada.')
     clearSig('cust'); clearSig('tech')
-    await loadInstallation()
+    // La firma bloquea las líneas: se refresca para ocultar los controles.
+    await Promise.all([loadInstallation(), loadAvailableEquipment()])
   } catch (e) {
     toast.value?.error('Error', e.response?.data?.message || 'No se pudo firmar.')
   } finally {

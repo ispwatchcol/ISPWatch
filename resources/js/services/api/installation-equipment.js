@@ -16,8 +16,14 @@ export default {
     add(installationId, payload) {
         return apiClient.post(`/installations/${installationId}/equipment`, payload)
     },
-    // Devuelve la existencia a quien la aportó.
+    // Quita una línea capturada por error (antes de firmar) y devuelve la
+    // existencia a quien la aportó. No es la devolución de material gastado.
     remove(installationId, itemId) {
         return apiClient.delete(`/installations/${installationId}/equipment/${itemId}`)
+    },
+    // Catálogo para PLANIFICAR la orden: productos del tenant con su
+    // disponibilidad agregada. Sólo lectura; planificar no reserva nada.
+    planningCatalog() {
+        return apiClient.get('/installations/planning-catalog')
     },
 }

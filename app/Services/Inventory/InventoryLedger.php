@@ -964,7 +964,12 @@ class InventoryLedger
         }
     }
 
-    private function managesInventory(User $actor): bool
+    /**
+     * ¿Administra inventario? Abre las bodegas como origen y, en el catálogo de
+     * planificación, los precios y el detalle por custodio. Pública para que
+     * esa pantalla use la MISMA regla y no una copia que se desalinee.
+     */
+    public function managesInventory(User $actor): bool
     {
         if ((int) $actor->role_id === 1) {
             return true;

@@ -1272,6 +1272,49 @@ regla de custodia.
 > meta un aparato en la mochila de otro técnico es el mismo problema que dejar que se lo saque,
 > visto del revés. Los mensajes son distintos porque el usuario está haciendo otra cosa.
 
+### Planificar, usar y cobrar (selector de inventario, 2026-09-30)
+
+Son tres piezas separadas y **sólo una mueve inventario**:
+
+```php
+// 1. PLANIFICAR — App\Services\InstallationPlanService. No toca el ledger.
+$rules    = $this->planService->rules($tenantId);           // se suman a las del formulario
+$warnings = $this->planService->sync($installation, $data['planned_items'] ?? null, $actor);
+//   null  → no toca el plan (el cliente no mandó la clave)
+//   []    → lo vacía
+//   ['id' => 7, 'quantity' => 2]        → conserva etiqueta/unidad congeladas
+//   ['stock_id' => 101, 'quantity' => 30] → línea nueva, copia label/unit del producto
+
+// 2. USAR — InventoryLedger, como siempre (descuenta UNA vez, valida saldo y custodia).
+
+// 3. COBRAR — sólo copia descripción y precio a la cartera o al cargo. Nada de ledger.
+```
+
+- **No metas el plan en el ledger** ni lo uses para reservar: la regla del negocio es que
+  planificar no aparta existencias. Si algún día se quiere reservar, es un diseño nuevo
+  (saldo comprometido), no un `if` en `sync()`.
+- **No sustituyas la sincronización por «borrar y recrear»**: las líneas existentes se
+  reconocen por `id` precisamente para no reescribir su `label` con el nombre de hoy.
+- **Disponibilidad y explicaciones: `InventoryAvailability`.** `planningCatalog()` agrega por
+  tenant y oculta precio y custodios sin `view_inventory` (usa
+  `InventoryLedger::managesInventory()`, pública para no duplicar la regla).
+  `materialsStatus($tenantId, $accesibles, 'esta orden')` explica una lista vacía; filtra
+  `tenant_id` a mano además del scope, porque la regla `exists` y los agregados no pasan por él.
+- **Bloqueos.** Antes de dejar que algo borre o cancele una orden, mira
+  `CustomerInstallationController::deletionBlockers()` / `assertCancellable()`; el modelo lanza en
+  `deleting` si hay líneas. OJO: un `CustomerInstallation::where(...)->delete()` masivo **no**
+  dispara ese evento (ver P-71). En tickets, `TicketEquipmentController::assertOperable()` rechaza
+  estados terminales (`TicketWorkflow::esTerminal`) con `ticket_already_closed`; el cargo
+  (`generateCharge`) no pasa por ahí a propósito.
+- **«Quitar» (`releaseFromInstallation`) es corrección de captura, no devolución.** No lo
+  reutilices para cancelar ni para devoluciones parciales: eso es la conciliación de la entrega B.
+
+**Frontend.** El editor del plan es `components/InstallationPlanEditor.vue` (lo usan
+`pages/Installations.vue` y `components/customer/CustomerInstallations.vue`) y las reglas de
+presentación compartidas —resumen, motivos de bloqueo, payload por `id`/`stock_id`— viven en
+`utils/installationPlan.js`. El servidor decide los bloqueos; la pantalla sólo evita ofrecer un
+botón que va a fallar y explica por qué.
+
 **Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
 `unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar
 sigue siendo `generateCharge()` con su propio bloqueo por `no_charge`. Y las líneas `in` nacen
