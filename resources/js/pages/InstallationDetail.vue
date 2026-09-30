@@ -263,23 +263,42 @@
                sólo ayuda a cargar lo previsto sin buscarlo en la lista. -->
           <div v-if="plannedVsUsed.length" class="mb-3">
             <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Previsto en la orden</p>
-            <ul class="space-y-1">
+            <ul class="space-y-1.5">
               <li v-for="p in plannedVsUsed" :key="p.id"
                 class="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-700 dark:text-gray-300">
-                <span>
+                <span class="min-w-0">
                   {{ p.label }}: previsto {{ fmtQty(p.quantity) }}{{ p.unitText }},
                   usado {{ fmtQty(p.used) }}{{ p.unitText }}
                   <span v-if="p.used >= p.quantity" class="text-emerald-600 dark:text-emerald-400">✓</span>
+                  <!-- Lo que ESTE usuario puede registrar, no lo que hay en la
+                       empresa: sale de /equipment/available, que ya filtra
+                       por las fuentes que tiene autorizadas. -->
+                  <span v-if="equipmentLoaded && !equipmentLock.is_locked && p.used < p.quantity && p.stock_id"
+                    class="block text-[11px] text-gray-500 dark:text-gray-400">
+                    <template v-if="p.is_serialized && p.reachableUnits > 0">
+                      Para que tú registres la entrega: {{ p.reachableUnits }} unidad(es) con serial a tu alcance.
+                      El serial concreto se elige al registrarla.
+                    </template>
+                    <template v-else-if="p.is_serialized">
+                      Para que tú registres la entrega: ninguna unidad de este modelo a tu alcance.
+                    </template>
+                    <template v-else>
+                      Para que tú registres el uso: {{ fmtQty(p.reachableQty) }}{{ p.unitText }} a tu alcance.
+                    </template>
+                  </span>
                 </span>
                 <template v-if="!equipmentLock.is_locked && p.used < p.quantity">
-                  <button v-if="!p.is_serialized && p.source" type="button" @click="useFromPlan(p)" :disabled="equipmentBusy"
+                  <!-- Elegir serial sólo filtra y lleva al selector; registrar
+                       sigue siendo el botón «Agregar» de allí. -->
+                  <button v-if="p.is_serialized && p.stock_id" type="button" @click="chooseSerialFor(p)" :disabled="equipmentBusy"
+                    class="text-[11px] font-medium text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 px-2 py-0.5 rounded transition disabled:opacity-50">
+                    Elegir serial
+                  </button>
+                  <button v-else-if="!p.is_serialized && p.source" type="button" @click="useFromPlan(p)" :disabled="equipmentBusy"
                     class="text-[11px] font-medium text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 px-2 py-0.5 rounded transition disabled:opacity-50">
                     Preparar {{ fmtQty(p.quantity - p.used) }}{{ p.unitText }}
                   </button>
-                  <span v-else-if="p.is_serialized" class="text-[11px] text-gray-500 dark:text-gray-400">
-                    elige el serial en «Agregar equipo con serial»
-                  </span>
-                  <span v-else class="text-[11px] text-gray-500 dark:text-gray-400">sin saldo accesible</span>
+                  <span v-else-if="!p.is_serialized" class="text-[11px] text-gray-500 dark:text-gray-400">sin saldo a tu alcance</span>
                 </template>
               </li>
             </ul>
@@ -292,10 +311,10 @@
               <div class="min-w-0">
                 <p class="text-sm text-gray-800 dark:text-white truncate">
                   <span v-if="!item.is_device" class="font-semibold">{{ fmtQty(item.quantity) }}{{ item.unit ? ` ${item.unit}` : '' }} ·</span>
-                  {{ item.label }}
+                  {{ item.is_device ? deviceModelText(item) : item.label }}
                 </p>
                 <p class="text-[11px] text-gray-500 dark:text-gray-400">
-                  {{ item.is_device ? 'Equipo con serial' : 'Material' }}
+                  {{ item.is_device ? `Equipo con serial · ${deviceIdsText(item)}` : 'Material' }}
                   <span v-if="item.unit_price"> · {{ fmtMoney(item.unit_price * item.quantity) }}</span>
                   <span v-if="chargedLineIds.has(item.id)" class="text-indigo-600 dark:text-indigo-400"> · en el cobro</span>
                 </p>
@@ -319,20 +338,13 @@
             Todavía no has cargado equipos a esta instalación.
           </p>
 
-          <!-- Agregar equipo con serial -->
-          <div v-if="!equipmentLock.is_locked" class="space-y-2">
-            <select v-if="availableDevices.length" v-model.number="devicePick" @change="addDevice"
-              :disabled="equipmentBusy"
-              class="w-full bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
-              <option :value="null">+ Agregar equipo con serial…</option>
-              <optgroup v-for="group in devicesBySource" :key="group.key" :label="group.label">
-                <option v-for="d in group.items" :key="d.id" :value="d.id">{{ availableDeviceLabel(d) }}</option>
-              </optgroup>
-            </select>
-            <p v-else-if="equipmentLoaded" class="text-xs text-blue-600 dark:text-blue-400">
-              No tienes equipos con serial disponibles. Pide que te los entreguen en
-              <RouterLink to="/inventory/transfers" class="underline font-medium">Inventario → Entregas</RouterLink>.
-            </p>
+          <!-- Agregar equipo con serial. Se ve SIEMPRE, aunque no haya
+               unidades: vacío, explica por qué y cuál es el siguiente paso. -->
+          <div v-if="!equipmentLock.is_locked" class="space-y-3">
+            <SerialDevicePicker ref="serialPicker" v-model:model="serialModelFilter"
+              :devices="availableDevices" :known-models="plannedSerialModels"
+              :loaded="equipmentLoaded" :busy="equipmentBusy"
+              action-label="Agregar" context="esta orden" @pick="addDevice" />
 
             <!-- Agregar material por cantidad. La sección se muestra SIEMPRE:
                  si no hay nada que ofrecer, se explica por qué en vez de
@@ -923,6 +935,8 @@ import installationEquipmentApi from '@/services/api/installation-equipment'
 import { compressImage } from '@/utils/image'
 import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
+import SerialDevicePicker from '@/components/SerialDevicePicker.vue'
+import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 
 const route  = useRoute()
 const router = useRouter()
@@ -986,7 +1000,10 @@ const availableMaterials = ref([])
 const equipmentSources = ref([])
 const equipmentLoaded = ref(false)
 const equipmentBusy = ref(false)
-const devicePick = ref(null)
+// Filtro de modelo del selector de unidades con serial. «Elegir serial» en el
+// plan sólo lo fija y lleva la vista allí: nunca registra nada.
+const serialModelFilter = ref(null)
+const serialPicker = ref(null)
 const materialPick = ref(null)
 const materialQty = ref(1)
 const chargePick = ref(null)
@@ -1013,8 +1030,29 @@ const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).m
     .filter(m => p.stock_id && m.stock_id === p.stock_id)
     .sort((a, b) => Number(b.quantity) - Number(a.quantity))[0] ?? null
   const unit = p.unit || (p.is_serialized ? 'und.' : '')
-  return { ...p, used, source, unitText: unit ? ` ${unit}` : '' }
+  // «A tu alcance» sale de las listas de /equipment/available, que sólo traen
+  // lo que este usuario puede tomar: no es la existencia de la empresa.
+  const reachableUnits = p.is_serialized
+    ? availableDevices.value.filter(d => p.stock_id && d.stock_id === p.stock_id).length
+    : 0
+  const reachableQty = p.is_serialized
+    ? 0
+    : availableMaterials.value
+      .filter(m => p.stock_id && m.stock_id === p.stock_id)
+      .reduce((sum, m) => sum + (Number(m.quantity) || 0), 0)
+  return { ...p, used, source, reachableUnits, reachableQty, unitText: unit ? ` ${unit}` : '' }
 }))
+
+// Nombres de los modelos por serial del plan, para que el selector los nombre
+// aunque no haya ninguna unidad a mano.
+const plannedSerialModels = computed(() => (installation.value?.planned_items ?? [])
+  .filter(p => p.is_serialized && p.stock_id)
+  .map(p => ({ stock_id: p.stock_id, label: p.label })))
+
+const chooseSerialFor = (p) => {
+  serialModelFilter.value = p.stock_id
+  serialPicker.value?.focus()
+}
 
 const useFromPlan = (p) => {
   if (!p.source) return
@@ -1068,25 +1106,6 @@ const technicianSourceName = computed(() => {
   return tech?.label ?? ''
 })
 
-// Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
-// está tomando de su mochila o de la bodega.
-const devicesBySource = computed(() => {
-  const groups = new Map()
-  for (const d of availableDevices.value) {
-    const key = `${d.source_type}:${d.source_id}`
-    if (!groups.has(key)) groups.set(key, { key, label: d.source_label || 'Inventario', items: [] })
-    groups.get(key).items.push(d)
-  }
-  return [...groups.values()]
-})
-
-const availableDeviceLabel = (d) => {
-  const parts = [`${d.brand ?? ''} ${d.model ?? ''}`.trim() || 'Equipo']
-  if (d.serial) parts.push(`S/N ${d.serial}`)
-  if (d.mac)    parts.push(`MAC ${d.mac}`)
-  return parts.join(' · ')
-}
-
 const materialLabel = (m) => {
   const name = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
   return `${name} — ${fmtQty(m.quantity)}${m.unit ? ` ${m.unit}` : ''} en ${m.source_label}`
@@ -1129,9 +1148,8 @@ const applyDeviceToSheet = (device) => {
   if (!sheet.value.onu_serial  && device.serial) sheet.value.onu_serial  = device.serial
 }
 
-const addDevice = async () => {
-  const device = availableDevices.value.find(d => d.id === devicePick.value)
-  devicePick.value = null
+/** Registra la unidad elegida en el selector (el botón «Agregar» de allí). */
+const addDevice = async (device) => {
   if (!device) return
 
   equipmentBusy.value = true
@@ -1140,7 +1158,7 @@ const addDevice = async () => {
     equipmentItems.value = data.equipment ?? equipmentItems.value
     applyDeviceToSheet(device)
     await loadAvailableEquipment()
-    toast.value?.success('Equipo cargado', 'Descontado del inventario y registrado en el historial.')
+    toast.value?.success('Equipo cargado', `${deviceFullLabel(device)}: descontado del inventario y registrado en el historial.`)
   } catch (e) {
     toast.value?.error('Error', firstError(e) || 'No se pudo cargar el equipo.')
   } finally {
