@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Partner;
 
 use App\Http\Controllers\Controller;
+use App\Services\PartnerEventSequencer;
 use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,6 +45,18 @@ abstract class PartnerController extends Controller
         return (int) $tenantId;
     }
 
+    /**
+     * Publica los eventos ya confirmados antes de leer.
+     *
+     * Lo necesitan el feed y también `/customers` y `/services`: su `revision`
+     * sale del último evento publicado, y leerla sin publicar primero podría
+     * mostrar una revisión más vieja que el cambio que el integrador ya ve.
+     */
+    protected function publishPendingEvents(): void
+    {
+        app(PartnerEventSequencer::class)->publishPending();
+    }
+
     protected function perPage(Request $request): int
     {
         $perPage = (int) $request->query('per_page', self::DEFAULT_PER_PAGE);
@@ -52,12 +65,60 @@ abstract class PartnerController extends Controller
     }
 
     /**
+     * Listado que pagina por cursor si el integrador manda `after_id`, y por
+     * página si no.
+     *
+     * POR QUÉ HACE FALTA EL CURSOR EN UN BARRIDO COMPLETO (KAN-115)
+     * -------------------------------------------------------------
+     * Con OFFSET, si se elimina una fila anterior a la página actual mientras
+     * el integrador recorre, todo se corre un lugar y **una fila que no cambió
+     * se salta sin ningún error**. Como no cambió, tampoco genera evento, y
+     * reproducir el feed tras el barrido no la recupera. Con `id > after_id`
+     * un borrado anterior no mueve nada de lo que falta por leer.
+     *
+     * `page` sigue funcionando para quien ya lo usa. `$query` debe venir
+     * ordenada ascendente por `$keyColumn`.
+     *
+     * @param callable(object):int $keyOf id de la fila cruda, para el cursor
+     */
+    protected function listing(
+        Builder $query,
+        Request $request,
+        string $keyColumn,
+        callable $keyOf,
+        callable $map
+    ): JsonResponse {
+        if (!$request->filled('after_id')) {
+            return $this->paginated($query, $request, $map);
+        }
+
+        $perPage = $this->perPage($request);
+        $afterId = (int) $request->query('after_id');
+
+        // Una fila de más para saber si hay otra página sin un COUNT aparte.
+        $rows = $query->where($keyColumn, '>', $afterId)->limit($perPage + 1)->get();
+
+        $hasMore = $rows->count() > $perPage;
+        $rows    = $rows->take($perPage);
+        $last    = $rows->last();
+
+        return response()->json([
+            'data' => $rows->map($map)->values(),
+            'meta' => [
+                'per_page'      => $perPage,
+                'after_id'      => $afterId,
+                // Sin filas se devuelve el mismo cursor, igual que el feed.
+                'next_after_id' => $last ? (int) $keyOf($last) : $afterId,
+                'has_more'      => $hasMore,
+            ],
+        ]);
+    }
+
+    /**
      * Envoltura de paginación uniforme para todos los listados.
      *
-     * Se usa paginación por página (no por cursor) porque los listados van
-     * ordenados por fecha descendente y el caso real del integrador es
-     * "tráeme lo de este mes"; el cursor sólo compensa a partir de decenas de
-     * miles de filas por página recorrida.
+     * Paginación por página: sirve para «tráeme lo de este mes». Para recorrer
+     * una colección completa sin saltarse filas, ver listing() y `after_id`.
      */
     protected function paginated(Builder $query, Request $request, callable $map): JsonResponse
     {

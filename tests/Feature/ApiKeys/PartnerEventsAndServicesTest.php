@@ -249,7 +249,10 @@ class PartnerEventsAndServicesTest extends TestCase
         $profile = $this->seedCustomer($this->tenantA, 'Julia');
         $profile->update(['service_status' => 'suspendido']);
 
-        $ultimo = PartnerEvent::where('tenant_id', $this->tenantA->id)->max('id');
+        // El cursor es el número publicado (`seq`), no el id interno.
+        $ultimo = $this->withHeaders($this->headers())
+            ->getJson('/api/v1/partner/events?since=0')
+            ->json('meta.next_since');
 
         $res = $this->withHeaders($this->headers())
             ->getJson("/api/v1/partner/events?since={$ultimo}")
@@ -350,11 +353,12 @@ class PartnerEventsAndServicesTest extends TestCase
         $profile = $this->seedCustomer($this->tenantA, 'Pablo');
         $profile->update(['service_status' => 'suspendido']);
 
-        $ultimo = PartnerEvent::where('customer_id', $profile->user_id)->max('id');
-
         $res = $this->withHeaders($this->headers())
             ->getJson("/api/v1/partner/customers/{$profile->user_id}")
             ->assertOk();
+
+        // Leer publica; la revisión es el `seq` del último evento del cliente.
+        $ultimo = PartnerEvent::where('customer_id', $profile->user_id)->max('seq');
 
         $this->assertSame($ultimo, $res->json('data.revision'));
     }

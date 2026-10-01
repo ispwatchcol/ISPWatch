@@ -24,9 +24,12 @@ class PartnerCustomerController extends PartnerController
             'service_status' => 'sometimes|string|max:30',
             'router_id'      => 'sometimes|integer',
             'document'       => 'sometimes|string|max:40',
+            'after_id'       => 'sometimes|integer|min:0|prohibits:page',
         ]);
 
         $tenantId = $this->tenantId($request);
+
+        $this->publishPendingEvents();
 
         $query = CustomerProfile::query()
             ->join('users', 'customer_profile.user_id', '=', 'users.id')
@@ -61,12 +64,20 @@ class PartnerCustomerController extends PartnerController
 
         $query->orderBy('users.id');
 
-        return $this->paginated($query, $request, fn ($row) => $this->present($row));
+        return $this->listing(
+            $query,
+            $request,
+            'users.id',
+            fn ($row) => $row->user_id,
+            fn ($row) => $this->present($row)
+        );
     }
 
     public function show(Request $request, int $customer): JsonResponse
     {
         $tenantId = $this->tenantId($request);
+
+        $this->publishPendingEvents();
 
         $row = CustomerProfile::query()
             ->join('users', 'customer_profile.user_id', '=', 'users.id')
@@ -92,17 +103,18 @@ class PartnerCustomerController extends PartnerController
     }
 
     /**
-     * Revisión del recurso: el id de su último evento publicado.
+     * Revisión del recurso: el `seq` de su último evento publicado.
      *
      * Subconsulta correlacionada y no `GROUP BY` sobre toda la tabla:
      * `partner_events` crece sin techo, así que agregarla entera en cada
      * listado se degrada con el tiempo. Con el índice
-     * (tenant_id, customer_id, id) esto es una búsqueda por índice por fila.
+     * (tenant_id, customer_id, seq) esto es una búsqueda por índice por fila.
+     * MAX ignora los `seq` nulos: lo no publicado no mueve la revisión.
      */
     private function revisionSubquery(int $tenantId)
     {
         return DB::table('partner_events')
-            ->selectRaw('MAX(id)')
+            ->selectRaw('MAX(seq)')
             ->whereColumn('partner_events.customer_id', 'customer_profile.user_id')
             ->where('partner_events.tenant_id', $tenantId);
     }

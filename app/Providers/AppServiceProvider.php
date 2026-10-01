@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PersonalAccessToken;
 use App\Models\Plan;
+use App\Models\Router;
 use App\Models\SupportTicket;
 use App\Models\UserService;
 use App\Observers\MoneyAuditObserver;
@@ -73,7 +74,9 @@ class AppServiceProvider extends ServiceProvider
      */
     protected function registerPartnerEvents(): void
     {
-        foreach ([CustomerProfile::class, UserService::class] as $model) {
+        // Router: activar/desactivar RADIUS cambia `managed_by_external_aaa`
+        // de todos sus clientes sin tocar sus filas.
+        foreach ([CustomerProfile::class, UserService::class, Router::class] as $model) {
             $model::observe(PartnerEventObserver::class);
         }
     }
