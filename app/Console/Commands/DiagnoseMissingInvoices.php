@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Billing\MissingInvoicePlan;
+use App\Billing\MissingInvoicePlanChanged;
 use App\Models\CustomerProfile;
 use App\Models\Router;
 use App\Models\Tenant;
@@ -108,26 +110,33 @@ class DiagnoseMissingInvoices extends Command
             return self::SUCCESS;
         }
 
+        // Primer filtro, barato y sin bloqueo: si ya no coincide, ni se intenta.
+        // El que manda es el segundo, dentro de applyMissingInvoicePlan(), con
+        // los clientes bloqueados.
         if (!hash_equals($hash, (string) $this->option('plan-hash'))) {
-            $this->error('El plan cambió desde la simulación aprobada (hash distinto). No se escribió nada.');
-            $this->line("Hash actual: {$hash}");
-            $this->report($rows, $missing, $hash);
-            return self::FAILURE;
+            return $this->planChanged($hash, $rows, $missing);
         }
 
         $reason = trim((string) $this->option('reason'));
         $notes  = 'Emitida el ' . now()->format('Y-m-d') . " por reparación de mensualidades faltantes ({$period}): {$reason}";
 
-        $results = AuditContext::as(AuditContext::SOURCE_CONSOLE, function () use ($missing, $profiles, $routers, $billing, $periodMonth, $notes) {
-            $out = [];
+        // Todos los clientes nombrados entran al lote —no sólo los faltantes—:
+        // si uno que no faltaba pasó a faltar, la huella bajo bloqueo cambia y
+        // se aborta, en vez de reparar a medias un plan distinto del aprobado.
+        $lote = $profiles
+            ->filter(fn (CustomerProfile $p) => $routers->has($p->router_id))
+            ->map(fn (CustomerProfile $p) => [$p, $routers->get($p->router_id)])
+            ->values();
 
-            foreach ($missing as $row) {
-                $profile = $profiles->firstWhere('user_id', $row['customer_id'])->fresh();
-                $out[]   = $billing->repairMissingMonthlyInvoice($profile, $routers->get($profile->router_id), $periodMonth, $notes);
-            }
-
-            return $out;
-        });
+        try {
+            $results = AuditContext::as(
+                AuditContext::SOURCE_CONSOLE,
+                fn () => $billing->applyMissingInvoicePlan($lote, $periodMonth, (string) $this->option('plan-hash'), $notes)
+            );
+        } catch (MissingInvoicePlanChanged $e) {
+            $faltanAhora = array_values(array_filter($e->currentRows, fn ($r) => $r['decision'] === 'missing'));
+            return $this->planChanged($e->currentHash, $e->currentRows, $faltanAhora);
+        }
 
         foreach ($results as $r) {
             $this->line(sprintf(
@@ -185,19 +194,19 @@ class DiagnoseMissingInvoices extends Command
         return $profiles;
     }
 
-    /** Hash estable de lo que se va a emitir: cliente, periodo, importes y fechas. */
+    /** La huella que se aprueba: la misma función que revalida bajo bloqueo. */
     private function planHash(array $missing): string
     {
-        $plan = array_map(fn ($r) => [
-            $r['tenant_id'], $r['customer_id'], $r['period'],
-            $r['preview']['period_start'], $r['preview']['period_end'], $r['preview']['due_date'],
-            $r['preview']['total'], $r['preview']['credit_before'], $r['preview']['credit_to_apply'],
-            $r['preview']['balance_due'],
-        ], $missing);
+        return MissingInvoicePlan::hash($missing);
+    }
 
-        usort($plan, fn ($a, $b) => $a[1] <=> $b[1]);
+    private function planChanged(string $hash, array $rows, array $missing): int
+    {
+        $this->error('El plan cambió desde la simulación aprobada. No se escribió nada.');
+        $this->line('Hay que simular de nuevo y volver a aprobar el plan. Estado actual:');
+        $this->report($rows, $missing, $hash);
 
-        return hash('sha256', json_encode($plan));
+        return self::FAILURE;
     }
 
     private function report(array $rows, array $missing, string $hash): void

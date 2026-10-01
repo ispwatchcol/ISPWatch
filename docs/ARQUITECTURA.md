@@ -470,26 +470,41 @@ ver «Una mensualidad por cliente y mes» más abajo.
 
 #### Una mensualidad por cliente y mes (2026-10-01)
 
-`createMonthlyInvoiceFor()` es **atómico y exclusivo**. Abre una transacción, bloquea la fila
+La puerta es `BillingService::withMonthlyInvoiceLock()`. Abre una transacción, bloquea la fila
 de `customer_profile` del cliente (que es también donde vive `credit_balance`) y vuelve a
 buscar la mensualidad del mes **dentro** del bloqueo. Si la encuentra, lanza
-`App\Billing\MonthlyInvoiceAlreadyExists` sin escribir nada.
+`App\Billing\MonthlyInvoiceAlreadyExists` sin escribir nada. `createMonthlyInvoiceFor()` la
+usa siempre; `billing:generate-tenant` también, aunque arma la factura con sus propias reglas.
 
-| Llamador | Qué hace con `MonthlyInvoiceAlreadyExists` |
-|---|---|
-| Corrida mensual | La da por hecha: no la marca para reintento |
-| `retryFailedInvoice` | Cierra el log como éxito con la factura existente |
-| `issueFirstInvoiceOnSignup` | Omite la primera factura |
-| `repairMissingMonthlyInvoice` | Responde `created_concurrently`, sin duplicar |
+| Camino | Pasa por la puerta | Qué hace con `MonthlyInvoiceAlreadyExists` |
+|---|---|---|
+| Corrida mensual (scheduler, `POST /billing/run-monthly`) | Sí | La da por hecha: no la marca para reintento |
+| `retryFailedInvoice` | Sí | Cierra el log como éxito con la factura existente |
+| `issueFirstInvoiceOnSignup` | Sí | Omite la primera factura |
+| `applyMissingInvoicePlan` (reparación) | Sí | Bajo el bloqueo del lote no puede ocurrir; si el plan cambió, aborta antes |
+| `billing:generate-tenant` | Sí | La cuenta como «Already had the month» |
+| Factura manual / cargo con tipo `monthly` | **No** | — (P-86) |
 
-La notificación se envía **después** de la transacción, así que un fallo de correo sigue sin
-deshacer la factura.
+**La unicidad no es global**: no cubre una mensualidad creada a mano (P-86).
 
-**Diagnóstico de faltantes.** `explainMonthlyInvoice()` recorre las mismas puertas que la
-corrida, en el mismo orden, sin escribir, y devuelve `missing`, `present` (puede estar
-anulada) o `not_applicable` con su motivo. Lo usa el comando `billing:missing-invoices`
-(simulación por defecto; `--apply` exige clientes explícitos, motivo y el `plan-hash`
-aprobado). Una prueba fija que diagnóstico y corrida coincidan cliente por cliente.
+El aviso al cliente sale con `DB::afterCommit`: después del commit de la transacción más
+externa. Un fallo de correo no deshace la factura, y un lote que se deshace no avisa.
+
+**Diagnóstico y reparación de faltantes.** `explainMonthlyInvoice()` recorre las mismas
+puertas que la corrida, en el mismo orden, sin escribir, y devuelve `missing`, `present`
+(puede estar anulada) o `not_applicable` con su motivo. `billing:missing-invoices` simula por
+defecto e imprime la huella del plan (`App\Billing\MissingInvoicePlan`).
+
+`applyMissingInvoicePlan()` sólo aplica un plan aprobado:
+
+- bloquea a todos los clientes del lote;
+- los re-evalúa bajo el bloqueo;
+- si la huella cambió en cualquier dato financiero o de fecha, lanza
+  `MissingInvoicePlanChanged` y no escribe nada.
+
+Una prueba fija que diagnóstico y corrida coincidan cliente por cliente, y otra
+(`MonthlyInvoiceConcurrencyPostgresTest`) prueba la exclusión con dos procesos reales sobre
+PostgreSQL.
 
 ### La visita que no se le cobra al cliente (2026-09-21)
 

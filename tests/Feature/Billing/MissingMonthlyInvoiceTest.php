@@ -103,9 +103,11 @@ class MissingMonthlyInvoiceTest extends TestCase
 
     private function monthlyInvoicesOf(User $customer)
     {
+        // Mismo criterio que la corrida: tipo mensual o sin tipo (filas viejas
+        // y las de billing:generate-tenant, que no lo fija).
         return Invoice::withoutGlobalScopes()
             ->where('customer_id', $customer->id)
-            ->where('invoice_type', Invoice::TYPE_MONTHLY)
+            ->where(fn ($q) => $q->where('invoice_type', Invoice::TYPE_MONTHLY)->orWhereNull('invoice_type'))
             ->get();
     }
 
@@ -231,16 +233,115 @@ class MissingMonthlyInvoiceTest extends TestCase
     {
         ['customer' => $customer, 'router' => $router, 'profile' => $profile] = $this->scenario();
 
-        $this->assertSame('missing', $this->explain(['profile' => $profile, 'router' => $router])['decision']);
+        $caso = ['profile' => $profile, 'router' => $router, 'customer' => $customer];
+        $this->assertSame('missing', $this->explain($caso)['decision']);
+        $aprobado = $this->approvedHash($caso);
 
         // La corrida horaria gana la carrera...
         $this->billing->generateMonthlyInvoices();
 
-        // ...y la reparación, que ya tenía su plan, no duplica.
-        $r = $this->billing->repairMissingMonthlyInvoice($profile->fresh(), $router->fresh('billingConfig'), Carbon::create(2026, 9, 1), 'prueba');
+        // ...y el plan aprobado ya no describe la realidad: aborta sin escribir.
+        $this->expectPlanChanged(fn () => $this->applyPlan([$caso], $aprobado));
 
-        $this->assertFalse($r['applied']);
         $this->assertCount(1, $this->monthlyInvoicesOf($customer));
+    }
+
+    // ── El plan aprobado no se aplica obsoleto ────────────────────────────
+
+    #[Test]
+    public function a_payment_after_approval_aborts_the_whole_batch_without_writing(): void
+    {
+        $uno = $this->scenario();
+        $dos = $this->scenario(tenant: $uno['tenant'], router: $uno['router']);
+        $this->pay($uno['customer'], 20000);
+
+        $aprobado = $this->approvedHash($uno, $dos);
+
+        // Entra un pago de uno de los dos: su saldo a favor ya no es el
+        // aprobado. El lote entero se aborta, también para el que no cambió.
+        $this->pay($dos['customer'], 10000);
+        $antes = $this->dbSnapshot();
+
+        $this->expectPlanChanged(fn () => $this->applyPlan([$uno, $dos], $aprobado));
+
+        $this->assertSame($antes, $this->dbSnapshot());
+        $this->assertCount(0, $this->monthlyInvoicesOf($uno['customer']));
+        $this->assertCount(0, $this->monthlyInvoicesOf($dos['customer']));
+        Mail::assertNothingSent();
+    }
+
+    #[Test]
+    public function a_plan_approved_on_another_day_is_not_applied(): void
+    {
+        $caso     = $this->scenario();
+        $aprobado = $this->approvedHash($caso);
+
+        // Al día siguiente cambian la emisión y quizá el vencimiento: nueva simulación.
+        Carbon::setTestNow(Carbon::create(2026, 9, 16, 9, 0, 0));
+
+        $this->expectPlanChanged(fn () => $this->applyPlan([$caso], $aprobado));
+        $this->assertCount(0, $this->monthlyInvoicesOf($caso['customer']));
+    }
+
+    #[Test]
+    public function a_change_in_the_plan_price_after_approval_aborts(): void
+    {
+        $caso     = $this->scenario();
+        $aprobado = $this->approvedHash($caso);
+
+        $caso['plan']->update(['cost_product' => 55000]);
+
+        $this->expectPlanChanged(fn () => $this->applyPlan([$caso], $aprobado));
+        $this->assertCount(0, $this->monthlyInvoicesOf($caso['customer']));
+    }
+
+    #[Test]
+    public function a_batch_rolled_back_by_an_outer_transaction_sends_no_notice(): void
+    {
+        // Los avisos van después del COMMIT del lote: si algo lo deshace, el
+        // cliente no puede haber recibido una factura que no existe.
+        $caso     = $this->scenario();
+        $aprobado = $this->approvedHash($caso);
+
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($caso, $aprobado) {
+                $this->applyPlan([$caso], $aprobado);
+                throw new \RuntimeException('se deshace a propósito');
+            });
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertCount(0, $this->monthlyInvoicesOf($caso['customer']));
+        Mail::assertNothingSent();
+
+        // Y confirmado, sí avisa.
+        $this->applyPlan([$caso], $aprobado);
+        Mail::assertSent(InvoiceCreatedMail::class, fn ($m) => $m->hasTo($caso['customer']->email));
+    }
+
+    // ── billing:generate-tenant pasa por la misma puerta ──────────────────
+
+    #[Test]
+    public function generate_tenant_does_not_duplicate_a_prorated_month_or_a_second_run(): void
+    {
+        // Un cliente instalado a mitad de mes tiene la mensualidad con
+        // period_start = día de instalación. El filtro propio del comando
+        // (periodo exacto) no la ve; la puerta común sí.
+        $prorrateado = $this->scenario();
+        $this->billing->generateMonthlyInvoices();
+        \App\Models\Invoice::withoutGlobalScopes()->where('customer_id', $prorrateado['customer']->id)
+            ->update(['period_start' => '2026-09-12']);
+
+        $nuevo = $this->scenario(tenant: $prorrateado['tenant'], router: $prorrateado['router']);
+
+        $this->artisan('billing:generate-tenant', ['tenant' => $prorrateado['tenant']->id, 'period' => '2026-09'])
+            ->expectsOutputToContain('Already had the month: 1')
+            ->assertSuccessful();
+        $this->artisan('billing:generate-tenant', ['tenant' => $prorrateado['tenant']->id, 'period' => '2026-09'])
+            ->assertSuccessful();
+
+        $this->assertCount(1, $this->monthlyInvoicesOf($prorrateado['customer']));
+        $this->assertCount(1, $this->monthlyInvoicesOf($nuevo['customer']));
     }
 
     // ── Saldo a favor: se usa, no se inventa ──────────────────────────────
@@ -274,7 +375,8 @@ class MissingMonthlyInvoiceTest extends TestCase
         $this->assertEquals($saldoFactura, $preview['balance_due']);
         $this->assertEquals($creditoDespues, $preview['credit_after']);
 
-        $r = $this->billing->repairMissingMonthlyInvoice($profile->fresh(), $router, Carbon::create(2026, 9, 1), 'prueba');
+        $caso = ['profile' => $profile, 'router' => $router, 'customer' => $customer];
+        $r = $this->applyPlan([$caso], $this->approvedHash($caso))[0];
         $this->assertTrue($r['applied']);
 
         $invoice = $this->monthlyInvoicesOf($customer)->first();
@@ -293,10 +395,15 @@ class MissingMonthlyInvoiceTest extends TestCase
         ['customer' => $customer, 'router' => $router, 'profile' => $profile] = $this->scenario();
         $this->pay($customer, 80000);
 
-        $periodo = Carbon::create(2026, 9, 1);
-        $this->billing->repairMissingMonthlyInvoice($profile->fresh(), $router, $periodo, 'prueba');
-        $segunda = $this->billing->repairMissingMonthlyInvoice($profile->fresh(), $router, $periodo, 'prueba');
+        $caso     = ['profile' => $profile, 'router' => $router, 'customer' => $customer];
+        $aprobado = $this->approvedHash($caso);
+        $this->applyPlan([$caso], $aprobado);
 
+        // Repetir con el MISMO plan aprobado: ya no describe la realidad.
+        $this->expectPlanChanged(fn () => $this->applyPlan([$caso], $aprobado));
+
+        // Con una simulación nueva el plan está vacío: no hay nada que emitir.
+        $segunda = $this->applyPlan([$caso], $this->approvedHash($caso))[0];
         $this->assertFalse($segunda['applied']);
         $this->assertSame('invoice_present', $segunda['reason']);
         $this->assertCount(1, $this->monthlyInvoicesOf($customer));
@@ -310,12 +417,10 @@ class MissingMonthlyInvoiceTest extends TestCase
     {
         $silenciado = $this->scenario(['notify_invoice' => false]);
         $normal     = $this->scenario();
-        $periodo    = Carbon::create(2026, 9, 1);
-
-        $this->billing->repairMissingMonthlyInvoice($silenciado['profile'], $silenciado['router'], $periodo, 'prueba');
+        $this->applyPlan([$silenciado], $this->approvedHash($silenciado));
         Mail::assertNothingSent();
 
-        $this->billing->repairMissingMonthlyInvoice($normal['profile'], $normal['router'], $periodo, 'prueba');
+        $this->applyPlan([$normal], $this->approvedHash($normal));
         Mail::assertSent(InvoiceCreatedMail::class, fn ($m) => $m->hasTo($normal['customer']->email));
         Mail::assertNotSent(InvoiceCreatedMail::class, fn ($m) => $m->hasTo($silenciado['customer']->email));
     }
@@ -335,7 +440,9 @@ class MissingMonthlyInvoiceTest extends TestCase
         $this->assertSame('present', $row['decision']);
         $this->assertSame('invoice_voided', $row['reason']);
 
-        $this->billing->repairMissingMonthlyInvoice($profile->fresh(), $router, Carbon::create(2026, 9, 1), 'prueba');
+        $caso = ['profile' => $profile, 'router' => $router, 'customer' => $customer];
+        $r = $this->applyPlan([$caso], $this->approvedHash($caso))[0];
+        $this->assertFalse($r['applied']);
         $this->assertCount(1, $this->monthlyInvoicesOf($customer));
     }
 
@@ -370,7 +477,7 @@ class MissingMonthlyInvoiceTest extends TestCase
         $uno = $this->scenario(['name' => 'Titular', 'last_name' => 'Ficticio']);
         $dos = $this->scenario(['name' => 'Titular', 'last_name' => 'Ficticio PUNTO 2'], tenant: $uno['tenant'], router: $uno['router']);
 
-        $this->billing->repairMissingMonthlyInvoice($uno['profile'], $uno['router'], Carbon::create(2026, 9, 1), 'prueba');
+        $this->applyPlan([$uno], $this->approvedHash($uno));
 
         $this->assertCount(1, $this->monthlyInvoicesOf($uno['customer']));
         $this->assertCount(0, $this->monthlyInvoicesOf($dos['customer']));
@@ -471,7 +578,91 @@ class MissingMonthlyInvoiceTest extends TestCase
         $this->assertCount(0, $this->monthlyInvoicesOf($ajeno['customer']));
     }
 
+    // ── Recuperación: qué deshace exactamente anular una factura reparada ──
+
+    #[Test]
+    public function voiding_a_repaired_invoice_returns_credit_and_later_payments_but_not_everything(): void
+    {
+        // No es un rollback: esta prueba fija qué revierte y qué no, para que
+        // el runbook no prometa más de lo que hace (§ 88, recuperación).
+        $caso = $this->scenario();
+        $this->pay($caso['customer'], 20000);
+        $this->applyPlan([$caso], $this->approvedHash($caso));
+
+        $invoice = $this->monthlyInvoicesOf($caso['customer'])->first();
+        $this->assertEquals(30000, (float) $invoice->balance_due);
+        Mail::assertSent(InvoiceCreatedMail::class, 1);   // el aviso ya salió: no se recupera
+
+        // Después de la reparación, el cliente paga lo que quedaba.
+        $this->pay($caso['customer'], 30000);
+        $this->assertSame('paid', $invoice->fresh()->status);
+
+        $numero = $invoice->number;
+        $this->billing->voidInvoice($invoice->fresh(), 'Recuperación de prueba');
+
+        $anulada = $invoice->fresh();
+        $creditos = \App\Models\CustomerCredit::withoutGlobalScopes()
+            ->where('customer_id', $caso['customer']->id)->orderBy('id')->get(['type', 'amount']);
+
+        // Revierte: la factura queda sin efecto y conserva número, total y fechas.
+        $this->assertSame('void', $anulada->status);
+        $this->assertEquals(0, (float) $anulada->balance_due);
+        $this->assertEquals(50000, (float) $anulada->total);
+        $this->assertSame($numero, $anulada->number);
+        $this->assertNotNull($anulada->voided_at);
+
+        // El saldo vuelve, pero NO sólo el que consumió la reparación: también
+        // el pago posterior que se le había aplicado pasa a saldo a favor. Una
+        // anulación deshace aplicaciones posteriores; no es la inversa exacta.
+        $this->assertEquals(50000, (float) $caso['profile']->fresh()->credit_balance);
+        $this->assertTrue($creditos->contains(fn ($c) => $c->type === 'adjusted' && (float) $c->amount === 20000.0),
+            'El crédito que consumió la reparación vuelve como AJUSTE, no borrando el movimiento original.');
+        $this->assertTrue($creditos->contains(fn ($c) => $c->type === 'applied' && (float) $c->amount === -20000.0),
+            'El movimiento original de la reparación se conserva en el historial.');
+
+        // Los pagos no se tocan: siguen existiendo los dos.
+        $this->assertSame(2, \App\Models\Payment::withoutGlobalScopes()->where('customer_id', $caso['customer']->id)->count());
+
+        // NO revierte: el mes sigue «cubierto» por la anulada, así que ni la
+        // corrida ni la herramienta lo vuelven a emitir solos.
+        $this->assertSame('invoice_voided', $this->explain($caso)['reason']);
+
+        // Y la anulación no avisa al cliente (no hay segundo correo).
+        Mail::assertSent(InvoiceCreatedMail::class, 1);
+    }
+
     // ── Andamiaje ─────────────────────────────────────────────────────────
+
+    /** La huella que aprobaría el responsable, a partir de la simulación. */
+    private function approvedHash(array ...$casos): string
+    {
+        $filas = array_map(fn ($c) => $this->explain($c), $casos);
+
+        return \App\Billing\MissingInvoicePlan::hash(
+            array_values(array_filter($filas, fn ($r) => $r['decision'] === 'missing'))
+        );
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function applyPlan(array $casos, string $hash): array
+    {
+        return $this->billing->applyMissingInvoicePlan(
+            array_map(fn ($c) => [$c['profile']->fresh(), $c['router']->fresh('billingConfig')], $casos),
+            Carbon::create(2026, 9, 1),
+            $hash,
+            'prueba'
+        );
+    }
+
+    private function expectPlanChanged(callable $aplicar): void
+    {
+        try {
+            $aplicar();
+            $this->fail('Se esperaba que el plan aprobado se rechazara por obsoleto.');
+        } catch (\App\Billing\MissingInvoicePlanChanged $e) {
+            $this->assertNotEmpty($e->currentHash);
+        }
+    }
 
     private function explain(array $caso): array
     {
