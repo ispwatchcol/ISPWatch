@@ -8993,3 +8993,35 @@ SSH en router RADIUS, y la auditoría cuenta sin modificar.
 
 - Correr `customers:audit-access-flags` en `public` y decidir la corrección (KAN-117).
 - Correr en `public` la consulta de duplicados de IP antes de migrar (KAN-118).
+
+## 87. El manual de la integración AAA, al día con lo desplegado — 2026-10-01
+
+Tras desplegar las §§ 85 y 86 (PR #296 y #298) el Centro de Ayuda decía cosas que ya no eran
+ciertas: que en un router RADIUS la IP del cliente es obligatoria (no lo es: ISPWatch no la
+usa) y que el listado de cambios sólo trae cortes, reconexiones y cambios de plan. Le faltaba
+además lo que el equipo técnico de CNO pidió por escrito: qué campo decide el acceso, qué
+garantiza el feed y cómo sincronizar sin perder nada. CNO es un tenant de ISPWatch, así que el
+Centro de Ayuda es el canal por el que lo lee.
+
+- **Artículo nuevo** en *Integraciones y API*: «Guía técnica para integradores AAA:
+  sincronizar sin perder cambios». Mismo contenido que el contrato OpenAPI 1.1.0, para quien
+  no lee YAML.
+- **Corregidos**: «RADIUS (AAA): cuando otro sistema gestiona la red» (IP opcional, mover y
+  eliminar clientes, tipo de corte, qué avisa el feed), «Qué ve cada permiso de la llave» y
+  «Probar la API» (`after_id`).
+- **Auditoría de señales de acceso en producción** (KAN-117):
+  `customers:audit-access-flags` dio 0 fichas desalineadas en los tres casos. P-77 resuelta.
+
+### Cómo llega a producción sin pisar lo editado
+
+`2026_10_01_100000_update_help_center_integracion_aaa` reescribe cada artículo **sólo si su
+texto sigue siendo exactamente el que publicó la migración anterior**, comparando la huella md5
+(con los saltos de línea normalizados). Se calcularon las huellas de todas las versiones
+históricas de cada artículo en git: cada uno tuvo una sola. Si un superadmin lo editó desde el
+panel, la huella no coincide y su versión se respeta. Es más estricto que el criterio de la
+migración de RADIUS (`NOT LIKE '%RADIUS%'`), que sólo servía porque buscaba un término que el
+texto viejo no tenía.
+
+La prueba usa como fixture el texto exacto publicado el 2026-09-22
+(`tests/Fixtures/help_center/radius_aaa_2026-09-22.html`) y verifica su huella: sin eso, la
+prueba no distinguiría "sin editar" de "editado".

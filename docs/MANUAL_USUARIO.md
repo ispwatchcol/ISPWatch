@@ -1472,8 +1472,8 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 > Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
 > por demora.
 >
-> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE** y una
-> IP asignada. La configuración del servidor (secreto compartido, puertos, perfiles) se
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**. La IP
+> es opcional: en este modo ISPWatch no la usa. La configuración del servidor (secreto compartido, puertos, perfiles) se
 > hace **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para
 > que el sistema deje de escribirle configuración por su cuenta.
 
@@ -1496,7 +1496,17 @@ y datos de VPN**. El formulario todavía exige nombre, IP, usuario y contraseña
 versión de firmware y estado, aunque en este modo no se usen. Como ISPWatch no se conecta
 a ningún equipo, **un router puede ser sólo un agrupador** y no un Mikrotik real — útil
 para separar clientes por criterio propio, ya que la facturación se configura por router.
-Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP.
+Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP
+ni el mismo usuario PPPoE.
+
+El corte automático por mora sólo ocurre si el router tiene configuración de facturación y
+tipo de corte **Corte Automático**. Al mover un cliente a otro router, toma la facturación
+del router nuevo; si el router anterior lo gestionaba ISPWatch, su configuración se retira
+de ese equipo en segundo plano (ver 5.3). Al eliminar un cliente de un router RADIUS,
+ISPWatch no intenta conectarse al equipo.
+
+Tu servidor AAA se entera de todo esto —cortes, reconexiones, bajas, clientes eliminados,
+cambios de router, de IP y de usuario PPPoE— por el listado de cambios de la API (sección 19).
 
 > El método es **por router, no por cliente**. Para probarlo, crea un router aparte, mueve
 > un solo cliente y valida el ciclo completo antes de tocar el resto.
@@ -2724,7 +2734,7 @@ nadie exporte archivos a mano.
 | Puede | No puede |
 |---|---|
 | Leer clientes, servicios, cartera, tickets e instalaciones | **Escribir cualquier cosa**: no crea clientes, no registra pagos, no corta ni reconecta |
-| Recibir el listado de cambios (altas, cortes, reconexiones, cambios de plan) | Ver contraseñas PPPoE o de hotspot, ni direcciones MAC |
+| Recibir el listado de cambios (altas, cortes, reconexiones, cambios de plan, bajas, clientes eliminados, cambios de router, de IP y de usuario PPPoE) | Ver contraseñas PPPoE o de hotspot, ni direcciones MAC |
 | Ver **sólo** los datos de tu empresa | Ver los datos de otro ISP de la plataforma |
 
 Esto no es una limitación temporal: la API es de solo lectura por diseño. Si un integrador
@@ -2777,6 +2787,11 @@ te ve el servidor**. Ese último dato es el que resuelve el error más común.
 
 El paso a paso completo —incluida la importación en Postman— está en
 **Manual → Integraciones y API → Probar la API**.
+
+Si el integrador conecta un **servidor de autenticación (RADIUS/AAA)** que decide con estos
+datos a quién deja navegar, entrégale además **Manual → Integraciones y API → «Guía técnica
+para integradores AAA: sincronizar sin perder cambios»**: qué campo decide el acceso, qué
+garantiza el listado de cambios y el procedimiento para sincronizar sin perder nada.
 
 > **Cuidado con dónde pega esa llave.** Si la mandas por chat, correo o un ticket para
 > pasársela a alguien, dala por comprometida: revócala y emite otra. Se muestra una sola vez
