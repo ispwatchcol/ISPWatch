@@ -42,13 +42,24 @@ class PartnerServiceController extends PartnerController
             'customer_id'    => 'sometimes|integer',
             'status'         => 'sometimes|string|max:30',
             'service_status' => 'sometimes|string|max:30',
+            'router_id'      => 'sometimes|integer',
+            'after_id'       => 'sometimes|integer|min:0|prohibits:page',
         ]);
 
         $tenantId = $this->tenantId($request);
-        $query    = $this->baseQuery($tenantId);
+
+        $this->publishPendingEvents();
+
+        $query = $this->baseQuery($tenantId);
 
         if ($customerId = $request->query('customer_id')) {
             $query->where('user_services.user_id', (int) $customerId);
+        }
+
+        // Un AAA externo sincroniza por NAS: sin este filtro tenía que bajarse
+        // todos los servicios del ISP y descartar los demás de su lado.
+        if ($routerId = $request->query('router_id')) {
+            $query->where('customer_profile.router_id', (int) $routerId);
         }
 
         if ($status = $request->query('status')) {
@@ -65,12 +76,20 @@ class PartnerServiceController extends PartnerController
 
         $query->orderBy('user_services.id');
 
-        return $this->paginated($query, $request, fn ($row) => $this->present($row));
+        return $this->listing(
+            $query,
+            $request,
+            'user_services.id',
+            fn ($row) => $row->id,
+            fn ($row) => $this->present($row)
+        );
     }
 
     public function show(Request $request, int $service): JsonResponse
     {
         $tenantId = $this->tenantId($request);
+
+        $this->publishPendingEvents();
 
         $row = $this->baseQuery($tenantId)
             ->where('user_services.id', $service)
@@ -106,17 +125,21 @@ class PartnerServiceController extends PartnerController
     }
 
     /**
-     * Revisión del recurso: el id de su último evento publicado.
+     * Revisión del recurso: el `seq` de su último evento publicado.
      *
      * Es una subconsulta correlacionada y no un `GROUP BY` sobre toda la tabla
      * a propósito. `partner_events` crece sin techo, así que agregarla entera en
      * cada listado se degradaría con el tiempo; con el índice
-     * (tenant_id, customer_id, id) esto es una búsqueda por índice por fila.
+     * (tenant_id, customer_id, seq) esto es una búsqueda por índice por fila.
+     *
+     * Va por titular y no por servicio: los atributos de red viven en la ficha
+     * del cliente y hoy la relación es 1 cliente = 1 servicio, así que un
+     * cambio del cliente (router, IP, estado) sí es un cambio de su servicio.
      */
     private function revisionSubquery(int $tenantId)
     {
         return DB::table('partner_events')
-            ->selectRaw('MAX(id)')
+            ->selectRaw('MAX(seq)')
             ->whereColumn('partner_events.customer_id', 'user_services.user_id')
             ->where('partner_events.tenant_id', $tenantId);
     }

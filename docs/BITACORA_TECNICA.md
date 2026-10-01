@@ -8832,3 +8832,96 @@ después de cobrar, saldos exactos. `artisan serve` no sirvió para esto: el pro
   Documentado, **no corregido** aquí.
 - **P-75**: detalles de interfaz previos (desborde de la cabecera a 390 px, fila «Retirar» del
   ticket, texto del aviso al agregar material en el ticket).
+
+## 85. El feed partner se callaba justo lo que un AAA externo necesita saber — 2026-09-30
+
+**Origen:** dos rondas de preguntas de CNO (2026-09-27 y 2026-09-30) antes de activar su
+router piloto. Su integración AAA es *fail-closed*: si no puede demostrar que tiene el estado
+completo y vigente, no aplica la decisión. Al contestar punto por punto contra el código
+aparecieron huecos reales, y dos de ellos contradecían lo que ya les habíamos dicho. Tarjetas
+KAN-111 a KAN-116; contrato OpenAPI 1.0.0 → **1.1.0** (todo aditivo).
+
+### Lo que estaba mal
+
+1. **El cursor podía saltarse eventos (KAN-112).** `partner_events.id` sale de la secuencia al
+   INSERTAR, y el evento se inserta dentro de la transacción del cambio. Si A toma el id 100 y
+   B el 101 y B confirma primero, quien lee en ese instante avanza a 101 y no ve nunca el 100.
+   Parecía teórico hasta que se vio que Laravel Excel envuelve `CustomersUpdateImport` en una
+   sola transacción (`config/excel.php`, `transactions.handler = db`): minutos de eventos ya
+   numerados e invisibles. Les habíamos dicho que `since = next_since` no se saltaba nada.
+2. **La carga masiva de clientes no emitía `SERVICE_CREATED` (KAN-111).** Desde el fix del 504,
+   `CustomersSheetImport::flush()` inserta con `insert()` en bloque, que no pasa por el
+   observer. El comentario del observer y la trampa #45 del manual afirmaban lo contrario.
+3. **Cinco cambios no generaban evento ni movían `revision` (KAN-113, KAN-114):** la baja
+   física del cliente (borrado real, 404 sin lápida), el cambio de `router_id`, el cambio de IP
+   o de usuario PPPoE, activar/desactivar RADIUS en un router (cambia
+   `managed_by_external_aaa` de todos sus clientes sin tocar sus filas) y `is_enabled` cuando
+   cambia solo.
+4. **Los listados paginados por OFFSET saltaban filas (KAN-115).** Con borrado físico, eliminar
+   una fila anterior a la página actual corre todo un lugar; la fila que se salta no cambió, así
+   que tampoco la recupera el feed.
+5. **El contrato decía cosas falsas o no decía nada (KAN-116):** que `is_enabled` no se mueve
+   con el corte (se mueve desde que el auto-corte registra la intención en la ficha); nada sobre
+   que los listados no son una foto atómica, ni que `updated_since` no sirve para decisiones de
+   acceso (mira `users.updated_at` y `user_services.updated_at`, que no se mueven al cortar).
+
+### Decisiones
+
+- **Bandeja de salida con publicación en serie.** El insert se queda en la transacción de
+  negocio (atomicidad) y se agrega `seq`, que `PartnerEventSequencer` asigna **después** del
+  commit: lock consultivo en PostgreSQL, sólo filas confirmadas, un único
+  `UPDATE ... SET seq = id + desplazamiento` por encima del máximo publicado. El rango se acota
+  por abajo con el `id` mínimo pendiente, o una fila de id menor que confirme entre el SELECT y
+  el UPDATE recibiría un `seq` por debajo de lo publicado. Hacia afuera `seq` es `event_id`,
+  `revision` y `next_since`; el `id` no sale.
+- **Se publica al leer.** Los tres controladores que leen el feed o la revisión llaman al
+  secuenciador antes de consultar. No depende del planificador (que en producción ya falló una
+  vez sin avisar) ni de la cola (sin worker). Sin pendientes cuesta una consulta por índice.
+- **Descartado:** escribir el evento en `afterCommit` (pierde "al menos una vez" si el proceso
+  cae entre el commit y el insert) y filtrar por `xid`/`pg_snapshot_xmin` (sólo PostgreSQL, y
+  obligaba a cambiar el cursor del contrato).
+- **Compatibilidad:** la migración publica lo existente con `seq = id`. Ningún cursor ni
+  revisión guardados por un integrador cambió de sentido.
+- **`CUSTOMER_DELETED` a nivel cliente, en `deleted` del perfil.** `CustomerDeletionService`
+  borra el perfil antes que el usuario, así que en ese instante el tenant y los servicios todavía
+  existen. Los servicios caen por cascada sin observer: un evento con la lista de `service_ids`,
+  el router y su modo AAA. Es la lápida: el recurso ya no existe y el evento trae lo necesario
+  para revocar sin consultar.
+- **`ROUTER_CHANGED` lleva `from`**: el recurso sólo muestra el router nuevo y el integrador
+  necesita el anterior para revocar en ese NAS sin guardar estado propio. El cambio de modo
+  RADIUS emite el mismo tipo con `from` = `to`, un evento por cliente en inserciones por bloque.
+- **`NETWORK_CHANGED` sin valores:** `partner_events` no se poda, y la IP no tiene por qué
+  quedar en ese log. El consumidor re-consulta, igual que con `CUSTOMER_UPDATED`.
+- **`after_id` además de `page`**, no en su lugar: quien ya pagina por página sigue igual.
+  Mezclarlos responde 422.
+- Filtro `router_id` en `/services`, que sólo existía en `/customers`: un AAA sincroniza por NAS.
+
+### Verificación
+
+- `PartnerFeedCoverageTest` (16 pruebas): un evento que confirma después de uno más nuevo
+  llega igual; `event_id` estable entre lecturas; la revisión sigue al último publicado; la
+  carga masiva publica un `SERVICE_CREATED` por cliente y sólo al tenant dueño; la baja deja
+  lápida con servicios y router; los cambios de router, red, modo RADIUS e `is_enabled`; el
+  barrido por `after_id` no pierde filas al borrar una anterior.
+- `PartnerOpenApiContractTest` compara ahora también el enum `EventType` del YAML con
+  `PartnerEvent::TYPES`, en los dos sentidos.
+- **Trampa de las pruebas:** el guard cachea la llave de la petición anterior. Una llamada con
+  la llave del tenant B dentro del mismo test se resolvía como la A y parecía una fuga entre
+  tenants. `forgetGuards()` antes de cada petición, como ya hacen otras suites.
+- La importación inserta usuarios con `role_id = 3` fijo (el rol global «Cliente» de
+  producción), mientras el alta del panel usa `Role::idByName('Cliente')`. En la base de pruebas
+  el rol no existe y la importación fallaba por clave foránea; la prueba lo crea.
+
+### Despliegue
+
+**Migrar antes de desplegar** (`migrate:both`): el código nuevo consulta `seq` y sin la
+columna la API partner responde 500. La migración es un `ALTER` + un `UPDATE` sobre una tabla
+pequeña.
+
+### Fuera de alcance, anotado
+
+- KAN-117 (`is_enabled` y `service_status` pueden divergir en datos viejos), KAN-118 (índice
+  único de IP por router) y KAN-119 (limpieza del router anterior al mudar un cliente) siguen
+  abiertas.
+- No se construyó retención de eventos. Compromiso con CNO: si se introduce, con aviso previo y
+  error explícito de cursor expirado.
