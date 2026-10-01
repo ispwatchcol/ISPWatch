@@ -8768,7 +8768,72 @@ después de la firma) queda fuera a propósito.
 - **P-72**: `CustomerInstallations.vue` no está montado en ninguna página; se actualizó igual.
 - La entrega B: conciliación, devoluciones parciales y correcciones auditadas después de la firma.
 
-## 84. El feed partner se callaba justo lo que un AAA externo necesita saber — 2026-09-30
+## 84. Unidad concreta por serial: el reporte no era una regresión, era falta de claridad — 2026-09-30
+
+**Reporte del cliente:** «veo cantidades o disponibilidad del modelo, pero necesito asignar una LDF
+concreta por serial». Amarres y RJ45 por unidades, cable por su unidad de medida. Había que
+mantener los dos flujos: no convertir los serializados en cantidades ni quitar su selector.
+
+### Reproducción (antes de cambiar nada)
+
+Con datos ficticios sobre `origin/main` (`1afa072`, ya con la entrega A): un modelo «LDF» por serial
+con cinco unidades de serial distinto (tres del técnico, dos en bodega), amarres por `und` y cable
+por `m`. Se probó agendar/editar, registrar en la orden, entregar en el ticket y cobrar.
+
+- El **uso ya era por unidad**: `/equipment/available` devuelve una fila por unidad con serial y
+  MAC, y `POST /equipment` con `device_id` guarda **esa** unidad (línea y kardex con su serial).
+  Serial y consumibles convivían en la misma orden y el mismo ticket, y cobrar no movía inventario.
+- **No hubo regresión.** Lo que el cliente describe coincide con el **plan**, que por diseño es
+  por modelo: al agendar se ve «LDF — 4 disponibles» y en el detalle «previsto 1, usado 0». Nada
+  decía que el serial se elige después, y la cifra era la de **toda la empresa**, no la del técnico.
+- Agravante de claridad: el plan remitía a «Agregar equipo con serial», pero ese selector **se
+  ocultaba** si el usuario no tenía ninguna unidad a mano (p. ej. todas en bodega).
+
+Otras causas posibles quedaron **sin verificar** (no se miraron datos reales): que el modelo del
+cliente esté creado «por cantidad» o que el técnico no tenga LDF asignadas.
+
+### Qué se cambió (sólo interfaz; lógica de inventario y permisos intactos)
+
+1. **Plan** (`InstallationPlanEditor.vue`): la cifra dice «en la empresa» y cada línea «Para
+   planificar: N en la empresa»; los serializados explican que la unidad concreta se elige al
+   registrar la entrega.
+2. **Previsto frente a usado** (`InstallationDetail.vue`): debajo de cada producto, lo que **tú**
+   tienes a tu alcance para registrar (de la misma respuesta de `/available`, que ya viene
+   filtrada por fuentes autorizadas). En serializados, **«Elegir serial»** fija el filtro de
+   modelo y lleva al selector; **no registra**.
+3. **Selector de unidades** (`SerialDevicePicker.vue`, compartido por orden y ticket): modelo ·
+   serial · MAC con «sin informar» en lo que falte, filtro por modelo, búsqueda por serial o MAC
+   sin separadores ni mayúsculas, y **registro con botón aparte**. Antes el `<select>` registraba
+   al cambiar de opción. Vacío, no se oculta: explica el motivo y el siguiente paso sin nombrar
+   unidades ni custodios que el usuario no puede consultar.
+4. **Líneas registradas**: muestran serial y MAC (antes sólo el serial dentro de la etiqueta).
+
+Pruebas permanentes nuevas: `tests/Feature/Inventory/SerializedUnitsAndConsumablesTest.php`
+(8): unidad exacta por `device_id` en orden y ticket (línea y kardex con ese serial, las demás
+unidades intactas), serializado rechazado por la vía de cantidad, serial + amarres + cable en la
+misma orden y el mismo ticket con saldos exactos y cobro sin movimientos, lista con serial/MAC
+sólo de fuentes accesibles, y unidad de bodega registrada sólo por quien administra inventario.
+
+### Verificación visual
+
+En este equipo ya cargan openssl/fileinfo, así que se recorrió con el **backend real**: servidor
+local en 127.0.0.1, base SQLite desechable con datos ficticios, build con `VITE_API_URL` vacío y
+Edge sin interfaz con todo host no local bloqueado. Técnico: plan con «a tu alcance», «Elegir
+serial» de un modelo sin unidades (vacío explicado), búsqueda «c302» → una unidad → «Agregar»
+(única escritura: `device_id` 2), amarres y cable con «Preparar»; en el ticket, búsqueda por MAC →
+«Entregar» (`device_id` 3) más cable y amarres. Administrador: cobro de las líneas en la cartera y
+en un cargo del ticket. En la base: líneas con esos `device_id` y seriales, 6 movimientos antes y
+después de cobrar, saldos exactos. `artisan serve` no sirvió para esto: el proceso hijo sólo hereda
+`APP_ENV` y cargaba `.env.testing`; se usó `php -S` con las variables.
+
+### Fuera de esta rama
+
+- **P-74**: una orden de prospecto (sin cliente) deja la unidad «instalada» sin cliente.
+  Documentado, **no corregido** aquí.
+- **P-75**: detalles de interfaz previos (desborde de la cabecera a 390 px, fila «Retirar» del
+  ticket, texto del aviso al agregar material en el ticket).
+
+## 85. El feed partner se callaba justo lo que un AAA externo necesita saber — 2026-09-30
 
 **Origen:** dos rondas de preguntas de CNO (2026-09-27 y 2026-09-30) antes de activar su
 router piloto. Su integración AAA es *fail-closed*: si no puede demostrar que tiene el estado
@@ -8861,10 +8926,10 @@ pequeña.
 - No se construyó retención de eventos. Compromiso con CNO: si se introduce, con aviso previo y
   error explícito de cursor expirado.
 
-## 85. Mudar un cliente de router dejaba al cliente en el router viejo — 2026-09-30
+## 86. Mudar un cliente de router dejaba al cliente en el router viejo — 2026-09-30
 
-**Origen:** las mismas preguntas de CNO de la § 84, del lado de los datos de red. Tarjetas
-KAN-117, KAN-118 y KAN-119; pendientes P-75, P-76 y P-77.
+**Origen:** las mismas preguntas de CNO de la § 85, del lado de los datos de red. Tarjetas
+KAN-117, KAN-118 y KAN-119; pendientes P-77, P-78 y P-79.
 
 ### KAN-119 — limpieza del router anterior
 
@@ -8914,7 +8979,7 @@ son los datos anteriores a `service_status`:
 
 `customers:audit-access-flags` cuenta los tres casos con `COUNT(*)` real (las estimaciones de
 `pg_stat` ya dieron falsos positivos) y con `--list` los enumera. No corrige nada: qué valor
-manda en cada caso lo decide el ISP. Mientras tanto, desde la § 84 el feed avisa cuando
+manda en cada caso lo decide el ISP. Mientras tanto, desde la § 85 el feed avisa cuando
 `is_enabled` cambia solo, y a CNO se le recomendó exigir las dos señales.
 
 ### Verificación

@@ -540,10 +540,11 @@
                                         <span :class="item.is_return ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
                                             {{ item.is_return ? '←' : '→' }}
                                         </span>
-                                        {{ item.label }}
+                                        {{ item.is_device ? deviceModelText(item) : item.label }}
                                     </p>
                                     <p class="text-[11px] text-gray-500 dark:text-gray-400">
                                         {{ item.is_return ? (item.is_scrapped ? 'Retirado y dado de baja' : 'Retirado del cliente') : (item.is_device ? 'Equipo entregado' : 'Material usado') }}
+                                        <template v-if="item.is_device"> · {{ deviceIdsText(item) }}</template>
                                         <template v-if="!item.is_device"> · {{ item.quantity }}{{ item.unit ? ' ' + item.unit : '' }}</template>
                                         <template v-if="item.unit_price != null"> · {{ formatCurrency(item.unit_price * item.quantity) }}</template>
                                     </p>
@@ -582,26 +583,18 @@
                         </p>
 
                         <div v-if="puedeEquipos && !equipmentLocked" class="space-y-3 border-t border-gray-100 dark:border-gray-700 pt-4">
-                            <!-- Entregar un equipo con serial -->
-                            <div>
-                                <select v-model.number="devicePick" @change="addDevice" :disabled="equipmentBusy"
-                                    class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50">
-                                    <option :value="null">+ Entregar equipo con serial…</option>
-                                    <optgroup v-for="grupo in devicesByHolder" :key="grupo.label" :label="grupo.label">
-                                        <option v-for="d in grupo.items" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-                                    </optgroup>
-                                </select>
-                                <p v-if="equipmentLoaded && !availableDevices.length" class="mt-1 text-xs text-blue-600 dark:text-blue-400">
-                                    No tienes equipos con serial disponibles. Pide que te los entreguen en Inventario → Entregas.
-                                </p>
-                            </div>
+                            <!-- Entregar un equipo con serial. Se ve SIEMPRE: vacío,
+                                 explica por qué y cuál es el siguiente paso. -->
+                            <SerialDevicePicker v-model:model="serialModelFilter"
+                                :devices="availableDevices" :loaded="equipmentLoaded" :busy="equipmentBusy"
+                                action-label="Entregar" context="esta visita" @pick="addDevice" />
 
                             <!-- Retirar un equipo que el cliente ya tiene -->
                             <div v-if="installedDevices.length" class="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
                                 <select v-model.number="returnPick" :disabled="equipmentBusy"
                                     class="px-3 py-2 text-sm rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
                                     <option :value="null">− Retirar equipo del cliente…</option>
-                                    <option v-for="d in installedDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+                                    <option v-for="d in installedDevices" :key="d.id" :value="d.id">{{ deviceFullLabel(d) }}</option>
                                 </select>
                                 <select v-model="returnTarget" :disabled="equipmentBusy"
                                     class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
@@ -1211,6 +1204,8 @@ import TicketInterventions from '../components/TicketInterventions.vue'
 import TicketMeasurements from '../components/TicketMeasurements.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import ticketEquipmentApi from '@/services/api/ticket-equipment'
+import SerialDevicePicker from '../components/SerialDevicePicker.vue'
+import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 
 // R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan abajo porque
 // se deciden por código —que es estable— y son presentación.
@@ -1429,7 +1424,8 @@ const returnTargets = ref([])
 const equipmentLoaded = ref(false)
 const equipmentBusy = ref(false)
 
-const devicePick = ref(null)
+// Filtro de modelo del selector de unidades con serial.
+const serialModelFilter = ref(null)
 const returnPick = ref(null)
 const returnTarget = ref(null)
 const materialPick = ref(null)
@@ -1479,25 +1475,6 @@ const materialsStatus = ref({ code: 'ok', message: null })
 const equipmentLocked = computed(() =>
     equipmentLock.value.is_locked || !!ticket.value?.archived_at || !!workflow.value?.isTerminal
 )
-
-// Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
-// lo que está eligiendo sale de su mochila o de la bodega.
-const devicesByHolder = computed(() => {
-    const grupos = new Map()
-    for (const d of availableDevices.value) {
-        const clave = d.source_label || 'Inventario'
-        if (!grupos.has(clave)) grupos.set(clave, [])
-        grupos.get(clave).push(d)
-    }
-    return [...grupos.entries()].map(([label, items]) => ({ label, items }))
-})
-
-const deviceLabel = (d) => {
-    const partes = [`${d.brand ?? ''} ${d.model ?? ''}`.trim() || 'Equipo']
-    if (d.serial) partes.push(`S/N ${d.serial}`)
-    else if (d.mac) partes.push(d.mac)
-    return partes.join(' · ')
-}
 
 // La baja pinta el botón en rojo y avisa: no es un destino más, es sacar el
 // equipo del inventario para siempre.
@@ -1566,9 +1543,9 @@ const errorDeEquipo = (e, porDefecto) => {
     toast.value?.error('Error', detalle || porDefecto)
 }
 
-const addDevice = async () => {
-    const id = devicePick.value
-    devicePick.value = null
+/** Entrega la unidad elegida en el selector (su botón «Entregar»). */
+const addDevice = async (device) => {
+    const id = device?.id
     if (!id) return
 
     equipmentBusy.value = true

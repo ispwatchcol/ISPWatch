@@ -1315,6 +1315,27 @@ presentación compartidas —resumen, motivos de bloqueo, payload por `id`/`stoc
 `utils/installationPlan.js`. El servidor decide los bloqueos; la pantalla sólo evita ofrecer un
 botón que va a fallar y explica por qué.
 
+**Unidades con serial: una por una (2026-09-30).** El plan trabaja por **modelo**; el uso, por
+**unidad**. El selector de unidades es `components/SerialDevicePicker.vue`, compartido por
+`InstallationDetail.vue` («Agregar») y `SupportDetail.vue` («Entregar»):
+
+- Recibe `devices` tal como los da `/equipment/available` —que ya viene filtrado por las fuentes
+  que el usuario puede tomar— y **no calcula nada con otros datos**: las cifras «a tu alcance»
+  salen de esa lista. No le pases el catálogo de planificación: eso es la empresa entera.
+- Elegir en la lista no emite nada; sólo el botón de acción emite `pick(device)`, y es el padre el
+  que hace el `POST` con `device_id`. No vuelvas a un `<select @change>` que registre al elegir.
+- `v-model:model` fija el filtro de modelo (`stock_id`). «Elegir serial» del plan sólo fija ese
+  filtro y llama a `focus()` del componente (expuesto con `defineExpose`); nunca registra.
+- Con la lista vacía, el componente **no desaparece**: explica el motivo y el siguiente paso sin
+  nombrar unidades ni custodios que el usuario no puede consultar.
+- Las etiquetas salen de `utils/deviceLabels.js` (`deviceFullLabel`, `deviceIdsText`,
+  `deviceMatchesSearch`): modelo · serial · MAC siempre, con «sin informar» en el que falte; la
+  búsqueda compara sin mayúsculas ni separadores (`:`, `-`, `.`, espacios).
+
+Las pruebas que fijan el contrato del lado del servidor —se guarda el `device_id` elegido y no
+«uno del modelo», el kardex lleva ese serial, y serial + consumibles conviven en la misma orden y
+el mismo ticket— están en `tests/Feature/Inventory/SerializedUnitsAndConsumablesTest.php`.
+
 **Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
 `unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar
 sigue siendo `generateCharge()` con su propio bloqueo por `no_charge`. Y las líneas `in` nacen
