@@ -7,7 +7,9 @@
  *
  *  - `HelpCenterSeeder`, que en desarrollo BORRA y vuelve a sembrar todo;
  *  - la migración `2026_09_22_100000_seed_help_center_radius_aaa`, que es la
- *    que lleva el contenido a producción (los seeders nunca corren allí).
+ *    que lleva el contenido a producción (los seeders nunca corren allí), y
+ *    `2026_10_01_100000_update_help_center_integracion_aaa`, que lleva las
+ *    correcciones posteriores sin pisar lo editado desde el panel.
  *
  * POR QUÉ TAMBIÉN VIAJA AQUÍ EL ARTÍCULO DEL MÉTODO DE CONTROL
  * -------------------------------------------------------------
@@ -114,13 +116,24 @@ HTML,
   <li>Cuando el cliente paga, ISPWatch lo reactiva y publica la reconexión. Tu sistema la aplica.</li>
 </ol>
 <p><strong>Ten esto presente:</strong> ISPWatch da la orden, pero <strong>no puede comprobar que el corte se aplicó de verdad</strong> — eso ocurre en tu servidor, fuera de su alcance. En los otros métodos ISPWatch verifica y reintenta; aquí la verificación queda de tu lado.</p>
+<p>El corte por mora sólo se hace automáticamente si el router tiene configuración de facturación y su tipo de corte es <strong>Corte Automático</strong>, con día y hora de corte. Con <strong>Corte Manual</strong> ISPWatch no suspende por su cuenta: lo hace alguien desde el panel, y en ese momento se publica igual.</p>
 
 <h2>Qué necesita cada cliente</h2>
-<p>Para que un cliente de un router RADIUS quede correctamente dado de alta necesita:</p>
 <ul>
-  <li><strong>Usuario y contraseña PPPoE</strong>. Sin ellos el sistema te avisa de que el alta quedó incompleta.</li>
-  <li><strong>Una IP asignada</strong> en su ficha, aunque esa IP no se escriba en ningún equipo.</li>
+  <li><strong>Usuario y contraseña PPPoE</strong>. Sin ellos el sistema te avisa de que el alta quedó incompleta. El usuario no se puede repetir dentro del mismo router.</li>
+  <li><strong>La IP es opcional.</strong> En un router RADIUS ISPWatch no la usa para nada técnico. Si la cargas, no se puede repetir dentro del mismo router (sí en otro).</li>
 </ul>
+<p>Si tu servidor tiene sus propios valores de red para un cliente, esos mandan en la red: ISPWatch conserva los suyos como dato administrativo y no intenta corregir diferencias.</p>
+
+<h2>Mover un cliente de router</h2>
+<ul>
+  <li>El cliente toma de inmediato la configuración de facturación del router nuevo: día de factura, recordatorio, tipo y hora de corte y canal de aviso. Sus facturas y saldos no cambian.</li>
+  <li>Si el router anterior lo gestionaba ISPWatch (no RADIUS), ISPWatch <strong>retira en segundo plano la configuración del cliente de ese equipo</strong>. El resultado queda en la bitácora de <strong>Auditoría</strong>; si dice que no se pudo, hay que retirarla a mano.</li>
+  <li>Tu servidor se entera por el listado de cambios, con el router anterior y el nuevo.</li>
+</ul>
+
+<h2>Eliminar un cliente</h2>
+<p>Al eliminar a un cliente de un router RADIUS, ISPWatch no intenta conectarse al equipo (no hay nada suyo que borrar allí). Tu servidor recibe un aviso de eliminación con los servicios y el router del cliente, para que lo revoque.</p>
 
 <h2>Qué datos del router hacen falta</h2>
 <p>Con RADIUS activo, estos campos <strong>puedes dejarlos vacíos</strong>: interfaz LAN y WAN, rangos de IP, puertos API/web/SSH y los datos de VPN.</p>
@@ -128,15 +141,17 @@ HTML,
 
 <h2>Usar routers como agrupadores</h2>
 <p>Como en este modo ISPWatch no se conecta a ningún equipo, <strong>un router puede ser sólo una agrupación</strong> y no un MikroTik real. Es útil para separar clientes por criterio propio —por ejemplo, los de facturación electrónica de los de cuenta de cobro—, porque <strong>la configuración de facturación se define por router</strong>: cada grupo puede tener su propio día de facturación, su hora de aviso y su hora de corte.</p>
-<p><strong>Antes de mover muchos clientes a un mismo grupo:</strong> dentro de un router, dos clientes no pueden tener la misma IP. Si vienen de routers distintos donde esa IP se repetía, el sistema rechazará el duplicado. Conviene revisarlo antes de una migración grande.</p>
+<p><strong>Antes de mover muchos clientes a un mismo grupo:</strong> dentro de un router, dos clientes no pueden tener la misma IP ni el mismo usuario PPPoE. Si vienen de routers distintos donde se repetían, el sistema rechazará el duplicado. Conviene revisarlo antes de una migración grande.</p>
+<p>Para un router que es sólo un agrupador: no le configures VPN ni historial de tráfico (así ISPWatch no lo vigila ni avisa que está caído), y no uses los botones del panel que se conectan al equipo — fallarán, y es lo esperado.</p>
 
 <h2>Cómo lo ve el sistema que conectas</h2>
-<p>Si el proveedor de tu servidor AAA se conecta por la <strong>API pública</strong>, ISPWatch le indica en cada cliente y en cada servicio <strong>si su router está gestionado externamente</strong>, para que sepa de cuáles se tiene que hacer cargo. Las suspensiones y reconexiones también le llegan por el <strong>listado de cambios</strong> de la API.</p>
+<p>Si el proveedor de tu servidor AAA se conecta por la <strong>API pública</strong>, ISPWatch le indica en cada cliente y en cada servicio <strong>si su router está gestionado externamente</strong>, para que sepa de cuáles se tiene que hacer cargo. Por el <strong>listado de cambios</strong> le llegan las suspensiones y reconexiones, las bajas, los clientes eliminados, los cambios de router, de IP y de usuario PPPoE, y la activación o desactivación de RADIUS en un router.</p>
+<p>Todo lo que ese equipo técnico necesita —qué campo decide el acceso, qué garantiza el listado de cambios y cómo sincronizar sin perder nada— está en <em>Integraciones y API → «Guía técnica para integradores AAA: sincronizar sin perder cambios»</em>.</p>
 <p>Recuerda que la API pública es de <strong>sólo lectura</strong>: tu sistema puede enterarse de lo que ISPWatch decidió, pero no escribir de vuelta.</p>
 
 <h2>Recomendación antes de activarlo</h2>
 <p>El método de control es <strong>por router</strong>, no por cliente: no se puede activar RADIUS para unos clientes sí y otros no dentro del mismo router. Al activarlo, afecta de inmediato a todos los clientes de ese equipo.</p>
-<p>Por eso, para probar: <strong>crea un router aparte</strong> con RADIUS activo, mueve <strong>un solo cliente</strong>, y valida el ciclo completo —alta, factura, mora, corte, pago y reconexión— antes de tocar el resto.</p>
+<p>Por eso, para probar: <strong>crea un router aparte</strong> con RADIUS activo, mueve <strong>un solo cliente</strong>, y valida el ciclo completo —alta, factura, mora, corte, pago, reconexión y cambio de router— antes de tocar el resto. Si quieres probar el corte automático, ese router necesita configuración de facturación y tipo de corte <strong>Corte Automático</strong>.</p>
 HTML,
         ],
     ],

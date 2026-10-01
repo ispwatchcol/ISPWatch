@@ -8,7 +8,9 @@
  *  - `HelpCenterSeeder`, que en desarrollo BORRA y vuelve a sembrar todo el
  *    Centro de Ayuda;
  *  - la migración `2026_08_19_100000_seed_help_center_api_publica`, que es la
- *    que lleva este contenido a producción (los seeders nunca corren allí).
+ *    que lleva este contenido a producción (los seeders nunca corren allí), y
+ *    `2026_10_01_100000_update_help_center_integracion_aaa`, que lleva las
+ *    correcciones posteriores sin pisar lo editado desde el panel.
  *
  * Sin este archivo compartido habría dos copias del mismo texto, y la que se
  * quedaría vieja sería siempre la de producción — que es la única que alguien
@@ -98,7 +100,7 @@ HTML,
 <table>
   <tr><td><strong>Clientes</strong></td><td>Datos del abonado, plan, estado del servicio, router y sector. Sin contraseñas de red.</td></tr>
   <tr><td><strong>Servicios</strong></td><td>Los servicios contratados y su configuración de red (IP, usuario PPPoE, router).</td></tr>
-  <tr><td><strong>Cambios</strong></td><td>El listado de novedades: altas, cortes, reconexiones, cambios de plan y bajas.</td></tr>
+  <tr><td><strong>Cambios</strong></td><td>El listado de novedades: altas (también las de carga masiva), cortes, reconexiones, cambios de plan, bajas, clientes eliminados, cambios de router, de IP o de usuario PPPoE, y la activación de RADIUS en un router.</td></tr>
   <tr><td><strong>Cartera</strong></td><td>Facturas y pagos. <strong>Es el dato más sensible de la plataforma.</strong></td></tr>
   <tr><td><strong>Soporte</strong></td><td>Tickets e instalaciones.</td></tr>
 </table>
@@ -203,7 +205,7 @@ HTML,
 <h2>Orden recomendado de prueba</h2>
 <ol>
   <li><code>GET /ping</code> — confirma llave, permisos e IP.</li>
-  <li><code>GET /customers?per_page=5</code> — primera página real.</li>
+  <li><code>GET /customers?after_id=0&amp;per_page=5</code> — primera página real. Para seguir, se manda <code>after_id</code> con el valor <code>next_after_id</code> de la respuesta, mientras <code>has_more</code> sea <code>true</code>.</li>
   <li><code>GET /customers/{id}</code> — el detalle de uno de los anteriores.</li>
   <li><code>GET /services?customer_id={id}</code> — sus servicios.</li>
   <li><code>GET /events?since=0&amp;limit=50</code> — el listado de cambios. Guarda el valor <code>next_since</code> que viene en la respuesta.</li>
@@ -224,6 +226,84 @@ HTML,
 <p>La función de "ejecutar toda la colección" de Postman lanza decenas de peticiones seguidas y choca contra el límite por minuto enseguida. Para probar, lanza las consultas de una en una.</p>
 HTML,
         'tips'    => 'Si la llave la vas a pegar en un chat, un correo o un ticket para pasársela a alguien, dala por comprometida: revócala y emite otra. Se muestra una sola vez justamente para que no ande circulando.',
+    ],
+    [
+        'title'   => 'Guía técnica para integradores AAA: sincronizar sin perder cambios',
+        'display_order' => 7,
+        'is_published'  => true,
+        'content' => <<<'HTML'
+<h2>Para quién es esta guía</h2>
+<p>Para el equipo técnico que conecta su <strong>servidor de autenticación</strong> (RADIUS, AAA) a ISPWatch y decide, con estos datos, a quién deja navegar. Si tu sistema trabaja en modo <em>fail-closed</em> —si no puede demostrar que tiene el estado completo y vigente, no aplica la decisión—, aquí está exactamente lo que ISPWatch garantiza y lo que no. El contrato formal (OpenAPI 1.1.0) dice lo mismo campo por campo y se descarga en <code>/api/v1/partner/openapi.yaml</code>.</p>
+
+<h2>Reparto de responsabilidades</h2>
+<ul>
+  <li><strong>ISPWatch decide</strong>: factura, calcula la mora y fija el estado comercial de cada cliente.</li>
+  <li><strong>Tu servidor ejecuta</strong>: autentica, corta y reconecta en la red.</li>
+  <li>La API es de <strong>sólo lectura</strong>. ISPWatch da por cumplida su parte al cambiar el estado y publicar el evento; hoy no existe un canal para que tu sistema confirme que aplicó el corte.</li>
+</ul>
+
+<h2>Con qué se decide el acceso</h2>
+<p>El campo que manda es <code>service_status</code> (está en <code>/services/{id}</code> y en <code>/customers/{id}</code>):</p>
+<table>
+  <tr><td><code>activo</code>, <code>gratis</code></td><td>Hay servicio: permitir.</td></tr>
+  <tr><td><code>suspendido</code></td><td>Corte por mora o manual: denegar.</td></tr>
+  <tr><td><code>cancelado</code>, <code>retirado</code></td><td>Baja definitiva: denegar. Un pago posterior no la revierte.</td></tr>
+</table>
+<p>Una integración fail-closed debe exigir además <code>is_enabled = true</code> (en <code>/customers</code>). Los dos se mueven juntos —la auditoría de producción del 2026-10-01 encontró cero fichas desalineadas—, pero exigir ambos no cuesta nada. Ante cualquier valor que no reconozcas, deniega.</p>
+<p><strong>No sirven para decidir acceso:</strong> <code>status</code> de <code>/services</code> (es el contrato de servicio, no el estado comercial), <code>excluded_from_billing</code> y <code>plan.is_courtesy</code> (afectan el cobro, no la conexión).</p>
+
+<h2>Qué avisa el listado de cambios</h2>
+<table>
+  <tr><td><code>SERVICE_CREATED</code></td><td>Alta de un servicio, desde el panel o por carga masiva.</td></tr>
+  <tr><td><code>SERVICE_ACTIVATED</code> / <code>SERVICE_REACTIVATED</code></td><td>Pasa a <code>activo</code>/<code>gratis</code> (la segunda, saliendo de <code>suspendido</code>).</td></tr>
+  <tr><td><code>SERVICE_SUSPENDED</code></td><td>Pasa a <code>suspendido</code>.</td></tr>
+  <tr><td><code>SERVICE_CANCELLED</code></td><td>Pasa a <code>retirado</code> o <code>cancelado</code>.</td></tr>
+  <tr><td><code>PLAN_CHANGED</code></td><td>Cambio de plan (velocidades). Puede llegar dos veces.</td></tr>
+  <tr><td><code>CUSTOMER_UPDATED</code></td><td>Datos de identidad, o <code>is_enabled</code> cuando cambia solo.</td></tr>
+  <tr><td><code>ROUTER_CHANGED</code></td><td>El cliente cambió de router (trae el anterior y el nuevo), o el ISP activó o desactivó RADIUS en su router (mismo router en los dos).</td></tr>
+  <tr><td><code>NETWORK_CHANGED</code></td><td>Cambió la IP o el usuario PPPoE. Trae qué campos, no los valores.</td></tr>
+  <tr><td><code>CUSTOMER_DELETED</code></td><td>El cliente se eliminó del todo: ya no existe en la API (responde 404). El evento trae sus <code>service_ids</code>, su router y si ese router era AAA, para que puedas revocar sin consultar nada.</td></tr>
+</table>
+<p>El evento es <strong>delgado</strong>: dice qué cambió, no trae el estado. Tómalo como disparador, vuelve a consultar el recurso y decide con lo que diga <strong>ahora</strong>, aunque sea más nuevo que el evento. Si en el futuro aparecen tipos nuevos, los existentes no cambian de nombre: ignora los que no conozcas.</p>
+
+<h2>Las garantías del listado de cambios</h2>
+<ul>
+  <li><strong>En orden y sin huecos para quien lo sigue bien.</strong> Pide <code>/events?since=N</code> y manda en la siguiente llamada el <code>next_since</code> que te devolvió. El número de cada evento se asigna cuando el cambio ya está guardado, en serie: nunca aparece un evento con número menor que otro que ya recibiste.</li>
+  <li><strong>Al menos una vez.</strong> Un mismo cambio puede llegar dos veces. Deduplica por <code>event_id</code> y procesa de forma idempotente (volver a consultar y aplicar el estado actual).</li>
+  <li><strong>La numeración tiene saltos.</strong> Es compartida entre empresas. Un salto no es un evento perdido.</li>
+  <li><strong>Retención.</strong> Hoy los eventos no se borran. Si algún día se introduce un límite, se avisará antes y un cursor más viejo que lo conservado recibirá un error explícito, nunca un lote incompleto en silencio.</li>
+</ul>
+
+<h2>Procedimiento recomendado</h2>
+<ol>
+  <li>Recorre <code>/events</code> hasta que <code>has_more</code> sea <code>false</code> y guarda el <code>next_since</code>.</li>
+  <li>Barre <code>/customers</code> y <code>/services</code> completos con <strong><code>after_id</code></strong>, no con <code>page</code>. Para un solo NAS, ambos aceptan <code>router_id</code>.</li>
+  <li>Vuelve a pedir <code>/events</code> desde el cursor del paso 1: lo que cambió mientras barrías llega ahí.</li>
+  <li>Sigue <code>/events</code> en ciclo.</li>
+  <li>Repite el barrido completo de vez en cuando como reconciliación.</li>
+</ol>
+<p>Si pierdes el cursor, vuelve al paso 1.</p>
+
+<h3>Por qué <code>after_id</code> y no <code>page</code></h3>
+<p>Los listados no son una foto congelada: cada página es una consulta aparte. Con <code>page</code>, si se elimina un cliente anterior a la página en la que vas, todo se corre un lugar y se salta un cliente que no cambió, sin ningún error. Con <code>after_id</code> eso no pasa. Se recorre así: <code>after_id=0</code>, y luego el <code>next_after_id</code> de cada respuesta mientras <code>has_more</code> sea <code>true</code>. No se puede mezclar con <code>page</code>.</p>
+
+<h3>Lo que no hay que usar para decidir acceso</h3>
+<p><code>updated_since</code> sirve para listados baratos, no para esto: en <code>/customers</code> mira la fecha del usuario y en <code>/services</code> la del contrato, y ninguna de las dos cambia cuando se corta o se reconecta a alguien. Para eso está <code>/events</code>.</p>
+
+<h2>Cambios de router</h2>
+<p>Cuando el ISP mueve un cliente de router, el campo <code>router_id</code> y el indicador <code>managed_by_external_aaa</code> cambian juntos en la misma respuesta (el indicador sale del router asignado, no se guarda por cliente). Te llega un <code>ROUTER_CHANGED</code> con el router anterior: es el que necesitas para revocar en ese NAS. Si el router anterior lo gestionaba ISPWatch, ISPWatch retira además la configuración del cliente de ese equipo.</p>
+
+<h2>IP y usuario PPPoE</h2>
+<ul>
+  <li><strong>IP</strong>: única por router (la misma puede repetirse en otro router). La base de datos lo impide. En routers RADIUS ISPWatch no la usa para nada técnico.</li>
+  <li><strong>Usuario PPPoE</strong>: único por router, no global. También lo impide la base de datos.</li>
+  <li>La contraseña PPPoE <strong>no sale nunca</strong> por la API. Tu servidor es la autoridad técnica sobre los atributos de red; ISPWatch los conserva como dato administrativo.</li>
+</ul>
+
+<h2>Límites</h2>
+<p>60 peticiones por minuto y 5.000 por hora por llave. Hasta 100 filas por página en los listados y 500 eventos por llamada. Al pasarse, la respuesta es <code>429</code> con <code>Retry-After</code>. Un barrido completo cuesta más o menos una petición por cada 100 clientes más una por cada 100 servicios: espácialas.</p>
+HTML,
+        'tips'    => 'Antes de pasar clientes reales, prueba el ciclo completo con un solo cliente en un router aparte: alta, factura, mora, corte, pago, reconexión y cambio de router. Cada paso tiene que llegarte por el listado de cambios.',
     ],
     ],
 ];
