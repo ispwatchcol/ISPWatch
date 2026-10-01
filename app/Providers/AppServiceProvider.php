@@ -12,6 +12,7 @@ use App\Models\Plan;
 use App\Models\Router;
 use App\Models\SupportTicket;
 use App\Models\UserService;
+use App\Observers\CustomerRouterMoveObserver;
 use App\Observers\MoneyAuditObserver;
 use App\Observers\PartnerEventObserver;
 use App\Observers\SupportTicketHistoryObserver;
@@ -59,6 +60,7 @@ class AppServiceProvider extends ServiceProvider
 
         $this->registerMoneyAudit();
         $this->registerPartnerEvents();
+        CustomerProfile::observe(CustomerRouterMoveObserver::class);
         SupportTicket::observe(SupportTicketHistoryObserver::class);
         $this->configureRateLimiting();
     }
