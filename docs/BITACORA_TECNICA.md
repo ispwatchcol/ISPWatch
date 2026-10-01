@@ -9025,3 +9025,85 @@ texto viejo no tenía.
 La prueba usa como fixture el texto exacto publicado el 2026-09-22
 (`tests/Fixtures/help_center/radius_aaa_2026-09-22.html`) y verifica su huella: sin eso, la
 prueba no distinguiría "sin editar" de "editado".
+
+## 88. Mensualidades faltantes y pagos convertidos en saldo a favor — 2026-10-01
+
+**Incidente urgente, abierto.** Reporte: clientes sin la factura del periodo esperado, algunos
+con el pago ya registrado como saldo a favor. Uno de ellos tiene activada «No enviar
+notificaciones de factura»; los otros, configuración normal. Esta entrada registra lo que se
+pudo establecer **sin datos de producción**: no hubo acceso autorizado de sólo lectura, y el
+conector de base de datos disponible no es de sólo lectura, así que no se usó.
+
+### Lo que se descartó en el código
+
+**«No enviar notificaciones» NO excluye de la generación en `main`.** `notify_invoice` sólo
+se consulta en `notifyInvoiceCreated()`, después de crear la factura, y en los recordatorios.
+La corrida filtra por `exclude_from_billing`, que es la otra casilla («No facturar a este
+cliente»). Se reprodujo de punta a punta con datos ficticios —cliente silenciado más
+`generateMonthlyInvoices()`— y la factura sale, sin aviso.
+
+La prueba que decía cubrir esto (`the_monthly_invoice_is_still_generated_for_a_silenced_customer`)
+**no ejecutaba la corrida**: creaba la factura a mano y comprobaba que existiera. El caso
+nunca estuvo probado de verdad; ahora sí.
+
+Si en producción ese cliente no tiene factura, la causa es otra, o producción corre una
+versión distinta de `main`. Las dos cosas se resuelven con datos, no con código.
+
+### Lo que sí se encontró y se corrigió
+
+**La mensualidad no era atómica ni exclusiva.** `createMonthlyInvoiceFor()` eran escrituras
+sueltas —factura, ítem, arrastre, adicionales, saldo a favor— precedidas de un «¿ya existe?»
+que cada llamador hacía por su cuenta y sin bloqueo. Cuatro caminos llegan ahí: la corrida
+horaria, el reintento (`billing:retry-failed`), la primera factura del alta y, a partir de
+ahora, la reparación. Dos a la vez sobre el mismo cliente emitían **dos mensualidades y
+aplicaban el saldo a favor dos veces**. Probado: con el `BillingService` de `main`, el
+segundo escritor crea la segunda factura.
+
+Arreglo: transacción, bloqueo de la fila de `customer_profile` (que es además donde vive
+`credit_balance`) y segunda comprobación **dentro** del bloqueo. Quien llega segundo sale con
+`MonthlyInvoiceAlreadyExists`, y cada llamador lo trata como «ya estaba hecha», no como fallo:
+la corrida no lo marca para reintento, el reintento cierra el log como éxito y el alta lo
+omite. La notificación quedó **fuera** de la transacción, para que un fallo de correo siga sin
+deshacer la factura.
+
+Es requisito de la reparación: un router en modo vencido genera en octubre la factura de
+septiembre, así que la reparación y la corrida horaria pueden coincidir sobre el mismo
+cliente y el mismo mes.
+
+### Herramienta de diagnóstico y reparación
+
+`php artisan billing:missing-invoices --tenant=<id> --period=YYYY-MM`. Por defecto **no
+escribe nada**. Pasa a cada cliente del tenant por las mismas puertas que la corrida
+(`BillingService::explainMonthlyInvoice()`) y dice si la mensualidad falta, existe (o está
+anulada), o no le corresponde y por qué. Para cada faltante muestra el total, el saldo a
+favor antes, el que se aplicaría, el saldo de la factura y el crédito restante, y si se
+avisaría. Imprime un `plan-hash`.
+
+Con `--apply` exige la lista explícita de clientes, un motivo y **el mismo hash**: si algo
+cambió entre la aprobación y la ejecución, no toca nada. Emite con
+`repairMissingMonthlyInvoice()`, que reutiliza `createMonthlyInvoiceFor()` —mismo importe,
+mismo vencimiento según las reglas del router, el saldo a favor existente, sin crear ningún
+pago— y respeta `notify_invoice`. Deja el motivo en la nota de la factura, el origen
+`console` en `audit_logs` y una línea `[BILLING-REPAIR]` en el log, y termina con una
+verificación posterior.
+
+Una prueba confirma que diagnóstico y corrida coinciden cliente por cliente: lo que
+`explain` llama faltante es exactamente lo que la corrida emite.
+
+### Causas posibles que quedan por confirmar con datos
+
+Ninguna se puede atribuir a un caso sin consultar producción:
+
+- **Factura anulada.** `monthlyInvoiceExists()` cuenta las anuladas, y `voidInvoice()`
+  devuelve sus pagos como saldo a favor. Una mensualidad anulada deja exactamente el síntoma
+  reportado —sin factura vigente y el pago como saldo— y la corrida no la repone. La
+  herramienta lo reporta como `invoice_voided` y **no** la repara: reponerla es una decisión.
+- **Router sin día de creación** (P-28, KAN-48): la corrida salta el router entero.
+- **Tope de facturas pendientes**, **servicio no activo**, **plan de cortesía**, **mes
+  suprimido** por un borrado y **política de primera factura**.
+- **Periodo**: en modo vencido, la factura de septiembre sale en octubre.
+
+### Pendiente
+
+El incidente **no está resuelto**. Falta resolver con datos el tenant, los IDs y el periodo;
+ejecutar la simulación con acceso autorizado; aprobar el plan; aplicarlo, y conciliar después.

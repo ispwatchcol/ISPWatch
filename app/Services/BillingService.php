@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Billing\FirstInvoicePolicy;
+use App\Billing\MonthlyInvoiceAlreadyExists;
 use App\Mail\InvoiceCreatedMail;
 use App\Models\Billing;
 use App\Models\BillingActionLog;
@@ -301,6 +302,11 @@ class BillingService
                     );
                     $created++;
                     $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $invoice->id);
+                } catch (MonthlyInvoiceAlreadyExists $e) {
+                    // Otra ejecución la emitió entre la comprobación de arriba y
+                    // ésta. No es un fallo: no se marca para reintento.
+                    Log::info("Billing: Customer {$customerId} — {$e->getMessage()} No se duplica.");
+                    $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $e->invoice->id);
                 } catch (\Throwable $e) {
                     Log::error("Billing: Failed to create invoice for customer {$customerId}: {$e->getMessage()}");
                     $this->markActionLogFailed($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $e->getMessage());
@@ -514,6 +520,266 @@ class BillingService
      * operador. A diferencia del corte, aquí NO se filtra por vencimiento: la
      * factura del mes en curso, aunque todavía no venza, ya cuenta para el tope.
      */
+    /**
+     * ¿Le corresponde a este cliente la mensualidad de $periodMonth, la tiene,
+     * y si no, por qué? NO escribe nada.
+     *
+     * Recorre las mismas puertas que generateMonthlyInvoices(), en el mismo
+     * orden, y dice en cuál se quedó el cliente. Existe por el incidente del
+     * 2026-10-01: «no tiene factura» no basta para declarar una faltante —puede
+     * estar anulada, en otro periodo, o no corresponderle—, y la única forma de
+     * saberlo sin adivinar es preguntárselo a las reglas de la propia corrida.
+     *
+     * Ojo: evalúa el estado de HOY (servicio, tope de mora, saldo a favor). Si
+     * el día de la corrida el cliente estaba en otra situación, el motivo de
+     * entonces pudo ser distinto; para eso están los logs de esa fecha.
+     *
+     * Decisiones:
+     *   missing        → le corresponde y no la tiene; trae la vista previa
+     *   present        → ya tiene mensualidad del mes (puede estar anulada)
+     *   not_applicable → no le corresponde; `reason` dice por qué
+     *
+     * @return array<string,mixed>
+     */
+    public function explainMonthlyInvoice(CustomerProfile $profile, Router $router, Carbon $periodMonth): array
+    {
+        return $this->evaluateMonthlyInvoice($profile, $router, $periodMonth)['row'];
+    }
+
+    /**
+     * Emite la mensualidad faltante de un cliente, sólo si explainMonthlyInvoice()
+     * dice `missing` en este mismo momento.
+     *
+     * Usa createMonthlyInvoiceFor(): mismo importe, mismo arrastre, mismos
+     * adicionales, el saldo a favor que ya tiene (sin crear ningún pago) y la
+     * preferencia de aviso del cliente. Bloquea al cliente y vuelve a mirar, así
+     * que correr a la vez que la corrida horaria no duplica.
+     *
+     * @return array<string,mixed> la fila de explain, más `applied` e `invoice_id`
+     */
+    public function repairMissingMonthlyInvoice(CustomerProfile $profile, Router $router, Carbon $periodMonth, string $notes): array
+    {
+        ['row' => $row, 'context' => $ctx] = $this->evaluateMonthlyInvoice($profile, $router, $periodMonth);
+
+        if ($row['decision'] !== 'missing') {
+            return $row + ['applied' => false, 'invoice_id' => $row['existing_invoice']['id'] ?? null];
+        }
+
+        try {
+            $invoice = $this->createMonthlyInvoiceFor(
+                tenantId:        $ctx['tenant_id'],
+                customerId:      $ctx['customer_id'],
+                router:          $router,
+                profile:         $profile,
+                servicePlan:     $ctx['plan'],
+                issueDate:       $ctx['issue_date'],
+                dueDate:         $ctx['due_date'],
+                periodStart:     $ctx['charge']['period_start'],
+                periodEnd:       $ctx['period_end'],
+                billingConfig:   $router->billingConfig,
+                amount:          $ctx['charge']['amount'],
+                itemDescription: $ctx['charge']['description'],
+                free:            $ctx['charge']['free'] ?? false,
+                notes:           $notes,
+            );
+        } catch (MonthlyInvoiceAlreadyExists $e) {
+            return array_merge($row, [
+                'decision' => 'present',
+                'reason'   => 'created_concurrently',
+                'detail'   => 'Otra ejecución la emitió mientras tanto; no se duplicó.',
+                'applied'  => false,
+                'invoice_id' => $e->invoice->id,
+            ]);
+        }
+
+        $this->markActionLogSuccess(
+            $ctx['tenant_id'], $router->id, $ctx['customer_id'], $ctx['period_start'], $ctx['period_end'], $invoice->id
+        );
+
+        Log::warning("[BILLING-REPAIR] Factura {$invoice->number} emitida para el cliente {$ctx['customer_id']} "
+            . "(tenant {$ctx['tenant_id']}, periodo {$ctx['period_start']->format('Y-m')}): {$notes}");
+
+        return $row + ['applied' => true, 'invoice_id' => $invoice->id];
+    }
+
+    /**
+     * El recorrido de explainMonthlyInvoice(), devolviendo además lo que hace
+     * falta para emitir (plan, cargo, fechas) sin volver a calcularlo.
+     *
+     * @return array{row: array<string,mixed>, context: array<string,mixed>}
+     */
+    private function evaluateMonthlyInvoice(CustomerProfile $profile, Router $router, Carbon $periodMonth): array
+    {
+        $today       = now();
+        $tenantId    = (int) $router->tenant_id;
+        $customerId  = (int) $profile->user_id;
+        $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
+        $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
+        $config      = $router->billingConfig;
+
+        $row = [
+            'tenant_id'        => $tenantId,
+            'customer_id'      => $customerId,
+            'customer_name'    => trim("{$profile->name} {$profile->last_name}"),
+            'router_id'        => (int) $router->id,
+            'period'           => $periodStart->format('Y-m'),
+            'notify_invoice'   => (bool) $profile->notify_invoice,
+            'decision'         => 'not_applicable',
+            'reason'           => null,
+            'detail'           => null,
+            'existing_invoice' => null,
+            'preview'          => null,
+        ];
+        $context = [];
+        $out = function (string $decision, string $reason, string $detail) use (&$row, &$context) {
+            $row['decision'] = $decision;
+            $row['reason']   = $reason;
+            $row['detail']   = $detail;
+
+            return ['row' => $row, 'context' => $context];
+        };
+
+        // ── Puertas del router (generateMonthlyInvoices, en orden) ──────────
+        if (!$router->billing_router_id || !$config) {
+            return $out('not_applicable', 'router_without_billing', "El router {$router->id} no tiene configuración de facturación.");
+        }
+
+        $rawDay = Billing::dayOf($config->create_invoice);
+
+        if ($rawDay === null) {
+            // P-28 / KAN-48: la corrida salta el router entero, en silencio.
+            return $out('not_applicable', 'router_without_create_day', "El router {$router->id} no tiene día de creación de facturas: la corrida lo salta entero (P-28).");
+        }
+
+        // Cuándo debía salir la factura de ESTE periodo: en anticipado, el día
+        // configurado del propio mes; en vencido, el del mes siguiente.
+        $mode     = $config->billing_mode ?: Billing::MODE_ANTICIPADO;
+        $runMonth = $mode === Billing::MODE_VENCIDO ? $periodStart->copy()->addMonthNoOverflow() : $periodStart->copy();
+        $runDay   = Billing::clampDayToMonth($rawDay, $runMonth);
+        $dueAt    = Billing::applyTimeOfDay($runMonth->copy()->setDay($runDay), $config->create_invoice_time);
+        $row['expected_run_at'] = $dueAt->toDateTimeString();
+
+        if ($today->lt($dueAt)) {
+            return $out('not_applicable', 'not_due_yet', "La corrida de este periodo sale el {$dueAt->format('Y-m-d H:i')} (modo {$mode}).");
+        }
+
+        // ── Puertas del cliente ─────────────────────────────────────────────
+        if ($profile->exclude_from_billing) {
+            return $out('not_applicable', 'excluded_from_billing', 'Marcado «No facturar a este cliente».');
+        }
+
+        if (!$profile->hasBillableServiceStatus()) {
+            return $out('not_applicable', 'service_status', "Estado de servicio «{$profile->service_status}»: fuera del ciclo.");
+        }
+
+        $userService = UserService::where('user_id', $customerId)
+            ->where('status', UserService::STATUS_ACTIVE)
+            ->with('servicePlan')
+            ->first();
+        $plan = $userService?->servicePlan;
+
+        if (!$userService || !$plan || $plan->is_courtesy) {
+            $motivo = match (true) {
+                !$userService => ['no_active_service', 'Sin servicio activo.'],
+                !$plan        => ['no_plan', 'El servicio activo no tiene plan.'],
+                default       => ['courtesy_plan', "Plan de cortesía «{$plan->name}»."],
+            };
+
+            // Puede corresponderle una factura SÓLO de adicionales; esa ruta no
+            // la cubre esta herramienta y se reporta para revisión manual.
+            return $out('not_applicable', $motivo[0], $motivo[1] . ' (si tiene servicios adicionales, revisar a mano).');
+        }
+
+        $existing = $this->monthlyInvoicesOfPeriod($periodStart, $periodEnd)
+            ->where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->orderBy('id')
+            ->first();
+
+        if ($existing) {
+            $row['existing_invoice'] = [
+                'id'          => (int) $existing->id,
+                'number'      => $existing->number,
+                'status'      => $existing->status,
+                'total'       => (float) $existing->total,
+                'balance_due' => (float) $existing->balance_due,
+                'period_start'=> Carbon::parse($existing->period_start)->toDateString(),
+            ];
+
+            // Anulada sigue contando como «ya tiene»: la corrida no la repone.
+            // Se distingue porque reponerla es una decisión, no una reparación.
+            return in_array($existing->status, [Invoice::STATUS_VOID, 'cancelled'], true)
+                ? $out('present', 'invoice_voided', "La mensualidad {$existing->number} del periodo está anulada; la corrida no la repone.")
+                : $out('present', 'invoice_present', "Tiene la mensualidad {$existing->number}.");
+        }
+
+        if ($this->isRegenerationSuppressed($tenantId, $customerId, $periodStart)) {
+            return $out('not_applicable', 'regeneration_suppressed', 'Un administrador eliminó la factura de este periodo: no se regenera.');
+        }
+
+        $stopAt = $config->invoiceStopThreshold();
+
+        if ($stopAt !== null && $this->pendingInvoiceCount($tenantId, $customerId) >= $stopAt) {
+            return $out('not_applicable', 'stop_threshold', "Tope del router: {$stopAt} factura(s) pendientes o más.");
+        }
+
+        $profile->loadMissing('user:id,created_at');
+        $charge = $this->resolveFirstInvoiceCharge($profile, $userService, $config, $plan, $periodStart, $periodEnd);
+
+        if ($charge === null) {
+            return $out('not_applicable', 'first_invoice_policy', 'La política de primera factura no cobra este periodo.');
+        }
+
+        // ── Le corresponde y no la tiene: vista previa exacta ───────────────
+        $free       = (bool) ($charge['free'] ?? false);
+        $planAmount = $free ? 0.0 : (float) $charge['amount'];
+        $carry      = $free ? 0.0 : round((float) InvoiceCarryover::pending()
+            ->where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->sum('amount'), 2);
+        $extras     = round((float) collect($this->chargeableAdditionalServices(
+            $tenantId, $customerId, $periodStart, $periodEnd, $free
+        ))->sum('amount'), 2);
+
+        $total         = round($planAmount + $carry + $extras, 2);
+        $creditBefore  = round((float) $profile->fresh()->credit_balance, 2);
+        $creditToApply = $total > 0 ? round(min(max($creditBefore, 0), $total), 2) : 0.0;
+        $issueDate     = $today->copy()->startOfDay();
+        $dueDate       = $this->resolveDueDate($config, $issueDate);
+        $balanceAfter  = round($total - $creditToApply, 2);
+
+        $row['preview'] = [
+            'period_start'    => Carbon::parse($charge['period_start'])->toDateString(),
+            'period_end'      => $periodEnd->toDateString(),
+            'issue_date'      => $issueDate->toDateString(),
+            'due_date'        => $dueDate->toDateString(),
+            'plan_amount'     => $planAmount,
+            'carryover'       => $carry,
+            'additional'      => $extras,
+            'total'           => $total,
+            'credit_before'   => $creditBefore,
+            'credit_to_apply' => $creditToApply,
+            'balance_due'     => $balanceAfter,
+            'credit_after'    => round($creditBefore - $creditToApply, 2),
+            // Lo que haría notifyInvoiceCreated(): sólo si queda algo por pagar
+            // y el cliente no silenció los avisos.
+            'will_notify'     => $balanceAfter > 0 && (bool) $profile->notify_invoice,
+        ];
+
+        $context = [
+            'tenant_id'    => $tenantId,
+            'customer_id'  => $customerId,
+            'plan'         => $plan,
+            'charge'       => $charge,
+            'issue_date'   => $issueDate,
+            'due_date'     => $dueDate,
+            'period_start' => $periodStart,
+            'period_end'   => $periodEnd,
+        ];
+
+        return $out('missing', 'missing', 'Le corresponde la mensualidad del periodo y no la tiene.');
+    }
+
     protected function pendingInvoiceCount(int $tenantId, int $customerId): int
     {
         return Invoice::where('tenant_id', $tenantId)
@@ -550,6 +816,26 @@ class BillingService
             ->where(fn ($q) => $q->where('invoice_type', Invoice::TYPE_MONTHLY)->orWhereNull('invoice_type'))
             ->whereDate('period_start', '>=', $periodStart->toDateString())
             ->whereDate('period_start', '<=', $periodEnd->toDateString());
+    }
+
+    /**
+     * Bloquea la fila del perfil hasta el final de la transacción en curso.
+     *
+     * Es el cerrojo de «una mensualidad por cliente y mes» y también el del
+     * saldo a favor: `credit_balance` vive en esa misma fila, así que dos
+     * ejecuciones no pueden leer el mismo saldo y aplicarlo cada una.
+     * lockForUpdate() no existe en SQLite (la suite), donde tampoco hay
+     * concurrencia real; el mismo criterio que InventoryLedger::lockBalance().
+     */
+    protected function lockCustomerForMonthlyInvoice(int $customerId): void
+    {
+        $query = CustomerProfile::where('user_id', $customerId);
+
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $query->lockForUpdate();
+        }
+
+        $query->first();
     }
 
     /**
@@ -800,21 +1086,25 @@ class BillingService
 
         $issueDate = $today->copy()->startOfDay();
 
-        $invoice = $this->createMonthlyInvoiceFor(
-            tenantId:        $tenantId,
-            customerId:      $customerId,
-            router:          $router,
-            profile:         $profile,
-            servicePlan:     $servicePlan,
-            issueDate:       $issueDate,
-            dueDate:         $this->resolveDueDate($billingConfig, $issueDate),
-            periodStart:     $charge['period_start'],
-            periodEnd:       $periodEnd,
-            billingConfig:   $billingConfig,
-            amount:          $charge['amount'],
-            itemDescription: $charge['description'],
-            free:            $charge['free'] ?? false,
-        );
+        try {
+            $invoice = $this->createMonthlyInvoiceFor(
+                tenantId:        $tenantId,
+                customerId:      $customerId,
+                router:          $router,
+                profile:         $profile,
+                servicePlan:     $servicePlan,
+                issueDate:       $issueDate,
+                dueDate:         $this->resolveDueDate($billingConfig, $issueDate),
+                periodStart:     $charge['period_start'],
+                periodEnd:       $periodEnd,
+                billingConfig:   $billingConfig,
+                amount:          $charge['amount'],
+                itemDescription: $charge['description'],
+                free:            $charge['free'] ?? false,
+            );
+        } catch (MonthlyInvoiceAlreadyExists $e) {
+            return $skip("cliente {$customerId}: la corrida mensual emitió la de {$periodStart->format('Y-m')} mientras tanto");
+        }
 
         $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $invoice->id);
 
@@ -851,12 +1141,105 @@ class BillingService
         ?float $amount = null,
         ?string $itemDescription = null,
         bool $free = false,
+        ?string $notes = null,
     ): Invoice {
         $subtotal    = $free ? 0.0 : ($amount ?? (float) ($servicePlan->cost_product ?? 0));
         $tax         = 0;
         $total       = $subtotal + $tax;
         $description = $itemDescription ?: "Servicio mensual: {$servicePlan->name}";
 
+        // Todo o nada, y una sola vez por cliente y mes.
+        //
+        // Antes esto eran escrituras sueltas precedidas de un «¿ya existe?» que
+        // cada llamador hacía por su cuenta y sin bloqueo. Cuatro caminos llegan
+        // aquí —la corrida horaria, el reintento, la primera factura del alta y
+        // la reparación de faltantes— y dos a la vez sobre el mismo cliente
+        // emitían dos mensualidades y le aplicaban el saldo a favor dos veces.
+        // Y un fallo a mitad (al aplicar el crédito, por ejemplo) dejaba una
+        // factura a medio armar que la corrida siguiente daba por buena.
+        //
+        // La fila del perfil se bloquea y la existencia se vuelve a comprobar
+        // DENTRO del bloqueo: quien llegue segundo espera, ve la factura del
+        // primero y sale con MonthlyInvoiceAlreadyExists. El mes se toma de
+        // $periodEnd porque $periodStart puede ser el día de instalación.
+        $invoice = DB::transaction(function () use (
+            $tenantId, $customerId, $router, $profile, $servicePlan, $issueDate, $dueDate,
+            $periodStart, $periodEnd, $subtotal, $tax, $total, $description, $free, $notes
+        ) {
+            $this->lockCustomerForMonthlyInvoice($customerId);
+
+            $existing = $this->monthlyInvoicesOfPeriod($periodEnd->copy()->startOfMonth(), $periodEnd)
+                ->where('tenant_id', $tenantId)
+                ->where('customer_id', $customerId)
+                ->first();
+
+            if ($existing) {
+                throw new MonthlyInvoiceAlreadyExists($existing);
+            }
+
+            return $this->writeMonthlyInvoice(
+                $tenantId, $customerId, $router, $profile, $servicePlan, $issueDate, $dueDate,
+                $periodStart, $periodEnd, $subtotal, $tax, $total, $description, $free, $notes
+            );
+        });
+
+        $invoiceNumber = $invoice->number;
+
+        Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id})"
+            . ($free ? ' — mes de cortesía (plan en cero).' : '.'));
+
+        // Se notifica lo que hay que pagar, y sólo eso. Manda el saldo, no el
+        // motivo:
+        //
+        //  - Mes de cortesía sin adicionales → $0: no se avisa. Avisar de una
+        //    factura que no hay que pagar confunde (y gasta mensajes).
+        //  - Factura que nace SALDADA porque el saldo a favor la cubrió entera
+        //    → tampoco: el aviso "tienes una nueva factura" le llegaba a quien
+        //    ya no debía nada, como si no la hubiera pagado.
+        //  - Mes de cortesía CON adicionales → sí se avisa: el plan va gratis
+        //    pero el alquiler del equipo se cobra, y el cliente tiene que
+        //    enterarse de que debe pagarlo. Antes esta rama estaba dentro de un
+        //    `if (!$free)` que la habría dejado muda.
+        //
+        // Notification failure must NOT roll back the invoice.
+        try {
+            $invoice->refresh()->load('tenant');
+
+            if ((float) $invoice->balance_due > 0) {
+                $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
+            } else {
+                Log::info("Billing: Invoice {$invoiceNumber} no tiene saldo por cobrar (cortesía o saldo a favor del cliente {$customerId}). No se notifica.");
+            }
+        } catch (\Throwable $e) {
+            Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Las escrituras de la mensualidad, tal cual eran: número, factura, ítem del
+     * plan, arrastre, adicionales y saldo a favor. Sólo se llama desde
+     * createMonthlyInvoiceFor(), dentro de su transacción y con el cliente
+     * bloqueado; por sí sola no comprueba nada.
+     */
+    private function writeMonthlyInvoice(
+        int $tenantId,
+        int $customerId,
+        Router $router,
+        CustomerProfile $profile,
+        \App\Models\Plan $servicePlan,
+        Carbon $issueDate,
+        Carbon $dueDate,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        float $subtotal,
+        float $tax,
+        float $total,
+        string $description,
+        bool $free,
+        ?string $notes = null,
+    ): Invoice {
         $invoiceNumber = $this->generateInvoiceNumber($tenantId);
 
         $invoice = Invoice::create([
@@ -879,6 +1262,7 @@ class BillingService
             // 'paid' a 'issued' sola y vuelve al circuito normal de cobro.
             'balance_due'  => $total,
             'status'       => $total > 0 ? 'issued' : 'paid',
+            'notes'        => $notes,
         ]);
 
         InvoiceItem::create([
@@ -912,35 +1296,6 @@ class BillingService
 
         $profile->refresh();
         $this->applyCreditToInvoice($invoice, $profile);
-
-        Log::info("Billing: Invoice {$invoiceNumber} created for customer {$customerId} (router {$router->id})"
-            . ($free ? ' — mes de cortesía (plan en cero).' : '.'));
-
-        // Se notifica lo que hay que pagar, y sólo eso. Manda el saldo, no el
-        // motivo:
-        //
-        //  - Mes de cortesía sin adicionales → $0: no se avisa. Avisar de una
-        //    factura que no hay que pagar confunde (y gasta mensajes).
-        //  - Factura que nace SALDADA porque el saldo a favor la cubrió entera
-        //    → tampoco: el aviso "tienes una nueva factura" le llegaba a quien
-        //    ya no debía nada, como si no la hubiera pagado.
-        //  - Mes de cortesía CON adicionales → sí se avisa: el plan va gratis
-        //    pero el alquiler del equipo se cobra, y el cliente tiene que
-        //    enterarse de que debe pagarlo. Antes esta rama estaba dentro de un
-        //    `if (!$free)` que la habría dejado muda.
-        //
-        // Notification failure must NOT roll back the invoice.
-        try {
-            $invoice->refresh()->load('tenant');
-
-            if ((float) $invoice->balance_due > 0) {
-                $this->notifyInvoiceCreated($invoice, $profile, $billingConfig);
-            } else {
-                Log::info("Billing: Invoice {$invoiceNumber} no tiene saldo por cobrar (cortesía o saldo a favor del cliente {$customerId}). No se notifica.");
-            }
-        } catch (\Throwable $e) {
-            Log::error("Billing: notify-on-create failed for invoice {$invoiceNumber}: {$e->getMessage()}");
-        }
 
         return $invoice;
     }
@@ -1088,6 +1443,16 @@ class BillingService
             $log->update([
                 'status'        => BillingActionLog::STATUS_SUCCESS,
                 'invoice_id'    => $invoice->id,
+                'attempts'      => $log->attempts + 1,
+                'last_error'    => null,
+                'next_retry_at' => null,
+            ]);
+            return true;
+        } catch (MonthlyInvoiceAlreadyExists $e) {
+            // La emitió otra ejecución mientras tanto: el reintento ya no hace falta.
+            $log->update([
+                'status'        => BillingActionLog::STATUS_SUCCESS,
+                'invoice_id'    => $e->invoice->id,
                 'attempts'      => $log->attempts + 1,
                 'last_error'    => null,
                 'next_retry_at' => null,

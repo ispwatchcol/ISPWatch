@@ -463,9 +463,33 @@ acto (`InstallationBillingService`). El resultado era una cuenta a medias — in
 cobrada, servicio no — y un prorrateo que el formulario le había mostrado al operador en
 la vista previa pero que no llegaba a existir.
 
-**Idempotencia.** No hay riesgo de doble cobro: la corrida mensual comprueba el solape de
-periodos (`monthlyInvoiceExists`) antes de crear nada, así que al llegar su día ve el mes
-ya facturado y lo salta.
+**Idempotencia.** La corrida mensual comprueba el solape de periodos
+(`monthlyInvoiceExists`) antes de crear nada, así que al llegar su día ve el mes ya
+facturado y lo salta. Esa comprobación **no basta sola** cuando dos caminos llegan a la vez;
+ver «Una mensualidad por cliente y mes» más abajo.
+
+#### Una mensualidad por cliente y mes (2026-10-01)
+
+`createMonthlyInvoiceFor()` es **atómico y exclusivo**. Abre una transacción, bloquea la fila
+de `customer_profile` del cliente (que es también donde vive `credit_balance`) y vuelve a
+buscar la mensualidad del mes **dentro** del bloqueo. Si la encuentra, lanza
+`App\Billing\MonthlyInvoiceAlreadyExists` sin escribir nada.
+
+| Llamador | Qué hace con `MonthlyInvoiceAlreadyExists` |
+|---|---|
+| Corrida mensual | La da por hecha: no la marca para reintento |
+| `retryFailedInvoice` | Cierra el log como éxito con la factura existente |
+| `issueFirstInvoiceOnSignup` | Omite la primera factura |
+| `repairMissingMonthlyInvoice` | Responde `created_concurrently`, sin duplicar |
+
+La notificación se envía **después** de la transacción, así que un fallo de correo sigue sin
+deshacer la factura.
+
+**Diagnóstico de faltantes.** `explainMonthlyInvoice()` recorre las mismas puertas que la
+corrida, en el mismo orden, sin escribir, y devuelve `missing`, `present` (puede estar
+anulada) o `not_applicable` con su motivo. Lo usa el comando `billing:missing-invoices`
+(simulación por defecto; `--apply` exige clientes explícitos, motivo y el `plan-hash`
+aprobado). Una prueba fija que diagnóstico y corrida coincidan cliente por cliente.
 
 ### La visita que no se le cobra al cliente (2026-09-21)
 
