@@ -318,6 +318,13 @@ más unas pestañas adicionales:
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
 
+> **Cambiar a un cliente de router.** Al guardar, ISPWatch retira en segundo plano la
+> configuración del cliente del router **anterior** (cola, usuario PPPoE/HotSpot, IP
+> bloqueada) para que no siga navegando por ahí. El resultado aparece en la bitácora de
+> **Auditoría**: si dice que no se pudo retirar, hay que borrarla a mano en ese equipo. No
+> aplica si el router anterior lo gestiona un AAA externo (RADIUS) o no tiene credenciales
+> de acceso cargadas.
+
 #### 5.3.1 Servicios adicionales del cliente
 
 Al final de la pestaña **Facturación** está lo que el cliente paga **además de su plan**:

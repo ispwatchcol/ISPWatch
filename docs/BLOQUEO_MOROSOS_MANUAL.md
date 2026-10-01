@@ -111,6 +111,13 @@ Cuando ISPWatch corta a un cliente (manual o automáticamente por billing):
 
 **Tiempo de corte efectivo: segundos** (no minutos/horas como antes).
 
+**A quién toma el corte automático** (`OverdueSuspensionService::getEligibleCustomers`):
+clientes del router con `status = true`, sin `exclude_from_billing`, con al menos
+`overdue_invoices` facturas vencidas, y con `service_status` facturable (`activo`, `gratis`,
+`suspendido` o vacío). Desde 2026-09-30 (KAN-117) quedan fuera `retirado` y `cancelado` aunque
+tengan `status = true` por datos viejos: cortarlos los pasaba a `suspendido`, como si
+volvieran a ser clientes en mora.
+
 ---
 
 ## 5. Cómo se reactiva un cliente
