@@ -1781,6 +1781,48 @@ los modelos: los importes son cadenas (`"85000.00"`, PostgreSQL entrega `numeric
 como texto), `plan.speed_down` es texto (`"10M"`) y `plan.price` es entero. Un
 esquema escrito leyendo los controladores habría sido verosímil y equivocado.
 
+### 14.8 El feed de cambios: cobertura y publicación en serie
+
+**Añadido:** 2026-09-30 (KAN-111 a KAN-115) · Contrato 1.1.0
+
+El feed (`partner_events`) es una **bandeja de salida transaccional**: el evento se
+inserta dentro de la misma transacción que el cambio que lo origina, así que no
+puede existir un evento de un cambio revertido ni un cambio confirmado sin su
+evento. Lo que se publica hacia afuera no es el `id` sino `seq`:
+
+```
+cambio de negocio ─┬─ UPDATE customer_profile ...
+   (transacción)   └─ INSERT partner_events (seq = NULL)      ← PartnerEventObserver
+                           │   / recordMany()
+                        COMMIT
+                           │
+lector partner ──► PartnerEventSequencer::publishPending()
+   (/events,           │  lock consultivo (pgsql) · sólo filas confirmadas
+    /customers,        │  UPDATE ... SET seq = id + desplazamiento
+    /services)         ▼  (una sentencia, por encima del máximo publicado)
+                    SELECT ... WHERE seq > :since ORDER BY seq
+```
+
+| Decisión | Por qué |
+|---|---|
+| Cursor sobre `seq` y no sobre `id` | El `id` se toma al insertar y las transacciones confirman en cualquier orden. Con la carga masiva de actualización (una sola transacción de minutos) un cursor sobre `id` se saltaba para siempre los eventos que confirmaban tarde |
+| El insert sigue dentro de la transacción de negocio | Escribir el evento en `afterCommit` resolvía el orden pero perdía atomicidad: una caída entre el commit y el insert es un evento perdido, y el contrato es "al menos una vez" |
+| No se filtra por `xid`/`pg_snapshot_xmin` | Sólo existe en PostgreSQL (la suite corre en SQLite) y obligaba a cambiar el formato del cursor del contrato |
+| Se publica **al leer**, no con un proceso aparte | Lo no publicado es invisible y quien lee lo publica, así que el feed es correcto sin depender del planificador ni de una cola. Sin pendientes cuesta una consulta por índice |
+| `seq = id + desplazamiento` en un solo UPDATE | Numera cualquier cantidad de filas con una sentencia, portable a los dos motores. Deja huecos, que el contrato ya admitía |
+| El rango se acota por abajo con el `id` mínimo pendiente | Una fila de id menor que confirme entre el SELECT y el UPDATE recibiría un `seq` por debajo del ya publicado. Queda para la siguiente corrida |
+| Backfill `seq = id` en la migración | Los cursores y revisiones que ya tenían los integradores siguen significando lo mismo |
+
+**Quién emite qué.** `PartnerEventObserver` cubre todo lo que pasa por Eloquent
+(`CustomerProfile`, `UserService` y, desde KAN-114, `Router`). Lo que no pasa por
+Eloquent emite a mano con `PartnerEvent::recordMany()`, en inserciones por bloque:
+la carga masiva de clientes (`CustomersSheetImport`) y el cambio de modo RADIUS de
+un router, que afecta a todos sus clientes sin tocar sus filas.
+
+**Listados por cursor.** `PartnerController::listing()` pagina por `id > after_id`
+cuando el integrador manda `after_id`, y por página si no. Con borrado físico de
+clientes, OFFSET corre la paginación y salta filas sin error; el cursor no.
+
 ---
 
 ## 15. Trazabilidad del flujo de caja

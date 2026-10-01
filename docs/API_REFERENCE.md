@@ -3006,9 +3006,9 @@ red de cada punto.
 |---|---|---|---|
 | `GET` | `/api/v1/partner/ping` | — | — |
 | `GET` | `/api/v1/partner/openapi.yaml` | — | — (devuelve el contrato OpenAPI, ver § 22.8-bis) |
-| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `document`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `document`, `updated_since`, `page` **o** `after_id`, `per_page` |
 | `GET` | `/api/v1/partner/customers/{id}` | `read:customers` | — |
-| `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `status`, `service_status`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `router_id`, `status`, `service_status`, `updated_since`, `page` **o** `after_id`, `per_page` |
 | `GET` | `/api/v1/partner/services/{id}` | `read:services` | — |
 | `GET` | `/api/v1/partner/events` | `read:events` | `since`, `limit` (máx. 500), `event_type`, `customer_id` |
 | `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
@@ -3034,6 +3034,23 @@ integrador no puede distinguirla de una a la que todavía no le han puesto preci
 El filtro `document` es de **coincidencia exacta**, no parcial: una búsqueda por
 prefijo convertiría esa ruta en un enumerador de la base de clientes del ISP.
 
+#### Barrido completo: `after_id` (desde 2026-09-30, KAN-115)
+
+`/customers` y `/services` aceptan `after_id` como alternativa a `page`: devuelven
+las filas con id estrictamente mayor, en orden ascendente, y `meta` pasa a ser
+`{per_page, after_id, next_after_id, has_more}`. Mezclar `after_id` con `page`
+responde `422`.
+
+Es el modo para **recorrer una colección completa**. Con `page` (OFFSET), si se
+elimina una fila anterior a la página actual durante el recorrido, todo se corre
+un lugar y una fila que no cambió se salta sin ningún error — y como no cambió,
+tampoco la recupera el feed. Con `id > after_id` un borrado anterior no mueve nada
+de lo que falta por leer. `page` sigue funcionando igual para quien ya lo usa.
+
+`updated_since` **no** sirve como incremental para decidir acceso: en `/customers`
+compara `users.updated_at`, que no se mueve al cortar o reactivar, y en `/services`
+`user_services.updated_at`, que no se mueve cuando cambia `service_status`.
+
 #### Feed de cambios (`/events`)
 
 Es el único endpoint que **no** pagina por página, y es a propósito: el feed crece
@@ -3049,24 +3066,67 @@ El consumidor guarda `next_since` y lo manda en la llamada siguiente. Si no hay
 eventos nuevos, `next_since` devuelve el mismo valor recibido — nunca cero, o el
 integrador reprocesaría todo desde el principio en cada ciclo vacío.
 
+**El cursor es `partner_events.seq`, no `id` (desde 2026-09-30, KAN-112).** El
+`id` se toma al insertar, dentro de la transacción del cambio, y las transacciones
+confirman en cualquier orden: un cursor sobre `id` podía saltarse para siempre un
+evento que confirmaba después de otro con id mayor (la importación masiva de
+actualización corre en una sola transacción de minutos). `seq` lo asigna
+`PartnerEventSequencer` después del commit y en serie; hacia afuera se llama
+`event_id` y es también `revision`. Los eventos anteriores al cambio quedaron con
+`seq = id`, así que ningún cursor ni revisión guardados cambió de sentido. Ver
+[ARQUITECTURA.md](ARQUITECTURA.md) y la bitácora.
+
 Tipos de evento (contrato público; se agregan valores, no se renombran):
-`SERVICE_CREATED`, `SERVICE_ACTIVATED`, `SERVICE_SUSPENDED`, `SERVICE_REACTIVATED`,
-`PLAN_CHANGED`, `SERVICE_CANCELLED`, `CUSTOMER_UPDATED`.
+
+| Tipo | Cuándo | `changes` |
+|---|---|---|
+| `SERVICE_CREATED` | Alta de un servicio: panel **y carga masiva** (esta última, desde KAN-111) | `{plan_id, status}` |
+| `SERVICE_ACTIVATED` | `service_status` → `activo`/`gratis` desde algo que no era `suspendido` | `{service_status: {from, to}}` |
+| `SERVICE_SUSPENDED` | `service_status` → `suspendido` | `{service_status: {from, to}}` |
+| `SERVICE_REACTIVATED` | `suspendido` → `activo`/`gratis` | `{service_status: {from, to}}` |
+| `SERVICE_CANCELLED` | → `retirado` o `cancelado` | `{service_status: {from, to}}` |
+| `PLAN_CHANGED` | Cambio de plan (puede llegar dos veces, ver `PartnerEventObserver`) | `{plan_id: {from, to}}` |
+| `CUSTOMER_UPDATED` | Identidad (`name`, `last_name`, `cedula`, `address`, `city`, `state`, `is_company`), o `is_enabled` cuando cambia sin `service_status` | `{fields: [...]}` |
+| `ROUTER_CHANGED` | Cambio de `router_id`, o se activó/desactivó RADIUS en su router (`from` = `to`) — KAN-114 | `{router_id: {from, to}, managed_by_external_aaa: {from, to}}` |
+| `NETWORK_CHANGED` | Cambio de IP o de usuario PPPoE — KAN-114 | `{fields: ["ip", "pppoe_username"]}`, **sin valores** |
+| `CUSTOMER_DELETED` | Baja **física** (`CustomerDeletionService`) — KAN-113 | `{service_ids, router_id, managed_by_external_aaa}` |
 
 El evento es **delgado**: dice qué cambió y de quién, no transporta el recurso. El
 consumidor re-consulta `/customers/{id}` o `/services/{id}` para el estado
 definitivo. Así el feed no puede quedar desactualizado y un evento duplicado —que
 puede ocurrir, ver `PartnerEventObserver`— sólo cuesta una petición.
 
+La excepción es `CUSTOMER_DELETED`: el recurso ya no existe (404), así que el
+evento es la **lápida** y trae lo necesario para revocar sin consultar nada — qué
+servicios y en qué router. `partner_events` no tiene FK a propósito y sobrevive
+al borrado.
+
+**Retención:** hoy los eventos no se podan. Compromiso con los integradores: si se
+introduce retención, se avisa antes y un cursor más viejo que lo conservado recibe
+un error explícito, nunca un lote silenciosamente incompleto.
+
 #### `revision`
 
-`/customers` y `/services` devuelven `revision`: el id del último evento publicado
-de ese recurso. Sirve para detectar cambios y para reconciliar sin depender del
-reloj — dos escrituras en el mismo segundo son indistinguibles por `updated_at`,
-por `revision` no.
+`/customers` y `/services` devuelven `revision`: el `event_id` del último evento
+publicado de ese recurso (`MAX(seq)`). Sirve para detectar cambios y para
+reconciliar sin depender del reloj — dos escrituras en el mismo segundo son
+indistinguibles por `updated_at`, por `revision` no.
+
+En `/services` es la revisión del **cliente** dueño: los atributos de red viven en
+`customer_profile`, así que un cambio de router, IP o estado del cliente es un
+cambio de su servicio.
 
 `revision: null` significa que ese recurso no ha cambiado desde que existe el feed.
 No es un error.
+
+#### Decisión de acceso (integraciones AAA)
+
+`service_status` es la autoridad: `activo`/`gratis` = hay servicio;
+`suspendido`, `cancelado`, `retirado` = no. Una integración fail-closed debe
+exigir además `is_enabled = true` (sólo en `/customers`): el corte y la reconexión
+los mueven juntos, pero hay datos anteriores a `service_status` donde pueden no
+coincidir (KAN-117). El procedimiento de sincronización recomendado está en la
+descripción del contrato OpenAPI («Sincronización completa y confiable»).
 
 #### Identidad del grupo y política de aviso (en `/customers`)
 
@@ -3092,6 +3152,15 @@ Un integrador que emita el documento electrónico por su cuenta necesita
 {
   "data": [ { "id": 42, "name": "Ana", "...": "..." } ],
   "meta": { "page": 1, "per_page": 50, "total": 137, "last_page": 3 }
+}
+```
+
+Con `after_id` (sólo `/customers` y `/services`):
+
+```json
+{
+  "data": [ { "id": 42, "...": "..." } ],
+  "meta": { "per_page": 100, "after_id": 0, "next_after_id": 42, "has_more": true }
 }
 ```
 
@@ -3189,7 +3258,7 @@ por eso están escritos en el propio YAML:
 | `plan.speed_down` / `speed_up` | **Texto** (`"10M"`), no un número de bits: es lo que se aplica literal en el equipo |
 | `plan.price` | Entero |
 | Fechas | ISO-8601 UTC… salvo `installation_date` (`2026-08-18`) y `created_at`/`updated_at` **de `/customers`**, que salen como `2026-07-03 18:29:20` (sin `T` ni `Z`) porque provienen de una tabla sin casts de fecha |
-| `is_enabled` | **No indica si el cliente está cortado.** El corte automático lo deja en `true` |
+| `is_enabled` | Se mueve junto con `service_status` (el corte lo pone en `false`, la reconexión en `true`). Hasta 2026-09-30 el contrato decía que el corte lo dejaba en `true`; eso dejó de ser cierto cuando el auto-corte empezó a registrar la intención en la ficha |
 
 ### 22.9 Administración de llaves (panel)
 
