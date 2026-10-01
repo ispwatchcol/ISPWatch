@@ -8925,3 +8925,71 @@ pequeña.
   abiertas.
 - No se construyó retención de eventos. Compromiso con CNO: si se introduce, con aviso previo y
   error explícito de cursor expirado.
+
+## 86. Mudar un cliente de router dejaba al cliente en el router viejo — 2026-09-30
+
+**Origen:** las mismas preguntas de CNO de la § 85, del lado de los datos de red. Tarjetas
+KAN-117, KAN-118 y KAN-119; pendientes P-77, P-78 y P-79.
+
+### KAN-119 — limpieza del router anterior
+
+`CustomerProfileController::update()` aprovisiona en el router nuevo y no toca el viejo (no
+había una sola lectura de `getOriginal('router_id')` en `app/`). Si el router anterior lo
+gestionaba ISPWatch, allí quedaban la cola, el secret o el usuario HotSpot, el lease/ARP y la
+entrada en `ISPWATCH_SUSPENDIDOS`: el cliente podía seguir navegando por el equipo viejo y la IP
+quedaba ocupada si después se le asignaba a otro. La carga masiva de actualización dejaba el
+mismo residuo.
+
+- `CustomerRouterMoveObserver` encola `PurgeCustomerFromPreviousRouterJob` cuando cambia
+  `router_id`, `afterCommit`, con la identidad **original** (la que el cliente tenía en el
+  router viejo, aunque la misma edición cambie IP o PPPoE). Observer y no controlador: las dos
+  puertas dejaban el mismo residuo.
+- El job reutiliza `CustomerDeprovisionManager::purge()`, el barrido que ya usaba el borrado de
+  clientes. Vuelve a mirar el router al ejecutarse (pudo pasar a RADIUS) y **omite cualquier
+  dato que hoy use otro cliente de ese router**: el barrido borra por IP, usuario y MAC, y un
+  intercambio en la misma carga masiva se llevaría la configuración del otro.
+- El resultado, éxito o fallo, queda en la bitácora de Auditoría del panel. Un router viejo sin
+  limpiar no puede ser silencioso.
+- En cola y no en el request: cada viaje al CORE cuesta ~15 s. Producción tiene worker
+  (`queue:work` en el despliegue), el mismo que ya ejecuta `ProvisionCustomerJob`.
+- `CustomerDeletionService::purgeRouter()` ahora salta los routers RADIUS. Antes, borrar un
+  cliente del router lógico del piloto (RADIUS, credenciales de relleno) intentaba SSH, esperaba
+  el timeout y reportaba un error falso.
+
+### KAN-118 — IP única por router en la base
+
+La regla la validaban `store()`, `update()` y la carga masiva, pero sólo en la aplicación. Índice
+parcial `customer_profile_ip_user_router_unique`, espejo del de PPPoE de 2026-07-17: mismo
+pre-chequeo que aborta listando los duplicados en vez de fallar con el error crudo. Qué cliente
+cambia de IP es decisión del ISP, no de la migración.
+
+**Antes de `migrate:both`** hay que correr en `public` la consulta de duplicados de la propia
+migración. Si hay filas, la migración se detiene ahí y las migraciones posteriores no corren.
+
+### KAN-117 — señales de acceso
+
+La tarjeta suponía que el auto-corte cortaba en la RB sin pasar a `suspendido` a un cliente con
+`status = false`. **No pasa**: `getEligibleCustomers()` sólo toma `status = true`. El riesgo real
+son los datos anteriores a `service_status`:
+
+- `status = false` con `service_status` en `activo`/`gratis`: ISPWatch lo tiene por cortado y el
+  reconciliador lo re-corta en la RB, pero un AAA que sólo mire `service_status` le da acceso;
+- `status = true` con `retirado`/`cancelado`: el auto-corte lo tomaba y lo pasaba a
+  `suspendido`, o sea lo revivía como cliente en mora. **Corregido**: quedan fuera del corte.
+
+`customers:audit-access-flags` cuenta los tres casos con `COUNT(*)` real (las estimaciones de
+`pg_stat` ya dieron falsos positivos) y con `--list` los enumera. No corrige nada: qué valor
+manda en cada caso lo decide el ISP. Mientras tanto, desde la § 85 el feed avisa cuando
+`is_enabled` cambia solo, y a CNO se le recomendó exigir las dos señales.
+
+### Verificación
+
+`NetworkIntegrityTest` (9 pruebas) y un caso nuevo en `AutoCutoffTest`: índice (mismo router
+rechaza, otro router y sin IP no), encolado con identidad original, no encola con router RADIUS
+o sin credenciales, no borra lo que usa otro cliente, fallo visible en Auditoría, borrado sin
+SSH en router RADIUS, y la auditoría cuenta sin modificar.
+
+### Pendiente
+
+- Correr `customers:audit-access-flags` en `public` y decidir la corrección (KAN-117).
+- Correr en `public` la consulta de duplicados de IP antes de migrar (KAN-118).

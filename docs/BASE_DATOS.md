@@ -1715,6 +1715,7 @@ Agregado permanente.
 | `unique_tenant_invoice_number` | `invoices` | `(tenant_id, number)` | Numeración segura ante concurrencia |
 | `bal_unique_per_period` | `billing_action_logs` | `(tenant_id, customer_id, period_start, action)` | Un solo registro de resultado por cliente/periodo |
 | `customer_profile_pppoe_username_router_unique` | `customer_profile` | **parcial**: `(router_id, pppoe_username)` `WHERE pppoe_username IS NOT NULL AND <> '' AND router_id IS NOT NULL` | Evita que RouterOS **sobrescriba en silencio** el secret de otro cliente |
+| `customer_profile_ip_user_router_unique` | `customer_profile` | **parcial**: `(router_id, ip_user)` `WHERE ip_user IS NOT NULL AND <> '' AND router_id IS NOT NULL` | Dos clientes del mismo router no comparten IP (KAN-118). Antes sólo lo validaba la aplicación; una carrera entre dos guardados podía duplicarla. La misma IP sí puede repetirse en otro router. La migración aborta listando los duplicados si los hay |
 | `inventory_device_tenant_serial_ci_unique` | `inventory_device` | **parcial y funcional**: `(tenant_id, LOWER(serial))` `WHERE serial IS NOT NULL AND <> ''` | `SN-001` y `sn-001` son el mismo equipo (KAN-100 · P-44). Funcional porque `=` distingue mayúsculas en PostgreSQL; parcial porque un rollo de cable no tiene serial |
 | `inventory_device_tenant_mac_ci_unique` | `inventory_device` | **parcial y funcional**: `(tenant_id, LOWER(mac))` `WHERE mac IS NOT NULL AND <> ''` | Igual que el anterior, para la MAC |
 | `router_name_tenant_id_unique` | `router` | `(name, tenant_id)` | |

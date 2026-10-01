@@ -130,6 +130,27 @@ class AutoCutoffTest extends TestCase
     }
 
     #[Test]
+    public function does_not_revive_a_retired_customer_left_with_status_true(): void
+    {
+        // Datos anteriores a service_status (KAN-117): una baja definitiva con
+        // status=true. Cortarla la pasaría a 'suspendido', como si volviera a
+        // ser un cliente en mora.
+        $tenant = Tenant::factory()->create();
+        $billing = $this->makeBilling(['overdue_invoices' => 1]);
+        $router = $this->makeRouter('Corte Automático', $billing, $tenant);
+        $customer = User::factory()->create(['tenant_id' => $tenant->id]);
+        $this->makeCustomerWithOverdueInvoices($customer, $router, 1);
+        CustomerProfile::where('user_id', $customer->id)->update(['service_status' => 'retirado']);
+
+        $mock = $this->mockProvisioning();
+        $mock->shouldNotReceive('suspendCustomer');
+
+        app(OverdueSuspensionService::class)->processOverdueInvoices();
+
+        $this->assertSame('retirado', CustomerProfile::where('user_id', $customer->id)->value('service_status'));
+    }
+
+    #[Test]
     public function does_not_suspend_if_overdue_count_below_threshold(): void
     {
         $tenant = Tenant::factory()->create();

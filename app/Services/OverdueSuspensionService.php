@@ -417,9 +417,16 @@ class OverdueSuspensionService
         // comparing to the string 'active' throws on PostgreSQL.
         // exclude_from_billing: clientes "no facturar" quedan fuera del corte
         // automático por mora (facturación manual / clientes especiales).
+        // Bajas definitivas fuera aunque tengan status=true (datos anteriores a
+        // service_status, KAN-117): cortarlas las pasaría a 'suspendido', o sea
+        // las revive como clientes en mora. Vacío/null cuenta como 'activo',
+        // igual que hasBillableServiceStatus().
         $profiles = CustomerProfile::where('router_id', $router->id)
             ->where('status', true)
             ->where('exclude_from_billing', false)
+            ->where(fn ($q) => $q->whereNull('service_status')
+                ->orWhere('service_status', '')
+                ->orWhereIn('service_status', CustomerProfile::BILLABLE_SERVICE_STATUSES))
             ->get();
 
         return $profiles->filter(function (CustomerProfile $profile) use ($maxOverdue) {
