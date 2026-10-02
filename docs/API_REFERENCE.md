@@ -1546,7 +1546,7 @@ siguiente factura cobrable.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `POST` | `/api/billing/run-monthly` | Dispara la generación mensual manualmente |
+| `POST` | `/api/billing/run-monthly` | Dispara la generación mensual manualmente. Responde `{ message, errors }`: `errors` es el **número** de clientes o routers que fallaron (el detalle no se devuelve porque la corrida recorre todos los tenants; está en el log y en `billing_action_logs`) |
 | `POST` | `/api/billing/run-overdue` | Procesa morosos |
 | `POST` | `/api/billing/run-auto-cut` | Dispara el corte automático |
 | `GET` | `/api/billing/configs` | Configuraciones de facturación (tabla `billing`) |

@@ -32,6 +32,13 @@ use RuntimeException;
 
 class BillingService
 {
+    /**
+     * Fallos de la última corrida mensual. Ver lastRunFailures().
+     *
+     * @var array<int,array{router_id:int,tenant_id:int|null,customer_id:int|null,error:string}>
+     */
+    protected array $lastRunFailures = [];
+
     public function __construct(protected WhatsAppService $whatsAppService)
     {
     }
@@ -98,6 +105,27 @@ class BillingService
      *   - 'vencido'             : the previous month (cobro vencido)
      * An explicit $period overrides the mode for ALL routers (manual backfill).
      *
+     * Aislamiento de fallos: un error con un cliente o con un router no detiene
+     * a los demás. Antes, sólo la creación de la factura estaba dentro del
+     * try/catch; cualquier excepción ANTES de ella —servicios adicionales,
+     * primera factura, tope, configuración del router— salía de este método,
+     * cortaba la corrida entera y el comando la imprimía en una consola que el
+     * scheduler descarta: ni log ni fila de reintento. Ahora:
+     *
+     *  - fallo de un cliente → log con traza y fila `failed` en
+     *    billing_action_logs (la acción depende de la ruta, ver
+     *    BillingActionLog::ACTION_GENERATE_ADDITIONAL_ONLY); sigue el siguiente.
+     *  - fallo de un router → log con traza; sigue el siguiente router. No deja
+     *    fila (billing_action_logs exige cliente): lo reintenta la corrida de
+     *    la hora siguiente y lo detecta billing:verify-monthly.
+     *
+     * Los fallos de la última corrida quedan en lastRunFailures() para que el
+     * comando termine en FAILURE en vez de en un «Successfully» engañoso.
+     *
+     * Un error fatal de PHP (memoria agotada, proceso matado) no es atrapable:
+     * para eso quedan las líneas «start» / «done» por router en el log, que
+     * dicen dónde murió la corrida.
+     *
      * @param string|null $period   Format: YYYY-MM. Null = derive per router.
      * @param int|null    $routerId Limit to a specific router (null = all). Used by the
      *                              simulator/manual ops to focus a single tenant.
@@ -105,13 +133,18 @@ class BillingService
      */
     public function generateMonthlyInvoices(?string $period = null, ?int $routerId = null): int
     {
-        $periodExplicit = $period !== null;
-        $today          = now();
-        $created        = 0;
+        $today   = now();
+        $created = 0;
+
+        $this->lastRunFailures = [];
 
         // ── Iterate routers that have a billing config ──────────────────────
-        $routerQuery = Router::with(['billingConfig', 'customers'])
-            ->whereNotNull('billing_router_id');
+        // Orden fijo por id: sin ORDER BY, PostgreSQL devuelve las filas en el
+        // orden físico, que cambia con cada UPDATE, y el log de una corrida no
+        // se podía comparar con el de la siguiente.
+        $routerQuery = Router::with('billingConfig')
+            ->whereNotNull('billing_router_id')
+            ->orderBy('id');
 
         if ($routerId !== null) {
             $routerQuery->where('id', $routerId);
@@ -122,82 +155,134 @@ class BillingService
         Log::info("Billing: Checking {$routers->count()} router(s) with billing config.");
 
         foreach ($routers as $router) {
-            $billingConfig = $router->billingConfig;
-            if (!$billingConfig) {
-                continue;
+            try {
+                $created += $this->generateMonthlyInvoicesForRouter($router, $today, $period);
+            } catch (\Throwable $e) {
+                $this->recordRunFailure($router, null, $e);
             }
+        }
 
-            // ── Check create_invoice day (clamped to this month's length) ───
-            // A configured day 31 becomes 30 in April / 28 in February so
-            // "último día" configs still fire; other days stay as set.
-            $rawCreateDay = Billing::dayOf($billingConfig->create_invoice);
-            $createDay    = Billing::clampDayToMonth($rawCreateDay, $today);
+        $failures = count($this->lastRunFailures);
 
-            if ($createDay === null) {
-                Log::info("Billing: Router {$router->id} ({$router->name}) has no create_invoice day. Skipping.");
-                continue;
+        Log::info("Billing: Generation complete. {$created} invoice(s) created for period {$period}."
+            . ($failures ? " {$failures} error(es)." : ''));
+
+        if ($failures) {
+            Log::error("[BILLING-RUN] La corrida mensual terminó con {$failures} error(es); "
+                . 'los clientes quedaron en billing_action_logs y los routers se reintentan en la próxima corrida.', [
+                    'failures' => $this->lastRunFailures,
+                ]);
+        }
+
+        return $created;
+    }
+
+    /**
+     * Fallos de la última llamada a generateMonthlyInvoices(): una entrada por
+     * cliente o router que no se pudo procesar.
+     *
+     * @return array<int,array{router_id:int,tenant_id:int|null,customer_id:int|null,error:string}>
+     */
+    public function lastRunFailures(): array
+    {
+        return $this->lastRunFailures;
+    }
+
+    /**
+     * Un router de la corrida mensual. Una excepción aquí sale hacia
+     * generateMonthlyInvoices(), que la registra y sigue con el siguiente
+     * router; las de cada cliente se atrapan dentro y no llegan hasta aquí.
+     */
+    protected function generateMonthlyInvoicesForRouter(Router $router, Carbon $today, ?string $period): int
+    {
+        $periodExplicit = $period !== null;
+        $created        = 0;
+
+        $billingConfig = $router->billingConfig;
+        if (!$billingConfig) {
+            return 0;
+        }
+
+        // ── Check create_invoice day (clamped to this month's length) ───
+        // A configured day 31 becomes 30 in April / 28 in February so
+        // "último día" configs still fire; other days stay as set.
+        $rawCreateDay = Billing::dayOf($billingConfig->create_invoice);
+        $createDay    = Billing::clampDayToMonth($rawCreateDay, $today);
+
+        if ($createDay === null) {
+            Log::info("Billing: Router {$router->id} ({$router->name}) has no create_invoice day. Skipping.");
+            return 0;
+        }
+
+        // Only generate if today's day >= the (clamped) creation day.
+        // This allows recovery if the system was down on the exact day.
+        if ($today->day < $createDay) {
+            Log::info("Billing: Router {$router->id} ({$router->name}) — create day is {$createDay}, today is {$today->day}. Not yet.");
+            return 0;
+        }
+
+        // ── Check create_invoice_time (hour of day) ─────────────────────
+        // The scheduler runs this command hourly; gate on the configured
+        // time exactly like the auto-cut does, so the operator can pick the
+        // hour invoices go out. Default '00:00:00' = fire at the first run
+        // of the day (unchanged date-only behaviour). An explicit $period
+        // (manual backfill) bypasses the hour gate — the operator asked for
+        // it right now.
+        if (!$periodExplicit) {
+            $createDateTime = Billing::applyTimeOfDay($today, $billingConfig->create_invoice_time);
+            if ($today->lt($createDateTime)) {
+                Log::info("Billing: Router {$router->id} ({$router->name}) — create time is "
+                    . ($billingConfig->create_invoice_time ?: '00:00:00')
+                    . ", current time is {$today->format('H:i:s')}. Not yet.");
+                return 0;
             }
+        }
 
-            // Only generate if today's day >= the (clamped) creation day.
-            // This allows recovery if the system was down on the exact day.
-            if ($today->day < $createDay) {
-                Log::info("Billing: Router {$router->id} ({$router->name}) — create day is {$createDay}, today is {$today->day}. Not yet.");
-                continue;
-            }
+        // ── Resolve the period this invoice covers ──────────────────────
+        if ($periodExplicit) {
+            $periodMonth = Carbon::parse($period . '-01');
+        } else {
+            $mode = $billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO;
+            $periodMonth = $mode === Billing::MODE_VENCIDO
+                ? $today->copy()->subMonthNoOverflow()
+                : $today->copy();
+        }
+        $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
+        $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
 
-            // ── Check create_invoice_time (hour of day) ─────────────────────
-            // The scheduler runs this command hourly; gate on the configured
-            // time exactly like the auto-cut does, so the operator can pick the
-            // hour invoices go out. Default '00:00:00' = fire at the first run
-            // of the day (unchanged date-only behaviour). An explicit $period
-            // (manual backfill) bypasses the hour gate — the operator asked for
-            // it right now.
-            if (!$periodExplicit) {
-                $createDateTime = Billing::applyTimeOfDay($today, $billingConfig->create_invoice_time);
-                if ($today->lt($createDateTime)) {
-                    Log::info("Billing: Router {$router->id} ({$router->name}) — create time is "
-                        . ($billingConfig->create_invoice_time ?: '00:00:00')
-                        . ", current time is {$today->format('H:i:s')}. Not yet.");
-                    continue;
-                }
-            }
+        // ── Determine due date from payment_day config ──────────────────
+        $issueDate = $today->copy()->startOfDay();
+        $dueDate   = $this->resolveDueDate($billingConfig, $issueDate);
 
-            // ── Resolve the period this invoice covers ──────────────────────
-            if ($periodExplicit) {
-                $periodMonth = Carbon::parse($period . '-01');
-            } else {
-                $mode = $billingConfig->billing_mode ?: Billing::MODE_ANTICIPADO;
-                $periodMonth = $mode === Billing::MODE_VENCIDO
-                    ? $today->copy()->subMonthNoOverflow()
-                    : $today->copy();
-            }
-            $periodStart = $periodMonth->copy()->startOfMonth()->startOfDay();
-            $periodEnd   = $periodMonth->copy()->endOfMonth()->startOfDay();
+        // ── Tope de facturación del router (null = sin tope) ────────────
+        $stopAt = $billingConfig->invoiceStopThreshold();
 
-            // ── Determine due date from payment_day config ──────────────────
-            $issueDate = $today->copy()->startOfDay();
-            $dueDate   = $this->resolveDueDate($billingConfig, $issueDate);
+        // ── Get billable customers assigned to this router ──────────────
+        // Se factura a activos, gratis y CORTADOS por mora: el corte no
+        // congela la deuda, la frena el tope de más abajo. Sólo quedan
+        // fuera las bajas definitivas (retirado / cancelado).
+        // exclude_from_billing = clientes marcados como "no facturar": quedan
+        // fuera del ciclo automático (sin factura, recordatorio ni corte).
+        $customerProfiles = CustomerProfile::where('router_id', $router->id)
+            ->billableServiceStatus()
+            ->where('exclude_from_billing', false)
+            ->with('user:id,created_at')
+            ->get();
 
-            // ── Tope de facturación del router (null = sin tope) ────────────
-            $stopAt = $billingConfig->invoiceStopThreshold();
+        $tenantId = $router->tenant_id;
 
-            // ── Get billable customers assigned to this router ──────────────
-            // Se factura a activos, gratis y CORTADOS por mora: el corte no
-            // congela la deuda, la frena el tope de más abajo. Sólo quedan
-            // fuera las bajas definitivas (retirado / cancelado).
-            // exclude_from_billing = clientes marcados como "no facturar": quedan
-            // fuera del ciclo automático (sin factura, recordatorio ni corte).
-            $customerProfiles = CustomerProfile::where('router_id', $router->id)
-                ->billableServiceStatus()
-                ->where('exclude_from_billing', false)
-                ->with('user:id,created_at')
-                ->get();
+        Log::info("Billing: Router {$router->id} ({$router->name}) — start: {$customerProfiles->count()} billable customer(s) to check.");
 
-            Log::info("Billing: Router {$router->id} ({$router->name}) — {$customerProfiles->count()} billable customer(s) to check.");
+        $failedBefore = count($this->lastRunFailures);
 
-            foreach ($customerProfiles as $profile) {
-                $customerId = $profile->user_id;
+        foreach ($customerProfiles as $profile) {
+            $customerId = (int) $profile->user_id;
 
+            // Con qué acción se registra un fallo de este cliente: cambia si
+            // entra por la ruta de "sólo servicios adicionales".
+            $action = BillingActionLog::ACTION_GENERATE_MONTHLY;
+
+            try {
                 // Find the customer's active (billable) service
                 $userService = UserService::where('user_id', $customerId)
                     ->where('status', UserService::STATUS_ACTIVE)
@@ -216,6 +301,8 @@ class BillingService
                 $sinPlanQueCobrar = !$userService || !$servicePlan || $servicePlan->is_courtesy;
 
                 if ($sinPlanQueCobrar) {
+                    $action = BillingActionLog::ACTION_GENERATE_ADDITIONAL_ONLY;
+
                     $motivo = match (true) {
                         !$userService => 'no active service',
                         !$servicePlan => 'active service has no plan',
@@ -235,6 +322,7 @@ class BillingService
 
                     if ($extra) {
                         $created++;
+                        $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $extra->id, $action);
                         Log::info("Billing: Customer {$customerId} — {$motivo}, pero tiene servicios adicionales: "
                             . "se emite la factura {$extra->number} sólo con ellos.");
                     } else {
@@ -243,8 +331,6 @@ class BillingService
 
                     continue;
                 }
-
-                $tenantId = $router->tenant_id;
 
                 // Idempotency check: skip if a monthly invoice already covers
                 // this month (an exact period_start match is not enough — a
@@ -307,16 +393,91 @@ class BillingService
                     // ésta. No es un fallo: no se marca para reintento.
                     Log::info("Billing: Customer {$customerId} — {$e->getMessage()} No se duplica.");
                     $this->markActionLogSuccess($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $e->invoice->id);
-                } catch (\Throwable $e) {
-                    Log::error("Billing: Failed to create invoice for customer {$customerId}: {$e->getMessage()}");
-                    $this->markActionLogFailed($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $e->getMessage());
                 }
+            } catch (\Throwable $e) {
+                // Cualquier fallo de ESTE cliente —antes, durante o después de
+                // emitir— queda registrado para reintento y no frena a los demás.
+                $this->recordRunFailure($router, $customerId, $e);
+                $this->markActionLogFailedSafely($tenantId, $router->id, $customerId, $periodStart, $periodEnd, $e, $action);
             }
         }
 
-        Log::info("Billing: Generation complete. {$created} invoice(s) created for period {$period}.");
+        $failed = count($this->lastRunFailures) - $failedBefore;
+
+        Log::info("Billing: Router {$router->id} ({$router->name}) — done: {$created} invoice(s) created"
+            . ($failed ? ", {$failed} customer error(s)" : '')
+            . '; peak memory ' . round(memory_get_peak_usage(true) / 1048576) . ' MB.');
 
         return $created;
+    }
+
+    /**
+     * Deja constancia de un fallo de la corrida: en el log, con la traza
+     * completa, y en lastRunFailures() para el resumen y el código de salida.
+     */
+    protected function recordRunFailure(Router $router, ?int $customerId, \Throwable $e): void
+    {
+        $quien = $customerId !== null
+            ? "customer {$customerId} (router {$router->id})"
+            : "router {$router->id} ({$router->name})";
+
+        Log::error("Billing: Failed to process {$quien}: " . get_class($e) . ": {$e->getMessage()}", [
+            'tenant_id'   => $router->tenant_id,
+            'router_id'   => $router->id,
+            'customer_id' => $customerId,
+            'exception'   => $e,
+        ]);
+
+        $this->lastRunFailures[] = [
+            'router_id'   => (int) $router->id,
+            'tenant_id'   => $router->tenant_id !== null ? (int) $router->tenant_id : null,
+            'customer_id' => $customerId,
+            'error'       => get_class($e) . ': ' . $e->getMessage(),
+        ];
+    }
+
+    /**
+     * markActionLogFailed() sin que un fallo al escribir la fila —la base
+     * misma caída, por ejemplo— tumbe la corrida que intenta registrarlo.
+     */
+    protected function markActionLogFailedSafely(
+        int $tenantId,
+        ?int $routerId,
+        int $customerId,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        \Throwable $e,
+        string $action = BillingActionLog::ACTION_GENERATE_MONTHLY,
+    ): void {
+        try {
+            $this->markActionLogFailed(
+                $tenantId, $routerId, $customerId, $periodStart, $periodEnd,
+                get_class($e) . ': ' . $e->getMessage(), $action
+            );
+        } catch (\Throwable $logError) {
+            Log::error("Billing: no se pudo registrar el fallo del cliente {$customerId} en billing_action_logs: {$logError->getMessage()}");
+        }
+    }
+
+    /**
+     * Un reintento que reventó FUERA del try de retryFailedInvoice() —al
+     * resolver la primera factura, el tope, la configuración—. Cuenta como un
+     * intento más, con su backoff, igual que un fallo al crear la factura.
+     */
+    public function recordRetryFailure(BillingActionLog $log, \Throwable $e): void
+    {
+        Log::error("Billing retry: log {$log->id} (customer {$log->customer_id}) failed: "
+            . get_class($e) . ": {$e->getMessage()}", ['exception' => $e]);
+
+        $this->markActionLogFailedSafely(
+            (int) $log->tenant_id,
+            $log->router_id !== null ? (int) $log->router_id : null,
+            (int) $log->customer_id,
+            Carbon::parse($log->period_start)->startOfDay(),
+            Carbon::parse($log->period_end)->startOfDay(),
+            $e,
+            $log->action ?: BillingActionLog::ACTION_GENERATE_MONTHLY,
+        );
     }
 
     /**
@@ -477,7 +638,7 @@ class BillingService
                 ->count();
 
             $failedLogs = BillingActionLog::where('tenant_id', $router->tenant_id)
-                ->where('period_start', $periodStart->toDateString())
+                ->whereDate('period_start', $periodStart->toDateString())
                 ->whereIn('status', [BillingActionLog::STATUS_FAILED, BillingActionLog::STATUS_EXHAUSTED])
                 ->count();
 
@@ -1539,12 +1700,23 @@ class BillingService
      * Upsert an action log row marking a failed invoice creation attempt.
      * Increments attempts and computes next_retry_at via backoff.
      */
-    protected function markActionLogFailed(int $tenantId, ?int $routerId, int $customerId, Carbon $periodStart, Carbon $periodEnd, string $errorMessage): void
-    {
+    protected function markActionLogFailed(
+        int $tenantId,
+        ?int $routerId,
+        int $customerId,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        string $errorMessage,
+        string $action = BillingActionLog::ACTION_GENERATE_MONTHLY,
+    ): void {
         $existing = BillingActionLog::where('tenant_id', $tenantId)
             ->where('customer_id', $customerId)
-            ->where('period_start', $periodStart->toDateString())
-            ->where('action', BillingActionLog::ACTION_GENERATE_MONTHLY)
+            // whereDate y no where: el cast 'date' guarda "Y-m-d H:i:s" y en
+            // SQLite la comparación de texto no encontraba la fila (el segundo
+            // fallo chocaba con la única y el éxito nunca la cerraba). En
+            // PostgreSQL da lo mismo. Igual que isRegenerationSuppressed().
+            ->whereDate('period_start', $periodStart->toDateString())
+            ->where('action', $action)
             ->first();
 
         if ($existing) {
@@ -1564,7 +1736,7 @@ class BillingService
                 'tenant_id'     => $tenantId,
                 'router_id'     => $routerId,
                 'customer_id'   => $customerId,
-                'action'        => BillingActionLog::ACTION_GENERATE_MONTHLY,
+                'action'        => $action,
                 'period_start'  => $periodStart->toDateString(),
                 'period_end'    => $periodEnd->toDateString(),
                 'status'        => BillingActionLog::STATUS_FAILED,
@@ -1580,12 +1752,23 @@ class BillingService
      * No-op if there's no prior failed row — we keep the log lean and focused
      * on trouble cases (failed / exhausted), not on every successful invoice.
      */
-    protected function markActionLogSuccess(int $tenantId, ?int $routerId, int $customerId, Carbon $periodStart, Carbon $periodEnd, int $invoiceId): void
-    {
+    protected function markActionLogSuccess(
+        int $tenantId,
+        ?int $routerId,
+        int $customerId,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+        int $invoiceId,
+        string $action = BillingActionLog::ACTION_GENERATE_MONTHLY,
+    ): void {
         $existing = BillingActionLog::where('tenant_id', $tenantId)
             ->where('customer_id', $customerId)
-            ->where('period_start', $periodStart->toDateString())
-            ->where('action', BillingActionLog::ACTION_GENERATE_MONTHLY)
+            // whereDate y no where: el cast 'date' guarda "Y-m-d H:i:s" y en
+            // SQLite la comparación de texto no encontraba la fila (el segundo
+            // fallo chocaba con la única y el éxito nunca la cerraba). En
+            // PostgreSQL da lo mismo. Igual que isRegenerationSuppressed().
+            ->whereDate('period_start', $periodStart->toDateString())
+            ->where('action', $action)
             ->first();
 
         if (!$existing) {

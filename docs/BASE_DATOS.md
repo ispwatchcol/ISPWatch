@@ -849,12 +849,19 @@ Registra el resultado por **(tenant, cliente, periodo, acción)** — hay un ín
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `tenant_id` / `router_id` / `customer_id` / `invoice_id` | bigint | Contexto |
-| `action` | varchar(64) | `generate_monthly_invoice` |
+| `action` | varchar(64) | `generate_monthly_invoice` \| `generate_additional_only_invoice` (factura sólo de servicios adicionales, cliente sin plan cobrable) |
 | `period_start` / `period_end` | date | Periodo |
 | `status` | varchar(16) | `success` \| `failed` \| `exhausted` \| **`suppressed`** |
 | `attempts` | smallint | Nº de intentos (máx. 3) |
 | `last_error` | text | Mensaje del error |
 | `next_retry_at` | timestamp | Backoff 2h / 6h / 24h |
+
+> **Las dos acciones se reintentan distinto.** `billing:retry-failed` sólo toma
+> `generate_monthly_invoice`. Las filas `generate_additional_only_invoice` las resuelve la
+> corrida horaria, que vuelve a evaluar al cliente cada hora y marca `success` cuando la
+> emite. La corrida escribe aquí **cualquier** fallo de un cliente, no sólo los de la
+> creación de la factura (bitácora § 89). Un fallo de un router entero **no** deja fila
+> (`customer_id` es obligatorio): queda en el log y lo detecta `billing:verify-monthly`.
 
 > **`suppressed` es una lápida**: cuando un administrador borra una factura, se marca ese
 > par (cliente, periodo) para que la generación mensual **nunca la resucite**. Sólo afecta
