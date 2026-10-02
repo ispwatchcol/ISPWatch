@@ -8,13 +8,28 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
+// ── Candados de withoutOverlapping: SIEMPRE con vencimiento explícito ────────
+// Sin argumento, Laravel deja el candado 24 horas. El candado vive en la base
+// (CACHE_STORE=database) y sólo se suelta cuando la tarea TERMINA: si el
+// proceso muere a mitad —el worker que aloja al planificador se recicla cada
+// hora por --max-time=3600, y cada despliegue lo mata—, el candado se queda y
+// la tarea no vuelve a correr hasta el día siguiente, sin error ni alerta.
+// Así salió la facturación de Chaguaní un día tarde el 2026-10-01 y la de
+// Tocaima dos días tarde en septiembre (bitácora § 89).
+//
+// Regla: el candado vence ANTES del siguiente tick de su tarea. Una corrida
+// muerta cuesta como mucho un tick, no un día. ScheduledTaskLockExpiryTest la
+// hace cumplir para toda tarea nueva.
+
 // Run hourly — BillingService gates each router on its billing.create_invoice
 // DAY and create_invoice_time HOUR internally, so the operator can pick the hour
 // invoices go out. Generation is idempotent (skips invoices that already exist),
 // so the extra hourly runs are cheap no-ops once a router has billed.
 // withoutOverlapping guards against a long run (many invoices + notifications)
-// stacking with the next tick.
-Schedule::command('billing:generate-monthly')->hourly()->withoutOverlapping();
+// stacking with the next tick. Si una corrida pasara de 55 minutos y la
+// siguiente arrancara encima, no duplica: cada mensualidad se escribe bajo el
+// bloqueo por cliente de withMonthlyInvoiceLock() (§ 88).
+Schedule::command('billing:generate-monthly')->hourly()->withoutOverlapping(55);
 
 // Failover: reintenta facturas que fallaron en la generación mensual.
 // Backoff escalonado (2h/6h/24h) — corre cada hora pero solo procesa rows con next_retry_at vencido.
@@ -63,17 +78,17 @@ Schedule::command('billing:audit-books --mail --warnings-ok')->dailyAt('08:30');
 // punto ciego que dejó a CORE_TOCAIMA 8 días caído sin que nada avisara: el
 // failover de cortes solo ve fallos POR CLIENTE, nunca "este router no está".
 // Cada 30 min: un túnel caído hay que saberlo en minutos, no al día siguiente.
-Schedule::command('vpn:verify-tunnels')->everyThirtyMinutes()->withoutOverlapping();
+Schedule::command('vpn:verify-tunnels')->everyThirtyMinutes()->withoutOverlapping(25);
 
 // Payment reminders: run hourly — the service fires on each router's
 // billing.payment_reminder DAY at its payment_reminder_time HOUR and is
 // idempotent per billing cycle (invoices.last_reminder_sent), so the extra
 // hourly runs never double-send.
-Schedule::command('billing:send-reminders')->hourly()->withoutOverlapping();
+Schedule::command('billing:send-reminders')->hourly()->withoutOverlapping(55);
 
 // Traffic history: sample WAN counters every 5 min for routers with
 // historial_trafico on. withoutOverlapping so a slow run never stacks.
-Schedule::command('traffic:collect')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('traffic:collect')->everyFiveMinutes()->withoutOverlapping(4);
 
 // Prune fine traffic samples older than 30 days (daily aggregates are kept).
 Schedule::command('traffic:prune --days=30')->daily();

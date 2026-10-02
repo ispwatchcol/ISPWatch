@@ -229,6 +229,26 @@ class BillingEventTimeTest extends TestCase
         $this->assertSame(0, $row['actual']);
     }
 
+    #[Test]
+    public function audit_flags_no_show_the_day_after_even_before_the_create_hour(): void
+    {
+        // Facturaba el 15 a las 14:00 y no salió nada. El 16 a las 06:00 —la
+        // hora de billing:verify-monthly— lleva 16 horas de atraso. Antes se
+        // comparaba con las 14:00 de HOY y daba «pendiente» todos los días:
+        // así pasó sin alerta la facturación tardía de Chaguaní (§ 89).
+        Carbon::setTestNow(Carbon::create(2026, 6, 16, 6, 0, 0));
+
+        ['router' => $router] = $this->scenario([
+            'create_invoice'      => Carbon::create(2026, 1, 15)->toDateString(),
+            'create_invoice_time' => '14:00:00',
+        ]);
+
+        $row = $this->rowFor(app(BillingService::class)->auditMonthlyBilling(), $router->id);
+
+        $this->assertTrue($row['due']);
+        $this->assertSame('no_show', $row['status']);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private function makeOutstandingInvoice(Tenant $tenant, User $customer): Invoice

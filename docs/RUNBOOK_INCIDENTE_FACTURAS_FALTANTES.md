@@ -2,6 +2,18 @@
 
 Incidente abierto el **2026-10-01**. Bitácora § 88; mejoras P-80 a P-86.
 
+> **Cerrado el 2026-10-02 (bitácora § 89). No hay nada que reparar.** El período afectado era
+> **octubre**, no septiembre: los cuatro registros reportados tienen septiembre pagado. La corrida
+> del 1-oct murió a las 09:02 UTC con el candado del planificador tomado y no volvió a correr
+> hasta el 2-oct a las 09:00. Esa corrida emitió las 677 mensualidades faltantes y aplicó sola
+> los saldos a favor. Al cierre, 760 de 760 clientes facturables tienen su mensualidad de
+> octubre, sin duplicados.
+>
+> El procedimiento de abajo **sigue siendo válido** para un caso futuro. Cambia una cosa: el
+> paso 2.5 ahora tiene una causa más que mirar, el candado de `cache_locks` (ver
+> MANUAL_DESARROLLADOR, «El planificador»). **Antes de reparar nada**, comprobar con 2.3 que
+> la factura no la haya emitido ya una corrida posterior.
+
 **Alcance confirmado**: tenant **19**, período **septiembre de 2026** (facturas cuyo
 `period_start` cae en 2026-09). Ninguna consulta de este documento sale de ese tenant.
 
