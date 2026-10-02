@@ -99,11 +99,12 @@ WITH cfg AS (
   WHERE cp.user_id = ANY(:'ids'::bigint[])
 )
 SELECT *,
+  -- date + integer = date; date + time = timestamp (timestamp + time no existe).
   CASE WHEN create_invoice IS NULL THEN NULL ELSE
-    mes_corrida
-    + (LEAST(EXTRACT(day FROM create_invoice)::int,
-             EXTRACT(day FROM (mes_corrida + interval '1 month - 1 day'))::int) - 1) * interval '1 day'
-    + COALESCE(create_invoice_time, '00:00:00')::time
+    (mes_corrida
+      + (LEAST(EXTRACT(day FROM create_invoice)::int,
+               EXTRACT(day FROM (mes_corrida + interval '1 month - 1 day'))::int) - 1))
+    + COALESCE(create_invoice_time, time '00:00')
   END AS debia_correr_utc
 FROM cfg;
 ```
