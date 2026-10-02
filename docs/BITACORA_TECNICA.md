@@ -9296,6 +9296,15 @@ está en los logs de App Platform.
    Además, una prueba nueva en `BillingEventTimeTest` y dos en `VerifyAutomaticCutsTest` cubren
    el día siguiente. Las nuevas fallan sin el arreglo y pasan con él.
 
+   **Trampa del job de PostgreSQL.** La primera versión de la prueba pedía el candado dos veces.
+   `DatabaseLock::acquire()` hace un INSERT y, si la clave ya existe, un UPDATE. En PostgreSQL,
+   el INSERT que choca **aborta la transacción** con la que `RefreshDatabase` envuelve cada
+   prueba, y el UPDATE revienta con `25P02`. En SQLite no pasa: allí pasó en verde y el CI la
+   tumbó. La prueba ahora lee el vencimiento guardado en `cache_locks`, que es lo que falló en
+   producción. En producción no hay transacción envolvente, y la toma del candado vencido funciona:
+   así arrancó la corrida del 2-oct. **Regla: en pruebas, no volver a pedir un candado de
+   base que ya está tomado.**
+
 ### Lo que no se hizo
 
 - **No se emitió ni se tocó ninguna factura.** No faltaba ninguna, y `billing:missing-invoices`

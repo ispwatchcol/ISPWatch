@@ -7,6 +7,8 @@ use Cron\CronExpression;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -52,16 +54,30 @@ class ScheduledTaskLockExpiryTest extends TestCase
         $event = $this->eventFor('billing:generate-monthly');
         $this->assertTrue($event->withoutOverlapping);
 
-        // 09:00 — la corrida toma el candado y el proceso muere sin soltarlo.
+        // 09:00 — la corrida toma el candado y el proceso muere sin soltarlo:
+        // lo que queda es la fila de cache_locks, con su vencimiento.
         $this->travelTo(Carbon::parse('2026-10-01 09:00:01'));
         $this->assertTrue($event->mutex->create($event));
-        $this->assertTrue($event->mutex->exists($event), 'Mientras la corrida está viva, la siguiente no debe solaparse.');
 
-        // 10:00 — el siguiente tick tiene que poder correr.
-        $this->travelTo(Carbon::parse('2026-10-01 10:00:00'));
-        $this->assertFalse(
-            $event->mutex->exists($event),
-            'La corrida de las 10:00 sigue bloqueada por la de las 09:00 que murió: la facturación esperaría al día siguiente.'
+        // Se lee la fila en vez de volver a pedir el candado. Pedirlo con la
+        // fila presente hace un INSERT que choca, y en PostgreSQL eso aborta la
+        // transacción con la que RefreshDatabase envuelve la prueba. En
+        // producción no hay transacción envolvente y Laravel toma el candado
+        // vencido con un UPDATE: así arrancó la corrida del 2-oct a las 09:00.
+        $store = Cache::store('database')->getStore();
+        $vence = (int) DB::table('cache_locks')
+            ->where('key', $store->getPrefix() . $event->mutexName())
+            ->value('expiration');
+
+        $this->assertGreaterThan(now()->getTimestamp(), $vence, 'Mientras la corrida está viva, el candado tiene que impedir que otra se solape.');
+
+        // 10:00 — el siguiente tick tiene que encontrar el candado vencido.
+        $this->assertLessThanOrEqual(
+            Carbon::parse('2026-10-01 10:00:00')->getTimestamp(),
+            $vence,
+            'El candado de la corrida de las 09:00 que murió vence a las '
+            . Carbon::createFromTimestamp($vence)->format('Y-m-d H:i')
+            . ': la corrida de las 10:00 se saltaría y la facturación esperaría.'
         );
     }
 
