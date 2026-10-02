@@ -4,9 +4,16 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-09-24 · Rama: `feat/ticket-equipment`
+**Última actualización:** 2026-10-02 · Rama: `fix/scheduler-mutex-24h-lockout`
 
 Últimos bloques de trabajo, unificados en esta rama:
+
+- **La facturación de octubre salió un día tarde y ningún detector lo vio (2026-10-02, § 89):**
+  la corrida del día 1 murió a los dos minutos con el candado de `withoutOverlapping` tomado. Ese
+  candado dura 24 h por defecto y vive en la base, así que cada tick siguiente se saltó en
+  silencio. Ahora cada candado vence antes del siguiente tick de su tarea. De paso apareció otro
+  fallo: `verify-monthly` y `verify-cuts` medían la hora sobre el día de hoy y no podían alertar
+  de ningún router de producción. Cierra el § 88.
 
 - **En un ticket no se podían asignar equipos, y el retiro no existía en ninguna parte
   (2026-09-24, § 78):** el inventario sólo sabía salir por una orden de instalación, y un equipo
@@ -9186,3 +9193,132 @@ El incidente **no está resuelto**. Alcance confirmado: tenant 19, período 2026
 4. aprobar el plan;
 5. aplicarlo;
 6. conciliar.
+
+> **Actualización 2026-10-02 — cerrado en el § 89.** El alcance de arriba estaba mal: los
+> cuatro registros reportados tienen su mensualidad de septiembre (pagada). Lo que faltaba era
+> **octubre**, y la causa no estaba en ninguna regla de facturación sino en el planificador. La
+> corrida del 2-oct ya emitió todas las faltantes y aplicó solos los saldos a favor; no hubo que
+> reparar nada con `billing:missing-invoices`.
+
+---
+
+## 89. La facturación de octubre salió un día tarde: un candado de 24 horas que nadie soltó — 2026-10-02
+
+**Cierra el incidente del § 88.** Diagnóstico con consultas de sólo lectura sobre `public`
+(transacción `READ ONLY`). Se citan `user_id`, no nombres.
+
+### Lo que dicen los datos
+
+- Los cuatro registros reportados son del **tenant 19** (`user_id` 834, 990, 1019 y 1069;
+  routers 57 y 58). Tienen julio, agosto y septiembre pagados. Les faltaba **octubre**.
+- Los routers 57 y 58 facturan el **día 1 a las 09:00 UTC**; el 59, el día 1 a las 08:30.
+- **1-oct, 09:00:04 → 09:02:27 UTC:** la corrida emitió 82 mensualidades, todas del router 59, y
+  se detuvo a mitad de ese router. Los routers 57 y 58 no se llegaron a recorrer. Ninguna fila en
+  `billing_action_logs`: no hubo un fallo por cliente.
+- **Nada más en todo el 1-oct** (sólo una factura manual a las 22:50).
+- **2-oct, 09:00:16 → 09:12:05 UTC:** 677 mensualidades (40 del router 59, 66 del 57, 571 del
+  58). **Veinticuatro horas exactas** después del arranque de la corrida anterior.
+- Estado al cerrar: **760 de 760** clientes facturables de los routers 57–59 con su mensualidad
+  de octubre, sin duplicados.
+- De los 11 pagos registrados el 1-oct, 8 quedaron como saldo a favor porque el cliente aún no
+  tenía factura (`customer_credits` tipo `earned`). La corrida del 2-oct los **aplicó sola** a la
+  mensualidad nueva (`applied` con `to_invoice_id`) y esas facturas están `paid`. Es el caso del
+  990, el de «No enviar notificaciones»: pago #3003 → saldo 60.000 → aplicado a la 00003073.
+  `notify_invoice` no tuvo nada que ver.
+
+### La causa
+
+`withoutOverlapping()` sin argumento deja el candado **1440 minutos**. Vive en `cache_locks`
+(`CACHE_STORE=database`) y sólo se suelta cuando la tarea **termina**. El planificador corre de
+fondo dentro del `worker` (§ 48.10), que se recicla **cada hora** por `--max-time=3600` y en cada
+despliegue. Si el reciclaje cae durante una corrida, el proceso muere con el candado tomado, y
+cada tick siguiente se **salta en silencio** —`withoutOverlapping` es un `skip`, no un error—
+hasta que el candado vence al día siguiente.
+
+La evidencia:
+
+- el corte a las 09:02:27, a mitad de un router, sin excepción registrada;
+- ningún reintento a las 10:00, ni en el resto del día;
+- la reanudación justo al vencer las 24 h;
+- **el mismo patrón en Tocaima** (tenant 16, factura el día 3 a las 14:00). Septiembre no salió
+  el 3. El 4 a las 14:00 salieron 114 y la corrida se cortó a las 14:07. El 5 a las 14:00
+  salieron las 88 restantes;
+- **en vivo, al consultarlo**: `cache_locks` tenía tomado el candado de `traffic:collect` desde
+  el 1-oct 21:05 UTC hasta el 2-oct 21:05. La clave `schedule-ea70055e…` es el sha1 de
+  `*/5 * * * *php artisan traffic:collect`. Una tarea de cada cinco minutos llevaba 16 horas sin
+  correr.
+
+**Lo que se descarta:** una excepción no capturada. El proceso padre (`schedule:run`) sobrevive
+a la muerte del hijo y llama a `finish()`, que suelta el candado. La corrida de las 10:00 habría
+reintentado.
+
+**Lo que no se puede probar desde la base:** el reinicio exacto del contenedor a las 09:02. Eso
+está en los logs de App Platform.
+
+**Cuánto expone:** en un tick ocioso, la corrida dura segundos. El día de facturación dura
+~12 minutos, porque los avisos de WhatsApp salen en línea. Con un reciclaje por hora, eso da
+**una probabilidad del orden de 1 en 5** de perder el día.
+
+### Por qué nadie se enteró
+
+- **`/health` y el latido** siguieron en verde. `system:heartbeat` no lleva candado (a
+  propósito, ver `routes/console.php`): el planificador estaba vivo; era la tarea la que se
+  saltaba.
+- **`billing:verify-monthly` (06:00 UTC) no podía alertar.** Combinaba la hora de creación con
+  la fecha de **hoy**. A las 06:00, un router que factura después de las 05:00 salía `pending`
+  **todos los días**, también el día siguiente al fallo. En producción todos facturan entre las
+  08:00 y las 14:00: el detector estaba ciego para **todos** los routers. `billing:verify-cuts`
+  (07:00) tenía el mismo error con `cut_time`.
+- El failover (`billing:retry-failed`) sólo ve fallos **por cliente**: no tenía nada que
+  reintentar.
+
+### El arreglo
+
+1. **`routes/console.php`:** cada `withoutOverlapping` lleva un vencimiento **menor que su
+   intervalo**:
+   - `generate-monthly`: 55;
+   - `send-reminders`: 55;
+   - `vpn:verify-tunnels`: 25;
+   - `traffic:collect`: 4.
+
+   Una corrida muerta cuesta como mucho un tick. Si una corrida legítima pasara del vencimiento
+   y la siguiente arrancara encima, no duplica mensualidades: cada una se escribe bajo el
+   bloqueo por cliente del § 88.
+2. **`auditMonthlyBilling()` y `auditAutomaticCuts()`:** la hora se aplica sobre el **día** de
+   creación o de corte. El día mismo, el comportamiento no cambia. A partir del día siguiente,
+   el atraso ya es visible a las 06:00 y a las 07:00.
+3. **`ScheduledTaskLockExpiryTest`:**
+   - fija la invariante para **toda** tarea, también las que se agenden en el futuro: falla si
+     alguien usa `withoutOverlapping()` sin vencimiento;
+   - reproduce el incidente sobre el almacén `database`: el candado de una corrida muerta a las
+     09:00 ya no bloquea el tick de las 10:00.
+
+   Además, una prueba nueva en `BillingEventTimeTest` y dos en `VerifyAutomaticCutsTest` cubren
+   el día siguiente. Las nuevas fallan sin el arreglo y pasan con él.
+
+   **Trampa del job de PostgreSQL.** La primera versión de la prueba pedía el candado dos veces.
+   `DatabaseLock::acquire()` hace un INSERT y, si la clave ya existe, un UPDATE. En PostgreSQL,
+   el INSERT que choca **aborta la transacción** con la que `RefreshDatabase` envuelve cada
+   prueba, y el UPDATE revienta con `25P02`. En SQLite no pasa: allí pasó en verde y el CI la
+   tumbó. La prueba ahora lee el vencimiento guardado en `cache_locks`, que es lo que falló en
+   producción. En producción no hay transacción envolvente, y la toma del candado vencido funciona:
+   así arrancó la corrida del 2-oct. **Regla: en pruebas, no volver a pedir un candado de
+   base que ya está tomado.**
+
+### Lo que no se hizo
+
+- **No se emitió ni se tocó ninguna factura.** No faltaba ninguna, y `billing:missing-invoices`
+  no se aplicó.
+- **No se borró a mano el candado de `traffic:collect`:** sería una escritura en producción.
+  Vence solo el 2-oct a las 21:05 UTC, y los que se tomen después del despliegue duran 4 minutos.
+- **No se separó el planificador del `worker`** (P-PROC-1). Bajaría la frecuencia de los
+  asesinatos, pero cada despliegue lo seguiría matando. Por eso el arreglo va en el candado.
+- **No se cambió la compuerta horaria de la corrida** en los días siguientes al de creación
+  (P-88).
+- El router 52 («PRUEBA OFICINA», 6 clientes) no tiene día de creación y **nunca** factura. Es
+  P-28. Se deja como está: es una oficina de prueba.
+
+### Pendiente
+
+- **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
+- Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.

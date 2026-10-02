@@ -232,7 +232,10 @@ class OverdueSuspensionService
             // (avoids false positives in the gap right after cut_time).
             $cutTime = $billingConfig->cut_time ?? '00:00:00';
             [$h, $m, $s] = array_pad(explode(':', $cutTime), 3, 0);
-            $cutMoment = $now->copy()->setTime((int) $h, (int) $m, (int) $s);
+            // Sobre el DÍA de corte, no sobre hoy: con la hora de hoy, este
+            // audit (07:00) daba «pendiente» todos los días a un router que
+            // corta después de las 06:00 y nunca alertaba (§ 89).
+            $cutMoment = $now->copy()->setDay(min($cutDay, $now->day))->setTime((int) $h, (int) $m, (int) $s);
             $due = $now->day >= $cutDay && $now->gte($cutMoment->copy()->addHour());
 
             if (!$due) {

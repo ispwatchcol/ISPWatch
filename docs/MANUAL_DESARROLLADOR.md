@@ -446,6 +446,21 @@ php artisan billing:verify-monthly        # debe reportar 'ok', no 'no_show'
 php artisan billing:verify-cuts
 ```
 
+**Al agendar una tarea con `withoutOverlapping()`, pásale siempre un vencimiento menor que
+su intervalo** (`->hourly()->withoutOverlapping(55)`, `->everyFiveMinutes()->withoutOverlapping(4)`).
+Sin argumento, Laravel deja el candado 24 horas en la base. Si el proceso muere a mitad —el
+contenedor del planificador se recicla cada hora y en cada despliegue—, la tarea no vuelve a
+correr hasta el día siguiente, y no lo avisa nada. `ScheduledTaskLockExpiryTest` falla si se
+olvida. Ver § 89 de la bitácora.
+
+Para ver qué candado está tomado en producción (sólo lectura):
+
+```sql
+SELECT key, to_timestamp(expiration) AT TIME ZONE 'UTC' AS vence_utc FROM cache_locks;
+```
+
+La clave es `…framework/schedule-<sha1(expresión cron + "php artisan <comando>")>`.
+
 ### Checklist previo a producción
 
 - [ ] `APP_DEBUG=false`

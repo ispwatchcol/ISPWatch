@@ -385,8 +385,12 @@ class BillingService
             // scheduler ticks hourly, so we mirror the cut audit's 1h grace: the
             // gap between the configured hour and the next hourly run must not be
             // mistaken for a missing invoice. Skipped for an explicit (past) period.
+            // La hora se cuenta sobre el DÍA DE CREACIÓN, no sobre hoy: con la
+            // hora de hoy, este audit (06:00) veía «pendiente» todos los días a
+            // cualquier router que factura después de las 05:00 —todos los de
+            // producción— y nunca podía alertar (§ 89).
             if ($due && !$periodExplicit) {
-                $createMoment = Billing::applyTimeOfDay($today, $billingConfig->create_invoice_time);
+                $createMoment = Billing::applyTimeOfDay($today->copy()->setDay($createDay), $billingConfig->create_invoice_time);
                 $due = $today->gte($createMoment->copy()->addHour());
             }
 
