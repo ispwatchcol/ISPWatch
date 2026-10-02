@@ -9025,3 +9025,164 @@ texto viejo no tenía.
 La prueba usa como fixture el texto exacto publicado el 2026-09-22
 (`tests/Fixtures/help_center/radius_aaa_2026-09-22.html`) y verifica su huella: sin eso, la
 prueba no distinguiría "sin editar" de "editado".
+
+## 88. Mensualidades faltantes y pagos convertidos en saldo a favor — 2026-10-01
+
+**Incidente urgente, abierto.** Reporte: clientes sin la factura del periodo esperado, algunos
+con el pago ya registrado como saldo a favor. Uno de ellos tiene activada «No enviar
+notificaciones de factura»; los otros, configuración normal. Esta entrada registra lo que se
+pudo establecer **sin datos de producción**: no hubo acceso autorizado de sólo lectura, y el
+conector de base de datos disponible no es de sólo lectura, así que no se usó.
+
+### Lo que se descartó en el código
+
+**«No enviar notificaciones» NO excluye de la generación en `main`.** `notify_invoice` sólo
+se consulta en `notifyInvoiceCreated()`, después de crear la factura, y en los recordatorios.
+La corrida filtra por `exclude_from_billing`, que es la otra casilla («No facturar a este
+cliente»). Se reprodujo de punta a punta con datos ficticios —cliente silenciado más
+`generateMonthlyInvoices()`— y la factura sale, sin aviso.
+
+La prueba que decía cubrir esto (`the_monthly_invoice_is_still_generated_for_a_silenced_customer`)
+**no ejecutaba la corrida**: creaba la factura a mano y comprobaba que existiera. El caso
+nunca estuvo probado de verdad; ahora sí.
+
+Si en producción ese cliente no tiene factura, la causa es otra, o producción corre una
+versión distinta de `main`. Las dos cosas se resuelven con datos, no con código.
+
+### Lo que sí se encontró y se corrigió
+
+**La mensualidad no era atómica ni exclusiva.** `createMonthlyInvoiceFor()` eran escrituras
+sueltas —factura, ítem, arrastre, adicionales, saldo a favor— precedidas de un «¿ya existe?»
+que cada llamador hacía por su cuenta y sin bloqueo. Dos ejecuciones a la vez sobre el mismo
+cliente emitían **dos mensualidades y aplicaban el saldo a favor dos veces**. Probado: con el
+`BillingService` de `main`, el segundo escritor crea la segunda factura.
+
+Arreglo: una sola puerta, `BillingService::withMonthlyInvoiceLock()`. Abre una transacción,
+bloquea la fila de `customer_profile` (que es además donde vive `credit_balance`) y vuelve a
+buscar la mensualidad del mes **dentro** del bloqueo. Quien llega segundo sale con
+`MonthlyInvoiceAlreadyExists` y lo trata como «ya estaba hecha», no como fallo. El aviso al
+cliente sale con `DB::afterCommit`: después del commit, nunca de una factura que se deshizo.
+
+### Todos los caminos que crean una mensualidad (revisión del 2026-10-01)
+
+La primera versión de esta entrada decía «cuatro caminos». Estaba incompleta: había un quinto
+fuera de la puerta, y hay dos manuales que no entran. Inventario completo, por
+`Invoice::create` en `app/`:
+
+| Camino | Disparadores | ¿Bloqueo + comprobación? |
+|---|---|---|
+| `generateMonthlyInvoices()` | scheduler horario, `POST /billing/run-monthly`, `billing:simulate` | Sí, vía `createMonthlyInvoiceFor()` |
+| `retryFailedInvoice()` | `billing:retry-failed` | Sí, ídem |
+| `issueFirstInvoiceOnSignup()` | alta de cliente, `billing:first-invoice` | Sí, ídem |
+| `applyMissingInvoicePlan()` | `billing:missing-invoices --apply` | Sí, ídem, y bajo el bloqueo del lote |
+| `billing:generate-tenant` | manual | **Ahora sí**: escribe dentro de `withMonthlyInvoiceLock()` con su cálculo de siempre. Antes no; probado que duplicaba a un cliente prorrateado (P-82) |
+| `POST /billing/invoices` (manual, `monthly` por defecto) | operador | **No** (P-86) |
+| Cargo adicional con tipo `monthly` | operador | **No** (P-86) |
+
+**Por lo tanto la unicidad no es global**: cubre todos los caminos automáticos, el comando
+one-off y la reparación, pero no una mensualidad creada a mano. Cerrar eso cambia una regla de
+facturación —hoy el operador puede emitirla— y queda fuera de este incidente.
+
+**Prueba de concurrencia real.** `MonthlyInvoiceConcurrencyPostgresTest` lanza dos procesos
+del sistema operativo con sus propias conexiones. A bloquea al cliente y tarda; B, mientras
+tanto, entra por `createMonthlyInvoiceFor`, por `billing:generate-monthly`, por
+`billing:generate-tenant` o por `billing:missing-invoices --apply`. B tiene que esperar,
+terminar después que A y no duplicar. Sin el bloqueo, B no espera y emite la segunda.
+
+Sólo corre en el job de PostgreSQL del CI (en SQLite se omite) y **todavía no se ha
+ejecutado**: aquí no hay PostgreSQL, y el job corre al abrir el PR. No usa `RefreshDatabase`,
+porque los hijos tienen que ver datos confirmados, y borra entero su tenant al terminar.
+
+### Herramienta de diagnóstico y reparación
+
+`php artisan billing:missing-invoices --tenant=<id> --period=YYYY-MM`. Por defecto **no
+escribe nada**. Pasa a cada cliente del tenant por las mismas puertas que la corrida
+(`BillingService::explainMonthlyInvoice()`) y dice si la mensualidad falta, existe (o está
+anulada), o no le corresponde y por qué. Para cada faltante muestra el total, el saldo a
+favor antes, el que se aplicaría, el saldo de la factura y el crédito restante, y si se
+avisaría. Imprime un `plan-hash` (`App\Billing\MissingInvoicePlan`).
+
+**El hash no deja aplicar un plan obsoleto.** Con `--apply`,
+`BillingService::applyMissingInvoicePlan()`:
+
+1. bloquea a todos los clientes nombrados;
+2. los vuelve a evaluar bajo el bloqueo y recalcula la huella;
+3. si cambió algo, lanza `MissingInvoicePlanChanged` y deshace el lote entero.
+
+La huella cubre:
+
+- cliente, router y período;
+- emisión, vencimiento e inicio y fin del período;
+- plan, arrastre, adicionales y total;
+- saldo a favor antes, aplicado y después;
+- saldo de la factura y aviso.
+
+Incluye la fecha de emisión a propósito: un plan aprobado otro día no se aplica. Además, tras
+emitir cada factura se comprueba que su total y su saldo cuadren con lo aprobado.
+
+Probado:
+
+- un pago posterior a la aprobación aborta el lote entero, también para el cliente que no
+  cambió;
+- un cambio de precio aborta;
+- un día distinto aborta;
+- un lote deshecho no envía avisos.
+
+Deja el motivo en la nota de la factura, el origen `console` en `audit_logs` y una línea
+`[BILLING-REPAIR]` con la huella en el log.
+
+### Recuperación: anular no es un rollback
+
+Prueba dedicada: `voiding_a_repaired_invoice_returns_credit_and_later_payments_but_not_everything`.
+
+Anular una factura reparada:
+
+- **devuelve** el saldo a favor que consumió, como movimiento `adjusted`, y conserva el
+  `applied` original;
+- **devuelve** el arrastre a pendiente;
+- **también suelta los pagos posteriores** aplicados a esa factura y los convierte en saldo a
+  favor. Deshace más de lo que hizo la reparación.
+
+**No** deshace:
+
+- el número consumido;
+- el aviso ya enviado;
+- lo que la integración del ISP ya leyó por `/invoices` de la API partner;
+- los servicios adicionales del mes, que siguen contando como cobrados (P-85);
+- la cobertura del mes, que queda «cubierto» por la anulada.
+
+La tabla completa está en el runbook.
+
+### Lo que el sistema no registra (y limita el diagnóstico)
+
+- `notify_invoice` **no se audita**: la bitácora de dinero registra `exclude_from_billing`,
+  `service_status` y `service_id`, pero no esa casilla. No hay forma de saber desde la base
+  cuándo se activó.
+- El latido del scheduler vive en **caché**: no deja rastro histórico de las ejecuciones. La
+  evidencia de que la corrida pasó por un router es indirecta: las mensualidades que sí emitió
+  a sus demás clientes, y los logs de la aplicación.
+- La aplicación corre en **UTC**: la hora de creación del router se interpreta en UTC.
+
+### Causas posibles, sin atribuir
+
+No se atribuye ninguna a un caso sin datos:
+
+- mensualidad anulada (la corrida no la repone);
+- router sin día de creación (P-28);
+- tope de mora;
+- servicio no activo o plan de cortesía;
+- mes suprimido por un borrado;
+- política de primera factura;
+- casilla «No facturar» marcada en lugar de «No enviar notificaciones»;
+- fecha: en modo vencido, la factura de septiembre sale en octubre.
+
+### Pendiente
+
+El incidente **no está resuelto**. Alcance confirmado: tenant 19, período 2026-09. Falta:
+
+1. resolver los IDs exactos dentro del tenant 19;
+2. que alguien autorizado ejecute las consultas de sólo lectura del runbook;
+3. desplegar esta corrección, si se quiere la simulación exacta;
+4. aprobar el plan;
+5. aplicarlo;
+6. conciliar.
