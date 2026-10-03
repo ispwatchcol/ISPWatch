@@ -9322,3 +9322,73 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+---
+
+## 90. La corrida mensual se cortaba entera por el error de un solo cliente — 2026-10-02
+
+> **Nota al integrar con `main` (2026-10-03).** Esta entrada se escribió antes del § 89, con los
+> datos de la mañana del 2-oct: entonces los routers 57 y 58 aún no tenían octubre. El § 89
+> atribuye ese corte a otro mecanismo —el proceso muerto a mitad de la corrida con el candado de
+> 24 h tomado— y descarta para ese caso una excepción no capturada. Lo de abajo **no es la
+> corrección de ese incidente**: es un endurecimiento contra un modo de fallo distinto que el
+> código permitía, y se mantiene por eso. Las mejoras que aquí se llamaban P-87 a P-90 pasaron a
+> ser P-91 a P-94, porque el § 89 ya usa esos números.
+
+**Contexto.** Auditoría de sólo lectura en producción, tenant 19, octubre de 2026. Los routers
+57 y 58 debían correr el 2026-10-01 a las 09:00 UTC y no tienen ninguna mensualidad de octubre;
+el router 59, del mismo tenant, sí emitió 83, repartidas entre las 09:00 y las 22:50 UTC.
+`billing_action_logs` no tiene filas de octubre y la configuración de facturación no cambió desde
+septiembre. El scheduler corre. **La causa exacta no está declarada**: faltan los logs de
+producción de esa ventana.
+
+### Lo que se encontró en el código
+
+Sólo `createMonthlyInvoiceFor()` estaba dentro del `try/catch` de cada cliente. Todo lo de antes
+—la factura de sólo adicionales (`issueAdditionalOnlyInvoice`), la primera factura
+(`resolveFirstInvoiceCharge`), el tope, las consultas del cliente— y todo lo del router
+—día, hora, vencimiento, tope— quedaba **fuera**. Una excepción ahí:
+
+1. salía de `generateMonthlyInvoices()` y cortaba la corrida para **todos** los routers que
+   venían después, de cualquier tenant;
+2. no escribía nada en `billing_action_logs`;
+3. el comando la atrapaba (`catch (\Exception)`) y sólo la imprimía en la consola, que el
+   scheduler descarta: **ni siquiera quedaba en `laravel.log`**. Un `\Error` (TypeError…) sí
+   llegaba al log por el manejador de Laravel.
+
+Además los routers se recorrían **sin `ORDER BY`**: en PostgreSQL el orden es el físico y cambia
+con cada UPDATE, así que el punto donde moría la corrida podía moverse de una hora a otra.
+
+### Corrección (rama `fix/billing-corrida-resiliente`, sobre § 88; sin desplegar)
+
+- Cada cliente va dentro de su propio `try (\Throwable)`: el fallo queda en el log con la traza
+  y en `billing_action_logs` como `failed`, y la corrida sigue con el siguiente.
+- La ruta de sólo adicionales registra con su propia acción,
+  `generate_additional_only_invoice`. `billing:retry-failed` sólo reintenta mensualidades; antes
+  habría agotado esas filas con «No active billable service plan» y se perdía el motivo real.
+  Las reintenta la corrida horaria, que marca `success` cuando emite.
+- Cada router va dentro de su propio `try`: un router roto no frena a los siguientes. No deja
+  fila (P-92); lo reintenta la corrida siguiente.
+- Routers en orden fijo por id. Se quitó la carga anticipada de `customers` de **todos** los
+  routers, que nadie usaba.
+- Log por router: `Router N — start: X billable customer(s)` y `Router N — done: … peak memory
+  M MB`. Un fatal (memoria, proceso matado) no es atrapable (P-91); estas líneas dicen dónde
+  murió.
+- `billing:generate-monthly` registra en el log cualquier `\Throwable` y sale con 1 si hubo
+  fallos (`lastRunFailures()`), en vez de un «Successfully» engañoso. `POST
+  /billing/run-monthly` devuelve el **número** de errores; el detalle no, porque la corrida
+  recorre todos los tenants.
+- `billing:retry-failed`: un reintento que revienta fuera del `try` de
+  `retryFailedInvoice()` suma un intento con su backoff y no frena el lote.
+- Defecto de paso: `markActionLogFailed()` / `markActionLogSuccess()` buscaban la fila con
+  `where('period_start', 'Y-m-d')` sobre una columna con cast `date`. En SQLite no la
+  encontraban: un segundo fallo chocaba con la única y un éxito posterior no la cerraba. Ahora
+  `whereDate`, como `isRegenerationSuppressed()`. En PostgreSQL el comportamiento no cambia.
+
+**Pruebas:** `MonthlyRunResilienceTest` (7). Ejecutadas contra el código anterior, las siete
+fallan con la excepción escapando de la corrida.
+
+### Deuda aceptada
+
+P-91 (fatales), P-92 (fallo de router sin fila), P-93 (fila de adicionales que no se cierra),
+P-94 (avisos sincrónicos dentro de la corrida).
