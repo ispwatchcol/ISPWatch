@@ -131,6 +131,37 @@ class VerifyAutomaticCutsTest extends TestCase
     }
 
     #[Test]
+    public function the_day_after_the_cut_day_the_cut_hour_no_longer_hides_a_failed_cut(): void
+    {
+        // Corte el 10 a las 14:00. El 11 a las 07:00 —cuando corre verify-cuts—
+        // el corte lleva 17 horas vencido. Antes se comparaba con las 14:00 de
+        // HOY y salía «pendiente» todos los días: no alertaba nunca (§ 89).
+        Carbon::setTestNow(Carbon::create(2026, 6, 11, 7, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $router = $this->makeRouter($tenant, cutDay: 10, threshold: 1, cutTime: '14:00:00');
+        $this->makeOverdueCustomer($tenant, $router, overdueQty: 1);
+
+        $rows = app(OverdueSuspensionService::class)->auditAutomaticCuts();
+
+        $this->assertSame('cut_failing', $this->statusFor($rows, $router->id));
+    }
+
+    #[Test]
+    public function on_the_cut_day_itself_the_cut_hour_still_applies(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 10, 7, 0, 0));
+
+        $tenant = Tenant::factory()->create();
+        $router = $this->makeRouter($tenant, cutDay: 10, threshold: 1, cutTime: '14:00:00');
+        $this->makeOverdueCustomer($tenant, $router, overdueQty: 1);
+
+        $rows = app(OverdueSuspensionService::class)->auditAutomaticCuts();
+
+        $this->assertSame('pending', $this->statusFor($rows, $router->id));
+    }
+
+    #[Test]
     public function reports_pending_before_the_cut_day(): void
     {
         // Cut day is the 20th; today is the 15th → not due yet, no alarm.

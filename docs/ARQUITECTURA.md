@@ -1542,19 +1542,27 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 
 | Frecuencia | Comando | Notas |
 |---|---|---|
-| Cada hora | `billing:generate-monthly` | `withoutOverlapping`; el gate de día **y hora** está dentro del servicio |
+| Cada hora | `billing:generate-monthly` | `withoutOverlapping(55)`; el gate de día **y hora** está dentro del servicio |
 | Cada hora | `billing:retry-failed` | Sólo procesa filas con `next_retry_at` vencido |
 | Cada hora | `billing:auto-cut` | Gate por `cut_day` + `cut_time` de cada router |
 | Cada hora | `billing:reconcile-suspensions` | Failover DB ⇄ RouterBoard |
-| Cada hora | `billing:send-reminders` | `withoutOverlapping`; idempotente por ciclo |
+| Cada hora | `billing:send-reminders` | `withoutOverlapping(55)`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
 | Diario 08:00 | `billing:verify-orphan-payments` | Auditoría de caja: `pagos == aplicado + ganado` (ver § libros) |
 | Diario 08:30 | `billing:audit-books --mail --warnings-ok` | Cierre de libros. Sólo los **críticos** mandan correo: un aviso diario acabaría silenciando el comando entero |
 | Diario 09:00 | `contracts:remind-unsigned` | **Un solo** aviso por enlace de firma, a las 24 h. Insistir a diario acabaría marcando como spam el dominio del ISP, y con él las facturas y los avisos de corte |
-| Cada 30 min | `vpn:verify-tunnels` | Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
-| Cada 5 min | `traffic:collect` | Sólo routers con `historial_trafico = true` |
+| Cada 30 min | `vpn:verify-tunnels` | `withoutOverlapping(25)`. Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
+| Cada 5 min | `traffic:collect` | `withoutOverlapping(4)`. Sólo routers con `historial_trafico = true` |
 | Diario | `traffic:prune --days=30` | Conserva los agregados diarios |
+
+**Candados de solapamiento: siempre con vencimiento menor que el intervalo.** El candado de
+`withoutOverlapping` vive en `cache_locks` y sólo se suelta cuando la tarea termina. Si el proceso
+muere a mitad —el `worker` que aloja al planificador se recicla cada hora y en cada despliegue—, el
+candado se queda. Con el valor por defecto de Laravel (1440 min), la tarea no volvía a correr hasta
+el día siguiente, y así salió tarde la facturación de octubre (BITACORA § 89). Con un vencimiento
+menor que el intervalo, una corrida muerta cuesta como mucho un tick. `ScheduledTaskLockExpiryTest`
+lo exige a toda tarea agendada.
 
 **Diseño de idempotencia y recuperación:** los comandos horarios no dependen de
 ejecutarse en el minuto exacto. `generate-monthly` comprueba `today->day >= create_day`,

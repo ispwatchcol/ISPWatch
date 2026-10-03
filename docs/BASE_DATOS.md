@@ -860,7 +860,7 @@ Registra el resultado por **(tenant, cliente, periodo, acción)** — hay un ín
 > `generate_monthly_invoice`. Las filas `generate_additional_only_invoice` las resuelve la
 > corrida horaria, que vuelve a evaluar al cliente cada hora y marca `success` cuando la
 > emite. La corrida escribe aquí **cualquier** fallo de un cliente, no sólo los de la
-> creación de la factura (bitácora § 89). Un fallo de un router entero **no** deja fila
+> creación de la factura (bitácora § 90). Un fallo de un router entero **no** deja fila
 > (`customer_id` es obligatorio): queda en el log y lo detecta `billing:verify-monthly`.
 
 > **`suppressed` es una lápida**: cuando un administrador borra una factura, se marca ese
