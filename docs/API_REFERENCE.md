@@ -1012,7 +1012,8 @@ Cada acción crea una fila nueva en `router_outage_events` (nunca actualiza). Lo
 | `GET/POST` | `/api/sectorials` | Lista / crea elemento de red |
 | `GET/PUT/DELETE` | `/api/sectorials/{id}` | Detalle / actualiza / elimina |
 | `GET/POST` | `/api/sectorials/{sectorial}/photos` | Fotos |
-| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto |
+| `GET` | `/api/sectorials/{sectorial}/photos/{photo}` | Entrega la foto, autenticada (P-40): `view_sectorials` o `view_support`; sectorial de otro tenant o foto de otro sectorial → 404; en línea solo `image/jpeg/png/gif/webp`, el resto como descarga; `Cache-Control: private, no-store`. Es la `url` que devuelve el listado |
+| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto (borra el archivo de `s3` y del disco `public` heredado) |
 | `GET/POST` | `/api/sectorials/{sectorial}/notes` | Notas |
 | `PUT/DELETE` | `/api/sectorials/{sectorial}/notes/{note}` | Edita / elimina nota |
 | `GET` | `/api/sectorials/{sectorial}/history` | Bitácora de cambios |
