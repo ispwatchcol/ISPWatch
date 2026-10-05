@@ -9322,3 +9322,36 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 100. «Estado del Sistema» deja de ser un adorno (KAN-68, P-33) — 2026-10-05
+
+> Numeración: las §§ 90 a 99 todavía no están en main.
+
+### El problema
+
+En Configuración → Sistema, el punto verde «Operativo» era texto fijo. Habría dicho lo mismo
+con el planificador caído, que es justo la falla que dejó un mes sin facturas.
+
+### Lo que se hizo
+
+- `GET /api/system/status` (`SettingsController::status`), para cualquier usuario autenticado.
+  Lee el latido de `system:heartbeat` con la **misma** clave y el **mismo** umbral que
+  `HealthController::checkScheduler()`.
+  - Devuelve `ok`, `stale`, `never` o `not_expected`, más los segundos sin latir.
+  - No se tocó `HealthController`, para no arriesgar `/health`. Duplicar cinco líneas que
+    leen la misma configuración se consideró aceptable.
+- **Endpoint aparte de `/system/version` a propósito:** el frontend consulta la versión con
+  frecuencia para detectar bundles viejos (KAN-101), y no hace falta cargarle este estado.
+- **Recuadro:** verde «Operativo», ámbar «Revisar» con cuántos minutos lleva sin correr, o
+  gris «Sin datos» / «No aplica». Si el endpoint falla, **nunca** dice «Operativo».
+- **Umbral:** el de `/health` (5 min), no las 2 h que sugería la tarjeta. Si el recuadro y el
+  centinela externo usaran umbrales distintos, se contradirían. A cambio, el recuadro se puede
+  ver ámbar unos minutos durante un despliegue, y así lo dice el manual.
+
+### Pruebas
+
+`tests/Feature/SystemStatusTest.php` (6 casos):
+
+- `ok`, `stale` (con los segundos), `never` y `not_expected`;
+- exige sesión;
+- la plantilla ya no tiene el «Operativo» fijo junto al punto verde.
