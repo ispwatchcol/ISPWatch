@@ -1582,7 +1582,13 @@ cambios de filtro), no al alternar capas; y calcular los `bounds` sólo con las 
 usuario está mirando. Alternativa mínima: recordar el `zoom`/`center` y restaurarlos cuando
 el redibujado no venga de un cambio de filtro.
 
-### 📋 P-26 · El script de provisión no abre ICMP desde la red de gestión
+### 🟡 P-26 · El script de provisión no abre ICMP desde la red de gestión — en el generador desde 2026-10-05 (KAN-56)
+
+> **Código hecho** (bitácora § 102): los dos scripts (L2TP y WireGuard) instalan también
+> `protocol=icmp src-address=<red de gestión>`, con el mismo comentario `ISPWatch-CORE-MGMT`,
+> así que re-aplicarlos no duplica. **Los routers ya provisionados no la tienen** hasta que
+> se les vuelva a aplicar el script. No se programó una pasada por la flota, tal como pedía
+> la recomendación: entra con el próximo cambio que ya obligue a re-aplicar.
 
 `VpnService::generateL2tpScript()` y `generateWireguardScript()` instalan
 `ISPWatch-CORE-MGMT` como `action=accept protocol=tcp ... dst-port=22,8291,8728`. **Sólo
@@ -2778,7 +2784,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-23** *(R3)* | Falta la R3 de `support_ticket` | — | — | ✅ Resuelto 2026-08-15 · entrada contradictoria |
 | **P-24** | La pantalla de catálogos tendrá que vaciar la caché | Editar y releer en la misma petición devuelve el valor viejo | 🟢 Baja | 📋 Nota anticipada |
 | **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 📋 Pendiente |
-| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 📋 Pendiente |
+| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 🟡 En el generador (KAN-56) · la flota la recibe al re-aplicar |
 | **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
 | **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
 | **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
