@@ -9322,3 +9322,68 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 91. Reconciliar reconexiones: el cliente que pagó ya no queda bloqueado en silencio (KAN-53, P-29) — 2026-10-05
+
+> Numeración: la § 90 la usa el PR #302 (corrida mensual resiliente), que aún no está en main.
+
+### El problema
+
+Desde el § 43, cuando un cliente paga y el router no confirma la reconexión, la BD se corrige
+igual (`status = true`). Así `billing:reconcile-suspensions` no lo vuelve a cortar. A cambio, el
+cliente queda **activo en el panel y bloqueado en el equipo**. Solo lo delataban la fila
+`UNSUSPEND/failed` de Acciones masivas y el aviso rojo del cajero, y los dos dependían de que
+alguien mirara. Nada lo reintentaba solo.
+
+### Lo que se hizo
+
+- `OverdueSuspensionService::reconcileReconnections()`, espejo de `reconcileSuspensions()`, y
+  el comando `billing:reconcile-reconnections` (`--router`, `--dry-run`, `--force`), agendado
+  **cada hora** justo después del reconciliador de cortes.
+- **Candidato:** `customer_profile.status = true`, con router, y cuya **última** fila en
+  `suspension_action_logs`, de **cualquier** acción, es un `UNSUSPEND` sin éxito. Se mira la
+  última de cualquier acción a propósito: si después hubo un `SUSPEND`, el cliente se volvió a
+  cortar, y reabrirlo desharía ese corte.
+- **El intento** pasa por `BillingService::attemptReconnection()`, el mismo camino del pago y
+  del reintento manual por cliente. Hereda el preflight, el candado `reconnect-customer-{id}` y
+  el desenlace estampado en la fila. La alerta de la ficha se apaga sola cuando el equipo
+  confirma.
+- **Se omiten:**
+  - los routers RADIUS: ahí ISPWatch ordena y no ejecuta, y contarlos sería un falso positivo;
+  - las fichas que se contradicen (`status = true` con `service_status` en
+    `suspendido`/`retirado`/`cancelado`);
+  - las filas en backoff y las agotadas (`MAX_ATTEMPTS`). Las dos se pueden forzar con
+    `--force`;
+  - las filas `pending` de menos de 15 minutos: son un intento **en curso**, porque `openLogFor`
+    las deja así antes de escribir en la RB. Esto no se salta ni con `--force`.
+
+### Decisiones
+
+- **Sin tabla ni migración nuevas.** El backoff y los intentos los lleva la misma fila, a través
+  de `RouterProvisioningService::openLogFor()`/`markLogFailed()`.
+- **Si el preflight frena el intento** (router inactivo, sin credenciales), no se suma ningún
+  intento: el equipo no se tocó. El reconciliador lo vuelve a mirar cada hora sin costo, y en
+  cuanto alguien arregla la ficha reconecta solo.
+- **Sin `withoutOverlapping`**, igual que `reconcile-suspensions`: el candado por cliente ya
+  impide dos escrituras sobre el mismo servicio.
+
+### Pruebas
+
+`tests/Feature/Billing/ReconcileReconnectionsTest.php` (13 casos):
+
+- reintento con éxito, con la alerta apagada;
+- equipo que sigue sin responder;
+- `pending` abandonada;
+- casos negativos: un nuevo corte posterior, una reconexión posterior exitosa, un cliente
+  suspendido en la BD, una ficha que se contradice, backoff, agotados (que `--force` sí
+  reintenta), un intento en curso aun con `--force`, RADIUS y `--dry-run`;
+- aislamiento por tenant;
+- el comando y su expresión de agenda.
+
+Suite completa en SQLite: verde. PostgreSQL: pendiente del CI del PR, porque no hay motor local.
+
+### Despliegue
+
+No hay migración. Al desplegar, la primera corrida horaria reintentará **todas** las
+reconexiones abiertas con backoff vencido. Conviene correr antes
+`php artisan billing:reconcile-reconnections --dry-run` para ver cuántas son.

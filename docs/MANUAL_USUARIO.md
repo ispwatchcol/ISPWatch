@@ -1108,6 +1108,12 @@ o reconecta al cliente a mano en el equipo. Mientras un reintento está corriend
 bloquea; si alguien más lo está intentando a la vez, el sistema avisa en vez de duplicar la
 operación.
 
+**El sistema también reintenta solo.** Cada hora vuelve a intentar las reconexiones
+pendientes, cada vez con más espacio entre intentos. Si el router vuelve a responder o
+completas el dato que faltaba, el cliente queda reconectado y la alerta desaparece sin que
+hagas nada. Tras varios intentos fallidos se detiene y el caso queda marcado como *agotado*
+en **Acciones masivas**: ahí sí necesita una persona.
+
 > 💡 **Por qué el pago se guarda igual.** Cobrar y reconectar son dos cosas distintas. Que el
 > router no responda no es razón para perder un recaudo ni para hacer que el cliente pague dos
 > veces: el dinero queda registrado y el problema del equipo se resuelve aparte.

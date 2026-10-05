@@ -1629,7 +1629,13 @@ para esos routers en vez de omitirlos (informativa, sin marcar fallo el primer m
 la pantalla de Routers marque visualmente al que tiene configuración de facturación
 asignada pero sin día. Coste bajo; evita descubrir el hueco cliente por cliente.
 
-### 📋 P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido
+### ✅ P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido — RESUELTO 2026-10-05 (KAN-53)
+
+> **Resuelto** con `billing:reconcile-reconnections` (cada hora), bitácora § 91. Candidato =
+> `status = true` cuya **última** fila en `suspension_action_logs` es un `UNSUSPEND` sin éxito;
+> reintenta con `BillingService::attemptReconnection()` (preflight, candado por cliente y
+> desenlace estampado). Omite routers RADIUS, fichas que se contradicen, backoff, agotados y
+> filas `pending` de menos de 15 min (intento en curso). Lo de abajo queda como contexto.
 
 `billing:reconcile-suspensions` sólo va en **un** sentido: barre los clientes con
 `status = false` y re-corta en la RB lo que la BD dice cortado. No existe la simétrica —
@@ -2781,7 +2787,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 📋 Pendiente |
 | **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
 | **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
-| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
+| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | ✅ Resuelto 2026-10-05 (`billing:reconcile-reconnections`, KAN-53) |
 | **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | ✅ Resuelto 2026-09-21 (401 JSON bajo `api/*`) |
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
 | **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
