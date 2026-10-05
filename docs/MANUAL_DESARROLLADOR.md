@@ -1498,6 +1498,10 @@ Tres reglas para que el PDF no salga roto, todas aprendidas midiendo (ver `BITAC
   `symbol`, `zapfdingbats` y las tres DejaVu. `font-family: Calibri` cae a Times y el texto
   ocupa distinto que en el editor; `font-family: Calibri, Arial, sans-serif` funciona, porque
   dompdf recorre la pila. `TemplateDiagnostics` lo avisa (`unsupported_font`).
+- **Nada de texto largo dentro de una celda.** dompdf no parte un `<td>` entre páginas y recorta
+  lo que no cabe. `TemplateDiagnostics` avisa (`long_table_cell`) por encima de
+  `LONG_TABLE_CELL_CHARS`. Si una plantilla base o del catálogo dispara ese aviso, el arreglo es
+  pasar ese texto a `<div>`, no subir el umbral.
 - **Sólo marcadores del catálogo del tipo.** `DocumentStarterLibraryTest` corre
   `TemplateDiagnostics` sobre cada plantilla base y falla si aparece uno que el sistema no
   resuelve; `DocumentTemplateControllerTest` las renderiza todas y exige un PDF real sin avisos.

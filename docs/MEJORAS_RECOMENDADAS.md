@@ -970,7 +970,14 @@ columna se llama `state` y "departamento" es el término del formato CRC, mientr
 nombre de WispHub quedó documentada en la tabla de migración de marcadores de
 `docs/MANUAL_USUARIO.md`. Ver `docs/BITACORA_TECNICA.md` § 15.4.
 
-### 📋 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página
+### 🟡 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página — aviso en vista previa HECHO 2026-10-05 (KAN-60)
+
+> **(b) resuelto** en la bitácora § 94: `TemplateDiagnostics` emite `kind: long_table_cell` por
+> `X-Template-Warnings` cuando una celda pasa de 2.500 caracteres de texto visible. **La causa
+> sigue en pie**, porque dompdf sigue recortando. Lo de raíz es P-15 (cambiar de motor de PDF).
+> El umbral es una heurística y no mide el desborde real: puede avisar de una celda que sí
+> cabe, y no avisa de una más corta que desborde por letra grande o por un marcador que
+> resuelve mucho texto.
 
 Detectado 2026-08-04 diagnosticando páginas en blanco en un contrato real exportado de WispHub.
 dompdf **no sabe partir una celda de tabla entre páginas**: si el contenido de un `<td>` excede el
@@ -2754,7 +2761,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
-| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
+| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 🟡 Aviso en vista previa hecho (KAN-60) · la causa sigue (P-15) |
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 | **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |

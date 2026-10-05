@@ -9322,3 +9322,52 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 94. La vista previa avisa de las celdas de tabla que dompdf puede recortar (KAN-60, P-8) — 2026-10-05
+
+> Numeración: las §§ 90 a 93 (#302, KAN-53, KAN-102 y KAN-96) todavía no están en main.
+
+### El problema
+
+dompdf no parte una celda de tabla entre páginas. Si un `<td>` no cabe, lo empuja entero a la
+página siguiente y **descarta en silencio** lo que sobra. Medido en un contrato real, se
+perdían ~1.800 caracteres de texto legal (P-8). El sanitizer no puede corregirlo solo, porque
+para saber si una celda desborda hay que renderizar. El manual ya advertía la regla, pero el
+tenant no tenía cómo enterarse sin comparar el PDF carácter por carácter.
+
+### Lo que se hizo
+
+- `TemplateDiagnostics::inspectLongTableCells()` carga el borrador crudo con `DOMDocument`
+  (con el mismo prefijo `<?xml encoding="UTF-8">` del sanitizer, y restaurando el estado de
+  `libxml_use_internal_errors`). Mide el texto visible de cada `<td>`/`<th>`, con los
+  espacios colapsados, contando caracteres y no bytes, e incluyendo las tablas anidadas. Por
+  encima de `LONG_TABLE_CELL_CHARS = 2500` emite `kind: long_table_cell` por
+  `X-Template-Warnings`.
+  - Reporta como máximo 2 celdas, la más larga primero.
+  - `token` es el inicio del texto de la celda, para encontrarla en el editor.
+  - Se ordena justo después de `needs_advanced_mode`, porque es texto que desaparece sin dejar
+    hueco.
+- **Umbral:** una página A4 a 10-11 pt lleva unos 4.500-5.000 caracteres a todo lo ancho, y la
+  mitad en una columna de media página. Es una heurística y no mide el desborde real. Se
+  prefirió avisar de más.
+- **Frontend:** `warningToken()` ya no envuelve ese token en `{{ }}`, porque no es un marcador.
+
+### Lo que no se hizo
+
+- No se toca el render ni se convierten tablas a `<div>`.
+- La causa de raíz sigue abierta: es P-15 (cambiar de motor de PDF).
+
+### Pruebas
+
+`TemplateDiagnosticsTest` (7 casos nuevos):
+
+- celda larga detectada;
+- celdas cortas y texto largo fuera de una tabla, sin aviso;
+- caracteres frente a bytes (1.300 «á»);
+- tabla anidada;
+- tope de 2 con orden por longitud;
+- documento completo en modo avanzado;
+- prioridad frente a un marcador con error.
+
+`DocumentTemplateControllerTest` comprueba que la cabecera de la vista previa trae el aviso con
+la forma `{kind, token, label, message}`.
