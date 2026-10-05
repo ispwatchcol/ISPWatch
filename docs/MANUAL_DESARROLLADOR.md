@@ -597,6 +597,7 @@ decirle al cajero "está suspendido" y luego no reconectar (o al revés).
 | `db:fix-sequences [--table=] [--all]` | Repara secuencias |
 | `inventory:duplicate-identifiers [--tenant=]` | Lista seriales y MAC repetidos dentro de un tenant **ignorando mayúsculas**. **No escribe nada**; sale con código 1 si encuentra algo. Correrlo ANTES de la migración `2026_09_21_000001`, que aborta mientras queden duplicados (KAN-100) |
 | `documents:migrate-to-s3 [--dry-run]` | Migra documentos locales a S3 |
+| `documents:audit-storage [--tenant=] [--show=50]` | Solo lectura: documentos sin archivo en S3, perdidos frente a error de consulta (P-9) |
 
 ### Observabilidad
 

@@ -974,6 +974,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences` | Repara secuencias de PostgreSQL desincronizadas |
 | `documents:migrate-to-s3 {--dry-run}` | Migra documentos locales a S3 |
+| `documents:audit-storage {--tenant=} {--show=50}` | **Solo lectura.** Lista los documentos de cliente sin archivo en S3, separa los anteriores al 2026-07-29 y no cuenta como perdido un error de consulta (P-9) |
 | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
 | `router:probe-overlay {id?} {--tenant=}` | Sondea la flota: ¿qué routers responden de verdad en su dirección del overlay? |
 
