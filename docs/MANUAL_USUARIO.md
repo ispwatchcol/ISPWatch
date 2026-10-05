@@ -2527,6 +2527,11 @@ corresponde:
 - **Si eres del equipo de ISPWatch** (tenant operador) → la misma pestaña te muestra las
   integraciones de **todos los ISP**, sin límites. Es lo que se describe a continuación.
 
+> Si eres superadministrador y en **Configuración** ves el aviso *«La emisión centralizada de
+> llaves de API está apagada»*, el tenant operador está mal configurado y esa vista no le
+> aparece a nadie. Hasta que se corrija, solo funciona el auto-servicio (17.5.1). Se corrige
+> en la configuración del servidor (`API_KEYS_OPERATOR_TENANT_ID`), no desde el panel.
+
 **Qué puede hacer una llave — y qué no**
 
 - Sólo **consultar**. No crea, no modifica y no borra nada.

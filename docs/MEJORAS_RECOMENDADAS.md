@@ -1771,6 +1771,19 @@ deja de haber un paso manual que olvidar.
 
 ### 🟠 P-35 · El tenant operador de las llaves de API no existe: ese camino lleva meses muerto
 
+> **2026-10-05 (KAN-38), parcial.** El punto 2 está hecho (bitácora § 96): el superadmin ve en
+> Configuración un aviso cuando el tenant operador no existe o no está configurado
+> (`App\Support\ApiKeyOperator`, `data.api_key_operator_issue`). **El punto 1 sigue pendiente**:
+> definir `API_KEYS_OPERATOR_TENANT_ID` en producción y redesplegar es un cambio de
+> configuración de producción que requiere aprobación. `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`
+> también sigue sin definir.
+>
+> **Deriva de esquema encontrada de paso:** `users.is_superadmin` existe en producción
+> (BASE_DATOS.md) pero **ninguna migración la crea**. En una base nueva, o en las pruebas, no
+> existe, y `$user->is_superadmin` es `null`. Las pruebas la fijan en memoria. Hace falta una
+> migración idempotente (`if (!Schema::hasColumn(...))`) para que el esquema de migraciones
+> coincida con producción.
+
 `config/api_keys.php` toma `operator_tenant_id` de `API_KEYS_OPERATOR_TENANT_ID`, **por
 defecto `1`**. En producción esa variable no está definida y **el tenant 1 no existe** (los
 que hay son 16, 17, 19 y 22). Consecuencia: el camino centralizado de emisión de llaves
@@ -2786,7 +2799,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
 | **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
-| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 📋 Pendiente |
+| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 🟡 Aviso al superadmin hecho (KAN-38) · falta definir la variable en producción |
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
 | **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | 📋 Pendiente |
 | **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |

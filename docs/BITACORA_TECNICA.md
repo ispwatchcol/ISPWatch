@@ -9322,3 +9322,47 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 96. Un tenant operador de llaves inexistente ya no desaparece en silencio (KAN-38, P-35, parcial) — 2026-10-05
+
+> Numeración: las §§ 90 a 95 (#302, KAN-53, KAN-102, KAN-96, KAN-60 y KAN-39) todavía no están
+> en main.
+
+### El problema
+
+En producción, `API_KEYS_OPERATOR_TENANT_ID` no está definida, así que vale `1`, y el tenant 1
+no existe. La emisión centralizada de llaves (`ApiClientController`, la pestaña del operador)
+es inalcanzable. Pero no falla: `is_api_key_operator` nunca es `true`, la pestaña no se dibuja
+y aparece la de auto-servicio. Un id inexistente y uno válido se veían igual.
+
+### Lo que se hizo (punto 2 de la tarjeta)
+
+- `App\Support\ApiKeyOperator::configurationIssue()` devuelve el motivo si el id es ≤ 0 o si
+  el tenant no existe (`withoutGlobalScopes`), y `null` si todo está bien.
+- `AuthController` (login y `/auth/me`) envía `api_key_operator_issue` **solo** a usuarios
+  `is_superadmin`. A los demás, `null`: la configuración de la plataforma no es asunto de un ISP.
+- `Settings.vue` muestra un aviso ámbar sobre las pestañas cuando el campo viene lleno.
+
+### Lo que NO se hizo, y queda pendiente de aprobación
+
+- **Punto 1:** definir `API_KEYS_OPERATOR_TENANT_ID` (la tarjeta sugiere el 17) y redesplegar.
+  Es configuración de producción.
+- `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL` sigue sin definir.
+- No se cambió el valor por defecto `1` del config: hacerlo sin definir la variable no arregla
+  nada, y cambia el comportamiento en desarrollo.
+
+### Hallazgo: deriva de esquema
+
+`users.is_superadmin` existe en producción, pero ninguna migración la crea. En el esquema de
+pruebas no está. Las pruebas nuevas la fijan en memoria. Queda anotado en P-35 que hace falta
+una migración idempotente.
+
+### Pruebas
+
+`tests/Feature/ApiKeys/ApiKeyOperatorVisibilityTest.php` (6 casos):
+
+- tenant inexistente, id 0 y tenant real;
+- el superadmin recibe el motivo en `/auth/me`;
+- un usuario normal recibe `null`;
+- con el operador bien configurado, el superadmin no recibe aviso e `is_api_key_operator` es
+  `true`.

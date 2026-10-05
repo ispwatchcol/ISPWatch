@@ -293,6 +293,11 @@ Devuelve el usuario autenticado con sus **permisos actualizados desde la base de
 El frontend lo usa para refrescar permisos sin cerrar sesión (necesario tras cambiar un rol).
 Misma estructura de `data` que el login.
 
+`data.api_key_operator_issue` (desde KAN-38) es `null` salvo para un usuario
+`is_superadmin` cuando `API_KEYS_OPERATOR_TENANT_ID` apunta a un tenant inexistente o no está
+configurado. En ese caso trae el motivo legible y Configuración lo muestra como aviso. A los
+demás usuarios nunca se les envía la configuración de la plataforma.
+
 ### `GET /api/dashboard/stats`
 
 Estadísticas del tenant del usuario. Incluye: total de clientes, clientes activos,

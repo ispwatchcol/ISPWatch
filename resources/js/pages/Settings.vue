@@ -38,6 +38,18 @@
                 </button>
             </div>
 
+            <!-- P-35 / KAN-38: un tenant operador inexistente no da error, hace
+                 desaparecer la emisión centralizada de llaves. El backend sólo
+                 envía el motivo al superadmin, que es quien puede corregirlo. -->
+            <div
+                v-if="authStore.user?.api_key_operator_issue"
+                class="mb-6 rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-200"
+                role="alert"
+            >
+                <p class="font-semibold">La emisión centralizada de llaves de API está apagada</p>
+                <p class="mt-1">{{ authStore.user.api_key_operator_issue }}</p>
+            </div>
+
             <!-- Settings Navigation Tabs -->
             <div
                 class="bg-white dark:bg-gray-800 rounded-xl shadow-md mb-6 overflow-hidden"
