@@ -9322,3 +9322,44 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 95. El 403 de allowlist dice desde qué IP llegó la petición (KAN-39, P-37) — 2026-10-05
+
+> Numeración: las §§ 90 a 94 (#302, KAN-53, KAN-102, KAN-96 y KAN-60) todavía no están en main.
+
+### El problema
+
+Una llave usada desde una IP no autorizada recibía `{"error":"ip_not_allowed","message":"…"}`
+sin decir **qué** IP había llegado. El remedio documentado, «consulta `/ping`», no servía:
+`/ping` pasa por `EnsureApiKeyRequest`, y con la IP mal también responde 403. Todo terminaba en
+una llamada telefónica y en una llave nueva.
+
+### Lo que se hizo
+
+- `EnsureApiKeyRequest::deny()` admite un cuarto elemento con campos extra para el cuerpo del
+  error. Solo `ip_not_allowed` lo usa, con `your_ip = $request->realIp()`: la misma IP que
+  se comparó contra la allowlist y que queda en la bitácora.
+- No es una fuga: el integrador ya conoce su propia IP de salida, y el cuerpo no revela la
+  allowlist ni nada del ISP.
+- **Contrato:** OpenAPI `1.2.0`, con nota en la cabecera de versión. `your_ip` queda en el
+  esquema `Error` y en el ejemplo del 403. Es un cambio aditivo: `error` y `message` no
+  cambian.
+- **Remedio documentado:** el panel (`TenantApiKeysSection.vue`), MANUAL_USUARIO y
+  API_REFERENCE ya no mandan a `/ping` cuando la IP está mal. Mandan al `your_ip` del propio
+  rechazo, o a *Ver peticiones*.
+
+### Lo que no se hizo
+
+- **Allowlist editable con auditoría:** es una decisión de producto. Queda abierta en P-37.
+- El artículo del Centro de Ayuda sobre la API no se tocó: su consejo («mira *Ver peticiones*»)
+  sigue siendo correcto. Así se evita una migración de datos por un matiz.
+
+### Pruebas
+
+`ApiKeySecurityTest`, 3 casos nuevos:
+
+- `/ping` desde una IP no autorizada devuelve exactamente `error`, `message` y `your_ip`;
+- la allowlist vacía también trae `your_ip`;
+- los otros rechazos (401 por llave revocada, 405 por verbo) no lo llevan.
+
+Sin el arreglo fallan las dos primeras.

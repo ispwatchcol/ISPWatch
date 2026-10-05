@@ -3176,7 +3176,7 @@ distinga «me cambió la IP» de «me revocaron la llave» sin llamar por teléf
 | 401 | *(sin cuerpo propio)* | Token inexistente, vencido o de un dueño que no es `ApiClient` |
 | 401 | `invalid_credentials` | Autenticó pero no con una llave de API (p. ej. sesión del panel) |
 | 401 | `key_revoked` / `key_expired` | Llave revocada o vencida |
-| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave |
+| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave. El cuerpo trae además `your_ip`, la IP con la que llegó la petición (desde OpenAPI 1.2.0, KAN-39). Es el único rechazo que la incluye |
 | 403 | `client_disabled` | El cliente de API está desactivado |
 | 403 | `tenant_missing` | La llave no tiene tenant asignado (falla cerrado) |
 | 403 | `https_required` | Petición por HTTP plano en producción |

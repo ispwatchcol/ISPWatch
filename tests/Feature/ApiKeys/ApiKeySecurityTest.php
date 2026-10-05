@@ -74,6 +74,51 @@ class ApiKeySecurityTest extends TestCase
     }
 
     #[Test]
+    public function el_403_de_allowlist_dice_desde_que_ip_llego_la_peticion(): void
+    {
+        // P-37 / KAN-39: /ping pasa por este mismo middleware, así que con la
+        // IP mal es inalcanzable. La respuesta del rechazo es la única pista.
+        $token = $this->issueKey(['read:customers'], ['10.20.30.40']);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.7'])
+            ->getJson('/api/v1/partner/ping', $this->bearer($token))
+            ->assertForbidden()
+            ->assertExactJson([
+                'error'   => 'ip_not_allowed',
+                'message' => 'La IP de origen no está autorizada para esta llave.',
+                'your_ip' => '198.51.100.7',
+            ]);
+    }
+
+    #[Test]
+    public function con_la_allowlist_vacia_tambien_dice_la_ip(): void
+    {
+        $token = $this->issueKey(['read:customers'], []);
+
+        $this->getJson('/api/v1/partner/customers', $this->bearer($token))
+            ->assertForbidden()
+            ->assertJsonPath('your_ip', '127.0.0.1');
+    }
+
+    #[Test]
+    public function los_demas_rechazos_no_llevan_your_ip(): void
+    {
+        // Sólo el rechazo por IP la necesita. En el resto no aporta nada y
+        // ampliaría la superficie del contrato sin motivo.
+        $this->client->tokens()->update(['revoked_at' => now()]);
+        $token = $this->issueKey();
+        $this->client->tokens()->update(['revoked_at' => now()]);
+
+        $this->getJson('/api/v1/partner/customers', $this->bearer($token))
+            ->assertStatus(401)
+            ->assertJsonMissingPath('your_ip');
+
+        $this->postJson('/api/v1/partner/customers', [], $this->bearer($this->issueKey()))
+            ->assertStatus(405)
+            ->assertJsonMissingPath('your_ip');
+    }
+
+    #[Test]
     public function un_rango_cidr_que_contiene_la_ip_de_origen_es_aceptado(): void
     {
         $token = $this->issueKey(['read:customers'], ['127.0.0.0/24']);

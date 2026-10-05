@@ -2626,8 +2626,10 @@ En la tabla de llaves, la columna **Estado** te dice de un vistazo si la llave e
 > **Sobre las IPs.** Es normal pelearse con un `403` al principio, y la tentación es
 > ensanchar la lista hasta que funcione. No lo hagas: esa lista es justamente lo que
 > hace que una llave filtrada no le sirva a nadie fuera de tu servidor. Si no sabes qué
-> IP poner, llama a `GET /api/v1/partner/ping` con la llave: la respuesta te dice desde
-> qué IP te está viendo el servidor.
+> IP poner, llama a `GET /api/v1/partner/ping` con la llave. Si la IP es la correcta,
+> responde con la IP desde la que te ve el servidor. Si no lo es, responde `403
+> ip_not_allowed` y el campo `your_ip` de esa misma respuesta trae la IP que hay que
+> autorizar.
 
 **Ver qué está pasando**
 
@@ -2748,8 +2750,9 @@ Necesitas el permiso **Gestionar mis llaves de API**.
    llaves: pruebas, producción, y la nueva mientras se rota la vieja.
 2. **Pide la IP pública del integrador.** Es el error más común: no es la IP de su oficina
    ni la de su computador, sino la del **servidor** que va a llamar. Si hay dudas, que
-   consulte el chequeo de la API (`/ping`): la respuesta le dice con qué IP lo ve
-   ISPWatch. Esa es la que va en la lista.
+   llame al chequeo de la API (`/ping`) con la llave. Si su IP no está autorizada, el
+   rechazo (`ip_not_allowed`) trae en `your_ip` la IP con la que lo ve ISPWatch. Esa es la
+   que va en la lista.
 3. **Elige los permisos**, sólo los que necesite:
 
    | Permiso | Da acceso a |
@@ -2771,7 +2774,7 @@ recibir datos.
 
 | Le dice | Qué es | Qué hacer |
 |---|---|---|
-| «IP no autorizada» | Llama desde una IP que no está en la lista | Que consulte `/ping` y te pase la IP que ve el servidor |
+| «IP no autorizada» | Llama desde una IP que no está en la lista | Que te pase el `your_ip` de esa respuesta de error (o búscala en *Ver peticiones*) |
 | «No tengo permiso» | A la llave le falta el ability de esa área | Emitir una llave nueva: **los permisos de una llave existente no se editan** |
 | «La llave no vale» | Vencida, revocada o mal copiada | Revisar en el panel si sigue activa y su fecha |
 | «Funcionaba y dejó de funcionar» | Casi siempre el vencimiento | Mirar la fecha antes que nada |
