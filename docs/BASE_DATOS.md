@@ -195,6 +195,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `revoked_at` | timestamp? | Revocación manual, distinta de la caducidad |
 | `last_used_ip` | varchar(45)? | Detectar uso desde un origen inesperado aun dentro de la allowlist |
 | `created_by` | bigint? | Quién emitió la llave |
+| `expiry_notified_at` | timestamp? | Cuándo `api-keys:expiring` avisó que vence. Un aviso por llave (KAN-43, migración `2026_10_05_110000`) |
 
 **`api_key_request_logs`**: `api_client_id`, `token_id`, `tenant_id` (los tres nullable —
 un token inexistente no resuelve cliente y ese intento es justo el que interesa auditar),

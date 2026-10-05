@@ -669,6 +669,12 @@ se puede cubrir en código; lo que queda es lo que el código no puede decidir:
    `api-keys:expiring` que avise por correo con una semana de margen es trabajo pequeño y
    evita ese corte.
 
+   > **Hecho 2026-10-05 (KAN-43), solo el vencimiento** (bitácora § 99). El comando existe,
+   > corre a diario a las 08:30 y avisa una vez por llave. **Sigue pendiente** la otra mitad:
+   > avisar de las llaves que llevan 60 días sin usarse. Los puntos 1 a 3 siguen como están:
+   > el 3 es configuración de producción (`API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`). Sin él, el
+   > aviso solo llega al contacto de la integración.
+
 ### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
 
 **Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.
@@ -2798,7 +2804,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-ENV-1** | Desarrollo y producción comparten la misma base | Credenciales de producción en cada portátil; origen de la cadena | 🔴 Crítica | 📋 Pendiente · staging con base propia |
 | **P-RLS-1** | La frontera entre tenants es 100 % de aplicación | Si una consulta olvida el filtro, Postgres obedece | 🔴 Crítica | 📋 Pendiente · RLS con `FORCE` y rol sin `BYPASSRLS` |
 | **P-RLS-2** | `Billing` sin global scope hasta verificar el backfill | Activarlo antes de tiempo **pararía la facturación** | 🟡 Media | 📋 Pendiente · comprobar que no queden NULL |
-| **P-KEYS-1** | Riesgo residual del auto-servicio de llaves | Sin aviso de vencimiento, la integración se cae de golpe | 🟡 Media | 📋 Pendiente · `api-keys:expiring` |
+| **P-KEYS-1** | Riesgo residual del auto-servicio de llaves | Sin aviso de vencimiento, la integración se cae de golpe | 🟡 Media | 🟡 `api-keys:expiring` hecho (KAN-43) · falta el aviso de llaves sin uso |
 | **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
 | **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |

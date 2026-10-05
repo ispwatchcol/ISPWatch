@@ -2767,6 +2767,10 @@ Necesitas el permiso **Gestionar mis llaves de API**.
 que emitir la nueva y avisarle al integrador: el día del vencimiento su sistema deja de
 recibir datos.
 
+Una semana antes, el sistema manda **un correo de aviso** al *correo de contacto* de la
+integración. Por eso conviene llenarlo al registrarla. Si ya emitiste la llave nueva, el aviso
+de la vieja no llega.
+
 ### 19.3 El integrador reporta un error
 
 | Le dice | Qué es | Qué hacer |

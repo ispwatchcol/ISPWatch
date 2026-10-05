@@ -1756,6 +1756,10 @@ de instalación.
   (llave, tenant, ruta, IP, código, milisegundos, motivo del rechazo). El logging
   nunca lanza: un fallo de auditoría no puede tumbar la petición del cliente.
 - `api-keys:prune-logs` corre a diario (03:30) y conserva 90 días.
+- `api-keys:expiring` corre a diario (08:30). Avisa por correo, **una vez por llave**
+  (`expiry_notified_at`), de las llaves vivas que vencen en 7 días. Los destinatarios son
+  `api_clients.contact_email` y `api_keys.self_service.notify_email`. Omite las integraciones
+  que ya rotaron a una llave que dura más (P-KEYS-1, KAN-43).
 - El cubo de rate limit es **propio del token**, no compartido con el limitador
   general de la API: el consumo del integrador no puede comerse la capacidad que
   el personal del ISP necesita para cobrar y reconectar.
