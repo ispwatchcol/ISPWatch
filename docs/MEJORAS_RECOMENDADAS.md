@@ -1207,7 +1207,9 @@ sugerirlo. Es el mismo camino que P-8 propone para las celdas largas, y ataca la
 clase entera de reportes. Relacionado con la nota existente sobre placeholders *cross-type* que se
 blanquean sin aviso — es el mismo agujero de diagnóstico, visto desde otro ángulo.
 
-### 📋 P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper
+### ✅ P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper — RESUELTO 2026-10-05 (KAN-65)
+
+> **Resuelto** en la bitácora § 109: `Tests\TestCase::fakePdf()` centraliza el doble y deja escrito el motivo una sola vez. Las 26 copias de 8 archivos lo usan, y `FakePdfHelperTest` impide volver a mockear `PDF::class` a mano. Lo de abajo queda como contexto.
 
 Detectado 2026-08-05 al agregar `setPaper()` en `TemplateRenderer`: 14 pruebas fallaron con
 `BadMethodCallException: Method Mockery_…_PDF::setPaper() does not exist on this mock object`,
@@ -2780,7 +2782,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
-| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
+| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | ✅ Resuelto 2026-10-05 (`fakePdf()`, KAN-65) |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |

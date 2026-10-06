@@ -9323,102 +9323,26 @@ está en los logs de App Platform.
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
 
-## 98. KAN-44 ya estaba resuelto: solo quedaban dos textos obsoletos (P-1) — 2026-10-05
+## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
-La tarjeta pedía un permiso `delete_clients` para el borrado de cliente. Ya existía con el
-nombre `delete_customers`:
-
-- `Permissions::DELETE_CUSTOMERS`;
-- la migración `2026_08_31_000001`, que lo da **solo** a los roles admin;
-- la ruta `DELETE /api/customers/{customer}`;
-- las pruebas en `CustomerDeletionControlsTest` y `ApiAuthorizationTest`.
-
-Se descartó a propósito darlo también a `staff`, como sugería la recomendación original: el
-borrado arrastra facturas y pagos (P-43).
-
-Seguían diciendo lo contrario la entrada P-1 de MEJORAS y un comentario de `routes/api.php`
-(«no existe un permiso `delete_clients`… se apoya en `edit_internet_service`»). Ese texto
-generó la tarjeta. Se corrigieron los dos. No hay cambio de código ni pruebas nuevas.
-## 97. Las credenciales del router ya no salen en la API (KAN-45, P-2) — 2026-10-05
-
-> Numeración: las §§ 90 a 96 todavía no están en main (#302, KAN-53, 102, 96, 60, 39 y 38).
+> Numeración: las §§ 90 a 108 todavía no están en main.
 
 ### El problema
 
-`Router` no tenía `$hidden`. Por eso `password_rb`, `vpn_password` y también
-`wg_private_key` (la clave privada del túnel WireGuard con el CORE, que no estaba en la tarjeta)
-viajaban en `GET /api/routers/{id}` y en las respuestas de alta y edición. Además,
-`VpnService::verifyConnection()` devolvía `password_rb` explícitamente. Esas credenciales dan
-SSH/API a equipos de red del ISP.
-
-La causa era el formulario: `RouterEdit.vue` prellenaba la contraseña con lo que devolvía la API
-y la reenviaba al guardar. Ocultarla sin más habría borrado la credencial en la primera edición.
-
-### Lo que se hizo, en este orden
-
-1. **Formulario:** el campo arranca vacío, con el placeholder «Déjalo en blanco para conservar
-   la actual» cuando `has_password_rb` es verdadero, y `password_rb` **solo** se agrega al
-   payload si se escribió algo. Tras verificar la VPN ya no lee la contraseña de la respuesta.
-2. **Modelo:** `$hidden = [password_rb, vpn_password, wg_private_key]` y `$appends =
-   [has_password_rb]`. El servidor sigue leyendo los valores igual: `$hidden` solo afecta a la
-   serialización.
-3. **`VpnService::verifyConnection()`** deja de devolver `password_rb`.
-
-### Lo que la tarjeta suponía y no era cierto
-
-«El controlador ya ignora el campo si llega vacío.» No es así: `ConvertEmptyStringsToNull` lo
-convierte en `null`, y `sometimes|required` responde 422. Por eso el arreglo es **omitir** el
-campo, no mandarlo vacío. No se tocó la validación, para no chocar con KAN-102, donde un `null`
-en RADIUS significa «vaciar».
-
-### Pruebas
-
-`tests/Feature/Router/RouterCredentialsHiddenTest.php` (6 casos):
-
-- detalle con `has_password_rb`, listado, alta y edición, sin ningún secreto ni su clave;
-- editar sin contraseña conserva las dos guardadas;
-- escribir una nueva la reemplaza;
-- el servidor sigue leyendo los valores.
-
-Sin el arreglo fallan 3. Las demás, como la del listado, ya pasaban y quedan como regresión.
-**`verifyConnection()` no tiene prueba automática**, porque instancia `MikroTikSshService` con
-`new` y no se puede simular sin reestructurarla. El cambio es una línea borrada del array de
-respuesta.
-## 110. /billing/configs ya no cruza tenants (KAN-121) — 2026-10-06
-
-> Numeración: las §§ 90 a 109 están en PR abiertos (#302 y #303 a #321), todavía fuera de main.
-
-### El problema
-
-Se detectó al revisar el alcance de KAN-45. `Billing` no tiene scope de tenant (P-RLS-2), y
-`BillingController` lo consultaba sin acotar en dos endpoints:
-
-- `getBillingConfigs()` hacía `Billing::with(...)->get()`, así que listaba **todos** los ISP.
-- `updateBillingConfig()` hacía `Billing::findOrFail($id)`, así que un usuario con
-  `view_billing` podía modificar la configuración de **otro** ISP: días de facturación, de corte
-  y número de facturas vencidas.
-
-Se reprodujo con una prueba temporal: el `PUT` cruzado respondió 200 y el campo cambió. Las
-credenciales de routers ajenos **no** salían, porque `Router` sí tiene scope y la relación llega
-vacía. No se revisaron logs de producción, así que **no hay evidencia** de uso indebido.
+`Barryvdh\DomPDF\PDF` resuelve su API fluida por `__call()`, así que un `Mockery::mock(PDF::class)`
+no conoce `setPaper()` y compañía. El arreglo, `shouldIgnoreMissing(\Mockery::self())`, estaba
+copiado en 26 sitios de 8 archivos. La trampa volvía en cuanto alguien escribía un mock nuevo
+sin él.
 
 ### Lo que se hizo
 
-`tenantBillingConfigs()` acota las dos consultas a dos casos:
-
-- `tenant_id` igual al de la sesión;
-- `tenant_id` NULL, cuando la fila está ligada a un router del propio tenant. Son las filas
-  anteriores a que `RouterController` poblara la columna, y siguen en uso.
-
-Una configuración de otro tenant responde 404, igual que un id inexistente. El scope global de
-P-RLS-2 sigue pendiente, a la espera de verificar el backfill.
+- `Tests\TestCase::fakePdf()` construye el doble y explica el porqué **una sola vez**.
+- Las 26 copias se reemplazaron por `$this->fakePdf()`. Las expectativas propias de cada prueba
+  (`stream`, `output`…) siguen declarándose sobre el doble.
+- `tests/Unit/Architecture/FakePdfHelperTest.php` falla si algún test vuelve a mockear
+  `PDF::class` a mano. Con los archivos viejos, falla.
 
 ### Pruebas
 
-`tests/Feature/Billing/BillingConfigTenantIsolationTest.php` (4 casos):
-
-- `PUT` sobre una configuración ajena, con tenant y sin tenant, responde 404 y no modifica nada;
-- la configuración propia, incluida la fila antigua sin tenant, se sigue modificando;
-- el listado trae solo las del tenant.
-
-Sin el arreglo fallan 3. El del uso legítimo pasa en ambos casos, como debe.
+Las 109 pruebas afectadas pasan, y la suite completa también. No hay cambios de código de
+producción.
