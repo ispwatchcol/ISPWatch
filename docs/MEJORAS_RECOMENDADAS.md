@@ -1124,7 +1124,14 @@ hoy no está claro cuál se quiso mostrar. El manual documenta **el comportamien
 `$monthlyRevenue`; si debía ser lo facturado, cambiar la clave de la respuesta y avisar del
 cambio de significado. No tocarlo a ciegas — el número que hoy ve el operador cambiaría.
 
-### 📋 P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción
+### ✅ P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción — RESUELTO 2026-10-05 (KAN-75)
+
+> **Punto 1:** el camino sancionado ya existía desde el 2026-08-19. Es una migración de datos
+> idempotente que lee `database/seeders/content/*.php` y solo reescribe lo que nadie editó
+> (huella md5; ver `2026_10_01_100000`). **Punto 2, resuelto en la bitácora § 104:**
+> `HelpCenterSeeder` ya no empieza borrando todo. Es un upsert por nombre de categoría y por
+> (categoría, título), y no toca lo creado desde la UI. Límite: un artículo que se renombre en el
+> seeder deja el viejo, que debe retirarse con una migración. Lo de abajo queda como contexto.
 
 El contenido que el usuario lee dentro de la app vive en `help_categories` / `help_articles` y
 lo produce `HelpCenterSeeder`. Hay dos problemas encadenados:
@@ -2758,7 +2765,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 | **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
-| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | ✅ Resuelto 2026-10-05 (seeder upsert, KAN-75; las migraciones con huella ya publicaban) |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
 | **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |

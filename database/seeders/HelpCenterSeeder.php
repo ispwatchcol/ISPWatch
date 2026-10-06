@@ -10,29 +10,42 @@ use App\Models\HelpArticle;
 class HelpCenterSeeder extends Seeder
 {
     /**
-     * Reemplaza por completo el contenido del Centro de Ayuda.
+     * Siembra el contenido del Centro de Ayuda SIN borrar lo ajeno (P-12 / KAN-75).
      *
-     * Va en una transacción porque el primer paso es BORRARLO TODO: si el
-     * seeder se cortara a mitad (timeout, error de conexión), los usuarios
-     * verían un Centro de Ayuda vacío o a medias. Con la transacción es todo
-     * o nada — ante cualquier fallo queda el contenido anterior intacto.
+     * Antes empezaba con `HelpArticle::query()->delete()`: un reemplazo total.
+     * Cualquier artículo escrito desde el editor de superadmin se perdía al
+     * re-sembrar, sin aviso. Ahora es un upsert por clave estable:
      *
-     * OJO: sigue siendo un reemplazo total, no un upsert. Cualquier artículo
-     * escrito desde el editor de superadmin se pierde al re-sembrar
-     * (ver MEJORAS_RECOMENDADAS.md P-8).
+     *   - categoría por `name`;
+     *   - artículo por (`category_id`, `title`).
+     *
+     * Lo que este seeder define se crea o se pone al día. Lo que NO define
+     * (creado desde la UI) no se toca. Re-sembrar dos veces no duplica nada.
+     *
+     * Límite consciente: si se RENOMBRA un artículo aquí, el viejo queda, porque
+     * ya no se puede distinguir de uno creado a mano. Para retirar contenido en
+     * producción el camino es una migración de datos con huella, como
+     * 2026_10_01_100000, que respeta lo editado.
+     *
+     * Va en una transacción: ante cualquier fallo queda el contenido anterior.
      */
     public function run(): void
     {
         DB::transaction(function () {
-            HelpArticle::query()->delete();
-            HelpCategory::query()->delete();
-
             foreach ($this->getCategories() as $catData) {
                 $articles = $catData['articles'];
                 unset($catData['articles']);
-                $category = HelpCategory::create($catData);
+
+                $category = HelpCategory::updateOrCreate(
+                    ['name' => $catData['name']],
+                    $catData
+                );
+
                 foreach ($articles as $article) {
-                    HelpArticle::create(array_merge($article, ['category_id' => $category->id]));
+                    HelpArticle::updateOrCreate(
+                        ['category_id' => $category->id, 'title' => $article['title']],
+                        $article
+                    );
                 }
             }
         });
