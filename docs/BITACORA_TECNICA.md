@@ -9368,3 +9368,41 @@ Sin el arreglo fallan 3. Las demás, como la del listado, ya pasaban y quedan co
 **`verifyConnection()` no tiene prueba automática**, porque instancia `MikroTikSshService` con
 `new` y no se puede simular sin reestructurarla. El cambio es una línea borrada del array de
 respuesta.
+## 110. /billing/configs ya no cruza tenants (KAN-121) — 2026-10-06
+
+> Numeración: las §§ 90 a 109 están en PR abiertos (#302 y #303 a #321), todavía fuera de main.
+
+### El problema
+
+Se detectó al revisar el alcance de KAN-45. `Billing` no tiene scope de tenant (P-RLS-2), y
+`BillingController` lo consultaba sin acotar en dos endpoints:
+
+- `getBillingConfigs()` hacía `Billing::with(...)->get()`, así que listaba **todos** los ISP.
+- `updateBillingConfig()` hacía `Billing::findOrFail($id)`, así que un usuario con
+  `view_billing` podía modificar la configuración de **otro** ISP: días de facturación, de corte
+  y número de facturas vencidas.
+
+Se reprodujo con una prueba temporal: el `PUT` cruzado respondió 200 y el campo cambió. Las
+credenciales de routers ajenos **no** salían, porque `Router` sí tiene scope y la relación llega
+vacía. No se revisaron logs de producción, así que **no hay evidencia** de uso indebido.
+
+### Lo que se hizo
+
+`tenantBillingConfigs()` acota las dos consultas a dos casos:
+
+- `tenant_id` igual al de la sesión;
+- `tenant_id` NULL, cuando la fila está ligada a un router del propio tenant. Son las filas
+  anteriores a que `RouterController` poblara la columna, y siguen en uso.
+
+Una configuración de otro tenant responde 404, igual que un id inexistente. El scope global de
+P-RLS-2 sigue pendiente, a la espera de verificar el backfill.
+
+### Pruebas
+
+`tests/Feature/Billing/BillingConfigTenantIsolationTest.php` (4 casos):
+
+- `PUT` sobre una configuración ajena, con tenant y sin tenant, responde 404 y no modifica nada;
+- la configuración propia, incluida la fila antigua sin tenant, se sigue modificando;
+- el listado trae solo las del tenant.
+
+Sin el arreglo fallan 3. El del uso legítimo pasa en ambos casos, como debe.

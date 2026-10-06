@@ -1556,8 +1556,10 @@ siguiente factura cobrable.
 | `POST` | `/api/billing/run-monthly` | Dispara la generación mensual manualmente |
 | `POST` | `/api/billing/run-overdue` | Procesa morosos |
 | `POST` | `/api/billing/run-auto-cut` | Dispara el corte automático |
-| `GET` | `/api/billing/configs` | Configuraciones de facturación (tabla `billing`) |
-| `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración |
+| `GET` | `/api/billing/configs` | Configuraciones de facturación **del tenant de la sesión** (KAN-121) |
+| `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración del propio tenant; si es de otro, responde 404 |
+
+> **Aislamiento (KAN-121).** `Billing` no tiene scope global. El controlador acepta dos casos: `tenant_id` igual al de la sesión, o `tenant_id` NULL en filas antiguas ligadas a un router del propio tenant. Antes de este cambio, el listado devolvía las configuraciones de todos los ISP y el `PUT` permitía modificar la de otro.
 | `POST` | `/api/billing/additional-charges` | Cargo adicional sin ticket |
 
 **`PUT /api/billing/configs/{id}`** — todos los campos son opcionales; sólo se actualiza lo

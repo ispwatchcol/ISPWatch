@@ -615,6 +615,8 @@ Prerrequisitos de datos ya resueltos: `customer_profile.tenant_id` (migración
 
 ### 🟡 P-RLS-2 · `Billing` sin global scope hasta verificar el backfill
 
+> **2026-10-06 · KAN-121:** la falta de scope **sí** era explotable. `GET` y `PUT /api/billing/configs` no filtraban por tenant: un usuario con `view_billing` leía las configuraciones de todos los ISP y modificaba la de otro, incluidos los días de facturación y de corte. Se corrigió con un filtro en el controlador que también reconoce las filas antiguas con `tenant_id` NULL por su router (bitácora § 110). El scope global sigue pendiente, a la espera de verificar el backfill.
+
 `Billing` es la única excepción de la lista que no es estructural, sino de datos: su
 `tenant_id` quedó en NULL en las filas anteriores a que `RouterController` lo poblara.
 Activarle el scope antes de confirmar que no quedan NULL **escondería la configuración de
