@@ -9374,6 +9374,11 @@ anticipaba. Ya hay una llave de CNO con ese vencimiento y sin ninguna alarma.
 
 ### Despliegue
 
-Hay que correr la migración. **Ojo:** tras desplegar, la primera corrida avisará de **todas**
+El despliegue de `main` ejecuta `php artisan migrate --force` en el job `migrate`
+(`kind: PRE_DEPLOY`) de `.do/deploy.template.yaml`. Si la spec viva coincide con la plantilla
+(no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
+el merge mismo requiere aprobación.
+
+**Ojo:** tras desplegar, la primera corrida avisará de **todas**
 las llaves vivas que venzan en los próximos 7 días, y eso son correos reales a integradores.
 Antes de activarlo conviene ejecutar `php artisan api-keys:expiring --dry-run`.
