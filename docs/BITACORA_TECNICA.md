@@ -9322,3 +9322,37 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 108. Las descargas del panel ya no retienen el archivo en memoria (KAN-52, P-9 de Finanzas, punto 3) — 2026-10-05
+
+> Numeración: las §§ 90 a 107 todavía no están en main.
+
+### El problema
+
+El patrón «`createObjectURL`, crear un `<a>`, `click()` y olvidarlo» estaba copiado en 13
+sitios. Casi ninguno llamaba a `revokeObjectURL`, y algunos ni quitaban el `<a>` del DOM: cada
+PDF o plantilla descargada quedaba en memoria hasta recargar la página.
+
+### Lo que se hizo
+
+- **9 sitios migrados a `downloadBlob()` de `@/utils/download`**, cada uno con su MIME. Hacía
+  falta indicarlo: la utilidad usa `text/csv` por defecto, y antes el blob iba sin tipo.
+  - Facturas en PDF: `CustomerBilling`, `InvoiceDetail` e `InvoicesList`.
+  - Plantillas Excel de importación: `CustomersUpdateSection`, `ImportSection` e
+    `InventoryImportSection`.
+  - Exportaciones CSV de `Routers`, `Sectorial` y `Staff`.
+- **La vista previa de plantillas** (`DocumentTemplatesSection`) abre el PDF en otra pestaña,
+  así que no puede revocar en el acto. Revoca a los 60 s.
+- `ErrorsModal` y `Customers` ya limpiaban: no se tocaron.
+- **Guarda:** `tests/Feature/Ui/BlobDownloadLeakTest.php`. Solo los archivos de su lista pueden
+  crear object URLs, y todo el que lo haga debe revocarlos. Sin la migración fallan las dos
+  pruebas.
+
+### Pendiente
+
+- Punto 1: búsqueda sin índice aprovechable (`pg_trgm`).
+- Punto 2: adoptar o borrar `SearchBar`, `StatusBadge` y `LoadingSkeleton`.
+
+### Verificación
+
+`npm run build` OK. Las descargas no se probaron en un navegador.
