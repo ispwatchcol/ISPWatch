@@ -9323,6 +9323,22 @@ está en los logs de App Platform.
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
 
+## 98. KAN-44 ya estaba resuelto: solo quedaban dos textos obsoletos (P-1) — 2026-10-05
+
+La tarjeta pedía un permiso `delete_clients` para el borrado de cliente. Ya existía con el
+nombre `delete_customers`:
+
+- `Permissions::DELETE_CUSTOMERS`;
+- la migración `2026_08_31_000001`, que lo da **solo** a los roles admin;
+- la ruta `DELETE /api/customers/{customer}`;
+- las pruebas en `CustomerDeletionControlsTest` y `ApiAuthorizationTest`.
+
+Se descartó a propósito darlo también a `staff`, como sugería la recomendación original: el
+borrado arrastra facturas y pagos (P-43).
+
+Seguían diciendo lo contrario la entrada P-1 de MEJORAS y un comentario de `routes/api.php`
+(«no existe un permiso `delete_clients`… se apoya en `edit_internet_service`»). Ese texto
+generó la tarjeta. Se corrigieron los dos. No hay cambio de código ni pruebas nuevas.
 ## 97. Las credenciales del router ya no salen en la API (KAN-45, P-2) — 2026-10-05
 
 > Numeración: las §§ 90 a 96 todavía no están en main (#302, KAN-53, 102, 96, 60, 39 y 38).

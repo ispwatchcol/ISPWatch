@@ -811,7 +811,14 @@ des-consumir en orden LIFO los `earned` que financiaron esa factura, en vez de c
 ajuste. Hoy no compensa la complejidad: el caso es raro y el error resultante siempre favorece al
 cliente, nunca al ISP.
 
-### 📋 P-1 · Falta un permiso `delete_clients`
+### ✅ P-1 · Falta un permiso `delete_clients` — RESUELTO 2026-08-31 (con el nombre `delete_customers`)
+
+> **Ya estaba resuelto** cuando se revisó KAN-44 (2026-10-05): `Permissions::DELETE_CUSTOMERS`,
+> concedido **solo** a los roles `code = 'admin'` por la migración `2026_08_31_000001`, protege
+> `DELETE /api/customers/{customer}`. Lo fijan `CustomerDeletionControlsTest` y
+> `ApiAuthorizationTest`. Se descartó la recomendación original de darlo también a `staff`,
+> porque el borrado arrastra facturas y pagos (P-43). Esta entrada y un comentario de
+> `routes/api.php` seguían diciendo lo contrario. Lo de abajo queda como contexto.
 
 Borrar un cliente se apoya hoy en `edit_internet_service` porque el catálogo no tiene un
 permiso propio para ello. Es más laxo de lo deseable: quien puede editar el servicio puede
@@ -2758,6 +2765,8 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **B-4** | Nombres de tabla mezclados | Confusión | 🟢 Baja | ✅ Documentado |
 | **B-5** | Documentación desincronizada | Decisiones sobre información falsa | 🟢 Baja | ✅ Resuelto |
 | **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | ✅ Resuelto 2026-08-31 (`delete_customers`, solo admin) |
+| **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
 | **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
 | **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-45, incluye `wg_private_key`) |
 | **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | ✅ Resuelto 2026-08-06 (`kind: wrong_type`) |
