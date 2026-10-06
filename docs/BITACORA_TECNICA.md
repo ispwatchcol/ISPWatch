@@ -9322,3 +9322,55 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 106. La base rechaza borrar un router con clientes (KAN-55, P-FK-1) — 2026-10-05
+
+> Numeración: las §§ 90 a 105 todavía no están en main.
+
+### El problema
+
+`RouterController::destroy()` devolvía 409 si el router tenía clientes vivos. Pero la FK
+`customer_profile.router_id → router(id)` era `ON DELETE SET NULL`, así que un
+`DELETE FROM router` por SQL directo los dejaba huérfanos, sin que nada lo impidiera.
+
+### Lo que se hizo
+
+- **Controlador:** el camino `force`, que borra un router referenciado solo por bajas, ahora
+  ejecuta `UPDATE customer_profile SET router_id = NULL` y luego el `DELETE`, ambos en la misma
+  transacción. Ya no depende de la acción de la FK.
+- **Migración `2026_10_05_120000`, solo en PostgreSQL:**
+  - busca en `pg_constraint` **todas** las FK de `customer_profile(router_id)` hacia `router`.
+    El nombre no se supone, porque el esquema de producción tiene deriva;
+  - las elimina y crea una sola, `customer_profile_router_id_foreign`, con `ON DELETE RESTRICT`;
+  - `down()` vuelve a `SET NULL`;
+  - corre dentro de una transacción: si hubiera huérfanos, el `ADD CONSTRAINT` falla y no se
+    aplica nada a medias.
+- **En SQLite no se toca.** Cambiar una FK obliga a reconstruir la tabla, y eso pondría en
+  riesgo los índices parciales de `customer_profile`.
+
+### Decidido en el mismo cambio, sin tocar
+
+- `suspension_action_logs` y `billing_action_logs` siguen en `SET NULL`: son historial.
+- `ip_assignment` sigue en `SET NULL`. Con `RESTRICT`, los routers con asignaciones dejarían de
+  poder borrarse, porque la aplicación no las limpia.
+
+### Pruebas
+
+`RouterDeletionTest`, 3 casos nuevos:
+
+- `force` suelta a las bajas y borra el router (SQLite y PostgreSQL);
+- **solo en PostgreSQL:** un `DELETE` directo con un cliente vinculado se rechaza. Va dentro de
+  un savepoint para no repetir la trampa 25P02;
+- **solo en PostgreSQL:** queda exactamente una FK, con `confdeltype = 'r'`.
+
+En SQLite se omiten los dos de PostgreSQL. **Su validación depende del job de PostgreSQL del
+CI.**
+
+### Despliegue
+
+La migración cambia el esquema de producción y hay que correrla a mano, con aprobación. Antes
+conviene comprobar que no hay huérfanos:
+
+`SELECT count(*) FROM customer_profile cp LEFT JOIN router r ON r.id = cp.router_id WHERE cp.router_id IS NOT NULL AND r.id IS NULL;`
+
+Si el resultado no es 0, la migración falla, y no hace nada.

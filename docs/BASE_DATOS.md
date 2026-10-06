@@ -1590,7 +1590,7 @@ Agregado permanente.
 | `customer_credits.to_invoice_id` | `invoices.id` | SET NULL |
 | `customer_documents.customer_id` | `users.id` | CASCADE |
 | `customer_profile.olt_id` | `sectorial.id` | SET NULL |
-| `customer_profile.router_id` | `router.id` | SET NULL |
+| `customer_profile.router_id` | `router.id` | **RESTRICT** en PostgreSQL desde `2026_10_05_120000` (KAN-55); SET NULL en SQLite. Para borrar un router con solo bajas, `RouterController::destroy(force)` las suelta antes en la misma transacción |
 | `customer_profile.sectorial_id` | `sectorial.id` | SET NULL |
 | `customer_profile.service_id` | `service_plan.id` | SET NULL |
 | `customer_profile.user_id` | `users.id` | CASCADE |
