@@ -965,6 +965,13 @@ Cuerpo del `409`:
 `requires_force` solo aparece en el segundo caso. `?force=1` **nunca** habilita el borrado
 de un router con clientes vivos: ahí el rechazo es incondicional.
 
+### Credenciales del router en las respuestas
+
+Desde KAN-45, **ninguna** respuesta de `/api/routers*` (listado, detalle, alta, edición) ni
+de `POST /api/routers/{router}/verify-vpn` incluye `password_rb`, `vpn_password` ni
+`wg_private_key`. En su lugar, cada router trae `has_password_rb` (bool). En `PUT`, omitir
+`password_rb` conserva la guardada; enviarla la reemplaza.
+
 ### `POST /api/routers` — cuerpo (`StoreRouterRequest`)
 
 | Campo | Reglas |

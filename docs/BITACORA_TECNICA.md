@@ -9323,6 +9323,51 @@ está en los logs de App Platform.
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
 
+## 97. Las credenciales del router ya no salen en la API (KAN-45, P-2) — 2026-10-05
+
+> Numeración: las §§ 90 a 96 todavía no están en main (#302, KAN-53, 102, 96, 60, 39 y 38).
+
+### El problema
+
+`Router` no tenía `$hidden`. Por eso `password_rb`, `vpn_password` y también
+`wg_private_key` (la clave privada del túnel WireGuard con el CORE, que no estaba en la tarjeta)
+viajaban en `GET /api/routers/{id}` y en las respuestas de alta y edición. Además,
+`VpnService::verifyConnection()` devolvía `password_rb` explícitamente. Esas credenciales dan
+SSH/API a equipos de red del ISP.
+
+La causa era el formulario: `RouterEdit.vue` prellenaba la contraseña con lo que devolvía la API
+y la reenviaba al guardar. Ocultarla sin más habría borrado la credencial en la primera edición.
+
+### Lo que se hizo, en este orden
+
+1. **Formulario:** el campo arranca vacío, con el placeholder «Déjalo en blanco para conservar
+   la actual» cuando `has_password_rb` es verdadero, y `password_rb` **solo** se agrega al
+   payload si se escribió algo. Tras verificar la VPN ya no lee la contraseña de la respuesta.
+2. **Modelo:** `$hidden = [password_rb, vpn_password, wg_private_key]` y `$appends =
+   [has_password_rb]`. El servidor sigue leyendo los valores igual: `$hidden` solo afecta a la
+   serialización.
+3. **`VpnService::verifyConnection()`** deja de devolver `password_rb`.
+
+### Lo que la tarjeta suponía y no era cierto
+
+«El controlador ya ignora el campo si llega vacío.» No es así: `ConvertEmptyStringsToNull` lo
+convierte en `null`, y `sometimes|required` responde 422. Por eso el arreglo es **omitir** el
+campo, no mandarlo vacío. No se tocó la validación, para no chocar con KAN-102, donde un `null`
+en RADIUS significa «vaciar».
+
+### Pruebas
+
+`tests/Feature/Router/RouterCredentialsHiddenTest.php` (6 casos):
+
+- detalle con `has_password_rb`, listado, alta y edición, sin ningún secreto ni su clave;
+- editar sin contraseña conserva las dos guardadas;
+- escribir una nueva la reemplaza;
+- el servidor sigue leyendo los valores.
+
+Sin el arreglo fallan 3. Las demás, como la del listado, ya pasaban y quedan como regresión.
+**`verifyConnection()` no tiene prueba automática**, porque instancia `MikroTikSshService` con
+`new` y no se puede simular sin reestructurarla. El cambio es una línea borrada del array de
+respuesta.
 ## 110. /billing/configs ya no cruza tenants (KAN-121) — 2026-10-06
 
 > Numeración: las §§ 90 a 109 están en PR abiertos (#302 y #303 a #321), todavía fuera de main.
