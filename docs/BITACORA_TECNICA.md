@@ -9368,8 +9368,11 @@ CI.**
 
 ### Despliegue
 
-La migración cambia el esquema de producción y hay que correrla a mano, con aprobación. Antes
-conviene comprobar que no hay huérfanos:
+La migración cambia el esquema de producción. El despliegue de `main` ejecuta `php artisan migrate --force` en el job `migrate`
+(`kind: PRE_DEPLOY`) de `.do/deploy.template.yaml`. Si la spec viva coincide con la plantilla
+(no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
+el merge mismo requiere aprobación. La comprobación de huérfanos tiene que
+correrse **antes de mergear**:
 
 `SELECT count(*) FROM customer_profile cp LEFT JOIN router r ON r.id = cp.router_id WHERE cp.router_id IS NOT NULL AND r.id IS NULL;`
 
