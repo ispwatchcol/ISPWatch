@@ -615,6 +615,8 @@ Prerrequisitos de datos ya resueltos: `customer_profile.tenant_id` (migración
 
 ### 🟡 P-RLS-2 · `Billing` sin global scope hasta verificar el backfill
 
+> **2026-10-06 · KAN-121:** la falta de scope **sí** era explotable. `GET` y `PUT /api/billing/configs` no filtraban por tenant: un usuario con `view_billing` leía las configuraciones de todos los ISP y modificaba la de otro, incluidos los días de facturación y de corte. Se corrigió con un filtro en el controlador que también reconoce las filas antiguas con `tenant_id` NULL por su router (bitácora § 110). El scope global sigue pendiente, a la espera de verificar el backfill.
+
 `Billing` es la única excepción de la lista que no es estructural, sino de datos: su
 `tenant_id` quedó en NULL en las filas anteriores a que `RouterController` lo poblara.
 Activarle el scope antes de confirmar que no quedan NULL **escondería la configuración de
@@ -826,7 +828,16 @@ borrar al cliente con todo su historial.
 `admin` y `staff` y ejecutar `permissions:sync` (que ya existe justamente para esto). Es
 seguro porque el sync es aditivo y cubre los 30 roles canónicos.
 
-### 📋 P-2 · Las contraseñas de router se serializan en la API
+### ✅ P-2 · Las contraseñas de router se serializan en la API — RESUELTO 2026-10-05 (KAN-45)
+
+> **Resuelto** en la bitácora § 97. Primero el formulario: `RouterEdit.vue` ya no prellena la
+> contraseña, «en blanco = conservar», y solo envía `password_rb` si se escribe. Después,
+> `Router::$hidden` = `password_rb`, `vpn_password` y `wg_private_key` (la clave privada de
+> WireGuard **también** salía, y no estaba en la tarjeta), más `has_password_rb`.
+> `VpnService::verifyConnection()` tampoco devuelve la contraseña. Ojo: en contra de lo que
+> decía la recomendación, el backend **no** ignoraba un `password_rb` vacío: lo rechazaba
+> (`sometimes|required`). Por eso el arreglo es omitir el campo. Lo de abajo queda como
+> contexto.
 
 `password_rb` y `vpn_password` viajan en la respuesta de `GET /api/routers/{id}`. No se
 pusieron en `$hidden` porque `RouterEdit.vue` prellena el formulario con ese valor y lo
@@ -2756,6 +2767,8 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
 | **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | ✅ Resuelto 2026-08-31 (`delete_customers`, solo admin) |
 | **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
+| **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-45, incluye `wg_private_key`) |
 | **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | ✅ Resuelto 2026-08-06 (`kind: wrong_type`) |
 | **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics` + `HtmlDocumentEditor`) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
