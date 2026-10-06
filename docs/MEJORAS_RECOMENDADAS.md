@@ -1156,6 +1156,15 @@ El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléf
 soporte y un WhatsApp **fijos en el código** (`+573001234567`), iguales para todos los
 tenants. Deberían salir de `tenant.billing_phone`.
 
+> **2026-10-05 (KAN-81), parcial.** Se **retiró** el número falso (bitácora § 107): ahora el
+> portal remite al teléfono que figura en la factura o el contrato del abonado. **No** se pudo
+> reemplazar por `tenant.billing_phone`, porque el portal no sabe de qué ISP es el abonado: los
+> routers redirigen por `dst-nat` a una sola `PORTAL_IP` de la plataforma, y la redirección no
+> lleva el tenant. **Decisión pendiente** sobre cómo identificarlo. Las opciones:
+> - una `PORTAL_IP` o un subdominio por tenant;
+> - un parámetro en los enlaces que comparte el ISP (expone nombre y teléfono por enumeración);
+> - resolverlo por la IP de origen del abonado. No es viable con NAT.
+
 ---
 
 ### ✅ P-13 · Migrar una plantilla desde otro sistema no tiene ninguna ayuda dentro de la app
