@@ -9374,6 +9374,7 @@ justamente el caso de la migración de CNO. El Centro de Ayuda tapaba el síntom
 
 ### Despliegue
 
-La migración de datos solo toca `help_articles`. Como el contenedor ya no migra al arrancar
-(P-DEPLOY-1), hay que correrla a mano tras desplegar. Sin ella, el código funciona igual y
-solo el Centro de Ayuda sigue diciendo lo viejo.
+La migración de datos solo toca `help_articles`. El despliegue de `main` ejecuta `php artisan migrate --force` en el job `migrate`
+(`kind: PRE_DEPLOY`) de `.do/deploy.template.yaml`. Si la spec viva coincide con la plantilla
+(no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
+el merge mismo requiere aprobación. Si no llegara a correr, el código funciona igual y solo el Centro de Ayuda sigue diciendo lo viejo.
