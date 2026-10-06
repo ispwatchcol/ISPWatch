@@ -9322,3 +9322,35 @@ está en los logs de App Platform.
 
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
+
+## 105. Alternar una capa del mapa ya no saca al usuario de donde estaba mirando (KAN-78, P-25) — 2026-10-05
+
+> Numeración: las §§ 90 a 104 todavía no están en main.
+
+### El problema
+
+Un único `watch([filteredCustomers, layers])` llamaba a `applyLayers()`, que siempre terminaba
+en `fitBounds`. Encender «Zonas de cobertura» para mirar una antena devolvía la cámara al
+encuadre de todo el tenant.
+
+### Lo que se hizo
+
+- `applyLayers({ refit })`: el `fitBounds` solo ocurre con `refit` en verdadero.
+- Hay dos vigilantes:
+  - `filteredCustomers` reencuadra;
+  - `layers` redibuja con `refit: false`.
+- La carga inicial (`initMap`) sigue reencuadrando.
+- Las banderas del buscador (`suppressNextFit`, `locateGuardUntil`) se mantienen. Para las
+  capas ya no son necesarias, pero siguen cubriendo el vuelo hacia un cliente.
+
+### Pendiente
+
+Punto 2 de P-25: al cambiar un filtro, los `bounds` incluyen cobertura y nodos visibles que el
+filtro no acota.
+
+### Pruebas
+
+`tests/Feature/Ui/CustomerMapRefitTest.php` (4 casos) son guardas sobre la fuente, porque la
+suite no tiene navegador. Comprueban los dos vigilantes con su `refit`, que ya no existe el
+vigilante conjunto, y que el `fitBounds` depende de `refit`. Sin el cambio fallan los cuatro.
+**El comportamiento en el navegador no se probó**: no hay un entorno con Google Maps.

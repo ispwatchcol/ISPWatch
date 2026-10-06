@@ -1559,7 +1559,12 @@ hará exactamente eso.
 correspondiente de `ticket_catalog_version` para que los integradores externos detecten
 el cambio.
 
-### 📋 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa
+### 🟡 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa — punto 1 RESUELTO 2026-10-05 (KAN-78)
+
+> **Punto 1, hecho** (bitácora § 105): alternar una capa redibuja sin mover la cámara. Solo
+> reencuadran la carga inicial y los cambios del conjunto de clientes (filtros). **Punto 2,
+> pendiente:** al cambiar un filtro, los `bounds` siguen incluyendo cobertura y nodos visibles
+> que no están sujetos al filtro. Lo de abajo queda como contexto.
 
 `applyLayers()` (`resources/js/pages/CustomerMap.vue`) termina **siempre** con
 `map.fitBounds(bounds)`. Como un `watch` la invoca ante cualquier cambio de
@@ -2777,7 +2782,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-21** *(catálogos)* | Un tenant puede pisar un código de catálogo global | El integrador no sabría si `sin_senal` es global o del ISP | 🟡 Media | 📋 Pendiente · se activa con la pantalla de administración |
 | **P-23** *(R3)* | Falta la R3 de `support_ticket` | — | — | ✅ Resuelto 2026-08-15 · entrada contradictoria |
 | **P-24** | La pantalla de catálogos tendrá que vaciar la caché | Editar y releer en la misma petición devuelve el valor viejo | 🟢 Baja | 📋 Nota anticipada |
-| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 📋 Pendiente |
+| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 🟡 Capas ya no reencuadran (KAN-78) · falta acotar los `bounds` al filtro |
 | **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 📋 Pendiente |
 | **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
 | **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
