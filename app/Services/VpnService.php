@@ -589,10 +589,10 @@ SCRIPT;
                     'uptime' => $result['uptime'] ?? null,
                     'caller_id' => $result['caller_id'] ?? null,
                     'duplicate_tunnels' => $duplicates,
-                    // Credenciales de gestión del RB (columnas legacy = fuente de verdad,
-                    // las que escribe el formulario; *_encrypted no se mantiene — ver 4f24551)
+                    // Usuario de gestión del RB. La contraseña NO viaja (P-2 /
+                    // KAN-45): el formulario recarga el router tras verificar y
+                    // muestra si hay una guardada, sin el secreto.
                     'user_rb' => $router->user_rb,
-                    'password_rb' => $router->password_rb,
                 ];
             } else {
                 Log::info('[VPN] No hay PPP activo para usuario', [

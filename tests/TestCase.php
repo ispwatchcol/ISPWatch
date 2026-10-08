@@ -15,6 +15,26 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * Doble de `Barryvdh\DomPDF\PDF` que acepta cualquier método y se devuelve
+     * a sí mismo (P-14 / KAN-65).
+     *
+     * POR QUÉ NO BASTA UN `Mockery::mock(PDF::class)` A SECAS: el wrapper no
+     * declara casi nada de su API fluida (`setPaper()`, `setOption()`…); la
+     * resuelve por `__call()` contra el Dompdf interno. Mockery valida contra
+     * los métodos REALES de la clase, así que para él esos métodos no existen,
+     * y una línea nueva en TemplateRenderer tumbaba 14 pruebas con un
+     * `BadMethodCallException` que señalaba el código de producción en vez del
+     * mock. `shouldIgnoreMissing(self)` deja pasar cualquier llamada encadenada.
+     *
+     * Las expectativas propias (`->shouldReceive('stream')`, `output`, …) se
+     * siguen declarando sobre el doble que devuelve.
+     */
+    protected function fakePdf(): \Mockery\MockInterface
+    {
+        return \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+    }
+
+    /**
      * La suite usa RefreshDatabase, que ejecuta `migrate:fresh`: apuntarla por
      * error a la base real la deja vacía. El riesgo no es teórico — el `.env`
      * local apunta a Supabase, así que un `DB_CONNECTION` mal puesto basta.
