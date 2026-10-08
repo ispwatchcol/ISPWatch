@@ -294,7 +294,7 @@ class DocumentTemplateControllerTest extends TestCase
     {
         Sanctum::actingAs($this->admin);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf = $this->fakePdf();
         $fakePdf->shouldReceive('stream')->once()
             ->andReturn(response('%PDF-fake', 200, ['Content-Type' => 'application/pdf']));
 
