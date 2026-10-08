@@ -94,13 +94,33 @@ class Router extends Model
         'wg_private_key' => 'encrypted',
     ];
 
-    // NOTA: password_rb y vpn_password NO están en $hidden a propósito.
-    // El formulario de edición de router (resources/js/pages/RouterEdit.vue)
-    // prellena el campo con `data.password_rb` y lo reenvía tal cual al guardar;
-    // ocultarlo haría que el formulario cargara vacío y SOBRESCRIBIERA la
-    // credencial con una cadena vacía al primer guardado — pérdida de datos.
-    // Sacarlos de la respuesta exige antes cambiar el formulario a "dejar en
-    // blanco para conservar la contraseña actual". Anotado en MEJORAS_RECOMENDADAS.
+    /**
+     * Secretos que nunca salen en una respuesta JSON (P-2 / KAN-45).
+     *
+     * Dan acceso SSH/API a equipos de red del ISP y a su túnel con el CORE, y
+     * los serializaba el mismo proceso que atiende HTTP público. Se leen en el
+     * servidor como siempre (`$router->password_rb`); lo que cambia es que ya no
+     * viajan al navegador.
+     *
+     * El orden importó: RouterEdit.vue prellenaba la contraseña con lo que
+     * devolvía la API y la reenviaba al guardar. Ahora el campo arranca vacío,
+     * «en blanco = conservar», y sólo se envía si se escribe una nueva. Sin ese
+     * cambio previo, ocultarla habría borrado la credencial en la primera
+     * edición. Para saber si hay una guardada está `has_password_rb`.
+     */
+    protected $hidden = [
+        'password_rb',
+        'vpn_password',
+        'wg_private_key',
+    ];
+
+    protected $appends = ['has_password_rb'];
+
+    /** ¿Hay contraseña de gestión guardada? Lo que el formulario puede mostrar sin el secreto. */
+    public function getHasPasswordRbAttribute(): bool
+    {
+        return filled($this->password_rb);
+    }
 
 
     /** Transportes VPN admitidos entre el CORE y este router. */

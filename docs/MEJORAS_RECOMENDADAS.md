@@ -615,6 +615,8 @@ Prerrequisitos de datos ya resueltos: `customer_profile.tenant_id` (migración
 
 ### 🟡 P-RLS-2 · `Billing` sin global scope hasta verificar el backfill
 
+> **2026-10-06 · KAN-121:** la falta de scope **sí** era explotable. `GET` y `PUT /api/billing/configs` no filtraban por tenant: un usuario con `view_billing` leía las configuraciones de todos los ISP y modificaba la de otro, incluidos los días de facturación y de corte. Se corrigió con un filtro en el controlador que también reconoce las filas antiguas con `tenant_id` NULL por su router (bitácora § 110). El scope global sigue pendiente, a la espera de verificar el backfill.
+
 `Billing` es la única excepción de la lista que no es estructural, sino de datos: su
 `tenant_id` quedó en NULL en las filas anteriores a que `RouterController` lo poblara.
 Activarle el scope antes de confirmar que no quedan NULL **escondería la configuración de
@@ -814,7 +816,14 @@ des-consumir en orden LIFO los `earned` que financiaron esa factura, en vez de c
 ajuste. Hoy no compensa la complejidad: el caso es raro y el error resultante siempre favorece al
 cliente, nunca al ISP.
 
-### 📋 P-1 · Falta un permiso `delete_clients`
+### ✅ P-1 · Falta un permiso `delete_clients` — RESUELTO 2026-08-31 (con el nombre `delete_customers`)
+
+> **Ya estaba resuelto** cuando se revisó KAN-44 (2026-10-05): `Permissions::DELETE_CUSTOMERS`,
+> concedido **solo** a los roles `code = 'admin'` por la migración `2026_08_31_000001`, protege
+> `DELETE /api/customers/{customer}`. Lo fijan `CustomerDeletionControlsTest` y
+> `ApiAuthorizationTest`. Se descartó la recomendación original de darlo también a `staff`,
+> porque el borrado arrastra facturas y pagos (P-43). Esta entrada y un comentario de
+> `routes/api.php` seguían diciendo lo contrario. Lo de abajo queda como contexto.
 
 Borrar un cliente se apoya hoy en `edit_internet_service` porque el catálogo no tiene un
 permiso propio para ello. Es más laxo de lo deseable: quien puede editar el servicio puede
@@ -824,7 +833,16 @@ borrar al cliente con todo su historial.
 `admin` y `staff` y ejecutar `permissions:sync` (que ya existe justamente para esto). Es
 seguro porque el sync es aditivo y cubre los 30 roles canónicos.
 
-### 📋 P-2 · Las contraseñas de router se serializan en la API
+### ✅ P-2 · Las contraseñas de router se serializan en la API — RESUELTO 2026-10-05 (KAN-45)
+
+> **Resuelto** en la bitácora § 97. Primero el formulario: `RouterEdit.vue` ya no prellena la
+> contraseña, «en blanco = conservar», y solo envía `password_rb` si se escribe. Después,
+> `Router::$hidden` = `password_rb`, `vpn_password` y `wg_private_key` (la clave privada de
+> WireGuard **también** salía, y no estaba en la tarjeta), más `has_password_rb`.
+> `VpnService::verifyConnection()` tampoco devuelve la contraseña. Ojo: en contra de lo que
+> decía la recomendación, el backend **no** ignoraba un `password_rb` vacío: lo rechazaba
+> (`sometimes|required`). Por eso el arreglo es omitir el campo. Lo de abajo queda como
+> contexto.
 
 `password_rb` y `vpn_password` viajan en la respuesta de `GET /api/routers/{id}`. No se
 pusieron en `$hidden` porque `RouterEdit.vue` prellena el formulario con ese valor y lo
@@ -1194,7 +1212,9 @@ sugerirlo. Es el mismo camino que P-8 propone para las celdas largas, y ataca la
 clase entera de reportes. Relacionado con la nota existente sobre placeholders *cross-type* que se
 blanquean sin aviso — es el mismo agujero de diagnóstico, visto desde otro ángulo.
 
-### 📋 P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper
+### ✅ P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper — RESUELTO 2026-10-05 (KAN-65)
+
+> **Resuelto** en la bitácora § 109: `Tests\TestCase::fakePdf()` centraliza el doble y deja escrito el motivo una sola vez. Las 26 copias de 8 archivos lo usan, y `FakePdfHelperTest` impide volver a mockear `PDF::class` a mano. Lo de abajo queda como contexto.
 
 Detectado 2026-08-05 al agregar `setPaper()` en `TemplateRenderer`: 14 pruebas fallaron con
 `BadMethodCallException: Method Mockery_…_PDF::setPaper() does not exist on this mock object`,
@@ -2752,8 +2772,10 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **B-4** | Nombres de tabla mezclados | Confusión | 🟢 Baja | ✅ Documentado |
 | **B-5** | Documentación desincronizada | Decisiones sobre información falsa | 🟢 Baja | ✅ Resuelto |
 | **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
-| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | ✅ Resuelto 2026-08-31 (`delete_customers`, solo admin) |
 | **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
+| **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-45, incluye `wg_private_key`) |
 | **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | ✅ Resuelto 2026-08-06 (`kind: wrong_type`) |
 | **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics` + `HtmlDocumentEditor`) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
@@ -2765,7 +2787,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
-| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
+| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | ✅ Resuelto 2026-10-05 (`fakePdf()`, KAN-65) |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
