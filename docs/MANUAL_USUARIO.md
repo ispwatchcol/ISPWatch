@@ -1453,6 +1453,10 @@ versión de firmware y estado.
 **Puertos:** por defecto API 8728 y web 80. **Si el SSH del equipo no está en el 22, tienes
 que indicarlo en el campo de puerto SSH**, o el sistema no podrá conectarse.
 
+**Al editar un router, la contraseña aparece vacía.** No se borró: por seguridad, el sistema
+ya no la muestra ni la envía al navegador. Si dejas el campo en blanco, se conserva la que
+estaba guardada. Escribe una solo si quieres cambiarla.
+
 ### 11.2 El método de control
 
 Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **uno activo**:
