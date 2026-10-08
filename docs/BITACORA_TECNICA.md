@@ -9361,3 +9361,27 @@ escrito a mano. Para retirar contenido, el camino es una migración de datos.
 
 Sin el arreglo fallan 2. El de no duplicar ya pasaba, porque borrar y recrear tampoco
 duplica. Las 13 pruebas existentes del Centro de Ayuda siguen en verde.
+
+## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
+
+> Numeración: las §§ 90 a 108 todavía no están en main.
+
+### El problema
+
+`Barryvdh\DomPDF\PDF` resuelve su API fluida por `__call()`, así que un `Mockery::mock(PDF::class)`
+no conoce `setPaper()` y compañía. El arreglo, `shouldIgnoreMissing(\Mockery::self())`, estaba
+copiado en 26 sitios de 8 archivos. La trampa volvía en cuanto alguien escribía un mock nuevo
+sin él.
+
+### Lo que se hizo
+
+- `Tests\TestCase::fakePdf()` construye el doble y explica el porqué **una sola vez**.
+- Las 26 copias se reemplazaron por `$this->fakePdf()`. Las expectativas propias de cada prueba
+  (`stream`, `output`…) siguen declarándose sobre el doble.
+- `tests/Unit/Architecture/FakePdfHelperTest.php` falla si algún test vuelve a mockear
+  `PDF::class` a mano. Con los archivos viejos, falla.
+
+### Pruebas
+
+Las 109 pruebas afectadas pasan, y la suite completa también. No hay cambios de código de
+producción.
