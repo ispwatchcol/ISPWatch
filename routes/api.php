@@ -499,9 +499,9 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     | `view_sectorials` ni `manage_routers`. La ESCRITURA sí exige el permiso
     | dueño del módulo, a secas.
     |
-    | Nota: no existe un permiso `delete_clients` en App\Constants\Permissions.
-    | El borrado de cliente se apoya en `edit_internet_service` para no inventar
-    | un permiso nuevo que ningún rol sembrado tendría (ver MEJORAS_RECOMENDADAS).
+    | El borrado de cliente tiene permiso propio, `delete_customers` (P-1,
+    | migración 2026_08_31_000001): sólo lo tienen los roles admin. Ya no se
+    | apoya en `edit_internet_service`.
     |
     */
 
