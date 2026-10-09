@@ -988,7 +988,14 @@ columna se llama `state` y "departamento" es el término del formato CRC, mientr
 nombre de WispHub quedó documentada en la tabla de migración de marcadores de
 `docs/MANUAL_USUARIO.md`. Ver `docs/BITACORA_TECNICA.md` § 15.4.
 
-### 📋 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página
+### 🟡 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página — aviso en vista previa HECHO 2026-10-05 (KAN-60)
+
+> **(b) resuelto** en la bitácora § 94: `TemplateDiagnostics` emite `kind: long_table_cell` por
+> `X-Template-Warnings` cuando una celda pasa de 2.500 caracteres de texto visible. **La causa
+> sigue en pie**, porque dompdf sigue recortando. Lo de raíz es P-15 (cambiar de motor de PDF).
+> El umbral es una heurística y no mide el desborde real: puede avisar de una celda que sí
+> cabe, y no avisa de una más corta que desborde por letra grande o por un marcador que
+> resuelve mucho texto.
 
 Detectado 2026-08-04 diagnosticando páginas en blanco en un contrato real exportado de WispHub.
 dompdf **no sabe partir una celda de tabla entre páginas**: si el contenido de un `<td>` excede el
@@ -1796,6 +1803,19 @@ deja de haber un paso manual que olvidar.
 
 ### 🟠 P-35 · El tenant operador de las llaves de API no existe: ese camino lleva meses muerto
 
+> **2026-10-05 (KAN-38), parcial.** El punto 2 está hecho (bitácora § 96): el superadmin ve en
+> Configuración un aviso cuando el tenant operador no existe o no está configurado
+> (`App\Support\ApiKeyOperator`, `data.api_key_operator_issue`). **El punto 1 sigue pendiente**:
+> definir `API_KEYS_OPERATOR_TENANT_ID` en producción y redesplegar es un cambio de
+> configuración de producción que requiere aprobación. `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`
+> también sigue sin definir.
+>
+> **Deriva de esquema encontrada de paso:** `users.is_superadmin` existe en producción
+> (BASE_DATOS.md) pero **ninguna migración la crea**. En una base nueva, o en las pruebas, no
+> existe, y `$user->is_superadmin` es `null`. Las pruebas la fijan en memoria. Hace falta una
+> migración idempotente (`if (!Schema::hasColumn(...))`) para que el esquema de migraciones
+> coincida con producción.
+
 `config/api_keys.php` toma `operator_tenant_id` de `API_KEYS_OPERATOR_TENANT_ID`, **por
 defecto `1`**. En producción esa variable no está definida y **el tenant 1 no existe** (los
 que hay son 16, 17, 19 y 22). Consecuencia: el camino centralizado de emisión de llaves
@@ -1847,7 +1867,12 @@ borrar las copias `scoped`. Activar `@tailwindcss/forms` es la otra mitad, pero 
 gratis**: normaliza todos los controles nativos de la aplicación de golpe, así que exige
 revisar pantalla por pantalla y va en su propio PR, no colado en otro.
 
-### 🟠 P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona
+### ✅ P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona — RESUELTO 2026-10-05 (KAN-39)
+
+> **Resuelto** en la bitácora § 95: el 403 `ip_not_allowed` trae `your_ip`, el OpenAPI pasó a
+> 1.2.0 con el campo documentado, y los manuales ya no mandan a `/ping` en ese caso. **La
+> decisión aparte, si la allowlist debería poder editarse con auditoría, sigue sin tomarse**: es
+> de producto. Lo de abajo queda como contexto.
 
 Cuando una llave se usa desde una IP no autorizada, la respuesta es:
 
@@ -1977,7 +2002,13 @@ migraciones e `ispwatch_dev` con 172, faltando
 `ispwatch_dev` del 2026-08-21 cerró la brecha.
 
 
-### 🟠 P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero
+### ✅ P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero — RESUELTO 2026-10-05 (KAN-96)
+
+> **Resuelto** en la bitácora § 93. La subida va a `s3`, `url` apunta a
+> `GET /api/sectorials/{sectorial}/photos/{photo}` (autenticado, con comprobación de tenant y
+> lista blanca en línea) y queda el respaldo al disco `public` para las filas antiguas. Las
+> fotos subidas antes **no se recuperan**: se fueron con el contenedor, y el endpoint responde
+> 404 con mensaje. Lo de abajo queda como contexto.
 
 El endurecimiento posterior al PR #2 (2026-08-23) retiró este patrón de los adjuntos de
 tickets, pero `SectorialPhoto` lo conserva intacto:
@@ -2012,6 +2043,12 @@ es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde prod
 **Nota relacionada:** mientras el despliegue no ejecute `storage:link`, **cualquier** uso
 del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
 `run_command` o si se prohíbe ese disco por convención.
+
+**Sigue abierto tras KAN-96 (2026-10-05):** el único uso de escritura que queda en el disco
+`public` son los **logos de tenant**: `TenantController` guarda en `tenant_logos/{id}` con
+`asset()`, y tiene exactamente el mismo fallo de disco efímero. No entró en KAN-96 para no
+ampliar el alcance. Necesita su propia tarjeta, y la decisión `storage:link` frente a prohibir
+`public` sigue pendiente: es un cambio de despliegue que requiere aprobación.
 
 ### ✅ P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes — RESUELTO 2026-09-21
 
@@ -2781,7 +2818,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
-| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
+| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 🟡 Aviso en vista previa hecho (KAN-60) · la causa sigue (P-15) |
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 | **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
@@ -2813,9 +2850,9 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
 | **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | ✅ Resuelto 2026-10-05 (latido real, KAN-68) |
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
-| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 📋 Pendiente |
+| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 🟡 Aviso al superadmin hecho (KAN-38) · falta definir la variable en producción |
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
-| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | 📋 Pendiente |
+| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | ✅ Resuelto 2026-10-05 (`your_ip`, KAN-39) · la allowlist editable sigue por decidir |
 | **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |
 | **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
 | **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |
@@ -2831,7 +2868,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
 | **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | 📋 Pendiente |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
-| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
+| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | ✅ Resuelto 2026-10-05 (KAN-96) · queda el logo de tenant en `public` |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Cinco de las diez reglas de cierre del § 15 no son exigibles: faltan infraestructura «no aplica», validación del cliente separada de la restauración técnica y el seguimiento de solución temporal / pendiente de tercero | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 🟡 **Parcial**: la regla 5 (prueba final o justificación) quedó cubierta por el **PR F2** el 2026-09-25 |

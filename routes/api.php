@@ -476,6 +476,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
 
     Route::middleware('permission:view_sectorials,view_support')->group(function () {
         Route::get('/sectorials/{sectorial}/photos',  [SectorialPhotoController::class, 'index']);
+        // Entrega autenticada de la foto: misma puerta que el listado (P-40).
+        Route::get('/sectorials/{sectorial}/photos/{photo}', [SectorialPhotoController::class, 'show']);
         Route::get('/sectorials/{sectorial}/notes',   [SectorialNoteController::class, 'index']);
         Route::get('/sectorials/{sectorial}/history', [SectorialHistoryController::class, 'index']);
         Route::get('/sectorials/{sectorial}/tickets', [SectorialHistoryController::class, 'tickets']);
