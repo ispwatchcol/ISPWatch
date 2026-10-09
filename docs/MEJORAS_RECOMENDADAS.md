@@ -1979,7 +1979,13 @@ migraciones e `ispwatch_dev` con 172, faltando
 `ispwatch_dev` del 2026-08-21 cerró la brecha.
 
 
-### 🟠 P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero
+### ✅ P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero — RESUELTO 2026-10-05 (KAN-96)
+
+> **Resuelto** en la bitácora § 93. La subida va a `s3`, `url` apunta a
+> `GET /api/sectorials/{sectorial}/photos/{photo}` (autenticado, con comprobación de tenant y
+> lista blanca en línea) y queda el respaldo al disco `public` para las filas antiguas. Las
+> fotos subidas antes **no se recuperan**: se fueron con el contenedor, y el endpoint responde
+> 404 con mensaje. Lo de abajo queda como contexto.
 
 El endurecimiento posterior al PR #2 (2026-08-23) retiró este patrón de los adjuntos de
 tickets, pero `SectorialPhoto` lo conserva intacto:
@@ -2014,6 +2020,12 @@ es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde prod
 **Nota relacionada:** mientras el despliegue no ejecute `storage:link`, **cualquier** uso
 del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
 `run_command` o si se prohíbe ese disco por convención.
+
+**Sigue abierto tras KAN-96 (2026-10-05):** el único uso de escritura que queda en el disco
+`public` son los **logos de tenant**: `TenantController` guarda en `tenant_logos/{id}` con
+`asset()`, y tiene exactamente el mismo fallo de disco efímero. No entró en KAN-96 para no
+ampliar el alcance. Necesita su propia tarjeta, y la decisión `storage:link` frente a prohibir
+`public` sigue pendiente: es un cambio de despliegue que requiere aprobación.
 
 ### ✅ P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes — RESUELTO 2026-09-21
 
@@ -2833,7 +2845,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
 | **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | 📋 Pendiente |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
-| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
+| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | ✅ Resuelto 2026-10-05 (KAN-96) · queda el logo de tenant en `public` |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Cinco de las diez reglas de cierre del § 15 no son exigibles: faltan infraestructura «no aplica», validación del cliente separada de la restauración técnica y el seguimiento de solución temporal / pendiente de tercero | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 🟡 **Parcial**: la regla 5 (prueba final o justificación) quedó cubierta por el **PR F2** el 2026-09-25 |

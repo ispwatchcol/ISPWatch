@@ -1716,6 +1716,11 @@ Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**
 Cada elemento tiene tres pestañas: **Fotos** (para documentar la instalación en campo),
 **Notas** (observaciones de mantenimiento) e **Historial** (registro automático de cambios).
 
+Las fotos solo las ve quien tiene sesión iniciada en tu empresa, con permiso de sectoriales
+o de soporte. Un enlace copiado no sirve fuera de esa sesión. Desde el 2026-10-05 se guardan
+en almacenamiento permanente. Las subidas **antes** de esa fecha pueden aparecer sin imagen:
+se perdieron en un despliegue y no se pueden recuperar. Vuelve a subirlas si las necesitas.
+
 ---
 
 ## 13. Planes de internet
