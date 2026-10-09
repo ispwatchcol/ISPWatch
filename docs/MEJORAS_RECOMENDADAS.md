@@ -1849,7 +1849,12 @@ borrar las copias `scoped`. Activar `@tailwindcss/forms` es la otra mitad, pero 
 gratis**: normaliza todos los controles nativos de la aplicación de golpe, así que exige
 revisar pantalla por pantalla y va en su propio PR, no colado en otro.
 
-### 🟠 P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona
+### ✅ P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona — RESUELTO 2026-10-05 (KAN-39)
+
+> **Resuelto** en la bitácora § 95: el 403 `ip_not_allowed` trae `your_ip`, el OpenAPI pasó a
+> 1.2.0 con el campo documentado, y los manuales ya no mandan a `/ping` en ese caso. **La
+> decisión aparte, si la allowlist debería poder editarse con auditoría, sigue sin tomarse**: es
+> de producto. Lo de abajo queda como contexto.
 
 Cuando una llave se usa desde una IP no autorizada, la respuesta es:
 
@@ -2829,7 +2834,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
 | **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 📋 Pendiente |
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
-| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | 📋 Pendiente |
+| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | ✅ Resuelto 2026-10-05 (`your_ip`, KAN-39) · la allowlist editable sigue por decidir |
 | **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |
 | **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
 | **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |

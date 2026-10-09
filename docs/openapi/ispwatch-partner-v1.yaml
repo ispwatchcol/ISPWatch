@@ -29,7 +29,9 @@ info:
   # NETWORK_CHANGED, paginación por cursor `after_id`, filtro `router_id` en
   # /services y publicación en serie del feed. Todo aditivo: nada que ya se
   # consumía cambió de forma ni de significado.
-  version: "1.1.0"
+  # 1.2.0 (2026-10-05): el 403 `ip_not_allowed` trae `your_ip`, la IP con la
+  # que llegó la petición (P-37 / KAN-39). Aditivo: `error` y `message` no cambian.
+  version: "1.2.0"
   description: |
     API de **solo lectura** para integradores externos (CRM, facturación
     electrónica, orquestadores AAA). Expone la autoridad comercial de ISPWatch
@@ -723,7 +725,8 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           examples:
             ip:
-              value: { error: ip_not_allowed, message: "La IP de origen no está autorizada para esta llave." }
+              summary: IP fuera de la allowlist; `your_ip` es la IP con la que llegó la petición
+              value: { error: ip_not_allowed, message: "La IP de origen no está autorizada para esta llave.", your_ip: "203.0.113.25" }
             permiso:
               summary: Falta el ability del área (respuesta de Sanctum)
               value: { message: "Invalid ability provided." }
@@ -893,6 +896,14 @@ components:
         message:
           type: string
           description: Explicación legible por una persona.
+        your_ip:
+          type: string
+          description: |
+            Sólo en `ip_not_allowed`: la IP con la que el servidor vio llegar la
+            petición. Es la que hay que pedirle al ISP que autorice. `/ping` no
+            sirve para averiguarla en este caso, porque pasa por la misma
+            comprobación de allowlist y también responde 403.
+          example: "203.0.113.25"
 
     PageMeta:
       type: object
