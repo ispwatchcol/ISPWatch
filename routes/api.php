@@ -805,6 +805,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     // primero que pregunta soporte, y exigir `view_settings` se lo negaría
     // justamente a quien está llamando a pedir ayuda.
     Route::get('/system/version', [SettingsController::class, 'version']);
+    // Estado real del tile «Estado del Sistema» (P-33): el latido del planificador.
+    Route::get('/system/status', [SettingsController::class, 'status']);
 
     // ─── HELP CENTER / MANUAL ───
     // La LECTURA queda abierta a cualquier autenticado: es el manual del

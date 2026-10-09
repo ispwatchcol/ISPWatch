@@ -9323,62 +9323,6 @@ está en los logs de App Platform.
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
 
-## 93. Las fotos de sectorial ya no son públicas ni se pierden en cada despliegue (KAN-96, P-40) — 2026-10-05
-
-> Numeración: las §§ 90 (#302), 91 (KAN-53) y 92 (KAN-102) todavía no están en main.
-
-### El problema
-
-`SectorialPhoto::getUrlAttribute()` devolvía `asset('storage/…')`, y la subida iba al disco
-`public`. Es el patrón que los adjuntos de ticket ya habían retirado:
-
-- **404:** el despliegue no ejecuta `storage:link`.
-- **Pérdida:** el disco de App Platform es efímero y se vacía en cada despliegue.
-- **Fuga:** mientras el archivo existía, cualquiera que adivinara la ruta lo leía sin sesión.
-
-### Lo que se hizo
-
-Se siguió el patrón de `SupportTicketAttachmentController`:
-
-- La subida va al disco `s3`. Como ese disco tiene `throw => false`, una subida fallida
-  devuelve 502 y no crea una fila huérfana.
-- `url` apunta a `GET /api/sectorials/{sectorial}/photos/{photo}`, con el mismo permiso que el
-  listado (`view_sectorials` o `view_support`):
-  - el sectorial se busca en el tenant de quien pide; si es de otro ISP, 404;
-  - la foto se busca **dentro** de ese sectorial;
-  - se busca el archivo primero en `s3` y después en `public` (filas antiguas en desarrollo);
-    si no está, 404 con mensaje;
-  - la lista blanca de tipos en línea contiene solo las cuatro imágenes; el resto va como
-    descarga `octet-stream`;
-  - las cabeceras son `Cache-Control: private, no-store` y `nosniff`.
-- El borrado elimina el archivo de los dos discos.
-- El frontend no cambia: `<img :src="p.url">` envía la cookie de sesión de Sanctum, porque la
-  petición es al mismo origen.
-
-### Lo que no se hizo
-
-- **No se recuperan las fotos antiguas:** se fueron con el contenedor.
-- **Los logos de tenant siguen en `public`.** Es el último uso de escritura de ese disco y tiene
-  el mismo fallo. Queda anotado bajo P-40 en MEJORAS como tarjeta pendiente, junto con la
-  decisión `storage:link` frente a prohibir `public`, que es un cambio de despliegue que
-  requiere aprobación.
-
-### Pruebas
-
-`tests/Feature/Sectorial/SectorialPhotoDeliveryTest.php` (11 casos):
-
-- subida a `s3` con `url` autenticada;
-- entrega en línea con sus cabeceras;
-- acceso con `view_support`;
-- negativos: sin sesión (401), sin permiso (403), otro ISP (404), foto ajena colgada de un
-  sectorial propio (404), `text/html` servido como descarga;
-- respaldo al disco `public`;
-- archivo perdido (404 con mensaje);
-- el borrado quita el archivo de `s3`.
-
-Sin el arreglo fallan las 11. Una trampa de las pruebas: `CheckPermission` deja pasar a
-`role_id = 1`. En una base nueva, el primer `Role::create` recibe ese id, así que el `setUp`
-lo ocupa antes con un rol administrador. Sin eso, la prueba «sin permiso» daba 200.
 ## 94. La vista previa avisa de las celdas de tabla que dompdf puede recortar (KAN-60, P-8) — 2026-10-05
 
 > Numeración: las §§ 90 a 93 (#302, KAN-53, KAN-102 y KAN-96) todavía no están en main.
@@ -9575,6 +9519,95 @@ borrado arrastra facturas y pagos (P-43).
 Seguían diciendo lo contrario la entrada P-1 de MEJORAS y un comentario de `routes/api.php`
 («no existe un permiso `delete_clients`… se apoya en `edit_internet_service`»). Ese texto
 generó la tarjeta. Se corrigieron los dos. No hay cambio de código ni pruebas nuevas.
+
+## 100. «Estado del Sistema» deja de ser un adorno (KAN-68, P-33) — 2026-10-05
+
+> Numeración: las §§ 90 a 99 todavía no están en main.
+
+### El problema
+
+En Configuración → Sistema, el punto verde «Operativo» era texto fijo. Habría dicho lo mismo
+con el planificador caído, que es justo la falla que dejó un mes sin facturas.
+
+### Lo que se hizo
+
+- `GET /api/system/status` (`SettingsController::status`), para cualquier usuario autenticado.
+  Lee el latido de `system:heartbeat` con la **misma** clave y el **mismo** umbral que
+  `HealthController::checkScheduler()`.
+  - Devuelve `ok`, `stale`, `never` o `not_expected`, más los segundos sin latir.
+  - No se tocó `HealthController`, para no arriesgar `/health`. Duplicar cinco líneas que
+    leen la misma configuración se consideró aceptable.
+- **Endpoint aparte de `/system/version` a propósito:** el frontend consulta la versión con
+  frecuencia para detectar bundles viejos (KAN-101), y no hace falta cargarle este estado.
+- **Recuadro:** verde «Operativo», ámbar «Revisar» con cuántos minutos lleva sin correr, o
+  gris «Sin datos» / «No aplica». Si el endpoint falla, **nunca** dice «Operativo».
+- **Umbral:** el de `/health` (5 min), no las 2 h que sugería la tarjeta. Si el recuadro y el
+  centinela externo usaran umbrales distintos, se contradirían. A cambio, el recuadro se puede
+  ver ámbar unos minutos durante un despliegue, y así lo dice el manual.
+
+### Pruebas
+
+`tests/Feature/SystemStatusTest.php` (6 casos):
+
+- `ok`, `stale` (con los segundos), `never` y `not_expected`;
+- exige sesión;
+- la plantilla ya no tiene el «Operativo» fijo junto al punto verde.
+## 93. Las fotos de sectorial ya no son públicas ni se pierden en cada despliegue (KAN-96, P-40) — 2026-10-05
+
+> Numeración: las §§ 90 (#302), 91 (KAN-53) y 92 (KAN-102) todavía no están en main.
+
+### El problema
+
+`SectorialPhoto::getUrlAttribute()` devolvía `asset('storage/…')`, y la subida iba al disco
+`public`. Es el patrón que los adjuntos de ticket ya habían retirado:
+
+- **404:** el despliegue no ejecuta `storage:link`.
+- **Pérdida:** el disco de App Platform es efímero y se vacía en cada despliegue.
+- **Fuga:** mientras el archivo existía, cualquiera que adivinara la ruta lo leía sin sesión.
+
+### Lo que se hizo
+
+Se siguió el patrón de `SupportTicketAttachmentController`:
+
+- La subida va al disco `s3`. Como ese disco tiene `throw => false`, una subida fallida
+  devuelve 502 y no crea una fila huérfana.
+- `url` apunta a `GET /api/sectorials/{sectorial}/photos/{photo}`, con el mismo permiso que el
+  listado (`view_sectorials` o `view_support`):
+  - el sectorial se busca en el tenant de quien pide; si es de otro ISP, 404;
+  - la foto se busca **dentro** de ese sectorial;
+  - se busca el archivo primero en `s3` y después en `public` (filas antiguas en desarrollo);
+    si no está, 404 con mensaje;
+  - la lista blanca de tipos en línea contiene solo las cuatro imágenes; el resto va como
+    descarga `octet-stream`;
+  - las cabeceras son `Cache-Control: private, no-store` y `nosniff`.
+- El borrado elimina el archivo de los dos discos.
+- El frontend no cambia: `<img :src="p.url">` envía la cookie de sesión de Sanctum, porque la
+  petición es al mismo origen.
+
+### Lo que no se hizo
+
+- **No se recuperan las fotos antiguas:** se fueron con el contenedor.
+- **Los logos de tenant siguen en `public`.** Es el último uso de escritura de ese disco y tiene
+  el mismo fallo. Queda anotado bajo P-40 en MEJORAS como tarjeta pendiente, junto con la
+  decisión `storage:link` frente a prohibir `public`, que es un cambio de despliegue que
+  requiere aprobación.
+
+### Pruebas
+
+`tests/Feature/Sectorial/SectorialPhotoDeliveryTest.php` (11 casos):
+
+- subida a `s3` con `url` autenticada;
+- entrega en línea con sus cabeceras;
+- acceso con `view_support`;
+- negativos: sin sesión (401), sin permiso (403), otro ISP (404), foto ajena colgada de un
+  sectorial propio (404), `text/html` servido como descarga;
+- respaldo al disco `public`;
+- archivo perdido (404 con mensaje);
+- el borrado quita el archivo de `s3`.
+
+Sin el arreglo fallan las 11. Una trampa de las pruebas: `CheckPermission` deja pasar a
+`role_id = 1`. En una base nueva, el primer `Role::create` recibe ese id, así que el `setUp`
+lo ocupa antes con un rol administrador. Sin eso, la prueba «sin permiso» daba 200.
 
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 

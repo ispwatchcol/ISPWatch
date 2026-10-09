@@ -2671,6 +2671,15 @@ Es el primer dato que te va a pedir soporte. Sale del servidor, así que es el n
 
 Si dice `—`, es que no se pudo consultar en ese momento; recarga la página.
 
+**Estado del Sistema** (desde el 2026-10-05) comprueba de verdad que las tareas automáticas
+estén corriendo: facturas del mes, recordatorios y cortes.
+
+- **Operativo** (verde): están al día.
+- **Revisar** (ámbar): llevan varios minutos sin correr o no han arrancado desde la última
+  actualización. Durante una actualización puede verse ámbar unos minutos. Si sigue así,
+  avísale a soporte: mientras tanto no se generan facturas ni se corta a nadie.
+- **Sin datos** (gris): no se pudo consultar.
+
 ### 17.7 Auditoría
 
 **Configuración → Auditoría.** Requiere el permiso *Ver Bitácora de Auditoría*.

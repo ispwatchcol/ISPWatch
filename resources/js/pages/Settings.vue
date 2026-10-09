@@ -954,13 +954,24 @@
                                 >
                                     Estado del Sistema
                                 </p>
+                                <!-- P-33 / KAN-68: refleja el latido real del
+                                     planificador (GET /api/system/status). Antes
+                                     era «Operativo» fijo, aunque no corriera nada. -->
                                 <p
-                                    class="text-sm font-medium text-green-600 dark:text-green-400 flex items-center gap-2"
+                                    class="text-sm font-medium flex items-center gap-2"
+                                    :class="systemStatusView.text"
                                 >
                                     <span
-                                        class="w-2 h-2 bg-green-500 rounded-full animate-pulse"
+                                        class="w-2 h-2 rounded-full"
+                                        :class="systemStatusView.dot"
                                     ></span>
-                                    Operativo
+                                    {{ systemStatusView.label }}
+                                </p>
+                                <p
+                                    v-if="systemStatusView.detail"
+                                    class="text-xs text-gray-500 dark:text-gray-400 mt-1"
+                                >
+                                    {{ systemStatusView.detail }}
                                 </p>
                             </div>
                         </div>
@@ -1155,6 +1166,51 @@ const releasedAtLabel = computed(() => {
         day: "numeric",
     });
 });
+
+/**
+ * Estado real del sistema (`GET /api/system/status`, P-33). Mismo umbral que
+ * `/health`: si el planificador deja de latir, facturas, recordatorios y
+ * cortes dejan de ocurrir, y este tile es la única alerta que ve el ISP.
+ */
+const systemStatus = ref(null);
+
+const systemStatusView = computed(() => {
+    const scheduler = systemStatus.value?.scheduler;
+    const minutes = (s) => Math.max(1, Math.round(s / 60));
+
+    if (!scheduler) {
+        return { label: "Sin datos", text: "text-gray-500 dark:text-gray-400", dot: "bg-gray-400", detail: "" };
+    }
+    if (scheduler.status === "ok") {
+        return {
+            label: "Operativo",
+            text: "text-green-600 dark:text-green-400",
+            dot: "bg-green-500 animate-pulse",
+            detail: "Tareas automáticas al día",
+        };
+    }
+    if (scheduler.status === "not_expected") {
+        return { label: "No aplica", text: "text-gray-500 dark:text-gray-400", dot: "bg-gray-400", detail: "Este entorno no corre tareas automáticas" };
+    }
+    return {
+        label: "Revisar",
+        text: "text-amber-600 dark:text-amber-400",
+        dot: "bg-amber-500",
+        detail: scheduler.status === "never"
+            ? "Las tareas automáticas (facturas, avisos, cortes) no han corrido desde el último despliegue"
+            : `Las tareas automáticas (facturas, avisos, cortes) no corren hace ${minutes(scheduler.last_run_seconds_ago)} min`,
+    };
+});
+
+const loadSystemStatus = async () => {
+    try {
+        const { data } = await apiClient.get("/system/status");
+        systemStatus.value = data;
+    } catch (e) {
+        // Sin respuesta el tile dice «Sin datos», nunca «Operativo».
+        systemStatus.value = null;
+    }
+};
 
 const loadSystemVersion = async () => {
     try {
@@ -1463,6 +1519,7 @@ onMounted(async () => {
     await loadTenantData();
 
     loadSystemVersion();
+    loadSystemStatus();
 
     // Load ONLY UI preferences from localStorage (not tenant data)
     const savedUIPrefs = localStorage.getItem("uiPreferences");

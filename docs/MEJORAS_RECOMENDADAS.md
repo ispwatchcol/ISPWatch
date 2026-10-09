@@ -1763,7 +1763,12 @@ sería derivarlo de `config('app.url')` al servir `/openapi.yaml`; no se hizo po
 reescribir el YAML al vuelo obliga a parsearlo, y el proyecto no trae `symfony/yaml`.
 
 
-### 📋 P-33 · «Estado del Sistema: Operativo» no comprueba nada
+### ✅ P-33 · «Estado del Sistema: Operativo» no comprueba nada — RESUELTO 2026-10-05 (KAN-68)
+
+> **Resuelto** en la bitácora § 100: el recuadro lee `GET /api/system/status`, que es el latido
+> de `system:heartbeat` con el mismo umbral que `/health`, y se pinta verde, ámbar o gris. El
+> umbral es el de `/health` (5 min) y no las 2 h que sugería la recomendación, para que el
+> recuadro y el centinela externo no se contradigan. Lo de abajo queda como contexto.
 
 En **Configuración → Sistema**, junto a la versión, hay un punto verde que dice «Operativo».
 Es texto fijo en la plantilla: diría lo mismo con el planificador caído, la cola parada y la
@@ -2843,7 +2848,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
 | **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | ✅ Resuelto 2026-09-21 (401 JSON bajo `api/*`) |
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
-| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
+| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | ✅ Resuelto 2026-10-05 (latido real, KAN-68) |
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
 | **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 🟡 Aviso al superadmin hecho (KAN-38) · falta definir la variable en producción |
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |

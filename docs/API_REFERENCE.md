@@ -2889,6 +2889,24 @@ que usa el campo "A nombre de quién" de un gasto.
 |---|---|---|
 | `POST` | `/api/settings/cache/clear` | `view_settings` |
 | `GET` | `/api/system/version` | — (cualquier usuario autenticado) |
+| `GET` | `/api/system/status` | — (cualquier usuario autenticado) |
+
+`/api/system/status` (KAN-68) alimenta el recuadro «Estado del Sistema». Lee el latido del
+planificador con **la misma clave y el mismo umbral** que `/health`
+(`config/health.php`, 300 s por defecto):
+
+```json
+{ "scheduler": { "status": "ok", "last_run_seconds_ago": 42, "max_silence_seconds": 300 } }
+```
+
+`status` puede ser:
+
+- `ok`: latió dentro del umbral;
+- `stale`: pasó el umbral;
+- `never`: no ha latido desde el despliegue;
+- `not_expected`: entorno con `HEALTH_SCHEDULER_EXPECTED=false`.
+
+No expone nada más.
 
 `/api/system/version` devuelve la versión del despliegue que atiende:
 
