@@ -2472,6 +2472,11 @@ avisar si los tenían; ya no.)
 > cláusulas) usa `<div>` en lugar de `<table>`: el texto fluye solo de una página a la siguiente.
 > Las tablas están bien para lo que son: filas de datos cortas.
 >
+> Desde el 2026-10-05 la **vista previa te avisa**: si una celda tiene mucho texto (más de
+> unos 2.500 caracteres), aparece en *Revisa…* con el comienzo de esa celda para que la
+> encuentres. El aviso no significa que ya se haya cortado. Compara el final de esa sección
+> en la vista previa, y si falta texto, pásalo a `<div>`.
+>
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
 > sí se respetan.
