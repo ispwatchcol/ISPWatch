@@ -9323,6 +9323,111 @@ está en los logs de App Platform.
 - **Desplegar antes del 3-oct a las 14:00 UTC**, cuando factura Tocaima.
 - Tras desplegar, comprobar que `billing:verify-monthly` devuelve `ok` para todos los routers.
 
+## 93. Las fotos de sectorial ya no son públicas ni se pierden en cada despliegue (KAN-96, P-40) — 2026-10-05
+
+> Numeración: las §§ 90 (#302), 91 (KAN-53) y 92 (KAN-102) todavía no están en main.
+
+### El problema
+
+`SectorialPhoto::getUrlAttribute()` devolvía `asset('storage/…')`, y la subida iba al disco
+`public`. Es el patrón que los adjuntos de ticket ya habían retirado:
+
+- **404:** el despliegue no ejecuta `storage:link`.
+- **Pérdida:** el disco de App Platform es efímero y se vacía en cada despliegue.
+- **Fuga:** mientras el archivo existía, cualquiera que adivinara la ruta lo leía sin sesión.
+
+### Lo que se hizo
+
+Se siguió el patrón de `SupportTicketAttachmentController`:
+
+- La subida va al disco `s3`. Como ese disco tiene `throw => false`, una subida fallida
+  devuelve 502 y no crea una fila huérfana.
+- `url` apunta a `GET /api/sectorials/{sectorial}/photos/{photo}`, con el mismo permiso que el
+  listado (`view_sectorials` o `view_support`):
+  - el sectorial se busca en el tenant de quien pide; si es de otro ISP, 404;
+  - la foto se busca **dentro** de ese sectorial;
+  - se busca el archivo primero en `s3` y después en `public` (filas antiguas en desarrollo);
+    si no está, 404 con mensaje;
+  - la lista blanca de tipos en línea contiene solo las cuatro imágenes; el resto va como
+    descarga `octet-stream`;
+  - las cabeceras son `Cache-Control: private, no-store` y `nosniff`.
+- El borrado elimina el archivo de los dos discos.
+- El frontend no cambia: `<img :src="p.url">` envía la cookie de sesión de Sanctum, porque la
+  petición es al mismo origen.
+
+### Lo que no se hizo
+
+- **No se recuperan las fotos antiguas:** se fueron con el contenedor.
+- **Los logos de tenant siguen en `public`.** Es el último uso de escritura de ese disco y tiene
+  el mismo fallo. Queda anotado bajo P-40 en MEJORAS como tarjeta pendiente, junto con la
+  decisión `storage:link` frente a prohibir `public`, que es un cambio de despliegue que
+  requiere aprobación.
+
+### Pruebas
+
+`tests/Feature/Sectorial/SectorialPhotoDeliveryTest.php` (11 casos):
+
+- subida a `s3` con `url` autenticada;
+- entrega en línea con sus cabeceras;
+- acceso con `view_support`;
+- negativos: sin sesión (401), sin permiso (403), otro ISP (404), foto ajena colgada de un
+  sectorial propio (404), `text/html` servido como descarga;
+- respaldo al disco `public`;
+- archivo perdido (404 con mensaje);
+- el borrado quita el archivo de `s3`.
+
+Sin el arreglo fallan las 11. Una trampa de las pruebas: `CheckPermission` deja pasar a
+`role_id = 1`. En una base nueva, el primer `Role::create` recibe ese id, así que el `setUp`
+lo ocupa antes con un rol administrador. Sin eso, la prueba «sin permiso» daba 200.
+## 94. La vista previa avisa de las celdas de tabla que dompdf puede recortar (KAN-60, P-8) — 2026-10-05
+
+> Numeración: las §§ 90 a 93 (#302, KAN-53, KAN-102 y KAN-96) todavía no están en main.
+
+### El problema
+
+dompdf no parte una celda de tabla entre páginas. Si un `<td>` no cabe, lo empuja entero a la
+página siguiente y **descarta en silencio** lo que sobra. Medido en un contrato real, se
+perdían ~1.800 caracteres de texto legal (P-8). El sanitizer no puede corregirlo solo, porque
+para saber si una celda desborda hay que renderizar. El manual ya advertía la regla, pero el
+tenant no tenía cómo enterarse sin comparar el PDF carácter por carácter.
+
+### Lo que se hizo
+
+- `TemplateDiagnostics::inspectLongTableCells()` carga el borrador crudo con `DOMDocument`
+  (con el mismo prefijo `<?xml encoding="UTF-8">` del sanitizer, y restaurando el estado de
+  `libxml_use_internal_errors`). Mide el texto visible de cada `<td>`/`<th>`, con los
+  espacios colapsados, contando caracteres y no bytes, e incluyendo las tablas anidadas. Por
+  encima de `LONG_TABLE_CELL_CHARS = 2500` emite `kind: long_table_cell` por
+  `X-Template-Warnings`.
+  - Reporta como máximo 2 celdas, la más larga primero.
+  - `token` es el inicio del texto de la celda, para encontrarla en el editor.
+  - Se ordena justo después de `needs_advanced_mode`, porque es texto que desaparece sin dejar
+    hueco.
+- **Umbral:** una página A4 a 10-11 pt lleva unos 4.500-5.000 caracteres a todo lo ancho, y la
+  mitad en una columna de media página. Es una heurística y no mide el desborde real. Se
+  prefirió avisar de más.
+- **Frontend:** `warningToken()` ya no envuelve ese token en `{{ }}`, porque no es un marcador.
+
+### Lo que no se hizo
+
+- No se toca el render ni se convierten tablas a `<div>`.
+- La causa de raíz sigue abierta: es P-15 (cambiar de motor de PDF).
+
+### Pruebas
+
+`TemplateDiagnosticsTest` (7 casos nuevos):
+
+- celda larga detectada;
+- celdas cortas y texto largo fuera de una tabla, sin aviso;
+- caracteres frente a bytes (1.300 «á»);
+- tabla anidada;
+- tope de 2 con orden por longitud;
+- documento completo en modo avanzado;
+- prioridad frente a un marcador con error.
+
+`DocumentTemplateControllerTest` comprueba que la cabecera de la vista previa trae el aviso con
+la forma `{kind, token, label, message}`.
+
 ## 95. El 403 de allowlist dice desde qué IP llegó la petición (KAN-39, P-37) — 2026-10-05
 
 > Numeración: las §§ 90 a 94 (#302, KAN-53, KAN-102, KAN-96 y KAN-60) todavía no están en main.
@@ -9364,6 +9469,69 @@ una llamada telefónica y en una llave nueva.
 
 Sin el arreglo fallan las dos primeras.
 
+## 97. Las credenciales del router ya no salen en la API (KAN-45, P-2) — 2026-10-05
+
+> Numeración: las §§ 90 a 96 todavía no están en main (#302, KAN-53, 102, 96, 60, 39 y 38).
+
+### El problema
+
+`Router` no tenía `$hidden`. Por eso `password_rb`, `vpn_password` y también
+`wg_private_key` (la clave privada del túnel WireGuard con el CORE, que no estaba en la tarjeta)
+viajaban en `GET /api/routers/{id}` y en las respuestas de alta y edición. Además,
+`VpnService::verifyConnection()` devolvía `password_rb` explícitamente. Esas credenciales dan
+SSH/API a equipos de red del ISP.
+
+La causa era el formulario: `RouterEdit.vue` prellenaba la contraseña con lo que devolvía la API
+y la reenviaba al guardar. Ocultarla sin más habría borrado la credencial en la primera edición.
+
+### Lo que se hizo, en este orden
+
+1. **Formulario:** el campo arranca vacío, con el placeholder «Déjalo en blanco para conservar
+   la actual» cuando `has_password_rb` es verdadero, y `password_rb` **solo** se agrega al
+   payload si se escribió algo. Tras verificar la VPN ya no lee la contraseña de la respuesta.
+2. **Modelo:** `$hidden = [password_rb, vpn_password, wg_private_key]` y `$appends =
+   [has_password_rb]`. El servidor sigue leyendo los valores igual: `$hidden` solo afecta a la
+   serialización.
+3. **`VpnService::verifyConnection()`** deja de devolver `password_rb`.
+
+### Lo que la tarjeta suponía y no era cierto
+
+«El controlador ya ignora el campo si llega vacío.» No es así: `ConvertEmptyStringsToNull` lo
+convierte en `null`, y `sometimes|required` responde 422. Por eso el arreglo es **omitir** el
+campo, no mandarlo vacío. No se tocó la validación, para no chocar con KAN-102, donde un `null`
+en RADIUS significa «vaciar».
+
+### Pruebas
+
+`tests/Feature/Router/RouterCredentialsHiddenTest.php` (6 casos):
+
+- detalle con `has_password_rb`, listado, alta y edición, sin ningún secreto ni su clave;
+- editar sin contraseña conserva las dos guardadas;
+- escribir una nueva la reemplaza;
+- el servidor sigue leyendo los valores.
+
+Sin el arreglo fallan 3. Las demás, como la del listado, ya pasaban y quedan como regresión.
+**`verifyConnection()` no tiene prueba automática**, porque instancia `MikroTikSshService` con
+`new` y no se puede simular sin reestructurarla. El cambio es una línea borrada del array de
+respuesta.
+
+## 98. KAN-44 ya estaba resuelto: solo quedaban dos textos obsoletos (P-1) — 2026-10-05
+
+La tarjeta pedía un permiso `delete_clients` para el borrado de cliente. Ya existía con el
+nombre `delete_customers`:
+
+- `Permissions::DELETE_CUSTOMERS`;
+- la migración `2026_08_31_000001`, que lo da **solo** a los roles admin;
+- la ruta `DELETE /api/customers/{customer}`;
+- las pruebas en `CustomerDeletionControlsTest` y `ApiAuthorizationTest`.
+
+Se descartó a propósito darlo también a `staff`, como sugería la recomendación original: el
+borrado arrastra facturas y pagos (P-43).
+
+Seguían diciendo lo contrario la entrada P-1 de MEJORAS y un comentario de `routes/api.php`
+(«no existe un permiso `delete_clients`… se apoya en `edit_internet_service`»). Ese texto
+generó la tarjeta. Se corrigieron los dos. No hay cambio de código ni pruebas nuevas.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
@@ -9387,3 +9555,42 @@ sin él.
 
 Las 109 pruebas afectadas pasan, y la suite completa también. No hay cambios de código de
 producción.
+
+## 110. /billing/configs ya no cruza tenants (KAN-121) — 2026-10-06
+
+> Numeración: las §§ 90 a 109 están en PR abiertos (#302 y #303 a #321), todavía fuera de main.
+
+### El problema
+
+Se detectó al revisar el alcance de KAN-45. `Billing` no tiene scope de tenant (P-RLS-2), y
+`BillingController` lo consultaba sin acotar en dos endpoints:
+
+- `getBillingConfigs()` hacía `Billing::with(...)->get()`, así que listaba **todos** los ISP.
+- `updateBillingConfig()` hacía `Billing::findOrFail($id)`, así que un usuario con
+  `view_billing` podía modificar la configuración de **otro** ISP: días de facturación, de corte
+  y número de facturas vencidas.
+
+Se reprodujo con una prueba temporal: el `PUT` cruzado respondió 200 y el campo cambió. Las
+credenciales de routers ajenos **no** salían, porque `Router` sí tiene scope y la relación llega
+vacía. No se revisaron logs de producción, así que **no hay evidencia** de uso indebido.
+
+### Lo que se hizo
+
+`tenantBillingConfigs()` acota las dos consultas a dos casos:
+
+- `tenant_id` igual al de la sesión;
+- `tenant_id` NULL, cuando la fila está ligada a un router del propio tenant. Son las filas
+  anteriores a que `RouterController` poblara la columna, y siguen en uso.
+
+Una configuración de otro tenant responde 404, igual que un id inexistente. El scope global de
+P-RLS-2 sigue pendiente, a la espera de verificar el backfill.
+
+### Pruebas
+
+`tests/Feature/Billing/BillingConfigTenantIsolationTest.php` (4 casos):
+
+- `PUT` sobre una configuración ajena, con tenant y sin tenant, responde 404 y no modifica nada;
+- la configuración propia, incluida la fila antigua sin tenant, se sigue modificando;
+- el listado trae solo las del tenant.
+
+Sin el arreglo fallan 3. El del uso legítimo pasa en ambos casos, como debe.

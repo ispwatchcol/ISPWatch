@@ -1716,6 +1716,11 @@ Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**
 Cada elemento tiene tres pestañas: **Fotos** (para documentar la instalación en campo),
 **Notas** (observaciones de mantenimiento) e **Historial** (registro automático de cambios).
 
+Las fotos solo las ve quien tiene sesión iniciada en tu empresa, con permiso de sectoriales
+o de soporte. Un enlace copiado no sirve fuera de esa sesión. Desde el 2026-10-05 se guardan
+en almacenamiento permanente. Las subidas **antes** de esa fecha pueden aparecer sin imagen:
+se perdieron en un despliegue y no se pueden recuperar. Vuelve a subirlas si las necesitas.
+
 ---
 
 ## 13. Planes de internet
@@ -2466,6 +2471,11 @@ avisar si los tenían; ya no.)
 > eso significa perder cláusulas. Para bloques largos (condiciones, tratamiento de datos,
 > cláusulas) usa `<div>` en lugar de `<table>`: el texto fluye solo de una página a la siguiente.
 > Las tablas están bien para lo que son: filas de datos cortas.
+>
+> Desde el 2026-10-05 la **vista previa te avisa**: si una celda tiene mucho texto (más de
+> unos 2.500 caracteres), aparece en *Revisa…* con el comienzo de esa celda para que la
+> encuentres. El aviso no significa que ya se haya cortado. Compara el final de esa sección
+> en la vista previa, y si falta texto, pásalo a `<div>`.
 >
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
